@@ -335,7 +335,7 @@ BACKUP = "drive.json.before-sqlite"
 MOVED = "moved_to"
 MOVED_SAVER = "999999.0.0"
 SCHEMA = "1"
-COLLECTIONS = ("orders", "jobs", "prs", "answers", "handlers", "stalls", "routed")
+COLLECTIONS = ("orders", "jobs", "prs", "answers", "handlers", "stalls", "routed", "routes")
 CLOCKS = "clocks"
 BINDINGS = ("driver", "roles", "subcoordinators", "handlers")
 TABLES = """
@@ -856,6 +856,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "answers": {},
         "stalls": {},
         "routed": {},
+        "routes": {},
         "stand_ins": {},
         "held": {},
         "owed_replies": {},
@@ -1065,6 +1066,7 @@ def bound(data: dict) -> dict:
         handler.setdefault("busy", True)
         handler.setdefault("ended", None)
         handler.setdefault("given", handler["started"])
+        handler.setdefault("topics", [])
     for held in [*data["roles"].values(), *data["subcoordinators"].values()]:
         held.pop("terminal", None)
     return data
@@ -1317,6 +1319,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data.setdefault("held", {})
     data.setdefault("owed_replies", {})
     data.setdefault("routed", {})
+    data.setdefault("routes", {})
     for mark in data["held"].values():
         mark.setdefault("record", None)
     data.setdefault("carried", {})

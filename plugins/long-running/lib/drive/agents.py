@@ -32,6 +32,13 @@ HANDLER = "long-running:handler"
 HANDLER_ADVISOR = "opus"
 HANDLER_WINDOW = "200000"
 CCI_CHANNEL = "plugin:cc-inbox@cc-inbox"
+THREAD_KEY = "thread:"
+CARD_KEY = "card:"
+ORDER_KEY = "order:"
+ROUTE_TTL = timedelta(hours=2)
+QUIET = timedelta(minutes=45)
+TOPICS = 8
+COMMON = frozenset("about after again also been before being could does done from have here into just like make more much only over said should some still than that their them then there these they this those very want were what when where which while will with would your".split())
 WARM = "Drive: {drive}\nContext: a warm start with no brief yet: subscribe to your lane as your definition says, then end on `NOTHING warm, waiting for a brief`."
 SYNTHETIC = "<synthetic>"
 OUTAGE_WAITS = (1, 2, 4, 8)
@@ -614,6 +621,8 @@ def handle(name: str, brief: str, detached: bool = False, answer: str | None = N
         held_now = threaded(data, read)
         left: list[str] = []
         lost: list[str] = []
+        keys = route_keys(data, read, held_now)
+        prefer = prefer or sticky(data, keys)
         while (held := holder(data, held_now) or picked_handler(data, prefer)) and gone(data["handlers"][held]):
             lost += held_records(data["handlers"][held])
             left += forget(data, held)
@@ -625,15 +634,17 @@ def handle(name: str, brief: str, detached: bool = False, answer: str | None = N
         context = f"\n{UNPOSTED} {line}" if owed and (line := data["posts"]["unposted"].get(read["record"])) and UNPOSTED not in brief else ""
         brief = f"{brief.strip()}{context}" if context else brief
         woken = held if held and resting(data["handlers"][held]) else None if held else free_handler(data)
+        holder_id = woken or held or fewest_handed(data) or handler_id
         if woken:
             data["handlers"][woken] |= {"busy": True, "brief": brief.strip(), "holds": held_now, "handed": left, "took": [], "posted": [], "given": state.stamp()}
-        elif held or (held := fewest_handed(data)):
+        elif held or (held := holder_id if holder_id != handler_id else None):
             entry = data["handlers"][held]
             same = "record" if held_now["record"] else "message"
             kept = not held_now[same] or held_now[same] != (entry["holds"] or {}).get(same)
             entry["handed"] += [one for one in [*left, *([brief.strip()] if kept else [])] if one not in entry["handed"]]
         else:
             data["handlers"][handler_id] = new_handler(brief.strip(), held_now, left)
+        keep_routes(data, holder_id, keys, brief)
     later = {"brief": asked, "answer": answer, "context": context} if briefs else None
     if held and not woken:
         return held, True
@@ -648,9 +659,69 @@ def handle(name: str, brief: str, detached: bool = False, answer: str | None = N
     return (woken, True) if woken else (handler_id, False)
 
 
+def route_keys(data: dict, read: dict, held: dict) -> list[str]:
+    """The keys of the drive's routes table a brief sits under: its Slack thread, the card its record answers or was written under, and the order it is about."""
+    attrs = read.get("attrs") or {}
+    order_id = state.report_order(data, attrs | {"thread": held["thread"]}) if attrs or held["thread"] else None
+    cards = [attrs.get("waits"), attrs.get("thread_card")]
+    return [*([f"{THREAD_KEY}{held['thread']}"] if held["thread"] else []), *(f"{CARD_KEY}{card}" for card in cards if card), *([f"{ORDER_KEY}{order_id}"] if order_id else [])]
+
+
+def sticky(data: dict, keys: list[str]) -> str | None:
+    """The pool handler the routes table holds a brief's thread, card or order for, while that entry is fresh and the handler alive, so a known thread goes back to the handler that answered it with no Jev call."""
+    for key in keys:
+        if (kept := data["routes"].get(key)) and fresh(kept) and (entry := data["handlers"].get(kept["handler"])) and entry["pool"] and not gone(entry):
+            return kept["handler"]
+    return None
+
+
+def fresh(kept: dict) -> bool:
+    return state.now() - state.parse_time(kept["at"]) <= ROUTE_TTL
+
+
+def keep_routes(data: dict, handler: str, keys: list[str], brief: str) -> None:
+    """Point each of the brief's keys at the handler taking it, and add what the brief is about, his words and its orders' titles, to that handler's topics, the newest TOPICS kept, for the next new thread's similarity match."""
+    for key in keys:
+        data["routes"][key] = {"handler": handler, "at": state.stamp()}
+    words = his_words(brief) if re.search(rf"^{re.escape(HIS_WORDS)}:", brief, re.MULTILINE) else ""
+    topic = " ".join(filter(None, [words, *(data["orders"][key.removeprefix(ORDER_KEY)]["title"] or "" for key in keys if key.startswith(ORDER_KEY))]))
+    if topic:
+        entry = data["handlers"][handler]
+        entry["topics"] = [*[one for one in entry["topics"] if one != topic], render.cut(topic, 240)][-TOPICS:]
+
+
+def similar(data: dict, words: str) -> tuple[str, float] | None:
+    """The live pool handler whose topics share the most of his words' content tokens, beside the share of his tokens they hold; None when none shares any."""
+    asked = tokens(words)
+    if not asked:
+        return None
+    scored = [(len(asked & tokens(" ".join(entry["topics"]))) / len(asked), handler_id) for handler_id, entry in pool(data).items() if entry["topics"]]
+    best = max(scored, default=(0.0, None))
+    return (best[1], best[0]) if best[1] and best[0] > 0 else None
+
+
+def tokens(text: str) -> set[str]:
+    """A text's content words, lowercased, at least four letters and none of COMMON."""
+    return {word for word in re.findall(r"[a-z0-9][a-z0-9_-]{3,}", text.lower()) if word not in COMMON}
+
+
+def release_quiet(name: str) -> None:
+    """Drop each route past ROUTE_TTL, and each route and topic of a pool handler resting past QUIET, so a thread long quiet goes back through Jev."""
+    data = state.load(name)
+    quiet = {handler_id for handler_id, entry in data["handlers"].items() if entry["pool"] and resting(entry) and entry["ended"] and state.now() - state.parse_time(entry["ended"]) > QUIET and entry["topics"]}
+    stale = [key for key, kept in data["routes"].items() if not fresh(kept) or kept["handler"] in quiet or kept["handler"] not in data["handlers"]]
+    if not stale and not quiet:
+        return
+    with state.edit(name) as data:
+        for key in stale:
+            data["routes"].pop(key, None)
+        for handler_id in quiet & set(data["handlers"]):
+            data["handlers"][handler_id]["topics"] = []
+
+
 def new_handler(brief: str | None, held: dict | None, handed: list[str]) -> dict:
     """A pool handler's entry before its launch names its session: busy on its first brief, or on its warm start with none."""
-    return {"session": None, "started": state.stamp(), "brief": brief, "holds": held, "handed": handed, "took": [], "posted": [], "pool": True, "busy": True, "ended": None, "given": state.stamp()}
+    return {"session": None, "started": state.stamp(), "brief": brief, "holds": held, "handed": handed, "took": [], "posted": [], "pool": True, "busy": True, "ended": None, "given": state.stamp(), "topics": []}
 
 
 def resting(entry: dict) -> bool:

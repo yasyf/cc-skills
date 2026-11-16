@@ -1,5 +1,5 @@
 from conftest import Jev
-from drive import route, settled, state
+from drive import agents, route, settled, state
 
 
 def test_the_fail_safe_fresh_handler_is_the_first_route_jev_leans_to() -> None:
@@ -26,3 +26,13 @@ def test_the_request_keeps_the_newest_thread_rows_within_one_jev_request() -> No
     rows = "\n".join(f"row {number} " + "x" * 400 for number in range(60))
     asked = route.request("status?", rows, {route.NEW: route.MEANINGS[route.NEW]})
     assert settled.size(asked, {}) <= settled.REQUEST_CHARS and "60" in asked["thread"] and "1" not in asked["thread"]
+
+
+def test_content_tokens_drop_short_and_common_words() -> None:
+    assert agents.tokens("Where is the memory staging test, and what about j6639?") == {"memory", "staging", "test", "j6639"}
+
+
+def test_a_fresh_route_for_a_gone_handler_is_no_sticky_route() -> None:
+    data = state.new_drive("demo", "coordinator", "s", "/tmp")
+    data["routes"]["thread:1794380463.481959"] = {"handler": "h1", "at": state.stamp()}
+    assert agents.sticky(data, ["thread:1794380463.481959"]) is None

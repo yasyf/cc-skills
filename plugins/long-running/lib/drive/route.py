@@ -15,6 +15,7 @@ COORDINATOR = "coordinator"
 SEAT = "seat:"
 HANDLER = "handler:"
 SEATS = 12
+SIMILAR = 0.5
 KEPT = timedelta(days=7)
 LOG = "routes.log"
 ASK = (
@@ -53,7 +54,7 @@ def seats(data: dict) -> dict[str, str]:
 def handlers(data: dict) -> dict[str, str]:
     """Each live handler as a route of its own, beside the thread, his words or record it holds."""
     return {
-        f"{HANDLER}{handler_id}": f"The handler at work on {holding(entry)}: more of his words on what it holds."
+        f"{HANDLER}{handler_id}": f"The pool handler holding {holding(entry)}: more of his words on what it holds or answered."
         for handler_id, entry in data["handlers"].items()
         if entry["session"] and not agents.gone(entry)
     }
@@ -62,7 +63,9 @@ def handlers(data: dict) -> dict[str, str]:
 def holding(entry: dict) -> str:
     held = entry["holds"] or {}
     words = agents.his_words(entry["brief"]) if entry["brief"] and agents.HIS_WORDS in entry["brief"] else None
-    return "; ".join(filter(None, [held.get("thread") and f"his thread {held['thread']}", words and f'his words "{cut(words, 160)}"', held.get("record") and f"record {held['record']}"])) or "its brief"
+    topics = entry["topics"] and "topics: " + " | ".join(cut(topic, 80) for topic in entry["topics"][-3:])
+    said = "; ".join(filter(None, [held.get("thread") and f"his thread {held['thread']}", words and f'his words "{cut(words, 160)}"', held.get("record") and f"record {held['record']}", topics]))
+    return said or ("nothing now, resting between items" if agents.resting(entry) else "its brief")
 
 
 def routes(data: dict) -> dict[str, str]:
@@ -94,6 +97,15 @@ def picked(data: dict, words: str, rows: str) -> tuple[str, str, bool, float]:
     return route, f"Jev picked {route}: {cut(options[route], 160)}", settled.reading(float(read["away"])) is True, time.monotonic() - began
 
 
+def held_route(data: dict, brief: str, words: str) -> tuple[str, str, bool, float] | None:
+    """The pool handler that already holds his message's thread, card or order in the routes table, else the one whose topics hold at least SIMILAR of his words' content tokens, with why, so neither costs a Jev call; None for a message neither finds."""
+    if handler := agents.sticky(data, agents.route_keys(data, {}, agents.threaded(data, agents.holds(brief)))):
+        return f"{HANDLER}{handler}", f"the routes table holds his thread for handler {handler}", False, 0.0
+    if (match := agents.similar(data, words)) and match[1] >= SIMILAR:
+        return f"{HANDLER}{match[0]}", f"{round(match[1] * 100)}% of his words' content tokens are in handler {match[0]}'s topics", False, 0.0
+    return None
+
+
 def route(name: str, brief: str, answer: str | None = None, away: bool = False) -> dict:
     """Route his message, the one a brief carrying his words names by its Link, once, whichever of the communicator's handler call and the watch reaches it first, by its row in the drive's routed collection: the drive hears him, Jev picks its route, the drive records the route and why with how long each step took, and the route takes it; a message routed already returns that first route."""
     link = agents.LINK.search(brief)[1]
@@ -109,7 +121,7 @@ def route(name: str, brief: str, answer: str | None = None, away: bool = False) 
 
     data = state.load(name)
     rows = rows_answer.thread_rows(data, channel, thread or ts)
-    chosen, why, said_away, jev_seconds = picked(data, words, rows)
+    chosen, why, said_away, jev_seconds = held_route(data, brief, words) or picked(data, words, rows)
     away = away or said_away
     watch.hear(name, state.now(), away)
     went = take(name, chosen, brief, link, words, thread or ts, answer)
