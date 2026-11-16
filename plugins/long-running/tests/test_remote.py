@@ -4938,7 +4938,7 @@ def test_the_watch_sends_a_jobs_held_texts_once_orca_reads_its_lane_alive_and_ne
 
 @pytest.mark.parametrize("answers", [False, True], ids=["silent-sprite", "orca-blip"])
 def test_the_watch_hands_a_running_lane_orca_could_not_reach_to_a_detached_probe_which_records_it_dead_only_when_its_sprite_answers_no_command_as_j7933s_was_not(
-    remote: str, monkeypatch: pytest.MonkeyPatch, answers: bool
+    remote: str, monkeypatch: pytest.MonkeyPatch, answers: bool, relaunches: list[str]
 ) -> None:
     deliver(monkeypatch)
     workspace, dispatch, port = J1409_LANES["j242"]
@@ -4960,7 +4960,7 @@ def test_the_watch_hands_a_running_lane_orca_could_not_reach_to_a_detached_probe
     detached.clear()
     said = [line for line in watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0 + watch.READ_EVERY) if line.startswith("LANE j1 ")]
     assert [line.startswith(f"LANE j1 o1 died on Sprite {workspace}: {orca.UNREACHED_DEATH}, and its Sprite {workspace} answered no command") for line in said] == [True]
-    assert detached == [["job", "resume", "j1", state.CARRY_ON]]
+    assert relaunches == ["j1"]
 
 
 def test_the_watch_starts_one_verb_on_a_job_a_pass_and_none_while_another_drive_verb_holds_its_lock(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
