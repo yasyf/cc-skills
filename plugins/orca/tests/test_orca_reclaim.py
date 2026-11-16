@@ -989,7 +989,7 @@ class DriveJobEndReplayTest(unittest.TestCase):
         orca = ReplayOrca([lane_row("ctx_j1391", environment, workspace)], {"ok": True, "result": {"state": "succeeded", "alreadySettled": True, "processAction": "none"}}, {environment: sprite.workspace})
         tally, out = run_gc(orca, FakeGit({}), done=frozenset({"ctx_j1391"}), cc_remote=cc_remote)
         self.assertEqual((orca.argv, cc_remote.destroyed), ([("orchestration", "worker-stop"), ("orchestration", "worker-list"), ("environment", "list")], ["pool-wlzp6jtjnwsujvxo"]))
-        self.assertEqual(out, "stopped ctx_j1391 succeeded\ndestroyed pool-wlzp6jtjnwsujvxo dispatch ctx_j1391\n")
+        self.assertEqual(out, "stopped ctx_j1391 succeeded, already ended\ndestroyed pool-wlzp6jtjnwsujvxo dispatch ctx_j1391\n")
 
 
 class SpriteTest(unittest.TestCase):
@@ -1765,6 +1765,22 @@ class OrcaArgvTest(unittest.TestCase):
         finally:
             orca_gc.subprocess.run = original
         self.assertEqual(argv[0], ["orca", "orchestration", "worker-list", "--run", "run_1", "--full", "--json"])
+
+    def test_a_reply_that_is_not_json_fails_at_once_naming_the_command_and_what_it_printed(self):
+        original = orca_gc.subprocess.run
+        argv: list[list[str]] = []
+
+        def fake(command, **_):
+            argv.append(command)
+            return orca_gc.subprocess.CompletedProcess(command, 126, "", "lr: cannot execute: No such file or directory\n")
+
+        orca_gc.subprocess.run = fake
+        try:
+            with self.assertRaisesRegex(RuntimeError, "^orca orchestration worker-stop exited 126 with no JSON reply: lr: cannot execute"):
+                orca_gc.Orca().call("orchestration", "worker-stop", "--dispatch", "ctx_a")
+        finally:
+            orca_gc.subprocess.run = original
+        self.assertEqual(len(argv), 1)
 
     def test_remote_checkout_reads_porcelain_branch_headers_over_ssh(self):
         original = orca_gc.subprocess.run

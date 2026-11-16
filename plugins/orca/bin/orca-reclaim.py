@@ -9,7 +9,6 @@ import json
 import os
 import re
 import shlex
-import shutil
 import subprocess
 import sys
 import threading
@@ -21,7 +20,6 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
-ORCA = ("lr", "orca") if shutil.which("lr") else ("orca",)
 SETTLED = {"completed", "failed"}
 EXTERNAL = "external_terminal"
 RELEASED = {"released", "already_released"}
@@ -441,19 +439,15 @@ class Orca:
             raise OrcaSlow(self.slowed)
         orchestration = args[0] == "orchestration"
         started = time.monotonic()
-        for backoff in UNPARSED_BACKOFF_S:
-            try:
-                done = subprocess.run([*ORCA, *args, *(("--full",) if orchestration else ()), "--json"], capture_output=True, text=True, timeout=CALL_TIMEOUT_S if self.bounded else None)
-            except subprocess.TimeoutExpired:
-                self.slowed = f"orca {' '.join(args[:2])} gave no answer in {CALL_TIMEOUT_S} s"
-                raise OrcaSlow(self.slowed) from None
-            try:
-                reply = json.loads(done.stdout or done.stderr)
-                break
-            except json.JSONDecodeError:
-                time.sleep(backoff)
-        else:
-            raise RuntimeError(f"orca {' '.join(args[:2])} exited {done.returncode} with no JSON reply {len(UNPARSED_BACKOFF_S)} times: {(done.stderr or done.stdout).strip()[-300:] or 'empty output'}")
+        try:
+            done = subprocess.run(["orca", *args, *(("--full",) if orchestration else ()), "--json"], capture_output=True, text=True, timeout=CALL_TIMEOUT_S if self.bounded else None)
+        except subprocess.TimeoutExpired:
+            self.slowed = f"orca {' '.join(args[:2])} gave no answer in {CALL_TIMEOUT_S} s"
+            raise OrcaSlow(self.slowed) from None
+        try:
+            reply = json.loads(done.stdout or done.stderr)
+        except json.JSONDecodeError:
+            raise RuntimeError(f"orca {' '.join(args[:2])} exited {done.returncode} with no JSON reply: {(done.stderr or done.stdout).strip()[-300:] or 'empty output'}") from None
         took = time.monotonic() - started
         if self.bounded and tuple(args[:2]) not in MUTATIONS:
             with self.spending:
@@ -543,7 +537,7 @@ class Orca:
         done = self.call("orchestration", verb, "--dispatch", dispatch, "--full")
         if not done["ok"]:
             return None, done["error"]["code"]
-        return done["result"]["state"], done["result"]["processAction"]
+        return f"{done['result']['state']}, already ended" if done["result"].get("alreadySettled") else done["result"]["state"], done["result"]["processAction"]
 
     def release(self, dispatch: str) -> tuple[str, str]:
         result = self.result("orchestration", "worker-release", "--dispatch", dispatch, "--full")
