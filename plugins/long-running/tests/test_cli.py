@@ -3635,6 +3635,7 @@ def test_a_job_keeps_every_question_it_asks_each_open_until_his_answer_to_its_ow
     ]
     answered = shown.pop(0)
     closed.append({"waits": "demo:j1-7", "title": titles[0], "prs": [], "asked": answered["asked"], "url": links[0], "answer": {"label": "Yes", "at": answered["asked"]}, "tapped": "", "replaced_by": ""})
+    view.refresh_cards("demo")
     status = run("status", asking)[1]
     assert f'card {links[0]} answered "Yes" at {render.when(answered["asked"])} (demo:j1-7)' in status
     assert f"asks him: Where should a finished run's files be laid out so its page opens without…; card {links[1]} open since {render.when(shown[0]['asked'])} (demo:j1-8)" in status
@@ -3867,6 +3868,7 @@ def test_a_withdrawn_card_asked_again_with_redraws_by_its_job_or_another_of_its_
     closed.append({"waits": "demo:j1-7", "title": "How should?", "prs": [], "asked": shown["asked"], "url": link, "answer": withdrawn, "tapped": "", "replaced_by": ""})
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("withdrawn", withdrawn["label"], None)
+    view.refresh_cards("demo")
     assert f"card {link} withdrawn at {render.when(withdrawn['at'])}: his order replaced it (demo:j1-7)" in run("status", asking)[1]
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("opens in 3 requests", "opens in 3 calls")))
     again = json.loads(run("job", "ask", asking, "-", "--json", "--redraws", "demo:j1-7")[1])
@@ -9583,10 +9585,18 @@ def test_status_reads_the_prs_from_the_drive_and_never_from_github(run: Run, wit
 
 def test_status_prints_an_open_pr_while_the_installed_cc_slack_lists_no_closed_cards(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": []})
+    view.refresh_cards("demo")
     code, out = run("status")
     assert code == 0
     assert out.splitlines()[0] == "demo: 1 open of 1 orders"
     assert json.loads(run("status", "o1", "--json")[1])["prs"][with_pr]["card_state"] is None
+
+
+def test_status_and_view_read_his_cards_as_the_watch_last_stored_them_and_never_list_them_from_cc_slack(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    view.refresh_cards("demo")
+    monkeypatch.setattr(view, "cards", lambda name: pytest.fail("listed his cards from cc-slack"))
+    for argv in (["status"], ["status", "o1"], ["status", "--prs"], ["view"]):
+        assert run(*argv)[0] == 0
 
 
 def test_status_reads_only_the_orders_its_ids_name(run: Run, with_pr: str) -> None:
@@ -9748,6 +9758,7 @@ def test_context_prints_the_role_block_without_open_orders(run: Run, with_pr: st
 
 
 def test_view_prints_the_model_and_its_page(run: Run, with_pr: str) -> None:
+    view.refresh_cards("demo")
     code, out = run("view", "--json")
     model = json.loads(out)
     assert code == 0

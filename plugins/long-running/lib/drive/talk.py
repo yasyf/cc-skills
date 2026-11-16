@@ -808,7 +808,7 @@ def shown_at(place: tuple[str, str | None]) -> str:
 def shown_in(name: str, post: dict) -> str | None:
     """The thread a post goes in first, the thread of the card its `about` names, where cc-slack puts that reply, None for his DM root: a card named in its own thread reads there as words."""
     if post.get("about"):
-        return view.card_thread(refs.card(refs.drawn_cards(name), state.load(name), post["about"])["url"])
+        return view.card_thread(refs.drawn_card(name, state.load(name), post["about"])["url"])
     return places(state.load(name), post, [state.pr_key(each) for each in post.get("tap_prs") or []])[0][1]
 
 

@@ -8,7 +8,7 @@ import shlex
 import subprocess
 import sys
 
-from drive import brief, cli, limits, reads, render, settled, state, superseded, talk, view
+from drive import agents, brief, cli, limits, reads, render, settled, state, superseded, talk, view
 from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json", "dry_run"}
@@ -216,8 +216,8 @@ def verb_tools() -> list[dict]:
                 " than the thread of the message of his its re chain reaches holds no message of his, so neither waits on the handler"
                 " of his messages; it refuses only a POST report to the communicator"
                 " a post, his catch-up's hold or a given-up handler's done record already carries, naming it, and starts no other report. records, the record tool's owner records of his words"
-                " for an order or alert, go out first in the same call, so a card his words withdraw or change ends before the"
-                " handler starts, and the brief's Context: line names them, so the handler sends no second record of those words;"
+                " for an order or alert, go out in the same call once the handler is kept, so their reads never hold back its start, and a card his words withdraw or change"
+                " ends in that call; the brief's Context: line says they go out with it and its brief gains their seqs at a later step, so the handler sends no record of those words;"
                 " a ruling's record, whose cc-notes answer the handler adds first, stays the handler's. For his read-only question, answer"
                 " alone adds his answer order and the handler's reader job on it in the same call, so no job call follows,"
                 " and the handler files that order under the project and workstream it reads his question is about; a brief"
@@ -325,6 +325,8 @@ def run(tool: str, name: str, arguments: dict) -> str:
     match tool:
         case "record":
             return record(name, listing(arguments, "records", "owner, answer, handoff or defect records"), dry_run)
+        case "handler" if arguments.get("records") and not dry_run:
+            return started_first(name, arguments, arguments.pop("records"))
         case "heard" | "handler" | "status" | "search_plan":
             records = arguments.pop("records", None)
             sent = record(name, records, dry_run).splitlines() if records else []
@@ -338,6 +340,20 @@ def run(tool: str, name: str, arguments: dict) -> str:
             return "\n".join([*sent, *(said if dry_run or not printed else printed)])
         case group:
             return batch(name, group, listing(arguments, "ops", ", ".join(OPS[group])), dry_run)
+
+
+def started_first(name: str, arguments: dict, records: list[dict]) -> str:
+    """Keep the handler before his owner records go out, since their reads, Opus's yes/no reads of his words and cc-slack's list of his cards, take a minute or more and his first line waits on no read, then send them and add to its brief whether they went out, with their seqs; a handler call that hands the brief to a live handler still sends them."""
+    arguments["brief"] += "\nContext: his owner record of these words goes out with the handler call that started you, and its seqs reach you at a later step, so send no record of them"
+    printed, stdout = ran(name, [], 1, ONE_VERB["handler"], arguments, False)
+    handler_id = stdout[0].rpartition(" ")[2]
+    try:
+        sent = record(name, records, False).splitlines()
+    except DriveError as error:
+        agents.add_to_brief(name, handler_id, [f"Context: his owner record did not go out with the handler call, so it is yours to send: {error}"])
+        raise DriveError("\n".join([*printed, str(error)])) from None
+    agents.add_to_brief(name, handler_id, [f"Context: his owner record went out with the handler call: {'; '.join(sent)}"])
+    return "\n".join([*sent, *printed])
 
 
 def parsed_arguments(arguments: dict, shapes: dict[str, dict]) -> dict:

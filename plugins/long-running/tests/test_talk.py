@@ -254,6 +254,21 @@ def test_a_pr_card_he_tapped_links_by_its_waits_id_from_cc_slacks_closed_cards_i
     assert said(demo)[0]["text"] == f"You approved [New: approve the run page history?]({tapped})."
 
 
+def test_a_card_reference_links_from_the_cards_the_watch_stored_and_lists_cc_slacks_only_for_a_card_drawn_since(
+    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stored, drawn = "https://acme.slack.com/archives/D123/p1794300000000600", "https://acme.slack.com/archives/D123/p1794300000000700"
+    cards = [{"url": url, "prs": [PR_URL], "asked": ASKED, "card": {"title": title, "waits": waits, "prs": [{"url": PR_URL}]}} for url, waits, title in ((stored, "merge:7:aaaaaaaa", "Fix: approve the store?"), (drawn, "merge:7:bbbbbbbb", "Fix: approve the new head?"))]
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": cards[:1], "closed": []})
+    view.refresh_cards(demo)
+    listed: list[str] = []
+    monkeypatch.setattr(view, "cards", lambda name: listed.append(name) or {"team_url": "", "questions": [], "pr_cards": cards, "closed": []})
+    talk.say(demo, {"text": "See {card:merge:7:aaaaaaaa}."})
+    assert (posts[-1][-1], listed) == (f"See <{stored}|Fix: approve the store?>.", [])
+    talk.say(demo, {"text": "See {card:merge:7:bbbbbbbb}."})
+    assert (posts[-1][-1], listed) == (f"See <{drawn}|Fix: approve the new head?>.", [demo])
+
+
 def test_an_order_links_its_thread_in_slack_or_else_its_dashboard_page_under_its_title(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]
 ) -> None:

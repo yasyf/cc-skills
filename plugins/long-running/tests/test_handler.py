@@ -1352,3 +1352,13 @@ def test_a_handler_whose_claude_bg_cannot_reach_the_background_service_starts_on
     handler = start(run, tmp_path)
     assert state.load("demo")["handlers"][handler]["session"] == launched_sessions[0]
     assert len([one for one in tries if one[:2] == ["claude", "--bg"]]) == 3
+
+
+def test_the_lines_a_handlers_brief_gained_read_as_its_brief_ahead_of_the_briefs_handed_to_it_and_leave_with_it() -> None:
+    gained = "Context: his owner record went out with the handler call: 1 owner 61"
+    context = agents.handed([f"{agents.ADDED}: {gained}", "Record: 700001"]).splitlines()
+    assert context[0] == f"Your brief gained these lines once the call that started you finished, so read them as part of it: {gained}"
+    assert context[1].startswith("drive handler handed you 1 more brief in the thread") and "Record: 700001" in context[1] and gained not in context[1]
+    assert agents.handed([f"{agents.ADDED}: {gained}"]).splitlines() == context[:1]
+    data = {"handlers": {"h1": {"session": "s1", "handed": [f"{agents.ADDED}: {gained}", "Record: 700001"]}}}
+    assert agents.forget(data, "h1") == ["Record: 700001"]

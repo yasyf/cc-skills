@@ -1,9 +1,11 @@
+import contextlib
 import json
 import re
 from pathlib import Path
 
-from drive import dashboard, limits, picture, reads, render, settled, slack, state, view
+from drive import dashboard, limits, picture, reads, render, settled, state, view
 from drive.limits import REF
+from drive.slack import SlackError
 from drive.state import DriveError
 
 ACK = re.compile(r"\bAck: (https://\S+)")
@@ -60,7 +62,6 @@ def resolved(name: str, text: str) -> dict[str, dict]:
     if refusal := nested(text):
         raise DriveError(refusal)
     found = {}
-    cards = None
     data = None
     for match in REF.finditer(text):
         if match[0] in found:
@@ -69,8 +70,7 @@ def resolved(name: str, text: str) -> dict[str, dict]:
         data = data or state.load(name)
         match match[1]:
             case "card":
-                cards = cards or drawn_cards(name)
-                found[match[0]] = card(cards, data, state.waits_of(name, match[2]))
+                found[match[0]] = drawn_card(name, data, state.waits_of(name, match[2]))
             case "pr":
                 found[match[0]] = pr(data["prs"], match[2], label)
             case "order":
@@ -184,11 +184,15 @@ def record_excuses(text: str) -> list[str]:
     ]
 
 
-def drawn_cards(name: str) -> dict:
+def drawn_card(name: str, data: dict, waits: str) -> dict:
+    """card() from his cards as the watch last stored them, read from cc-slack only for one drawn since, so a post naming a card waits on no cc-slack read."""
+    with contextlib.suppress(DriveError):
+        return card(view.stored_cards(name)[0], data, waits)
     try:
-        return view.cards(name)
-    except slack.SlackError as error:
+        cards = view.cards(name)
+    except SlackError as error:
         raise DriveError(f"a {{card:…}} reference needs the drive's cards, which cc-slack could not list: {error}") from None
+    return card(cards, data, waits)
 
 
 def card(cards: dict, data: dict, waits: str) -> dict:
@@ -206,7 +210,7 @@ def card(cards: dict, data: dict, waits: str) -> dict:
         return {"kind": "card", "title": closed["title"], "url": closed["url"], "board": closed["url"]}
     raise DriveError(
         f"{{card:{waits}}} names no card the drive drew, open or settled; `drive status <job or order>` prints the waits id of each question card its jobs asked on its `asks him:` line,"
-        " and `cc-slack drive-cards --drive <drive> | grep -i '<words of its title>'` each open PR card's waits id, permalink and title on one line, and with `--closed` each settled card's"
+        " `drive status --prs` each open PR card's under its table, and `cc-slack drive-cards --drive <drive> --closed | grep -i '<words of its title>'` each settled card's"
     )
 
 

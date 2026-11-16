@@ -1410,20 +1410,24 @@ def test_a_pages_slice_gives_each_pr_the_staging_line_its_cards_say() -> None:
     }
 
 
-def test_his_prs_rows_each_open_pr_he_approved_or_whose_stage_he_owes_oldest_stage_first_as_drive_status_prs_prints_them() -> None:
+def test_his_prs_rows_each_open_pr_he_approved_or_whose_stage_he_owes_oldest_stage_first_with_his_open_card_on_it_as_drive_status_prs_prints_them() -> None:
     approved = state.new_tap("Approve", "aaaaaaa111", "pressed the button", at=at(-400))
     waits = {"name": "waiting", "owner": "j2", "why": "it waits on j2, and the watch frees it once each ends", "since": at(-300), "woke": None}
     grading = {"name": "grading", "owner": stage.GRADERS, "why": "its checks run at aaaaaaa", "since": at(-10), "woke": None}
     prs = [pr(5, "o1", wants_tap=True), pr(6, "o1", tap=approved, stage=waits), pr(7, "o1", stage=grading), pr(8, "o1", state="merged", tap=approved, stage=waits)]
     data = drive_of({"o1": order("ship", ["j1"])}, {"j1": job("o1", "waiting")}, prs)
-    rows = view.his_prs(data)
-    assert [(row["key"], row["owner"]) for row in rows] == [("yasyf/cc-skills#6", "j2"), ("yasyf/cc-skills#5", stage.HIM)]
+    card = pr_card(5, -5)
+    card["card"]["waits"] = "merge:5:abcd1234"
+    rows = view.his_prs(data, [card])
+    assert [(row["key"], row["owner"], row["card"]) for row in rows] == [("yasyf/cc-skills#6", "j2", None), ("yasyf/cc-skills#5", stage.HIM, "merge:5:abcd1234")]
     title = view.pr_title(data["prs"]["yasyf/cc-skills#6"])
-    assert render.his_prs(rows).splitlines()[:3] == [
+    printed = render.his_prs(rows).splitlines()
+    assert printed[:3] == [
         "| PR | Stage | What holds it | Owner | Since |",
         "|---|---|---|---|---|",
         f"| [yasyf/cc-skills#6](https://github.com/yasyf/cc-skills/pull/6) {title} | waiting | it waits on j2, and the watch frees it once each ends | j2 | {when(at(-300))} |",
     ]
+    assert printed[4:] == ["", "{card:merge:5:abcd1234}"]
 
 
 def test_the_now_screen_rows_each_project_by_the_daily_sweeps_bars_filing_each_wait_by_its_order_else_its_channel(monkeypatch: pytest.MonkeyPatch) -> None:

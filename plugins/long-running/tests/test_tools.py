@@ -1522,19 +1522,44 @@ def test_his_owner_words_under_a_question_card_ordering_other_work_beside_it_go_
     assert tools.run("record", demo, {"records": [withdrawn]}).splitlines()[1] == '1 j1\'s question "Which ring?" ended withdrawn by 61'
 
 
-def test_his_words_withdrawing_a_card_go_out_with_the_handler_call_so_its_question_ends_before_the_handler_starts(
+def test_his_words_withdrawing_a_card_go_out_with_the_handler_call_once_the_handler_is_kept_and_its_brief_gains_their_seqs(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
-    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 61}\n', ""))
+    kept: list[bool] = []
+
+    def posted(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        if argv[0] == "cci":
+            kept.append(bool(state.load(demo)["handlers"]))
+        return subprocess.CompletedProcess([], 0, '{"seq": 61}\n', "")
+
+    monkeypatch.setattr(subprocess, "run", posted)
+    monkeypatch.setattr(agents, "start_handler", lambda name, handler, prompt: None)
     open_cards(monkeypatch, "demo:j1-7")
     withdraw = {"kind": "owner", "text": "So then withdraw the card", "url": UNDER_CARD, "about": "his work", "thread_card": "demo:j1-7"}
     brief = f"Message (his words): So then withdraw the card\nLink: {UNDER_CARD}\nDrive: demo"
     said = tools.run("handler", demo, {"brief": brief, "records": [withdraw]}).splitlines()
     assert said[:2] == ["1 owner 61", '1 j1\'s question "Which ring?" ended withdrawn by 61']
+    assert kept and all(kept)
     handler = said[-1].removeprefix("started ")
-    assert "Context: his owner record went out with the handler call: 1 owner 61; " in agents.brief_path(demo, handler).read_text()
+    assert "Context: his owner record of these words goes out with the handler call that started you" in agents.brief_path(demo, handler).read_text()
+    assert state.load(demo)["handlers"][handler]["handed"] == [f"{agents.ADDED}: Context: his owner record went out with the handler call: {'; '.join(said[:-1])}"]
+
+
+def test_his_owner_record_that_fails_after_the_handler_is_kept_is_handed_to_the_handler_to_send(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    monkeypatch.setattr(agents, "start_handler", lambda name, handler, prompt: None)
+
+    def refused(name: str, records: list[dict], dry_run: bool) -> str:
+        raise DriveError("his cards could not be read (timed out)")
+
+    monkeypatch.setattr(tools, "record", refused)
+    brief = f"Message (his words): ship it\nLink: {UNDER_CARD}\nDrive: demo"
+    with pytest.raises(DriveError, match=r"^started (\w+)\nhis cards could not be read \(timed out\)$") as raised:
+        tools.run("handler", demo, {"brief": brief, "records": [{"kind": "owner", "text": "ship it", "url": UNDER_CARD, "about": "his work"}]})
+    handler = str(raised.value).splitlines()[0].removeprefix("started ")
+    assert state.load(demo)["handlers"][handler]["handed"] == [f"{agents.ADDED}: Context: his owner record did not go out with the handler call, so it is yours to send: his cards could not be read (timed out)"]
 
 
 def test_his_feedback_on_a_card_leaves_its_question_asking_even_under_a_drive_tooling_card(

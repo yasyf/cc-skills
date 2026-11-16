@@ -90,6 +90,7 @@ DIED = "no line, since its session ended before it returned one"
 ORDER = "Order"
 PAIRS = "Pairs in use"
 IN_THREAD = "In his thread"
+ADDED = "Added to your brief"
 RELEASES = "Release freezes"
 SCRATCH = re.compile(r"Scratch:\s*(\S+)")
 LABEL = re.compile(rf"^({'|'.join(re.escape(label) for label in (*render.HANDLER_LABELS, ORDER, PAIRS, IN_THREAD, RELEASES))}):")
@@ -882,13 +883,14 @@ def threaded(data: dict, held: dict) -> dict:
 
 
 def forget(data: dict, handler: str) -> list[str]:
-    """Take a handler off the drive, and the briefs it leaves to the handler the next brief reaches: each one handed to it that it never took, and for one whose launch never named its session, which never started, its own brief first, its job and that job's order leaving with it."""
+    """Take a handler off the drive, and the briefs it leaves to the handler the next brief reaches: each one handed to it that it never took, but the lines its own brief gained, and for one whose launch never named its session, which never started, its own brief first, its job and that job's order leaving with it."""
     entry = data["handlers"].pop(handler)
+    handed = [brief for brief in entry["handed"] if not brief.startswith(f"{ADDED}: ")]
     if entry["session"]:
-        return entry["handed"]
+        return handed
     if job_id := state.agent_job(data, handler):
         del data["orders"][data["jobs"].pop(job_id)["order"]]
-    return [*filter(None, [entry["brief"]]), *entry["handed"]]
+    return [*filter(None, [entry["brief"]]), *handed]
 
 
 def unstarted(name: str, handler: str) -> None:
@@ -1257,13 +1259,25 @@ def pointed(lines: list[str]) -> str:
 
 
 def handed(briefs: list[str]) -> str:
-    """What a handler reads of the briefs drive handler handed it while it worked: each brief, his words or a record, in the thread, on the message or on the record it is at work on, to cover in its own post."""
-    return (
-        f"drive handler handed you {len(briefs)} more {'brief' if len(briefs) == 1 else 'briefs'} in the thread, on the message or on the record you are at work on,"
-        f" since a thread has one handler at a time: {' | '.join(briefs)}. Read each brief, and the record it names, as your brief says and cover it"
-        " in the post you are writing; once you have posted, post one more line in his thread with only what your posts left out,"
-        " or nothing when they already said it. Your last line names what you did for each."
-    )
+    """What a handler reads of the briefs drive handler handed it while it worked: the lines its own brief gained, by add_to_brief, then each brief, his words or a record, in the thread, on the message or on the record it is at work on, to cover in its own post."""
+    added = [brief.removeprefix(f"{ADDED}: ") for brief in briefs if brief.startswith(f"{ADDED}: ")]
+    others = [brief for brief in briefs if not brief.startswith(f"{ADDED}: ")]
+    lines = [f"Your brief gained these lines once the call that started you finished, so read them as part of it: {' | '.join(added)}"] if added else []
+    if others:
+        lines.append(
+            f"drive handler handed you {len(others)} more {'brief' if len(others) == 1 else 'briefs'} in the thread, on the message or on the record you are at work on,"
+            f" since a thread has one handler at a time: {' | '.join(others)}. Read each brief, and the record it names, as your brief says and cover it"
+            " in the post you are writing; once you have posted, post one more line in his thread with only what your posts left out,"
+            " or nothing when they already said it. Your last line names what you did for each."
+        )
+    return "\n".join(lines)
+
+
+def add_to_brief(name: str, handler: str, lines: list[str]) -> None:
+    """Hand a handler the lines its brief gains once the call that kept it finishes, such as whether his owner record went out and its seqs, which it reads at its next step, so the reads behind those lines never hold back its start; a handler whose start failed meanwhile has left the drive and gets nothing."""
+    with state.edit(name) as data:
+        if entry := data["handlers"].get(handler):
+            entry["handed"].append(f"{ADDED}: {' | '.join(lines)}")
 
 
 def hold_rules(name: str, session: str) -> str | None:

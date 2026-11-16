@@ -606,10 +606,10 @@ def on_him(pr: dict) -> bool:
     return (pr["tap"] or {}).get("label") == "Approve" or pr["stage"]["owner"] == stage.HIM
 
 
-def his_prs(drive: dict) -> list[dict]:
-    """One row per open PR on him, by on_him(), its stage oldest first: the PR, its stage, what holds it, who owes its next step and since when, None for a stage the watch has not kept yet."""
+def his_prs(drive: dict, pr_cards: list[dict]) -> list[dict]:
+    """One row per open PR on him, by on_him(), its stage oldest first: the PR, its stage, what holds it, who owes its next step and since when, None for a stage the watch has not kept yet, and the waits id of his newest open card on it, None for none."""
     rows = [
-        {"key": key, "title": pr_title(pr), "url": pr["url"], "stage": pr["stage"]["name"], "holds": pr["stage"]["why"], "owner": pr["stage"]["owner"], "since": pr["stage"]["since"]}
+        {"key": key, "title": pr_title(pr), "url": pr["url"], "stage": pr["stage"]["name"], "holds": pr["stage"]["why"], "owner": pr["stage"]["owner"], "since": pr["stage"]["since"], "card": (card := card_for(pr_cards, pr["url"])) and card["card"].get("waits")}
         for key in state.open_pr_keys(drive)
         if on_him(pr := drive["prs"][key])
     ]

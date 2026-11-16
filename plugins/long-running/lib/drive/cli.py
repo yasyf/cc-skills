@@ -6064,12 +6064,11 @@ def status(args: argparse.Namespace) -> int:
     from drive import view
 
     name = state.resolve(args.drive)
-    view.refresh_cards(name)
     data = state.load(name)
     shown = only(data, args.ids) if args.ids else None
     with_cards(name, data, shown)
     if args.prs:
-        rows = view.his_prs(shown or data)
+        rows = view.his_prs(shown or data, view.stored_cards(name)[0]["pr_cards"])
         return emit(args, render.his_prs(rows), {"prs": rows})
     for job_id, in_line in place.positions(data).items():
         data["jobs"][job_id]["in_line"] = in_line
@@ -6200,7 +6199,6 @@ def view_command(args: argparse.Namespace) -> int:
         raise DriveError(f"--workstream {args.workstream}: name its project with --project, as drive order add files it")
     if args.project:
         refuse_no_home(state.load(name), args.project, args.workstream)
-    view.refresh_cards(name)
     model = view.read(name, state.now(), args.project, args.workstream)
     return emit(args, page.render(model, dashboard.link(name), None if args.project else page.ROWS), model)
 
