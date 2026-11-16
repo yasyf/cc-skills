@@ -2642,12 +2642,9 @@ def owed_reads(watcher: Watcher, moment: datetime) -> list[functools.partial]:
 
 
 def respond_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """Start a reader on each new read or `DRIVE` question a live lane asked, then send again each answer a reader kept that no reply took, by resend_lines, and nothing else, so no handler start or Slack call stands between a lane's question and its reader. Its first pass, and one after a failed read, first has this process's Orca calls speak as the drive's own terminal; a failed read goes again next pass, said as the watch says its reads."""
+    """Start a reader on each new read or `DRIVE` question a live lane asked, then send again each answer a reader kept that no reply took, by resend_lines, and nothing else, so no handler start or Slack call stands between a lane's question and its reader. Its read speaks as no terminal, since Orca's inbox names no caller, so a drive whose own terminal Orca shows disconnected opens none to read its lanes' mail, and Orca at its terminal cap still hears them; each reply speaks as the drive's own terminal itself, by orca.reply. A failed read goes again next pass, said as the watch says its reads."""
     lines = []
     try:
-        if watcher.read_at is None:
-            orca.speak_as_drive(watcher.name)
-            watcher.read_at = moment
         start_reads(watcher, moment)
     except orca.OrcaError as error:
         lines = read_failed(watcher, NEWEST_MAIL, error, moment)

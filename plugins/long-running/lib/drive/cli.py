@@ -4962,7 +4962,6 @@ def bound(args: argparse.Namespace) -> int:
 def drain_read(args: argparse.Namespace) -> int:
     """Mark read the unread mail of every Run Orca's mailbox still shows unread, by orca.mark_read, which binds a Run the drive's terminal does not hold to its binder terminal under the binding lock, so mail the watch took long ago on a Run no new mail reaches stops holding Orca's database and the Run retires: how many messages it marked on how many Runs, how many Runs Orca no longer keeps, and each Run whose mark Orca refused, with its reason."""
     name = state.resolve(args.drive)
-    orca.speak_as_drive(name)
     runs, marked, gone, refused = orca.unread_runs(), 0, 0, []
     for run in runs:
         try:

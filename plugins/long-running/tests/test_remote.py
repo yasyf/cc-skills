@@ -6295,6 +6295,7 @@ def test_drain_read_marks_every_run_with_unread_mail_and_counts_the_gone_and_the
     unread = [{"to": f"run:{run_id}", "handled": False} for run_id in ("run_a", "run_b", "run_a", "run_gone", "run_bad")]
     shown = [*unread, {"to": "run:run_read", "handled": True}, {"to": "dispatch:ctx_1", "handled": False}]
     monkeypatch.setattr(orca, "unread_runs", REAL_UNREAD_RUNS)
+    monkeypatch.setattr(orca, "drive_terminal", REAL_DRIVE_TERMINAL)
     monkeypatch.setattr(orca, "request", lambda *args, **kwargs: {"messages": shown} if args[:2] == ("orchestration", "inbox") and "--full" not in args else pytest.fail(f"no other call: {args}"))
     counts = {"run_a": 3, "run_b": 1, "run_gone": None}
 
@@ -6531,6 +6532,28 @@ def test_a_respond_pass_reads_orcas_mail_once_however_many_sprite_lanes_are_live
     monkeypatch.setattr(orca, "mail", lambda after: read.append("inbox") or [])
     assert watch.respond_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0) == []
     assert len(read) == mail_reads
+
+
+def test_a_respond_pass_while_orca_shows_the_drives_terminal_disconnected_at_its_terminal_cap_starts_each_read_and_opens_no_terminal(
+    remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with edit(remote) as data:
+        data["terminal"] = "term_kept"
+    orca_mail(monkeypatch, [message("question", "READ cci show 2065", id="msg_read")])
+    monkeypatch.setattr(orca, "drive_terminal", REAL_DRIVE_TERMINAL)
+    opened, spawned = [], []
+
+    def orca_request(*args: str, seconds: float = orca.CALL_SECONDS) -> dict:
+        if args[:2] == ("terminal", "create"):
+            opened.append(args)
+            raise orca.OrcaError("orca terminal create: runtime_error: The host is already running as many terminals as Orca allows.", "runtime_error")
+        return {"terminal": {"connected": False}}
+
+    monkeypatch.setattr(orca, "request", orca_request)
+    monkeypatch.setattr(watch, "spawn_reader", lambda name, job_id, message_id: spawned.append(message_id))
+    relaying = watch.Watcher(remote, offset=state.events_end(remote))
+    assert [watch.respond_pass(relaying, T0 + timedelta(seconds=s)) for s in range(0, 2 * watch.FAILURES_BEFORE_SAYING, 2)] == [[]] * watch.FAILURES_BEFORE_SAYING
+    assert (spawned, opened) == (["msg_read"], [])
 
 
 def test_the_relay_takes_each_read_asked_since_its_last_read_however_much_mail_came_after_it(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
