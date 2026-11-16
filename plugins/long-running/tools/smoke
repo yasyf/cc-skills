@@ -127,6 +127,7 @@ tests=plugins/long-running/tests
   "$tests/test_quoted_commands.py" \
   "$tests/test_modules.py" \
   "$tests/test_installed_hooks.py" \
+  "$tests/test_state.py::test_outbox_replay_reads_only_pending_messages_through_its_index" \
   "$tests/test_cli.py::test_start_creates_the_drive_and_prints_the_roles_context" \
   "$tests/test_cli.py::test_order_show_and_job_show_print_what_status_prints" \
   "$tests/test_cli.py::test_status_prints_each_order_its_ids_name_whole_and_closed_ones_too" \
