@@ -341,13 +341,13 @@ def shown(seq: str) -> dict:
         raise state.DriveError(f"record {seq} could not be read: {error}") from None
 
 
-def amendments(name: str, seqs: Iterable[str]) -> dict[str, dict[str, list[str]]]:
-    """By kind, correction or withdraw, the seqs of the records of that kind cci holds re each of seqs, oldest first, read in one cci grep from the lowest of them; a record none answers is left out."""
+def amendments(name: str, seqs: Iterable[str], lane: str | None = None) -> dict[str, dict[str, list[str]]]:
+    """By kind, correction or withdraw, the seqs of the records of that kind cci holds re each of seqs, oldest first, read in one cci grep from the lowest of them, given lane only those that lane posted; a record none answers is left out."""
     found: dict[str, dict[str, list[str]]] = {kind: {} for kind in AMENDING}
     wanted = set(seqs)
     if not wanted:
         return found
-    argv = ["cci", "grep", ".", "--drive", name, *(flag for kind in AMENDING for flag in ("--kind", kind)), "--since", min(wanted, key=int), "--budget", str(AMENDMENT_BYTES), "--json"]
+    argv = ["cci", "grep", ".", "--drive", name, *(flag for kind in AMENDING for flag in ("--kind", kind)), *(("--lane", lane) if lane else ()), "--since", min(wanted, key=int), "--budget", str(AMENDMENT_BYTES), "--json"]
     try:
         lines = reads.run(argv, Path.cwd()).splitlines()
     except reads.ReadError as error:

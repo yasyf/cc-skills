@@ -74,7 +74,8 @@ RECORD = {
                 "handoff asks the session holding the order its attrs.order names, or the coordinator session whose agent runs the job its attrs.job names, for a step only it takes, such as"
                 " starting a builder, with no re, since cci also delivers a record to the writer of the record its re names; the"
                 " communicator's side's handoff is kept on the order it serves, and five quiet minutes after it the watch owes that"
-                " order's thread a line naming it and each record re it until a job of that order is made or a job it, or a record re it, names works; a"
+                " order's thread a line naming it and each record re it until a job of that order is made, a job it, or a record re it, names works or the"
+                " communicator withdraws it with the cci close tool's how: withdraw; a"
                 " report goes through the cci `post` tool instead, whose hook reads it, and no record draws his card on a PR"
             ),
         },
