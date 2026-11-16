@@ -27,7 +27,7 @@ from pathlib import Path
 from time import monotonic
 from typing import NamedTuple, Self
 
-from drive import agents, answer, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, page, place, procs, providers, reads, receiver, refs, render, restack, served, settled, slack, stage, stall, state, superseded, superseded_procs, train, view, work
+from drive import agents, answer, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, owing, page, place, procs, providers, reads, receiver, refs, render, restack, served, settled, slack, stage, stall, state, superseded, superseded_procs, train, view, work
 from drive.install import PROOF_FAILED, add_prover, config_dir, handed_on, open_cut, done_before_proofs, done_unproven, merged_done, merged_ready, merges_of, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, released_prs, reported_prs, watch_upgraded as upgraded, watch_proves, widen
 from drive.render import cut, when
 
@@ -1604,12 +1604,12 @@ def owner_page_lines(watcher: Watcher, moment: datetime) -> list[str]:
     if not state.absence(data, moment):
         return lines
     heard = data["owner"]["heard"]
-    owed = [
+    unpaged = [
         key
         for key in state.open_incidents(data, list(data["orders"]))
         if data["orders"][key]["users"] and not data["orders"][key]["paged"] and (not heard or state.parse_time(data["orders"][key]["created"]) > state.parse_time(heard)) and hears(watcher, data, key)
     ]
-    for key in owed:
+    for key in unpaged:
         try:
             paged, starts = page_with_line(watcher.name, data, key, data["orders"][key]["users"])
         except (state.DriveError, reads.ReadError) as error:
@@ -1627,7 +1627,7 @@ def owner_page_lines(watcher: Watcher, moment: datetime) -> list[str]:
 def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Post in one cci batch each close report drive job prove, or the watch's DONE at a merge, keeps on an open order it finished, for the watch to post in the order's thread, or at his DM root for an order of his with none, and close it, by proved_lines, or, for an order whose reporters get its line in their own threads, for the report-post this read starts on it; each stays on its order until cci takes it, so a post that fails goes again next read, said from its third failure in a row, and a watch on a newer install posts it as well. One an older install kept on a drive tooling order a session opened, which posts him no line, goes nowhere: that order closes done on the proof it holds, as install.finish now closes one. A report the watch posts itself, by state.watch_posts_itself, stays on its order with its seq once cci takes it, by reported, for proved_lines to post."""
     data = state.load(watcher.name)
-    closing = {order_id: order for order_id, order in heard_orders(watcher, data).items() if order["close_report"]}
+    closing = {order_id: order for order_id, order in heard_orders(watcher, data).items() if order["close_report"] and not owing.close_refusal(data, order_id, closing_post=True)}
     if unasked := [order_id for order_id, order in closing.items() if state.unasked_tooling(order)]:
         def close_report_lines_write(data: dict) -> None:
             for order_id in unasked:
@@ -1635,16 +1635,16 @@ def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 state.close_order_jobs(data, order_id, f"stopped: the watch closed its order {order_id} on its close report")
 
         state.write(watcher.name, close_report_lines_write, budget=state.WATCH_WRITE_SECONDS)
-    owed = {order_id: order["close_report"] for order_id, order in closing.items() if order_id not in unasked and "seq" not in order["close_report"]}
-    if not owed:
+    unposted = {order_id: order["close_report"] for order_id, order in closing.items() if order_id not in unasked and "seq" not in order["close_report"]}
+    if not unposted:
         return proved_lines(watcher, moment)
     try:
-        seqs = reported(watcher, list(owed.values()))
+        seqs = reported(watcher, list(unposted.values()))
     except state.DriveError as error:
         return failed(watcher, "close reports", "close report post", error, moment)
     watcher.failures.pop("close reports", None)
     lines = []
-    for order_id, seq in zip(owed, seqs, strict=True):
+    for order_id, seq in zip(unposted, seqs, strict=True):
         if state.watch_posts_itself(closing[order_id]):
             continue
         try:
@@ -1848,7 +1848,7 @@ def follow_lines(watcher: Watcher, moment: datetime) -> list[str]:
         if drawn and all(question["closed"] for _, question in drawn):
             owed[card["url"]] = max((question["closed"] for _, question in drawn), key=lambda closed: closed["at"])
     lines = []
-    for url, closed in owed.items():
+    for url, closed in owing.items():
         try:
             superseded.close_card(url, closed)
         except slack.SlackError as error:
@@ -3518,31 +3518,33 @@ def clock_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return state.write(watcher.name, ran_out_lines, budget=state.WATCH_WRITE_SECONDS)
 
 
-def promise_due(order: dict, moment: datetime) -> bool:
-    owed = order.get("owed_line") or {}
-    return bool(owed.get("by")) and not owed["woken"] and state.parse_time(owed["by"]) <= moment
-
-
-def promised_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Once for each order whose last post to him promised a next step by a time that passed, by talk.read_owed, a line waking the session holding the order to post where it stands, since any later post on the order would have replaced that promise."""
+def owing_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Each owed item of an order this watch hears whose due passed, by owing.missed: its first miss wakes the session holding the order, its second the coordinator, its third tells him in the order's thread by a POST report, each on its own clock, by owing.miss; nothing else is said, so tracking stays quiet."""
     data = state.load(watcher.name)
-    if not any(promise_due(order, moment) for order in heard_orders(watcher, data).values()):
+    if not any(owing.missed(item, moment) for order in heard_orders(watcher, data).values() for item in owing.items(order)):
         return []
 
-    def owed_said(data: dict) -> list[str]:
-        lines = []
+    def missed_write(data: dict) -> tuple[list[str], list[dict]]:
+        lines, posts = [], []
         for order_id, order in heard_orders(watcher, data).items():
-            if not promise_due(order, moment):
-                continue
-            owed = order["owed_line"]
-            owed["woken"] = True
-            lines.append(
-                f"DUE {order_id} line: {owed['post']} told him {owed['what']} by {when(owed['by'])}, and nothing has gone to him on {order_id} since:"
-                " post where it stands now in that post's thread, what happened or what it waits on and when he hears next"
-            )
-        return lines
+            for item in owing.items(order):
+                if not owing.missed(item, moment):
+                    continue
+                was = item["due"]
+                said = f"{item['kind']} \"{item['what']}\" was due {when(was)}, from {item['source']}"
+                count = owing.miss(item, moment)
+                if count < owing.COORDINATOR_MISS:
+                    lines.append(f"DUE {order_id} owed {item['id']}: {said}; do it now, or name a new due with drive owed due {item['id']} --by <time>, or end it with drive owed done {item['id']} --because \"<why>\"")
+                elif count == owing.COORDINATOR_MISS:
+                    lines.append(f"DUE {item['id']} of {order_id} missed twice: {said}, and the session holding {order_id} did not act on the first miss; see it done or hand it on")
+                elif count == owing.HIS_MISS:
+                    posts.append({"kind": "report", "topic": f"watch-owed-{item['id']}", "attr": state.thread_attr(data, order), "text": f"{item['what']} was due {when(was)} and is late: the session holding it and the coordinator were told and it is still not done"})
+        return lines, posts
 
-    return state.write(watcher.name, owed_said, budget=state.WATCH_WRITE_SECONDS)
+    lines, posts = state.write(watcher.name, missed_write, budget=state.WATCH_WRITE_SECONDS)
+    if posts:
+        reported(watcher, posts)
+    return lines
 
 
 def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -3726,7 +3728,7 @@ def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
     asking = superseded.asking(data, watcher.cards)
     asked = {answer_id: superseded.listed(data, data["answers"][answer_id], asking) for answer_id in due}
     owed = {answer_id: (superseded.unmarked(data["answers"][answer_id], asked[answer_id]), superseded.unheard(data, data["answers"][answer_id])) for answer_id in due}
-    owed = {answer_id: left for answer_id, left in owed.items() if any(left)}
+    owed = {answer_id: left for answer_id, left in owing.items() if any(left)}
     if not owed:
         return []
 
@@ -3737,14 +3739,14 @@ def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
     data = state.write(watcher.name, said_answers, budget=state.WATCH_WRITE_SECONDS)
     try:
-        owed = dict(superseded.standing(data, list(owed.items())))
+        owed = dict(superseded.standing(data, list(owing.items())))
     except state.DriveError as error:
         return failed(watcher, "cc-notes supersedes", "read of which answers of his cc-notes marks superseded", error, moment)
     watcher.failures.pop("cc-notes supersedes", None)
     if any(jobs for _, jobs in owed.values()):
 
         def sent_answers(data: dict) -> dict:
-            for answer_id, (_, jobs) in owed.items():
+            for answer_id, (_, jobs) in owing.items():
                 kept = data["answers"][answer_id]
                 for job_id in jobs:
                     if not any(answer_id in path.read_text() for path, _ in superseded.given_texts(data, job_id)):
@@ -3754,7 +3756,7 @@ def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
         data = state.write(watcher.name, sent_answers, budget=state.WATCH_WRITE_SECONDS)
     lines = []
-    for answer_id, (keys, _) in owed.items():
+    for answer_id, (keys, _) in owing.items():
         owners: dict[str, tuple[str | None, list[str]]] = {}
         for key in keys:
             order_id = asked[answer_id][key]["order"]
@@ -6276,7 +6278,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
         functools.partial(train_lines, watcher, moment),
         functools.partial(event_lines, watcher),
         *(owed_reads(watcher, moment) if lands else []),
-        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, clock_lines, promised_lines, case_lines, held_lines, undelivered_lines, close_answered, close_joined_repeats, tell_lines, standing_lines, retired_seats, communicators_idle, env_alert_lines, orphan_lines)),
+        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, clock_lines, owing_lines, case_lines, held_lines, undelivered_lines, close_answered, close_joined_repeats, tell_lines, standing_lines, retired_seats, communicators_idle, env_alert_lines, orphan_lines)),
     ]
     names = [stage.func.__name__ for stage in later]
     resume, watcher.resume = watcher.resume, None

@@ -9,7 +9,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from drive import agents, brief, cli, dashboard, limits, page, picture, reads, refs, render, slack, state, view
+from drive import agents, brief, cli, dashboard, limits, owing, page, picture, reads, refs, render, slack, state, view
 from drive.state import DriveError
 
 SPAN = re.compile(r"\bfor (?:about |~)?(?:(\d+(?:\.\d+)?)(?: ?(m|mins?|minutes?|h|hrs?|hours?))?|(an|half an) hour)\b", re.IGNORECASE)
@@ -159,7 +159,8 @@ def report_line(name: str, seq: str) -> str:
     place = {"channel_id": channel} if channel else {}
     if made.get("place") == "thread" and (under := (channel, thread) if thread else corrected and state.link_thread(corrected)):
         place = {"thread_ts": under[1]} | ({"channel_id": under[0]} if under[0] else {})
-    line = spoken(name, shown | {"record": seq} | place, known, recorded_first=bool(state.closed_orders(attrs)))
+    owes = {key: attrs[key] for key in ("due", "owes") if attrs.get(key)}
+    line = spoken(name, shown | {"record": seq} | place | owes, known, recorded_first=bool(state.closed_orders(attrs)))
     return line + "".join(closed(name, order_id, seq) for order_id in state.closed_orders(attrs) if state.load(name)["orders"][order_id]["state"] not in state.CLOSED_ORDER_STATES)
 
 
@@ -210,7 +211,7 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
         post = {key: value for key, value in post.items() if key != "record"}
         report = {"close": order, "writer": "communicator", "written": state.stamp()}
     seq = report.get("seq")
-    if refused := carried_refusal(known, seq, report, post.get("edit")) or (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)):
+    if refused := carried_refusal(known, seq, report, post.get("edit")) or (order and cli.report_refusal(known, order, report)) or (close and (cli.unfiled_refusal(known, order) or owing.close_refusal(known, order, closing_post=True))):
         raise DriveError(f"nothing posted: {refused}")
     if refused := unclaimed(known, post, report):
         raise DriveError(f"nothing posted: {refused}; {returned(name, post, report, refused)}")
@@ -240,6 +241,14 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
     if job_id := post.get("job"):
         line += "; " + awaiting(name, job_id, link)
     place = None if post.get("edit") else state.link_thread(link)
+    if order and not post.get("edit"):
+        due = post.get("due") and state.parse_time(post["due"])
+
+        def owed_write(data: dict) -> str | None:
+            return owing.posted(data, order, link, due, post.get("owes"), state.now())
+
+        if item_id := state.write(name, owed_write, patient=True):
+            line += f"; owes {item_id} by {render.when(state.stamp(due))}"
     if seq or place:
         def spoken_write(data: dict):
             if seq:

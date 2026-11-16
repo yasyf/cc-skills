@@ -64,6 +64,7 @@ from drive import (
     launchd,
     limits,
     orca,
+    owing,
     place,
     providers,
     reads,
@@ -11392,16 +11393,36 @@ def test_his_open_card_that_left_a_show_me_picture_off_redraws_in_place_once_git
     assert redraws.asked == [state.pr_url(KEY)]
 
 
-def test_an_owed_line_due_6_30_wakes_the_orders_holder_once_after_6_30(demo: str) -> None:
+def test_a_step_owed_by_6_30_wakes_the_orders_holder_once_then_the_coordinator_then_him_and_a_later_post_ends_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     post = "https://example.slack.com/archives/C1/p1794817827631909"
-    by = state.parse_time("2026-11-09T06:30:00-08:00")
+    opened, by = state.parse_time("2026-11-09T05:07:00-08:00"), state.parse_time("2026-11-09T06:30:00-08:00")
+    reports = []
+    monkeypatch.setattr(watch, "reported", lambda watcher, records: reports.extend(records) or ["1"] * len(records))
     with edit(demo) as data:
-        data["orders"]["o1"]["owed_line"] = {"post": post, "at": "2026-11-09T05:07:00-08:00", "by": state.stamp(by), "what": "its staging test result", "woken": False}
+        assert owing.posted(data, "o1", post, by, "its staging test result", opened) == "w1"
     watching = watcher(demo)
-    assert watch.promised_lines(watching, by - timedelta(minutes=1)) == []
-    [line] = watch.promised_lines(watching, by + timedelta(minutes=1))
-    assert line.startswith(f"DUE o1 line: {post} told him its staging test result by ")
-    assert watch.promised_lines(watching, by + timedelta(minutes=30)) == []
+    assert watch.owing_lines(watching, by - timedelta(minutes=1)) == []
+    [first] = watch.owing_lines(watching, by + timedelta(minutes=1))
+    assert first.startswith(f'DUE o1 owed w1: step "its staging test result" was due {render.when(state.stamp(by))}, from {post}')
+    assert watch.owing_lines(watching, by + timedelta(minutes=30)) == []
+    [second] = watch.owing_lines(watching, by + timedelta(minutes=62))
+    assert second.startswith("DUE w1 of o1 missed twice")
+    assert (watch.owing_lines(watching, by + timedelta(minutes=123)), len(reports)) == ([], 1)
+    assert "its staging test result was due" in reports[0]["text"]
+    with edit(demo) as data:
+        assert owing.posted(data, "o1", "https://example.slack.com/archives/C1/p1794817900000000", None, None, by + timedelta(hours=3)) is None
+        assert (owing.still_open(data["orders"]["o1"]), data["orders"]["o1"]["owed"][0]["closed"]["by"]) == ([], "replaced")
+
+
+def test_an_order_owing_an_open_item_cannot_close_but_its_closing_post_ends_a_step_it_owed(demo: str) -> None:
+    moment = state.parse_time("2026-11-09T05:07:00-08:00")
+    with edit(demo) as data:
+        owing.posted(data, "o1", "https://example.slack.com/archives/C1/p1", moment + timedelta(hours=1), "the release", moment)
+        owing.add(data, "o1", "part", "the docs part", None, {"part_posted": ["o1", "docs"]}, "o1", moment)
+        assert owing.close_refusal(data, "o1").startswith('o1 still owes w1 step "the release" due ')
+        assert owing.close_refusal(data, "o1", closing_post=True).startswith('o1 still owes w2 part "the docs part" no due')
+        owing.close(data["orders"]["o1"]["owed"][1], "done", moment, "delivered by hand")
+        assert owing.close_refusal(data, "o1", closing_post=True) is None
 
 
 def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_ends_unsaid_for_one_that_returned(demo: str) -> None:

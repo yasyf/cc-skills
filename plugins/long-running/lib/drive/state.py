@@ -1262,7 +1262,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             order["thread"] = saved_thread(data, order)
         for field in ("promises", "withdrawn", *OLDER_INSTALL_PROMISE):
             order.pop(field, None)
-        order.setdefault("owed_line", None)
+        order.pop("owed_line", None)
+        order.setdefault("owed", [])
         order["parts"] = {part.strip(): held for part, held in order["parts"].items()}
         for part in order["parts"].values():
             part.pop("kind", None)
@@ -4319,7 +4320,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "created": created,
         "updated": created,
         "last_line": None,
-        "owed_line": None,
+        "owed": [],
     }
 
 

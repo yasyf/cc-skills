@@ -25,6 +25,13 @@ RECORDING = (
     " disconnect never excuses a message."
 )
 PREVENTED = "A post telling him the drive failed says how that is prevented: the tool change and its order or PR."
+OWED = (
+    "Any time you tell him a next step, give it a due: on say, due=<the RFC 3339 time he should hear its outcome by> and"
+    " owes=<the step in a few words>; on a POST report, --attr due=<time> --attr owes=<the step>. The drive keeps it on the"
+    " order, a later post on the order replaces it, and if it passes with nothing posted the watch wakes the session holding"
+    " the order once, then its coordinator, then him. Read what an order still owes with drive owed list; an order owing"
+    " anything cannot close: deliver it, move it with drive owed due <w> --by <time>, or end it with drive owed done <w> --because <why>."
+)
 STAMPS = (
     "What he reads, a say post, a card or a POST or ready record to the communicator, names when a job started as"
     " {started:<job>} and when a record went out as {at:<seq>}, never a clock time you type, and writes a time a tool or query printed,"
@@ -143,6 +150,7 @@ COMMUNICATOR_RULES = (
         " and a handoff, a step only the session holding an order takes on it, to that session by its order attr."
     ),
     RECORDING,
+    OWED,
     (
         "After a compaction or a restart, your first call is the `ToolSearch` below; then answer each message of his"
         " whose answer has not gone out."
@@ -186,6 +194,8 @@ COORDINATOR_RULES = (
         + STAMPS
         + " "
         + PREVENTED
+        + " "
+        + OWED
     ),
     REACHING,
     (
@@ -231,6 +241,8 @@ META_RULES = (
         + STAMPS
         + " "
         + PREVENTED
+        + " "
+        + OWED
     ),
     REACHING,
     (

@@ -20,7 +20,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import agents, artifacts, brief, children, codex, github, install, land, limits, orca, page_check, pages, picture, place, providers, published, reads, receiver, refs, render, served, settled, slack, state, superseded, watch, work
+from drive import agents, artifacts, brief, children, codex, github, install, land, limits, orca, owing, page_check, pages, picture, place, providers, published, reads, receiver, refs, render, served, settled, slack, state, superseded, watch, work
 from drive.shell import simple_commands
 from drive.state import DriveError
 
@@ -1064,6 +1064,8 @@ def order_set(args: argparse.Namespace) -> int:
             f"{args.id}: refused, {', '.join(untested)} {'waits' if len(untested) == 1 else 'wait'} on {args.id}'s staging test, staged because {'its head changes' if len(untested) == 1 else 'their heads change'} a dangerous class of file,"
             f" and closing {args.id} frees that wait, so {'it' if len(untested) == 1 else 'they'} would land untested: let the test pass, or move the wait onto another order's part with drive pr set <url> --waits"
         )
+    if args.state == "done" and order["state"] not in state.CLOSED_ORDER_STATES and (owes := owing.close_refusal(data, args.id)):
+        raise DriveError(f"{args.id}: refused, nothing changed: {owes}")
     report = need_record_close(data, args.id, args.record, args.state == "dropped" and bool(args.note)) if args.state in state.CLOSED_ORDER_STATES else {}
     changes = {
         "text": args.words,
@@ -1101,6 +1103,9 @@ def order_set(args: argparse.Namespace) -> int:
             order["state"] = args.state
         order["alerts"] = list(dict.fromkeys([*order["alerts"], *alerts]))
         stopped = change_parts(name, data, args.id, list(dict.fromkeys(args.add_part)), list(dict.fromkeys(args.drop_part)))
+        if was_open and args.state == "dropped":
+            for item in owing.still_open(order):
+                owing.close(item, "dropped", state.now(), args.note)
         if was_open and args.state in state.CLOSED_ORDER_STATES:
             uncarried, ended = state.close_order_jobs(data, args.id, f"stopped: drive order set {args.id} --state {args.state} closed its order")
             stopped += [f"{job_id} carries {args.id} no more and keeps working on its own order" for job_id in uncarried]
@@ -1388,6 +1393,42 @@ def order_backlog(args: argparse.Namespace) -> int:
     held = state.write(name, order_backlog_write)
     line = f"drive tooling backlog on, holding {len(held)} items" if args.switch == "on" else "drive tooling backlog off: a Drive tooling order a session files starts on its reader's research"
     return emit(args, line, {"tooling_backlog": args.switch == "on", "held": held})
+
+
+def owed_list(args: argparse.Namespace) -> int:
+    """List each open order's open owed items, overdue first, by owing.status_lines, or one order's."""
+    data = state.load(state.resolve(args.drive))
+    lines = owing.status_lines(only(data, [args.order]) if args.order else data, state.now())
+    return emit(args, "\n".join(lines) or "nothing owed", {"owed": lines})
+
+
+def owed_due(args: argparse.Namespace) -> int:
+    """Name a new due for an owed item, keeping its misses, so moving a due never resets who is woken next."""
+    name = state.resolve(args.drive)
+    by = state.parse_time(args.by)
+
+    def due_write(data: dict) -> str:
+        order_id, item = owing.find(data, args.id)
+        if item["closed"]:
+            raise DriveError(f"{args.id}: refused, it closed {item['closed']['at']} ({item['closed']['by']})")
+        item["due"] = state.stamp(by)
+        return f"{args.id} on {order_id} due {render.when(item['due'])}, missed {item['misses']} so far"
+
+    return emit(args, state.write(name, due_write), {"id": args.id})
+
+
+def owed_done(args: argparse.Namespace) -> int:
+    """End an owed item by hand, with why."""
+    name = state.resolve(args.drive)
+
+    def done_write(data: dict) -> str:
+        order_id, item = owing.find(data, args.id)
+        if item["closed"]:
+            raise DriveError(f"{args.id}: refused, it closed {item['closed']['at']} ({item['closed']['by']})")
+        owing.close(item, "done", state.now(), args.because)
+        return f"{args.id} on {order_id} done: {args.because}"
+
+    return emit(args, state.write(name, done_write), {"id": args.id})
 
 
 def order_check(args: argparse.Namespace) -> int:
@@ -7168,6 +7209,9 @@ def status(args: argparse.Namespace) -> int:
     project = state.session_project(data, session)
     runs = (lambda order: state.runs(data, order, project)) if state.session_role(data, session) == "coordinator" else None
     text, payload = render.status_text(data, seen, shown, runs), render.status_data(shown or data, seen, shown is not None, runs)
+    if owes := owing.status_lines(shown or data, state.now()):
+        text += "\nOwed:\n" + "\n".join(owes)
+        payload["owed"] = owes
     if shown is not None and any(state.RELEASE_WAIT.fullmatch(wait) for owner in [*payload["jobs"].values(), *payload["prs"].values()] for wait in owner["waits"]):
         payload["release_freezes"] = brief.releases(name, data)
         text += f"\nRelease freezes: {payload['release_freezes']}"
@@ -7914,6 +7958,18 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.set_defaults(run=start)
 
+    owed = verbs.add_parser("owed", help="what the drive owes him on his orders, each with a due the session owing it named and a condition the watch reads").add_subparsers(dest="action", required=True)
+    verb = owed.add_parser("list", parents=both, help="each open order's open owed items, overdue first")
+    verb.add_argument("--order", help="one order's alone")
+    verb.set_defaults(run=owed_list)
+    verb = owed.add_parser("due", parents=both, help="name a new due for an owed item; its misses stay, so the coordinator and then he still hear of the next")
+    verb.add_argument("id", help="the owed item, as w<n>")
+    verb.add_argument("--by", required=True, help="the RFC 3339 time it is now due")
+    verb.set_defaults(run=owed_due)
+    verb = owed.add_parser("done", parents=both, help="end an owed item by hand")
+    verb.add_argument("id", help="the owed item, as w<n>")
+    verb.add_argument("--because", required=True, help="why it is done or no longer owed")
+    verb.set_defaults(run=owed_done)
     order = verbs.add_parser("order", help="his orders").add_subparsers(dest="action", required=True)
     verb = order.add_parser("add", parents=both)
     verb.add_argument("words", help='his words, verbatim, or a "Drive tooling:" order\'s own')
