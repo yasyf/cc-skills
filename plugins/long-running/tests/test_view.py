@@ -150,7 +150,7 @@ def test_bulk_stages_build_the_stack_graph_once(monkeypatch: pytest.MonkeyPatch)
     assert scans == 2
 
 
-def test_board_builds_pr_topology_once_for_all_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_board_builds_pr_topology_once_for_all_rows(named_repo: None, monkeypatch: pytest.MonkeyPatch) -> None:
     data = drive_of(
         {f"o{n}": order(f"Ship feature {n}", [f"j{n}"]) for n in range(1, 65)},
         {f"j{n}": job(f"o{n}", "waiting") for n in range(1, 65)},
@@ -159,9 +159,9 @@ def test_board_builds_pr_topology_once_for_all_rows(monkeypatch: pytest.MonkeyPa
     data["prs"] = {
         key: entry | {"url": state.pr_url(key)}
         for n, entry in enumerate(data["prs"].values(), 1)
-        for key in [f"{state.MONOREPO}#{n}"]
+        for key in [f"Forge-AI/monorepo#{n}"]
     }
-    assert state.queued_by_lander(f"{state.MONOREPO}#1")
+    assert state.queued_by_lander(data, "Forge-AI/monorepo#1")
     expected = view.board(data, found(), "live", [], T0, set(), {})
     chains = pr_graph.chains
     scans = 0

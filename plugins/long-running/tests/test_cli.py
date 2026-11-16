@@ -6694,7 +6694,7 @@ def test_a_builders_ready_is_kept_whatever_its_pr_body_says(
 
 
 def test_staging_reach_counts_no_path_on_go_cis_dev_list_whose_code_only_its_caller_runs_as_it_counted_56826s_tools_ci_and_go_ci_change(monkeypatch: pytest.MonkeyPatch) -> None:
-    caller_run, released = f"{state.MONOREPO}#56826", f"{state.MONOREPO}#7"
+    caller_run, released = f"Forge-AI/monorepo#56826", f"Forge-AI/monorepo#7"
     reach = {
         caller_run: {"components": ["api", "platy"], "touched": ["platy"], "dev": ["go/ci/internal/tenantsmoke/inside.go", "tools/ci"], "releases": [], "staged": []},
         released: {"components": ["api", "platy"], "touched": ["api", "platy"], "dev": ["tools/ci"], "releases": ["api"], "staged": ["api"]},
@@ -6704,7 +6704,7 @@ def test_staging_reach_counts_no_path_on_go_cis_dev_list_whose_code_only_its_cal
 
 
 def test_staging_reach_sends_a_pr_reaching_only_components_staging_has_no_copy_of_to_his_exception_while_one_it_or_a_mac_box_runs_keeps_the_soak(monkeypatch: pytest.MonkeyPatch) -> None:
-    platy, mixed, boxed = (f"{state.MONOREPO}#{number}" for number in (1, 2, 3))
+    platy, mixed, boxed = (f"Forge-AI/monorepo#{number}" for number in (1, 2, 3))
     reach = {platy: {"releases": ["platy"], "staged": []}, mixed: {"releases": ["api", "platy"], "staged": ["api"]}, boxed: {"releases": ["sand-next"], "staged": []}}
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: reach[key] for key in keys})
     assert cli.staging_reach("demo", {"prs": {}}, list(reach)) == {platy: ["platy"], mixed: [], boxed: []}
@@ -6800,7 +6800,7 @@ def test_a_staging_line_puts_its_pr_on_the_staging_test_another_order_holds_or_o
     home_repo: None,
     run: Run, with_pr: str, held: str, tester_wait: str | None, home: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    part, under = state.STAGING_TEST.format(number=42), f"{state.MONOREPO}#43"
+    part, under = state.STAGING_TEST.format(number=42), f"Forge-AI/monorepo#43"
     run("order", "add", "--title", "Soak them", "--project", "The drive", "--workstream", "Drive tooling", "soak them", "--kind", "build", "--parts", held)
     assert run("job", "add", "builder", "--order", "o2", "--part", held, "--goal", "soak them on staging", "--builds-nothing")[0] == 0
     run("job", "add", "builder", "--order", "o1", "--goal", "land the base")

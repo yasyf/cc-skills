@@ -442,9 +442,9 @@ def test_a_builder_that_builds_nothing_starts_here_at_once_past_the_load_gate_th
     provide(monkeypatch, Path(), repo=HomeRepo)
     staging = "staging test of #42 before it lands"
     run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Staging", "test #42 on staging", "--parts", "the fix", "the soak", staging)
-    run("job", "add", "builder", "--order", "o1", "--part", "the fix", "--goal", "build the fix", "--repo", state.MONOREPO)
-    run("job", "add", "builder", "--order", "o1", "--part", "the soak", "--goal", "run the staging cases in the 20-minute window", "--repo", state.MONOREPO, "--builds-nothing")
-    run("job", "add", "builder", "--order", "o1", "--part", staging, "--goal", "test #42 on staging", "--repo", state.MONOREPO)
+    run("job", "add", "builder", "--order", "o1", "--part", "the fix", "--goal", "build the fix", "--repo", "Forge-AI/monorepo")
+    run("job", "add", "builder", "--order", "o1", "--part", "the soak", "--goal", "run the staging cases in the 20-minute window", "--repo", "Forge-AI/monorepo", "--builds-nothing")
+    run("job", "add", "builder", "--order", "o1", "--part", staging, "--goal", "test #42 on staging", "--repo", "Forge-AI/monorepo")
     with state.edit(demo) as data:
         place.queue(data["jobs"]["j1"], state.now())
         place.queue(data["jobs"]["j3"], state.now())

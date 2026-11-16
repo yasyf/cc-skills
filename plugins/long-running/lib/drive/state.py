@@ -148,7 +148,6 @@ BOT_SUFFIX = "[bot]"
 FOREIGN_RULING = '5815316 on a teammate\'s PRs: "Don\'t touch old tree or his PRs"'
 TOOLING_RULING = 'de88d49: "Block in a fucking tooling question for core work is not fucnigbbacceotbale"'
 TESTED_FIRST_RULING = 'a9c9edc, "remember everything has to be tested on sandbox first/ staging in detail before merging"'
-MONOREPO = "Forge-AI/monorepo"
 ROLES = ("communicator", "coordinator", "meta")
 REPO_RULES = ".claude/long-running.toml"
 HOLDERS = ("communicator", "meta")
@@ -3606,8 +3605,8 @@ def keep_after_merge(data: dict, job_id: str, report: str, moment: str) -> None:
         return
     proven = {key.rpartition("#")[2]: key for key in install.proves(data, job_id) if home_repo(data, key.rpartition("#")[0]) and data["prs"][key]["merged_sha"]}
     for number, key in proven.items():
-        cases, proofs = pr_run(report, number, set(proven))
-        if number in named_numbers(report) and not all(UNEXERCISED_CASE.match(verdict) for _, verdict in cases):
+        cases, proofs = pr_run(report, number, set(proven), home(data))
+        if number in named_numbers(report, home(data)) and not all(UNEXERCISED_CASE.match(verdict) for _, verdict in cases):
             data["prs"][key]["after_merge"] = {"cases": [[case, verdict] for case, verdict in cases], "posted": proofs[0] if proofs and passing(cases) else None, "posted_by": job_id, "at": moment}
 
 
@@ -3648,9 +3647,9 @@ def take_unexercised_approves(data: dict, order_id: str, part: str, moment: str)
 
 
 def full_pass(data: dict, job_id: str, report: str, part: str) -> tuple[list[tuple[str, str]], str | None]:
-    """The cases a tester's report ran for a staging test part, by part_run, beside the first proof its CHECK: lines name for them when they make a full pass, by passing, and the report names the Forge-AI/monorepo PR the part tests, by tests_named, else None."""
+    """The cases a tester's report ran for a staging test part, by part_run, beside the first proof its CHECK: lines name for them when they make a full pass, by passing, and the report names the PR of the drive's home repository the part tests, by tests_named, else None."""
     cases, proofs = part_run(data, job_id, report, part)
-    return cases, proofs[0] if proofs and passing(cases) and tests_named(report, part) else None
+    return cases, proofs[0] if proofs and passing(cases) and tests_named(report, part, home(data)) else None
 
 
 def passing(cases: list[tuple[str, str]]) -> bool:
@@ -3660,29 +3659,29 @@ def passing(cases: list[tuple[str, str]]) -> bool:
 
 def part_run(data: dict, job_id: str, report: str, part: str) -> tuple[list[tuple[str, str]], list[str]]:
     """The cases a tester's report ran for one staging test part, beside the proofs its CHECK: lines name for them, by pr_run among the PRs of each staging test part the job holds, by staging_parts."""
-    return pr_run(report, STAGING_PART.fullmatch(part)["number"], {STAGING_PART.fullmatch(each)["number"] for _, each in staging_parts(data, data["jobs"][job_id])})
+    return pr_run(report, STAGING_PART.fullmatch(part)["number"], {STAGING_PART.fullmatch(each)["number"] for _, each in staging_parts(data, data["jobs"][job_id])}, home(data))
 
 
-def pr_run(report: str, number: str, tested: set[str]) -> tuple[list[tuple[str, str]], list[str]]:
-    """The cases a report ran for the Forge-AI/monorepo PR numbered number among the PRs tested, by case_lines, beside the proofs its CHECK: lines name for them: each CASE line naming that PR, by named_numbers, as a DONE testing several PRs under one build names each on its own CASE lines, and each naming none of the PRs tested in the runs, by case_runs, that loose_runs gives the PR; every CHECK: line's proofs while the report holds one run, else those of the runs its cases came from."""
+def pr_run(report: str, number: str, tested: set[str], repo: str | None) -> tuple[list[tuple[str, str]], list[str]]:
+    """The cases a report ran for the PR of repo numbered number among the PRs tested, by case_lines, beside the proofs its CHECK: lines name for them: each CASE line naming that PR, by named_numbers, as a DONE testing several PRs under one build names each on its own CASE lines, and each naming none of the PRs tested in the runs, by case_runs, that loose_runs gives the PR; every CHECK: line's proofs while the report holds one run, else those of the runs its cases came from."""
     from drive import brief
 
-    runs = [(checks, [(line, tested & set(named_numbers(line))) for line in lines]) for checks, lines in case_runs(report)]
-    given = loose_runs(report, number, tested, {index: checks for index, (checks, lines) in enumerate(runs) if any(not named for _, named in lines)})
+    runs = [(checks, [(line, tested & set(named_numbers(line, repo))) for line in lines]) for checks, lines in case_runs(report)]
+    given = loose_runs(report, number, tested, {index: checks for index, (checks, lines) in enumerate(runs) if any(not named for _, named in lines)}, repo)
     mine = [(checks, [line for line, named in lines if number in named or not named and index in given]) for index, (checks, lines) in enumerate(runs)]
     checks = brief.CHECK.findall(report) if len(runs) < 2 else [check for heading, lines in mine if lines for check in brief.CHECK.findall(heading)]
     return case_lines("\n".join(line for _, lines in mine for line in lines)), [found for check in checks for found in brief.proofs(check)]
 
 
-def loose_runs(report: str, number: str, tested: set[str], headings: dict[int, str]) -> list[int]:
+def loose_runs(report: str, number: str, tested: set[str], headings: dict[int, str], repo: str | None) -> list[int]:
     """Of the runs of a report holding CASE lines that name none of the PRs its job tests, by their CHECK: headings, the ones a PR's cases are in: every one while there is one; else each whose CHECK: lines name the PR, else, of those naming none of the PRs tested, the one in the turn the report first names the PR among the PRs no heading names, while those runs and PRs are as many, as a DONE testing two PRs in turn under two builds names neither on its CHECK: lines, else all of them."""
     if len(headings) < 2:
         return list(headings)
-    named = {index: [found for found in named_numbers(heading) if found in tested] for index, heading in headings.items()}
+    named = {index: [found for found in named_numbers(heading, repo) if found in tested] for index, heading in headings.items()}
     if mine := [index for index, numbers in named.items() if number in numbers]:
         return mine
     unnamed = [index for index, numbers in named.items() if not numbers]
-    left = [found for found in named_numbers(report) if found in tested and not any(found in numbers for numbers in named.values())]
+    left = [found for found in named_numbers(report, repo) if found in tested and not any(found in numbers for numbers in named.values())]
     return [unnamed[left.index(number)]] if number in left and len(unnamed) == len(left) else unnamed
 
 
@@ -3720,15 +3719,15 @@ def unpassed(held: dict) -> str:
     return "; ".join(failed) or "its CASE lines pass, and its return names no CHECK: proof heading them or no line naming the PR"
 
 
-def tests_named(report: str, part: str) -> bool:
-    """Whether a report names the Forge-AI/monorepo PR a staging test part tests, by named_numbers."""
-    return STAGING_PART.fullmatch(part)["number"] in named_numbers(report)
+def tests_named(report: str, part: str, repo: str | None) -> bool:
+    """Whether a report names the PR of repo a staging test part tests, by named_numbers."""
+    return STAGING_PART.fullmatch(part)["number"] in named_numbers(report, repo)
 
 
-def named_numbers(text: str) -> list[str]:
-    """The number of each Forge-AI/monorepo PR a text names, by link, key or bare #N, in the turn it first names each."""
-    keys = (f"{MONOREPO}#{found.groups()[-1]}" if found.groups()[-1] else pr_key(found[0]) for found in PR_REF.finditer(text))
-    return list(dict.fromkeys(number for repo, _, number in (key.rpartition("#") for key in keys) if repo.casefold() == MONOREPO.casefold()))
+def named_numbers(text: str, repo: str | None) -> list[str]:
+    """The number of each PR of repo, the drive's home repository by home, a text names, by link, key or bare #N, in the turn it first names each; none when the drive has no home repository."""
+    keys = (f"{repo}#{found.groups()[-1]}" if found.groups()[-1] else pr_key(found[0]) for found in PR_REF.finditer(text))
+    return list(dict.fromkeys(number for named, _, number in (key.rpartition("#") for key in keys) if repo is not None and named.casefold() == repo.casefold()))
 
 
 def part_soak(data: dict, waits: list[str], part: str) -> str | None:
@@ -6547,9 +6546,9 @@ def waits_his_tap(data: dict, key: str, order_id: str) -> bool:
     return guarded(provided(data).repo.guarded_owner, key) or not tooling(data["orders"][order_id])
 
 
-def queued_by_lander(key: str) -> bool:
-    """Whether the drive's lander lands the PR with no session turn once his Approve or an exempt class clears it: a Forge-AI/monorepo one, which it queues through stack-enqueue."""
-    return key.split("#")[0].lower() == MONOREPO.lower()
+def queued_by_lander(data: dict, key: str) -> bool:
+    """Whether the drive's lander lands the PR with no session turn once his Approve or an exempt class clears it: one of the drive's home repository, by home_repo, which it queues through the repository provider's merge queue."""
+    return home_repo(data, key.split("#")[0])
 
 
 def cleared(pr: dict) -> bool:

@@ -6507,7 +6507,7 @@ def needs_step(line: str, data: dict, cards: dict | None) -> bool:
         return not line.startswith("PR ")
     pr = data["prs"][found["key"]]
     if found["change"] == "merged":
-        return not (land.reported(found["key"], pr) or data["jobs"][found["job"]]["state"] == "done" or finishes(data, found["job"]))
+        return not (land.reported(data, found["key"], pr) or data["jobs"][found["job"]]["state"] == "done" or finishes(data, found["job"]))
     if found["change"].startswith("merged at"):
         return not (data["jobs"][found["job"]]["state"] in state.FINISHED_JOB_STATES or proving(data, found["job"]))
     if pr["state"] in github.UNLANDED or not found["change"].startswith(ENDED):
