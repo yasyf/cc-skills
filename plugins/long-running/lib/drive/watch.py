@@ -2600,11 +2600,11 @@ def incident_prs(data: dict, group: list[str], jobs: dict[str, dict], registered
 
 
 def owed_reporters(data: dict, order: dict, moment: datetime) -> list[dict]:
-    """Each reporter whose thread is owed its note and the watch has not said so: a bug report's once the order keeps its proof, a question's once its answer is posted, nothing moved on it for ten minutes, the drive's last line on an answer order counting as a move since posting its answer moves nothing else, and no note is recorded."""
+    """Each reporter whose record the order keeps and whose thread is owed its note and the watch has not said so: a bug report's once its fix is proven live, a question's once its answer is posted, nothing moved on it for ten minutes, the drive's last line on an answer order counting as a move since posting its answer moves nothing else, and no note is recorded; a record another order keeps is that order's to owe."""
     moved = (order["last_line"] if order["kind"] == "answer" else None) or order["updated"]
     if not (state.may_tell(data, order) and moment - state.parse_time(moved) >= TELL_AFTER):
         return []
-    return [held for held in state.untold_reporters(order) if not held["tell_said"]]
+    return [held for held in order["reporters"] if "kept_by" not in held and not held["told"] and not held["tell_said"]]
 
 
 def close_answered(watcher: Watcher, moment: datetime) -> None:
@@ -2633,7 +2633,7 @@ def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
             happened, asked, heard, note = (
                 ("its answer is posted", "its question was asked in", "the answer", "the answer")
                 if answered
-                else (f"its fix is proven live by {cut(data['orders'][order_id]['proof'], 160)}", "its bug was reported in", "it is fixed", "the fix-live note")
+                else (f"its fix is proven live by {cut(state.fix_proof(data, data['orders'][order_id]), 160)}", "its bug was reported in", "it is fixed", "the fix-live note")
             )
             threads = f"the thread {asked}, has not heard {heard}" if len(owed) == 1 else f"the threads {asked}, have not heard {heard}"
             lines.append(

@@ -588,13 +588,19 @@ merged and installed, listing each rule now in the skill.
   order in that thread, whose lines then go to his DM. A second report of the same bug, such as
   another teammate's, joins it with `drive order set --reporter`, beside the first, so each thread
   hears its own note, and `drive status` says on the order's line whether each thread heard.
+  The note is one record per thread and fix: an order naming a thread kept by an order on the same
+  fix, one a job of it carries or whose job carries it, such as a release order whose follower carries
+  the fix's own order, keeps no copy, and `drive status`, its briefs, done, `TELL` and the post hook
+  read the keeper's record, `under o<n>`, while `drive order told` on either records it there once. A
+  different fix reported in that thread keeps its own, even one the same job carries beside it.
 - A question someone asked that a `--kind answer` order answers, kept the same way, gets the answer
   there once every part of it is posted to him, with no proof asked, since an answer has no fix to
   go live. His share of the question orders it: the handler writes the answer again for that person
   in the same step as his own line, and no card asks him and no line says it waits on him to
   forward, by his words "we were supposed to send that whas left for cloud update to … and never did".
-- Post it once per thread, once the coordinator keeps the proof the fix is live with `--proof`, never
-  before: one or two plain sentences saying what is fixed and since when, with the link. The handler
+- Post it once per thread, once the fix is proven live, never before: the order's `--proof`, or a
+  passing `drive job prove` on a PR a job of the order opened, run by a job of the order or of an
+  order sharing one of its jobs, as a release follower's is: one or two plain sentences saying what is fixed and since when, with the link. The handler
   of the report on that order posts it with `slack_reply` in the same step as his own line, then
   records it with `drive order told`. When the bot cannot post in that thread, as in a person's 1:1
   DM with him, the handler posts the same note as usual in the group DM of that person, him and the

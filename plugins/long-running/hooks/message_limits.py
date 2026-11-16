@@ -786,7 +786,7 @@ def reporter_post(payload: dict, drive: dict) -> str | None:
         return None
     link = state.CARD_LINK.search(tool_input.get("url") or "")
     where = (tool_input.get("channel_id") or (link and link[1]), tool_input.get("thread_ts") or (link and (link[4] or f"{link[2]}.{link[3]}")))
-    reported = [(order, held) for order in drive["orders"].values() for held in order["reporters"] if (held["channel"], held["thread"]) == where]
+    reported = [(order, held) for order in drive["orders"].values() for held in order["reporters"] if "kept_by" not in held and (held["channel"], held["thread"]) == where]
     if not reported or any(order["state"] not in state.CLOSED_ORDER_STATES and state.may_tell(drive, order) and not held["told"] for order, held in reported):
         return None
     if any(state.own_thread(order) == where for order in state.open_orders(drive).values()):

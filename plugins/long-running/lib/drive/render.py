@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from drive import slack
-from drive.state import AWAY_HOLD, CLOCKS, DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owed, owed_at, owed_at_return, owing, owner_away, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, present, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
+from drive.state import AWAY_HOLD, CLOCKS, DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owed, owed_at, owed_at_return, owing, owner_away, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, present, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -434,20 +434,22 @@ def order_line(drive: dict, order_id: str, order: dict, limit: int = 120, thread
 
 
 def reporter_said(drive: dict, order: dict) -> str:
-    """Each place the bug the order fixes was reported, or the question it answers asked, and whether that thread heard it, is owed it now, or hears it once its fix is proven live or its answer posted."""
-    return "".join(reporter_heard(drive, order, reporter) for reporter in order["reporters"])
+    """Each place the bug the order fixes was reported, or the question it answers asked, and whether that thread heard it, is owed it now, or hears it once its fix is proven live or its answer posted, read from the order keeping that thread's record when another does."""
+    return "".join(reporter_heard(drive, order, *kept_record(drive, held)) for held in order["reporters"])
 
 
-def reporter_heard(drive: dict, order: dict, reporter: dict) -> str:
+def reporter_heard(drive: dict, order: dict, keeper: str | None, reporter: dict) -> str:
     if order["kind"] == "answer" and reporter["told"]:
         return f", asked in {reporter['link']}, told the answer in {reporter['told']}"
     if order["kind"] == "answer":
         owed = "owed its answer now, since it is posted" if may_tell(drive, order) else "which hears the answer once it is posted"
         return f", asked in {reporter['link']}, {owed}"
+    kept = f" under {keeper}" if keeper else ""
     if reporter["told"] is None:
-        owed = "owed its fix-live note now, since its fix is proven live" if may_tell(drive, order) else "which hears it is fixed once its fix is proven live"
+        fix = f"{keeper}'s fix" if keeper else "its fix"
+        owed = f"owed its fix-live note{kept} now, since {fix} is proven live" if may_tell(drive, drive["orders"][keeper] if keeper else order) else f"which hears it is fixed{kept} once {fix} is proven live"
         return f", reported in {reporter['link']}, {owed}"
-    return f", reported in {reporter['link']}, told it is fixed in {reporter['told']}"
+    return f", reported in {reporter['link']}, told it is fixed in {reporter['told']}{kept}"
 
 
 def incident_line(order_id: str, order: dict) -> str:

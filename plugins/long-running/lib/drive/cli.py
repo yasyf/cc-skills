@@ -868,8 +868,8 @@ def order_set(args: argparse.Namespace) -> int:
     reporters = [] if unreported else [*order["reporters"], added] if added and (added["channel"], added["thread"]) not in held else order["reporters"]
     watched = state.new_watch(args.watch, state.now()) if args.watch else None
     followed = follow_ask(data, args.id, *args.follow, args.part) if args.follow else None
-    if args.state == "done" and state.untold_reporters(order | {"reporters": reporters}):
-        raise DriveError(untold(args.id, order | {"reporters": reporters}))
+    if args.state == "done" and state.untold_reporters(data, order | {"reporters": reporters}):
+        raise DriveError(untold(data, args.id, order | {"reporters": reporters}))
     if args.words is not None:
         if not (order["text"].startswith(state.TOOLING) and args.words.startswith(state.TOOLING)):
             raise DriveError(f'--words: refused, only a "{state.TOOLING}" order\'s words change, to words that open "{state.TOOLING}"; an order of his keeps his words verbatim')
@@ -1093,9 +1093,9 @@ def sorted_as(data: dict, order_id: str, kind: str | None, named: list[str]) -> 
     return parts
 
 
-def untold(order_id: str, order: dict) -> str:
-    """Why an order with reporters may not close done yet: a thread its bug was reported in has not heard it is fixed, or a thread its question was asked in has not heard the answer."""
-    unheard = [held["link"] for held in state.untold_reporters(order)]
+def untold(data: dict, order_id: str, order: dict) -> str:
+    """Why an order with reporters may not close done yet: a thread its bug was reported in has not heard it is fixed, naming the order keeping that thread's record when another does, or a thread its question was asked in has not heard the answer."""
+    unheard = [f"{kept['link']}{f' (kept by {keeper})' if keeper else ''}" for keeper, kept in map(lambda held: state.kept_record(data, held), order["reporters"]) if not kept["told"]]
     links, there = " and ".join(unheard), "that thread" if len(unheard) == 1 else "each of those threads"
     if order["kind"] == "answer":
         heard = (
@@ -1236,29 +1236,31 @@ def order_told(args: argparse.Namespace) -> int:
     if not order["reporters"]:
         raise DriveError(f"{args.id} names no one to tell: drive order set {args.id} --reporter <their message's permalink> names them")
     asked = order["kind"] == "answer"
-    if not state.may_tell(data, order):
-        if asked:
-            raise DriveError(f"{args.id}: refused, a part of its answer is not posted yet, so a note now would come before the answer: post it first")
-        seen = brief.unseen(data, order, order["proof"]) if order["proof"] else None
-        raise DriveError(
-            f"{args.id}: refused, it keeps no proof that its fix is live{f' on {seen}, where he uses it' if seen else ''}, so a note now would come before the fix:"
-            f" drive order set {args.id} --proof <{'the recording or live post from there' if seen else 'the check'}> records it once the fix is live"
-        )
     posted, _ = slack.message_and_root(args.link)
     channel = state.CARD_LINK.search(args.link)[1]
     if args.group_dm and not (posted.get("from_claude") and slack.group_dm(args.group_dm) == channel):
         raise DriveError(f"{args.link} is not the drive's post in the group DM of {args.group_dm}, him and the bot, the one cc-slack opens for channel_id {args.group_dm}")
-    place = told_reporter(args, order, (channel, posted.get("thread_ts")) if posted.get("from_claude") else None)
-    if told := order["reporters"][place]["told"]:
+    place = told_reporter(args, data, order, (channel, posted.get("thread_ts")) if posted.get("from_claude") else None)
+    keeper, kept = state.kept_record(data, order["reporters"][place])
+    keeper_id = keeper or args.id
+    if not state.may_tell(data, holder := data["orders"][keeper_id]):
+        if asked:
+            raise DriveError(f"{args.id}: refused, a part of its answer is not posted yet, so a note now would come before the answer: post it first")
+        seen = brief.unseen(data, holder, holder["proof"]) if holder["proof"] else None
+        raise DriveError(
+            f"{keeper_id}: refused, it keeps no proof that its fix is live{f' on {seen}, where he uses it' if seen else ''}, so a note now would come before the fix:"
+            f" drive order set {keeper_id} --proof <{'the recording or live post from there' if seen else 'the check'}> records it once the fix is live"
+        )
+    if told := kept["told"]:
         heard = "the thread its question was asked in heard the answer" if asked else "the thread its bug was reported in heard it is fixed"
-        raise DriveError(f"{args.id}: refused, {heard} once, in {told}, and hears it only once")
+        raise DriveError(f"{args.id}: refused, {heard} once, in {told}{f', kept by {keeper}' if keeper else ''}, and hears it only once")
     with state.edit(name) as data:
-        data["orders"][args.id]["reporters"][place]["told"] = args.link
+        state.kept_record(data, data["orders"][args.id]["reporters"][place])[1]["told"] = args.link
     where = f"told in the group DM of {args.group_dm}, him and the bot" if args.group_dm else "told in the reporter's thread"
     return emit(args, f"{args.id}: {where}, {args.link}", {"id": args.id, "told": args.link, "group_dm": args.group_dm})
 
 
-def told_reporter(args: argparse.Namespace, order: dict, where: tuple[str, str | None] | None) -> int:
+def told_reporter(args: argparse.Namespace, data: dict, order: dict, where: tuple[str, str | None] | None) -> int:
     """The place among an order's reporters of the one a note tells: the reporter whose thread the drive's post is in, or with --group-dm the one --reporter names, else the only one untold."""
     threads = [(held["channel"], held["thread"]) for held in order["reporters"]]
     if not args.group_dm:
@@ -1274,7 +1276,7 @@ def told_reporter(args: argparse.Namespace, order: dict, where: tuple[str, str |
         if (named["channel"], named["thread"]) not in threads:
             raise DriveError(f"--reporter {args.reporter}: refused, {args.id} holds no reporter of that thread")
         return threads.index((named["channel"], named["thread"]))
-    if len(unheard := [place for place, held in enumerate(order["reporters"]) if not held["told"]]) > 1:
+    if len(unheard := [place for place, held in enumerate(order["reporters"]) if not state.kept_record(data, held)[1]["told"]]) > 1:
         raise DriveError(
             f"{args.id}: refused, {' and '.join(order['reporters'][place]['link'] for place in unheard)} have not heard,"
             " so name whose group DM the note went to with --reporter <their message's permalink>"
