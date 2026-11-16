@@ -2741,7 +2741,7 @@ def test_projection_partitions_design_builders_without_repeated_job_scans() -> N
 
 def test_a_staging_slot_goes_to_its_first_claimer_and_then_to_each_queued_job_in_order_as_each_lease_ends() -> None:
     moment = datetime(2026, 11, 15, 22, 5, tzinfo=UTC)
-    data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": []} for job_id in ("j1", "j2", "j3")}}
+    data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": [], "goal": ""} for job_id in ("j1", "j2", "j3")}}
     assert state.slot_claim(data, "plat-usw2-staging", "j1", 30, [], None, moment).startswith("GO j1 holds the plat-usw2-staging slot until")
     assert state.slot_claim(data, "plat-usw2-staging", "j2", 25, [], None, moment).startswith("QUEUED j2 for the plat-usw2-staging slot, place 1, behind j1")
     state.slot_claim(data, "plat-usw2-staging", "j3", 10, [], None, moment)
@@ -2758,7 +2758,7 @@ def test_a_staging_slot_goes_to_its_first_claimer_and_then_to_each_queued_job_in
 def test_a_staging_lease_that_runs_past_its_end_extends_once_and_an_incident_tester_jumps_the_queue() -> None:
     moment = datetime(2026, 11, 15, 22, 5, tzinfo=UTC)
     orders = {"o1": {"incident": False, "priority": None, "state": "open"}, "o2": {"incident": True, "priority": None, "state": "open"}}
-    data = {"slots": {}, "orders": orders, "jobs": {"j1": {"state": "running", "order": "o1", "carries": []}, "j2": {"state": "waiting", "order": "o1", "carries": []}, "j3": {"state": "waiting", "order": "o2", "carries": []}}}
+    data = {"slots": {}, "orders": orders, "jobs": {"j1": {"state": "running", "order": "o1", "carries": [], "goal": ""}, "j2": {"state": "waiting", "order": "o1", "carries": [], "goal": ""}, "j3": {"state": "waiting", "order": "o2", "carries": [], "goal": ""}}}
     state.slot_claim(data, "plat-usw2-staging", "j1", 30, [], None, moment)
     state.slot_claim(data, "plat-usw2-staging", "j2", 25, [], None, moment)
     assert state.slot_claim(data, "plat-usw2-staging", "j3", 10, [], None, moment).startswith("QUEUED j3 for the plat-usw2-staging slot, place 1, behind j1")
@@ -2777,7 +2777,7 @@ def test_a_pr_a_bot_or_github_app_opened_is_no_teammates_and_the_drive_may_take_
 def test_a_free_staging_slot_packs_up_to_six_passes_whose_files_never_overlap_into_one_cut_under_one_lease() -> None:
     moment = datetime(2026, 11, 16, 1, 0, tzinfo=UTC)
     names = [f"j{number}" for number in range(1, 10)]
-    data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": []} for job_id in ["j0", *names]}}
+    data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": [], "goal": ""} for job_id in ["j0", *names]}}
     state.slot_claim(data, "plat-usw2-staging", "j0", 20, [], None, moment)
     files = {"j1": ["a"], "j2": ["a", "b"], "j3": ["c"], "j4": None, "j5": ["d"], "j6": ["e"], "j7": ["f"], "j8": ["g"], "j9": ["h"]}
     for job_id in names:
@@ -2798,7 +2798,7 @@ def test_a_free_staging_slot_packs_up_to_six_passes_whose_files_never_overlap_in
 
 def test_passes_restarting_one_stack_take_turns_and_a_top_coordinators_start_holds_a_cut_of_its_own() -> None:
     moment = datetime(2026, 11, 16, 1, 0, tzinfo=UTC)
-    data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": []} for job_id in ("j0", "j1", "j2", "j3", "j4")}}
+    data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": [], "goal": ""} for job_id in ("j0", "j1", "j2", "j3", "j4")}}
     state.slot_claim(data, "plat-usw2-staging", "j0", 20, [], None, moment)
     state.slot_claim(data, "plat-usw2-staging", "j1", 15, ["Forge-AI/monorepo#1"], None, moment, ["a"], ["api"])
     state.slot_claim(data, "plat-usw2-staging", "j2", 15, ["Forge-AI/monorepo#2"], None, moment, ["b"], ["api"])
@@ -2819,7 +2819,7 @@ def test_passes_restarting_one_stack_take_turns_and_a_top_coordinators_start_hol
 
 def test_a_priority_job_heads_the_slot_queue_a_failed_pass_keeps_the_lease_and_a_hand_seats_a_queued_job_now() -> None:
     moment = datetime(2026, 11, 16, 1, 0, tzinfo=UTC)
-    data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": [], "priority": None} for job_id in ("j0", "j1", "j2", "j3")}}
+    data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": [], "goal": "", "priority": None} for job_id in ("j0", "j1", "j2", "j3")}}
     state.slot_claim(data, "plat-usw2-staging", "j0", 20, [], None, moment)
     state.slot_claim(data, "plat-usw2-staging", "j1", 20, [], None, moment)
     state.slot_claim(data, "plat-usw2-staging", "j2", 20, [], None, moment)
@@ -2832,3 +2832,20 @@ def test_a_priority_job_heads_the_slot_queue_a_failed_pass_keeps_the_lease_and_a
     assert (entry["starts"], line.startswith("j3 holds the plat-usw2-staging slot until"), [each["job"] for each in data["slots"]["plat-usw2-staging"]["queue"]]) == (True, True, ["j0", "j2", "j1"])
     with pytest.raises(state.DriveError, match="waits in no plat-usw2-staging slot queue"):
         state.slot_hand(data, "plat-usw2-staging", "j9", moment)
+
+
+def test_a_pass_on_an_order_joined_to_a_priority_order_or_a_cut_naming_its_tester_jumps_the_staging_queue() -> None:
+    moment = datetime(2026, 11, 16, 2, 0, tzinfo=UTC)
+    thread = ["D0C4HQWPLCC", "1794774184.502879"]
+    orders = {
+        "o2046": {"incident": False, "priority": "Priority o2046", "state": "open", "joins": None, "thread": thread},
+        "o2270": {"incident": False, "priority": None, "state": "open", "joins": "o2046", "thread": None},
+        "o2299": {"incident": False, "priority": None, "state": "open", "joins": None, "thread": thread},
+        "o1513": {"incident": False, "priority": None, "state": "open", "joins": None, "thread": None},
+    }
+    job = lambda order, goal="": {"state": "waiting", "order": order, "carries": [], "goal": goal, "priority": None}
+    data = {"slots": {}, "orders": orders, "jobs": {"j0": job("o1513"), "j1": job("o1513"), "j2": job("o2270"), "j3": job("o2299"), "j4": job("o1513", "follow staging cut 6 for testers j2"), "j5": job("o1513", "follow staging cut 7 for testers j1")}}
+    data["jobs"]["j4"]["brief_flags"] = data["jobs"]["j5"]["brief_flags"] = {"release": "tools/ci release start api --env plat-usw2-staging --order 23eefb9"}
+    for job_id in data["jobs"]:
+        state.slot_claim(data, "plat-usw2-staging", job_id, 20, [], None, moment)
+    assert [each["job"] for each in data["slots"]["plat-usw2-staging"]["queue"]] == ["j2", "j3", "j4", "j1", "j5"]

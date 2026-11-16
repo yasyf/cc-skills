@@ -6755,8 +6755,20 @@ def slot_claim(data: dict, env: str, job_id: str, minutes: int, prs: list[str], 
 
 
 def jumps_queue(data: dict, job_id: str) -> bool:
+    """Whether a staging pass goes ahead of the rest of its slot's queue: its job is marked priority, serves an open incident, or serves an order of a priority project, the open priority order, every order of its feature and every order in its thread, by priority_family, or it is a staging cut whose goal names a job that does, as a release's packed cut names the testers it carries."""
     job = data["jobs"][job_id]
-    return bool(job.get("priority")) or first_in_line(data, job) or bool(open_incidents(data, [job["order"], *job["carries"]]))
+    family = priority_family(data)
+    serves = lambda held: bool({held["order"], *held["carries"]} & family)
+    named = (data["jobs"][other] for other in dict.fromkeys(JOB_ID.findall(job["goal"])) if other != job_id and other in data["jobs"])
+    return bool(job.get("priority")) or serves(job) or bool(open_incidents(data, [job["order"], *job["carries"]])) or starts_cut(job) and any(serves(other) for other in named)
+
+
+def priority_family(data: dict) -> set[str]:
+    """Every order of a priority project: each open priority order, each order of its feature, by feature_orders, and each open order in the Slack thread of any of those."""
+    heads = {order_id for order_id, order in data["orders"].items() if prioritized(order)}
+    family = {member for head in heads for member in feature_orders(data, head)}
+    threads = {tuple(data["orders"][order_id]["thread"]) for order_id in family if data["orders"][order_id].get("thread")}
+    return family | {order_id for order_id, order in data["orders"].items() if order["state"] not in CLOSED_ORDER_STATES and order.get("thread") and tuple(order["thread"]) in threads}
 
 
 SLOT_LIVE_END = ("done", "stopped")
