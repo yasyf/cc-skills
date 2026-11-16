@@ -671,7 +671,7 @@ class CcRemote:
     def checkout(self, sprite: Sprite) -> Checkout | str:
         git_c = f"git -C {shlex.quote(sprite.root)}"
         off_origin = f"{{ {git_c} for-each-ref --format='%(refname) %(refname:short) %(objectname)' refs/heads refs/stash | while read -r ref name tip; do [ -z \"$({git_c} rev-list -1 \"$ref\" --not HEAD --remotes=origin)\" ] || printf '%s:%s:%s ' \"$name\" \"$tip\" \"$({git_c} rev-list --first-parent --max-parents=0 \"$ref\" --not HEAD --remotes=origin)\"; done; echo; }}"
-        changed = f"{{ {git_c} worktree list --porcelain | sed -n 's/^worktree //p' | while read -r tree; do [ ! -e \"$tree\" ] || {{ if listed=$(git -C \"$tree\" status --porcelain); then files=$(printf %s \"$listed\" | grep -c '^'); else files={UNREADABLE}; fi; [ \"$files\" = 0 ] || printf '%s %s\\t' \"$files\" \"$tree\"; }}; done; echo; }}"
+        changed = f"{{ {git_c} worktree list --porcelain | sed -n 's/^worktree //p' | while read -r tree; do [ ! -e \"$tree\" ] || {{ if listed=$(git -C \"$tree\" status --porcelain); then files=$(printf %s \"$listed\" | grep -vc -e '^ D' -e '^D '); else files={UNREADABLE}; fi; [ \"$files\" = 0 ] || printf '%s %s\\t' \"$files\" \"$tree\"; }}; done; echo; }}"
         script = f"{git_c} remote get-url origin && {off_origin} && {changed} && {git_c} status --porcelain=v2 --branch"
         done = self.ssh(sprite, script)
         if mute(done):
@@ -938,7 +938,16 @@ def save_script(sprite: Sprite, slug: str, lane: str, refs: dict[str, str], tree
         ]
     lines += [f"save {shlex.quote(name)} {tip}" for name, tip in refs.items()]
     lines += [f'save "$(git -C {tree} symbolic-ref --short -q HEAD)" "$(git -C {tree} rev-parse HEAD)"' for tree in map(shlex.quote, trees)]
-    lines.append(f"git -c credential.helper= -c {shlex.quote('credential.helper=' + helper)} push https://github.com/{slug}.git $pushed")
+    push = f"git -c credential.helper= -c {shlex.quote('credential.helper=' + helper)} push https://github.com/{slug}.git $pushed"
+    lines += [
+        "for attempt in $(seq 200); do",
+        f"  if out=$({push} 2>&1); then printf '%s\\n' \"$out\"; exit 0; fi",
+        "  missing=$(printf '%s\\n' \"$out\" | sed -n 's/.*missing object: \\([0-9a-f]*\\).*/\\1/p' | head -1)",
+        '  [ -n "$missing" ] || { printf \'%s\\n\' "$out" >&2; exit 1; }',
+        '  git cat-file -e "$missing"',
+        "done",
+        "exit 1",
+    ]
     return "\n".join(lines)
 
 
