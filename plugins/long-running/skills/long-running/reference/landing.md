@@ -216,7 +216,7 @@ no failing test, such as a lint step, is the PR's own.
    It keeps its output beside the job's report, then runs each drive command the brief's `After install:` line names, takes `DONE` on exit 0 with output and each of those exiting 0, or `BLOCKED` otherwise,
    an exit 0 printing nothing among them, quoting the run's last `FAIL` line, else saying it printed none, and a
    nonzero exit ending on a `WAIT` line with no `FAIL` line takes no result and runs again once he is next heard,
-   and on a `DONE` that finishes the order sends the communicator its close report, but closes a drive tooling order a session opened, which has no thread of his, on its proof with no line to him. The lander writes its output to the drive's `landings.log`, ending in one line of the PR's
+   and on a `DONE` that finishes the order sends the communicator its close report, whose live line the watch posts itself on an order with no reporter that is no incident, but closes a drive tooling order a session opened, which has no thread of his, on its proof with no line to him. The lander writes its output to the drive's `landings.log`, ending in one line of the PR's
    key and its outcome, such as `yasyf/cc-skills#7: merged at <sha>; …`. Its outcome reaches the
    job's holder as `PR … merged at <sha>; <each install's version line or no release: line>`, its merge
    naming each failing check it merged past as `main`'s, `merged at <sha> past <check> red at <head>, which

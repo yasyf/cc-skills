@@ -113,6 +113,7 @@ TAP_LABELS = ("Approve", "Hold")
 CARDS_FIRST = 'fe09e93 "Buttons only after you answer each question"'
 UNSCHEDULED_RULING = '785e260, "unacceptable", on a card for cutover work while the cutover is not on'
 TOOLING = "Drive tooling:"
+PROVED_REPORT = "install-proved-"
 UNASKED_READERS_A_DAY = 10
 TOOLING_DETAILS_RULING = "43aa665"
 REHEARSAL_RULING = "716e70d"
@@ -5323,6 +5324,16 @@ def thread_attr(order: dict) -> dict:
 def unasked_tooling(order: dict) -> bool:
     """Whether an order is drive tooling a session opened, from its terminal or one of its records, so no message of his, no thread of his and no teammate's report: a fix nobody asked for, whose close posts no line, its order page on the dashboard showing it live."""
     return order["text"].startswith(TOOLING) and not order["thread"] and not order["reporters"]
+
+
+def watch_posts_itself(order: dict) -> bool:
+    """Whether the drive's watch posts the live line of the close report an order keeps itself, through say, with no handler: a report drive job prove kept on an order with no reporter, which hears its own note, and no incident, whose line the incident rules shape; a drive tooling order a session opened closes on its proof with no line, by unasked_tooling."""
+    return order["close_report"]["id"].startswith(PROVED_REPORT) and not order["reporters"] and not order["incident"] and not unasked_tooling(order)
+
+
+def watch_posting(data: dict) -> set[str]:
+    """The seq of each close report the watch sent and posts itself, which an order keeps until its post closes it or a refusal leaves it to a handler, so the relay starts no handler on it meanwhile."""
+    return {order["close_report"]["seq"] for order in data["orders"].values() if order["close_report"] and "seq" in order["close_report"]}
 
 
 def repeats_of_closed(data: dict) -> list[str]:

@@ -918,7 +918,7 @@ def merges_of(data: dict, job_id: str) -> dict[str, str]:
 
 
 def finish(name: str, data: dict, job_id: str, line: str, check: list[str], post: str, facts: str) -> bool:
-    """Take the line drive job prove sets on its builder, its report naming its PRs, if any, and CHECK:, a DONE proving a DONE of the job's own keeping that DONE whole under its line, such as a staging test's CASE lines, the PR it tested and its release build, so take_result delivers its staging test part by them, a DONE delivering by its proof each part of work he ordered the job owes, by state.deliver_proven, and on a DONE that leaves its open order nothing to do, an open incident's aside, which the watch closes once every merged fix PR of it runs on each production stack, keep on the order its proof and the close report the watch posts to the communicator, opening POST with the PRs' titles, a repair's order title, and post, but close done on that proof a drive tooling order a session opened, which posts him no line; held while he sees any of the order's results on a surface no CHECK: came from. Whether the order closes."""
+    """Take the line drive job prove sets on its builder, its report naming its PRs, if any, and CHECK:, a DONE proving a DONE of the job's own keeping that DONE whole under its line, such as a staging test's CASE lines, the PR it tested and its release build, so take_result delivers its staging test part by them, a DONE delivering by its proof each part of work he ordered the job owes, by state.deliver_proven, and on a DONE that leaves its open order nothing to do, an open incident's aside, which the watch closes once every merged fix PR of it runs on each production stack, keep on the order its proof and the close report the watch posts to the communicator, whose live line the watch posts itself on an order state.watch_posts_itself names, opening POST with the PRs' titles, a repair's order title, and post, but close done on that proof a drive tooling order a session opened, which posts him no line; held while he sees any of the order's results on a surface no CHECK: came from. Whether the order closes."""
     from drive import brief, view
 
     job, keys = data["jobs"][job_id], proved_prs(data, job_id)
@@ -938,7 +938,7 @@ def finish(name: str, data: dict, job_id: str, line: str, check: list[str], post
         title = "; ".join(data["prs"][key]["title"] for key in keys) or view.order_title(order)
         order["proof"] = " ".join(check)
         order["close_report"] = {
-            "id": f"install-proved-{job_id}",
+            "id": f"{state.PROVED_REPORT}{job_id}",
             "kind": "report",
             "to": [f"communicator@{name}"],
             "topic": f"install-proved-{order_id}",
