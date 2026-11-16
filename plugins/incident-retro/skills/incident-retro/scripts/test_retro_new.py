@@ -180,12 +180,17 @@ class Board(unittest.TestCase):
 class AwaitMerges(unittest.TestCase):
     URL = "https://github.com/Forge-AI/design-docs/pull/73"
 
+    @staticmethod
+    def graphql(squash, rebase, merge=False):
+        return json.dumps({"data": {"repository": {"squashMergeAllowed": squash, "rebaseMergeAllowed": rebase,
+                                                    "mergeCommitAllowed": merge}}})
+
     def pr(self, state, merge_state, *verdicts, head="h1"):
         return json.dumps({"state": state, "mergeStateStatus": merge_state, "mergeCommit": {"oid": "abc"},
                            "headRefName": "retro/slug", "headRefOid": head, "baseRefName": "main",
                            "statusCheckRollup": [{"name": f"check-{i}", "conclusion": v} for i, v in enumerate(verdicts)]})
 
-    def test_a_clean_green_pr_is_merged_with_the_allowed_method(self):
+    def test_a_clean_green_pr_is_merged_with_the_allowed_method_when_rest_hides_the_settings(self):
         views = iter([self.pr("OPEN", "CLEAN", "SUCCESS", ""), self.pr("OPEN", "CLEAN", "SUCCESS", "SUCCESS"),
                       self.pr("MERGED", "UNKNOWN", "SUCCESS", "SUCCESS")])
         calls = []
@@ -194,8 +199,10 @@ class AwaitMerges(unittest.TestCase):
             calls.append((argv, cwd))
             if argv[:3] == ["gh", "pr", "view"]:
                 return next(views)
+            if argv[:3] == ["gh", "api", "graphql"]:
+                return self.graphql(squash=False, rebase=True)
             if argv[:2] == ["gh", "api"]:
-                return json.dumps({"allow_squash_merge": False, "allow_rebase_merge": True, "allow_merge_commit": False})
+                return "{}"
             return ""
 
         root = Path(tempfile.mkdtemp()) / "incident-retros" / "slug"
@@ -215,8 +222,8 @@ class AwaitMerges(unittest.TestCase):
                 return next(views)
             if "diff" in argv:
                 return off_base
-            if argv[:2] == ["gh", "api"]:
-                return json.dumps({"allow_squash_merge": False, "allow_rebase_merge": True, "allow_merge_commit": False})
+            if argv[:3] == ["gh", "api", "graphql"]:
+                return self.graphql(squash=False, rebase=True)
             return ""
 
         def sync(root, retro, branch):
