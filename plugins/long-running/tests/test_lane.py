@@ -676,7 +676,7 @@ def test_his_dashboard_queue_on_a_live_lane_drive_lists_lane_taps_in_queue_order
     assert board.taps(DRIVE) is None
     (store.drive_dir(DRIVE) / store.LIVE).touch()
     assert [(tap["key"], tap["position"]) for tap in board.taps(DRIVE)] == [("acme/app#7", 1), ("acme/app#8", 2)]
-    item = view.lane_tap_item(board.taps(DRIVE)[0], {"pr_cards": []})
+    item = view.lane_tap_item(board.taps(DRIVE)[0], {"pr_cards": []}, None)
     assert (item["kind"], item["key"], item["head"], item["checks"], item["reason"]["label"]) == ("tap", "acme/app#7", "h7", "pass", "Lane #1 in the queue")
 
 

@@ -864,10 +864,9 @@ def tap_item(drive: dict, pr: dict, card: dict | None) -> dict:
     }
 
 
-def lane_tap_item(tap: dict, found: dict) -> dict:
-    """A lane PR waiting on his tap as the queue draws a tap item, on his newest open card showing its head when one carries it."""
-    pr = {"url": tap["url"], "head": tap["head"]}
-    card = head_card(pr, found["pr_cards"])
+def lane_tap_item(tap: dict, found: dict, tracked: dict | None) -> dict:
+    """A lane PR waiting on his tap as the queue draws a tap item, on the card its review entry names, his newest open card showing the head the old drive tracked when it still tracks the PR, else the head GitHub read last, so its answer key matches that entry's and a page's cards and queue links find it."""
+    card = head_card(tracked or {"url": tap["url"], "head": tap["head"]}, found["pr_cards"])
     moved = f"; commits since your Approve: {', '.join(tap['moved'])}" if tap["moved"] else ""
     checks = {"pass": "green", "fail": "red", "pending": "CI running"}[tap["checks"]]
     item = {
@@ -941,7 +940,7 @@ def lane_queue(drive: dict, found: dict, moment: datetime, features: list[dict],
         rank, item["rank_why"] = ranking(drive, item, item["tasks"], urgent, moment, answering.get(item.get("thread")))
         item["reason"] = reason(item, rank, urgent)
         questions.append((rank, item))
-    taps = [lane_tap_item(tap, found) for tap in lane_taps]
+    taps = [lane_tap_item(tap, found, drive["prs"].get(tap["key"])) for tap in lane_taps]
     items = [*(item for item in taps if item["reason"]["tone"] == "bad"), *(item for _, item in sorted(questions, key=lambda entry: entry[0])), *(item for item in taps if item["reason"]["tone"] != "bad")]
     return [item | {"priority": {"rank": position, "answering": False, "incident": item["reason"]["tone"] == "bad", "weight": 0}} for position, item in enumerate(items, 1)]
 
