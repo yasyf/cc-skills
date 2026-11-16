@@ -7397,19 +7397,20 @@ def train_waiting(data: dict, env: str) -> list[str]:
 
 
 def train_lease(data: dict, env: str, job_id: str, moment: datetime) -> bool:
-    """Give a release starting on an env its lease now when no cut or release holds the env and no release waits ahead of it, else mark it waiting there, so the watch starts it once the env frees, ahead of the work queue's next cut, by his ruling that the train goes first between cuts; whether it holds the env now. His priority's or an open incident's release, by jumps_queue, takes the env from a running cut at once, by his ruling that incidents go above everything: the cut's unfinished items wait on that release, their cases counting for nothing, and the cut gets the env back when the release's lease ends, so a fresh worker reruns them from the start."""
+    """Give a release starting on an env its lease now when no cut or release holds the env and no release waits ahead of it, else mark it waiting there, so the watch starts it once the env frees, ahead of the work queue's next cut, by his ruling that the train goes first between cuts; whether it holds the env now. An open incident's release takes the env from a running cut at once, his priority's waiting for the cut to end and then going first, by his ruling that incidents go above everything: the cut's unfinished items wait on that release, their cases counting for nothing, and the cut gets the env back when the release's lease ends, so a fresh worker reruns them from the start."""
     from drive import work
 
     slot = data["slots"].setdefault(env, {"holder": None})
     data["jobs"][job_id]["train"] = env
     cut = slot["holder"]
     first = train_waiting(data, env)[:1] in ([], [job_id])
-    if not first or cut and not (cut.get("work") and jumps_queue(data, job_id)):
+    job = data["jobs"][job_id]
+    if not first or cut and not (cut.get("work") and open_incidents(data, [job["order"], *job["carries"]])):
         return False
     for member in slot_members(slot) if cut else []:
         if data["jobs"][member]["state"] not in FINISHED_JOB_STATES:
             data["jobs"][member]["waits"] = list(dict.fromkeys([*data["jobs"][member]["waits"], job_id]))
-            hold_text(data["jobs"][member], f"{env} went to {job_id}'s release, his priority's or an incident's, which goes above every test: your cases on {env} count for nothing; once that release ends the queue's cut gets {env} back and a fresh worker reruns every case from the start", WATCH_SENDER)
+            hold_text(data["jobs"][member], f"{env} went to {job_id}'s release, an incident's, which goes above every test: your cases on {env} count for nothing; once that release ends the queue's cut gets {env} back and a fresh worker reruns every case from the start", WATCH_SENDER)
     slot["holder"] = leased({"job": job_id, "prs": [], "minutes": work.cut_shape(data)["train_minutes"], "cases": None, "at": stamp(moment), "paths": None, "stacks": None, "starts": True}, moment, []) | {"preempted": cut}
     return True
 
