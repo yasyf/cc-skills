@@ -1480,7 +1480,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         session = os.environ.get("CLAUDE_CODE_SESSION_ID")
         fresh = state.new_job(args.order, args.kind, args.goal, parts, created)
         waits = view.stored_waits(data, [state.job_wait(data, wait, None, fresh) for wait in args.waits], found)
-        held = state.change_job(data, args.order, parts, waits, proving=state.builds_nothing(fresh | given)) if args.kind in state.CHANGE_KINDS and not (lands or args.release) else None
+        held = state.change_job(data, args.order, parts, waits, proving=state.builds_nothing(fresh | given), branch=args.branch, repo=args.repo) if args.kind in state.CHANGE_KINDS and not (lands or args.release) else None
         if refused := (
             state.held_elsewhere(data, args.order, session, bool(args.release))
             or unreleased
@@ -1491,7 +1491,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             or unlandable(data, lands)
             or state.job_wait_refusal(data, args.waits)
             or brief.job_refusal(data, args.order, args.kind, parts, bool(lands or args.release or args.builds_nothing or args.kind == "builder" and args.branch), args.waits)
-            or (held and one_change_job(data, args.order, args.kind, parts, held, waits))
+            or (held and one_change_job(data, args.order, args.kind, parts, held, waits, branch=args.branch, repo=args.repo))
         ):
             raise DriveError(f"refused, no job added: {refused}")
         order["owner"] = order["owner"] or state.session_role(data, session)
@@ -1502,13 +1502,13 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             job.update({field: value for field, value in given.items() if value is not None}, updated=created)
             job["waits"] = list(dict.fromkeys([*job["waits"], *waits]))
             state.deliver(data, job_id, args.order, parts)
-            took.append(f"{job_id} carried {shared} and no worker took it, so this add folded into it, a part having one change job: its goal is this add's and its waits gained this add's")
+            took.append(f"{job_id} carried {shared} and no worker took it, so this add folded into it, a part or branch having one change job: its goal is this add's and its waits gained this add's")
         else:
             job_id = state.next_id(data["jobs"], "j")
             job = data["jobs"][job_id] = fresh | given | {"where": given["where"] or "local", "waits": waits}
             order["jobs"].append(job_id)
         if held and not folds:
-            took.append(state.hand_over(data, held, job_id, args.order, parts, created))
+            took.append(state.hand_over(data, held, job_id, args.order, parts, created, args.branch, args.repo))
         if args.release:
             job["brief_flags"] = (job.get("brief_flags") or {}) | {"release": args.release}
             job["release_pass"] = {"release": args.release, "at": created, "reading": args.reading}
@@ -1625,21 +1625,23 @@ def refuse_a_mark_off_a_builder(kind: str, builds_nothing: bool | None) -> None:
         raise DriveError("--builds-nothing marks a builder that holds no slot of this Mac's builder cap; no other kind of job holds one")
 
 
-def one_change_job(data: dict, order_id: str, kind: str, parts: list[str], held: tuple[str, dict, str], waits: list[str], adds: bool = True) -> str | None:
-    """Why a builder or codex job may not take parts another unfinished one carries, a part having one change job: while that job runs it takes the event itself; parts two such jobs carry name no one job; and drive job set gives no job a part such a job carries, which drive job add hands that job, folding into it while no worker took it and taking those parts from it once it returned, by state.hand_over."""
+def one_change_job(
+    data: dict, order_id: str, kind: str, parts: list[str], held: tuple[str, dict, str], waits: list[str], adds: bool = True, branch: str | None = None, repo: str | None = None, job_id: str | None = None
+) -> str | None:
+    """Why a builder or codex job may not take parts or a branch another unfinished one carries, a part or branch having one change job: while that job runs it takes the event itself; parts or a branch two such jobs carry name no one job; and drive job set gives no job a part or branch such a job carries, which drive job add hands that job, folding into it while no worker took it and taking those parts, or that branch's whole work, from it once it returned, by state.hand_over, as a BUILT line on that branch takes it."""
     held_id, other, shared = held
     carries = f"{held_id} {other['kind']} {other['state']} carries {shared} already"
     if other["state"] == "running" and not state.untaken(other):
         return f'{carries}, so a second {kind} would race it on one change: send it the event with drive job resume {held_id} "<the event>", or stop it with drive job set {held_id} --state stopped before adding the job that replaces it'
     if not adds:
-        return f"{carries}, and a part has one change job: drive job add {kind} --order {order_id} on that part takes its place, or stop it first with drive job set {held_id} --state stopped"
-    second = state.change_job(data, order_id, parts, waits, held_id)
-    return f"{carries}, and {second[0]} {second[1]['kind']} {second[1]['state']} carries {second[2]}: a part has one change job, so name the parts of one of them" if second else None
+        return f"{carries}, and a part or branch has one change job: drive job add {kind} --order {order_id} on that part or branch takes its place, or stop it first with drive job set {held_id} --state stopped"
+    second = state.change_job(data, order_id, parts, [*waits, held_id], job_id, branch, repo)
+    return f"{carries}, and {second[0]} {second[1]['kind']} {second[1]['state']} carries {second[2]}: a part or branch has one change job, so name the parts or branch of one of them" if second else None
 
 
-def refuse_a_second_change_job(data: dict, job_id: str, order_id: str, parts: list[str]) -> None:
+def refuse_a_second_change_job(data: dict, job_id: str, order_id: str, parts: list[str], branch: str | None = None) -> None:
     job = data["jobs"][job_id]
-    if job["kind"] in state.CHANGE_KINDS and (held := state.change_job(data, order_id, parts, job["waits"], job_id, state.builds_nothing(job))):
+    if job["kind"] in state.CHANGE_KINDS and (held := state.change_job(data, order_id, parts, job["waits"], job_id, branch, job["repo"], proving=state.builds_nothing(job))):
         raise DriveError(f"{job_id}: refused, nothing changed: {one_change_job(data, order_id, job['kind'], parts, held, job['waits'], adds=False)}")
 
 
@@ -1689,10 +1691,11 @@ def refuse_a_shared_at_once_part(parts: list[str]) -> None:
 
 
 def job_set(args: argparse.Namespace) -> int:
-    """Change a job; a state it already holds changes nothing, stopped is the one state set by hand, done only on a design a builder carries, and any other --state is refused with nothing changed, since the job's return sets it; --part, --parts and --carries change the parts it delivers and never its state, so a finished job runs again only once drive job launch or resume starts its lane; a --said opening with a result word is refused unless it sets the state the job keeps, since a said line reading DONE on a running job is a result it never returned; a --said keeps on the job what that line answers, by state.keep_waited, as drive job report does, so a WAITING that drops a card no longer leaves the job's PRs blocked on it; an order it carries reworks only the PRs of the job --rework names, and each other open card of his on the job's PRs is named and left up; an agent --agent binds is refused, nothing changed, while a launch starts the job's next lane, by state.launch_in_flight, the rule agents.free applies to an agent's own steps."""
+    """Change a job; a state it already holds changes nothing, stopped is the one state set by hand, which ends the job's lane once saved, by stopped_lane, done only on a design a builder carries, and any other --state is refused with nothing changed, since the job's return sets it; --part, --parts and --carries change the parts it delivers and never its state, so a finished job runs again only once drive job launch or resume starts its lane; a --said opening with a result word is refused unless it sets the state the job keeps, since a said line reading DONE on a running job is a result it never returned; a --said keeps on the job what that line answers, by state.keep_waited, as drive job report does, so a WAITING that drops a card no longer leaves the job's PRs blocked on it; an order it carries reworks only the PRs of the job --rework names, and each other open card of his on the job's PRs is named and left up; an agent --agent binds is refused, nothing changed, while a launch starts the job's next lane, by state.launch_in_flight, the rule agents.free applies to an agent's own steps."""
     name = state.resolve(args.drive)
     known = state.load(name)
     found = find(known["jobs"], args.id, "job")
+    stops = args.state == "stopped"
     already = f"{args.id} is already {found['state']}\n" if args.state == found["state"] else ""
     if already:
         args.state = None
@@ -1730,6 +1733,8 @@ def job_set(args: argparse.Namespace) -> int:
     with state.edit(name) as data:
         job = find(data["jobs"], args.id, "job")
         job.update({field: value for field, value in changes.items() if value is not None})
+        if args.branch:
+            refuse_a_second_change_job(data, args.id, job["order"], [], args.branch)
         if args.card:
             hold_card(job, args.card, shown)
             state.join_card(data, args.id, args.card)
@@ -1788,7 +1793,8 @@ def job_set(args: argparse.Namespace) -> int:
         for line in rework_named_prs(name, order_id, reworks, cards, f"drive job set {args.id} --carries {order_id} --rework <PR>=<his permalink>")
     ]
     stopping = [f"{args.id}'s lane launching since {render.when(job['launching'])} is ended as its worker starts"] if state.launch_in_flight(name, args.id, job) and overtaken(data, job) else []
-    return emit(args, already + render.job_line(data, args.id, job) + "".join(f"\n{line}" for line in [*stopping, *replaced, *reworked]), {"id": args.id, **job})
+    ended = state.after_save(name, lambda: stopped_lane(name, args.id)) if stops else []
+    return emit(args, already + render.job_line(data, args.id, job) + "".join(f"\n{line}" for line in [*stopping, *replaced, *reworked, *ended]), {"id": args.id, **job})
 
 
 def hear_opening(data: dict, job_id: str) -> None:
@@ -2927,7 +2933,13 @@ def take_report(name: str, job_id: str, whole: str) -> tuple[str, dict]:
         return f"{where}\n{job_id} stays stopped: this return sets nothing on it", {"id": job_id, "report": kept, "ask": None, "fixes": [], "builders": []}
     if repro := named_repro(job_id, job, whole):
         job["repro"] = str(repro)
-    if refused := brief.report_refusal(name, data, job_id, whole) or state.result_refusal(data, job_id, line, whole) or brief.overruled_refusal(data, job, whole):
+    built = state.BUILT_LINE.match(line) if job["kind"] in state.CHANGE_KINDS else None
+    if refused := (
+        brief.report_refusal(name, data, job_id, whole)
+        or state.result_refusal(data, job_id, line, whole)
+        or brief.overruled_refusal(data, job, whole)
+        or (built and (held := state.change_job(data, job["order"], [], job["waits"], job_id, built["branch"], job["repo"], proving=state.builds_nothing(job))) and one_change_job(data, job["order"], job["kind"], [], held, job["waits"], branch=built["branch"], repo=job["repo"], job_id=job_id))
+    ):
         raise DriveError(f"{job_id}: refused, nothing kept: {refused}")
     unreached(name, data, state.result_waits(data, job_id, line))
     if job["kind"] == "builder" and state.REPORTED_LINE.match(line) and any(not served.named(cited) for cited in served.deciding(whole)):
@@ -2960,6 +2972,8 @@ def take_report(name: str, job_id: str, whole: str) -> tuple[str, dict]:
         except DriveError as error:
             fixes.append(f"FIX kept, {error}")
     with state.edit(name) as data:
+        held = built and state.change_job(data, job["order"], [], data["jobs"][job_id]["waits"], job_id, built["branch"], job["repo"], proving=state.builds_nothing(job))
+        replaced = [state.hand_over(data, held, job_id, job["order"], [], state.stamp(), built["branch"], job["repo"])] if held else []
         state.take_result(data, job_id, line, whole)
         state.cite_designs(data, job_id, line, whole)
         added = state.add_changes(name, data, job_id, whole)
@@ -2971,11 +2985,11 @@ def take_report(name: str, job_id: str, whole: str) -> tuple[str, dict]:
     told = state.load(name)
     started = render.builder_lines(name, data, added)
     if (taken := told["jobs"][job_id])["said"] and not state.PUSHED_LINE.match(taken["said"]) and not state.agent_lane(told, taken):
-        state.returned(name, told, job_id, "; ".join([taken["said"], *([render.unread([text["words"] for text in taken["undelivered"]])] if taken["undelivered"] else []), *started]))
+        state.returned(name, told, job_id, "; ".join([taken["said"], *replaced, *([render.unread([text["words"] for text in taken["undelivered"]])] if taken["undelivered"] else []), *started]))
     elif started:
         state.returned(name, told, job_id, "; ".join(started))
     shown = f"{where}\n{said}" if said else where
-    shown = "\n".join([shown, *registered, *fixes, *withdrawn, *briefed, *started])
+    shown = "\n".join([shown, *replaced, *registered, *fixes, *withdrawn, *briefed, *started])
     return shown, {"id": job_id, "report": kept, "ask": asked and str(asked), "fixes": fixes, "builders": added}
 
 
@@ -3274,10 +3288,10 @@ def transcript_line(job_id: str, job: dict) -> str | None:
 
 @orca.rides_restarts()
 def job_launch(args: argparse.Namespace) -> int:
-    """Start a job's next worker by the one relaunch launch and resume share, with no message: its first Orca lane, on a Sprite or with --local on this Mac, where a brief declaring a step only this Mac runs on its Mac: or Release: line starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; the next lane of a job whose worker ended or returned its line, with --local moved from its Sprite to this Mac; a lane taking over from an agent on this Mac that stopped or whose session ended; or the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps; never a finished pass of a standing part, which unrun refuses. Given drive job brief's flags, it first writes the job's brief from them by write_brief, so briefing and starting a job is one command and a flag argparse or write_brief refuses starts nothing; refused beside a brief file, which is the brief whole."""
+    """Start a job's next worker by the one relaunch launch and resume share, with no message: its first Orca lane, on a Sprite or with --local on this Mac, where a brief declaring a step only this Mac runs on its Mac: or Release: line starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; the next lane of a job whose worker ended or returned its line, with --local moved from its Sprite to this Mac; a lane taking over from an agent on this Mac that stopped or whose session ended; or the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps; never a finished pass of a standing part, which unrun refuses, nor a stopped job, which unstopped refuses. Given drive job brief's flags, it first writes the job's brief from them by write_brief, so briefing and starting a job is one command and a flag argparse or write_brief refuses starts nothing; refused beside a brief file, which is the brief whole."""
     name = state.resolve(args.drive)
     if named := {flag: value for flag in state.BRIEF_FLAGS if (value := getattr(args, flag, None)) not in (None, [])}:
-        unrun(state.load(name), args.id)
+        unstopped(args.id, unrun(state.load(name), args.id))
         if args.brief:
             flags = ", ".join(f"--{flag.replace('_', '-')}" for flag in named)
             raise DriveError(f"{args.id}: refused, nothing written or started: {args.brief} is its brief whole, which {flags} cannot add a line to: drop the file or the flags")
@@ -3290,12 +3304,13 @@ def job_launch(args: argparse.Namespace) -> int:
 
 
 def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
-    """Start a codex job's codex-ask run on this Mac from this session's folder on the brief file or the job's brief, with each text the job holds under the heading naming its sender and each answer of his it has not heard under His answers since:, by answers_since, kept as the job's brief so the builder that ships its fix reads what it was given, with no agent relaying it, the texts it carries off the job and each answer it carries marked sent, and the run recorded in place of any agent an earlier lane left on the job, so the watch reads this run and never that agent's old turn as its result; the run's folder. Refused as an Agent's start is refused for any other job: while its waits hold, by view.start_refusal, with no brief, or on a brief brief_refusal refuses; codex-ask itself refuses a run while the job's last one still goes."""
+    """Start a codex job's codex-ask run on this Mac from this session's folder on the brief file or the job's brief, with each text the job holds under the heading naming its sender and each answer of his it has not heard under His answers since:, by answers_since, kept as the job's brief so the builder that ships its fix reads what it was given, with no agent relaying it, the texts it carries off the job and each answer it carries marked sent, and the run recorded in place of any agent an earlier lane left on the job, so the watch reads this run and never that agent's old turn as its result; the run's folder. Refused as an Agent's start is refused for any other job: once stopped, by unstopped, while its waits hold, by view.start_refusal, with no brief, or on a brief brief_refusal refuses; codex-ask itself refuses a run while the job's last one still goes."""
     from drive import view
 
     with state.job_locked(name, job_id, orca.LAUNCH_SECONDS):
         data = state.load(name)
         job = data["jobs"][job_id]
+        unstopped(job_id, job)
         if refused := view.start_refusal(data, job_id, True):
             raise DriveError(refused)
         if not (brief_file or job.get("brief")):
@@ -3382,13 +3397,14 @@ def unrun(data: dict, job_id: str) -> dict:
 
 
 def unstopped(job_id: str, job: dict) -> None:
-    """Refuse a resume of a stopped job, read under the job's own lock, sending, holding and starting nothing, so a resume the watch started while the job ran never reaches a lane its stop retired or starts a second writer beside the job that replaced it; drive job launch runs a stopped job again."""
+    """Refuse a launch or resume of a stopped job, read under the job's own lock, sending, holding and starting nothing, so a start the watch began while the job ran never reaches a lane its stop retired or starts a second writer beside the job that replaced it; a new job takes its parts."""
     if job["state"] == "stopped":
-        raise DriveError(f"{job_id}: refused, nothing sent, held or started: it is stopped; drive job launch {job_id} runs it again")
+        parts = "".join(f" --part {shlex.quote(part)}" for part in job["parts"])
+        raise DriveError(f"{job_id}: refused, nothing sent, held or started: it is stopped; drive job add {job['kind']} --order {job['order']}{parts} adds the job that takes its parts")
 
 
 def relaunch(args: argparse.Namespace, name: str, text: str | None, resume: bool) -> int:
-    """The one path launch and resume share, under the job's own lock, so a second waits for the first and acts on the worker it started, a resume with no text carrying the texts the job holds wherever a resume's text goes and saying so when it holds none: a lane whose worker takes messages gets the text, and a launch of a stopped job whose lane's worker still takes messages runs it again in that worker, its next turn started on the mail its Dispatch holds, one whose worker ended starts its next in a handoff, and a lane on a Sprite moves to this Mac by restart whatever its worker is doing when --local asks or declared_step reads a step only this Mac runs, an agent on this Mac that ended with its session, whose last response ended on an API error or refusal, that a launch finds returned while the job holds texts, or whose turn ended while a resume finds this Mac's builder slots full hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, an agent a session of the drive started and still holds gets a resume's text through its cci address and that session's SendMessage by to_starter, or each text the job holds by held_to_starter, and another session's agent refuses a launch, an agent whose session ended hands the job to this one, a resume's text for a builder no worker started that waits its turn for a slot on this Mac is held for the first worker the watch starts as its turn comes, and any other job with no worker yet starts its first."""
+    """The one path launch and resume share, under the job's own lock, so a second waits for the first and acts on the worker it started, each refused for a stopped job by unstopped, a resume with no text carrying the texts the job holds wherever a resume's text goes and saying so when it holds none: a lane whose worker takes messages gets the text, one whose worker ended starts its next in a handoff, and a lane on a Sprite moves to this Mac by restart whatever its worker is doing when --local asks or declared_step reads a step only this Mac runs, an agent on this Mac that ended with its session, whose last response ended on an API error or refusal, that a launch finds returned while the job holds texts, or whose turn ended while a resume finds this Mac's builder slots full hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, an agent a session of the drive started and still holds gets a resume's text through its cci address and that session's SendMessage by to_starter, or each text the job holds by held_to_starter, and another session's agent refuses a launch, an agent whose session ended hands the job to this one, a resume's text for a builder no worker started that waits its turn for a slot on this Mac is held for the first worker the watch starts as its turn comes, and any other job with no worker yet starts its first."""
     here = not resume and args.local
     if here and state.job_lock_held(name, args.id):
         state.said(
@@ -3399,8 +3415,7 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None, resume: bool
     with state.launch_waits(name, args.id) if here else nullcontext(), state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         data = state.load(name)
         job = find(data["jobs"], args.id, "job")
-        if resume:
-            unstopped(args.id, job)
+        unstopped(args.id, job)
         if resume and text is None and not job["undelivered"]:
             return emit(args, f"{args.id} holds no message to send", {"id": args.id, "how": None})
         if lane := starters_lane(data, args.id, job, resume):
@@ -3428,16 +3443,7 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None, resume: bool
                 ) from None
             if end or local or step:
                 return restart(args, name, dispatch, end or live_end(job), None, local, step)
-            if job["state"] != "stopped":
-                raise DriveError(f"{args.id} already started as dispatch {dispatch}, whose worker takes messages: drive job resume {args.id} <the event> sends it one")
-            try:
-                how = orca.woke({**job, "turn_open": False}, f"runs again in dispatch {dispatch}, whose worker takes messages")
-            except orca.OrcaError as error:
-                raise DriveError(f"{args.id}: refused, nothing changed: its worker in dispatch {dispatch} takes messages, but its terminal could not be told it has mail: {error}") from None
-            with state.edit(name) as data:
-                state.start(data["jobs"][args.id])
-                data["jobs"][args.id]["turn_open"] = True
-            return emit(args, f"{args.id} {how}; drive job resume {args.id} <the event> sends it one", {"id": args.id, "how": how})
+            raise DriveError(f"{args.id} already started as dispatch {dispatch}, whose worker takes messages: drive job resume {args.id} <the event> sends it one")
         if text is not None and not job.get("agent") and args.id in (places := place.positions(data)):
             sender = state.held_sender(data)
             with state.edit(name) as data:
@@ -3597,7 +3603,7 @@ def messaged(args: argparse.Namespace, name: str, job: dict, held: list[dict], n
 
 
 def sent_kept(name: str, job_id: str, sent: dict) -> dict:
-    """Keep on the job a held text its live worker took: written to jobs/<j>.sent-<request>.md beside the job's launch texts, dated when it was held, which superseded.hear_start reads whenever an answer of his lists the job later, kept among the texts its workers were given, which the handoff of a worker taking over before the job's next return carries, dropped from the job's held texts, and when Orca queued it in the mailbox of the Dispatch the job still runs on rather than answering the question it asked, kept on its queued list until a mailbox read state.take_mail makes finds it read or holds it again, its worker's turn read open once a lane took it, since its question holds that turn open or orca.woke started it, its question closed when the text answered the one it still asks, each answer of his the text carries marked sent, and the tools on the Sprite tools_on names."""
+    """Keep on the job a held text its live worker took: written to jobs/<j>.sent-<request>.md beside the job's launch texts, dated when it was held, which superseded.hear_start reads whenever an answer of his lists the job later, kept among the texts its workers were given, which the handoff of a worker taking over before the job's next return carries, dropped from the job's held texts, and when Orca queued it in the mailbox of the Dispatch the job still runs on rather than answering the question it asked, kept on its queued list until a mailbox read state.take_mail makes finds it read or holds it again, its worker's turn read open once a lane took it, since its question holds that turn open or orca.woke started it, its question closed when the text answered the one it still asks, the job then running but a stopped one, which stays stopped, by state.run_state, each answer of his the text carries marked sent, and the tools on the Sprite tools_on names."""
     given_text = state.drive_dir(name) / "jobs" / f"{job_id}.sent-{sent['request']}.md"
     given_text.write_text(sent["words"])
     held = state.parse_time(sent["at"]).timestamp()
@@ -3605,7 +3611,7 @@ def sent_kept(name: str, job_id: str, sent: dict) -> dict:
     with state.edit(name) as data:
         fresh = data["jobs"][job_id]
         if fresh.get("ask") == sent["ask"]:
-            fresh.update(ask=None, state="running")
+            fresh.update(ask=None, state=state.run_state(fresh))
         fresh.update(
             updated=state.stamp(),
             undelivered=[left for left in fresh["undelivered"] if left["request"] != sent["request"]],
@@ -3639,7 +3645,7 @@ def unsent(args: argparse.Namespace, name: str, job: dict, held: list[dict], err
 
 
 def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: str | None, died: str | None) -> dict:
-    """Start a job's first lane, briefed as drive job brief writes it when none was, or one taking over from an agent on this Mac that stopped, returned while the job holds texts, or that another session started and ended with, with the text in its handoff when a resume brought one, and, by answers_since, each text the job holds under the heading naming its sender and each answer of his it has not heard under His answers since: whose words its brief lacks; any lane starts on this Mac when its brief declares a step only this Mac runs, by place.mac_step over that brief alone, whoever launches it and with no --local, never the report, held texts or text its handoff adds, and one crowded_here refuses at this Mac's cap holds the text and waits its turn on builder-slot; a lane on this Mac starts in the worktree orca.pr_holder finds holding the branch of the job's open PR, its handoff naming it. Once nothing refuses it the job is stamped as launching, which the watch reads as starting, never as not started or waiting on nothing, until record_start runs it on its worker's receipt; a takeover keeps its agent, dispatch, where, state, line and waits, the resume's text held by state.hold_text, until that receipt hands the job to the lane, so a launch that starts no worker leaves the job to its agent, whose next resume takes it over again, never a job reading never started that view.start_refusal holds on its own PR."""
+    """Start a job's first lane, briefed as drive job brief writes it when none was, or one taking over from an agent on this Mac that stopped, returned while the job holds texts, or that another session started and ended with, with the text in its handoff when a resume brought one, and, by answers_since, each text the job holds under the heading naming its sender and each answer of his it has not heard under His answers since: whose words its brief lacks; any lane starts on this Mac when its brief declares a step only this Mac runs, by place.mac_step over that brief alone, whoever launches it and with no --local, never the report, held texts or text its handoff adds, and one crowded_here refuses at this Mac's cap holds the text and waits its turn on builder-slot; a lane on this Mac starts in the worktree orca.pr_holder finds holding the branch of the job's open PR, its handoff naming it. A stop that landed while it was briefed refuses it by unstopped, read again in the edit that stamps it launching, so no worker starts; once nothing refuses it the job is stamped as launching, which the watch reads as starting, never as not started or waiting on nothing, until record_start runs it on its worker's receipt; a takeover keeps its agent, dispatch, where, state, line and waits, the resume's text held by state.hold_text, until that receipt hands the job to the lane, so a launch that starts no worker leaves the job to its agent, whose next resume takes it over again, never a job reading never started that view.start_refusal holds on its own PR."""
     from drive import stage, view
 
     data = state.load(name)
@@ -3678,6 +3684,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         raise DriveError(f"{job_id}: refused, not launched: {refused}")
     with state.edit(name) as data:
         job = data["jobs"][job_id]
+        unstopped(job_id, job)
         job.update(route=state.LOCAL_ROUTE if local else None, launching=state.stamp(), researched=brief.research_links(data, job, written))
         if not (taker or died):
             job.update(where="remote", waits=[wait for wait in view.holding(data, job["waits"], None) if wait != state.SLOT_WAIT])
@@ -4068,6 +4075,15 @@ def job_end(args: argparse.Namespace) -> int:
     with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         line, ended = end_lane(name, args.id)
     return emit(args, line, ended)
+
+
+def stopped_lane(name: str, job_id: str) -> list[str]:
+    """End the lane of a job a stop set stopped, by end_lane under the job's own lock, so a launch or resume starting its next worker as the stop landed records that worker first and its lane is the one ended, so no stopped job's worker runs on; nothing for a job no Orca lane runs or whose lane an end already ended."""
+    with state.job_locked(name, job_id, orca.LAUNCH_SECONDS):
+        job = state.load(name)["jobs"][job_id]
+        if not job.get("dispatch") or state.lane_ended(job):
+            return []
+        return [end_lane(name, job_id)[0]]
 
 
 def end_lane(name: str, job_id: str) -> tuple[str, dict]:
@@ -6177,8 +6193,8 @@ def parser() -> argparse.ArgumentParser:
         "add",
         parents=both,
         help=(
-            "start a job on an order's parts and print its id; a builder or codex job on a part another unfinished one carries goes to"
-            " that one, a part having one change job outside an incident, a builder landing or releasing what is built and the change waiting on that one aside: refused while it runs, folded into it while no worker took it,"
+            "start a job on an order's parts and print its id; a builder or codex job on a part, or a --branch of its repo, another unfinished one carries goes to"
+            " that one, a part or branch having one change job outside an incident, a builder landing or releasing what is built and the change waiting on that one aside: refused while it runs, folded into it while no worker took it,"
             " and replacing it, its PRs taken and it stopped, once it returned"
         ),
     )
@@ -6246,9 +6262,9 @@ def parser() -> argparse.ArgumentParser:
         " either dispatch records the Run, Task, terminal, lane and Sprite or Mac Orca shows for it",
     )
     verb.add_argument(
-        "--state", choices=state.JOB_STATES, help="stopped: it ends unfinished; every other state comes from the line the job returns, and one it holds changes nothing"
+        "--state", choices=state.JOB_STATES, help="stopped: it ends unfinished, under its own lock, and its lane on a Sprite ends as drive job end ends one; every other state comes from the line the job returns, and one it holds changes nothing"
     )
-    verb.add_argument("--branch", help="the pushed branch it works or built on")
+    verb.add_argument("--branch", help="the pushed branch it works or built on, refused for a builder or codex job while another unfinished one works that branch of its repo")
     verb.add_argument("--said", help="its latest line")
     verb.add_argument("--due", help="its clock: when it must have returned, said once as DUE if it still runs then, a time or +10m")
     verb.add_argument("--repro", help="the job's pick-up-and-run reproduction file, kept in the drive")
@@ -6420,7 +6436,8 @@ def parser() -> argparse.ArgumentParser:
         description=(
             "A job returns one line; the rest of its return, the inputs to what he would be told, one fact a line,"
             " is kept here before it returns, piped in on stdin. With -, keep stdin in the job's history, which is its report,"
-            " set its state and said line from its first line, and print where; with nothing, print the returns the job took,"
+            " set its state and said line from its first line, and print where; a builder's or codex job's BUILT on a branch of its repo another unfinished"
+            " change job works is refused while that job runs and otherwise replaces it, as drive job add --branch on that branch does; with nothing, print the returns the job took,"
             " its own agent's, its lane's and anyone else's, newest first, the newest whole and each earlier one as its first line."
         ),
     )
@@ -6461,7 +6478,8 @@ def parser() -> argparse.ArgumentParser:
             " and the job is recorded as this session's lane. A codex job starts no worker: its codex-ask run starts here with"
             " --dispatch on its brief and --schema holding its final message to a state, line and report, which the watch takes as its"
             " return once the run ends. A finished pass of a standing part is refused, writing and starting nothing, naming the"
-            " part's live pass or when the watch starts its next, since the watch alone starts each pass of one. It takes every"
+            " part's live pass or when the watch starts its next, since the watch alone starts each pass of one. A stopped job is refused"
+            " the same way, starting nothing: drive job add on its parts adds the job that takes them. It takes every"
             " drive job brief flag and writes the brief from them as that verb does before it starts anything, so a flag argparse"
             " or the brief's checks refuse starts no worker; with none it starts on the brief the job holds."
         ),
@@ -6486,7 +6504,7 @@ def parser() -> argparse.ArgumentParser:
             "Answer a remote lane's question, or send it the next event, once Orca shows its worker alive, by the one relaunch drive"
             " job launch shares, under the job's own lock, so a resume arriving while another starts the job's next worker waits"
             " for it, about 150 s, and sends that worker the text; one that finds the job stopped once it holds that lock exits 2,"
-            " sending, holding and starting nothing, and drive job launch runs a stopped job again. A finished pass of a standing"
+            " sending, holding and starting nothing, as drive job launch refuses one. A finished pass of a standing"
             " part is refused the same way, naming the part's live pass or when the watch starts its next, which carries the texts"
             " and answers that pass holds, since the watch alone starts each pass of one. One that finds another verb holding that lock while Orca cannot reach the lane's Sprite exits 2 at once, sending and holding nothing, rather than wait up to 1800 s behind a wake of that Sprite, and names drive job launch --local; one holding the lock while a drive job launch --local waits for it stands down, exiting 2 before it wakes, sends or starts anything, the texts the job holds left for that launch's handoff. An agent on this Mac whose last response ended on an API error or"
             " a refusal hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, with a handoff carrying the job's brief and this text. When its "

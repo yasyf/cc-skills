@@ -1682,7 +1682,7 @@ def test_the_watch_holds_a_stopped_agents_job_until_the_session_holding_it_has_a
 SAFEGUARDED_SAID = f'stopped by its model\'s safeguards: "{render.cut(STOPPED_TEXT, 100)}"; the notice went to him and nothing restarts it'
 SAFEGUARDED_LINE = (
     "LANE j1 o1 stopped by its model's safeguards: the watch set it stopped, restarts nothing and sent Claude Code's notice to him, as it asks;"
-    " drive job launch j1 runs it again only on his word"
+    " only on his word does drive job add builder --order o1 on its parts add the job that takes its work"
 )
 
 
@@ -4359,9 +4359,87 @@ def test_a_resume_that_takes_the_jobs_lock_after_the_job_stopped_reads_wakes_sen
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"a stopped job is sent nothing: {args}"))
     monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a resume starts no worker for a stopped job"))
     assert cli.main(["job", "resume", "j1", *filter(None, [text])]) == 2
-    assert "j1: refused, nothing sent, held or started: it is stopped; drive job launch j1 runs it again" in capsys.readouterr().err
+    assert "j1: refused, nothing sent, held or started: it is stopped; drive job add builder --order o1 --part 'Short title' adds the job that takes its parts" in capsys.readouterr().err
     job = state.load(remote)["jobs"]["j1"]
     assert (job["state"], job["dispatch"], job["undelivered"], job.get("deaths", [])) == ("stopped", DISPATCH, [], [])
+
+
+@pytest.mark.parametrize("flags", [[], ["--done-when", "merged and installed"]])
+def test_a_launch_of_a_stopped_job_reads_wakes_writes_and_starts_nothing_naming_the_add_that_takes_its_parts(
+    remote: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], flags: list[str]
+) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="stopped", said="handed to j2", workspace="pool-txgdh6qfdwhn72iy")
+    brief = state.load(remote)["jobs"]["j1"].get("brief")
+    monkeypatch.setattr(orca, "worker", lambda dispatch: pytest.fail("a stopped job's lane is never read"))
+    monkeypatch.setattr(orca, "reclaimer", lambda *args: pytest.fail("a stopped job's Sprite is never woken"))
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a launch starts no worker for a stopped job"))
+    assert cli.main(["job", "launch", "j1", *flags]) == 2
+    assert "j1: refused, nothing sent, held or started: it is stopped; drive job add builder --order o1 --part 'Short title' adds the job that takes its parts" in capsys.readouterr().err
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["state"], job["dispatch"], job.get("brief")) == ("stopped", DISPATCH, brief)
+
+
+def test_a_stop_ends_the_lane_a_launch_holding_the_jobs_lock_started_as_it_landed_and_the_job_stays_stopped(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, remote)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="waiting", workspace="pool-one", launching=state.stamp())
+    started = {"run": FRESH_RUN, "dispatch": "ctx_lane0002", "task": "task_2", "terminal": "term_lane", "workspace": "pool-one", "environment": "pool-one", "lane": "demo-j1", "sprite_config": SPRITE_CONFIG}
+    locked = state.job_locked
+
+    def launched_on_the_way(name: str, job_id: str, seconds: float):
+        cli.record_start(name, job_id, started, None)
+        return locked(name, job_id, seconds)
+
+    reclaimed = []
+    monkeypatch.setattr(state, "job_locked", launched_on_the_way)
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: pytest.fail("a stopped job's Sprite is ended, not saved for a next lane"))
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: reclaimed.append((run_id, dispatch)) or f"destroyed pool-one dispatch {dispatch}")
+    code, out = run("job", "set", "j1", "--state", "stopped")
+    assert (code, out.endswith("destroyed pool-one dispatch ctx_lane0002\nj1's lane ended; j1 stays stopped")) == (0, True)
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["state"], job["dispatch"], reclaimed, state.lane_ended(job)) == ("stopped", "ctx_lane0002", [(FRESH_RUN, "ctx_lane0002")], True)
+
+
+def test_a_stop_that_lands_while_a_first_launch_is_briefed_refuses_it_before_any_worker_starts(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cloned(tmp_path, demo)
+    (tmp_path / "brief.md").write_text("Order (his words): ship it\nResearched: j0\nDrive: demo, order o1, job j1\n")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    uncarried = orca.uncarried
+
+    def stopped_while_briefed(drive: str, job_id: str, brief: str) -> str | None:
+        with state.edit(drive) as data:
+            data["jobs"][job_id]["state"] = "stopped"
+        return uncarried(drive, job_id, brief)
+
+    monkeypatch.setattr(orca, "uncarried", stopped_while_briefed)
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("no worker starts for a job stopped while its launch was briefed"))
+    assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
+    assert "j1: refused, nothing sent, held or started: it is stopped; drive job add builder --order o1 --part 'Short title' adds the job that takes its parts" in capsys.readouterr().err
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["state"], job.get("launching"), job.get("dispatch")) == ("stopped", None, None)
+
+
+def test_a_stop_that_lands_while_a_resume_sends_its_text_keeps_the_job_stopped(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(SPRITE_LANE, task="task_sprite", terminal="term_sprite", tools_on="pool-sprite-one")
+    monkeypatch.setattr(orca, "worker", lambda dispatch: SPRITE_WORKER)
+
+    def stopped_as_sent(*args: str) -> dict:
+        with state.edit(remote) as data:
+            data["jobs"]["j1"]["state"] = "stopped"
+        return {}
+
+    monkeypatch.setattr(orca, "call", stopped_as_sent)
+    assert run("job", "resume", "j1", "PR checks failed") == (0, f"j1: {queued(SPRITE_DISPATCH)}")
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["state"], job["undelivered"]) == ("stopped", [])
 
 
 def test_the_watch_records_the_death_of_a_lane_whose_job_stopped_since_its_pass_read_it_and_starts_no_resume(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -6992,21 +7070,6 @@ def test_end_holds_each_text_its_workers_mailbox_shows_unread_for_the_next_lane_
     assert run("job", "end", "j1") == (0, f"destroyed pool-sprite-one dispatch {SPRITE_DISPATCH}\nj1's lane ended; j1 stays waiting")
     job = state.load(remote)["jobs"]["j1"]
     assert (job["queued"], [(kept["words"], kept["sender"]) for kept in job["undelivered"]]) == ([], [(J92_HELD, "coordinator")])
-
-
-def test_launch_runs_a_stopped_job_again_in_its_sprite_lane_whose_worker_still_takes_messages_and_starts_its_turn_on_the_mail_it_holds(
-    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    sends = terminal_sends(monkeypatch)
-    monkeypatch.setattr(orca, "worker", lambda dispatch: SPRITE_WORKER)
-    with state.edit(remote) as data:
-        data["jobs"]["j1"].update(SPRITE_LANE, state="stopped", said="stopped by hand", turn_open=False, queued=queued_texts(J92_HELD))
-    assert run("job", "launch", "j1") == (
-        0,
-        f"j1 runs again in dispatch {SPRITE_DISPATCH}, whose worker takes messages, and typed into its terminal term_sprite that it has mail; drive job resume j1 <the event> sends it one",
-    )
-    job = state.load(remote)["jobs"]["j1"]
-    assert (job["state"], job["turn_open"], sends) == ("running", True, typed_on_sprite(orca.MAIL))
 
 
 def j3495_prompt(state_now: str, **overrides: str) -> dict:

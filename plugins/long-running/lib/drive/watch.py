@@ -3372,7 +3372,7 @@ def wake_lines(watcher: Watcher, idle: dict[str, tuple[dict, dict]], moment: dat
 
 
 def safeguard_lines(watcher: Watcher, refusals: dict[str, dict], moment: datetime) -> list[str]:
-    """Pass Claude Code's notice on each stop a model's safeguards made of a running job's agent or lane to him in one POST report each, as the notice asks, then set each job stopped, so nothing resumes, relaunches or restarts it or does its work and only `drive job launch` on his word runs it again; a post that fails leaves its jobs running, so the next read posts them again, said from its third failure in a row."""
+    """Pass Claude Code's notice on each stop a model's safeguards made of a running job's agent or lane to him in one POST report each, as the notice asks, then set each job stopped, so nothing resumes, relaunches or restarts it or does its work and only `drive job add` on his word adds the job that takes its work; a post that fails leaves its jobs running, so the next read posts them again, said from its third failure in a row."""
     if not refusals:
         return []
     data = state.load(watcher.name)
@@ -3386,7 +3386,7 @@ def safeguard_lines(watcher: Watcher, refusals: dict[str, dict], moment: datetim
             data["jobs"][job_id].update(state="stopped", said=f'{SAFEGUARDED}: "{cut(agents.notice(turn), 100)}"; the notice went to him and nothing restarts it', updated=state.stamp(moment))
     return [
         f"LANE {job_id} {data['jobs'][job_id]['order']} {SAFEGUARDED}: the watch set it stopped, restarts nothing and sent Claude Code's notice to him, as it asks;"
-        f" drive job launch {job_id} runs it again only on his word"
+        f" only on his word does drive job add {data['jobs'][job_id]['kind']} --order {data['jobs'][job_id]['order']} on its parts add the job that takes its work"
         for job_id in refusals
     ]
 
