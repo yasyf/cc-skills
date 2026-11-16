@@ -2306,11 +2306,11 @@ def told(job: dict, words: list[str]) -> None:
 
 
 def went(name: str, data: dict, job_id: str, texts: list[dict], how: str) -> None:
-    """Write the TEXT_WENT event the watch hearing a job says for each of these texts the drive told its sender it held, by drive job resume's held line or the watch's ANSWER undelivered line, as it goes to a worker, how it went, so a sender told a text waits hears when it goes."""
+    """Write the TEXT_WENT event the watch hearing a job says for each of these texts the drive told its sender it held, by drive job resume's held line or the watch's ANSWER undelivered line, as it goes to a worker, how it went, so a sender told a text waits hears when it goes; once the write saying it went saves, by after_save."""
     job = data["jobs"][job_id]
-    for kept in texts:
-        if kept.get("said"):
-            append_event(name, TEXT_WENT, job=job_id, order=job["order"], words=kept["words"], held=kept["at"], how=how, lane=heard_job_lane(data, job))
+    events = [{"job": job_id, "order": job["order"], "words": kept["words"], "held": kept["at"], "how": how, "lane": heard_job_lane(data, job)} for kept in texts if kept.get("said")]
+    if events:
+        after_save(name, lambda: [append_event(name, TEXT_WENT, **event) for event in events] and [])
 
 
 def hand_held(data: dict, job_id: str, into: str) -> None:

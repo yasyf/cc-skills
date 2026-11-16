@@ -3236,7 +3236,7 @@ def take_report(name: str, job_id: str, whole: str, judged: bool = True) -> tupl
             fixes.append(f"FIX kept, {error}")
     changed = [state.whole_order(found["change"]) for found in state.change_lines(job["kind"], whole)] if job["kind"] in ("design", "builder") else []
     removing = brief.removed_parts(state.load(name), job["order"], changed)
-    with state.edit(name) as data:
+    def reported(data: dict):
         held = built and state.change_job(data, job["order"], [], data["jobs"][job_id]["waits"], job_id, built["branch"], job["repo"], proving=state.builds_nothing(job))
         replaced = [state.hand_over(data, held, job_id, job["order"], [], state.stamp(), built["branch"], job["repo"])] if held else []
         state.take_result(data, job_id, line, whole)
@@ -3245,6 +3245,8 @@ def take_report(name: str, job_id: str, whole: str, judged: bool = True) -> tupl
         rebriefed = brief.unstarted_builders(data, job_id) if job["kind"] == "reader" and data["jobs"][job_id]["state"] == "done" else []
         brief.name_goals(name, data, rebriefed, whole)
         moved_on = superseded.moved_on(data, job_id, whole, asked and str(asked))
+        return data, replaced, added, rebriefed, moved_on
+    data, replaced, added, rebriefed, moved_on = state.update(name, None, reported)
     withdrawn = [*state.after_save(name, lambda: superseded.follow(name, moved_on, "that its work went on without it")), *redraws(data, moved_on)] if moved_on else []
     briefed = state.after_save(name, lambda: [f"{builder_id}: {write_brief(name, builder_id, {})[0]}" for builder_id in rebriefed])
     told = state.load(name)
@@ -3506,13 +3508,17 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         written.write_text(text)
         return []
 
-    with state.edit(name) as data:
+    def briefed(data: dict) -> bool | None:
         if data["jobs"][job_id].get("brief_flags") != over:
             return None
         state.after_save(name, kept)
         data["jobs"][job_id].update(brief=str(written), brief_flags=flags, researched=brief.research_links(data, data["jobs"][job_id], text))
         if given := bool(brief.SERVES_TOOLING.search(text)) and data["orders"][job["order"]]["owner"] != "meta":
             data["orders"][job["order"]]["owner"] = "meta"
+        return given
+
+    if (given := state.update(name, None, briefed)) is None:
+        return None
     line = f"Read your brief first: {written}\nhis words from {', '.join([job['order'], *job['carries']])}, rulings: {len(rulings)}, earlier jobs: {len(earlier)}"
     if given:
         line += (
@@ -3899,8 +3905,7 @@ def hold(name: str, job_id: str, text: str, sender: str | None) -> None:
 def hold_unread(name: str, job_id: str, lane: dict) -> list[str]:
     """Hold on the job each text the lane's ended worker never read, read by orca.mailbox from the Orca that keeps that worker's Dispatch mailbox, since Orca shows a finished worker none of its mail and a relaunch carries only what the job holds, so the job's next worker gets each as any held text gets there, and take off the job's queued list each text that mailbox shows read or holds, by state.take_mail; the texts held that the job did not hold already. The lane is the job as the watch read it with that worker, so a relaunch since then never has its live worker's mail held. OrcaError when that mailbox cannot be read."""
     box = orca.mailbox(lane, lane["dispatch"])
-    with state.edit(name) as data:
-        return state.take_mail(data["jobs"][job_id], box, True)
+    return state.update(name, None, lambda data: state.take_mail(data["jobs"][job_id], box, True))
 
 
 def deliver(args: argparse.Namespace, name: str, text: str | None = None) -> int:
@@ -3979,7 +3984,7 @@ def sent_kept(name: str, job_id: str, sent: dict) -> dict:
     given_text.write_text(sent["words"])
     held = state.parse_time(sent["at"]).timestamp()
     os.utime(given_text, (held, held))
-    with state.edit(name) as data:
+    def sent_kept_write(data: dict):
         fresh = data["jobs"][job_id]
         if fresh.get("ask") == sent["ask"]:
             fresh.update(ask=None, state=state.run_state(fresh))
@@ -3996,6 +4001,9 @@ def sent_kept(name: str, job_id: str, sent: dict) -> dict:
         if "tools_on" in sent:
             fresh["tools_on"] = sent["tools_on"]
         superseded.hear(data, job_id, sent["words"], state.parse_time(sent["at"]))
+        return fresh
+
+    fresh = state.update(name, None, sent_kept_write)
     return fresh
 
 
@@ -4155,7 +4163,7 @@ def launch_brief(name: str, job_id: str, job: dict) -> Path:
 
 def record_start(name: str, job_id: str, started: dict | None, handoff: str | None, text: str | None = None) -> dict:
     """Record a started worker's receipt on its job, the job on that worker's Orca lane in place of any agent a takeover started it from, its turn open until the watch takes that worker's worker_done or escalation, with the handoff a relaunch started it on, else the launch's brief, the Sprite its start put the tools on, the cc-remote config that Sprite was made from, none of the texts it held or queued in its last worker's mailbox, which that handoff or brief carries, each of those and the text given kept among the texts its workers were given beside those given since the job's last return, so a handoff taking over from this worker before the job's next return carries them, the question its last worker asked handed on by state.start, and the job sent each answer of his whose words that handoff or brief holds, or with no receipt clear the launching mark of a launch whose worker never started; a worker its job already records changes nothing."""
-    with state.edit(name) as data:
+    def record_start_write(data: dict):
         job = data["jobs"][job_id]
         if started is None:
             job["launching"] = None
@@ -4168,6 +4176,9 @@ def record_start(name: str, job_id: str, started: dict | None, handoff: str | No
             job.update(started, handoff=handoff, given=given, undelivered=[], queued=[], report=None, tools_on=started["workspace"], turn_open=not started.get("bg"))
             state.start(job)
             superseded.hear_start(data, job_id)
+        return job
+
+    job = state.update(name, None, record_start_write)
     return job
 
 
