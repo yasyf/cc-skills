@@ -242,8 +242,12 @@ def admission(data: dict, job_id: str | None, where: str, moment: datetime) -> s
 
 
 @contextlib.contextmanager
-def waited_turn(name: str, waiting: Callable[[], None]) -> Iterator[None]:
-    """Hold this Mac's admission lock once it admits a new local Claude lane of the drive, by admission, calling waiting and reading again every TURN_SECONDS while it does not, so the start in the body waits its turn rather than failing, and drop the kept count once it started."""
+def waited_turn(name: str, waiting: Callable[[], None], exempt: bool = False) -> Iterator[None]:
+    """Hold this Mac's admission lock once it admits a new local Claude lane of the drive, by admission, calling waiting and reading again every TURN_SECONDS while it does not, so the start in the body waits its turn rather than failing, and drop the kept count once it started; an exempt start, a handler answering a message of his, runs at once."""
+    if exempt:
+        yield
+        counted_again()
+        return
     while True:
         with admitting():
             if not admission(state.load(name), None, "local", state.now()):
