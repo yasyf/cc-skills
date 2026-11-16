@@ -11,6 +11,25 @@ python=(uv run --no-project --quiet --python 3.13 --with pytest --with pytest-ti
 "$plugin/tools/typecheck"
 
 "${python[@]}" - "$plugin" <<'EOF'
+import re
+import sys
+from pathlib import Path
+
+plugin = Path(sys.argv[1])
+sys.path.insert(0, str(plugin / "lib"))
+from drive import cli
+
+called = re.compile(r'page_parts\(\(PAGES / "([^"]+)"\)\.read_text\(\), "([^"]+)"\)')
+reads = {found for source in [*(plugin / "lib" / "drive").glob("*.py"), *(plugin / "hooks").glob("*.py")] for found in called.findall(source.read_text())}
+if not reads:
+    raise SystemExit("smoke: no page_parts read of a shipped page found; the pattern this check reads has drifted from the code")
+missing = [f"{page} has no part {words!r}" for page, words in sorted(reads) if not cli.page_parts((cli.PAGES / page).read_text(), words)]
+if missing:
+    raise SystemExit("smoke: code reads a part its shipped page lacks:\n" + "\n".join(missing))
+print(f"smoke: each of {len(reads)} page parts the code reads is in its shipped page")
+EOF
+
+"${python[@]}" - "$plugin" <<'EOF'
 import argparse
 import contextlib
 import importlib
