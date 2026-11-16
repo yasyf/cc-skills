@@ -195,7 +195,7 @@ RETURN_WAIT = re.compile(r"(?P<job>j\d+)@(?P<returned>\d+)")
 LINE_JOB = re.compile(r"(?<![\w:/.-])j\d+(?![\w@-])")
 LINE_ORDER = re.compile(r"(?<![\w:/.-])o\d+(?![\w:@-])")
 SLOT_WAIT = "builder-slot"
-USAGE_LIMIT_FILE = "claude-usage-limit.json"
+USAGE_LIMIT_LOG = "claude-usage-limits.jsonl"
 USAGE_LIMIT = re.compile(r"You've hit your (?P<limit>\w+) limit · resets (?P<resets>.+?) \((?P<zone>[^)]+)\)")
 LIMIT_RESET = re.compile(r"(?:(?P<day>[A-Z][a-z]{2} \d{1,2}) at )?(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?P<half>am|pm)")
 HOLDS_NOW = "## Holds now"
@@ -407,19 +407,11 @@ def home_root() -> Path:
     return Path.home() / ".local" / "state" / "long-running"
 
 
-def usage_limit_path() -> Path:
-    return root() / USAGE_LIMIT_FILE
-
-
-def keep_usage_limit(notice: str, moment: datetime) -> bool:
-    """Keep, for every drive on this Mac, the Claude Code usage limit a session's stop notice names, such as "You've hit your weekly limit · resets Nov 17 at 11pm (America/Los_Angeles)", with the moment it resets; False when the notice names none."""
+def usage_limit_hit(notice: str, moment: datetime) -> dict | None:
+    """The Claude Code usage limit a session's stop notice names, such as "You've hit your weekly limit · resets Nov 17 at 11pm (America/Los_Angeles)": its kind, the moment it resets and the notice, with the moment of the stop; None when the notice names none."""
     if not (found := USAGE_LIMIT.search(notice)):
-        return False
-    until = limit_reset(found["resets"], ZoneInfo(found["zone"]), moment)
-    path = usage_limit_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"limit": found["limit"], "until": stamp(until), "notice": found[0], "at": stamp(moment)}))
-    return True
+        return None
+    return {"limit": found["limit"], "until": stamp(limit_reset(found["resets"], ZoneInfo(found["zone"]), moment)), "notice": found[0], "at": stamp(moment)}
 
 
 def limit_reset(resets: str, zone: ZoneInfo, moment: datetime) -> datetime:
@@ -434,13 +426,21 @@ def limit_reset(resets: str, zone: ZoneInfo, moment: datetime) -> datetime:
     return at if at > here else at + timedelta(days=1)
 
 
-def usage_limit(moment: datetime) -> dict | None:
-    """The Claude Code usage limit sessions on this Mac hit, while it has not reset: its kind, when it resets, and the notice naming it."""
-    path = usage_limit_path()
-    if not path.is_file():
-        return None
-    held = json.loads(path.read_text())
-    return held if parse_time(held["until"]) > moment else None
+def keep_limit_hit(names: list[str], session: str, cwd: str, hit: dict) -> str | None:
+    """Keep a session's stop on a usage limit, with whether Escape dismissed the dialog it drew in its terminal: a line of the usage-limit log every drive on this Mac shares, since they share one account, and, on the job whose lane on this Mac runs in the session's worktree, a hit beside the others it met, which neither fails nor relaunches it; that job, or None for a session no job's lane runs, such as a role's."""
+    job_id = None
+    for name in names:
+        with edit(name) as data:
+            job_id = next((found for found, job in data["jobs"].items() if job.get("worktree") == cwd and job["state"] not in FINISHED_JOB_STATES), None)
+            if job_id:
+                data["jobs"][job_id].setdefault("limit_hits", []).append(hit)
+        if job_id:
+            break
+    log = root() / USAGE_LIMIT_LOG
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with log.open("a") as kept:
+        kept.write(json.dumps(hit | {"session": session, "cwd": cwd, "drive": names[0] if names else None, "job": job_id}) + "\n")
+    return job_id
 
 
 def scratch() -> bool:

@@ -906,6 +906,18 @@ def named_once(posted: list[str]) -> list[str]:
     return kept
 
 
+def limit_hit(payload: dict) -> dict | None:
+    """The usage limit a stop of a session on this Mac met, by state.usage_limit_hit on the notice Claude Code wrote as its last response; None for any other stop and on a Sprite, whose lane runs on its own key."""
+    if os.environ.get(state.REMOTE_LANE_ENV):
+        return None
+    last = next((row for row in reversed(tail(Path(payload["transcript_path"]))) if row["type"] in ("user", "assistant")), {})
+    return state.usage_limit_hit(notice(last), state.now()) if last else None
+
+
+def keep_limit_hit(payload: dict, hit: dict) -> str | None:
+    return state.keep_limit_hit(state.session_drives(payload["session_id"]), payload["session_id"], payload["cwd"], hit)
+
+
 def resume(payload: dict) -> str | None:
     names = state.session_drives(payload["session_id"])
     if not names and not os.environ.get(state.REMOTE_LANE_ENV):
@@ -917,8 +929,6 @@ def resume(payload: dict) -> str | None:
         if "handler_session" in handler:
             end_handler(handler | {"last_assistant_message": notice(last)}, lambda _: None)
         return None
-    if not os.environ.get(state.REMOTE_LANE_ENV):
-        state.keep_usage_limit(notice(last), state.now())
     tries = resumes(rows)
     if tries >= len(OUTAGE_WAITS):
         if "handler_session" in handler:

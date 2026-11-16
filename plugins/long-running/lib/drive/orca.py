@@ -119,6 +119,10 @@ CHECKOUT_SECONDS = 600
 CHECKOUT_WAIT = 300
 CHECKOUT_FRESH = 60
 CHECKOUT_MOVED = ".checkout.moved"
+LIMIT_DIALOG = "Add funds to continue with usage credits"
+ESCAPE = "\x1b"
+LIMIT_DIALOG_READS = 15
+LIMIT_DIALOG_SECONDS = 2
 SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
@@ -306,6 +310,18 @@ def type_prompt(terminal: str, text: str, *served: str) -> None:
     """Type a one-line prompt into a Claude Code session's terminal, through the Orca that served names when that terminal is on a Sprite, and submit it as two writes, the text and then Enter, which Orca takes whatever it reads of the pane, since it refuses one write of both as agent_prompt_blocked on a pane it reads as showing a permission prompt, as it reads a lane's API error; a drive lane runs with every permission granted and no question tool, so no prompt shows that the Enter could answer."""
     request("terminal", "send", *served, "--terminal", terminal, "--text", text)
     request("terminal", "send", *served, "--terminal", terminal, "--enter")
+
+
+def dismiss_limit_dialog() -> bool:
+    """Dismiss Claude Code's usage-limit dialog in this session's own Orca terminal with Escape alone, once it draws, which keeps the session working on paid usage, by his words "Keep working on paid usage"; never one of its options, since "if u answer it with the paid limit it makes you log in again". False outside an Orca terminal or when no dialog drew within LIMIT_DIALOG_READS reads."""
+    if not (handle := own_terminal()):
+        return False
+    for _ in range(LIMIT_DIALOG_READS):
+        if LIMIT_DIALOG in "\n".join(request("terminal", "read", "--terminal", handle, "--screen")["terminal"]["tail"]):
+            request("terminal", "send", "--terminal", handle, "--text", ESCAPE)
+            return True
+        time.sleep(LIMIT_DIALOG_SECONDS)
+    return False
 
 
 def terminal(handle: str) -> dict:
