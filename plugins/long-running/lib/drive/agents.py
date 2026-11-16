@@ -795,6 +795,11 @@ def watchdog(name: str, brief: str, cwd: str, out: Path) -> int:
         return subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=written, stderr=subprocess.STDOUT, start_new_session=True).pid
 
 
+def lane_session(env: dict[str, str]) -> tuple[dict, tuple[str, ...]]:
+    """The `--settings` value and the flags a lane the drive starts as its own Claude Code session on this Mac runs on, such as a builder or reader the watch starts with `claude --bg`: leaf's settings with no advisor, the 350,000-token window of lib/lane.json, and EFFORT_CEILING, the flags going before any other flag or prompt, as LANE_RULES_ARGS must."""
+    return leaf(session_settings(env | ADVISOR_OFF)), (*LANE_RULES_ARGS, "--effort", EFFORT_CEILING)
+
+
 def session_settings(env: dict[str, str]) -> dict:
     """What a session the drive starts runs on: every Orca lane's env, settings and denied tools from the orca plugin's lib/lane.json, the file orca-worker-launch.sh reads, CLAUDE_LANE_SETTINGS merged over those settings as that launcher merges it, then the drive's own SESSION_SETTINGS and env on top, its plugins over the lane's plugin by plugin, so the Datadog plugin, whose MCP is a drive session's one Datadog read, stays on whatever CLAUDE_LANE_SETTINGS turns off."""
     lane = lane_spec()

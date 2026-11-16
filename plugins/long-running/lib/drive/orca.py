@@ -32,6 +32,7 @@ NOT_LANE = re.compile(r"[^a-z0-9-]+")
 PLUGIN = Path(__file__).resolve().parents[2]
 AGENTS = PLUGIN / "agents"
 LANE_SECTIONS = ("## On a Sprite\n", "## Waits and reads\n")
+LANE_RULES = PLUGIN / "lane-rules" / "CLAUDE.md"
 LANE_ENV = " ".join([f"{state.REMOTE_LANE_ENV}=1", *(f"{key}={value}" for key, value in agents.ADVISOR_OFF.items())])
 LAUNCH_SECONDS = 1800
 RECLAIM_SECONDS = 300
@@ -475,7 +476,7 @@ def place(job: dict) -> str:
 
 
 def vm_brief(drive: str, job_id: str, kind: str, brief: str, route: str | None) -> str:
-    """What a job started as an Orca worker reads, on a Sprite with no copy of this plugin or on this Mac: the role state.JOB_AGENTS starts its kind as, by role_body, its brief, on a Sprite each of its Transcripts: a READ cannot serve named by sprite_transcripts and each other file of this Mac it names that no READ serves copied in by sprite_files."""
+    """What a job started as an Orca worker reads, on a Sprite with no copy of this plugin or on this Mac: the role state.JOB_AGENTS starts its kind as, by role_body, its brief, on a Sprite the plugin's lane rules, which a lane on this Mac loads as a CLAUDE.md by agents.leaf, and each of its Transcripts: a READ cannot serve named by sprite_transcripts and each other file of this Mac it names that no READ serves copied in by sprite_files."""
     on_mac = route == state.LOCAL_ROUTE
     running = (
         'on this Mac, so it reports through Orca as its "On a Sprite" section says; the rest of that section is for a Sprite'
@@ -483,11 +484,13 @@ def vm_brief(drive: str, job_id: str, kind: str, brief: str, route: str | None) 
         else 'on a Sprite, so its "On a Sprite" section applies'
     )
     role = state.JOB_AGENTS[kind][0].partition(":")[2]
+    rules = "" if on_mac else f"{LANE_RULES.read_text().strip()}\n\n"
     borrowed = "" if role == "builder" else " Its On a Sprite and Waits and reads sections are the builder's, for how a lane reads, waits and reports, and their steps for a PR are a builder's: you open none."
     return (
         f"Remote lane: drive {drive}, job {job_id}. You are the long-running {role} below, running as an Orca "
         f"worker {running}.{borrowed}\n\n"
         f"{role_body(role)}\n"
+        f"{rules}"
         f"{BRIEF_HEADING}{(brief if on_mac else sprite_files(drive, job_id, sprite_transcripts(drive, brief))).strip()}\n"
     )
 

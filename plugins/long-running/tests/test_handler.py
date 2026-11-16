@@ -11,7 +11,7 @@ import handed_records
 import one_line_result
 import pytest
 from conftest import HELD_RELEASES, LANE_SPEC, UNFROZEN, Answers, Thread
-from drive import agents, orca, place, reads, slack, state, talk, tools, watch
+from drive import agents, install, orca, place, reads, slack, state, talk, tools, watch
 
 Run = Callable[..., tuple[int, str]]
 HIS_BRIEF = "Message (his words): why is this card asking again?\nThread: D123 1794380463.481959\nDrive: demo\nScratch: {scratch}\nDeliverable: his answer, in his thread"
@@ -1179,3 +1179,11 @@ def test_a_handler_of_his_message_starts_at_once_on_a_loaded_mac_and_one_on_a_re
     assert (agents.his_message(agents.holds(HIS_BRIEF)), agents.his_message({"message": None, "record": "663488"})) == (True, False)
     with place.waited_turn("demo", lambda: pytest.fail("an exempt start never waits"), exempt=True):
         pass
+
+
+def test_a_lane_session_the_drive_starts_on_this_mac_runs_with_no_advisor_at_high_effort_on_the_lane_rules_in_place_of_the_users_claude_md(communicator: str) -> None:
+    settings, flags = agents.lane_session({state.DRIVE_ENV: "demo"})
+    lane = json.loads(LANE_SPEC.read_text())
+    assert (flags, settings["env"][agents.COMPACT_ENV], settings["env"]["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"]) == ((*agents.LANE_RULES_ARGS, "--effort", "high"), lane["env"][agents.COMPACT_ENV], "1")
+    assert (settings["claudeMdExcludes"], settings["env"]["CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD"]) == ([str(install.config_dir() / "CLAUDE.md")], "1")
+    assert (Path(agents.LANE_RULES_ARGS[1]) / "CLAUDE.md").is_file()
