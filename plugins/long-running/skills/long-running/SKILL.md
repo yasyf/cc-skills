@@ -73,6 +73,7 @@ Two more things are his because the machine works that way: a PR of the guarded 
 | `design` | a part has a tricky design |
 | `pages` | you build a page |
 | `messages` | writing anything he reads |
+| `voice` | a lane owner's post to him |
 | `concepts` | a term or status is unclear |
 | `landing` | opening or landing a PR |
 | `incidents` | an alert or incident is live |
