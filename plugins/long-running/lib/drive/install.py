@@ -20,6 +20,8 @@ from drive import github, state, train
 
 POLL_SECONDS = 20
 READ_EVERY_SECONDS = 60
+CI_HEARD = "ci-heard.json"
+CI_HEARD_SECONDS = 600
 FAILED_TEST = re.compile(r"^\S+ (?:FAILED|ERROR) (?P<test>\S+\.py(?:::[^\r\n]+?)?)(?: - [^\r\n]*)?\r?$", re.MULTILINE)
 GITHUB_REPO = re.compile(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?/?$")
 DEFAULT_BRANCH = "refs/heads/default"
@@ -793,7 +795,7 @@ def await_ci(merges: dict[str, str]) -> bool:
                 if not hooked and receiver.unhooked({repo}):
                     receiver.hook(repo)
                 hooked = True
-                if not (unpassed := [line for line, passed in pushed_ci(repo, sha) if not passed]):
+                if not (unpassed := [line for line, passed in heard_ci(repo, sha, heard) if not passed]):
                     break
                 waiting, waited = ", ".join(unpassed), True
             except github.GithubError as error:
@@ -859,6 +861,21 @@ def statuses_judged(repo: str, statuses: list[dict], later: Iterator[str]) -> li
                 if status["state"] == "success":
                     passing.add(status["context"])
     return [(" ".join(filter(None, [context, status["target_url"], status["state"]])), context in passing) for context, status in newest.items()]
+
+
+def heard_ci(repo: str, sha: str, mark: str | None) -> list[tuple[str, bool]]:
+    """pushed_ci of the merge at sha, kept under the state root beside the receiver's ci mark it was read at and answered from there while that mark has not moved and the answer is under CI_HEARD_SECONDS old, since each drive job prove a lane starts read it afresh, five to eight core calls of the owner's, while no run completed and no status landed on the default branch to change it."""
+    kept = state.root() / CI_HEARD
+    known = json.loads(kept.read_text()) if kept.exists() else {}
+    key = f"{repo}@{sha}"
+    if mark and (was := known.get(key)) and was["mark"] == mark and time.time() - was["at"] < CI_HEARD_SECONDS:
+        return [tuple(line) for line in was["verdict"]]
+    verdict = pushed_ci(repo, sha)
+    known = {k: v for k, v in known.items() if time.time() - v["at"] < CI_HEARD_SECONDS} | {key: {"mark": mark, "at": time.time(), "verdict": verdict}}
+    staged = kept.with_name(f"{kept.name}.{os.getpid()}")
+    staged.write_text(json.dumps(known))
+    os.replace(staged, kept)
+    return verdict
 
 
 def pushed_ci(repo: str, sha: str) -> list[tuple[str, bool]]:

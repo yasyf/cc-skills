@@ -186,10 +186,12 @@ def named(delivery: dict, prs: dict[int, dict]) -> list[int]:
 
 
 def marked(event: str, payload: dict | None) -> list[str]:
-    """The kinds of MARKS a delivery moves: ci for a workflow run completing on its repository's default branch, release for any change to a release, and both for a missed delivery."""
+    """The kinds of MARKS a delivery moves: ci for a workflow run completing or a commit status landing on its repository's default branch, release for any change to a release, and both for a missed delivery."""
     match event:
         case "workflow_run":
             return ["ci"] if payload["action"] == "completed" and payload["workflow_run"]["head_branch"] == payload["repository"]["default_branch"] else []
+        case "status":
+            return ["ci"] if payload["repository"]["default_branch"] in [branch["name"] for branch in payload["branches"]] else []
         case "release":
             return ["release"]
         case "missed":
