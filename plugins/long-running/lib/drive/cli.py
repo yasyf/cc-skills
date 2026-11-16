@@ -4994,8 +4994,10 @@ def wake_pr(args: argparse.Namespace) -> int:
         return emit(args, f"{key}: ran drive job launch {job_id} with this line as its handoff, its output in the drive's {watch.RELAUNCHES_LOG}", {"key": key, "job": job_id, "how": "launch"})
     if job_id:
         if superseded.in_line(data, job_id, job):
-            with state.edit(name) as held:
+            def staged(held: dict) -> None:
                 state.hold_text(held["jobs"][job_id], f"STAGE {text}", state.held_sender(held))
+
+            state.update(name, None, staged)
         lane, step = superseded.delivery(data, job_id, job, text, "this line")
         said = f"STAGE {text}; for {job_id}, with this line alone: {step}"
     else:
