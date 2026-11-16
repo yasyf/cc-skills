@@ -684,7 +684,7 @@ def record_kept(name: str, kept: Path) -> None:
         return events
 
     with state.waiting_out_lock():
-        events = state.update(name, None, applied)
+        events = state.write(name, applied)
     for kind, fields in events:
         state.append_event(name, kind, **fields)
     kept.unlink()
@@ -878,9 +878,9 @@ def answered(ask: dict) -> dict:
             repo, number = member.split("#")
             events.append({"repo": repo, "number": int(number), "label": ask["label"], "head": entry["tap"]["head"], "source": ask["source"], "action_ts": ask["action_ts"], "lane": state.heard_lane(data, entry["order"])})
         if events:
-            state.after_save(name, lambda: [state.append_event(name, "tap", **event) for event in events] and [])
+            state.after(lambda: [state.append_event(name, "tap", **event) for event in events] and [])
 
-    state.update(name, None, kept_taps)
+    state.write(name, kept_taps)
     if ask["label"] == "Approve":
         land.start(name, members, view.live_cards(name))
     else:
@@ -929,12 +929,12 @@ def release_answered(name: str, ask: dict) -> dict | None:
     def release_tap_write(data: dict):
         data["jobs"][job_id]["release_cards"][key]["tap"] = tap
 
-    state.update(name, None, release_tap_write)
+    state.write(name, release_tap_write)
     result = release_tapped(data, entry, ask["label"])
     def release_result_write(data: dict):
         data["jobs"][job_id]["release_cards"][key]["result"] = result
 
-    state.update(name, None, release_result_write)
+    state.write(name, release_result_write)
     text = f"RELEASE {job_id} {data['jobs'][job_id]['order']}: he chose {ask['label']} on his approve card for release {entry['release']} {entry['build']} at \"{entry['step']}\": {result}"
     seq = watch.release_post(name, state.load(name), job_id, text, entry["url"] or entry["build"], f"release-tap-{ask['waits']}")
     return {"ok": True, "seq": seq}
@@ -1014,7 +1014,7 @@ def answer_question(name: str, ask: dict) -> dict:
             fresh = [each for job_id, question in on_card if view.tappable(question, ask.get("action_ts")) for each in superseded.end(data, job_id, question, closed | {"replaces": question["closed"]})]
         return data, on_card, fresh
 
-    data, on_card, fresh = state.update(name, None, closed_on_card)
+    data, on_card, fresh = state.write(name, closed_on_card)
     shown = view.stored_cards(name)[0]
     card = view.asked_card(shown, ask["url"])
     if fresh or not on_card:
@@ -1030,7 +1030,7 @@ def answer_question(name: str, ask: dict) -> dict:
                         superseded.end(data, job_id, kept, superseded.superseded_by(closed, question))
                 return data
 
-            data = state.update(name, None, superseded_older)
+            data = state.write(name, superseded_older)
         if tapped and not recorded:
             answer_id = next((question["closed"]["noted"] for _, question in tapped if question["closed"]["noted"]), None)
             if answer_id is None:
@@ -1041,7 +1041,7 @@ def answer_question(name: str, ask: dict) -> dict:
                         state.question_in(data["jobs"][job_id], question)["closed"]["noted"] = answer_id
                     return data
 
-                data = state.update(name, None, noted_answer)
+                data = state.write(name, noted_answer)
             item["attrs"] = item.get("attrs", {}) | {"noted": answer_id}
     made = tools.post(item, data, "root", (data["roles"].get("communicator") or {}).get("session"))
     [seq] = tools.sent(name, "communicator", [made])
