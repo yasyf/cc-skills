@@ -3004,7 +3004,7 @@ def case_lines(watcher: Watcher, moment: datetime) -> list[str]:
             lines += failed(watcher, f"case of {job_id}", f"staging case post to {job_id}", error, moment)
             continue
         watcher.failures.pop(f"case of {job_id}", None)
-        if line.startswith(f"{job_id}: SendMessage"):
+        if line.startswith(f"{job_id}: owed, send it now: SendMessage"):
             lines.append(f"CASE {line} [{job['order']} {job_id}]")
     return lines
 
