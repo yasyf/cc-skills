@@ -1513,7 +1513,7 @@ def owner_page_lines(watcher: Watcher, moment: datetime) -> list[str]:
             return lines + failed(watcher, "owner page", "page of his Datadog On-Call user", error, moment)
         watcher.failures.pop("owner page", None)
         def owner_page_lines_write(edited: dict):
-            edited["orders"][key]["paged"] = state.stamp(moment)
+            edited["orders"][key].update(paged=state.stamp(moment), paged_by="the watch")
 
         state.write(watcher.name, owner_page_lines_write, patient=True)
         lines.append(f"WATCH paged him for incident {key} while he is away: {paged}")

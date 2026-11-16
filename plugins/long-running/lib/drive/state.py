@@ -1253,7 +1253,9 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
                 job_id = handoff.pop("job", None)
                 handoff["jobs"] = [job_id] if job_id else []
         order.setdefault("paged", None)
+        order.setdefault("paged_by", None)
         order.setdefault("users", None)
+        order.setdefault("users_by", None)
         if order.pop("fixed", None) and order["recovered"] and order["state"] not in CLOSED_ORDER_STATES:
             order.update(recovered=None, proof=None)
         order.setdefault("quiet", None)
@@ -4256,7 +4258,9 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "recovered": None,
         "prove_said": None,
         "paged": None,
+        "paged_by": None,
         "users": None,
+        "users_by": None,
         "quiet": None,
         "handoffs": [],
         "reporters": [],

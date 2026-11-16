@@ -322,3 +322,10 @@ def test_a_priority_seats_sub_coordinator_is_told_to_send_its_first_line_within_
     assert lines[-1].startswith("Within 2 minutes of binding, before any research, send him your first line on o1: a POST report record to your communicator, posted in the thread his order came from, linking #him-drive-demo-prio-end-to-end C0PRIO,")
     assert "drive order set o1 --thread <that post's permalink>" in lines[-1]
     assert not any(line.startswith("Within 2 minutes") for line in render.opening(drive, "coordinator", "Iris"))
+
+
+def test_an_incidents_page_mark_shows_the_users_record_who_marked_it_and_when_and_by_whom_he_was_paged() -> None:
+    paged = "2026-11-16T08:42:00-08:00"
+    marked = {"users": 734700, "users_by": "root", "paged": paged, "paged_by": "the watch"}
+    assert render.page_line(marked) == f"real users failing per record 734700, marked by root; paged him at {render.when(paged)} by the watch"
+    assert render.page_line({"users": None, "users_by": None, "paged": None, "paged_by": None}) == "not marked as hitting real users; he was not paged"

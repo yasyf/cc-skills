@@ -518,6 +518,7 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
             "reporters": reported,
             "watch": watched,
             "users": args.users,
+            "users_by": (state.session_lane(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) or "a terminal") if args.users else None,
             "incident": args.incident or bool(joined and joined["incident"]),
             "kind": joined["kind"] if joined else "build" if args.incident else args.kind,
             "complex": args.complex,
@@ -1162,7 +1163,7 @@ def order_set(args: argparse.Namespace) -> int:
         if args.reporter or unreported:
             order["reporters"] = reporters
         if args.users is not None:
-            order["users"] = args.users
+            order.update(users=args.users, users_by=state.session_lane(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) or "a terminal")
         unjoined = unjoined_lines(args.id, *state.unjoin(data, args.id)) if args.unjoin else []
         filed = [field for field in FILING if getattr(args, field) is not None]
         for field in filed:
@@ -6699,7 +6700,7 @@ def page_owner(args: argparse.Namespace) -> int:
         raise DriveError(f"refused, nobody paged: {error}") from None
     if args.order:
         def page_owner_write(data: dict):
-            data["orders"][args.order].update(paged=state.stamp(), users=users)
+            data["orders"][args.order].update(paged=state.stamp(), paged_by=state.session_lane(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) or "a terminal", users=users)
 
         state.write(name, page_owner_write)
     return emit(args, paged, {"paged": paged, "order": args.order})

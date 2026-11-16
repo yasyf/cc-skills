@@ -433,7 +433,14 @@ def reporter_heard(drive: dict, order_id: str, order: dict, keeper: str | None, 
 
 
 def incident_line(order_id: str, order: dict) -> str:
-    return f"{order_id} {order['state']} incident: {order['text'][:80]}; {order['note'] or 'no record'}"
+    return f"{order_id} {order['state']} incident: {order['text'][:80]}; {order['note'] or 'no record'}; {page_line(order)}"
+
+
+def page_line(order: dict) -> str:
+    """An incident's page mark as a read of the order shows it: the record showing real users failing and the session that marked it, and when he was paged and by whom, or that he was not."""
+    users = f"real users failing per record {order['users']}, marked by {order['users_by'] or 'an earlier install'}" if order["users"] else "not marked as hitting real users"
+    paged = f"paged him at {when(order['paged'])} by {order['paged_by'] or 'an earlier install'}" if order["paged"] else "he was not paged"
+    return f"{users}; {paged}"
 
 
 def pr_line(drive: dict, key: str, card: str | None) -> str:
@@ -568,6 +575,8 @@ def subcoordinator_line(project: str, held: dict, seen: dict[str, str]) -> str:
 
 def order_block(drive: dict, order_id: str, order: dict) -> list[str]:
     lines = [f"- {order_line(drive, order_id, order, WHOLE, promise_thread(drive, order))}", f"  parts: {'; '.join(part_line(drive, order_id, part) for part in order['parts'])}"]
+    if order["incident"]:
+        lines.append(f"  page: {page_line(order)}")
     lines.extend(orphans(drive, order_id, WHOLE))
     for job_id in order["jobs"]:
         job = drive["jobs"][job_id]
