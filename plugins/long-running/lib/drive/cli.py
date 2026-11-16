@@ -2343,8 +2343,7 @@ def asked_unsettled(job: dict, text: str, unsettled: str | None) -> str | None:
 
 
 def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None, pictures: Path) -> tuple[limits.Question, str, str | None, list[dict], str | None]:
-    """The question the job's ASK block puts to him, the words of its `Holds:` line his card holds, the --unsettled it is kept under, the one `asked_unsettled` reads else Opus's mark, and the recorded answers the release gate, `brief.approval_refusal`, reads as ordering a release its recommended option names in backticks, which his card offers as its Already answered tap, and the ruling or standing approval of his under which `keep_ask` keeps it decided on its recommended option with no card, else None, once every check `drive job ask <j>` runs passes: refused naming at once every way its words, the card cc-slack draws from them and the job it is asked for are out of shape, a summary sentence recommending an option by a recorded answer of his that --unsettled does not name among them, since that answer already chose it, each rule one entry of the list, its words counted as his card draws them, each reference in the summary filled as say fills it, an {order:<o>} as the opening of his order's words, and each paragraph `cc-slack check-post` finds a wall of text in on the card as it draws; then each Show me picture drawn under pictures, refused with why one does not draw; then Jev's read of whether its options differ in how a screen looks with a screenshot missing or choose between architectures with an ```arch diagram missing, by `limits.unread`, which in the same call prints each name the card never says in plain words, a code name, a capitalised word no sentence opens, or a run id or word the drive coined that `cc-slack check-post` finds on the card as it draws; each raw id check-post finds there is printed too, refusing nothing, by his pick 320b7a7; then each release note `brief.release_notes` reads as speaking to a release its options, their descriptions or its Show me name in backticks is printed on stderr with its words, refusing nothing; last Opus's read of it against his words by `settled.judged`, the recorded answers of his its job's brief binds or the block cites among them, printing each finding, the recorded answer Opus reads as already answering a line of its question or options, of those `settled.line_answers` finds for that line, with the two ways on, ANSWERED, and the mark keeping it unsettled, UNSETTLED, an answer its Already answered tap carries never marked by an option it does not recommend, nor one recorded before such an answer, OUTWEIGHED, and refused with no card, UNASKED, when his words on an order the job works tell it to ask him nothing on that work and it asks no step his rules keep for him, and each open card `repeating` finds that Opus reads it as asking again, with that card's job, order and PRs and the `Replaces:` line that would fold it, REPEATED, sharing no card; for a card nothing keeps unsettled, no answer of his answers or orders its release and no card of his already asks, his standing approval covering its order or holding it in Opus's read, by `settled.approved_by`, said by `--check` as APPROVES, else, for a job a ruling of his leaves some questions to, by settled.leaving, a drive tooling order's or a builder's of a design his words ordered from scratch, Opus's read of whether it asks him only what that ruling leaves to the job, by `settled.detail`, said by `--check` as DECIDES; and on any order, before Opus reads it against his words, a card whose recommended option names in backticks only releases brief.rehearsal() reads as on staging or sandbox alone, and that no --unsettled, --redraws, `Replaces:` line or drawn card of the same question holds, decided under his ruling state.REHEARSAL_RULING, said by `--check` as REHEARSES. `drive job ask <j> --check` and `keep_ask` both check here, so --check prints every finding before any card draws."""
-    from drive import view
+    """The question the job's ASK block puts to him, the words of its `Holds:` line his card holds, the --unsettled it is kept under, the one `asked_unsettled` reads else Opus's mark, and the recorded answers the release gate, `brief.approval_refusal`, reads as ordering a release its recommended option names in backticks, which his card offers as its Already answered tap, and the ruling or standing approval of his under which `keep_ask` keeps it decided on its recommended option with no card, else None, once every check `drive job ask <j>` runs passes: refused naming at once every way its words, the card cc-slack draws from them and the job it is asked for are out of shape, a summary sentence recommending an option by a recorded answer of his that --unsettled does not name among them, since that answer already chose it, each rule one entry of the list, its words counted as his card draws them, each reference in the summary filled as say fills it, an {order:<o>} as the opening of his order's words, and each paragraph `cc-slack check-post` finds a wall of text in on the card as it draws; then each Show me picture drawn under pictures, refused with why one does not draw; then Jev's read of whether its options differ in how a screen looks with a screenshot missing or choose between architectures with an ```arch diagram missing, by `limits.unread`, which in the same call prints each name the card never says in plain words, a code name, a capitalised word no sentence opens, or a run id or word the drive coined that `cc-slack check-post` finds on the card as it draws; each raw id check-post finds there is printed too, refusing nothing, by his pick 320b7a7; then each release note `brief.release_notes` reads as speaking to a release its options, their descriptions or its Show me name in backticks is printed on stderr with its words, refusing nothing; last, for a card nothing keeps unsettled, no answer of his orders its release and no card of his already asks, his standing approval covering its order or holding it in Opus's read, by `settled.approved_by`, said by `--check` as APPROVES, else, for a job a ruling of his leaves some questions to, by settled.leaving, a drive tooling order's or a builder's of a design his words ordered from scratch, Opus's read of whether it asks him only what that ruling leaves to the job, by `settled.detail`, said by `--check` as DECIDES; and on any order, before those reads, a card whose recommended option names in backticks only releases brief.rehearsal() reads as on staging or sandbox alone, and that no --unsettled, --redraws, `Replaces:` line or drawn card of the same question holds, decided under his ruling state.REHEARSAL_RULING, said by `--check` as REHEARSES. `drive job ask <j> --check` and `keep_ask` both check here, so --check prints every finding before any card draws."""
 
     data = state.load(name)
     job = find(data["jobs"], job_id, "job")
@@ -2445,33 +2444,12 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
         return asked, holds, unsettled, [], state.REHEARSAL_RULING
     heard = [{"id": answer["answer"], "asked": answer["asked"], "said": answer["words"][: settled.BODY_CHARS]} for answer in recorded]
     case = limits.ask_case(text, asked, frozenset(answer["id"] for answer in heard))
-    candidates = [] if any(other == job_id for other, _ in asking(data, asked.title)) else repeating(data, job_id, asked.title, redraws)
-    cards = {question["waits"]: question["title"] for _, question in candidates}
     for answer, release in ordered:
         print(settled.ORDERED.format(id=answer["answer"], asked=render.cut(answer["asked"], 200), release=release), file=sys.stderr)
-    served = served_words(data, job)
     words = judging_words(name, data, job, asked, text)
-    lines = settled.line_answers([asked.title, *asked.options], data, frozenset(answer["id"][:7] for answer in heard))
-    broken, repeated, answered, unasked = settled.judged(case, asked, words, heard, cards, frozenset(answer["answer"] for answer in tapped), lines, served)
-    if unasked:
-        raise DriveError(settled.UNASKED.format(said=render.cut(unasked["said"], settled.QUOTED_CHARS), job=job_id))
-    if answered:
-        print(settled.ANSWERED.format(id=answered["id"], asked=render.cut(answered["asked"], 200), link=f" ({answered['link']})" if answered.get("link") else "", said=render.cut(answered["said"], settled.QUOTED_CHARS), job=job_id), file=sys.stderr)
-    for owner, question in candidates:
-        if question["waits"] in repeated:
-            prs = ", ".join(data["jobs"][owner]["prs"]) or "no PR"
-            print(settled.REPEATED.format(job=owner, card=question["card"], order=data["jobs"][owner]["order"], prs=prs, title=render.cut(question["title"], 200), waits=question["waits"]), file=sys.stderr)
-    if broken and not unsettled and broken[0]["id"] not in {answer["answer"] for answer, _ in ordered}:
-        lifted, option = broken
-        given = tapped and settled.shown(lifted["id"].removeprefix("ruling:"), data["roles"]["coordinator"]["cwd"])["created_at"]
-        if later := next((answer for answer in tapped if answer["at"] > given), None):
-            print(settled.OUTWEIGHED.format(id=lifted["id"], later=later["answer"], asked=render.cut(later["asked"], 200)), file=sys.stderr)
-        else:
-            unsettled = f"{lifted['id']}: {settled.MARKED.format(option=option)}"
-            print(settled.UNSETTLED.format(unsettled=unsettled, id=lifted["id"], asked=render.cut(lifted["asked"], 200)), file=sys.stderr)
     drawn = redraws or asked.replaces or any(question["card"] for _, question in asking(data, asked.title))
     ordering = taps([answer for answer, _ in ordered])
-    if unsettled or broken or answered or ordering or drawn:
+    if unsettled or ordering or drawn:
         return asked, holds, unsettled, ordering, None
     order = data["orders"][job["order"]]
     if approval := settled.approved_by(data, None, job["order"], {"order": order["text"], "card": {"question": asked.title, "recommended": asked.recommended}}):
@@ -2812,26 +2790,6 @@ def elsewhere(data: dict, job_id: str, title: str, redraws: str | None) -> tuple
 def took(data: dict, job_id: str, question: dict) -> bool:
     """Whether another job's question took the job's card: it holds a waits id the job minted, as `--redraws` and a `Replaces:` line take one over, or a question of the job is folded into it."""
     return (question["waits"] or "").partition(":")[2].partition("-")[0] == job_id or any(other["replaced"] == question["file"] for other in data["jobs"][job_id]["questions"] if other["replaced"])
-
-
-def repeating(data: dict, job_id: str, title: str, redraws: str | None) -> list[tuple[str, dict]]:
-    """The open questions on his cards, by job, Opus reads an ask against for asking one of them again in other words, which `checked_ask` prints to the agent and never folds, at most settled.CANDIDATES, those sharing the most rare words with it first: the job's own and each that `took` its card, each drawn, never one folded into another, refused, asking in these same words or on the card `--redraws` takes over."""
-    from drive import view
-
-    said = settled.rare(title)
-    drawn = [
-        (other, question)
-        for other, job in data["jobs"].items()
-        for question in view.open_questions(job)
-        if (other == job_id or took(data, job_id, question))
-        and question["title"]
-        and question["card"]
-        and question["waits"] not in (None, redraws)
-        and not question["replaced"]
-        and not question["refused"]
-        and not state.same_question(question["title"], title)
-    ]
-    return sorted(drawn, key=lambda pair: len(said & settled.rare(pair[1]["title"])), reverse=True)[: settled.CANDIDATES]
 
 
 def replacing(data: dict, job_id: str, asked: limits.Question, ref: str) -> tuple[str, dict]:
@@ -7504,7 +7462,7 @@ def parser() -> argparse.ArgumentParser:
         help=(
             "only check the ASK block in this file, or - for stdin, by every check drive job ask <j> runs, its words counted as his"
             " card draws them, each {order:<o>} as the opening of his order's words, and print every fix it needs at once, or ready,"
-            " and Opus's read of it against his words before any card draws, or for a question he already answered in the same words that it draws no card; keeps nothing"
+            " or for a question he already answered in the same words that it draws no card; keeps nothing"
         ),
     )
     verb.add_argument(

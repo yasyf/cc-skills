@@ -79,8 +79,7 @@ his.
   The card holds the design fleshed out above its options. A wall of findings or a vague stand-in
   leaves him asking what it is.
 - **The Show me works each option out** to what it looks like once built, such as its real calls in
-  code, the rows it writes or its flow, not only its files and cost. `drive job ask` prints each
-  option Opus reads as left unworked. It counts toward no word limit; the visual rules are in
+  code, the rows it writes or its flow, not only its files and cost. It counts toward no word limit; the visual rules are in
   [Messages](messages.md).
 - **A design from scratch.** His words ordering one mark its order fresh, as Jev reads them on
   `drive order add` or the first `drive answer` on the order, or with `drive order set <o> --fresh`.

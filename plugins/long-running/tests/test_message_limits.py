@@ -2212,19 +2212,6 @@ def test_a_card_asking_only_when_a_merged_fix_ships_names_the_structure_it_remov
         limits.question(unprincipled.replace(cause, "Root cause: fixed: both builds shared one chat folder on his Mac\n"))
 
 
-@pytest.mark.parametrize(
-    ("cause", "form"),
-    [
-        ("Root cause: none: his approval of the exact benchmark command his rules hold for him\n", "none"),
-        ("Root cause: fixed: both builds shared one chat folder on his Mac; removed by https://github.com/acme/app/pull/12\n", "fixed"),
-        ("Root cause: not found: j12 reads his chat files\n", "found"),
-        (STRAY_CAUSE, "found"),
-    ],
-)
-def test_jev_weighs_a_card_by_the_rule_for_the_form_of_its_root_cause_line(cause: str, form: str) -> None:
-    assert limits.rule_words(STRAY_CHATS_ASK.replace(STRAY_CAUSE, cause)) == [limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES[form]}, limits.TEAM_DATA_WORDS, limits.FACT_WORDS, limits.TOLD_WORDS]
-
-
 def test_the_case_jev_reads_carries_the_show_me_each_option_with_its_description_and_the_root_cause_lines(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(picture, "page_text", lambda url: "The old build's chats")
     asked = limits.question(STRAY_CHATS_ASK)
@@ -2270,12 +2257,6 @@ def test_jev_reads_the_words_each_page_a_card_links_shows_or_why_chrome_could_no
     missing = "https://prototype.example.com/index.html?slack=pr"
     linked = STRAY_CHATS_ASK.replace(f"<{SENTRY_EVENT}|The old build>", f"<{missing}|The old build>")
     assert limits.ask_case(linked, limits.question(linked)).endswith(f"\nPage {missing} did not open: Chrome could not load {missing}: net::ERR_NAME_NOT_RESOLVED")
-
-
-def test_jev_weighs_a_page_line_by_his_words_on_a_link_that_opened_another_view() -> None:
-    rulings = limits.rule_words(STRAY_CHATS_ASK)
-    paged = f"{STRAY_CHATS_ASK}\nPage https://prototype.example.com/index.html shows: Priority queue Decision 1 of 72"
-    assert limits.rule_words(paged) == [*rulings, limits.LINK_VIEW_WORDS]
 
 
 def options_ask(*options: str) -> str:

@@ -1356,7 +1356,6 @@ class Jev:
     whole: float = 0.05
     looked: list[dict] = field(default_factory=list)
     cards: list[dict] = field(default_factory=list)
-    again: set[str] = field(default_factory=set)
     named: set[str] = field(default_factory=set)
     paged: float = 0.05
     read_for_pages: list[str] = field(default_factory=list)
@@ -1373,7 +1372,7 @@ class Jev:
     same_asked: list[dict] = field(default_factory=list)
 
     def picks(self, choice: str, probability: float = 0.9) -> None:
-        """Jev answers again, and every Noul whose key holds choice as one of its dotted parts reads yes at probability, but an awaited or unasked one, whose yes clears a mark or refuses the card, which only `breaks` sets; none clears it."""
+        """Jev answers again, and every Noul whose key holds choice as one of its dotted parts reads yes at probability."""
         self.answer = 0.05
         self.chosen = None if choice == "none" else (choice, probability)
 
@@ -1397,8 +1396,6 @@ class Jev:
             return 0.95 if state["his_words"] in self.asks else 0.05
         if key == "beside":
             return 0.95 if state["his_words"] in self.beside else 0.05
-        if question.startswith("again") and not about:
-            return 0.95 if state["open"][f"a{question.removeprefix('again')}"] in self.again else 0.05
         if question == "supersedes":
             return self.supersedes.get(about, 0.05)
         if question.startswith(limits.PLAIN) and question.removeprefix(limits.PLAIN).isdigit():
@@ -1413,7 +1410,7 @@ class Jev:
             return 0.9 if any(text in state["open"][about] for text in self.same) else 0.05
         if key == "restarts":
             return self.restarts
-        if self.chosen and self.chosen[0] in key.split(".") and question not in {"awaited", "unasked"}:
+        if self.chosen and self.chosen[0] in key.split("."):
             return self.chosen[1]
         return self.answer
 

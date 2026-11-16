@@ -1009,7 +1009,7 @@ def test_a_check_that_objects_takes_back_the_approve_his_standing_approval_gave_
     assert (state.load(demo)["prs"][KEY]["tap"] is None) == taken
 
 
-LIMIT = "judging Forge-AI/monorepo#42 against his words failed: You've hit your weekly limit · resets Nov 17 at 11pm (America/Los_Angeles); run this again"
+LIMIT = "judging Forge-AI/monorepo#42 against his words failed: You've hit your weekly limit · resets Nov 17 at 11pm (America/Los_Angeles)"
 
 
 @pytest.mark.parametrize(

@@ -377,7 +377,7 @@ def change(key: str) -> dict:
         compare = f"repos/{repo}/compare/{read['baseRefOid']}...{read['headRefOid']}"
         diff = github.read(f"{key}'s diff", ["gh", "api", compare, "-H", "Accept: application/vnd.github.diff", "--allow-escape-sequences"], text=False)
     except github.GithubError as error:
-        raise DriveError(f"{key}: {error}; run this again") from None
+        raise DriveError(f"{key}: {error}") from None
     return {"title": read["title"], "body": read["body"], "base": read["baseRefName"], "head": read["headRefOid"], "diff": diff}
 
 
@@ -519,7 +519,7 @@ def guides(key: str, branches: list[str], paths: set[str]) -> list[dict[str, str
     try:
         found = github.graphql(f"query {{ repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ {fields} }} }}", f"the AGENTS.md files at {key}'s base branch and the open PRs' heads")["data"]["repository"]
     except github.GithubError as error:
-        raise DriveError(f"{key}: {error}; run this again") from None
+        raise DriveError(f"{key}: {error}") from None
     return [{path: found[f"g{b}_{n}"]["text"] if found[f"g{b}_{n}"] else "" for n, path in enumerate(named)} for b in range(len(branches))]
 
 
@@ -565,7 +565,7 @@ def answers(data: dict, cited: list[str], found: dict | None) -> dict[str, list[
                 said = settled.heard(name, found, data)
                 message = slack.message(name)
             except slack.SlackError as error:
-                raise DriveError(f"could not read his answer at {name}: {error}; run this again") from None
+                raise DriveError(f"could not read his answer at {name}: {error}") from None
             if said is None:
                 raise Uncited(f"{name} is not his answer: it is neither his own message nor a card he answered; {settled.HIS_ANSWER}", [(kind, name)])
             at = slack.sent_at(message)
@@ -748,13 +748,13 @@ def structured(cwd: str | Path, rules: str, prompt: str, schema: dict, seconds: 
     try:
         ran = subprocess.run(argv, input=prompt, cwd=cwd, env=os.environ | {"DISABLE_AUTOUPDATER": "1"}, capture_output=True, text=True, timeout=seconds, check=False)
     except subprocess.TimeoutExpired:
-        raise DriveError(f"{doing} ran past {seconds} seconds; run this again") from None
+        raise DriveError(f"{doing} ran past {seconds} seconds") from None
     try:
         result = json.loads(ran.stdout)
     except json.JSONDecodeError:
         result = {"result": ran.stderr or ran.stdout}
     if ran.returncode or result.get("is_error") or "structured_output" not in result:
-        raise DriveError(f"{doing} failed: {cut(str(result.get('result')), 300)}; run this again")
+        raise DriveError(f"{doing} failed: {cut(str(result.get('result')), 300)}")
     return result["structured_output"]
 
 
@@ -767,4 +767,4 @@ def fetched(clone: str, key: str, head: str) -> None:
         home = github.repo_name(url)
         github.run([*git, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin" if home == repo else url.replace(home, repo), head])
     except github.GithubError as error:
-        raise DriveError(f"{key}: its head {head[:12]} could not be fetched into {clone} for the judge to read: {error}; run this again") from None
+        raise DriveError(f"{key}: its head {head[:12]} could not be fetched into {clone} for the judge to read: {error}") from None
