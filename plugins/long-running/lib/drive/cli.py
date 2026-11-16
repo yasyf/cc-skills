@@ -2809,7 +2809,7 @@ def folded(data: dict, file: str) -> list[dict]:
 
 
 def job_report(args: argparse.Namespace) -> int:
-    """Keep a job's whole return from stdin in its history, which is its report, and print where, or to a Sprite lane, which opens no path of this Mac's, that it was kept with its first line, that line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; a stopped job's return is kept ahead of every refusal and sets nothing, its state, said line, waits, PRs, builders and briefs left as they were, the print saying it stays stopped, so the agent its stop left running ends on that line; a taken return writes its returned event, by state.returned, which the watch hearing the job says as its JOB line wherever the job runs, naming the texts it holds and when to start each builder it added, but a PUSHED, which pushed_lines settles, and the return of a job whose agent on this Mac answers the session that started it, by state.agent_lane, since its result already lands there, each write only the line naming when to start each builder it added, which no other line carries; a reader's DESIGN is kept as its ASK in the same call, which draws his card on it and prints the file and the card, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it; a reader's DONE or DESIGN writes again, as drive job brief does, the brief of each builder of a part it reads that no agent or lane started and that opened no PR, by brief.unstarted_builders, so its Researched: line names the newest research of its parts and its Goal: the change that research's build: line names, by brief.name_goals, serving drive tooling on a tooling order and his order on any other, and prints its `Read your brief first:` line; a design lane's DESIGN, and a builder's return for each piece of its plan its UNBUILT: lines name, adds a builder for each change it lists that no builder or codex job builds, by state.add_changes, and prints when to start each; each open card of the job the return no longer names it withdraws, by superseded.moved_on, printing how each is asked again; a reader's or design's return whose line goes against a recorded answer of his is refused, by brief.overruled_refusal. With --dry-run, by rehearsed, a take keeps nothing and prints each drive row field it would change: the report it keeps, its returned event, the briefs it writes and each card it draws or withdraws run by state.after_save once a save lands, which a dry run never makes, and a reader's DESIGN is checked by ask_checked, drawing no card. With no stdin, print the newest return whole and each earlier one as its first line, newest first, and with --all every return whole."""
+    """Keep a job's whole return from stdin in its history, which is its report, and print where, or to a Sprite lane, which opens no path of this Mac's, that it was kept with its first line, that line setting the job's state, or refuse it with nothing kept, naming the fix, when that line would set none; the file its REPRO: line names is kept as the job's proof file once the refusals pass, by named_repro, so a return names its proof file and keeps it in one step, every refusal reading that file as kept; a stopped job's return is kept ahead of every refusal and sets nothing, its state, said line, waits, PRs, builders and briefs left as they were, the print saying it stays stopped, so the agent its stop left running ends on that line; a taken return writes its returned event, by state.returned, which the watch hearing the job says as its JOB line wherever the job runs, naming the texts it holds and when to start each builder it added, but a PUSHED, which pushed_lines settles, and the return of a job whose agent on this Mac answers the session that started it, by state.agent_lane, since its result already lands there, each write only the line naming when to start each builder it added, which no other line carries; a reader's DESIGN is kept as its ASK in the same call, which draws his card on it and prints the file and the card, and each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links is registered on the job before the take, which joins its order to the bug, or kept untracked with the reason drive pr add refused it; a reader's DONE or DESIGN writes again, as drive job brief does, the brief of each builder of a part it reads that no agent or lane started and that opened no PR, by brief.unstarted_builders, so its Researched: line names the newest research of its parts and its Goal: the change that research's build: line names, by brief.name_goals, serving drive tooling on a tooling order and his order on any other, and prints its `Read your brief first:` line; a design lane's DESIGN, and a builder's return for each piece of its plan its UNBUILT: lines name, adds a builder for each change it lists that no builder or codex job builds, by state.add_changes, and prints when to start each; each open card of the job the return no longer names it withdraws, by superseded.moved_on, printing how each is asked again; a reader's or design's return whose line goes against a recorded answer of his is refused, by brief.overruled_refusal. With --dry-run, by rehearsed, a take keeps nothing and prints each drive row field it would change: the report it keeps, its returned event, the briefs it writes and each card it draws or withdraws run by state.after_save once a save lands, which a dry run never makes, and a reader's DESIGN is checked by ask_checked, drawing no card. With no stdin, print the newest return whole and each earlier one as its first line, newest first, and with --all every return whole."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
@@ -2823,11 +2823,16 @@ def job_report(args: argparse.Namespace) -> int:
         if job["state"] == "stopped":
             state.after_save(name, lambda: state.keep_report(name, args.id, line, whole) or [])
             return emit(args, f"{where}\n{args.id} stays stopped: this return sets nothing on it", {"id": args.id, "report": kept, "ask": None, "fixes": [], "builders": []})
+        if repro := named_repro(args.id, job, whole):
+            job["repro"] = str(repro)
         if refused := brief.report_refusal(name, data, args.id, whole) or state.result_refusal(data, args.id, line, whole) or brief.overruled_refusal(data, job, whole):
             raise DriveError(f"{args.id}: refused, nothing kept: {refused}")
         unreached(name, data, state.result_waits(data, args.id, line))
         if job["kind"] == "builder" and state.REPORTED_LINE.match(line) and any(not served.named(cited) for cited in served.deciding(whole)):
             raise DriveError(f"{args.id}: refused, nothing kept: {served.NAMELESS}")
+        if repro:
+            with state.edit(name) as data:
+                data["jobs"][args.id]["repro"] = keep_repro(name, args.id, job["kind"], str(repro))
         try:
             registered = register_named(name, args.id, line)
         except DriveError as error:
@@ -2908,14 +2913,31 @@ def unready(data: dict, job: dict, line: str) -> str | None:
     )
 
 
-def keep_repro(name: str, job_id: str, kind: str, source: str) -> str:
-    """Where the drive keeps a job's reproduction file: where it lies when the drive's own folder holds it, such as the job's scratch folder, which the drive keeps, so a proof reading files beside it by a path from its own, as a pass's proof reads the evidence it captured, reads them wherever it runs, else in the drive's repro folder, copied there once the write naming it is kept; either way with the drive's own interpreter pinned in it as state.pin_interpreter pins it, so its bare python3 runs where the drive runs wherever it is run; refused, nothing kept, for a builder's file with its exec bit set that the kernel cannot exec, as state.unrunnable reads it, since drive job prove runs that file as the job's proof once its PRs merge, while a builder's file with no exec bit, such as the acceptance criteria of a change merging outside yasyf/*, which no drive job prove runs, is kept unchecked."""
+def named_repro(job_id: str, job: dict, report: str) -> Path | None:
+    """The proof file a return's REPRO: line names, which the take of that return keeps on the job by keep_repro, so naming it keeps it; None when the report names none, or names a file not here while the job keeps a copy already, such as one in a scratch folder since cleared; refused, nothing kept, when it names no file here and the job keeps none, and as repro_file refuses the file."""
+    if not (named := state.REPRO.search(report)):
+        return None
+    if (path := Path(named["path"]).expanduser()).is_file():
+        return repro_file(job_id, job["kind"], str(path))
+    if job.get("repro"):
+        return None
+    raise DriveError(f"{job_id}: refused, nothing kept: its REPRO: line names {path.absolute()}, no file here, and {job_id} keeps no proof file: name the file its proof runs")
+
+
+def repro_file(job_id: str, kind: str, source: str) -> Path:
+    """The reproduction file at source, refused, nothing kept, when no file is there, and for a builder's file with its exec bit set that the kernel cannot exec, as state.unrunnable reads it, since drive job prove runs that file as the job's proof once its PRs merge, while a builder's file with no exec bit, such as the acceptance criteria of a change merging outside yasyf/*, which no drive job prove runs, is kept unchecked."""
     path = named_file(source, "reproduction file")
     if kind == "builder" and os.access(path, os.X_OK) and (why := state.unrunnable(str(path))):
         raise DriveError(
             f"{job_id}: refused, nothing kept: drive job prove runs a builder's executable file as its proof once its PRs merge, and {why}:"
             f" make its first line its #! line, naming a program on this Mac, such as #!/bin/sh, then keep it again with drive job set {job_id} --repro <file>"
         )
+    return path
+
+
+def keep_repro(name: str, job_id: str, kind: str, source: str) -> str:
+    """Where the drive keeps a job's reproduction file, the file repro_file reads at source: where it lies when the drive's own folder holds it, such as the job's scratch folder, which the drive keeps, so a proof reading files beside it by a path from its own, as a pass's proof reads the evidence it captured, reads them wherever it runs, else in the drive's repro folder, copied there once the write naming it is kept; either way with the drive's own interpreter pinned in it as state.pin_interpreter pins it, so its bare python3 runs where the drive runs wherever it is run."""
+    path = repro_file(job_id, kind, source)
     kept = path.absolute() if path.resolve().is_relative_to(state.drive_dir(name).resolve()) else state.repro_path(name, job_id, path.suffix)
 
     def copied() -> list[str]:

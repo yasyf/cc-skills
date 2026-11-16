@@ -1,7 +1,6 @@
 import hashlib
 import json
 import os
-import re
 import shlex
 import subprocess
 import sys
@@ -21,7 +20,6 @@ DISPATCH_SECONDS = 120
 SCHEMA_FILE = "codex-result.json"
 RETRIED = "codex-ask completed, its reply refused, so the watch starts its next codex-ask run carrying the refusal: "
 REFUSED = "The drive refused your last reply, as drive job report refuses any job's return, so answer again with a reply it takes: "
-REPRO = re.compile(r"^REPRO:[ \t]*(?P<path>\S+)", re.MULTILINE)
 GUARD = Path(__file__).resolve().parents[2] / "hooks" / "landing_guard.py"
 GUARD_MATCHER = "^Bash$"
 GUARD_SECONDS = 60
@@ -181,7 +179,7 @@ def take(name: str, data: dict, job_id: str, run: Run) -> str | None:
             line, report = "", text
         state.keep_report(name, job_id, line or state.opening(text), report)
         job = data["jobs"][job_id]
-        if line.startswith("DONE") and (repro := REPRO.search(report)) and Path(repro["path"]).expanduser().is_file():
+        if line.startswith("DONE") and (repro := state.REPRO.search(report)) and Path(repro["path"]).expanduser().is_file():
             from drive import cli
 
             job["repro"] = cli.keep_repro(name, job_id, job["kind"], str(Path(repro["path"]).expanduser()))

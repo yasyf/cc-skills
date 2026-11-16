@@ -663,7 +663,8 @@ listing decisions that block nothing is not a result.
 | `HANDOFF <path>` | The session that started you told you to stop before you were done; the file, under your scratch directory, names the branch, what was decided and what is left. It sets the job stopped. |
 
 `drive job report` refuses a report whose first line opens with none of these words, naming them. It
-refuses a `REPRO:` line until `drive job set <your job> --repro <path>` has kept that file. It refuses
+keeps the file a `REPRO:` line names as your proof file in the same call, and refuses a `REPRO:` line
+naming no file there while your job keeps none. It refuses
 a `DONE` or `READY` whose `NEXT:` or `UNPROVEN:` line leaves a step for someone else, such as "NEXT:
 coordinator runs the backfill once it ships" or "until the coordinator runs it": do that step
 yourself before you return, or return `ASK` when it needs his choice. "PROVE: after release, open the

@@ -168,7 +168,7 @@ def log_rule(question: str) -> str:
 
 
 def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
-    """Run a Sprite lane's drive command here, where the drive's records live, as `drive` would on this Mac: its first line `DRIVE <its words>`, the rest the JSON the Sprite's drive sent with it, `stdin` for a `-` and the text of each file a word names under that word, each written to a folder of its own here for the run; for one of LANE_CARDS, the verbs a card is drawn from, each picture they show by a path on the Sprite is copied off it first, as lane_pictures says, and named by its copy here, so a card this Mac draws from them opens it, while any other verb, such as `job set --repro`, gets its files and stdin as written; each is named by its Sprite path in what it prints. It runs in the coordinator's checkout with no session of this Mac's, as the asking lane's job's own lane, marked as a SPRITE_LANE, so the drive it runs refuses, as lane_refusal says, a verb no Sprite lane runs, a write acting on another job and any verb acting on another drive, and reads a bare `status` as the lane's own job, and answers `drive exited <status>` over all it printed, as a Mac lane reads it, which the Sprite's drive prints and exits with."""
+    """Run a Sprite lane's drive command here, where the drive's records live, as `drive` would on this Mac: its first line `DRIVE <its words>`, the rest the JSON the Sprite's drive sent with it, `stdin` for a `-` and the text of each file a word names under that word, each written to a folder of its own here for the run; for one of LANE_CARDS, the verbs a card is drawn from, each picture they show by a path on the Sprite, and the proof file a job report's REPRO: line names, is copied off it first, as lane_files says, and named by its copy here, so a card this Mac draws from them opens it and the report keeps that proof file, while any other verb, such as `job set --repro`, gets its files and stdin as written; each is named by its Sprite path in what it prints. It runs in the coordinator's checkout with no session of this Mac's, as the asking lane's job's own lane, marked as a SPRITE_LANE, so the drive it runs refuses, as lane_refusal says, a verb no Sprite lane runs, a write acting on another job and any verb acting on another drive, and reads a bare `status` as the lane's own job, and answers `drive exited <status>` over all it printed, as a Mac lane reads it, which the Sprite's drive prints and exits with."""
     line, _, rest = question.partition("\n")
     try:
         argv = shlex.split(DRIVE.fullmatch(line)[1])
@@ -176,9 +176,9 @@ def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
     except ValueError as error:
         return lane_exit(2, f"{line}: {error}")
     try:
-        shown = lane_pictures(sent, drive, job_id) if tuple(argv[:2]) in LANE_CARDS else {}
+        shown = lane_files(sent, drive, job_id, tuple(argv[:2]))
     except (state.DriveError, OSError, subprocess.TimeoutExpired) as error:
-        return lane_exit(2, f"drive {' '.join(argv[:2])}: refused, nothing ran: the pictures it shows did not copy off this Sprite: {error}")
+        return lane_exit(2, f"drive {' '.join(argv[:2])}: refused, nothing ran: the files it shows or names did not copy off this Sprite: {error}")
     session = {key: value for key, value in os.environ.items() if key != "CLAUDE_CODE_SESSION_ID"}
     with tempfile.TemporaryDirectory(prefix="drive-lane-") as held:
         here = {}
@@ -193,7 +193,7 @@ def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
                 [str(DRIVE_BIN), *(here.get(word, word) for word in argv)],
                 cwd=checkout,
                 env=session | {state.DRIVE_ENV: drive, state.OWN_JOB_ENV: job_id, SPRITE_LANE: "1"},
-                input=shown_here(sent.get("stdin", ""), shown),
+                input=state.REPRO.sub(lambda named: named[0].replace(named["path"], shown.get(named["path"], named["path"])), shown_here(sent.get("stdin", ""), shown)),
                 capture_output=True,
                 text=True,
                 errors="replace",
@@ -208,10 +208,15 @@ def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
     return lane_exit(done.returncode, printed)
 
 
-def lane_pictures(sent: dict, drive: str, job_id: str) -> dict[str, str]:
-    """Each picture the files and stdin a Sprite lane's drive sent show on a line of its own, `![caption](/absolute/path)` as a card draws it, by a path on its Sprite, copied off that Sprite as off_sprite copies it; the copy here by the Sprite path."""
-    texts = [file["text"] for file in sent.get("files", {}).values()] + [sent.get("stdin", "")]
-    return off_sprite(drive, job_id, list(dict.fromkeys(shown["path"] for text in texts for line in text.splitlines() if (shown := limits.POSTED_PICTURE.fullmatch(line.strip())))))
+def lane_files(sent: dict, drive: str, job_id: str, verb: tuple[str, ...]) -> dict[str, str]:
+    """For one of LANE_CARDS, each picture the files and stdin a Sprite lane's drive sent show on a line of its own, `![caption](/absolute/path)` as a card draws it, and for a job report the proof file its REPRO: line names, each by a path on its Sprite, copied off that Sprite as off_sprite copies it; the copy here by the Sprite path."""
+    if verb not in LANE_CARDS:
+        return {}
+    stdin = sent.get("stdin", "")
+    texts = [file["text"] for file in sent.get("files", {}).values()] + [stdin]
+    pictures = [shown["path"] for text in texts for line in text.splitlines() if (shown := limits.POSTED_PICTURE.fullmatch(line.strip()))]
+    proofs = [named["path"] for named in [state.REPRO.search(stdin)] if verb == ("job", "report") and named and named["path"].startswith("/")]
+    return off_sprite(drive, job_id, list(dict.fromkeys([*pictures, *proofs])))
 
 
 def off_sprite(drive: str, job_id: str, paths: list[str]) -> dict[str, str]:

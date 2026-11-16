@@ -87,6 +87,7 @@ ASK_LINE = re.compile(r"ASK (?P<files>[/~]\S*(?: [/~]\S*)*)")
 PUSHED_LINE = re.compile(r"PUSHED\b")
 POSTED_LINE = re.compile(r"POSTED (?P<link>https://[^\s;]+)")
 REPORTED_LINE = re.compile(r"(?:READY|PUSHED)\b")
+REPRO = re.compile(r"^REPRO:[ \t]*(?P<path>\S+)", re.MULTILINE)
 REPORT_CHANGE = re.compile(r"^CHANGE:[ \t]*(?P<change>.+?)[ \t]*$", re.MULTILINE)
 LISTED_CHANGE = r"[ \t]*(?P<change>.+?)(?:[ \t]*\(waits on (?P<waits>[^()]*)\))?[ \t]*$"
 CHANGE_LINE = re.compile(rf"^Change:{LISTED_CHANGE}", re.MULTILINE)
@@ -1502,12 +1503,12 @@ def hand_reader_prs(data: dict) -> None:
 
 def rehome_proofs(name: str, data: dict) -> None:
     """Keep each codex job's proof where its DONE's REPRO: line names it, by keep_repro, since an older install kept a copy in the repro folder, away from the files beside it that it reads, and put back on that DONE, done, each such job whose proof failed on that copy and that failed or stopped since, such as a standing part's pass replaced on that failure, so the watch proves it again where it lies; marked so this runs once."""
-    from drive import cli, codex
+    from drive import cli
 
     for job_id, job in data["jobs"].items():
         if job["kind"] != "codex" or not job.get("repro"):
             continue
-        named = next((Path(found["path"]).expanduser() for reply in returns(name, job_id) if (found := codex.REPRO.search(reply["body"]))), None)
+        named = next((Path(found["path"]).expanduser() for reply in returns(name, job_id) if (found := REPRO.search(reply["body"]))), None)
         if not named or not named.is_file() or (kept := cli.keep_repro(name, job_id, job["kind"], str(named))) == job["repro"]:
             continue
         job["repro"] = kept
