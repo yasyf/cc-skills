@@ -1417,7 +1417,7 @@ def code_lines(code: str) -> str:
 def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
     judged = Jev()
 
-    def answered(state: dict, questions: dict[str, settled.Noul | settled.Pick], seconds: float = settled.DECIDE_SECONDS) -> dict[str, float | str]:
+    def answered(state: dict, questions: dict[str, settled.Noul | settled.Pick], seconds: float = settled.DECIDE_SECONDS, caller: str | None = None) -> dict[str, float | str]:
         if settled.ASKS_PAGE in questions.values():
             judged.read_for_pages.append(state["order"])
             return {key: judged.paged for key in questions}

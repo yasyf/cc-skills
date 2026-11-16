@@ -22,15 +22,15 @@ def handled(text: str, reads: list[dict] | None = None, claims: list[dict] | Non
 def test_weighed_gives_jev_at_most_the_seconds_the_hook_has_left_and_a_refusal_the_refusal_seconds_at_most(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[tuple[list[str], float]] = []
 
-    def heard(told: dict, questions: dict[str, settled.Noul], seconds: float = settled.DECIDE_SECONDS) -> dict[str, float]:
+    def heard(told: dict, questions: dict[str, settled.Noul], seconds: float = settled.DECIDE_SECONDS, caller: str | None = None) -> dict[str, float]:
         seen.append((list(questions), seconds))
         return {key: 0.05 for key in questions}
 
     monkeypatch.setattr(settled, "jev", heard)
-    refusal = {"refusal": {"rule": RULE, "call": CALL}}
+    refusal = {"refusal": {"rule": RULE, "call": CALL, "output": {"findings": [FINDING]}}}
     post = {"post": {"post": {"text": "Merged."}, "findings": [FINDING]}}
     verdicts = [settled.weighed(refusal | {"seconds": 1.5}), settled.weighed(refusal), settled.weighed(post | {"seconds": 7.0}), settled.weighed(post)]
-    assert seen == [(["protects"], 1.5), (["protects"], settled.REFUSAL_SECONDS), (["f1.holds"], 7.0), (["f1.holds"], settled.DECIDE_SECONDS)]
+    assert seen == [(["f1.protects"], 1.5), (["f1.protects"], settled.REFUSAL_SECONDS), (["f1.holds"], 7.0), (["f1.holds"], settled.DECIDE_SECONDS)]
     assert verdicts == [{"verdict": "pass", "note": ""}] * 4
 
 
@@ -42,11 +42,11 @@ def test_weighed_gives_jev_at_most_the_seconds_the_hook_has_left_and_a_refusal_t
         (0.1, {"verdict": "pass", "note": ""}),
     ],
 )
-def test_a_refusal_stands_at_yes_and_in_the_band_and_lets_the_call_through_under_no_by_one_noul_over_its_rule_and_whole_call(jev: Jev, sure: float, verdict: dict) -> None:
-    jev.breaks("protects", "", sure)
+def test_a_refusal_stands_at_yes_and_in_the_band_and_lets_the_call_through_under_no_by_one_noul_per_finding_over_its_rule(jev: Jev, sure: float, verdict: dict) -> None:
+    jev.breaks("f1", "protects", sure)
     assert settled.refusal_verdict(RULE, CALL, [FINDING]) == verdict
     [request] = jev.asked
-    assert request == {"state": {"rule": RULE, "call": CALL}, "questions": {"protects": settled.PROTECTS}}
+    assert request == {"state": {"rule": RULE, "call": {"tool": "Bash", "found": FINDING["found"]}}, "questions": {"f1.protects": settled.PROTECTS}}
 
 
 def test_a_refusal_jev_gives_no_verdict_on_only_warns_saying_the_call_goes_ahead_and_naming_what_its_check_found(jev: Jev) -> None:

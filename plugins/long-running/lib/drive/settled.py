@@ -1519,13 +1519,13 @@ def jev_key() -> str:
     return api_key(Provider("jev", MODEL), timeout=DECIDE_SECONDS)
 
 
-def jev(state: dict, questions: dict[str, Noul | Pick], seconds: float = DECIDE_SECONDS) -> dict[str, float | str]:
+def jev(state: dict, questions: dict[str, Noul | Pick], seconds: float = DECIDE_SECONDS, caller: str | None = None) -> dict[str, float | str]:
     """Jev's probability of yes for each Noul about the state, and the option it picks for each Pick, by question id, in one request to MODEL on the keep-alive client every question of the process shares, the key's read and the answer both within the seconds given, as TypeSafe's docs say to ask: named-field state, one judgment a question, the decision in code; Unheard when none came, Jev declining any of them included, since a failed call is never a no. spawnllm is imported on the first question, so a hook or verb that asks none never loads it."""
     import httpx
     from spawnllm import Binary, BinaryAnswer, DecideError, DecideKeyMissing, Label, LabelAnswer, Provider, decide_sync
 
     deadline = time.monotonic() + seconds
-    sized(state, questions)
+    sized(state, questions, caller or sys._getframe(1).f_code.co_name)
     try:
         token = jev_key()
         decision = decide_sync(state, {key: Label(*question) if isinstance(question, Pick) else Binary(*question) for key, question in questions.items()}, provider=Provider("jev", MODEL), timeout=deadline - time.monotonic(), api_key=token)
@@ -1539,9 +1539,8 @@ def jev(state: dict, questions: dict[str, Noul | Pick], seconds: float = DECIDE_
 JEV_SIZES = "jev-sizes.jsonl"
 
 
-def sized(request: dict, questions: dict[str, Noul | Pick]) -> None:
+def sized(request: dict, questions: dict[str, Noul | Pick], caller: str) -> None:
     """Keep the size of one Jev request, in characters, beside the call site it serves and its question keys, so each call's input can be read as p50 and max against its contract."""
-    caller = sys._getframe(2).f_code.co_name
     with (state.root() / JEV_SIZES).open("a") as out:
         out.write(json.dumps({"at": state.stamp(), "caller": caller, "chars": size(request, questions), "keys": sorted(questions)[:6]}) + "\n")
 
@@ -1577,24 +1576,13 @@ def asking(noul: Noul, **slots: object) -> Noul:
     return noul._replace(ask=noul.ask.format(**slots))
 
 
-def fill(state: dict, questions: dict[str, Noul | Pick], items: Iterable[tuple[dict, dict[str, Noul]]], chars: int = REQUEST_CHARS) -> tuple[dict, dict[str, Noul | Pick], list[tuple[dict, dict[str, Noul]]]]:
-    """The request holding the state and questions given, then each item's state and questions, whole, in turn, while the request stays within the characters given, REQUEST_CHARS unless less, by his words "jev should be getting like 10k chars at most for any call": an item with no room is left out whole, never cut, and a later smaller one still goes in; beside it, the items left out."""
-    left: list[tuple[dict, dict[str, Noul]]] = []
-    for part, asked in items:
-        merged = joined(state, part)
-        if size(merged, questions | asked) > chars:
-            left.append((part, asked))
-            continue
-        state, questions = merged, questions | asked
-    return state, questions, left
-
-
 def jev_all(requests: list[tuple[dict, dict[str, Noul]]]) -> dict[str, float]:
     """Jev's reads of every request asking anything, at once, merged by question id; Unheard when any one gives none."""
     if not (asking := [request for request in requests if request[1]]):
         return {}
     with ThreadPoolExecutor(len(asking)) as pool:
-        return {key: sure for read in pool.map(lambda request: jev(*request), asking) for key, sure in read.items()}
+        caller = sys._getframe(1).f_code.co_name
+        return {key: sure for read in pool.map(lambda request: jev(*request, caller=caller), asking) for key, sure in read.items()}
 
 
 def joined(state: dict, part: dict) -> dict:
@@ -1662,16 +1650,20 @@ def weighed(request: dict) -> dict:
 
 
 def refusal_verdict(rule: str, call: dict, findings: list[dict], seconds: float = REFUSAL_SECONDS) -> dict:
-    """Whether a drive check's refusal stands, by one Noul over the rule it names and the call, the call's input filled whole field by field: it holds at YES or more and in the band between NO and YES, since a call the rule may stop waits, and passes under NO, as a match its rule never meant; when Jev cannot finish within the seconds given, REFUSAL_SECONDS at most, the call goes ahead with a warning saying so and naming each of the check's findings, never the refusal's words, which would tell the session the call never ran."""
-    fields = (({"call": {"input": {key: value}}}, {}) for key, value in call["input"].items())
-    told, _, _ = fill({"rule": rule, "call": {"tool": call["tool"], "input": {}}}, {"protects": PROTECTS}, fields)
+    """Whether a drive check's refusal stands, by one Noul per finding over the rule it names, the call's tool and what the check found in it, each request a few hundred characters by design and never the call's whole input: it holds at YES or more and in the band between NO and YES, since a call the rule may stop waits, and passes under NO, as a match its rule never meant; when Jev cannot finish within the seconds given, REFUSAL_SECONDS at most, the call goes ahead with a warning saying so and naming each of the check's findings, never the refusal's words, which would tell the session the call never ran."""
+    found = [finding["found"] for finding in findings] or [rule]
+    asks = [({"rule": rule, "call": {"tool": call["tool"], "found": cut(each, QUOTED_CHARS)}}, {f"f{number}.protects": PROTECTS}) for number, each in enumerate(found, 1)]
     try:
-        protects = reading(jev(told, {"protects": PROTECTS}, seconds)["protects"])
+        with ThreadPoolExecutor(len(asks)) as pool:
+            reads = {key: sure for read in pool.map(lambda request: jev(*request, seconds, caller="refusal_verdict"), asks) for key, sure in read.items()}
     except Unheard as failure:
         return {"verdict": "warn", "note": f"This call goes ahead: Jev gave no verdict ({failure}) on whether it is what the refusal's rule protects against, so what the check found only warns:{warned(findings)}"}
-    if protects is None:
+    protects = [reading(sure) for sure in reads.values()]
+    if True in protects:
+        return {"verdict": "hold", "note": ""}
+    if None in protects:
         return {"verdict": "hold", "note": "Jev is unsure whether this call is what its rule protects against, so the refusal stands."}
-    return {"verdict": "hold" if protects else "pass", "note": ""}
+    return {"verdict": "pass", "note": ""}
 
 
 def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
@@ -1682,7 +1674,7 @@ def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
     asks = requests(output)
     try:
         with ThreadPoolExecutor(len(asks) or 1) as pool:
-            read = {key: sure for answer in pool.map(lambda request: jev(*request, seconds), asks) for key, sure in answer.items()}
+            read = {key: sure for answer in pool.map(lambda request: jev(*request, seconds, caller="post_verdict"), asks) for key, sure in answer.items()}
     except Unheard as failure:
         return unheard_post(reason, str(failure))
     held = [f'claim "{claim["claim"]}" names the read {json.dumps(claim["read"], ensure_ascii=False)}, which matches none of your calls' for claim in claims if unmatched(reads, claim)]
@@ -1769,7 +1761,7 @@ def requests(output: dict) -> list[tuple[dict, dict[str, Noul]]]:
                 break
         else:
             packed.append(item)
-    return [request for request in [*packed, fill(base, {}, rest)[:2]] if request[1]]
+    return [*packed, *((joined(base, part), asked) for part, asked in rest if asked)]
 
 
 def refusal_reason(output: dict) -> str:

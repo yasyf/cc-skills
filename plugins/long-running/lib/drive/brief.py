@@ -188,6 +188,7 @@ RELEASE_CLAIM = re.compile(r"\b(?:releases?|cut)\b[^.;\n]{0,60}?\bcan (?:start|g
 PULL_WORDS = re.compile(r"(?:#?\d+,?)+")
 NAMES = re.compile(r"[,\s]+")
 ABSTRACTION_RULING = '"we should buiold the abstraction first, make sure it works by imaginign, then implement the strategies"'
+NEWER_WORDS = 5
 
 
 def brief_file(prompt: str) -> tuple[Path, str] | None:
@@ -1273,15 +1274,12 @@ def flagged(design: dict, question: str, word: dict, words: list[dict]) -> str |
     named = f", {word['id']}" if limits.ANSWER_ID.fullmatch(word["id"]) else ""
     said = f'his words "{cut(word["said"].strip('"“”'), settled.QUOTED_CHARS)}" ({word["asked"]}{named})'
     reads = f"Jev reads this design as {'building less than' if question == 'narrows' else 'going against'} {said}"
-    newer = [other for other in words if state.parse_time(other["at"]) > state.parse_time(word["at"])]
-    request, asked, left = settled.fill(
-        design | {"words": {"asked": word["asked"], "said": word["said"]}, "newer": {}},
-        {"sentence": pick._replace(options=pick.options | dict.fromkeys(sentences))},
-        (({"newer": {f"n{number}": {"asked": other["asked"], "said": other["said"]}}}, {}) for number, other in enumerate(newer, 1)),
-    )
-    if left:
-        print(f"drive job report: {reads}, but {len(left)} of his {len(newer)} words given after them run past one Jev request beside it, so it is kept", file=sys.stderr)
-        return None
+    newer = sorted((other for other in words if state.parse_time(other["at"]) > state.parse_time(word["at"])), key=lambda other: other["at"], reverse=True)[:NEWER_WORDS]
+    request = design | {
+        "words": {"asked": word["asked"], "said": cut(word["said"], settled.QUOTED_CHARS)},
+        "newer": {f"n{number}": {"asked": other["asked"], "said": cut(other["said"], settled.QUOTED_CHARS)} for number, other in enumerate(newer, 1)},
+    }
+    asked = {"sentence": pick._replace(options=pick.options | dict.fromkeys(sentences))}
     if not (sentence := sentences.get(settled.jev(request, asked)["sentence"])):
         print(f"drive job report: {reads} but picks none of its sentences as doing so, so it is kept", file=sys.stderr)
         return None
