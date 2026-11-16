@@ -5010,7 +5010,7 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
     if bound:
         moved = {order_id: (holding_lane(base, order), holding_lane(mine, mine["orders"][order_id])) for order_id, order in open_orders(base).items() if order_id in mine["orders"]}
     elif any(collection in ("orders", "jobs") for collection, _ in held):
-        moved = {key: (holding_lane(base, base["orders"][key]), holding_lane(base, mine["orders"][key])) for collection, key in held if collection == "orders" and key in open_orders(base) and key in mine["orders"]}
+        moved = {key: (holding_lane(base, base["orders"][key]), holding_lane(base, mine["orders"][key])) for collection, key in held if collection == "orders" and key in base["orders"] and base["orders"][key]["state"] not in CLOSED_ORDER_STATES and key in mine["orders"]}
 
     def logged() -> list[str]:
         kept_write(name, got - asked, held_for)
