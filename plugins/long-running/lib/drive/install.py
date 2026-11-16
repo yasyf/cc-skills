@@ -979,7 +979,7 @@ def finish(name: str, data: dict, job_id: str, line: str, check: list[str], post
     whole = f"{line}\n{f'{own}\n' if own else ''}{f'PR: {urls}\n' if urls else ''}CHECK: {' '.join(check)}\n"
     if line.startswith("DONE"):
         state.deliver_proven(data, job_id, line.removeprefix("DONE "))
-    state.after_save(name, lambda: state.keep_report(name, job_id, line, whole) or [])
+    state.after(lambda: state.keep_report(name, job_id, line, whole) or [])
     state.take_result(data, job_id, line, whole)
     return line.startswith("DONE") and closed(name, data, job_id, order_id, keys, check, post, facts)
 
@@ -1058,7 +1058,7 @@ def close_installed(clone: str, repo: str, key: str, build: str, version: str, d
             data["orders"][his[0]].update(state="open", close_report=live_report(name, his, key.partition("@")[0], version, build))
         return closes
 
-    return lines + [line for name in owed for line in state.update(name, None, partial(installed_closes, name))]
+    return lines + [line for name in owed for line in state.write(name, partial(installed_closes, name))]
 
 
 def unbatched(data: dict) -> list[str]:
@@ -1079,7 +1079,7 @@ def clear_unbatched(name: str) -> list[str]:
             data["orders"][order_id].update(close_report=None, state="done", updated=state.stamp())
         return cleared
 
-    return [f"{name} {order_id}: closed, its close report dropped unsent for the one line of its install's fixes" for order_id in state.update(name, None, cleared_reports)]
+    return [f"{name} {order_id}: closed, its close report dropped unsent for the one line of its install's fixes" for order_id in state.write(name, cleared_reports)]
 
 
 def live_report(name: str, order_ids: list[str], plugin: str, version: str, build: str) -> dict:
@@ -1105,7 +1105,7 @@ def said_on_prs(name: str, data: dict, job_id: str, keys: list[str], change: str
     order_id = data["jobs"][job_id]["order"]
     lane = state.heard_lane(data, order_id)
     events = [{"repo": merged_in, "number": int(number)} for merged_in, number in (key.split("#") for key in keys)] or [{"job": job_id, "order": order_id}]
-    state.after_save(name, lambda: [state.append_event(name, "proof", **event, change=change, lane=lane) for event in events] and [])
+    state.after(lambda: [state.append_event(name, "proof", **event, change=change, lane=lane) for event in events] and [])
 
 
 def merged_done(name: str, data: dict, job_id: str) -> None:
@@ -1117,7 +1117,7 @@ def merged_done(name: str, data: dict, job_id: str) -> None:
     commits = " ".join(merge_commits(merges))
     line = f"DONE {urls} merged: {merged}"
     whole = f"{line}\nPR: {urls}\nCHECK: {commits}\n"
-    state.after_save(name, lambda: state.keep_report(name, job_id, line, whole) or [])
+    state.after(lambda: state.keep_report(name, job_id, line, whole) or [])
     state.take_result(data, job_id, line, whole)
     job["waits"] = []
 
@@ -1323,7 +1323,7 @@ def prove(name: str, job_id: str, timeout: int, again: bool = False) -> str:
             job.update(found)
         return found, job, merges, urls
 
-    found, job, merges, urls = state.update(name, None, prove_write)
+    found, job, merges, urls = state.write(name, prove_write)
     put_back = None if (found["proof"] or {}).get("pid") in (os.getpid(), parent) else {"proof": found["proof"]}
     untapped ={key: sha for key, sha in merges.items() if state.merges_untapped(key)}
     train.await_departure(untapped)
@@ -1465,7 +1465,7 @@ def unit_kept(name: str, job_id: str, order_id: str, repro: str, code: int | str
             change = f"{PROOF_FAILED}: {order_id}'s {repro} exits {code} on {versions}, its output {kept}: {quoted(output)[:SAID_CHARS]}"
         said_on_prs(name, data, job_id, keys, change)
 
-    state.update(name, None, kept_unit)
+    state.write(name, kept_unit)
 
 
 def after_steps(name: str, steps: list[str], path: str, timeout: int) -> tuple[str, tuple[str, str] | None]:
@@ -1552,7 +1552,7 @@ def proof_kept(name: str, job_id: str, line: str, output: str, versions: str, co
         if wait := waited(code, output):
             repeated = wait == before
             if own_proof(data, job_id) and job["said"] != (said := f"WAITING {PROOF_WAITS}: {wait}"):
-                state.after_save(name, lambda: state.keep_report(name, job_id, said, f"{said}\nCHECK: {kept}\n") or [])
+                state.after(lambda: state.keep_report(name, job_id, said, f"{said}\nCHECK: {kept}\n") or [])
                 state.take_result(data, job_id, said)
             job["proof"] = (job.get("proof") or {"pid": os.getpid(), "at": state.stamp(), "version": state.VERSION}) | {"said": job["said"], "waits": wait}
             change = f"{PROOF_WAITS}: {line.removeprefix('BLOCKED ')}"
@@ -1574,7 +1574,7 @@ def proof_kept(name: str, job_id: str, line: str, output: str, versions: str, co
                 change = f"{proven}; its close report of {job['order']} waits on the order for the watch, which posts it to the communicator on its next read and again each read until cci takes it"
         return None, (data, keys, change, repeated)
 
-    refused, proved = state.update(name, None, proving)
+    refused, proved = state.write(name, proving)
     if refused:
         return refused
     data, keys, change, repeated = proved
