@@ -1000,14 +1000,16 @@ def take_handed(name: str, handler: str) -> list[str]:
 def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | None:
     """End a handler's turn once refused, the Stop hook's checks of its line, lets it: hand the line it ended on to the session it runs beside, the communicator or on a drive with none the coordinator, as one cci record led by TOOK and the ts of each message of his it took by handover, each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, each permalink named once where it first appears, and remove its session. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended. In that edit its posts carry each record it held or took, and with none each `POST` report it held or took stays owed, by settled; the done record of each report given up goes to that report's writer too, led by UNPOSTED and its seq, and carries it. A check that raises still posts the handler's line before its error goes on."""
     name = state.session_drives(payload["session_id"])[0]
-    given_up: dict[str, str] = {}
     try:
         if reason := refused(payload):
             return reason
-        ending = state.saved(name)["handlers"][payload["agent_id"]]
+        saved = state.saved(name)
+        ending = saved["handlers"][payload["agent_id"]]
         writers = {} if ending["posted"] else {seq: record["lane"] for seq in held_records(ending) if posting(name, record := shown(seq))}
-        with state.edit(name) as data:
-            ended_handler = data["handlers"][payload["agent_id"]]
+        held_job = state.agent_job(state.load(name), payload["agent_id"])
+
+        def end(data: dict) -> tuple[dict, list, dict[str, str]]:
+            ended_handler, given_up = data["handlers"][payload["agent_id"]], {}
             if briefs := ended_handler["handed"]:
                 ended_handler["handed"] = []
                 ended_handler["took"] += briefs
@@ -1016,6 +1018,9 @@ def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | N
                 if job_id := state.agent_job(data, payload["agent_id"]):
                     data["jobs"][job_id]["transcript"] = payload["agent_transcript_path"]
                 given_up = settled(data, ended_handler, writers, " ".join((payload.get("last_assistant_message") or "").split()))
+            return ended_handler, briefs, given_up
+
+        ended_handler, briefs, given_up = state.update(name, (("handlers", payload["agent_id"]), *((("jobs", held_job),) if held_job else ())), end)
         if briefs:
             return Unjudged(f"Refused on purpose: {handed(briefs)}")
     except Exception:

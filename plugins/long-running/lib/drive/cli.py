@@ -1441,15 +1441,17 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
     closing = order_id in state.closed_orders(report)
     promised = promised_due(posted.get("text") or "", at) if ours and not order["incident"] else None
     where = (state.CARD_LINK.search(link)[1], posted.get("thread_ts") or posted["ts"])
-    kept = ""
-    with state.edit(name) as data:
+    until = None if ours else report.get("until")
+
+    def keep(data: dict) -> tuple[dict, bool, str]:
+        kept = ""
         order = data["orders"][order_id]
         rooted = gained == (slack.dm(), posted["ts"]) and not order["thread"]
         if rooted:
             order["thread"] = list(gained)
         elif gained:
             state.join_thread(order, gained, line, "posted" if ours else "members")
-        if until := None if ours else report.get("until"):
+        if until:
             state.claim(data, order, where, link, until, posted["ts"])
         if ours:
             if (owed_here := next((held for held in state.owing(order) if held["thread"] == list(where)), None)) and closing:
@@ -1463,6 +1465,9 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
             order["last_line"] = max(order["last_line"] or line, line, key=state.parse_time)
         for part in delivered:
             order["parts"][part]["posted"] = link
+        return order, rooted, kept
+
+    order, rooted, kept = state.update(name, None if until else (("orders", order_id),), keep)
     quoted = ", ".join(f'"{part}"' for part in delivered)
     said = f"{quoted}: posted" if delivered else f"{'closing' if closing else 'progress'} line, no part delivered:"
     away = "" if ours else f", {'in a thread of another channel its members read' if posted.get('thread_ts') else 'at the root of another channel'}, so it is no line to him and keeps no promised time"

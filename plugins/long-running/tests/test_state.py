@@ -334,9 +334,9 @@ def test_a_batch_holds_no_lock_while_its_writes_run_and_its_one_save_keeps_what_
     assert state.load("demo")["terminal"] == "term-4"
 
 
-def test_a_scoped_edit_holds_no_drive_lock_while_its_body_runs_and_keeps_what_another_write_saved_meanwhile(state_root: Path) -> None:
+def test_a_write_of_its_rows_holds_no_drive_lock_while_its_body_runs_and_keeps_what_another_write_saved_meanwhile(state_root: Path) -> None:
     make("demo")
-    with state.edit("demo", ("job", "j1")) as data:
+    with state.edit("demo", (("", "terminal"),)) as data:
         data["terminal"] = "term-1"
         with open(state.drive_dir("demo") / ".lock", "a") as free:
             fcntl.flock(free, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -347,22 +347,60 @@ def test_a_scoped_edit_holds_no_drive_lock_while_its_body_runs_and_keeps_what_an
     assert (data["terminal"], data["binder"]) == ("term-1", "term-2")
 
 
-def test_a_scoped_edit_racing_another_on_one_field_is_refused_keeping_nothing_and_logs_the_field(state_root: Path) -> None:
+def test_a_write_of_its_rows_is_refused_keeping_nothing_once_another_write_changed_one_of_them(state_root: Path) -> None:
     make("demo")
-    with pytest.raises(DriveError, match=r"refused, nothing kept: another write changed terminal differently while this ran, so send it again$"):
-        with state.edit("demo", ("job", "j1")) as data:
-            data["terminal"] = "mine"
-            data["binder"] = "mine too"
+    with pytest.raises(DriveError, match=r"refused, nothing kept: another write changed terminal while this ran, so send it again$"):
+        with state.edit("demo", (("", "terminal"), ("", "binder"))) as data:
+            data["binder"] = "mine"
             with state.edit("demo") as other:
                 other["terminal"] = "theirs"
     assert (state.load("demo")["terminal"], state.load("demo")["binder"]) == ("theirs", None)
-    assert "refused: another write changed terminal differently while it ran" in (state.drive_dir("demo") / "locks.log").read_text()
+    assert "refused: another write changed terminal while it ran" in (state.drive_dir("demo") / "locks.log").read_text()
+
+
+def test_an_update_another_write_raced_runs_again_under_the_drive_lock_on_the_drive_as_it_stands(state_root: Path) -> None:
+    make("demo")
+    runs: list[str | None] = []
+
+    def keep(data: dict) -> str:
+        runs.append(data["binder"])
+        if len(runs) == 1:
+            with state.edit("demo") as other:
+                other["terminal"] = "theirs"
+                other["binder"] = "theirs too"
+        data["terminal"] = f"mine over {data['terminal']}"
+        return data["terminal"]
+
+    assert state.update("demo", (("", "terminal"),), keep) == "mine over theirs"
+    assert (runs, state.load("demo")["terminal"], state.load("demo")["binder"]) == ([None, "theirs too"], "mine over theirs", "theirs too")
+    assert "ran again under the drive lock, since another write changed terminal while it ran" in (state.drive_dir("demo") / "locks.log").read_text()
+
+
+def test_an_update_changing_a_row_it_did_not_name_runs_again_under_the_drive_lock(state_root: Path) -> None:
+    make("demo")
+
+    def keep(data: dict) -> None:
+        data["terminal"] = "term-1"
+        data["binder"] = "term-2"
+
+    state.update("demo", (("", "terminal"),), keep)
+    assert (state.load("demo")["terminal"], state.load("demo")["binder"]) == ("term-1", "term-2")
+    assert "ran again under the drive lock, since it changed binder too" in (state.drive_dir("demo") / "locks.log").read_text()
+
+
+def test_a_write_of_its_rows_changing_another_row_raises_keeping_nothing(state_root: Path) -> None:
+    make("demo")
+    with pytest.raises(DriveError, match=r"refused, nothing kept: a write of terminal changed binder too$"):
+        with state.edit("demo", (("", "terminal"),)) as data:
+            data["terminal"] = "term-1"
+            data["binder"] = "term-2"
+    assert state.load("demo")["terminal"] is None
 
 
 def test_two_writes_adding_at_once_from_one_load_take_two_ids(state_root: Path) -> None:
     make("demo")
     created = state.stamp()
-    with state.edit("demo", ("job", "j1")) as data:
+    with state.edit("demo", (("orders", "o1"),)) as data:
         mine = state.next_id(data["orders"], "o")
         data["orders"][mine] = state.new_order("mine", "terminal", None, {"mine": state.new_part()}, created)
         with state.edit("demo") as other:
@@ -371,19 +409,16 @@ def test_two_writes_adding_at_once_from_one_load_take_two_ids(state_root: Path) 
     assert (mine, theirs, sorted(state.load("demo")["orders"])) == ("o1", "o2", ["o1", "o2"])
 
 
-def test_a_scoped_edit_holds_its_scope_from_load_to_save_so_a_second_of_that_scope_reads_the_first_s_write(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_write_of_its_rows_holds_each_row_s_lock_from_load_to_save(state_root: Path) -> None:
     make("demo")
-    monkeypatch.setattr(state, "DRIVE_LOCK_SECONDS", 0.3)
-    with state.edit("demo", ("job", "j1")) as data:
+    with state.edit("demo", (("", "terminal"),)) as data:
         data["terminal"] = "term-1"
-        with open(state.drive_dir("demo") / "locks" / "job-j1.lock", "a") as held:
+        with open(state.drive_dir("demo") / "locks" / "drive-terminal.lock", "a") as held:
             with pytest.raises(BlockingIOError):
                 fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        with state.edit("demo", ("job", "j1")) as inner:
-            inner["binder"] = "term-2"
-        with state.edit("demo", ("job", "j2")) as other:
-            other["binder"] = "term-3"
-    assert (state.load("demo")["terminal"], state.load("demo")["binder"]) == ("term-1", "term-3")
+        with open(state.drive_dir("demo") / "locks" / "drive-binder.lock", "a") as free:
+            fcntl.flock(free, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    assert state.load("demo")["terminal"] == "term-1"
 
 
 def test_a_hold_of_the_drive_lock_past_its_stuck_seconds_logs_the_line_it_holds_on_while_it_still_holds(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
