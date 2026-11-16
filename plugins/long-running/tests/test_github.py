@@ -824,7 +824,7 @@ def test_carrier_counts_a_hotfix_copy_of_a_pr_only_by_its_changes_patch_id_never
     assert [carries(build, merge, 2) for build in (copied, reverted, named)] == [True, False, False]
 
 
-def test_contains_holds_a_pr_by_net_content_a_hotfix_copy_on_other_context_counting_and_a_copy_later_reverted_not(tmp_path: Path) -> None:
+def test_contains_holds_a_pr_by_net_content_a_hotfix_copy_on_other_context_counting_and_a_copy_later_reverted_not(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     origin, clone = tmp_path / "origin", tmp_path / "clone"
     origin.mkdir()
     git_in(origin, "init", "-q", "-b", "main")
@@ -842,9 +842,23 @@ def test_contains_holds_a_pr_by_net_content_a_hotfix_copy_on_other_context_count
     reverted = commit_files(origin, "Revert the watch on prod", {"b": "1\n2\n5\n"})
     git_in(origin, "checkout", "-q", "main")
     git_in(tmp_path, "clone", "-q", "--single-branch", "-b", "main", str(origin), str(clone))
+    fetched = github.fetched
+    branches = []
+
+    def recorded(clone, branch):
+        branches.append(branch)
+        return fetched(clone, branch)
+
+    monkeypatch.setattr(github, "fetched", recorded)
     holds = github.contains(str(clone))
     assert [holds(build, merge, head, "main") for build in (later, context, reverted, old)] == [True, True, False, False]
     assert holds(context, merge, head, None) is False
+    assert branches == ["main"]
+    assert holds(context, merge, head, "gone") is False
+    assert holds(reverted, merge, head, "gone") is False
+    assert branches == ["main", "gone"]
+    assert github.contains(str(clone))(context, merge, head, "main") is True
+    assert branches == ["main", "gone", "main"]
 
 
 def test_uncarried_finds_each_file_a_pr_changes_since_its_fork_among_a_builds_own_changes_on_any_line_squashed_or_replayed_and_lets_an_unembedded_agent_doc_or_test_differ_as_cut_6ea037ed0480_needed(

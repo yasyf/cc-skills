@@ -127,6 +127,7 @@ tests=plugins/long-running/tests
   "$tests/test_quoted_commands.py" \
   "$tests/test_modules.py" \
   "$tests/test_reactions.py" \
+  "$tests/test_github.py::test_contains_holds_a_pr_by_net_content_a_hotfix_copy_on_other_context_counting_and_a_copy_later_reverted_not" \
   "$tests/test_state.py::test_owner_page_presence_uses_its_index" \
   "$tests/test_watch.py::test_idle_owner_page_stage_does_not_load_the_drive" \
   "$tests/test_watch.py::test_a_page_for_real_users_failing_while_he_is_away_starts_its_fix_and_diagnosis_and_goes_out_though_slack_refuses_its_line_which_the_watch_posts_in_the_drive_channel_next_pass_once" \
