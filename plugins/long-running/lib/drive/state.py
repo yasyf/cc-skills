@@ -4640,6 +4640,16 @@ def edit(name: str, rows: tuple[Row, ...] | None = None) -> Iterator[dict]:
             raise Refused(f"refused, nothing kept: another write changed {'.'.join(raced.args[0])} while this ran, so send it again") from None
 
 
+def changed_since(name: str, rev: int) -> tuple[int, set[Row] | None]:
+    """The drive's newest revision and each row any write committed after rev, a collection's record by its key or a top-level field under "", read from the changed table in one statement; None for the rows once the table no longer reaches back to rev, so a reader that kept rev reads only the rows that moved, and everything when it fell too far behind."""
+    with closing(connect(database_path(name))) as db:
+        db.execute("BEGIN")
+        newest, first = db.execute("SELECT COALESCE(MAX(rev), 0), COALESCE(MIN(rev), 1) FROM changed").fetchone()
+        rows = None if first > rev + 1 else {(collection, key) for collection, key in db.execute("SELECT DISTINCT collection, key FROM changed WHERE rev > ?", (rev,))}
+        db.execute("COMMIT")
+    return newest, rows
+
+
 def loaded_rows(name: str, rows: tuple[Row, ...]) -> tuple[dict, dict[Row, object]]:
     """The drive as load reads it, with each record the rows name as the database held it for that load, unshaped, ABSENT where it held none, which rows_saved compares the database's with, all read from this process's one copy at the one version and revision that load read, loading again while another thread's load or save moved the copy past them."""
     path = database_path(name)

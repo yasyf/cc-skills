@@ -2872,3 +2872,20 @@ def test_a_pr_whose_staging_tester_waits_on_a_cut_is_owed_by_the_slot_queue_and_
         monkeypatch.setattr(state, "part_tester", lambda data, order_id, named, tester=tester: tester)
         assert state.staging_owed(data, "Forge-AI/monorepo#42") is owed
     assert state.staging_owed(data, "Forge-AI/monorepo#43") is False
+
+
+def test_changed_since_names_each_row_committed_after_a_revision_and_none_once_the_table_no_longer_reaches_back(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    make("demo")
+    with state.edit("demo"):
+        pass
+    rev, _ = state.changed_since("demo", 0)
+    with state.edit("demo") as data:
+        data["terminal"] = "term-1"
+    newest, rows = state.changed_since("demo", rev)
+    assert (newest > rev, rows) == (True, {("", "terminal")})
+    monkeypatch.setattr(state, "CHANGES_KEPT", 1)
+    with state.edit("demo") as data:
+        data["binder"] = "term-2"
+    with state.edit("demo") as data:
+        data["binder"] = "term-3"
+    assert state.changed_since("demo", rev)[1] is None
