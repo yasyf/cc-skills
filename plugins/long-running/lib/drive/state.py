@@ -7160,7 +7160,7 @@ def tap_refused(data: dict, pr: dict) -> str | None:
         return f'its exempt class "{pr["exempt"]}" lands it with no tap'
     if not pr["wants_tap"]:
         return "its author or its own builder lands it with no tap"
-    if (pr["tap"] or {}).get("label") == "Approve":
+    if (pr["tap"] or {}).get("label") == "Approve" and not land.awaits_word(data, pr):
         return "he approved it already"
     if steps := unscheduled_waits(data, pr):
         return f"it waits on {', '.join(steps)}, work he has not scheduled, so no card asks him on it until he does, by his answer {UNSCHEDULED_RULING}"

@@ -145,6 +145,13 @@ def unattended(data: dict, key: str, moment: datetime) -> str | None:
     )
 
 
+def awaits_word(data: dict, pr: dict) -> bool:
+    """Whether the PR, approved and cleared, waits only on his presence to land: its lander's last try at its head, or the one before a try still running there, ended held by unattended() while he is still not present, so his card asks his tap again and the tap, his word, lands it, by his words "why are you telling me to reply merge instead of giving me a card"."""
+    lander = pr["lander"] or {}
+    outcome = lander.get("outcome") if lander.get("outcome") is not None else lander.get("was")
+    return approved(pr) and lander.get("head") == pr["head"] and (outcome or "").startswith(AWAY) and bool(state.absence(data, state.now()))
+
+
 def not_ci(data: dict, paths: list[str]) -> list[str]:
     """The paths outside CI configuration and CI tooling, as the repository's provider reads them, which no ci-only PR changes."""
     repo = providers.of(data).repo

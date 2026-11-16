@@ -336,9 +336,9 @@ def in_turn(steps: list[str]) -> str:
 
 
 def ask_waits(asked: list[tuple[dict, dict]]) -> str:
-    """The waits id his PR card asks under, from the `gh pr view` payload and the drive's entry of each PR on it still asking his tap: their numbers and the hash of the heads they are asked at, each held one's beside the time of his Hold, inside the 64 characters cc-slack takes, a stack too long to name each number within them named by its bottom PR and its count beside the hash of its numbers and heads, as state.LONG_ASK_WAITS reads, so his answer to one ask never closes a later one: a push that takes his Approve back asks at a new head, and his Hold asks his Approve again, which cc-slack opens the answered card for again in place under the new id."""
+    """The waits id his PR card asks under, from the `gh pr view` payload and the drive's entry of each PR on it still asking his tap: their numbers and the hash of the heads they are asked at, each one he held or approved beside the time of that tap, an approved one asking only while land.awaits_word finds it waiting on his presence, inside the 64 characters cc-slack takes, a stack too long to name each number within them named by its bottom PR and its count beside the hash of its numbers and heads, as state.LONG_ASK_WAITS reads, so his answer to one ask never closes a later one: a push that takes his Approve back asks at a new head, and his Hold, or his Approve on a dangerous PR held while he is away, asks his Approve again, which cc-slack opens the answered card for again in place under the new id."""
     numbers = ".".join(state.pr_key(pr["url"]).split("#")[1] for pr, _ in asked)
-    heads = [f"{pr['headRefOid']}@{entry['tap']['at']}" if tap_label(entry) == "Hold" else pr["headRefOid"] for pr, entry in asked]
+    heads = [f"{pr['headRefOid']}@{entry['tap']['at']}" if tap_label(entry) else pr["headRefOid"] for pr, entry in asked]
     waits = f"merge:{numbers}:{state.ask_hash(' '.join(heads))}"
     return waits if len(waits) <= state.WAITS_MAX else f"merge:{numbers.split('.')[0]}-{len(asked)}:{state.ask_hash(' '.join([numbers, *heads]))}"
 

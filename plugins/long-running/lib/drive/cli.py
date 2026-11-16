@@ -6808,7 +6808,7 @@ def approve(name: str, answer_id: str, asked: dict[str, dict], named: list[str])
         shown = f"its card {question['card']} now shows it" if question["card"] else "no card draws for it"
         done.append(f'{key}: decided on "{render.cut(option, 200)}" under his approval {answer_id[:7]}, {shown}; {builds_on(state.load(name), job_id)}')
     def approved(data: dict) -> list[str]:
-        tapped = [key for key, pr in data["prs"].items() if state.approval_covers(approves, key, pr["order"]) and state.asks_tap(data, pr) and not state.against(pr)]
+        tapped = [key for key, pr in data["prs"].items() if state.approval_covers(approves, key, pr["order"]) and not land.approved(pr) and state.asks_tap(data, pr) and not state.against(pr)]
         for key in tapped:
             pr = data["prs"][key]
             pr.update(tap=state.new_tap("Approve", pr["head"], kept["link"], card=[key], approval=answer_id), fundamental=None, updated=state.stamp())

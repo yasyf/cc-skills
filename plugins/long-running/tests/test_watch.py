@@ -9014,12 +9014,35 @@ def test_a_forge_ai_pr_he_approved_changing_sandsql_waits_for_his_next_word_whil
     monkeypatch.setattr(state, "now", lambda: away)
     with edit(demo) as data:
         data["prs"][EJECTED]["lander"] = {"head": "bb28d680bf", "base": data["prs"][EJECTED]["base"], "pid": 1, "at": state.stamp(away), "outcome": f"{land.AWAY}: {refused}", "below": [], "entry": EJECTED}
-    assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("waiting", stage.HIM, f"green and cleared, and its lander's try at bb28d68 ended {land.AWAY}: {refused}")
+    assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("uncarded", stage.WATCH, "his card on it is not drawn yet")
     assert stage.of(state.load(demo), FLAKE_FIX, NO_CARDS).name == "ready"
     with edit(demo) as data:
         data["owner"]["heard"] = state.stamp(away)
     assert stage.of(state.load(demo), EJECTED, NO_CARDS).name == "ready"
 
+
+def test_a_dangerous_pr_he_approved_waiting_on_his_word_while_he_is_away_gets_a_card_whose_tap_is_his_word_and_lands_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(github, "files", {EJECTED: ["go/sand/internal/sandsql/write.go"]}.__getitem__)
+    with edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(T0)
+        data["jobs"]["j1"]["prs"].append(state.pr_url(EJECTED))
+        data["prs"][EJECTED] = state.new_pr(state.pr_url(EJECTED), "j1", "o1") | {"head": "bb28d680bf", "checks": "pass", "review": "approved", "tap": state.new_tap("Approve", "bb28d680bf", "pressed the button", at=state.stamp(T0))}
+    away = T0 + timedelta(minutes=20)
+    monkeypatch.setattr(state, "now", lambda: away)
+    data = state.load(demo)
+    assert state.tap_refused(data, data["prs"][EJECTED]) == "he approved it already"
+    refused = land.unattended(data, EJECTED, away)
+    with edit(demo) as data:
+        data["prs"][EJECTED]["lander"] = {"head": "bb28d680bf", "base": data["prs"][EJECTED]["base"], "pid": 1, "at": state.stamp(away), "outcome": f"{land.AWAY}: {refused}", "below": [], "entry": EJECTED}
+    data = state.load(demo)
+    read = {"url": state.pr_url(EJECTED), "headRefOid": "bb28d680bf"}
+    assert state.asks_tap(data, data["prs"][EJECTED])
+    assert stage.of(data, EJECTED, NO_CARDS) == stage.Stage("uncarded", stage.WATCH, "his card on it is not drawn yet")
+    assert card.ask_waits([(read, data["prs"][EJECTED])]) != card.ask_waits([(read, {"tap": None})])
+    card.hear_tap(demo)
+    data = state.load(demo)
+    assert not state.asks_tap(data, data["prs"][EJECTED])
+    assert stage.of(data, EJECTED, NO_CARDS).name == "ready"
 
 @pytest.mark.parametrize(
     ("part", "posted", "said"),
@@ -9048,7 +9071,7 @@ def test_replayed_717646_an_approved_dangerous_pr_whose_last_wait_ended_on_a_del
     assert (state.delivered(data, "o1", part), land.staged(data, data["prs"][KEY]), stage.of(data, KEY, NO_CARDS).name) == (True, [], "ready")
     held = f"{land.AWAY}: {land.unattended(data, KEY, away)}"
     assert land.run(demo, [KEY]) == held
-    assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("waiting", stage.HIM, f"green and cleared, and its lander's try at aaaaaaa ended {held}")
+    assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("uncarded", stage.WATCH, "his card on it is not drawn yet")
     with edit(demo) as data:
         data["owner"]["heard"] = state.stamp(away)
     assert land.run(demo, [KEY]) == land.QUEUED
