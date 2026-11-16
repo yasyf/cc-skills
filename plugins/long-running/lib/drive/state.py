@@ -4530,8 +4530,11 @@ def flocked(path: Path) -> Iterator[None]:
 
 @contextmanager
 def locked(name: str) -> Iterator[None]:
-    """Hold the drive's lock for one load and save, waiting up to DRIVE_LOCK_SECONDS for the process holding it, then refusing with who that is, so a process stuck under it fails this verb instead of holding every writer of the drive behind it, but for one under waiting_out_lock, which waits as long as the lock is held; a process's first hold moves the reports an older install kept into their jobs' histories.
+    """Hold the drive's lock for one load and save, but for a dry run's, which keeps nothing and so takes none, waiting up to DRIVE_LOCK_SECONDS for the process holding it, then refusing with who that is, so a process stuck under it fails this verb instead of holding every writer of the drive behind it, but for one under waiting_out_lock, which waits as long as the lock is held; a process's first hold moves the reports an older install kept into their jobs' histories.
     A writer that finds the lock held and acts for a priority order, by named_first, holds the drive's .first.lock shared while it waits, and every other writer tries the lock only while no one holds that, so a priority order's verbs take it ahead of every writer waiting beside them, by his words "so they aren't slowed down at any cost by anything"."""
+    if name in REHEARSING:
+        yield
+        return
     path = drive_dir(name) / ".lock"
     path.parent.mkdir(parents=True, exist_ok=True)
     asked = time.monotonic()
