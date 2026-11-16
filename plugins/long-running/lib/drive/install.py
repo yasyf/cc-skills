@@ -88,6 +88,10 @@ class NoRelease(Exception):
     pass
 
 
+class Overran(InstallError):
+    pass
+
+
 def clock() -> float:
     return time.monotonic()
 
@@ -103,7 +107,7 @@ def ran(cmd: list[str], deadline: float, cwd: str | None = None) -> subprocess.C
     try:
         return subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=left, cwd=cwd)
     except subprocess.TimeoutExpired:
-        raise InstallError(f"{' '.join(cmd)} ran past the deadline ({left:.0f}s left when it started)") from None
+        raise Overran(f"{' '.join(cmd)} ran past the deadline ({left:.0f}s left when it started)") from None
 
 
 def run(cmd: list[str], deadline: float, cwd: str | None = None) -> str:
@@ -552,6 +556,10 @@ def try_install(plugin: Path) -> bool:
     try:
         try_watch(plugin, names, clock() + TRY_SECONDS)
         said = ""
+    except Overran as error:
+        said = ""
+        for name in names:
+            tools.sent(name, "watch", [{"kind": "defect", "to": [f"meta@{name}"], "text": f"watches move onto {plugin.name} untried, since its try found no crash before it {error}", "id": f"try-install-{code_digest(plugin)[:12]}"}])
     except InstallError as error:
         said = str(error)
         for name in names:

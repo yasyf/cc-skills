@@ -505,6 +505,18 @@ def test_a_green_approved_pr_only_its_staging_test_holds_from_a_production_relea
     assert (kept in data["orders"]["o1"]["parts"], data["prs"][OTHER]["waits"]) == (True, [f"o1:{kept}"])
 
 
+def test_his_approve_tap_lands_a_green_pr_only_its_staging_test_holds_with_no_release_behind_it_and_tests_it_after_merge_as_57634_was_not(home_repo: None, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    held = state.STAGING_TEST.format(number=42)
+    with edit(demo) as data:
+        state.reach_staging(data, KEY, [])
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved", "tap": state.new_tap("Approve", data["prs"][KEY]["head"] or "aaaaaaa111", "slack", at=state.stamp(T0), card=[KEY])}
+    monkeypatch.setattr(github, "paths", lambda keys: {KEY: ("aaaaaaa111", ["dashboard/src/iris/components/Sidebar.tsx"])})
+    [line] = watch.release_lines(watcher(demo), T0)
+    data = state.load(demo)
+    assert line.startswith(f"PR {KEY}: ")
+    assert (held in data["orders"]["o1"]["parts"], data["prs"][KEY]["waits"], state.merges_first_lift(data["prs"][KEY])) == (False, [], True)
+
+
 @pytest.mark.parametrize("wants_tap", [False, True])
 @pytest.mark.parametrize("job_state", ["running", "waiting"])
 def test_a_prs_moves_are_said_whatever_its_jobs_state_and_wake_no_one_while_the_watch_draws_his_card_on_one_waiting_on_his_tap(

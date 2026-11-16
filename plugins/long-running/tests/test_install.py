@@ -3057,3 +3057,24 @@ def test_the_watch_moves_onto_a_newer_install_only_once_its_own_try_on_a_copy_of
         assert install.watch_tried(newer) is passed
     assert len(started) == 1
 
+
+
+def test_an_install_whose_try_runs_past_its_deadline_without_a_crash_passes_and_tells_meta_once_as_1_0_1654_to_1_0_1656_did_not(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from drive import tools
+
+    newer = tmp_path / "1.0.4"
+    (newer / "lib" / "drive").mkdir(parents=True)
+    (newer / "bin").mkdir()
+    (newer / "bin" / "drive").write_text("#!/usr/bin/env python3\n")
+    sent: list[list[dict]] = []
+    monkeypatch.setattr(state, "names", lambda: ["demo"])
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append(records))
+
+    def overran(plugin: Path, names: list[str], deadline: float) -> None:
+        raise install.Overran("tools/try-watch demo ran past the deadline (174s left when it started)")
+
+    monkeypatch.setattr(install, "try_watch", overran)
+    assert install.try_install(newer) is True
+    assert json.loads(install.tried_path(newer).read_text())["passed"] is True
+    [[record]] = sent
+    assert record["to"] == ["meta@demo"] and "untried" in record["text"]

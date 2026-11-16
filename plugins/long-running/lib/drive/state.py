@@ -215,7 +215,8 @@ USAGE_LIMIT_LOG = "claude-usage-limits.jsonl"
 SPRITE_WAIT = "sprite-slot"
 CUT_WAIT = "release-cut"
 RELEASE_HOLD_WORDS = '"its saying it will wait all night or skip the mac release for 1 PR which is already green and approved, I just merged it to unblock but whatever in the tooling that did not just merge it then include mac in the release needs to be fixed"'
-RELEASE_LANDS = "{key} is green and approved, changes nothing dangerous and holds {order}'s release, so it lands now through the merge queue and the cut's staging retest reruns only what it touches"
+APPROVE_LANDS_WORDS = '"I asked for 2 fixes and approved them asap, neither has merged and neither is in the release that\'s supposed to be for them"'
+RELEASE_LANDS ="{key} is green and approved, changes nothing dangerous and holds {order}'s release, so it lands now through the merge queue and the cut's staging retest reruns only what it touches"
 TURN_WAITS = (SLOT_WAIT, SPRITE_WAIT, CUT_WAIT)
 USAGE_LIMIT = re.compile(r"You've hit your (?P<limit>\w+) limit · resets (?P<resets>.+?) \((?P<zone>[^)]+)\)")
 LIMIT_RESET = re.compile(r"(?:(?P<day>[A-Z][a-z]{2} \d{1,2}) at )?(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?P<half>am|pm)")
@@ -3286,12 +3287,13 @@ def releasing(data: dict, order_id: str) -> bool:
 
 
 def release_held(data: dict, key: str) -> list[str]:
-    """The orders covering a production release, by releasing, whose `staging test of #N before it lands` part alone holds the open PR of the providers' repository at key: green, his Approve on it and its GitHub review approved, every wait of it on that part of those orders, so the release waits on nothing of it but its landing, by his words RELEASE_HOLD_WORDS; none otherwise."""
+    """The orders whose `staging test of #N before it lands` part alone holds the open PR of the providers' repository at key: green, his Approve on it and its GitHub review approved, every wait of it on that part of those orders, so it lands and is tested after its merge. Either his Approve tap itself, by his words APPROVE_LANDS_WORDS, or orders covering a production release, by releasing, so the release waits on nothing of it but its landing, by his words RELEASE_HOLD_WORDS; none otherwise."""
     pr, part = data["prs"][key], STAGING_TEST.format(number=key.rpartition("#")[2])
     if pr["state"] != "open" or not home_repo(data, github.repo_of(key)) or pr["checks"] != "pass" or pr["review"] != "approved" or not cleared(pr):
         return []
     held = [found[0] for wait in pr["waits"] if (found := part_wait(data, wait)) and found[1] == part]
-    return held if held and len(held) == len(pr["waits"]) and all(releasing(data, order_id) for order_id in held) else []
+    tapped = (pr["tap"] or {}).get("label") == "Approve"
+    return held if held and len(held) == len(pr["waits"]) and (tapped or all(releasing(data, order_id) for order_id in held)) else []
 
 
 def land_for_release(data: dict, key: str, orders: list[str]) -> list[str]:
