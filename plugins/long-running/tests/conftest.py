@@ -620,8 +620,11 @@ class GuardedRepo(providers.RepoProvider):
     review_ask = "@forge-pr-reviewer review"
 
 
-class HomeRepo(GuardedRepo):
+class NamedRepo(GuardedRepo):
     name = "Forge-AI/monorepo"
+
+
+class HomeRepo(NamedRepo):
 
     def queue(self) -> providers.Queue:
         commands = ((("ci", "trunk", "submit"), frozenset({"priority"}), ()), (("stack-enqueue",), frozenset(), ("check", "status", "dequeue")))
@@ -762,6 +765,12 @@ def home_repo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """The drive's repository the HomeRepo fake, whose PRs are its own and land through its merge queue, over the HOME fakes, with no PR reaching any release unless the test reads its reach itself."""
     provide(monkeypatch, tmp_path, repo=HomeRepo)
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
+
+
+@pytest.fixture
+def named_repo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The drive's repository the HOME fakes under the monorepo's name, with no merge queue, so its PRs' staging rows and commit links name it."""
+    provide(monkeypatch, Path(), repo=NamedRepo)
 
 
 class SelectRelease(HomeRelease):
