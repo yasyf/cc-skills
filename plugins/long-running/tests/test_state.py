@@ -3261,3 +3261,9 @@ def test_a_done_whose_cases_all_pass_with_no_check_line_is_a_pass_only_on_the_pr
     state.take_result(data, "j1", current.splitlines()[0], current)
     assert (first[1], stale[1], staging_reads(data)) == (None, None, (True, f"{state.pr_url(key)} at abc1234def56", "j1"))
     assert [len(state.unproven_pass(data, "j1", report)) for report in (unheaded, old, current)] == [1, 1, 0]
+    data["jobs"]["j1"]["cut_heads"] = {key: "abc1234def5678"}
+    state.take_result(data, "j1", unheaded.splitlines()[0], unheaded)
+    carried = staging_reads(data)
+    data["prs"][key]["head"] = "fedcba9876543"
+    state.take_result(data, "j1", unheaded.splitlines()[0], unheaded)
+    assert (carried, staging_reads(data)[1], state.unproven_pass(data, "j1", unheaded) != []) == ((True, f"{state.pr_url(key)} at abc1234def56", "j1"), None, True)

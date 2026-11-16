@@ -3832,18 +3832,19 @@ def full_pass(data: dict, job_id: str, report: str, part: str) -> tuple[list[tup
     cases, proofs = part_run(data, job_id, report, part)
     if not (passing(cases) and tests_named(report, part, home(data))):
         return cases, None
-    return cases, proofs[0] if proofs else head_proof(data, report, part)
+    return cases, proofs[0] if proofs else head_proof(data, report, part, job_id)
 
 
-def head_proof(data: dict, report: str, part: str) -> str | None:
-    """The proof a DONE whose cases all pass carries with no CHECK: line, by 736426: the PR's current head that the report names it ran on, beside the PR as `pull/<n> at <sha>` or `#<n> at <sha>`, or on every CASE line of the part, so a pass on an old head never delivers a change untested at its real head, by his 0048b14; None when the report proves no head."""
+def head_proof(data: dict, report: str, part: str, job_id: str | None = None) -> str | None:
+    """The proof a DONE whose cases all pass carries with no CHECK: line, by 736426: the PR's current head that the report names it ran on, beside the PR as `pull/<n> at <sha>` or `#<n> at <sha>`, or on every CASE line of the part, or that the job's queue cut carried, by its cut_heads, so a pass on an old head never delivers a change untested at its real head, by his 0048b14; None when the report proves no head."""
     number = STAGING_PART.fullmatch(part)["number"]
     pr = data["prs"].get(f"{home(data)}#{number}")
     if pr is None or not pr["head"]:
         return None
     named = re.search(rf"(?:/pull/{number}\b\S*|#{number}) at ([0-9a-f]{{7,40}})\b", report)
     cases = [line for line in report.splitlines() if CASE_LINE.fullmatch(line)]
-    on_head = named and pr["head"].startswith(named[1]) or cases and all(any(pr["head"].startswith(sha) for sha in re.findall(r"\b[0-9a-f]{7,40}\b", line)) for line in cases)
+    cut = job_id and (data["jobs"][job_id].get("cut_heads") or {}).get(f"{home(data)}#{number}")
+    on_head = cut == pr["head"] or named and pr["head"].startswith(named[1]) or cases and all(any(pr["head"].startswith(sha) for sha in re.findall(r"\b[0-9a-f]{7,40}\b", line)) for line in cases)
     return f"{pr['url']} at {pr['head'][:12]}" if on_head else None
 
 
@@ -3854,7 +3855,7 @@ def unproven_pass(data: dict, job_id: str, report: str) -> list[str]:
     found = []
     for order_id, part in staging_parts(data, data["jobs"][job_id]):
         cases, proofs = part_run(data, job_id, report, part)
-        if passing(cases) and not proofs and tests_named(report, part, home(data)) and not head_proof(data, report, part):
+        if passing(cases) and not proofs and tests_named(report, part, home(data)) and not head_proof(data, report, part, job_id):
             found.append(f"{part} on {order_id}: every CASE passes, but the DONE has no CHECK: line and names no head the PR still has, so it reads as no pass; add CHECK: <the proof>, or name the head it ran on as #<n> at <sha>")
     return found
 

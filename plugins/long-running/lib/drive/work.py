@@ -338,10 +338,13 @@ class StageTest(Kind):
         return {"job": job_id, "prs": state.tested_prs(data, job), "minutes": cut_shape(data)["cut_minutes"], "cases": None, "at": state.stamp(moment), "paths": read.get("paths"), "stacks": read.get("stacks"), "starts": False}
 
     def group_of(self, data: dict, worker_id: str, items: list[str], moment: datetime) -> tuple[list[str], str]:
-        """The queue's next cut, formed in code: the head of the line and the items behind it whose PRs change no file and reach no stack of the cut's, by state.packed, sized by cut_shape, holding the env for them; the line the worker reads, and no record, since the worker pulls it."""
+        """The queue's next cut, formed in code: the head of the line and the items behind it whose PRs change no file and reach no stack of the cut's, by state.packed, sized by cut_shape, holding the env for them and recording on the cut and on each item the head of each PR it carries, so a DONE run there proves the head it tested; the line the worker reads, and no record, since the worker pulls it."""
         first, riders = state.packed([self.entry(data, job_id, moment) for job_id in items], cut_shape(data)["cut_items"])
         group = [first["job"], *(rider["job"] for rider in riders)]
-        self.slot(data)["holder"] = state.leased(first, moment, riders) | {"work": worker_id}
+        heads = {key: data["prs"][key]["head"] for job_id in group for key in state.tested_prs(data, data["jobs"][job_id]) if key in data["prs"]}
+        for job_id in group:
+            data["jobs"][job_id]["cut_heads"] = {key: heads[key] for key in state.tested_prs(data, data["jobs"][job_id]) if key in heads}
+        self.slot(data)["holder"] = state.leased(first, moment, riders) | {"work": worker_id, "heads": heads}
         prs = ", ".join(pr for job_id in group for pr in state.tested_prs(data, data["jobs"][job_id]))
         return group, f"GO staging {env(data)} until {self.slot(data)['holder']['until']} for {', '.join(group)}, one cut carrying {prs}: {CUT_STEPS.format(env=env(data))}{f'; {steps}' if (steps := cut_shape(data)['cut_steps']) else ''}"
 
