@@ -1952,7 +1952,7 @@ def respond_pass(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """Take each ended codex-ask run, by codex_takes, then start the handler on each line promised him by a time this pass's own clock is due to start it at, by due_lines, on each line a thread owes on news, every so many minutes he asked or on top priority, by quiet_lines, on each POST report to the communicator, by post_lines, and, once he is back, on each thread's line carrying the reports held for his return, by held_report_lines, and on his catch-up, by catch_up_lines, so no main pass stands between a line owed him by the clock, his return or either and its handler; the lanes' reads are the responder's, by respond_pass. Its first pass, one after a failed read and one every READ_EVERY first has this process's Orca calls speak as the drive's own terminal and reads his cards as the landing loop last stored them, which due_lines and quiet_lines name in their reports."""
+    """Take each ended codex-ask run, by codex_takes, then start the handler on each line promised him by a time this pass's own clock is due to start it at, by due_lines, once he is back, on his catch-up, by catch_up_lines, then on each line a thread owes on news, every so many minutes he asked or on top priority, by quiet_lines, on each POST report to the communicator, by post_lines, and on each thread's line carrying the reports held for his return, by held_report_lines, so the catch-up lists each order with news before a thread's line tells it and no main pass stands between a line owed him by the clock, his return or either and its handler; the lanes' reads are the responder's, by respond_pass. Its first pass, one after a failed read and one every READ_EVERY first has this process's Orca calls speak as the drive's own terminal and reads his cards as the landing loop last stored them, which due_lines and quiet_lines name in their reports."""
     lines = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         try:
@@ -1962,7 +1962,7 @@ def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
         else:
             watcher.read_at, watcher.cards = moment, view.live_cards(watcher.name)
     codex_takes(watcher)
-    return lines + due_lines(watcher, moment) + quiet_lines(watcher, moment) + post_lines(watcher, moment) + held_report_lines(watcher, moment) + catch_up_lines(watcher, moment)
+    return lines + due_lines(watcher, moment) + catch_up_lines(watcher, moment) + quiet_lines(watcher, moment) + post_lines(watcher, moment) + held_report_lines(watcher, moment)
 
 
 def codex_takes(watcher: Watcher) -> None:
@@ -4942,7 +4942,7 @@ def orphan_lines(watcher: Watcher, moment: datetime, said: type | tuple[type, ..
 
 
 def hear(name: str, moment: datetime, away: bool = False) -> dict:
-    """Record him heard at moment, by his words or his tap on a card, the owner row keeping the moment he reads away from, moment itself with away, else an hour later; when he was away, keep that absence on the owner row, from when he went away, the moment he read away from and moment, which state.present reads, and, when a report was held for his return, owe him the catch-up at his DM root, which keeps the time of the first such absence it covers, and give each held report no post carried yet to the next line of its thread, by held_report_lines, or to that catch-up, so the relay posts both within RELAY_SECONDS; no order's news is marked told, since only its own thread's line tells it, by his words c91b1a9 "stop telling me about the whole drive I never asked for that"."""
+    """Record him heard at moment, by his words or his tap on a card, the owner row keeping the moment he reads away from, moment itself with away, else an hour later; when he was away, keep that absence on the owner row, from when he went away, the moment he read away from and moment, which state.present reads, owe him the catch-up at his DM root, which keeps the time of the first such absence it covers, and give each held report no post carried yet to the next line of its thread, by held_report_lines, or to that catch-up, so the relay posts both within RELAY_SECONDS; no order's news is marked told, since the catch-up only lists it, by catch_up_report, and its own thread's line tells it, by his words c91b1a9 "stop telling me about the whole drive I never asked for that"."""
     with state.edit(name) as data:
         back = state.owner_away(data, moment)
         owner = data["owner"]
@@ -4952,7 +4952,7 @@ def hear(name: str, moment: datetime, away: bool = False) -> dict:
         held = list(data["held"]) if back and since else []
         for seq in held:
             data["held"][seq]["record"] = None
-        if held:
+        if back and since:
             data["catch_up"] = (data["catch_up"] or state.new_catch_up(since)) | {"record": None}
     return {"away": away, "back": back, "since": since, "catch_up": bool(data["catch_up"]), "held": held}
 
@@ -4969,7 +4969,7 @@ def unhear(name: str, last: datetime, why: str) -> dict:
 
 
 def catch_up_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Post the catch-up the drive owes him at his DM root from the relay, so within RELAY_SECONDS of his return, once for each time he is heard: a report of it the watch writes once, by catch_up_report, for a handler the watch starts, unless the handler started last is still at work on it; a failed write or start is said as a failed read is and tried again next pass."""
+    """Post the catch-up the drive owes him at his DM root from the relay, so within RELAY_SECONDS of his return, once for each time he is heard: a report of it the watch writes once, by catch_up_report, for a handler the watch starts, unless the handler started last is still at work on it or that report settled it; a failed write or start is said as a failed read is and tried again next pass."""
     data = state.load(watcher.name)
     owed, heard = data["catch_up"], data["owner"]["heard"]
     if watcher.project or owed is None or owed["tried"] == heard or state.owner_away(data, moment):
@@ -4979,7 +4979,8 @@ def catch_up_lines(watcher: Watcher, moment: datetime) -> list[str]:
             data["catch_up"]["tried"] = heard
         return []
     try:
-        seq = owed["record"] or catch_up_report(watcher, data)
+        if not (seq := owed["record"] or catch_up_report(watcher, data, moment)):
+            return []
         handler, _ = agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'catch-up-{seq}'}")
     except (reads.ReadError, state.DriveError) as error:
         return failed(watcher, "catch-up", "post of his catch-up", error, moment)
@@ -4989,14 +4990,21 @@ def catch_up_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return []
 
 
-def catch_up_report(watcher: Watcher, data: dict) -> str:
-    """Write the report of his catch-up for the handler that posts it, which say draws the cards waiting on him into, by his ruling 65768cd "Say draws what waits", carrying only each report held for his return that has no order's thread to go in, with each correction cci holds re one, since held_report_lines gives every other its own thread's line; each carried is kept as the catch-up's and each its writer withdrew let go; its seq."""
+def catch_up_report(watcher: Watcher, data: dict, moment: datetime) -> str | None:
+    """Write the report of his catch-up for the handler that posts it, which say draws each order with news and the cards waiting on him into, by his rulings 0f3a640 "Just do less realtime more summary / batching, with a catch up post once I'm back" and 65768cd "Say draws what waits": each order heading a thread whose line facts moved since that thread's last line, by untold, read before a line since his return tells them, and each order of a report held for his return, kept on the catch-up while each thread still gets its own line; it carries only each report held for his return that has no order's thread to go in, with each correction cci holds re one, since held_report_lines gives every other its own thread's line; each carried is kept as the catch-up's and each its writer withdrew let go; its seq, or None when no order has news and nothing is held, which settles the catch-up with no report."""
     owed = data["catch_up"]
+    registered = render.prs_by_job(data)
+    moved = [head for head, group in news_groups(data, heard_orders(watcher, data)).items() if data["orders"][head]["quiet"] and untold(data["orders"][head], line_facts(data, group, registered, watcher.cards, moment))]
+    news = list(dict.fromkeys([*moved, *(mark["order"] for mark in data["held"].values() if mark["order"])]))
+    if not (news or data["held"]):
+        with state.edit(watcher.name) as data:
+            data["catch_up"] = None
+        return None
     unthreaded = [seq for seq, mark in data["held"].items() if mark["record"] is None and not (mark["order"] and state.promise_thread(data["orders"][mark["order"]]))]
     amended = agents.amendments(watcher.name, unthreaded)
     held = [seq for seq in unthreaded if seq not in amended["withdraw"]]
     facts = [
-        f"His catch-up, owed since he was last heard at {when(owed['since'])}, at his DM root. Post it with say on this record: say titles it and closes it with the count of his open cards and each asked since then, so name no card, order or news of your own; with nothing held for it and no card waiting, say posts nothing.",
+        f"His catch-up, owed since he was last heard at {when(owed['since'])}, at his DM root. Post it with say on this record: say titles it, draws a line linking the dashboard page of each of the {len(news)} orders with news, and closes it with the count of his open cards and each asked since then, so name no card, order or news of your own; with none of those to draw and nothing held for it, say posts nothing.",
         *(
             [
                 f"Held for it, with no order's thread to go in: {len(held)}. Read each and each correction with cci read: none reached him, and a correction's facts replace those it corrects; post what still stands of them.",
@@ -5006,10 +5014,10 @@ def catch_up_report(watcher: Watcher, data: dict) -> str:
             else []
         ),
     ]
-    text = f"POST his catch-up since {when(owed['since'])}" + (f", carrying {len(held)} reports held for it" if held else ": say draws the cards waiting on him, so post it with no words of your own")
+    text = f"POST his catch-up since {when(owed['since'])}" + (f", carrying {len(held)} reports held for it" if held else ": say draws the orders with news and the cards waiting on him, so post it with no words of your own")
     [seq] = reported(watcher, [{"kind": "report", "attr": {"catch_up": "true"}, "text": text, "body": "\n".join(facts) + "\n"}])
     with state.edit(watcher.name) as data:
-        data["catch_up"]["record"] = seq
+        data["catch_up"] |= {"record": seq, "news": news}
         for each in held:
             data["held"][each]["record"] = seq
         state.let_go(data, [each for each in unthreaded if each in amended["withdraw"]])
