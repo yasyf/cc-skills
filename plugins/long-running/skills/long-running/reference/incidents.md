@@ -380,8 +380,8 @@ check's verdict, or from the order when none ran.
 - Nothing stands between the merged fix and its build: no dry run, no read of what the cut covers
   or what caused the break, no comparison of open builds, no question. The job shipping the fix
   lifts the service's freeze and returns `WAITING release` naming the start at the fix commit, and
-  the top coordinator starts it in that turn with `drive job add --release`, which prints its build
-  link. The release's own approve hold, which the job's agent reads as
+  the top coordinator starts it in that turn with `drive job add --release`, whose FREE line names
+  the brief carrying its build. The release's own approve hold, which the job's agent reads as
   [landing.md](landing.md#after-merge) says, is the only check, and every other read runs while it
   builds.
 - No stop reopens by itself. The job a release for an open incident starts on, its fix's,

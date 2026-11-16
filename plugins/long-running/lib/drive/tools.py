@@ -47,7 +47,7 @@ LEADS = {
         " the one note each of its reporters gets, a bug's fix-live note or a question's answer, in the thread of their message, or in their"
         " group DM with him and the bot."
     ),
-    "job": "The drive's jobs: add starts one on an order's parts, none when its inline order joins an open order, and with release starts that release once the call's save lands and writes the job's brief on its build; set changes one, brief writes its brief, keeping each field left out from its earlier brief and dropping each given as an empty string.",
+    "job": "The drive's jobs: add starts one on an order's parts, none when its inline order joins an open order, and with release starts that release in a process of its own once the call's save lands, which keeps its build and writes the job's brief, the watch's FREE line on the job naming that brief; set changes one, brief writes its brief, keeping each field left out from its earlier brief and dropping each given as an empty string.",
     "pr": "The drive's PRs: add records one a job opened, set changes one.",
     "incident": (
         "Incidents: open adds his order as one, with its fix and diagnosis jobs and its evidence record; stop adds the"

@@ -293,12 +293,12 @@ def approval_refusal(command: str, data: dict, reading: str | None = None) -> st
 
 
 def uncarried_refusal(command: str, data: dict) -> str | None:
-    """Why the one release a command starts may not start from its commit: the card his `--order` answer answers, by settled.answered_card, names a merged PR of the drive's checkout's repository, in a link of its words or by link or #N on its `Holds:` line, that its `--landed` does not name, and its `--from` or `--commit` lacks that PR's merge commit, as contained() reads it once each commit the checkout lacks is fetched by its sha, or it names no commit, so go/ci picks one; refused naming the newest of those merge commits to pass as `--from`, and naming the read when GitHub or git could not read one. A hotfix or rollback, a PR the card names that has not merged, and an answer no kept card holds pass."""
+    """Why the one release a command starts may not start from its commit: the card his `--order` answer answers, by settled.answered_card, names a merged PR of the drive's checkout's repository, in a link of its words or by link or #N on its `Holds:` line, that its `--landed` does not name, and its `--from` or `--commit` lacks that PR's merge commit, as contained() reads it once each commit the checkout lacks is fetched by its sha, or it names no commit, so go/ci picks one; refused naming the newest of those merge commits to pass as `--from`, and naming the read when GitHub or git could not read one. A hotfix or rollback, a rehearsal() naming no `--order`, a PR the card names that has not merged, and an answer no kept card holds pass."""
     from drive import github
 
     [flags] = map(settled.shipped, started(command))
     cwd = data["roles"]["coordinator"]["cwd"]
-    if {"hotfix", "rollback"} & flags.keys() or not (asked := settled.answered_card(data, settled.shown(flags["order"][-1], cwd))):
+    if {"hotfix", "rollback"} & flags.keys() or "order" not in flags or not (asked := settled.answered_card(data, settled.shown(flags["order"][-1], cwd))):
         return None
     holds = asked.holds or ""
     linked = [state.pr_key(found["link"] or found[0]) for found in limits.PR_LINK.finditer("\n".join([asked.title, *asked.summary, asked.cause, *asked.options, *asked.hints.values(), *asked.show_me, holds]))]

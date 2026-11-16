@@ -617,24 +617,29 @@ def exited_text(name: str, job_id: str, exited: list[str]) -> str:
 
 
 def build_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read from Buildkite, for waits_lines and status_lines, each build a wait the watch follows names or a part of an order it hears follows: once as it is first held, then again only once a delivery of Buildkite's to the receiver's /buildkite route names it. One `tools/ci bk graphql` call reads them all, spending go/ci's shared Buildkite budget, run in the drive's checkout as orca.checkout moves it to its default branch's head, and each answer is kept on the watcher as builds while the build is held, None for a build Buildkite answers none for; a read that fails is said as a failed read is and owed again next pass."""
+    """Read from Buildkite, for waits_lines and status_lines, each build a wait the watch follows names or a part of an order it hears follows: once as it is first held, then again only once a delivery of Buildkite's to the receiver's /buildkite route names it. One read_builds call reads them all, run in the drive's checkout as orca.checkout moves it to its default branch's head, and each answer is kept on the watcher as builds while the build is held, None for a build Buildkite answers none for; a read that fails is said as a failed read is and owed again next pass."""
     data = state.load(watcher.name)
     held = sorted({wait for wait in followed(watcher, data) if github.BUILD.fullmatch(wait)} | state.followed_builds(heard_orders(watcher, data)))
     watcher.builds = {link: read for link, read in watcher.builds.items() if link in held}
     watcher.builds_heard &= set(held)
     if not (due := [link for link in held if link not in watcher.builds or link in watcher.builds_heard]):
         return []
-    slugs = [f"{found['pipeline']}/{found['number']}" for found in map(github.BUILD.fullmatch, due)]
-    query = "{ " + " ".join(f"b{at}: build(slug: {json.dumps(slug)}) {{ {BUILD_FIELDS} }}" for at, slug in enumerate(slugs)) + " }"
     try:
-        checkout = orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"])
-        read = json.loads(reads.run([str(checkout / "tools" / "ci"), "bk", "graphql", query], checkout))
+        read = read_builds(orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"]), due)
     except (state.DriveError, reads.ReadError) as error:
         return read_failed(watcher, "buildkite builds", error, moment)
     watcher.failures.pop("buildkite builds", None)
-    watcher.builds |= {link: read[f"b{at}"] for at, link in enumerate(due)}
+    watcher.builds |= read
     watcher.builds_heard -= set(due)
     return []
+
+
+def read_builds(checkout: Path, links: list[str]) -> dict[str, dict | None]:
+    """Each Buildkite build by its link, as one `tools/ci bk graphql` call run in the checkout reads it, spending go/ci's shared Buildkite budget: its BUILD_FIELDS, None for a build Buildkite answers none for."""
+    slugs = [f"{found['pipeline']}/{found['number']}" for found in map(github.BUILD.fullmatch, links)]
+    query = "{ " + " ".join(f"b{at}: build(slug: {json.dumps(slug)}) {{ {BUILD_FIELDS} }}" for at, slug in enumerate(slugs)) + " }"
+    read = json.loads(reads.run([str(checkout / "tools" / "ci"), "bk", "graphql", query], checkout))
+    return {link: read[f"b{at}"] for at, link in enumerate(links)}
 
 
 def build_said(link: str, read: dict | None) -> str | None:

@@ -1349,8 +1349,24 @@ def released(demo: str, script: str) -> Path:
     return checkout / "started"
 
 
-def test_drive_job_add_release_starts_it_on_his_answer_from_the_tops_checkout_and_briefs_the_job_on_its_build_and_a_start_naming_no_build_keeps_no_job(
-    demo: str, run: Run, tmp_path: Path, no_calls: list[list[str]], recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]
+@pytest.fixture
+def release_starts(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    """Each drive job release a --release add starts, kept for the test to run in its own process, whose pid the add's job waits on."""
+    starts: list[list[str]] = []
+    detach = state.detach
+    monkeypatch.setattr(state, "detach", lambda name, args, log: starts.append(args) or os.getpid() if args[:2] == ["job", "release"] else detach(name, args, log))
+    return starts
+
+
+def starting(demo: str, job_id: str, command: str) -> str:
+    return (
+        f"{job_id} starts `{command}` in process {os.getpid()}, which keeps the build it starts as {job_id}'s Release build: line and writes its brief,"
+        f" its lines in {state.drive_dir(demo) / cli.RELEASES_LOG}: start no agent for it until the watch's FREE line on {job_id} names that brief"
+    )
+
+
+def test_drive_job_add_release_starts_it_on_his_answer_in_a_process_of_its_own_that_briefs_the_job_on_its_build_and_a_start_naming_no_build_frees_the_job_saying_why(
+    demo: str, run: Run, tmp_path: Path, no_calls: list[list[str]], recorded: Answers, jev: Jev, release_starts: list[list[str]], capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the clock")
     run("job", "add", "builder", "--order", "o1", "--goal", "build the clock")
@@ -1371,84 +1387,81 @@ def test_drive_job_add_release_starts_it_on_his_answer_from_the_tops_checkout_an
     for command, why in refusals:
         assert cli.main([*add, "--release", command]) == 2
         assert capsys.readouterr().err.strip() == f"drive: refused, no job added: {why}"
-    assert not started.exists()
     jev.picks("5419ffd")
     code, out = run(*add, "--release", J2666_START)
-    assert code == 0
-    assert started.read_text() == "release start platform runtime-api-next restate --order 5419ffd --json\n"
-    written = state.drive_dir(demo) / "jobs" / "j2.brief.md"
-    assert out.splitlines()[:3] == [
-        "j2",
-        f"j2 started `{J2666_START}` as {BUILD} and left it running: its agent follows it with `ci release watch {BUILD}` and reads its approve hold",
-        f"Read your brief first: {written}",
-    ]
+    assert (code, out.splitlines()[:2]) == (0, ["j2", starting(demo, "j2", J2666_START)])
+    assert (release_starts, state.load(demo)["jobs"]["j2"]["waits"], started.exists()) == ([["job", "release", "j2", "--session", os.environ["CLAUDE_CODE_SESSION_ID"]]], state.pid_waits(f"pid:{os.getpid()}"), False)
     assert jev.asked[-1]["state"] == {
         "action": f"start this release on {settled.PRODUCTION}: `{J2666_START}`",
         "answer": {"asked": CLOCK_PICK["title"], "said": CLOCK_PICK["body"]},
     }
+    code, out = run("job", "release", "j2")
+    assert started.read_text() == "release start platform runtime-api-next restate --order 5419ffd --json\n"
+    written = state.drive_dir(demo) / "jobs" / "j2.brief.md"
+    assert (code, out.splitlines()[:2]) == (
+        0,
+        [f"j2 started `{J2666_START}` as {BUILD} and left it running: its agent follows it with `ci release watch {BUILD}` and reads its approve hold", f"Read your brief first: {written}"],
+    )
     assert run("job", "brief", "j2", "--serves", "his order", "--done-when", "live", "--where", "Forge-AI/monorepo dev")[0] == 0
     assert f"\nRelease: {J2666_START}\nRelease build: {BUILD}\n" in written.read_text()
     assert landing_guard.deny_reason(bash(J2666_START) | stepped(tmp_path, out)) == landing_guard.RELEASE_BY_HAND.format(command=J2666_START)
-    released(demo, """cat <<'EOF'\n{\n  "refused": "a freeze holds platform",\n  "code": "frozen"\n}\nEOF\nexit 1""")
+    released(demo, """case "$1" in bk) echo '{"b0": {"state": "PASSED"}}'; exit;; esac\ncat <<'EOF'\n{\n  "refused": "a freeze holds platform",\n  "code": "frozen"\n}\nEOF\nexit 1""")
     with state.edit(demo) as data:
         for job_id in ("j1", "j2"):
             data["jobs"][job_id]["state"] = "stopped"
         data["jobs"]["j3"] = state.new_job("o1", "design", "cards: the clock", data["jobs"]["j1"]["parts"], state.stamp()) | {"state": "waiting", "said": "DESIGN the clock"}
         data["orders"]["o1"]["jobs"].append("j3")
-    before = state.load(demo)
-    assert cli.main([*add, "--release", J2666_START]) == 2
-    assert capsys.readouterr().err.strip() == "drive: no job added: its release did not start: a freeze holds platform"
+    assert run(*add, "--release", J2666_START)[1].splitlines()[:2] == ["j4", starting(demo, "j4", J2666_START)]
+    assert cli.main(["job", "release", "j4"]) == 2
+    assert capsys.readouterr().err.strip() == "drive: j4: its release did not start: a freeze holds platform"
     after = state.load(demo)
-    assert (after["jobs"], after["orders"]["o1"]["jobs"]) == (before["jobs"], before["orders"]["o1"]["jobs"])
-    assert not (state.drive_dir(demo) / "jobs" / "j4.brief.md").exists()
+    assert after["dropped_waits"]["j4"] == dict.fromkeys(state.pid_waits(f"pid:{os.getpid()}"), "its release did not start: a freeze holds platform; drive job set j4 --state stopped ends it")
+    assert (after["jobs"]["j3"]["state"], after["jobs"]["j4"]["release_build"], (state.drive_dir(demo) / "jobs" / "j4.brief.md").exists()) == ("waiting", None, False)
 
 
-def test_715797_a_release_add_that_dies_once_its_release_started_has_printed_and_kept_its_build_and_drive_job_brief_release_build_briefs_a_job_whose_add_kept_none(
-    demo: str, run: Run, no_calls: list[list[str]], recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_723003_a_release_keeps_its_build_whatever_fails_after_its_start_and_the_same_release_never_starts_while_a_job_holds_it_unbuilt_or_its_build_runs(
+    demo: str, run: Run, no_calls: list[list[str]], recorded: Answers, jev: Jev, release_starts: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the clock")
     run("job", "add", "builder", "--order", "o1", "--goal", "build the clock")
-    released(demo, f"echo '{STARTED}'")
+    started = released(demo, f"""case "$1" in bk) cat "$(dirname "$0")/../bk"; exit;; esac\necho '{STARTED}'""")
     recorded.shown = {CLOCK_PICK["id"][:7]: CLOCK_PICK}
     jev.picks("5419ffd")
+    add = ["job", "add", "builder", "--order", "o1", "--goal", "release the merged clock", "--release", J2666_START]
     written, briefs = state.drive_dir(demo) / "jobs" / "j2.brief.md", cli.write_brief
+    assert run(*add)[0] == 0
+    assert cli.main(add) == 2
+    assert capsys.readouterr().err.strip() == (
+        f"drive: refused, no job added: j2 holds the same release and has kept no build: its start's lines are in {state.drive_dir(demo) / cli.RELEASES_LOG},"
+        " the watch's FREE line on j2 names its brief once that start ends, and drive job set j2 --state stopped ends a job whose release did not start"
+    )
 
     def dies(name: str, job_id: str, named: dict) -> tuple[str, dict]:
         raise state.DriveError("the demo drive was saved by long-running 9.9.9, newer than this one")
 
     monkeypatch.setattr(cli, "write_brief", dies)
-    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "release the merged clock", "--release", J2666_START]) == 2
-    assert capsys.readouterr().err.splitlines()[-2:] == [
-        f"drive job add: j2 started `{J2666_START}` as {BUILD}; a call that ends before briefing j2 leaves it running, and drive job brief j2 --release-build {BUILD} keeps it and writes the brief",
-        "drive: the demo drive was saved by long-running 9.9.9, newer than this one",
-    ]
+    assert cli.main(["job", "release", "j2"]) == 2
+    assert capsys.readouterr().err.strip() == "drive: the demo drive was saved by long-running 9.9.9, newer than this one"
     assert (state.load(demo)["jobs"]["j2"]["release_build"], written.exists()) == (BUILD, False)
     monkeypatch.setattr(cli, "write_brief", briefs)
-    with state.edit(demo) as data:
-        data["jobs"]["j2"]["release_build"] = None
-    assert cli.main(["job", "brief", "j2"]) == 2
-    assert capsys.readouterr().err.strip() == (
-        "drive: j2: its brief names the release it started, so `drive job add --release` writes it once that release starts;"
-        " a release that add started and kept no build for is briefed with drive job brief j2 --release-build <its build link>"
-    )
-    refusals = (
-        (["j2", "--release-build", "https://buildkite.com/forge/release"], "--release-build https://buildkite.com/forge/release is no Buildkite build link, https://buildkite.com/<org>/<pipeline>/builds/<n>"),
-        (["j1", "--release-build", BUILD], "j1: --release-build keeps the build of the release a drive job add --release started, and j1 was added with no --release"),
-    )
-    for verb in ("brief", "launch"):
-        for argv, why in refusals:
-            assert cli.main(["job", verb, *argv]) == 2
-            assert capsys.readouterr().err.strip() == f"drive: {why}"
-    code, out = run("job", "brief", "j2", "--release-build", BUILD, "--serves", "his order")
+    (started.parent / "bk").write_text(json.dumps({"b0": {"state": "BLOCKED"}}))
+    assert cli.main(add) == 2
+    assert capsys.readouterr().err.strip() == f"drive: refused, no job added: j2 started the same release as {BUILD}, which Buildkite reads BLOCKED: its job follows it, and this one starts once it ends"
+    code, out = run("job", "brief", "j2", "--serves", "his order")
     assert (code, out.splitlines()[0]) == (0, f"Read your brief first: {written}")
     assert f"\nRelease: {J2666_START}\nRelease build: {BUILD}\n" in written.read_text()
-    other = BUILD.replace("4242", "4243")
-    assert cli.main(["job", "brief", "j2", "--release-build", other]) == 2
-    assert capsys.readouterr().err.strip() == f"drive: j2: its add kept its release's build, {BUILD}: drive job brief j2 briefs it on that one"
+    (started.parent / "bk").write_text(json.dumps({"b0": {"state": "PASSED"}}))
+    assert run(*add)[1].splitlines()[:2] == ["j3", starting(demo, "j3", J2666_START)]
+    assert [start[:3] for start in release_starts] == [["job", "release", "j2"], ["job", "release", "j3"]]
+    assert cli.main(["job", "brief", "j3"]) == 2
+    assert capsys.readouterr().err.strip() == (
+        "drive: j3: its brief names the build of the release its add started, which that add's drive job release writes once the release names it:"
+        f" its lines are in {state.drive_dir(demo) / cli.RELEASES_LOG}, and drive job set j3 --state stopped ends a job whose release did not start"
+    )
 
 
 def test_a_release_starts_from_the_drives_checkout_at_its_default_branchs_head_never_the_coordinators_own_tree(
-    demo: str, run: Run, tmp_path: Path, no_calls: list[list[str]], recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch
+    demo: str, run: Run, tmp_path: Path, no_calls: list[list[str]], recorded: Answers, jev: Jev, release_starts: list[list[str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the clock")
     run("job", "add", "builder", "--order", "o1", "--goal", "build the clock")
@@ -1461,6 +1474,7 @@ def test_a_release_starts_from_the_drives_checkout_at_its_default_branchs_head_n
     recorded.shown = {CLOCK_PICK["id"][:7]: CLOCK_PICK}
     jev.picks("5419ffd")
     assert run("job", "add", "builder", "--order", "o1", "--goal", "release the merged clock", "--release", J2666_START)[0] == 0
+    assert run("job", "release", "j2")[0] == 0
     assert started.read_text() == "release start platform runtime-api-next restate --order 5419ffd --json\n"
 
 
@@ -1474,7 +1488,7 @@ MANUAL_SAID = (
 
 
 def test_717905_a_manual_release_starts_with_no_json_and_its_job_keeps_the_deploy_build_its_cut_triggered_and_a_local_one_is_refused(
-    demo: str, run: Run, no_calls: list[list[str]], recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]
+    demo: str, run: Run, no_calls: list[list[str]], recorded: Answers, jev: Jev, release_starts: list[list[str]], capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the sandbox")
     run("job", "add", "builder", "--order", "o1", "--goal", "build the sandbox")
@@ -1490,17 +1504,18 @@ def test_717905_a_manual_release_starts_with_no_json_and_its_job_keeps_the_deplo
         " job could follow, so no job starts it: a `--manual` or regular start names the build its job follows"
     )
     assert not started.exists()
-    code, out = run(*add, "--release", MANUAL_START)
+    assert run(*add, "--release", MANUAL_START)[0] == 0
+    code, out = run("job", "release", "j2")
     assert code == 0
     assert started.read_text() == MANUAL_START.removeprefix("tools/ci ") + "\n"
-    assert out.splitlines()[1] == (
+    assert out.splitlines()[0] == (
         f"j2 started `{MANUAL_START}` as {MANUAL_BUILD} and left it running: its agent follows it with `tools/ci release watch --manual 16621` and reads its approve hold"
     )
     assert state.load(demo)["jobs"]["j2"]["release_build"] == MANUAL_BUILD
 
 
 def test_the_top_starts_and_hears_the_release_job_on_a_sub_coordinators_order_and_the_sub_coordinator_none_of_it(
-    demo: str, run: Run, no_calls: list[list[str]], recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    demo: str, run: Run, no_calls: list[list[str]], recorded: Answers, jev: Jev, release_starts: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Agents", "release the clock", "--parts", "clock", "release")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "platform-1")
@@ -1520,6 +1535,7 @@ def test_the_top_starts_and_hears_the_release_job_on_a_sub_coordinators_order_an
     assert "only the sub-coordinator for Platform adds its jobs" in capsys.readouterr().err
     released(demo, f"echo '{STARTED}'")
     assert run(*cut)[1].splitlines()[0] == "j2"
+    assert run("job", "release", "j2")[0] == 0
     where = ("--serves", "his order", "--done-when", "live", "--where", "Forge-AI/monorepo dev")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "platform-1")
     assert cli.main(["job", "brief", "j2", *where]) == 2
@@ -1670,6 +1686,7 @@ def test_the_release_gate_refuses_a_start_whose_commit_lacks_a_merged_pr_the_car
         f"tools/ci release start --from {older} --rollback --order 7ab1e20": None,
         "tools/ci release start --hotfix 101 --only api --without tnt-usw2-acme --order 5d17d9c": None,
         f"tools/ci release start sand --from {older} --order 5d0c4a1": None,
+        "tools/ci release start dashboard --env plat-usw2-staging": None,
     }
     assert {start: brief.uncarried_refusal(start, data) for start in starts} == starts
     del pr_reads[f"{repo}#8"]
@@ -2145,7 +2162,9 @@ def test_a_codex_runs_cci_post_to_another_jobs_id_is_held_on_that_job_and_one_to
     assert denied.startswith("refused, nothing posted: to coordinator: no session of drive demo reads that lane")
 
 
-def test_drive_job_add_starts_no_release_his_hold_holds_and_starts_his_exception(demo: str, run: Run, recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]) -> None:
+def test_drive_job_add_starts_no_release_his_hold_holds_and_starts_his_exception(
+    demo: str, run: Run, recorded: Answers, jev: Jev, release_starts: list[list[str]], capsys: pytest.CaptureFixture[str]
+) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the fix")
     recorded.listed = [RELEASE_HOLD, SSQL_EXCEPTION, RELEASE_PICK | {"created_at": EARLIER}]
     recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
@@ -2155,12 +2174,8 @@ def test_drive_job_add_starts_no_release_his_hold_holds_and_starts_his_exception
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "release the fix", "--release", stale]) == 2
     assert capsys.readouterr().err.strip() == "drive: refused, no job added: " + brief.RELEASE_HELD.format(said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=stale, why=why)
     jev.picks("8b2e4f7")
-    released(demo, f"echo '{STARTED}'")
     excepted = "tools/ci release start sandsql --order 8b2e4f7"
-    assert run("job", "add", "builder", "--order", "o1", "--goal", "release the fix", "--release", excepted)[1].splitlines()[:2] == [
-        "j1",
-        f"j1 started `{excepted}` as {BUILD} and left it running: its agent follows it with `ci release watch {BUILD}` and reads its approve hold",
-    ]
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "release the fix", "--release", excepted)[1].splitlines()[:2] == ["j1", starting(demo, "j1", excepted)]
     kept = state.load(demo)["jobs"]["j1"]["release_pass"]
     assert (kept["release"], kept["reading"]) == (excepted, None)
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "read it", "--reading", "his words order it"]) == 2
