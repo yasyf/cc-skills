@@ -776,7 +776,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 elif unlaunched and not busy(watcher, job_id, moment):
                     launches.append(job_id)
                     continue
-                elif work.item_of(data, job) and job.get("brief"):
+                elif work.item_of(data, job):
                     continue
                 freed.append(f"FREE {job_id} {job['order']}: {ended}, nothing else holds it{built}{stacked}{unlaunched}{unstarted}")
         for key, pr in data["prs"].items():
@@ -5192,9 +5192,16 @@ def starts_itself(job: dict) -> bool:
 
 
 def spawn_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Run the work queue's spawner on every pass of the drive's own watch, right after its orphans, ahead of the READ_EVERY reads and the slow stages, so an urgent item, a priority order's or an incident's, starts a worker past the elastic cap in the pass it turns ready, by his words on a priority order, "they aren't slowed down at any cost by anything": record a worker for each kind but stage-test, which work_lines starts once its items' files are read, and each pool that wants one while the caps admit it, by work.spawned, and start each by drive work start, or a codex item by drive job launch; a pass where no kind wants one writes nothing. Its lines go as evidence and wake nobody."""
+    """Run the work queue's spawner on every pass of the drive's own watch, right after its orphans, ahead of the READ_EVERY reads and the slow stages, so an urgent item, a priority order's or an incident's, starts a worker past the elastic cap in the pass it turns ready, by his words on a priority order, "they aren't slowed down at any cost by anything": record a worker for each kind but stage-test, which work_lines starts once its items' files are read, and each pool first writing the brief of each item that would be ready but has none, by cli.write_brief from what the drive holds, as drive job launch briefs a first lane, a refusal kept as its brief_error for its ORPHAN to name; then that wants one while the caps admit it, by work.spawned, and start each by drive work start, or a codex item by drive job launch; a pass where no kind wants one writes nothing. Its lines go as evidence and wake nobody."""
+    from drive import cli
+
     if watcher.project:
         return []
+    for job_id in work.unbriefed(state.load(watcher.name), moment, UNSTARTED_FOR):
+        try:
+            cli.write_brief(watcher.name, job_id, {})
+        except cli.VERB_ERRORS as error:
+            state.write(watcher.name, lambda data, job_id=job_id, error=error: data["jobs"][job_id].update(brief_error=cut(str(error), 300)), budget=state.WATCH_WRITE_SECONDS)
     data = state.load(watcher.name)
     kinds = [kind for kind in work.KIND.values() if kind is not work.STAGE]
     if not any(kind.wanted(data, where, moment) for kind in kinds for where in work.POOLS):

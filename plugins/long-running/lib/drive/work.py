@@ -207,14 +207,14 @@ class Kind:
         """Whether the queue, never carry_held, starts this job's work: an item of this kind that no agent or lane of its own took or that the queue adopted, on an order no communicator holds, whose handler starts its own work."""
         return (untaken(job) or self.adopted(job)) and job["state"] not in state.FINISHED_JOB_STATES and self.matches(data, job) and data["orders"][job["order"]].get("owner") != "communicator"
 
-    def ready(self, data: dict, job_id: str) -> bool:
+    def ready(self, data: dict, job_id: str, briefed: bool = True) -> bool:
         """Whether an item may be pulled now: queued, waiting or built, as a build that returned BUILT waiting on his card is once the card is answered, briefed, no drive job launch of it in flight, by watch.launching, so no worker claims a job a launch is starting, claimed by no live worker, no card of his open on it, nothing its start waits on holding it, by view.start_waits, and still worth running."""
         job = data["jobs"][job_id]
         return (
             not worker(job)
             and self.queued(data, job)
             and job["state"] in ("waiting", "built")
-            and bool(job.get("brief"))
+            and (bool(job.get("brief")) or not briefed)
             and not watch.launching(job, state.now())
             and claimed_by(data, job) is None
             and not view.open_cards(job)
@@ -542,6 +542,11 @@ def ready(data: dict, job_id: str) -> bool:
 def live_workers(data: dict, kind: str, where: str | None = None) -> list[str]:
     """The kind's workers not finished, those running where alone when it names one."""
     return [job_id for job_id, job in data["jobs"].items() if worker(job) and job.get("work_kind", STAGE_TEST) == kind and job["state"] not in state.FINISHED_JOB_STATES and (where is None or job.get("where") == where)]
+
+
+def unbriefed(data: dict, moment: datetime, settle: timedelta) -> list[str]:
+    """The items that would be ready but that no brief was written for settle after drive job add recorded them, so a session's own brief, written in the same call as its add, lands first, so the spawner writes each one's brief from what the drive holds, as drive job launch writes a first lane's, rather than leaving it to a session."""
+    return [job_id for job_id, job in data["jobs"].items() if not job.get("brief") and not job.get("brief_error") and moment - state.parse_time(job["created"]) >= settle and any(kind.ready(data, job_id, briefed=False) for kind in KIND.values())]
 
 
 def item_of(data: dict, job: dict) -> Kind | None:

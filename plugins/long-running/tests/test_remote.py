@@ -8861,7 +8861,7 @@ def test_a_job_reads_launching_only_while_its_launch_holds_its_lock_so_one_whose
     assert ("launching since" in launching, "launching since" in died, state.NOT_STARTED in died) == (True, False, True)
 
 
-def test_a_job_added_or_set_waiting_on_a_pr_or_a_release_waits_unlaunched_until_its_last_wait_ends_and_the_watch_launches_it_with_no_free_line(
+def test_a_job_added_or_set_waiting_on_a_pr_or_a_release_waits_unlaunched_until_its_last_wait_ends_and_is_then_the_work_queues_with_no_free_line_or_launch(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     key = "Forge-AI/monorepo#7"
@@ -8888,7 +8888,9 @@ def test_a_job_added_or_set_waiting_on_a_pr_or_a_release_waits_unlaunched_until_
     watching.serving = {shipping: {"plat-usw2-prod": True}}
     detached = []
     monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or 0)
-    assert (watch.waits_lines(watching, T0), detached) == ([], [["job", "launch", "j2"], ["job", "launch", "j3"]])
+    assert (watch.waits_lines(watching, T0), detached) == ([], [])
+    jobs = state.load(demo)["jobs"]
+    assert [(jobs[job_id]["waits"], work.item_of(state.load(demo), jobs[job_id]) is work.KIND[work.BUILD]) for job_id in ("j2", "j3")] == [([], True), ([], True)]
 
 
 @pytest.mark.parametrize(

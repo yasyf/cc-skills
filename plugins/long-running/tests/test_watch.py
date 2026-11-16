@@ -1888,9 +1888,7 @@ def test_another_drives_first_record_after_the_one_a_job_waits_after_on_its_topi
     assert (data["jobs"]["j2"]["waits"], data["jobs"]["j2"]["undelivered"]) == (["reply:cci:722650"], [])
     assert reads_made == [["cci", "show", "--json", "722599", "722650"], grep_of("durable-agents", 722599, STAGING_TOPIC, "o2046-claims")]
     records.append(cci_record(722680, topic="o2046-claims", text="staging is free"))
-    assert watch.waits_lines(watching, T0 + timedelta(minutes=2)) == [
-        "FREE j2 o1: root@durable-agents posted 722680 on o2046-claims, nothing else holds it"
-    ]
+    assert watch.waits_lines(watching, T0 + timedelta(minutes=2)) == []
     assert reads_made[2:] == [["cci", "show", "--json", "722650"], grep_of("durable-agents", 722650, "o2046-claims")]
     assert watch.waits_lines(watching, T0 + timedelta(minutes=3)) == []
     assert (calls, len(reads_made)) == ([], 4)
@@ -3061,7 +3059,7 @@ def test_a_job_waiting_on_a_job_that_returned_built_is_freed_on_its_branch_and_h
         data["prs"][KEY]["waits"] = ["j2"]
     watching = watcher(demo)
     built = "j2 built on durable-agents-j2 at 299fb6f36add, durable-agents-j2-docs, which Forge-AI/monorepo does not hold"
-    assert watch.waits_lines(watching, T0) == [f"FREE {job_id} o1: {built}, nothing else holds it" for job_id in ("j3", "j4")]
+    assert watch.waits_lines(watching, T0) == []
     data = state.load(demo)
     held = [[kept["words"] for kept in data["jobs"][job_id]["undelivered"]] for job_id in ("j3", "j4")]
     based = f"{built}, the change yours builds on, its PR held on his answer: cut your branch from that head, so your PR stacks on it"
@@ -5024,9 +5022,7 @@ def test_a_staging_test_whose_freeze_gave_way_to_a_staging_release_for_productio
     text = "freeze f8erwzvg6c: api/plat-usw2-staging until Nov 15, 5:00 PM for fork cases, set by Ada Lovelace. Staging runs only for its holders."
     freezes.append({"freeze": {"id": "f8erwzvg6c", "holders": [f"{demo}/j1", f"{demo}/j2", f"{demo}/j3"], "notices": [{**gave, "id": "bypassed-0189", "forProduction": False}, gave]}, "text": text})
     watching = watcher(demo)
-    reason = f"freeze f8erwzvg6c it holds gave way to the staging release for production {build}"
-    launch = "nothing else holds it"
-    assert [line for line in watch.run_pass(watching, T0) if line.startswith("FREE ")] == [f"FREE j1 o1: {reason}, {launch}", f"FREE j2 o1: {reason}, {launch}"]
+    assert [line for line in watch.run_pass(watching, T0) if line.startswith("FREE ")] == []
     data = state.load(demo)
     leased, unleased = (watch.gave_way_text(freezes[0]["freeze"], gave, held) for held in (True, False))
     assert [[kept["words"] for kept in data["jobs"][job_id]["undelivered"]] for job_id in ("j1", "j2", "j3")] == [[leased], [unleased], []]
