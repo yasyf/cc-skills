@@ -1789,8 +1789,11 @@ SAFEGUARDED_RESTART = (
     "LANE j1 o1 stopped by its model's safeguards {times}, " + SAFEGUARDED_WORK + " The watch ran drive job launch j1 --local, which starts it again in a fresh Claude session{on}"
     " on this Mac with a handoff, its output in the drive's relaunches.log"
 )
-SAFEGUARDED_SAID = "stopped by its model's safeguards 3 times, twice right after a fresh restart, the last on Sonnet 5.5; he was asked whether to restart it once more"
-SAFEGUARDED_LINE = f"LANE j1 o1 {SAFEGUARDED_SAID}: the watch set it stopped. Only on his yes does drive job add builder --order o1 on its parts add the job that takes its work"
+SAFEGUARDED_SAID = "stopped by its model's safeguards 3 times, twice right after a fresh restart, the last on Sonnet 5.5; his card asks whether to restart it once more"
+SAFEGUARDED_LINE = (
+    f"LANE j1 o1 {SAFEGUARDED_SAID}: the watch set it stopped and asks him on his card. His Restart tap restarts it in a fresh session with no step of yours,"
+    " and Leave it stopped keeps it stopped"
+)
 
 
 def safeguards_posts(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
@@ -1829,25 +1832,38 @@ def test_the_watch_restarts_a_job_whose_agent_on_this_mac_a_models_safeguards_st
     assert (job["state"], job["model"], len(job["safeguarded"]), job.get("deaths", [])) == ("running", model, earlier + 1, [])
 
 
-def test_the_watch_stops_a_job_a_models_safeguards_stopped_after_two_fresh_restarts_and_asks_him_in_plain_words(
+def test_the_watch_stops_a_job_a_models_safeguards_stopped_after_two_fresh_restarts_and_asks_him_on_a_plain_card(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relaunches: list[str]
 ) -> None:
     posted = safeguards_posts(monkeypatch)
     started = safeguard_starts(monkeypatch)
+    drawn: list[str] = []
+
+    def post_ask(name: str, job_id: str, file: Path, card: dict) -> str:
+        with state.edit(name) as data:
+            state.kept_in(data["jobs"][job_id], file)["card"] = "https://acme.slack.com/archives/D0OWNER/p1794200000000100"
+        drawn.append(file.read_text())
+        return "drawn"
+
+    monkeypatch.setattr(cli, "ask_card", lambda name, job_id, file: {"waits": f"{name}:{job_id}-1"})
+    monkeypatch.setattr(cli, "post_ask", post_ask)
     watching = stopped_agent_watched(run, demo, tmp_path, monkeypatch, [EARLIER], STOPPED)
     earlier_stops(demo, 2)
     assert lane_lines(watching, T0) == [SAFEGUARDED_LINE]
     assert lane_lines(watching, T0 + timedelta(minutes=1)) == []
     data = state.load(demo)
     job = data["jobs"]["j1"]
-    [record, said] = posted
-    assert (started, relaunches, record["topic"], record["text"]) == ([], [], "watch-safeguards-j1", "j1 stopped by its model's safeguards 3 times and is stopped")
-    assert said["text"] == (
-        f"The job working on {render.cut(job['goal'], 80)} for {{order:o1}} stopped on the model's safety check 3 times, twice right after a fresh restart, the last on Sonnet 5.5."
-        " It is stopped now: should I restart it once more, or leave it stopped? ({record:9|its facts})."
-    )
-    assert STOPPED_TEXT not in record["body"] + said["text"]
-    assert (job["state"], job["said"]) == ("stopped", SAFEGUARDED_SAID)
+    [text] = drawn
+    assert (started, relaunches, posted) == ([], [], [])
+    assert text.splitlines()[:5] == [
+        f"ASK Restart the stopped job on {render.cut(job['goal'], 80)}?",
+        f"The job working on {render.cut(job['goal'], 120)} for {{order:o1}} stopped on the model's safety check 3 times, twice right after a fresh restart, the last on Sonnet 5.5.",
+        "Restart starts it again in a fresh session; Leave it stopped keeps it stopped.",
+        "- Restart (recommended)",
+        "- Leave it stopped",
+    ]
+    assert STOPPED_TEXT not in text
+    assert (job["state"], job["said"], job["safeguard_card"], job["questions"][-1]["card"]) == ("stopped", SAFEGUARDED_SAID, job["questions"][-1]["file"], "https://acme.slack.com/archives/D0OWNER/p1794200000000100")
     assert [watch.part_gap(watching, data, "o1", part, T0 + timedelta(minutes=5)) for part in data["orders"]["o1"]["parts"]] == [None]
 
 
@@ -1948,11 +1964,11 @@ def test_the_watch_closes_the_terminal_of_an_orca_lane_on_this_mac_a_models_safe
     [line] = lane_lines(watching, T0)
     job = state.load(remote)["jobs"]["j1"]
     assert line == (
-        f'LANE j1 o1 stopped by its model\'s safeguards once, while it worked on "{render.cut(job["said"] or job["goal"], 60)}". The watch closed its terminal {job["terminal"]},'
+        f'LANE j1 o1 stopped by its model\'s safeguards once, while it worked on "{render.cut(job["said"] or job["goal"], 60)}". The watch closed its terminal term_lane,'
         " so its next read finds the worker exited and drive job resume starts the next in a fresh Claude session with a handoff"
     )
     assert lane_lines(watching, T0 + timedelta(seconds=5)) == []
-    assert (sends, relaunches, posted, closed) == ([], [], [], [job["terminal"]])
+    assert (sends, relaunches, posted, closed) == ([], [], [], ["term_lane"])
     assert (job["state"], len(job["safeguarded"])) == ("running", 1)
 
 

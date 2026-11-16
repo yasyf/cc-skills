@@ -405,9 +405,9 @@ with a blocking question.
   session on this Mac with a handoff, by `drive job launch <j> --local`, never resuming the flagged
   session (`LANE … stopped by its model's safeguards`). The second stop restarts it the same way on
   `claude-sonnet-5-5`, which the job's later workers keep. A third stop, or restarts that never
-  start a worker, sets it `stopped` and the watch asks him in one plain line whether to restart it
-  once more, with no notice text; its parts make no `ORPHAN`, and a job taking its work is added by
-  `drive job add` on its parts on his word.
+  start a worker, sets it `stopped` and the watch asks him on a question card with two buttons and
+  no notice text; its parts make no `ORPHAN`. His Restart tap runs the job again in a fresh session
+  by the watch itself, its stop count reset to that one stop, and Leave it stopped keeps it stopped.
 - While a job stays `running`, a lane that finished, ended with no next lane within 30 minutes, or
   whose relaunch started none makes its parts `ORPHAN`s. So does work he ordered that only a
   reader, a design with no builder, his card or a post holds. Those lines also name each open PR on

@@ -4301,7 +4301,7 @@ def started_here(name: str, job_id: str, kept: Path, text: str, cwd: Path) -> di
     _, held = state.holding_role(data, data["orders"][job["order"]])
     if not held.get("session"):
         raise orca.Unstarted(f"{kept.stem}: no worker started, since no session holds {job['order']}, so none would hear its agent")
-    call = agents.shaped({"session_id": held["session"], "tool_input": {"subagent_type": state.JOB_AGENTS[job["kind"]][0], "prompt": f"Read your brief first: {kept}"}}) | ({"model": job["model"]} if job["model"] else {})
+    call = agents.shaped({"session_id": held["session"], "tool_input": {"subagent_type": state.JOB_AGENTS[job["kind"]][0], "prompt": f"Read your brief first: {kept}"}}) | launch_model(job)
     bg = {"agent": uuid.uuid4().hex[:17], "session": None, "started": state.stamp(), "cwd": str(cwd), "pointed": []}
     try:
         bg["session"] = agents.start_job(name, job_id, bg["agent"], call, held, cwd)
@@ -4339,12 +4339,17 @@ def launch_attempt(name: str, job: dict, attempt: str, kept: Path, brief: str, r
     lane = orca.lane_name(name, attempt)
     made = None if state.on_mac(job) else job.get("sprite_config") if workspace else orca.sprite_config(root)
     try:
-        receipt = orca.launch(name, lane, kept, root, run, job["route"], workspace, session, job["model"] or orca.MODEL, transcript) | {"resumed": session}
+        receipt = orca.launch(name, lane, kept, root, run, job["route"], workspace, session, transcript, **launch_model(job)) | {"resumed": session}
     except orca.Unstarted:
         if workspace or state.on_mac(job):
             raise
-        receipt = orca.launch(name, lane, kept, root, run, job["route"], None, None, job["model"] or orca.MODEL) | {"resumed": None}
+        receipt = orca.launch(name, lane, kept, root, run, job["route"], None, None, **launch_model(job)) | {"resumed": None}
     return {**receipt, "run": run, "sprite_config": made}
+
+
+def launch_model(job: dict) -> dict:
+    """The model a job's lane launches on when its row names one, as the watch's second restart after a model's safeguards stopped it sets, for orca.launch, which runs orca.MODEL on none."""
+    return {"model": job["model"]} if job["model"] else {}
 
 
 @orca.rides_restarts()

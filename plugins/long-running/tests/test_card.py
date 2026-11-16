@@ -932,6 +932,32 @@ def test_his_tap_ends_its_question_before_cci_takes_its_answer_record_so_a_refus
     assert [event["kind"] for event in events(drive)] == ["answered"]
 
 
+def test_his_restart_tap_on_a_safeguards_card_runs_the_stopped_job_again_in_a_fresh_session_while_leave_it_stopped_starts_nothing(
+    drive: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    file = state.drive_dir(drive) / "asks" / "j3-5afe0001.md"
+    stop = {"worker": "a3", "turn": "2026-11-12T08:30:00.000Z", "terminal": None, "at": "2026-11-12T08:30:01-08:00", "tries": 1, "pid": None}
+    with state.edit(drive) as data:
+        data["jobs"]["j3"] = state.new_job("o1", "builder", "the door", [], "2026-11-12T08:00:00-08:00")
+        data["jobs"]["j3"].update(state="stopped", agent="a3", where="local", model=watch.SAFEGUARD_MODEL, said=f"{watch.SAFEGUARDED} 3 times", safeguarded=[stop] * 3, safeguard_card=str(file))
+        data["jobs"]["j3"]["questions"] = [state.new_question(str(file), "Restart the stopped job on the door?", "2026-11-12T08:31:00-08:00", card=NEWER_CARD) | {"waits": f"{drive}:j3-661440"}]
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
+    view.refresh_cards(drive)
+    monkeypatch.setattr(subprocess, "run", Cci().run)
+    started: list[list[str]] = []
+    monkeypatch.setattr(watch, "start_verb", lambda watcher, job_id, args, moment: started.append(args) or os.getpid())
+    watching, moment = watch.Watcher(drive, offset=state.events_end(drive)), state.now()
+    tap = {"waits": f"{drive}:j3-661440", "url": NEWER_CARD, "source": "slack"}
+    assert ask({"answer": tap | {"label": "Leave it stopped", "action_ts": "1794200001.000100"}})["ok"]
+    assert (watch.safeguard_cards(watching, moment), started, state.load(drive)["jobs"]["j3"]["state"]) == ([], [], "stopped")
+    assert ask({"answer": tap | {"label": "Restart", "action_ts": "1794200002.000100"}})["ok"]
+    [line] = watch.safeguard_cards(watching, moment)
+    job = state.load(drive)["jobs"]["j3"]
+    assert line.endswith("on this Mac with a handoff, its output in the drive's relaunches.log, on his Restart tap on its safeguards card")
+    assert (started, job["state"], job["model"], job["safeguard_card"], [entry["tries"] for entry in job["safeguarded"]]) == ([["job", "launch", "j3", "--local"]], "running", None, None, [1])
+    assert watch.safeguard_cards(watching, moment) == []
+
+
 def test_his_tap_failing_again_on_cc_slacks_retry_tells_the_meta_session_by_a_defect_keyed_by_the_tap_and_a_recorded_run_starts_the_count_over(
     drive: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
