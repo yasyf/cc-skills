@@ -92,6 +92,8 @@ REAL_SCRATCH = state.scratch
 REAL_MACHINE = place.machine
 SPRITE_CONFIG = "4b925c205080" + "0" * 52
 LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
+INSTALLED_PLUGINS = ("cc-review@cc-review", "datadog@claude-plugins-official", "long-running@skills", "captain-hook@captain-hook", "open-pr@skills")
+REAL_PLUGIN_SERVERS = agents.plugin_servers
 SETTLED_NOTE = cli.settled_note
 POST_ASK = cli.post_ask
 SETTLED_MATCHED = settled.matched
@@ -443,6 +445,13 @@ def drive_interpreter(tmp_path: Path) -> None:
 def lane_spec(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every session the drive starts reads the lane settings this tree's orca plugin ships, never an install of this Mac's."""
     monkeypatch.setattr(agents, "lane_spec", lambda: json.loads(LANE_SPEC.read_text()))
+
+
+@pytest.fixture(autouse=True)
+def plugins_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every leaf session the drive starts reads INSTALLED_PLUGINS as the plugins installed and starts each MCP server it is given under its plugin's name with nothing to run, never this Mac's; a test of either puts back REAL_PLUGIN_SERVERS."""
+    monkeypatch.setattr(agents, "plugin_keys", lambda: list(INSTALLED_PLUGINS))
+    monkeypatch.setattr(agents, "plugin_servers", lambda wanted, checkout: {"mcpServers": {f"plugin:{plugin.split('@')[0]}:{server}": {} for plugin, server in wanted}})
 
 
 @pytest.fixture(autouse=True)

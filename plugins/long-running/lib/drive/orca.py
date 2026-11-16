@@ -33,7 +33,7 @@ PLUGIN = Path(__file__).resolve().parents[2]
 AGENTS = PLUGIN / "agents"
 LANE_SECTIONS = ("## On a Sprite\n", "## Waits and reads\n")
 LANE_RULES = PLUGIN / "lane-rules" / "CLAUDE.md"
-LANE_ENV = " ".join([f"{state.REMOTE_LANE_ENV}=1", "CCX_SHIP_NO_WATCH=1", *(f"{key}={value}" for key, value in agents.ADVISOR_OFF.items())])
+LANE_ENV = " ".join([f"{state.REMOTE_LANE_ENV}=1", "CCX_SHIP_NO_WATCH=1", *(f"{key}={value}" for key, value in (agents.ADVISOR_OFF | agents.LEAF_ENV).items())])
 LAUNCH_SECONDS = 1800
 RECLAIM_SECONDS = 300
 WAKE_SECONDS = 90
@@ -736,7 +736,7 @@ def sprites_org(checkout: Path) -> str:
 
 
 def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: str | None, workspace: str | None, session: str | None, transcript: Path | None = None) -> dict:
-    """Start one builder through the orca plugin's launcher, on a fresh Sprite or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given, or on a fresh Sprite resuming the given session from the transcript given, which prepare places there first, either way giving its `~/.local/bin` the `drive` that asks each verb of this Mac, or, on the local route, in the worktree on this Mac the workspace names, as it stands, else in a fresh worktree of the checkout's Orca repository, with `CCI_PARENT_SESSION` set, so cci binds the lane's session to no lane and its `cci post` as `root` or `builder` goes out as its brief says, and, under the launcher's `--strict-mcp-config`, the installed Datadog plugin's servers in a file beside the brief, and on this Mac the lane rules in place of `~/.claude/CLAUDE.md`, as agents.leaf gives a session below the top roots; every lane runs with no advisor, by his pick to opt the drive's lanes out per session; its success line, with the Sprite's prepared server. Each run's whole output goes to the attempt's launch.log by launch_log, and a refusal names that file last."""
+    """Start one builder through the orca plugin's launcher, on a fresh Sprite or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given, or on a fresh Sprite resuming the given session from the transcript given, which prepare places there first, either way giving its `~/.local/bin` the `drive` that asks each verb of this Mac, or, on the local route, in the worktree on this Mac the workspace names, as it stands, else in a fresh worktree of the checkout's Orca repository, with `CCI_PARENT_SESSION` set, so cci binds the lane's session to no lane and its `cci post` as `root` or `builder` goes out as its brief says, and, under the launcher's `--strict-mcp-config`, the installed Datadog plugin's servers in a file beside the brief, and on this Mac the lane rules in place of `~/.claude/CLAUDE.md` and only a builder's plugins and skills, as agents.light gives a builder; every lane runs headless, with agents.LEAF_ENV, and with no advisor, by his pick to opt the drive's lanes out per session; its success line, with the Sprite's prepared server. Each run's whole output goes to the attempt's launch.log by launch_log, and a refusal names that file last."""
     env = {**os.environ, "WORKER_RUN": run, "WORKER_ENV": LANE_ENV, "WORKER_BIND": f"{DRIVE} bound --drive {drive} {run} --"}
     if workspace:
         env["WORKER_WORKSPACE"] = workspace
@@ -750,7 +750,7 @@ def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: 
         servers = brief.with_suffix(".mcp.json")
         servers.write_text(json.dumps(agents.datadog_servers()))
         rules = " ".join(f"{key}={value}" for key, value in agents.LANE_RULES_ENV.items())
-        leafed = agents.leaf({"env": {}} | json.loads(os.environ.get("CLAUDE_LANE_SETTINGS") or "{}"))
+        leafed = agents.light({"env": {}} | json.loads(os.environ.get("CLAUDE_LANE_SETTINGS") or "{}"), agents.BUILDER, checkout)
         lane_settings = {key: value for key, value in leafed.items() if key != "env"}
         env |= {"WORKER_LOCAL": "1", "WORKER_REPO": repo, "WORKER_ENV": f"{LANE_ENV} {rules} CCI_PARENT_SESSION={drive}", "WORKER_MCP_CONFIG": str(servers), "WORKER_ADD_DIR": agents.LANE_RULES_ARGS[1], "CLAUDE_LANE_SETTINGS": json.dumps(lane_settings)}
     else:

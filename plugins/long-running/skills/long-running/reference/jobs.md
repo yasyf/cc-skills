@@ -783,9 +783,15 @@ job's transcript under `Transcripts:`.
 A built job's `FREE` line is a PR event too: the fresh builder's `Handoff:` names the built branch,
 and `Decisions that bind` carries his answer to each card it waited on, verbatim. An incident's job
 is the one exception, resumed for every event by [incidents.md](incidents.md), because minutes to
-users matter more there than tokens. Every session and lane the drive starts, its roots, handlers,
-watchdogs, builders and remote lanes included, compacts at 350,000 tokens, by his Nov 15 words "make
-the context cap 350k": `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the orca plugin's `lib/lane.json` sets it.
+users matter more there than tokens. The roots compact at 400,000 tokens, the communicator at
+300,000, and every other session and lane the drive starts, handlers, watchdogs, builders and remote
+lanes included, at 350,000, by his Nov 15 words "roots should have 400k compaction, communicator 300k,
+and builders/readers/all else 350k": `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the orca plugin's
+`lib/lane.json` sets the 350,000. Each leaf session, a builder, reader, designer, handler, watchdog or
+Orca lane, runs headless by `agents.light` and `agents.mcp_flags`: `--strict-mcp-config` with only the
+servers its role calls (a handler's drive, cc-slack, cci and Datadog; none for the rest, which use the
+CLIs), only its role's plugins and the plugins the drive depends on, no user skills, no auto-memory
+and no nonessential traffic, by his Nov 15 words "make them as lightweight as possible".
 Nothing the drive starts runs above `high` effort, its roots, agents, Orca and Sprite lanes and
 codex-ask runs alike, by his Nov 15 words "nothing should be running at xhigh": an Agent call, launch
 or `codex-ask` naming an effort names `high` or lower.

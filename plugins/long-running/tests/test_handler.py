@@ -10,7 +10,7 @@ import agent_brief
 import handed_records
 import one_line_result
 import pytest
-from conftest import HELD_RELEASES, LANE_SPEC, UNFROZEN, Answers, Thread
+from conftest import HELD_RELEASES, LANE_SPEC, REAL_PLUGIN_SERVERS, UNFROZEN, Answers, Thread
 from drive import agents, install, orca, place, procs, reads, slack, state, talk, tools, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -114,8 +114,19 @@ def test_a_handler_session_starts_with_every_orca_lanes_env_settings_and_denied_
     settings = json.loads(argv[argv.index("--settings") + 1])
     lane = json.loads(LANE_SPEC.read_text())
     assert {key: settings["env"][key] for key in lane["env"]} == lane["env"]
-    assert (settings["enabledPlugins"], settings["verbose"], settings["statusLine"], settings["bashOutputMaxChars"]) == (plugins | {agents.DATADOG_PLUGIN: True} | dict.fromkeys(agents.LEAF_PLUGINS_OFF, False), True, lane["settings"]["statusLine"], 6000)
+    enabled = {"cc-review@cc-review": False, agents.DATADOG_PLUGIN: True, "long-running@skills": True, "captain-hook@captain-hook": True, "open-pr@skills": False}
+    assert (settings["enabledPlugins"], settings["verbose"], settings["statusLine"], settings["bashOutputMaxChars"]) == (enabled, True, lane["settings"]["statusLine"], 6000)
     assert settings["permissions"]["deny"] == lane["deniedTools"]
+
+
+def test_a_handler_session_starts_headless_on_only_the_drive_cc_slack_cci_and_datadog_servers_and_no_auto_memory(communicator: str, run: Run, tmp_path: Path, started: list[list[str]]) -> None:
+    start(run, tmp_path)
+    [argv] = started
+    settings = json.loads(argv[argv.index("--settings") + 1])
+    servers = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"]
+    assert (argv.index("--strict-mcp-config") + 1 == argv.index("--mcp-config"), argv[argv.index("--mcp-config") + 2]) == (True, "-n")
+    assert sorted(servers) == ["plugin:cc-inbox:cci", "plugin:cc-slack:cc-slack", "plugin:datadog:mcp", "plugin:long-running:drive"]
+    assert (settings["autoMemoryEnabled"], settings["env"]["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"]) == (False, "1")
 
 
 def test_drive_handler_refuses_a_brief_line_its_definition_already_carries(communicator: str, run: Run, tmp_path: Path, started: list[list[str]]) -> None:
@@ -1264,11 +1275,33 @@ def test_a_handler_with_no_session_past_its_start_window_is_gone_whatever_its_st
 
 
 def test_a_lane_session_the_drive_starts_on_this_mac_runs_with_no_advisor_at_high_effort_on_the_lane_rules_in_place_of_the_users_claude_md(communicator: str) -> None:
-    settings, flags = agents.lane_session({state.DRIVE_ENV: "demo"})
+    settings, flags = agents.lane_session({state.DRIVE_ENV: "demo"}, agents.BUILDER, Path("/code/monorepo"))
     lane = json.loads(LANE_SPEC.read_text())
-    assert (flags, settings["env"][agents.COMPACT_ENV], settings["env"]["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"]) == ((*agents.LANE_RULES_ARGS, "--effort", "high"), lane["env"][agents.COMPACT_ENV], "1")
+    assert (flags, settings["env"][agents.COMPACT_ENV], settings["env"]["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"]) == ((*agents.LANE_RULES_ARGS, "--strict-mcp-config", "--effort", "high"), lane["env"][agents.COMPACT_ENV], "1")
     assert (settings["claudeMdExcludes"], settings["env"]["CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD"]) == ([str(install.config_dir() / "CLAUDE.md")], "1")
+    assert {key for key, on in settings["enabledPlugins"].items() if on} == {"long-running@skills", "captain-hook@captain-hook", "open-pr@skills"}
     assert (Path(agents.LANE_RULES_ARGS[1]) / "CLAUDE.md").is_file()
+
+
+def test_a_leaf_sessions_servers_come_from_each_plugins_install_with_its_root_and_the_checkout_filled_in(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    slack, notes = tmp_path / "cc-slack", tmp_path / "cc-notes"
+    for root in (slack, notes):
+        (root / ".claude-plugin").mkdir(parents=True)
+    tools = {"command": "${CLAUDE_PLUGIN_ROOT}/bin/cc-slack", "args": ["tools"], "env": {"CLAUDE_PROJECT_DIR": "${CLAUDE_PROJECT_DIR}"}}
+    (slack / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "cc-slack", "mcpServers": {"cc-slack": tools, "channel": {"command": "channel"}}}))
+    (notes / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "cc-notes"}))
+    (notes / ".mcp.json").write_text(json.dumps({"mcpServers": {"cc-notes": {"command": "cc-notes", "args": ["mcp", "--dir", "${CLAUDE_PROJECT_DIR}"]}}}))
+    (tmp_path / "config" / "plugins").mkdir(parents=True)
+    installs = {"cc-slack@cc-slack": [{"installPath": str(slack), "lastUpdated": "2026-11-15T01:00:00.000Z"}], "cc-notes@cc-notes": [{"installPath": str(notes), "lastUpdated": "2026-11-15T01:00:00.000Z"}]}
+    (tmp_path / "config" / "plugins" / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": installs}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    servers = REAL_PLUGIN_SERVERS((("cc-slack@cc-slack", "cc-slack"), ("cc-notes@cc-notes", "cc-notes")), Path("/code/monorepo"))
+    assert servers == {
+        "mcpServers": {
+            "plugin:cc-slack:cc-slack": {"command": f"{slack}/bin/cc-slack", "args": ["tools"], "env": {"CLAUDE_PROJECT_DIR": "/code/monorepo"}},
+            "plugin:cc-notes:cc-notes": {"command": "cc-notes", "args": ["mcp", "--dir", "/code/monorepo"]},
+        }
+    }
 
 
 def test_a_handler_whose_claude_bg_cannot_reach_the_background_service_starts_on_a_later_try(

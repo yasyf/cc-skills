@@ -56,10 +56,10 @@ LANE_RULES_ENV = {"CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD": "1"}
 LANE_RULES_HOLE = "<lane rules>"
 TOP_SEATS = ("coordinator", "communicator", "meta")
 SEAT = re.compile(r"^cci session register <drive>-(\S+) ")
-LEAF_PLUGINS_OFF = ("cc-present@cc-present", "codex@skills", "design-doc@skills", "incident-retro@skills", "open-pr@skills", "plans@skills", "slop-cop@skills", "slop-cop@slop-cop")
 RESUMED = "Resumed: an API error ended your last turn before it was done, so do now what the prompt it answered asked, from where it stopped."
 MESSAGE_ORIGIN = "coordinator"
 DESIGNER = "long-running:designer"
+BUILDER = "long-running:builder"
 WATCHDOG = "long-running:watchdog"
 WATCHDOG_RUNS = (
     ("drive", "status"),
@@ -102,6 +102,13 @@ START_PAGE = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "
 SESSION_ENV = "<session env>"
 SESSION_SETTINGS_HOLE = "<session settings>"
 ADVISOR_FLAG = "--advisor"
+LEAF_ENV = {"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
+DRIVE_PLUGINS = ("long-running@skills", *(f"{needed['name']}@{needed['marketplace']}" for needed in json.loads((Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json").read_text())["dependencies"]))
+GUARD_PLUGINS = ("cc-guides@cc-guides", *DRIVE_PLUGINS)
+CODE_PLUGINS = (*GUARD_PLUGINS, "cc-context@cc-context", "open-pr@skills")
+ROLE_PLUGINS = {HANDLER: (*GUARD_PLUGINS, DATADOG_PLUGIN), WATCHDOG: GUARD_PLUGINS}
+ROLE_SERVERS = {HANDLER: (("long-running@skills", "drive"), ("cc-slack@cc-slack", "cc-slack"), ("cc-inbox@cc-inbox", "cci"), (DATADOG_PLUGIN, "mcp"))}
+READ_ROLES = (HANDLER, WATCHDOG)
 ADVISOR_PROBE_SECONDS = 60
 DOUBLE_QUOTED = re.compile(r'[\\"$`]')
 STUCK = re.compile(r"\b(j\d+)\b[^.;\n]*?\b(?:stuck|silent|stalled|hung)\b", re.IGNORECASE)
@@ -975,7 +982,7 @@ def beside(data: dict) -> tuple[str, dict]:
 
 
 def start_handler(name: str, handler: str, prompt: str) -> None:
-    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the drive's checkout at the head of its default branch, wherever the session it runs beside, the communicator's or on a drive with none the coordinator's, still runs, whether that session or the drive's watch starts it, `LONG_RUNNING_HANDLER` naming it, so every check on the communicator's handlers finds it from its first step, its entry keeping the session `claude --bg` names, by which the drive reads whether its turn is over, `CCI_PARENT_SESSION` naming that session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one; the watch's own lane stays out of its environment. Its prompt closes on the release freezes and his release hold as they stand at this start, in place of the line an earlier start of it carried. It runs on the trimmed settings."""
+    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the drive's checkout at the head of its default branch, wherever the session it runs beside, the communicator's or on a drive with none the coordinator's, still runs, whether that session or the drive's watch starts it, `LONG_RUNNING_HANDLER` naming it, so every check on the communicator's handlers finds it from its first step, its entry keeping the session `claude --bg` names, by which the drive reads whether its turn is over, `CCI_PARENT_SESSION` naming that session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one; the watch's own lane stays out of its environment. Its prompt closes on the release freezes and his release hold as they stand at this start, in place of the line an earlier start of it carried. It runs on light's settings and mcp_flags' servers for a handler."""
     from drive import orca
 
     data = state.saved(name)
@@ -983,10 +990,10 @@ def start_handler(name: str, handler: str, prompt: str) -> None:
     prompt = released(name, data, prompt)
     env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name}
     checkout = orca.checkout(name, held["cwd"])
-    settings = trimmed(session_settings(env), checkout)
+    settings = light(session_settings(env), HANDLER, checkout)
     argv = [
         "claude", "--bg", "--agent", HANDLER, ADVISOR_FLAG, HANDLER_ADVISOR, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings),
-        *LANE_RULES_ARGS, "-n", f"{name} handler {handler}", prompt,
+        *LANE_RULES_ARGS, *mcp_flags(HANDLER, checkout), "-n", f"{name} handler {handler}", prompt,
     ]
     session = launched(backgrounded(argv, checkout, {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
 
@@ -1014,22 +1021,51 @@ def released(name: str, data: dict, prompt: str) -> str:
     return "\n".join([*lines, f"{RELEASES}: {releases(name, data)}"])
 
 
-def trimmed(settings: dict, checkout: Path) -> dict:
-    """The settings of a session below the top roots, as leaf gives them, that reads and answers and writes no code, a handler or a watchdog: no auto-memory, so the repository's MEMORY.md stays out, no CLAUDE.md or AGENTS.md at the checkout's root, every skill but HANDLER_SKILLS that a user, the checkout or claude.ai sync installed turned off in the listing, and the plugins of LEAF_PLUGINS_OFF off with their skills, hooks and servers, since its own definition carries what it does, by the Nov 15 pick "Handlers batched + trimmed"; a plugin's skills stay listed while it is on, since skillOverrides cannot turn them off."""
-    names = {found[1] if (found := SKILL_NAME.search(path.read_text())) else path.parent.name for root in (install.config_dir() / "skills", checkout / ".claude" / "skills") for path in [*root.glob("*/SKILL.md"), *root.glob("synced/*/*/SKILL.md")]}
+def light(settings: dict, role: str, checkout: Path) -> dict:
+    """The settings of a leaf session the drive starts as role, a builder, reader, designer, handler or watchdog, which runs headless: leaf's, with no auto-memory, LEAF_ENV's headless switches, every skill a user or claude.ai sync installed turned off in the listing, and only the plugins ROLE_PLUGINS names for the role, CODE_PLUGINS for a role it does not name, on, GUARD_PLUGINS holding this plugin and every plugin its manifest depends on, since Claude Code loads no plugin whose dependency is off, so a disabled plugin's skills and hooks stay out while the guards of GUARD_PLUGINS apply, by his Nov 15 words "make them as lightweight as possible"; a handler or a watchdog, which reads and answers and writes no code, also drops the checkout's own skills but HANDLER_SKILLS and its root CLAUDE.md and AGENTS.md, since its definition carries what it does."""
+    reads = role in READ_ROLES
+    roots = (install.config_dir() / "skills", *((checkout / ".claude" / "skills",) if reads else ()))
+    names = {found[1] if (found := SKILL_NAME.search(path.read_text())) else path.parent.name for root in roots for path in [*root.glob("*/SKILL.md"), *root.glob("synced/*/*/SKILL.md")]}
+    kept = set(HANDLER_SKILLS) if role == HANDLER else set()
+    plugins = ROLE_PLUGINS.get(role, CODE_PLUGINS)
     leafed = leaf(settings)
     return leafed | {
         "autoMemoryEnabled": False,
-        "claudeMdExcludes": [*leafed["claudeMdExcludes"], str(checkout / "CLAUDE.md"), str(checkout / "AGENTS.md")],
-        "skillOverrides": {skill: "off" for skill in sorted(names - set(HANDLER_SKILLS))},
-        "enabledPlugins": leafed["enabledPlugins"] | dict.fromkeys(LEAF_PLUGINS_OFF, False),
+        "claudeMdExcludes": [*leafed["claudeMdExcludes"], *((str(checkout / "CLAUDE.md"), str(checkout / "AGENTS.md")) if reads else ())],
+        "skillOverrides": {skill: "off" for skill in sorted(names - kept)},
+        "enabledPlugins": leafed["enabledPlugins"] | {key: key in plugins for key in plugin_keys()},
+        "env": leafed["env"] | LEAF_ENV,
     }
 
 
+def plugin_keys() -> list[str]:
+    """Each plugin installed in any scope, by its installed_plugins.json key."""
+    return list(json.loads((install.config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"])
+
+
+def mcp_flags(role: str, checkout: Path) -> tuple[str, ...]:
+    """The flags that start a leaf session as role on only the MCP servers ROLE_SERVERS names for it, `--strict-mcp-config` keeping out every plugin's and the user's own, none for a role it does not name, since its definition calls the drive, cci, cc-slack and Datadog through their CLIs; `--mcp-config` takes every word up to the next flag, so these go before another flag."""
+    servers = plugin_servers(ROLE_SERVERS.get(role, ()), checkout)
+    return ("--strict-mcp-config", *(("--mcp-config", json.dumps(servers)) if servers["mcpServers"] else ()))
+
+
+def plugin_servers(wanted: tuple[tuple[str, str], ...], checkout: Path) -> dict:
+    """An `--mcp-config` of each installed plugin's server wanted names, under the name Claude Code gives a plugin's server, `plugin:<plugin>:<server>`, so its tools keep the names the agent definitions allow and deny, with the plugin's root and checkout put in place of the `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_PROJECT_DIR}` Claude Code fills only for a plugin's own servers."""
+    found = {}
+    for plugin, server in wanted:
+        root = Path(install.installed(plugin)["installPath"])
+        manifest = json.loads((root / ".claude-plugin" / "plugin.json").read_text())
+        declared = manifest.get("mcpServers", ".mcp.json")
+        servers = declared if isinstance(declared, dict) else json.loads((root / declared).read_text())["mcpServers"]
+        filled = json.dumps(servers[server]).replace("${CLAUDE_PLUGIN_ROOT}", str(root)).replace("${CLAUDE_PROJECT_DIR}", str(checkout))
+        found[f"plugin:{manifest['name']}:{server}"] = json.loads(filled)
+    return {"mcpServers": found}
+
+
 def start_job(name: str, job_id: str, agent: str, call: dict, held: dict, cwd: Path) -> str:
-    """Start a builder's or reader's agent as its own `claude --bg` session on the Agent call its starter would make, its type, model and prompt, in cwd, the drive's checkout at the head of its default branch, as a handler starts, JOB_ENV naming the drive, the job, the agent id it is recorded as and the session holding its order, by which seen binds every hook of it as that session's agent, `CCI_PARENT_SESSION` naming that session, so cci posts from it as that session's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, on lane_session's settings and flags, so it compacts, loads its rules and runs its effort as an Orca lane does and with no advisor; the session `claude --bg` names."""
+    """Start a builder's or reader's agent as its own `claude --bg` session on the Agent call its starter would make, its type, model and prompt, in cwd, the drive's checkout at the head of its default branch, as a handler starts, JOB_ENV naming the drive, the job, the agent id it is recorded as and the session holding its order, by which seen binds every hook of it as that session's agent, `CCI_PARENT_SESSION` naming that session, so cci posts from it as that session's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, on lane_session's settings and flags for its type, so it compacts, loads its rules and runs its effort as an Orca lane does, with no advisor, headless and on only the plugins and servers its type needs; the session `claude --bg` names."""
     env = {state.JOB_ENV: f"{name}/{job_id}/{agent}/{held['session']}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name}
-    settings, flags = lane_session(env)
+    settings, flags = lane_session(env, call["subagent_type"], cwd)
     model = ["--model", call["model"]] if call.get("model") else []
     argv = ["claude", "--bg", "--agent", call["subagent_type"], *model, *flags, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} {job_id}", call["prompt"]]
     return launched(reads.run(argv, cwd, {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
@@ -1057,17 +1093,17 @@ def leaf(settings: dict) -> dict:
 
 def watchdog(name: str, brief: str, cwd: str, out: Path) -> int:
     """Start a watchdog agent on a stall's brief as its own `claude -p` process on its agent definition, which sets its model and tools, in the drive's checkout, its answer written to out and its spend capped at WATCHDOG_USD; its environment names the drive and marks it the watchdog, by which the bash_guard hook lets it run WATCHDOG_RUNS alone, the reads and the two acts of his pick "Report, plus two safe acts, rerunning a failed build and messaging the owning job"; its pid."""
-    settings = trimmed(session_settings({state.WATCHDOG_ENV: name, state.DRIVE_ENV: name, **ADVISOR_OFF}), Path(cwd))
-    argv = ["claude", "-p", "--agent", WATCHDOG, "--permission-mode", "bypassPermissions", *LANE_RULES_ARGS, "--max-budget-usd", WATCHDOG_USD, "--settings", json.dumps(settings), brief]
+    settings = light(session_settings({state.WATCHDOG_ENV: name, state.DRIVE_ENV: name, **ADVISOR_OFF}), WATCHDOG, Path(cwd))
+    argv = ["claude", "-p", "--agent", WATCHDOG, "--permission-mode", "bypassPermissions", *LANE_RULES_ARGS, *mcp_flags(WATCHDOG, Path(cwd)), "--max-budget-usd", WATCHDOG_USD, "--settings", json.dumps(settings), brief]
     out.parent.mkdir(parents=True, exist_ok=True)
     env = {key: value for key, value in os.environ.items() if key not in ("CLAUDE_LONG_RUNNING_LANE", "CLAUDE_CODE_SESSION_ID")} | settings["env"]
     with out.open("w") as written:
         return subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=written, stderr=subprocess.STDOUT, start_new_session=True).pid
 
 
-def lane_session(env: dict[str, str]) -> tuple[dict, tuple[str, ...]]:
-    """The `--settings` value and the flags a lane the drive starts as its own Claude Code session on this Mac runs on, such as a builder or reader the watch starts with `claude --bg`: leaf's settings with no advisor, the 350,000-token window of lib/lane.json, and EFFORT_CEILING, the flags going before any other flag or prompt, as LANE_RULES_ARGS must."""
-    return leaf(session_settings(env | ADVISOR_OFF)), (*LANE_RULES_ARGS, "--effort", EFFORT_CEILING)
+def lane_session(env: dict[str, str], role: str, checkout: Path) -> tuple[dict, tuple[str, ...]]:
+    """The `--settings` value and the flags a lane the drive starts as its own Claude Code session on this Mac runs on, such as a builder or reader the watch starts with `claude --bg`: light's settings for role with no advisor, the 350,000-token window of lib/lane.json, mcp_flags' servers for role, and EFFORT_CEILING, the flags going before any other flag or prompt, as LANE_RULES_ARGS must."""
+    return light(session_settings(env | ADVISOR_OFF), role, checkout), (*LANE_RULES_ARGS, *mcp_flags(role, checkout), "--effort", EFFORT_CEILING)
 
 
 def session_settings(env: dict[str, str]) -> dict:
