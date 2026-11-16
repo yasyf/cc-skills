@@ -12,8 +12,8 @@ import no_file_tools
 import one_line_result
 import pytest
 import quiet_turn
-from conftest import LEAD, RESEARCH, CodexAsk, codex_reply, started
-from drive import brief, cli, codex, render, state, watch
+from conftest import LEAD, RESEARCH, CodexAsk, codex_reply, provide, started
+from drive import brief, cli, codex, providers, render, state, watch
 
 Run = Callable[..., tuple[int, str]]
 POST = "https://acme.slack.com/archives/D1/p1"
@@ -98,7 +98,13 @@ def test_a_reader_on_a_build_order_keeps_its_researched_report_and_one_on_an_ans
     assert state.load(demo)["jobs"]["j3"]["state"] == "done"
 
 
-def test_a_reader_ending_on_a_refused_read_ends_with_a_note_naming_the_staff_routes(communicator: str, run: Run, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+class StaffData(providers.DataProvider):
+    staff_routes = frozenset({"db-read", "pass-box"})
+    staff_note = "an admin view, the `db-read` skill, or `drive break-glass`, which runs it under this Mac's machine profile with no sign-in"
+
+
+def test_a_reader_ending_on_a_refused_read_ends_with_a_note_naming_the_staff_routes(communicator: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    provide(monkeypatch, tmp_path, data=StaffData)
     blocked = "BLOCKED access denied reading the bucket"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "what is in the bucket")
     run("job", "add", "reader", "--order", "o1", "--goal", "read the bucket")

@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, orca, state
+from drive import agents, orca, providers, state
 
 RESULT_CHARS = 500
 REFUSAL = r"(?:access denied|permission denied|forbidden|\b403\b|unauthori[sz]ed)"
@@ -15,7 +15,6 @@ REFUSED_READ = re.compile(
     rf"{FAILURE}.{{0,60}}{REFUSAL}|{REFUSAL}.{{0,60}}{FAILURE}|\bdenied when\b|\bgot an? 403\b|(?-i:\b(?:UNPROVEN|BLOCKED)\b).*{REFUSAL}",
     re.IGNORECASE,
 )
-STAFF_ROUTES = ("break-glass", "db-read", "pass-box")
 
 
 def block_reason(payload: dict) -> str | None:
@@ -81,13 +80,12 @@ def unread(payload: dict, data: dict, job_id: str | None, line: str) -> str | No
         return None
     steps = (json.loads(entry).get("message") or {} for entry in agents.transcript(payload).read_text().splitlines())
     calls = (json.dumps(block["input"]) for step in steps for block in step.get("content") or [] if isinstance(block, dict) and block.get("type") == "tool_use")
-    if any(route in call for call in calls for route in STAFF_ROUTES):
+    guard = providers.of(data).data
+    if any(route in call for call in calls for route in {"break-glass", *guard.staff_routes}):
         return None
     return (
         "one_line_result: your line ends on a refused read, and the read his words or the order name is authorized"
-        " by his asking. In this turn take the staff route that opens it: an admin view, the"
-        " `db-read` skill, or `drive break-glass`, which runs it under this Mac's machine profile with no sign-in, and for a team's"
-        " data, which none of those reads, a service account on a pass box, by docs/pass-boxes.md in Forge-AI/monorepo. Then read"
+        f" by his asking. In this turn take the staff route that opens it: {guard.staff_note}. Then read"
         " it and end on what it says; a read every route refuses goes on `UNPROVEN:` with each refusal."
     )
 
