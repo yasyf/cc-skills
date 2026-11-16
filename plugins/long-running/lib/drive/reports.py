@@ -122,7 +122,9 @@ def listed(value: object) -> list[str]:
 
 
 def addressed(record: dict, lane: str) -> bool:
-    return any(entry.split("@", 1)[0] == lane for entry in listed(record.get("to")))
+    """Whether the record is to the lane, a report for the communicator counting as to it when its writer named it or its route already sent it to the posts lane the drive posts from."""
+    lanes = {lane, state.POSTS_LANE} if lane == "communicator" else {lane}
+    return any(entry.split("@", 1)[0] in lanes for entry in listed(record.get("to")))
 
 
 def chatter(record: dict) -> str | None:

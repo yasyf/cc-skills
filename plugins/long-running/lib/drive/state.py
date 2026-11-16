@@ -5498,7 +5498,7 @@ def starter_lane(data: dict, attrs: dict) -> str | None:
 
 
 def routed(drives: dict[str, dict], session: str | None, kind: str, attrs: dict, to: list[str], answered: list[str]) -> list[str]:
-    """Where a drive session's record goes: a defect to the top coordinator, the communicator or the meta session to the meta session, which holds drive tooling, unless it posts it; the communicator's owner record about the drive to the meta session alone, his ruling on how the drive works included; and the communicator's other owner, answer, handoff or refused record for a coordinator lane to the session serving_lane reads from it and the records it answers; every other record to the lanes it names."""
+    """Where a drive session's record goes: a defect to the top coordinator, the communicator or the meta session to the meta session, which holds drive tooling, unless it posts it; the communicator's owner record about the drive to the meta session alone, his ruling on how the drive works included; and the communicator's other owner, answer, handoff or refused record for a coordinator lane to the session serving_lane reads from it and the records it answers; another session's report for a communicator lane to the posts lane the drive posts from, since the communicator's input is his messages, taps and relayed words, a report on a teammate's watched thread excepted, which the communicator carries; every other record to the lanes it names."""
     made = []
     for entry in to:
         lane, _, name = entry.partition("@")
@@ -5513,6 +5513,8 @@ def routed(drives: dict[str, dict], session: str | None, kind: str, attrs: dict,
             lane = "meta"
         elif communicates and lane in coordinator_lanes(data) and (serving := serving_lane(data, kind, attrs, answered)):
             lane = serving
+        elif kind == "report" and not communicates and lane in communicator_lanes(data) and attrs.get("watch") != "true":
+            lane = POSTS_LANE
         made.append(f"{lane}@{name}")
     return list(dict.fromkeys(made))
 
