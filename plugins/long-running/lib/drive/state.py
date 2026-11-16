@@ -2733,7 +2733,9 @@ def result_waits(data: dict, job_id: str, line: str) -> list[str]:
     if re.match(r"WAITING\b", line):
         started = [found[0]] if job["release_build"] and (found := github.BUILD.match(job["release_build"])) else []
         jobs = [change_wait(data, other, job_id, job) for other in dict.fromkeys(LINE_JOB.findall(line)) if other in data["jobs"] and other != job_id]
-        return view.holding(data, unlooped(data, job_id, list(dict.fromkeys([*named_waits(data, job["order"], line), *started, *jobs]))), None)
+        kept = next((wait for wait in job["waits"] if HIS_WORD_WAIT.fullmatch(wait)), None)
+        named = [kept if kept and HIS_WORD_WAIT.fullmatch(wait) else wait for wait in named_waits(data, job["order"], line)]
+        return view.holding(data, unlooped(data, job_id, list(dict.fromkeys([*named, *started, *jobs]))), None)
     return unlooped(data, job_id, named_waits(data, job["order"], line)) if REPORTED_LINE.match(line) else []
 
 

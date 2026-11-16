@@ -9059,6 +9059,21 @@ def test_pr_tapped_json(run: Run, with_pr: str) -> None:
     assert json.loads(out) == {"key": with_pr, "may_land": False, "why": "no tap from him yet"}
 
 
+def test_a_red_pr_whose_builder_waits_on_an_unended_job_reads_blocked_on_it_and_wakes_no_one_until_that_job_ends(run: Run, with_pr: str) -> None:
+    run("job", "add", "builder", "--order", "o1", "--goal", "name the new bases", "--part", "the bases")
+    with state.edit("demo") as data:
+        data["prs"][with_pr].update(checks="fail", head="c792ecebf2aa", failed_checks=["buildkite/test"])
+        step = stage.owed(data, with_pr)
+        data["jobs"]["j1"].update(state="waiting", waits=["j2"], waited={"owed": {with_pr: step}, "waits": []}, agent="a1")
+        data["jobs"]["j2"]["state"] = "running"
+    data = state.load("demo")
+    assert step and (stage.of(data, with_pr, {}).name, stage.parked(data, with_pr)) == ("blocked", True)
+    with state.edit("demo") as data:
+        data["jobs"]["j2"]["state"] = "done"
+    data = state.load("demo")
+    assert (stage.of(data, with_pr, {}).name, stage.parked(data, with_pr)) == ("red", False)
+
+
 def test_status_reads_the_prs_from_the_drive_and_never_from_github(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
     def refused(*_: object, **__: object) -> str:
         raise AssertionError("drive status read GitHub")
