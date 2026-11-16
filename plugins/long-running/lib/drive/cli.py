@@ -1936,8 +1936,8 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             job["release_checkout"] = checkout
             job["release_pass"] = {"release": args.release, "at": created, "reading": args.reading, "asks": {ask_id: {"carried": True, "why": line} for ask_id, line in carried.items()} | {ask_id: {"carried": False, "why": line} for ask_id, line in missed.items()}}
             for ask_id, line in missed.items():
-                if found := state.find_ask(data, ask_id):
-                    owing.add(data, found[0], owing.DELIVER, f"his ask {ask_id}, which release job {job_id} left out: {line}", None, {"ask": ask_id}, f"release {job_id}", state.parse_time(created), job_id)
+                if asked := state.find_ask(data, ask_id):
+                    owing.add(data, asked[0], owing.DELIVER, f"his ask {ask_id}, which release job {job_id} left out: {line}", None, {"ask": ask_id}, f"release {job_id}", state.parse_time(created), job_id)
             if (env := brief.leased_env(words := shlex.split(args.release), data)) and not (providers.of(data).release.gives_way(words) and (data["slots"].get(env) or {}).get("holder")) and not state.train_lease(data, env, job_id, state.parse_time(created)):
                 slotted = env
         if args.agent:
