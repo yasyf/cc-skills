@@ -108,7 +108,7 @@ def carded(name: str, text: str) -> str:
     """The text with each mention of a PR the drive holds an open card for, a GitHub pull link bare or on words, owner/repo#N or #N, written as its {pr:} reference, so say links the card wherever the post goes, by his words "Those ones with cards in my DM you should have linked to"; a PR with no open card, or one the drive does not hold, stays as written."""
     if not PR_MENTION.search(text):
         return text
-    data = state.load(name)
+    data = state.load(name, ("prs",))
     open_cards = (view.live_cards(name) or view.NO_CARDS)["pr_cards"]
 
     def carding(match: re.Match[str]) -> str:
@@ -387,5 +387,3 @@ def board(text: str, found: dict[str, dict]) -> str:
 def linked(ref: dict, url: str | None, form: str) -> str:
     words = ref["title"].translate(LINK_WORDS)
     return form.format(url=url, words=words) if url else words
-
-

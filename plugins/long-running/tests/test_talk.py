@@ -71,11 +71,20 @@ def said(name: str) -> list[dict]:
     return [event for event, _ in state.read_events(name) if event["kind"] == "said"]
 
 
-def test_one_post_links_each_reference_the_way_slack_and_the_dashboard_each_show_it(demo: str, posts: list[tuple[str, ...]]) -> None:
+def test_one_post_links_each_reference_the_way_slack_and_the_dashboard_each_show_it(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+    loaded = []
+    load = state.load
+
+    def selected(name: str, fields: tuple[str, ...] | None = None) -> dict:
+        loaded.append(fields)
+        return load(name, fields)
+
+    monkeypatch.setattr(state, "load", selected)
     assert talk.say(demo, {"text": "{pr:7} waits on {card:demo:j1-7}", "thread_ts": "1794200000.000100"}) == f"POSTED {POSTED}"
     assert posts == [
         ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--thread", "1794200000.000100", "--", f"<{PR_URL}|the run page shows its history> waits on <{CARD_URL}|{QUESTION}>")
     ]
+    assert ("name", "roles", "subcoordinators", "communicators") in loaded
     [kept] = said(demo)
     assert kept["text"] == f"[the run page shows its history]({PR_URL}) waits on [{QUESTION}](#/queue/question/1794300000.000100)"
     assert (kept["url"], kept["thread"]) == (POSTED, "1794300000.000900")
@@ -660,7 +669,17 @@ def test_a_channel_thread_post_naming_a_pr_by_its_github_link_links_its_open_car
     monkeypatch.setattr(view, "live_cards", lambda name: {"pr_cards": []})
     monkeypatch.setattr(view, "head_card", lambda pr, cards: {"url": card})
     text = f"Both are green: {PR_URL} and #7."
-    assert refs.carded(communicator, text) == "Both are green: {pr:yasyf/cc-skills#7} and {pr:yasyf/cc-skills#7}."
+    loaded = []
+    load = state.load
+
+    def selected(name: str, fields: tuple[str, ...] | None = None) -> dict:
+        loaded.append(fields)
+        return load(name, fields)
+
+    with monkeypatch.context() as reads:
+        reads.setattr(state, "load", selected)
+        assert refs.carded(communicator, text) == "Both are green: {pr:yasyf/cc-skills#7} and {pr:yasyf/cc-skills#7}."
+    assert loaded == [("prs",)]
     found = refs.resolved(communicator, refs.carded(communicator, text))
     assert refs.slack(refs.carded(communicator, text), found, "1794830614.862999").count(f"<{card}|") == 2
     monkeypatch.setattr(view, "head_card", lambda pr, cards: None)
