@@ -1822,7 +1822,7 @@ def follow_lines(watcher: Watcher, moment: datetime) -> list[str]:
         if drawn and all(question["closed"] for _, question in drawn):
             owed[card["url"]] = max((question["closed"] for _, question in drawn), key=lambda closed: closed["at"])
     lines = []
-    for url, closed in owing.items():
+    for url, closed in owed.items():
         try:
             superseded.close_card(url, closed)
         except slack.SlackError as error:
@@ -3702,7 +3702,7 @@ def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
     asking = superseded.asking(data, watcher.cards)
     asked = {answer_id: superseded.listed(data, data["answers"][answer_id], asking) for answer_id in due}
     owed = {answer_id: (superseded.unmarked(data["answers"][answer_id], asked[answer_id]), superseded.unheard(data, data["answers"][answer_id])) for answer_id in due}
-    owed = {answer_id: left for answer_id, left in owing.items() if any(left)}
+    owed = {answer_id: left for answer_id, left in owed.items() if any(left)}
     if not owed:
         return []
 
@@ -3713,14 +3713,14 @@ def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
     data = state.write(watcher.name, said_answers, budget=state.WATCH_WRITE_SECONDS)
     try:
-        owed = dict(superseded.standing(data, list(owing.items())))
+        owed = dict(superseded.standing(data, list(owed.items())))
     except state.DriveError as error:
         return failed(watcher, "cc-notes supersedes", "read of which answers of his cc-notes marks superseded", error, moment)
     watcher.failures.pop("cc-notes supersedes", None)
     if any(jobs for _, jobs in owed.values()):
 
         def sent_answers(data: dict) -> dict:
-            for answer_id, (_, jobs) in owing.items():
+            for answer_id, (_, jobs) in owed.items():
                 kept = data["answers"][answer_id]
                 for job_id in jobs:
                     if not any(answer_id in path.read_text() for path, _ in superseded.given_texts(data, job_id)):
@@ -3730,7 +3730,7 @@ def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
         data = state.write(watcher.name, sent_answers, budget=state.WATCH_WRITE_SECONDS)
     lines = []
-    for answer_id, (keys, _) in owing.items():
+    for answer_id, (keys, _) in owed.items():
         owners: dict[str, tuple[str | None, list[str]]] = {}
         for key in keys:
             order_id = asked[answer_id][key]["order"]
