@@ -2028,8 +2028,11 @@ def test_a_watch_hands_off_to_a_newer_install_only_once_it_ran_hand_off_every_or
 
 
 @pytest.mark.parametrize("operation,field", [("digest", "slack"), ("slots", "slots"), ("seats", "orders"), ("handoff", "orders")])
-def test_watch_metadata_reads_do_not_decode_unrelated_collections(demo: str, operation: str, field: str) -> None:
+def test_watch_metadata_reads_do_not_decode_unrelated_collections(demo: str, operation: str, field: str, monkeypatch: pytest.MonkeyPatch) -> None:
     from drive import picture
+
+    monkeypatch.setattr(watch, "HAND_OFF_EVERY", timedelta(minutes=10))
+    monkeypatch.setattr(watch, "HAND_OFF_LATEST", timedelta(minutes=20))
 
     with state.edit(demo) as data:
         data["slack"]["digest"] = {"day": T0.astimezone(view.ZONE).date().isoformat()}
