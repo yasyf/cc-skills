@@ -6439,8 +6439,10 @@ def channels(args: argparse.Namespace) -> int:
         with state.batch(name):
             for card, stack, url in moved:
                 follow_card(name, card["card"]["waits"], {view.message_key(card["url"])}, url)
-                with state.edit(name) as fresh:
+                def cards_joined(fresh: dict) -> None:
                     state.join_pr_cards(fresh, stack, [url], state.stamp())
+
+                state.update(name, None, cards_joined)
         view.refresh_cards(name)
     lines = [*(f"#{channel['name']} {channel['id']}" for channel in made), f"{len(moved)} open card(s) of his DM moved to their project's channel"]
     return emit(args, "\n".join(lines), {"channels": made, "moved": [{"from": card["url"], "to": url} for card, _, url in moved]})
