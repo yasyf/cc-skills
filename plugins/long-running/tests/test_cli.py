@@ -8248,6 +8248,22 @@ def test_an_incidents_stop_is_its_immediate_fix_and_lands_at_once_as_an_incident
     assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["exempt"] == "incident fix"
 
 
+def test_a_pr_built_on_an_open_incidents_fix_is_an_incident_fix_with_no_tap_no_staging_test_and_no_merge_queue(
+    run: Run, demo: str, on_github: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(cli.reads, "run", recorded([]))
+    run("incident", "open", "table moves rerun on every write", "--no-rollback", *FILED)
+    run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "ship the fix")
+    on_github.update(title="Fix: table moves stop rerunning on every write", body=CARD_BODY)
+    assert run("pr", "add", PR, "--job", "j4", *LEAD)[0] == 0
+    data = state.load("demo")
+    pr = data["prs"]["Forge-AI/monorepo#42"]
+    assert (pr["exempt"], pr["unstaged"]["merges_first"], pr["reached"]) == ("incident fix", True, False)
+    assert not any(part.startswith("staging test of #42") for order in data["orders"].values() for part in order["parts"])
+    assert not state.asks_tap(data, pr)
+    assert not state.queued_by_lander(data, "Forge-AI/monorepo#42")
+
+
 def test_pr_set_never_leaves_a_forge_ai_pr_with_neither_his_tap_nor_an_exempt_class(
     run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]
 ) -> None:

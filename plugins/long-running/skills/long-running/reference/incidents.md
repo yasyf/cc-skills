@@ -250,9 +250,15 @@ check's verdict, or from the order when none ran.
 - An approved and green incident PR lands when the watch reports it: its `checks passed` or
   `approved` event wakes you, and you resume its job to land it, lift the freeze and return
   `WAITING release` naming its start.
-- The fix skips the merge queue: `drive pr set <url> --exempt "incident fix"`, then the direct
-  merge the repository names under `## In this repository`. The `landing_guard` hook holds it to
-  that exemption, and refuses `--admin`.
+- An open incident is his go to merge and hotfix its fix. His ruling: "It's an incident so it
+  should skip the merge queue, just squash merge, then hotfix release". `drive pr add` classes a
+  PR its job builds on an open incident's `fix`, `stop` or `immediate fix` as an `incident fix`.
+  So does `drive pr set <url> --exempt "incident fix"` for any other PR that fixes the incident.
+  The class means no Approve card and no staging test before the merge: its test is the
+  after-merge pass. The lander squash-merges it directly, with no merge queue, the merge the
+  repository names under `## In this repository`. A dangerous change still lands only while he is
+  present, his word or tap within 15 minutes. The `landing_guard` hook holds a merge to that
+  exemption, and refuses `--admin`.
 - Accept a reviewer-bot finding with the repository's accept command, its why reading
   `incident: <why the fix is right>`, unless it says the fix is wrong.
 - Nothing stands between the merged fix and its build: no dry run, no read of what the cut covers,

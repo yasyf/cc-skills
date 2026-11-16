@@ -5771,7 +5771,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
     if problems:
         raise DriveError("\n".join([f"{key}: refused, nothing added, for each of these {len(problems)}:", *(f"{number}. {why}" for number, why in enumerate(problems, 1))]))
     try:
-        staged = staging_reach(name, known, [key] if pending["wants_tap"] and read["state"] == "OPEN" else [])
+        staged = staging_reach(name, known, [key] if pending["wants_tap"] and read["state"] == "OPEN" and pending["exempt"] != state.INCIDENT_EXEMPT else [])
     except DriveError as error:
         raise DriveError(f"{key}: refused, nothing added: {error}") from None
     work = {"order": known["orders"][added["order"]]["text"], "pr": {"title": read["title"], **(pending["lead"] or {})}}
@@ -5787,6 +5787,8 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         if parts:
             refuse_a_part_its_job_lacks(data, key, parts, False, "added")
             pr["parts"] = list(dict.fromkeys(parts))
+        if pr["exempt"] == state.INCIDENT_EXEMPT and read["state"] == "OPEN":
+            state.ship_as_incident_fix(data, key)
         testers = [state.mark_dangerous(data, key, read["headRefOid"], [changed["path"] for changed in read["files"]])] if read["state"] == "OPEN" and read["files"] else []
         if key in staged:
             testers.append(state.reach_staging(data, key, staged[key]))
@@ -5896,7 +5898,7 @@ def pr_set(args: argparse.Namespace) -> int:
         refuse_an_unexempt(name, key, args.exempt, "set")
     failing = install.default_failures(github.repo_of(key)) if args.exempt == state.MAIN_FIX else {}
     try:
-        staged = staging_reach(name, known, [key] if after["wants_tap"] and before["state"] == "open" else [])
+        staged = staging_reach(name, known, [key] if after["wants_tap"] and before["state"] == "open" and after["exempt"] != state.INCIDENT_EXEMPT else [])
     except DriveError as error:
         raise DriveError(f"{key}: refused, nothing set: {error}") from None
     serving = "".join(f"\nhis answer its design cites, kept: {answer}" for answer in (answered["cited"] if answered else []))
@@ -5915,6 +5917,8 @@ def pr_set(args: argparse.Namespace) -> int:
         if args.tapped == "Hold":
             state.end_approvals(data, key, before["tap"])
         pr["waits"] = merged_waits(data, pr, args.waits, args.no_waits, found)
+        if args.exempt == INCIDENT_EXEMPTION and pr["state"] == "open":
+            state.ship_as_incident_fix(data, key)
         reached = state.reach_staging(data, key, staged[key]) if key in staged else None
         testers = [tester_id for tester_id in [reached, args.staging and state.stage_pr(data, key, args.staging, data["jobs"][pr["job"]].get("session"))] if tester_id]
         delivering = f"\ndelivers {'; '.join(pr['parts'])}" if args.part else ""
@@ -6319,11 +6323,15 @@ def refuse_an_unexempt(name: str, key: str, exempt: str, done: str) -> None:
 
 
 def path_class(data: dict, key: str, job: dict, read: dict) -> str | None:
-    """The exempt class the files a PR's GitHub read lists put it in when the drive first registers it: ci-only when it lists any and land.not_ci finds none outside CI configuration and CI tooling, so a CI fix lands with no tap and no session names its class by hand, by his words "any CI fix PRs uoiu can merge without getting a tp from me"; None for a PR the drive tracks, which keeps the class it has, someone else's, which only his tap lands, and a revert on an order an incident is open on, which no incident approves."""
+    """The exempt class the files a PR's GitHub read lists put it in when the drive first registers it: an incident fix for one its job builds on an open incident's fix, stop or immediate fix, by state.incident_fixing, so no session names its class by hand and no tap or staging test holds it, by his words state.INCIDENT_SHIP_WORDS; ci-only when it lists any and land.not_ci finds none outside CI configuration and CI tooling, so a CI fix lands with no tap and no session names its class by hand, by his words "any CI fix PRs uoiu can merge without getting a tp from me"; None for a PR the drive tracks, which keeps the class it has, someone else's, which only his tap lands, and a revert on an order an incident is open on, which no incident approves."""
     paths = [changed["path"] for changed in read["files"]]
-    if key in data["prs"] or not paths or land.not_ci(data, paths) or read["author"]["login"].casefold() != state.HIS_LOGIN:
+    if key in data["prs"] or not paths:
         return None
     if state.open_incidents(data, [job["order"], *job["carries"]]) and land.REVERT.search(f"{read['title']}\n{read['body']}"):
+        return None
+    if state.incident_fixing(data, job):
+        return state.INCIDENT_EXEMPT
+    if land.not_ci(data, paths) or read["author"]["login"].casefold() != state.HIS_LOGIN:
         return None
     return state.CI_ONLY
 

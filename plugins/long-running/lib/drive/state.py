@@ -112,7 +112,9 @@ FLAKE_FIX = "flake fix"
 MAIN_FIX = "main fix"
 CI_ONLY = "ci-only"
 UNCARDED_CLASSES = (FLAKE_FIX, MAIN_FIX)
-EXEMPT_CLASSES = ("pure port", "test-only", CI_ONLY, FLAKE_FIX, MAIN_FIX, "incident fix")
+INCIDENT_EXEMPT = "incident fix"
+EXEMPT_CLASSES = ("pure port", "test-only", CI_ONLY, FLAKE_FIX, MAIN_FIX, INCIDENT_EXEMPT)
+INCIDENT_SHIP_WORDS = "It's an incident so it should skip the merge queue, just squash merge, then hotfix release"
 FLAKE_RULING = "532cd3d"
 FLAKE_WORDS = "and ffs fix these flaky tgests how many times do I have to tell yoiu"
 SUBJECT_LABEL = ', recorded on the subject of "'
@@ -3149,6 +3151,22 @@ def merge_first(data: dict, order_id: str, part: str, why: str) -> None:
         pr = data["prs"][key]
         pr.update(unstaged={"why": why, "head": pr["paths_at"] or pr["head"], "merges_first": True}, reached=False)
         pr["waits"] = [wait for wait in pr["waits"] if wait != f"{order_id}:{part}"]
+
+
+def incident_fixing(data: dict, job: dict) -> str | None:
+    """The open incident a job fixes: an incident order of its own or one it carries, open, of which it delivers the fix, the stop or the immediate fix; None for any other job."""
+    return next((order_id for order_id in open_incidents(data, [job["order"], *job["carries"]]) if {INCIDENT_FIX, INCIDENT_STOP, IMMEDIATE_FIX} & set(job_parts(job, order_id))), None)
+
+
+def ship_as_incident_fix(data: dict, key: str) -> list[str]:
+    """Class an open PR fixing an open incident an incident fix, which lands with no tap and skips the merge queue for a straight squash merge, by state.queued_by_lander, and let it merge before any staging test, its test the after-merge pass install.add_prover owes it: its `staging test of #N before it lands` part off each order, by drop_part, its waits on it ended and its reach mark cleared, by his words INCIDENT_SHIP_WORDS, since an open incident is his go to merge and hotfix its fix. A dangerous change still lands only while he is present, by land.unattended. Each live job drop_part stopped."""
+    pr, part = data["prs"][key], STAGING_TEST.format(number=key.rpartition("#")[2])
+    pr.update(exempt=INCIDENT_EXEMPT, reached=False, unstaged={"why": "an incident fix merges and hotfixes before any staging test", "head": pr["paths_at"] or pr["head"], "merges_first": True})
+    stopped = []
+    for holder in [holder for holder, order in data["orders"].items() if part in order["parts"]]:
+        stopped += drop_part(data, holder, part, f"{key} is an incident fix, which merges and hotfixes at once, so it is tested on staging after its merge")[1]
+        pr["waits"] = [wait for wait in pr["waits"] if wait != f"{holder}:{part}"]
+    return stopped
 
 
 def merges_first_lift(pr: dict | None) -> bool:
@@ -6849,8 +6867,8 @@ def waits_his_tap(data: dict, key: str, order_id: str) -> bool:
 
 
 def queued_by_lander(data: dict, key: str) -> bool:
-    """Whether the drive's lander lands the PR with no session turn once his Approve or an exempt class clears it: one of the drive's home repository, by home_repo, which it queues through the repository provider's merge queue."""
-    return home_repo(data, key.split("#")[0])
+    """Whether the drive's lander queues the PR through the repository provider's merge queue once his Approve or an exempt class clears it: one of the drive's home repository, by home_repo, but an incident fix, which merges straight with a squash, by his words INCIDENT_SHIP_WORDS."""
+    return home_repo(data, key.split("#")[0]) and (data["prs"].get(key) or {}).get("exempt") != INCIDENT_EXEMPT
 
 
 def cleared(pr: dict) -> bool:
