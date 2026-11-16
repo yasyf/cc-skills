@@ -21,6 +21,13 @@ Contents:
   session starts its agents and posts its reports, and the watch sends it the order's lines. The
   coordinator starts no agent on it and sends `meta@<drive>` a `defect` record naming the job and its
   `Read your brief first:` line.
+- No builder starts on this Mac while Claude Code's usage limit is spent: a session here that stops
+  on "You've hit your weekly limit · resets …" keeps the limit and its reset in
+  `claude-usage-limit.json` under the state folder, which every drive on this Mac reads, because they
+  share one account. Until it resets, every builder start here, a priority order's, an incident's and
+  one that builds nothing included, starts on a Sprite, which runs on its own key. One whose brief
+  declares a step only this Mac runs waits its turn on `builder-slot`, and the `FREE` line gives no
+  slot until the reset.
 - At most eight builders hold this Mac's builder slots at once: each builder job here the watch's
   `FREE` line gave its turn for a slot whose agent has not started yet, each job on a Sprite whose
   turn to move here came, for the 30 minutes its launch may take or until its lane here starts, each builder the `agent_brief`

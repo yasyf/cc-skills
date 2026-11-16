@@ -23,6 +23,7 @@ from datetime import date, datetime, timedelta
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import IO, NamedTuple
+from zoneinfo import ZoneInfo
 
 from drive import github, picture, procs
 from drive.pr_graph import PrGraph
@@ -191,6 +192,9 @@ RETURN_WAIT = re.compile(r"(?P<job>j\d+)@(?P<returned>\d+)")
 LINE_JOB = re.compile(r"(?<![\w:/.-])j\d+(?![\w@-])")
 LINE_ORDER = re.compile(r"(?<![\w:/.-])o\d+(?![\w:@-])")
 SLOT_WAIT = "builder-slot"
+USAGE_LIMIT_FILE = "claude-usage-limit.json"
+USAGE_LIMIT = re.compile(r"You've hit your (?P<limit>\w+) limit · resets (?P<resets>.+?) \((?P<zone>[^)]+)\)")
+LIMIT_RESET = re.compile(r"(?:(?P<day>[A-Z][a-z]{2} \d{1,2}) at )?(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?P<half>am|pm)")
 HOLDS_NOW = "## Holds now"
 REPLY_WAIT = re.compile(r"reply:(?:(?P<link>https://[\w.-]+/archives/[A-Z0-9]+/p\d{16}(?:\?[^\s,;]*)?)|cci:(?P<seq>[1-9]\d*))")
 REVIEW_WAIT = re.compile(r"review:(?P<login>[A-Za-z0-9][A-Za-z0-9-]{0,38})")
@@ -398,6 +402,42 @@ def root() -> Path:
 
 def home_root() -> Path:
     return Path.home() / ".local" / "state" / "long-running"
+
+
+def usage_limit_path() -> Path:
+    return root() / USAGE_LIMIT_FILE
+
+
+def keep_usage_limit(notice: str, moment: datetime) -> bool:
+    """Keep, for every drive on this Mac, the Claude Code usage limit a session's stop notice names, such as "You've hit your weekly limit · resets Nov 17 at 11pm (America/Los_Angeles)", with the moment it resets; False when the notice names none."""
+    if not (found := USAGE_LIMIT.search(notice)):
+        return False
+    until = limit_reset(found["resets"], ZoneInfo(found["zone"]), moment)
+    path = usage_limit_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"limit": found["limit"], "until": stamp(until), "notice": found[0], "at": stamp(moment)}))
+    return True
+
+
+def limit_reset(resets: str, zone: ZoneInfo, moment: datetime) -> datetime:
+    """The next moment a limit's `resets` words name, such as `Nov 17 at 11pm` or `3:30am`, read in its zone."""
+    day, hour, minute, half = LIMIT_RESET.fullmatch(resets).group("day", "hour", "minute", "half")
+    here = moment.astimezone(zone)
+    at = here.replace(hour=int(hour) % 12 + (12 if half == "pm" else 0), minute=int(minute or 0), second=0, microsecond=0)
+    if day:
+        named = datetime.strptime(f"{day} {here.year}", "%b %d %Y")
+        at = at.replace(month=named.month, day=named.day)
+        return at if at > here else at.replace(year=at.year + 1)
+    return at if at > here else at + timedelta(days=1)
+
+
+def usage_limit(moment: datetime) -> dict | None:
+    """The Claude Code usage limit sessions on this Mac hit, while it has not reset: its kind, when it resets, and the notice naming it."""
+    path = usage_limit_path()
+    if not path.is_file():
+        return None
+    held = json.loads(path.read_text())
+    return held if parse_time(held["until"]) > moment else None
 
 
 def scratch() -> bool:

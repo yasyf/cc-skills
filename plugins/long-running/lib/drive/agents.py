@@ -878,6 +878,8 @@ def resume(payload: dict) -> str | None:
         if "handler_session" in handler:
             end_handler(handler | {"last_assistant_message": notice(last)}, lambda _: None)
         return None
+    if not os.environ.get(state.REMOTE_LANE_ENV):
+        state.keep_usage_limit(notice(last), state.now())
     tries = resumes(rows)
     if tries >= len(OUTAGE_WAITS):
         if "handler_session" in handler:

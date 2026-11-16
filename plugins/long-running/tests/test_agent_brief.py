@@ -343,3 +343,36 @@ def test_a_monorepo_builder_over_this_macs_load_limit_starts_here_only_when_its_
     assert start("j2", "Goal: fix the run page") is None
     monkeypatch.setattr(place, "busy", lambda: 0.4)
     assert start("j1", "Goal: fix the run page") is None
+
+
+def test_a_spent_usage_limit_sends_every_builder_to_a_sprite_and_gives_no_slot_until_it_resets(demo: str, run: Run) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Hotfix", "ship his fix", "--parts", "the hotfix", "the cut")
+    run("job", "add", "builder", "--order", "o1", "--part", "the hotfix", "--goal", "build the hotfix")
+    run("job", "add", "builder", "--order", "o1", "--part", "the cut", "--goal", "cut it")
+    with state.edit(demo) as data:
+        place.queue(data["jobs"]["j2"], state.now())
+    assert run("order", "set", "o1", "--priority")[0] == 0
+    stop = state.now()
+    notice = "You've hit your session limit · resets 3:30am (America/Los_Angeles)"
+    assert state.keep_usage_limit(f"{notice} ", stop)
+    held = state.usage_limit(stop)
+    data = state.load(demo)
+    spent = place.crowded(data, "j1", stop)
+    assert spent == f'Claude Code\'s session limit on this Mac is spent until {when(held["until"])}, by a session\'s stop at {when(state.stamp(stop))} on "{notice}"'
+    assert place.turns(data, stop) == ([], 0)
+    refused = agent_brief.deny_reason(briefed("long-running:builder", "Order (his words): ship his fix\nServes: his order\nGoal: build the hotfix\nDrive: demo, order o1, job j1"))
+    assert refused.startswith(f"refused: {spent}, so j1 starts on a Sprite at once")
+    after = state.parse_time(held["until"]) + timedelta(seconds=1)
+    assert (state.usage_limit(after), place.crowded(data, "j1", after), place.turns(data, after)[0]) == (None, None, ["j2"])
+
+
+def test_a_usage_limit_resets_at_the_next_moment_its_words_name() -> None:
+    zone = state.ZoneInfo("America/Los_Angeles")
+    moment = state.parse_time("2026-12-31T22:10:00-08:00")
+    assert [state.stamp(state.limit_reset(words, zone, moment)) for words in ("3:30am", "11pm", "Jan 2 at 9am", "Dec 30 at 9am")] == [
+        "2027-01-01T03:30:00-08:00",
+        "2026-12-31T23:00:00-08:00",
+        "2027-01-02T09:00:00-08:00",
+        "2027-12-30T09:00:00-08:00",
+    ]
+    assert state.keep_usage_limit("API Error: 500 overloaded", moment) is False
