@@ -6115,16 +6115,11 @@ def pr_reach(key: str, found: providers.Providers) -> dict:
 
 
 def staging_mac_box(name: str, data: dict, job: dict) -> str:
-    """What a staging tester's Staging line adds for each PR its `staging test of #N before it lands` parts name that the Mac box provider reads as affected, by the components release_reach reads it touching or by the paths it changes, which are read only when the provider defines affected_paths: its cases run on a Mac box signed in to staging against the commit the Mac box provider's live_commit reads as live, and again at its own head when its paths reach one of that provider's builds too, which its prove step builds from the commit it names, so a control calling a route the released build lacks fails on staging rather than for him; nothing when none is affected. A live commit that could not be read leaves the brief kept, its line naming the read its tester makes first."""
+    """What a staging tester's Staging line adds for each PR its `staging test of #N before it lands` parts name that the Mac box provider reads as affected, by the components release_reach reads it touching: its cases run on a Mac box signed in to staging against the commit the Mac box provider's live_commit reads as live, and again at its own head when its paths reach one of that provider's builds too, which its prove step builds from the commit it names, so a control calling a route the released build lacks fails on staging rather than for him; nothing when none reaches the dashboard. A live commit that could not be read leaves the brief kept, its line naming the read its tester makes first."""
     keys = state.tested_prs(data, job)
     reach = release_reach(name, data, keys)
     found = providers.of(data)
-    by_paths = type(found.mac_box).affected_paths is not providers.MacBoxProvider.affected_paths
-    if not (
-        boxed := [
-            key for key in keys if key in reach and (found.mac_box.affected(reach[key]["touched"]) or (by_paths and found.mac_box.affected_paths(github.files(key))))
-        ]
-    ):
+    if not (boxed := [key for key in keys if key in reach and found.mac_box.affected(reach[key]["touched"])]):
         return ""
     try:
         orca.checkout(name, data["roles"]["coordinator"]["cwd"])
