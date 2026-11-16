@@ -112,7 +112,7 @@ def test_a_thread_making_the_secret_while_another_thread_of_its_process_makes_it
 
 
 def test_a_newer_install_takes_the_receivers_socket_once_it_took_each_delivery_it_accepted_and_asks_github_nothing(
-    state_root: Path, monkeypatch: pytest.MonkeyPatch
+    state_root: Path, monkeypatch: pytest.MonkeyPatch, held_port: int
 ) -> None:
     newer = state_root / "cache" / "9.9.9" / "bin" / "drive"
     landed, done = threading.Event(), threading.Event()
@@ -146,7 +146,7 @@ def test_a_newer_install_takes_the_receivers_socket_once_it_took_each_delivery_i
     def deliver(guid: str) -> None:
         body = json.dumps({"repository": {"full_name": REPO}, "pull_request": {"number": 42}}).encode()
         signed = "sha256=" + hmac.new(receiver.secret().encode(), body, hashlib.sha256).hexdigest()
-        answered.append(post(f"http://{dashboard.LOOPBACK}:{port}/", body, {"X-GitHub-Event": "pull_request", "X-GitHub-Delivery": guid, "X-GitHub-Hook-ID": "9", "X-Hub-Signature-256": signed}))
+        answered.append(post(f"http://{dashboard.LOOPBACK}:{held_port}/", body, {"X-GitHub-Event": "pull_request", "X-GitHub-Delivery": guid, "X-GitHub-Hook-ID": "9", "X-Hub-Signature-256": signed}))
 
     def delivered_from(guid: str) -> None:
         delivering.append(threading.Thread(target=deliver, args=(guid,), daemon=True))
@@ -170,11 +170,9 @@ def test_a_newer_install_takes_the_receivers_socket_once_it_took_each_delivery_i
             time.sleep(0.05)
         delivered_from("g1")
 
-    with socket.create_server((dashboard.LOOPBACK, 0)) as probe:
-        port = probe.getsockname()[1]
     receiver.home().mkdir(parents=True)
     state.append_line(receiver.deliveries_path(), receiver.DELIVERY, repo=REPO, event="ping", guid="g0")
-    monkeypatch.setattr(receiver, "PORT", port)
+    monkeypatch.setattr(receiver, "PORT", held_port)
     monkeypatch.setattr(receiver, "WAIT_SECONDS", 0.05)
     monkeypatch.setattr(receiver, "upgraded", upgraded)
     monkeypatch.setattr(receiver, "took", took)

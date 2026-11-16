@@ -3,6 +3,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import urllib.parse
@@ -328,6 +329,17 @@ def state_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("TMUX", "/private/tmp/tmux-501/default,1,0")
     monkeypatch.chdir(tmp_path)
     return root
+
+
+@pytest.fixture
+def held_port(monkeypatch: pytest.MonkeyPatch) -> Iterator[int]:
+    """A loopback port held listening for the whole test and handed to each socket.create_server asking for it, so no other xdist worker can take the port between picking it and the code under test binding it."""
+    held = socket.create_server((dashboard.LOOPBACK, 0))
+    port = held.getsockname()[1]
+    create_server = socket.create_server
+    monkeypatch.setattr(socket, "create_server", lambda address, **kwargs: held if address == (dashboard.LOOPBACK, port) else create_server(address, **kwargs))
+    with held:
+        yield port
 
 
 def kept_research(name: str, order_id: str, parts: list[str]) -> None:
