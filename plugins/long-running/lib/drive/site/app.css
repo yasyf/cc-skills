@@ -1282,7 +1282,7 @@ button.task-row { cursor: pointer; }
 .df-title { font-size: 14px; margin: 12px 0 6px; }
 @media (max-width: 600px) { .df-n { width: 30px; padding: 0 4px; } .df-lines td.df-t { padding: 0 4px; } }
 
-.ch-nav ol { list-style: none; display: flex; gap: 4px; margin: 12px 0 0; padding: 0; overflow-x: auto; }
+.ch-nav ol { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 4px; margin: 12px 0 0; padding: 0; }
 .ch-nav button { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--muted); font-size: 12px; white-space: nowrap; cursor: pointer; }
 .ch-nav button .n { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: color-mix(in srgb, var(--line) 60%, transparent); font-size: 11px; }
 .ch-nav button.seen .n { background: #dafbe1; color: #1a7f37; }
