@@ -581,6 +581,7 @@ def events(name: str) -> list[dict]:
 
 
 def test_prs_draws_each_known_pr_and_omits_the_rest(
+    named_repo: None,
     drive: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     asked: list[list[str]] = []

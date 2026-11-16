@@ -7488,6 +7488,7 @@ def test_a_job_waits_on_another_drives_next_record_after_one_on_a_topic_and_neve
 
 
 def test_a_waiting_waits_only_on_what_its_first_line_names_that_still_holds_never_its_body_as_j3122s_codex_reply_citing_merged_prs_did(
+    named_repo: None,
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "read each table's stored slot")
@@ -12399,7 +12400,7 @@ def test_j5473_job_report_prints_each_open_card_its_return_no_longer_names_for_i
 
 
 def test_an_event_overtakes_a_card_once_its_pr_closed_its_build_or_job_finished_or_a_teammate_or_another_bot_wrote(
-    slack_thread: Thread, monkeypatch: pytest.MonkeyPatch
+    demo: str, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     his, ours, theirs = (slack_thread.post(datetime(2026, 11, 14, 0, minute, tzinfo=UTC), text="The freeze is lifted", **flags) for minute, flags in ((1, {"from_user": True}), (2, {"from_claude": True}), (3, {})))
     states = {"42": "OPEN", "43": "MERGED"}

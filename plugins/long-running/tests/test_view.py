@@ -1344,7 +1344,7 @@ PROOF = "https://buildkite.com/forge/staging/builds/9"
         ({}, {"state": "stopped"}, "Not on staging: its test ended, stopped with no result"),
     ],
 )
-def test_a_monorepo_prs_staging_words_name_its_env_commit_and_result_or_why_it_is_not_on_staging(part: dict | None, tester: dict | None, words: str) -> None:
+def test_a_monorepo_prs_staging_words_name_its_env_commit_and_result_or_why_it_is_not_on_staging(named_repo: None, part: dict | None, tester: dict | None, words: str) -> None:
     staging = state.STAGING_TEST.format(number=7)
     parts = {"ship it": state.new_part()} | ({staging: state.new_part() | part} if part is not None else {})
     jobs = {"j1": job("o1", "running", parts=[staging], created=at(-20)) | tester} if tester else {}
@@ -1356,7 +1356,7 @@ def tracked(number: int, **overrides: object) -> tuple[str, dict]:
     return f"Forge-AI/monorepo#{number}", state.new_pr(f"https://github.com/Forge-AI/monorepo/pull/{number}", "j1", "o1") | overrides
 
 
-def test_a_merged_monorepo_prs_staging_line_reads_its_after_merge_pass_alone_or_after_the_staging_test_it_held_as_56539s_did_not() -> None:
+def test_a_merged_monorepo_prs_staging_line_reads_its_after_merge_pass_alone_or_after_the_staging_test_it_held_as_56539s_did_not(named_repo: None) -> None:
     passed = {"cases": [["old clients still read", "pass"], ["sand-exec", "not exercised: staging has no Riza credentials"]], "posted": PROOF, "posted_by": "j2", "at": at(-30)}
     failed = passed | {"cases": [["old clients still read", "fail: 500 on GET /api/sessions"]], "posted": None}
     staging = state.STAGING_TEST.format(number=7)
@@ -1368,12 +1368,12 @@ def test_a_merged_monorepo_prs_staging_line_reads_its_after_merge_pass_alone_or_
     ]
 
 
-def test_a_monorepo_pr_its_builder_lifted_off_staging_says_why_on_its_cards() -> None:
+def test_a_monorepo_pr_its_builder_lifted_off_staging_says_why_on_its_cards(named_repo: None) -> None:
     lifted = drive_of({"o1": order("ship it", [])}, {}, [tracked(7, unstaged={"why": "it changes only the docs", "head": "abc", "merges_first": False})])
     assert view.staging(lifted, "Forge-AI/monorepo#7") == "Not on staging: its builder says AGENTS.md's dangerous rule misses it: it changes only the docs"
 
 
-def test_a_monorepo_pr_whose_staging_test_was_dropped_says_on_its_cards_it_merges_first_and_is_tested_after() -> None:
+def test_a_monorepo_pr_whose_staging_test_was_dropped_says_on_its_cards_it_merges_first_and_is_tested_after(named_repo: None) -> None:
     freed = drive_of({"o1": order("ship it", [])}, {}, [tracked(7, unstaged={"why": "his answer took its staging test off its order", "head": "abc", "merges_first": True})])
     assert view.staging(freed, "Forge-AI/monorepo#7") == "Not on staging before it merges: his answer took its staging test off its order, so it is tested on staging after its merge"
 
@@ -1393,7 +1393,7 @@ def test_a_monorepo_pr_whose_staging_test_was_dropped_says_on_its_cards_it_merge
         (None, None, {"why": AGENT_WORDS, "head": "abc", "merges_first": False}, "Not on staging: its builder says AGENTS.md's dangerous rule misses it"),
     ],
 )
-def test_his_card_draws_a_staging_row_without_words_its_tester_or_builder_wrote_for_agents_which_the_drives_own_lines_keep(part: dict | None, tester: dict | None, unstaged: dict | None, drawn: str) -> None:
+def test_his_card_draws_a_staging_row_without_words_its_tester_or_builder_wrote_for_agents_which_the_drives_own_lines_keep(named_repo: None, part: dict | None, tester: dict | None, unstaged: dict | None, drawn: str) -> None:
     staging = state.STAGING_TEST.format(number=7)
     parts = {"ship it": state.new_part()} | ({staging: state.new_part() | part} if part is not None else {})
     jobs = {"j1": job("o1", "running", parts=[staging], created=at(-20)) | tester} if tester else {}
@@ -1412,7 +1412,7 @@ def test_a_pr_outside_the_monorepo_says_its_repo_has_no_staging_env() -> None:
         ("fail: the second run never landed", "Tested on staging: no pass: CASE run 2 at #7's head lands: fail: the second run never landed"),
     ],
 )
-def test_a_monorepo_prs_staging_words_read_the_done_a_job_of_its_order_waiting_on_it_ran_its_cases_in_under_a_part_of_its_own(state_root: Path, verdict: str, words: str) -> None:
+def test_a_monorepo_prs_staging_words_read_the_done_a_job_of_its_order_waiting_on_it_ran_its_cases_in_under_a_part_of_its_own(named_repo: None, state_root: Path, verdict: str, words: str) -> None:
     part = "This is the kinda thing that needs to be tested in staging ffs"
     jobs = {"j1": job("o1", "done", "DONE #7's staging case ran", parts=[part], waits=["Forge-AI/monorepo#7"])}
     drive = drive_of({"o1": order("ship it", ["j1"], parts={part: state.new_part()})}, jobs, [tracked(7)])
@@ -1422,7 +1422,7 @@ def test_a_monorepo_prs_staging_words_read_the_done_a_job_of_its_order_waiting_o
     assert view.staging(drive, "Forge-AI/monorepo#7") == words
 
 
-def test_a_done_a_job_waiting_on_two_prs_ran_both_in_gives_each_pr_only_the_case_lines_naming_it_and_a_later_after_merge_pass_follows_it(state_root: Path) -> None:
+def test_a_done_a_job_waiting_on_two_prs_ran_both_in_gives_each_pr_only_the_case_lines_naming_it_and_a_later_after_merge_pass_follows_it(named_repo: None, state_root: Path) -> None:
     part = "This is the kinda thing that needs to be tested in staging ffs"
     after = {"cases": [["old clients still read", "pass"]], "posted": PROOF, "posted_by": "j2", "at": at(-30)}
     jobs = {"j1": job("o1", "done", "DONE #7 and #8 ran on staging", parts=[part], waits=["Forge-AI/monorepo#7", "Forge-AI/monorepo#8"])}
@@ -1436,7 +1436,7 @@ def test_a_done_a_job_waiting_on_two_prs_ran_both_in_gives_each_pr_only_the_case
     ]
 
 
-def test_a_pages_slice_gives_each_pr_the_staging_line_its_cards_say() -> None:
+def test_a_pages_slice_gives_each_pr_the_staging_line_its_cards_say(named_repo: None) -> None:
     parts = {"ship it": state.new_part(), state.STAGING_TEST.format(number=5): state.new_part() | {"soak": SOAK, "posted": PROOF}}
     _, entry = pr(5, "o1", wants_tap=True)
     tested = ("Forge-AI/monorepo#5", entry | {"url": "https://github.com/Forge-AI/monorepo/pull/5"})
