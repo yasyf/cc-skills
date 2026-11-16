@@ -8,11 +8,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from drive import slack
-from drive.state import CLOCKS, DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owner_away, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, present, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
+from drive.state import CLOCKS, DRIVE_TOOLING, communicator_lane, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owner_away, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, present, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
-DRIVE_TOOLS = "mcp__plugin_long-running_drive__"
 CCI_TOOLS = "mcp__plugin_cc-inbox_cci__"
 REACHING = (
     "Post, read and close records with the cci MCP tools while that server is up, `cci post` only while it is gone;"
@@ -21,7 +20,7 @@ REACHING = (
 RECORDING = (
     "Every record you send goes on the drive's record tool: owner for his words, answer with re <seq> for a session's"
     " record you answer, handoff and defect. Make no other cci call, a cci tool or a `cci` command, but `cci drive use`,"
-    " since a record's body is a handler's to read; while cci is down, SendMessage `<drive>-<role>` after ListAgents: a"
+    " since a record's body is the reader's to read; while cci is down, SendMessage `<drive>-<role>` after ListAgents: a"
     " disconnect never excuses a message."
 )
 PREVENTED = "A post telling him the drive failed says how that is prevented: the tool change and its order or PR."
@@ -32,7 +31,6 @@ STAMPS = (
     " build or tool, so its first write passes the check that refuses a typed one; a time after the write passes, naming its day when it falls on another, as \"6:54 AM tomorrow\", and a"
     " SendMessage, a defect or any other record between sessions quotes times as it needs."
 )
-HANDLER_LABELS = ("Record", "Message (his words)", "Link", "Thread", "Drive", "Paths", "Scratch", "Deliverable", "Context", "Waits")
 COMMUNICATOR_RULES = (
     (
         "You are his front, as a root session working for him is: his messages reach you, and you answer each yourself in"
@@ -53,16 +51,16 @@ COMMUNICATOR_RULES = (
         " promise. Chatter (\"ok\", \"thanks\") gets a +1 react."
     ),
     (
-        "Every answer reads like his gold-standard post, the worked example under \"How every answer to him reads\" in"
-        " communicator.md: the answer first in one plain sentence; past about 60 words, short sections under bold headings"
-        " such as *What changed:*, *Why it matters:* and *What happens next:*, never one paragraph; lists as bullets; a"
-        " small code sketch when it shows the point; every PR, build, doc, issue or monitor linked on the words that say"
-        " what it is, as <url|the fix that drops the extra send>, never a bare URL; times in Pacific, never a log's"
-        " 09:15:42Z or a UTC label; and plain words for the drive's own machinery: never fde-scan, a codex job, a design"
-        " job, a reader, a builder, ingress or an order or job id, but what it does, such as the check that every change"
-        " customer code can see runs. Cite the evidence inline as links. say runs `cc-slack check-post` on every post of"
-        " yours and refuses it with each finding: rewrite to the standard and post again, by his words \"this message is"
-        ' terrible. don\'t follow our standards at all; the URL is not even a hyperlink on text, it\'s just pasted in".'
+        "Communicating is your whole job, by his words \"its sole job is to communicate, it's unacceptable that it's not perfect at"
+        ' this": every post makes his life easier, read once on his phone, as "How to talk to him" in communicator.md shows with his'
+        " gold-standard post. The answer first in one plain sentence; past about 60 words, short parts under bold headings, lists as"
+        " bullets; every PR, build, card or doc linked on its words, never a bare URL but an alert's own link alone on its line;"
+        " times in Pacific; plain words for what happens to his work, never the drive's machinery or which read backs a claim."
+        " Reproduce what you refer to, a card's question and options, a release's stage, with its link or its card drawn under the"
+        " post, never leaving him to find it in another thread. Use say's blocks, Block Kit header, section, fields, context and"
+        " divider, for a post he scans, and a visual, such as a chart of a release's stages, when a picture shows progress at a"
+        " glance. One post per thing, a correction an edit. say runs `cc-slack check-post` and one quick Jev read of every post of"
+        " yours against this standard and refuses it with each finding: rewrite and send again."
     ),
     (
         "A decision only he can make is a card from you within a minute: 2 to 4 options with your recommendation first."
@@ -197,7 +195,7 @@ FILED = "The projects and workstreams in use, which a new order reuses where it 
 WHOLE = sys.maxsize
 REPO_RULES_HEADING = f"The rules of the repository this drive works in, which its {REPO_RULES} holds at its default branch's head, and every session and job of every drive working in it follows:"
 UNLISTED_TOOL_LINE = (
-    "A drive tool these rules name that your session does not list, such as handler or job, is one an install added"
+    "A drive tool these rules name that your session does not list, such as job, is one an install added"
     " since its drive MCP server last listed its tools: pipe the tool's fields as JSON to drive tool <name> in Bash"
     " until a call of any drive tool relists them."
 )
@@ -211,7 +209,7 @@ FIRST_CALL = {
     ),
     "coordinator": (
         "The watch runs as its own process and posts the lines each stage of its pass makes for you over cci as one"
-        " record, a handoff when any line asks you to act now, else evidence that arrives with others at most every five minutes, and only lines that ask a step, each said once: a line your manual says Nothing for never reaches you; a record of"
+        " record, a handoff when any line asks you to act now, else evidence, at most one record every ten minutes holding all it made but his tap, a due time, a move of his orders or a stopped watch, which come at once, and only lines that ask a step, each said once: a line your manual says Nothing for never reaches you; a record of"
         " several lines counts them by kind and carries each in its body, read whole; arm no Monitor for it, and run"
         " no drive watch for a WATCH stopped line, since its launch agent starts it again. A compaction keeps"
         " every tool you loaded before it, even one the deferred-tools list names, so call Monitor, SendMessage, TaskStop and"
@@ -476,20 +474,26 @@ def job_pr_lines(drive: dict, job_id: str, job: dict) -> list[str]:
 FEED_SUBSCRIPTION = "cc-slack subscribe --kind alerts,releases,posts --channel <id>"
 
 
-def held_channels(drive: dict, role: str) -> list[str]:
+def held_channels(drive: dict, role: str, project: str | None = None) -> list[str]:
+    """The channels a session holds: a seat's communicator its seat's channel alone, the drive's communicator his DM and each channel of the drive no seat's communicator holds, by his words "every project has a communicator to pair with its coordinator and messages in that channel should go to it"."""
+    made = drive["slack"]["channels"]
+    if role == "communicator" and project:
+        return [f"#{made[project]['name']} {made[project]['id']}"] if project in made else []
     if role == "communicator":
-        return [f"his DM {slack.dm()}", *(f"#{channel['name']} {channel['id']}" for channel in drive["slack"]["channels"].values())]
+        return [f"his DM {slack.dm()}", *(f"#{channel['name']} {channel['id']}" for seat, channel in made.items() if seat not in drive["communicators"])]
     return drive["slack"].get("watch", []) if role == "coordinator" else []
 
 
 def hold_line(drive: dict, role: str, project: str | None = None) -> str:
-    if project:
+    if project and role != "communicator":
         return "Hold no Slack channel: the top coordinator holds the drive's."
-    channels = held_channels(drive, role)
+    channels = held_channels(drive, role, project)
     if not channels:
         return "Hold no Slack channel."
-    tool = "slack_watch" if role == "communicator" else FEED_SUBSCRIPTION
-    return f"Hold with {tool}: {', '.join(channels)}"
+    if role != "communicator":
+        return f"Hold with {FEED_SUBSCRIPTION}: {', '.join(channels)}"
+    released = "; slack_unwatch any channel watch of yours this line no longer names, since a seat's communicator holds it now" if not project and drive["communicators"] else ""
+    return f"Hold with slack_watch: {', '.join(channels)}{released}"
 
 
 def who(drive: dict, role: str) -> str:
@@ -506,20 +510,6 @@ def subcoordinator_line(project: str, held: dict, seen: dict[str, str]) -> str:
     """A sub-coordinator's project, cci lane, session, where he opens it, and whether its watch runs."""
     watching = f"its watch runs as pid {held['watch']}" if held["watch"] else f"its watch is not running; {shlex.join(['drive', 'watch', '--project', project])} from its session starts it"
     return f"sub-coordinator {project}: lane {project_lane(project)}, session {held['session']}, {seen[f'sub-coordinator {project}']}; {watching}"
-
-
-def live_block(drive: dict, order_id: str, order: dict) -> list[str]:
-    """An order as a handler's brief draws it: its line, its orphans, and each unfinished job with its last said line, its questions and its PRs, never its parts line or a finished job, which drive status draws."""
-    lines = [f"- {order_line(drive, order_id, order, WHOLE, promise_thread(order))}", *orphans(drive, order_id, WHOLE)]
-    for job_id in order["jobs"]:
-        if (job := drive["jobs"][job_id])["state"] in FINISHED_JOB_STATES:
-            continue
-        lines.append(f"  - {job_line(drive, job_id, job, WHOLE)}")
-        if job["said"]:
-            lines.append(f"    said: {cut(job['said'], WHOLE)}")
-        lines.extend(f"    - {question_line(question)}" for question in job["questions"])
-        lines.extend(f"    - {line}" for line in job_pr_lines(drive, job_id, job))
-    return lines
 
 
 def order_block(drive: dict, order_id: str, order: dict) -> list[str]:
@@ -583,6 +573,8 @@ def untracked_line(drive: dict, job: dict) -> str:
 
 def opening(drive: dict, role: str, project: str | None) -> list[str]:
     """Who the session is: its role, or the project it is the sub-coordinator for with its cci lane, and who holds the other sessions."""
+    if project and role == "communicator":
+        return communicator_opening(drive, project)
     if project is None:
         return [
             (
@@ -610,6 +602,23 @@ def opening(drive: dict, role: str, project: str | None) -> list[str]:
             f" you at {lane}@{drive['name']}."
         ),
         hold_line(drive, role, project),
+    ]
+
+
+def communicator_opening(drive: dict, project: str) -> list[str]:
+    """Who a seat's communicator is: the communicator for one project or priority seat, holding its channel alone, paired with that seat's sub-coordinator, which its owner records reach, while the drive's communicator answers his DM and the drive's own channel."""
+    lane = communicator_lane(project)
+    paired = drive["subcoordinators"].get(project)
+    coordinator = f"the sub-coordinator for {project}, session {paired['session']}, lane {project_lane(project)}" if paired else f"the top coordinator, {who(drive, 'coordinator')}, until a sub-coordinator for {project} binds"
+    return [
+        (
+            f"You are the communicator for {project} of drive {drive['name']}: his messages in {project}'s channel reach you, and you"
+            f" answer each there yourself by the communicator rules below. His work there goes to {coordinator}, as his owner record"
+            f" on the record tool, which sends it there by default. The drive's communicator, {who(drive, 'communicator')}, answers"
+            " his DM and the drive's own channel. A background agent this session started ignores this block."
+        ),
+        f"Your cci lane is {lane}: the record tool posts as it, and {project}'s sub-coordinator's records reach you at {lane}@{drive['name']}.",
+        hold_line(drive, "communicator", project),
     ]
 
 

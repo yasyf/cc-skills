@@ -7,47 +7,33 @@ import signal
 import subprocess
 import sys
 import time
-import uuid
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import NoReturn, Self
 
 from drive import install, limits, procs, reads, render, slack, state, superseded, view
-from drive.brief import BRIEF_JOB, carried, heavier, releases
+from drive.brief import BRIEF_JOB, carried, heavier
 
 HIS_KINDS = ("owner", "answer")
 RECORD = re.compile(r"^Record: (\d+)\b", re.MULTILINE)
 LINK = re.compile(r"^Link:\s*(\S+)", re.MULTILINE)
 THREAD = re.compile(r"^Thread:[ \t]*(?:\S+[ \t]+)?(\d+\.\d+)", re.MULTILINE)
-SAY_RESULT = re.compile(r"\b(POSTED|EDITED|CARD)((?:\s+https://[^\s;]+)+)\s*;?\s*")
 RE_HOPS = 8
-BACKGROUND_WAITS = (5, 15, 30)
-BACKGROUND_UNREACHED = "Couldn't reach the background service"
 SETTLE_WINDOW = timedelta(seconds=30)
 LANE_WATCH = "watch"
 AMENDING = ("correction", "withdraw")
 AMENDMENT_BYTES = 1 << 20
 TRUNK_DRIVE = "trunk"
 TRUNK_FAILED = "failed in Trunk's merge queue"
-HANDLER = "long-running:handler"
-HANDLER_ADVISOR = "opus"
-THREAD_KEY = "thread:"
-CARD_KEY = "card:"
-ORDER_KEY = "order:"
-ROUTE_TTL = timedelta(hours=2)
-QUIET = timedelta(minutes=45)
-TOPICS = 8
-COMMON = frozenset("about after again also been before being could does done from have here into just like make more much only over said should some still than that their them then there these they this those very want were what when where which while will with would your".split())
-WARM = "Drive: {drive}\nContext: a warm start with no brief yet: end on `NOTHING warm, waiting for a brief`."
 SYNTHETIC = "<synthetic>"
 OUTAGE_WAITS = (1, 2, 4, 8)
+RATE_LIMITED = "would exceed your account's rate limit"
 START_WINDOW = timedelta(minutes=5)
 REMOVE = ["sh", "-c", 'sleep 2; claude stop "$1"; claude rm "$1"', "remove"]
 STOP = ["sh", "-c", 'sleep 2; claude stop "$1"', "stop"]
 EFFORT_CEILING = "high"
 ABOVE_CEILING = ("xhigh", "max")
-HANDLER_SKILLS = ("db-read", "iris-thread")
 SKILL_NAME = re.compile(r"^name:[ \t]*(\S+)", re.MULTILINE)
 COMPACT_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
 ROOT_WINDOW = "400000"
@@ -82,12 +68,7 @@ WATCHDOG_RUNS = (
 )
 WATCHDOG_USD = "2"
 HIS_WORDS = "Message (his words)"
-ORDER = "Order"
-PAIRS = "Pairs in use"
-IN_THREAD = "In his thread"
-RELEASES = "Release freezes"
 SCRATCH = re.compile(r"Scratch:\s*(\S+)")
-LABEL = re.compile(rf"^({'|'.join(re.escape(label) for label in (*render.HANDLER_LABELS, ORDER, PAIRS, IN_THREAD, RELEASES))}):")
 DATADOG_PLUGIN = "datadog@claude-plugins-official"
 SESSION_SETTINGS = {
     "bashOutputMaxChars": 6000,
@@ -106,9 +87,9 @@ LEAF_ENV = {"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
 DRIVE_PLUGINS = ("long-running@skills", *(f"{needed['name']}@{needed['marketplace']}" for needed in json.loads((Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json").read_text())["dependencies"]))
 GUARD_PLUGINS = ("cc-guides@cc-guides", *DRIVE_PLUGINS)
 CODE_PLUGINS = (*GUARD_PLUGINS, "cc-context@cc-context", "open-pr@skills")
-ROLE_PLUGINS = {HANDLER: (*GUARD_PLUGINS, DATADOG_PLUGIN), WATCHDOG: GUARD_PLUGINS}
-ROLE_SERVERS = {HANDLER: (("long-running@skills", "drive"), ("cc-slack@cc-slack", "cc-slack"), ("cc-inbox@cc-inbox", "cci"), (DATADOG_PLUGIN, "mcp"))}
-READ_ROLES = (HANDLER, WATCHDOG)
+ROLE_PLUGINS = {WATCHDOG: GUARD_PLUGINS}
+READ_ROLES = (WATCHDOG,)
+STRICT_MCP = ("--strict-mcp-config",)
 ADVISOR_PROBE_SECONDS = 60
 DOUBLE_QUOTED = re.compile(r'[\\"$`]')
 STUCK = re.compile(r"\b(j\d+)\b[^.;\n]*?\b(?:stuck|silent|stalled|hung)\b", re.IGNORECASE)
@@ -146,7 +127,7 @@ UNREAD_JOB = (
 TAIL_BYTES = 4 << 20
 RECENT_BYTES = 65536
 TYPED_TIME_RULE = (
-    "A clock time a session typed for work already done in words he reads, a post, a card or a record a handler posts to him,"
+    "A clock time a session typed for work already done in words he reads, a post, a card or a record posted to him,"
     " such as when a job started or a post went out, which the drive's stamps give, and a job's or record's stamp given as when a release, build or deploy started; a time after the write,"
     " on the day written beside it or else the day nearest the write, a time quoted as a tool printed it, a time on a line linking the tool or read that measured it and a linked time pass, a release's, build's or deploy's start only on the line"
     " linking the build or tool it was quoted from."
@@ -283,39 +264,11 @@ def typed_time(text: str, data: dict) -> Ruled | None:
 
 
 def seen(payload: dict) -> dict:
-    """A hook's payload as the drive's checks read it: a handler's own `claude --bg` session reads as an agent of the communicator's session, as a handler ran before it had a session of its own, so every check on a handler binds it unchanged; on a drive whose roles hold no communicator, it reads as an agent of its own session, which holds the communicator's role by its handler's id. A job's agent `drive job start` started as its own session reads, from the JOB_ENV its launch set, as the agent it was recorded as of the session holding its order then, as an Agent start of that session's would, so every check on a job's agent binds it unchanged, with no read of the drive."""
+    """A hook's payload as the drive's checks read it: a job's agent `drive job start` started as its own session reads, from the JOB_ENV its launch set, as the agent it was recorded as of the session holding its order then, as an Agent start of that session's would, so every check on a job's agent binds it unchanged, with no read of the drive."""
     if not payload.get("agent_id") and (started := os.environ.get(state.JOB_ENV)):
         _, _, agent, session = started.split("/")
         return payload | {"session_id": session, "agent_id": agent, "agent_transcript_path": payload["transcript_path"], "job_session": payload["session_id"]}
-    if payload.get("agent_id") or payload.get("agent_type") != HANDLER or not (names := state.session_drives(payload["session_id"])):
-        return payload
-    data = state.saved(names[0])
-    communicator = data["roles"].get("communicator")
-    return payload | {
-        "session_id": communicator["session"] if communicator else payload["session_id"],
-        "agent_id": state.handler_id(data, payload["session_id"]),
-        "agent_transcript_path": payload["transcript_path"],
-        "handler_session": payload["session_id"],
-    }
-
-
-def beyond_brief(prompt: str) -> str | None:
-    """The first line of a handler's prompt that is no line of its brief: each line opens with a brief label, his words may run on below their label, and Context runs to at most three lines."""
-    label, context = None, 0
-    for line in prompt.strip().splitlines():
-        if found := LABEL.match(line):
-            label, context = found[1], 1
-        elif line.strip() and not (label in (HIS_WORDS, IN_THREAD) or (label == "Context" and (context := context + 1) <= 3)):
-            return line.strip()
-    return None
-
-
-def his_words(prompt: str) -> str:
-    """His words as a brief carries them, from their label to the next line opening with a label."""
-    lines = prompt.strip().splitlines()
-    start = next(index for index, line in enumerate(lines) if line.startswith(f"{HIS_WORDS}:"))
-    end = next((index for index in range(start + 1, len(lines)) if LABEL.match(lines[index])), len(lines))
-    return "\n".join([lines[start].removeprefix(f"{HIS_WORDS}:"), *lines[start + 1 : end]]).strip()
+    return payload
 
 
 def shaped(payload: dict) -> dict:
@@ -442,7 +395,7 @@ def seeded(name: str) -> int:
 
 
 def handled_post(data: dict, seq: str, owed: set[str]) -> bool:
-    """Whether a `POST` report gets a handler, by his words "clearly these reports are useless / not valuable / spammy, so remove them entirely or rethink the whole model": one closing an order or delivering a part, one on a customer team's outage, and of progress lines only one answering a message of his that cc-slack still owes an answer, one on an open incident or an order he asked a line every so many minutes on, one answering a teammate's messages in a thread an order watches, or one posting at the root of a channel outside his DM, such as a staging claim; every other report is progress, kept on the drive's dashboard and records alone."""
+    """Whether a `POST` report goes to the communicator, by his words "clearly these reports are useless / not valuable / spammy, so remove them entirely or rethink the whole model": one closing an order or delivering a part, one on a customer team's outage, and of progress lines only one answering a message of his that cc-slack still owes an answer, one on an open incident or an order he asked a line every so many minutes on, one answering a teammate's messages in a thread an order watches, or one posting at the root of a channel outside his DM, such as a staging claim; every other report is progress, kept on the drive's dashboard and records alone."""
     read = answered(seq)
     attrs = read["attrs"]
     order_id = state.report_order(data, attrs)
@@ -454,7 +407,7 @@ def handled_post(data: dict, seq: str, owed: set[str]) -> bool:
 
 
 def start_posts(name: str, moment: datetime) -> None:
-    """Start one handler on each `POST` report handled_post keeps, once, from the drive's mark on, and carry every other as progress, so no report gets a second handler and none waits on a post; the watch's own close reports it posts itself, by state.watch_posting, and a report cci took under SETTLE_WINDOW ago waits for the next read, so the watch's save of a close report's seq lands first."""
+    """Hand each `POST` report handled_post keeps to the communicator, once, from the drive's mark on, and carry every other as progress, so no report is handed twice and none waits on a post; the watch's own close reports it posts itself, by state.watch_posting, and a report cci took under SETTLE_WINDOW ago waits for the next read, so the watch's save of a close report's seq lands first."""
     data = state.load(name, ("posts",))
     since = seeded(name) if data["posts"]["mark"] is None else data["posts"]["mark"]
     read, newest = posts(name, since)
@@ -472,16 +425,16 @@ def start_posts(name: str, moment: datetime) -> None:
         if at + SETTLE_WINDOW > moment:
             young.append(int(seq))
             continue
-        if seq in data["carried"] or seq in state.watch_posting(data) or any(seq in held_records(entry) for entry in data["handlers"].values()):
+        if seq in data["carried"] or seq in state.watch_posting(data):
             continue
         if not handled_post(data, seq, owed):
             carried[seq] = "progress: the dashboard and records alone"
             continue
-        carried[seq] = "a handler"
+        carried[seq] = "the communicator"
         try:
-            handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'post-{seq}'}", detached=True)
+            handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'post-{seq}'}")
         except Exception as error:
-            errors.append(f"the handler on POST report {seq} did not start: {start_error(error)}")
+            errors.append(f"POST report {seq} did not reach the communicator: {start_error(error)}")
     def marked(data: dict) -> None:
         for seq, why in carried.items():
             data["carried"].setdefault(seq, why)
@@ -490,11 +443,6 @@ def start_posts(name: str, moment: datetime) -> None:
     state.update(name, None, marked)
     if errors:
         raise state.DriveError("; ".join(errors))
-
-
-def held_records(entry: dict) -> list[str]:
-    """Each record a handler holds: its own, then each one a brief handed to it names, taken or not."""
-    return list(dict.fromkeys([*filter(None, [(entry["holds"] or {}).get("record")]), *(named[1] for brief in [*entry["handed"], *entry["took"]] if (named := RECORD.search(brief)))]))
 
 
 def trunk_failures(keys: list[str], since: str) -> list[dict]:
@@ -507,26 +455,11 @@ def trunk_failures(keys: list[str], since: str) -> list[dict]:
     return [json.loads(line) for line in lines]
 
 
-def holder(data: dict, held: dict) -> str | None:
-    """The handler already at work on what a new brief holds, whichever kind of brief either is: the same message of his, the same thread, so a thread has one handler at a time, which takes every brief in it, or for a record the same record, one its re chain names or whose chain names it."""
-    for handler_id, entry in data["handlers"].items():
-        other = entry["holds"] or {}
-        if (held["message"] and held["message"] == other.get("message")) or (held["thread"] and held["thread"] == other.get("thread")):
-            return handler_id
-        if held["record"] and (held["record"] == other.get("record") or other.get("record") in held["re"] or held["record"] in (other.get("re") or ())):
-            return handler_id
-    return None
-
-
 def gone(entry: dict) -> bool:
-    """Whether a handler's turn is over, whatever its Stop hook did, read from the records Claude Code keeps of the session its launch named: no running process's `sessions/<pid>.json`, the record Claude Code keeps of each session's process, names that session with a status but idle, and its background job, which `claude --bg` writes `working` before it returns, ended a turn done, blocked, failed or stopped, rests idle or blocked, as one stuck on a startup dialog does, or `claude rm` took it; so a launch whose job ended blocked before it ran a turn holds nothing. A handler whose launch has not named its session yet is in flight for START_WINDOW, many times the seconds a `claude --bg` launch takes, and past it never started, whatever its start process does, so its briefs go on to the next handler and a start still waiting its turn launches nothing; one whose turn an API error ended is not gone until the resume that wakes it. A pool handler resting between items is not gone while any running process's record names its session, whatever its status."""
-    if (until := entry.get("resumes")) and state.parse_time(until) > state.now():
-        return False
+    """Whether the turn of a job's own `claude --bg` session is over, whatever its Stop hook did, read from the records Claude Code keeps of the session its launch named: no running process's `sessions/<pid>.json`, the record Claude Code keeps of each session's process, names that session with a status but idle, and its background job, which `claude --bg` writes `working` before it returns, ended a turn done, blocked, failed or stopped, rests idle or blocked, as one stuck on a startup dialog does, or `claude rm` took it; so a launch whose job ended blocked before it ran a turn holds nothing. A launch that has not named its session yet is in flight for START_WINDOW, many times the seconds a `claude --bg` launch takes, and past it never started."""
     if not entry["session"]:
         return state.parse_time(entry["started"]) + START_WINDOW <= state.now()
     records = session_records()
-    if entry["pool"] and alive(entry["session"], records):
-        return False
     if busy(entry["session"], records):
         return False
     found = background_job(entry["session"])
@@ -593,290 +526,15 @@ def signalled(pid: int) -> bool:
     return True
 
 
-def handle(name: str, brief: str, detached: bool = False, answer: str | None = None, briefs: bool = False, prefer: str | None = None) -> tuple[str, bool]:
+def handle(name: str, brief: str) -> tuple[str, bool]:
     """Hand a brief to the communicator, which answers him itself, as one cci note from lane watch keyed by the brief so a pass repeating it sends nothing new, by his ruling "get rid of handlers": a `Record:` brief names a record for it to post, and a message of his one it owes an answer."""
     key = hashlib.sha256(brief.strip().encode()).hexdigest()[:16]
     reads.run(["cci", "post", "--drive", name, "--lane", "watch", "--kind", "note", "--to", f"communicator@{name}", "--id", f"hand-{key}", "--text", f"ANSWER THIS: {brief.strip()}"], Path.cwd(), reads.posting())
     return "communicator", True
 
 
-def route_keys(data: dict, read: dict, held: dict) -> list[str]:
-    """The keys of the drive's routes table a brief sits under: its Slack thread, the card its record answers or was written under, and the order it is about."""
-    attrs = read.get("attrs") or {}
-    order_id = state.report_order(data, attrs | {"thread": held["thread"]}) if attrs or held["thread"] else None
-    cards = [attrs.get("waits"), attrs.get("thread_card")]
-    return [*([f"{THREAD_KEY}{held['thread']}"] if held["thread"] else []), *(f"{CARD_KEY}{card}" for card in cards if card), *([f"{ORDER_KEY}{order_id}"] if order_id else [])]
-
-
-def sticky(data: dict, keys: list[str]) -> str | None:
-    """The pool handler the routes table holds a brief's thread, card or order for, while that entry is fresh and the handler alive, so a known thread goes back to the handler that answered it with no Jev call."""
-    for key in keys:
-        if (kept := data["routes"].get(key)) and fresh(kept) and (entry := data["handlers"].get(kept["handler"])) and entry["pool"] and not gone(entry):
-            return kept["handler"]
-    return None
-
-
-def fresh(kept: dict) -> bool:
-    return state.now() - state.parse_time(kept["at"]) <= ROUTE_TTL
-
-
-def keep_routes(data: dict, handler: str, keys: list[str], brief: str) -> None:
-    """Point each of the brief's keys at the handler taking it, and add what the brief is about, his words and its orders' titles, to that handler's topics, the newest TOPICS kept, for the next new thread's similarity match."""
-    for key in keys:
-        data["routes"][key] = {"handler": handler, "at": state.stamp()}
-    words = his_words(brief) if re.search(rf"^{re.escape(HIS_WORDS)}:", brief, re.MULTILINE) else ""
-    topic = " ".join(filter(None, [words, *(data["orders"][key.removeprefix(ORDER_KEY)]["title"] or "" for key in keys if key.startswith(ORDER_KEY))]))
-    if topic:
-        entry = data["handlers"][handler]
-        entry["topics"] = [*[one for one in entry["topics"] if one != topic], render.cut(topic, 240)][-TOPICS:]
-
-
-def similar(data: dict, words: str) -> tuple[str, float] | None:
-    """The live pool handler whose topics share the most of his words' content tokens, beside the share of his tokens they hold; None when none shares any."""
-    asked = tokens(words)
-    if not asked:
-        return None
-    scored = [(len(asked & tokens(" ".join(entry["topics"]))) / len(asked), handler_id) for handler_id, entry in pool(data).items() if entry["topics"]]
-    best = max(scored, default=(0.0, None))
-    return (best[1], best[0]) if best[1] and best[0] > 0 else None
-
-
-def tokens(text: str) -> set[str]:
-    """A text's content words, lowercased, at least four letters and none of COMMON."""
-    return {word for word in re.findall(r"[a-z0-9][a-z0-9_-]{3,}", text.lower()) if word not in COMMON}
-
-
-def release_quiet(name: str) -> None:
-    """Drop each route past ROUTE_TTL, and each route and topic of a pool handler resting past QUIET, so a thread long quiet goes back through Jev."""
-    data = state.load(name)
-    quiet = {handler_id for handler_id, entry in data["handlers"].items() if entry["pool"] and resting(entry) and entry["ended"] and state.now() - state.parse_time(entry["ended"]) > QUIET and entry["topics"]}
-    stale = [key for key, kept in data["routes"].items() if not fresh(kept) or kept["handler"] in quiet or kept["handler"] not in data["handlers"]]
-    if not stale and not quiet:
-        return
-    def release_quiet_write(data: dict):
-        for key in stale:
-            data["routes"].pop(key, None)
-        for handler_id in quiet & set(data["handlers"]):
-            data["handlers"][handler_id]["topics"] = []
-
-    state.update(name, None, release_quiet_write)
-
-
-def new_handler(brief: str | None, held: dict | None, handed: list[str]) -> dict:
-    """A pool handler's entry before its launch names its session: busy on its first brief, or on its warm start with none."""
-    return {"session": None, "started": state.stamp(), "brief": brief, "holds": held, "handed": handed, "took": [], "posted": [], "pool": True, "busy": True, "ended": None, "given": state.stamp(), "topics": [], "items": 0}
-
-
-def resting(entry: dict) -> bool:
-    """Whether a pool handler is alive and between briefs, so the next brief resumes its session rather than waiting for its next step."""
-    return entry["pool"] and not entry["busy"] and bool(entry["session"])
-
-
-def pool(data: dict) -> dict[str, dict]:
-    """The drive's pool handlers still alive or starting, by id."""
-    return {handler_id: entry for handler_id, entry in data["handlers"].items() if entry["pool"] and not gone(entry)}
-
-
-def free_handler(data: dict) -> str | None:
-    """A resting pool handler to wake on a brief no live handler holds, the one rested longest first, so a fresh thread never waits on a launch while one is free."""
-    resting_now = [(entry["ended"] or entry["started"], handler_id) for handler_id, entry in pool(data).items() if resting(entry)]
-    return min(resting_now)[1] if resting_now else None
-
-
-def fewest_handed(data: dict) -> str | None:
-    """With the pool at its size and none resting, the busy pool handler with the fewest briefs waiting on it, which takes the brief at its next step; None while the pool has room for one more."""
-    live = pool(data)
-    if len(live) < pool_size():
-        return None
-    return min(live, key=lambda handler_id: (len(live[handler_id]["handed"]), live[handler_id]["given"]))
-
-
-def pool_size() -> int:
-    """How many pool handlers a drive keeps: caps.json's handler_pool, never past its handlers cap on every drive's handler sessions."""
-    from drive import place
-
-    caps = place.caps()
-    return int(min(caps["handler_pool"], caps["handlers"]))
-
-
-def rest(name: str, handler: str) -> None:
-    """Put a pool handler back between briefs, its brief, what it held and its posts let go, so the next brief wakes it."""
-    with state.edit(name) as data:
-        if entry := data["handlers"].get(handler):
-            entry |= {"busy": False, "brief": None, "holds": None, "took": [], "posted": [], "ended": state.stamp()}
-
-
-def wake(name: str, handler: str, prompt: str) -> None:
-    """Give a resting pool handler its brief as the next prompt of its own session: its idle background job stopped, then `claude --bg --resume` continuing that same session in the checkout it ran in, so its context carries over, since a resume of a job still up starts a copy beside it and a cci record to it never wakes it, cci binding a handler's session to the communicator's by CCI_PARENT_SESSION; a copy Claude Code starts anyway becomes the handler's session and the old job is removed."""
-    session = state.saved(name)["handlers"][handler]["session"]
-    own, kept = background_job(session)
-    subprocess.run(["claude", "stop", own], cwd=kept["cwd"], capture_output=True, check=False)
-    resumed = launched(backgrounded(["claude", "--bg", "--resume", session, prompt], Path(kept["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"}))
-    if resumed != session:
-        def wake_write(data: dict):
-            data["handlers"][handler]["session"] = resumed
-
-        state.update(name, None, wake_write)
-        subprocess.Popen(["claude", "rm", own], cwd=kept["cwd"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-
-
-def warm(name: str) -> str | None:
-    """Start one pool handler with no brief while none rests, the pool has room under its size and this Mac admits a handler, so the next brief of a fresh thread wakes a running session; its id, or None."""
-    from drive import place
-
-    data = state.load(name)
-    if any(resting(entry) for entry in pool(data).values()) or any(entry["pool"] and not entry["session"] and not gone(entry) for entry in data["handlers"].values()):
-        return None
-    if len(pool(data)) >= pool_size() or not place.admission(data, None, "handlers", state.now()):
-        return None
-    handler_id = uuid.uuid4().hex[:8]
-    def warm_write(data: dict):
-        data["handlers"][handler_id] = new_handler(None, None, [])
-
-    state.update(name, None, warm_write)
-    kept = brief_path(name, handler_id)
-    kept.parent.mkdir(parents=True, exist_ok=True)
-    kept.write_text(WARM.format(drive=name))
-    state.detach(name, ["handler-start", handler_id], "handlers.log")
-    return handler_id
-
-
-def picked_handler(data: dict, prefer: str | None) -> str | None:
-    """The handler the router picked for the brief, while the drive still keeps it."""
-    return prefer if prefer in data["handlers"] else None
-
-
-def started(name: str, handler_id: str, brief: str, prompt: str, detached: bool, later: dict | None = None) -> list[str]:
-    """Start the handler's session on its prompt once the drive keeps its entry, its brief's scratch folder made first: in this call while this Mac admits a local Claude lane, by place.admission, or at once for a message of his, by his_message, or detached from the prompt kept for `drive handler-start`, which waits its turn, beside later, what that start writes its brief from, when the brief is written there."""
-    from drive import place
-
-    if folder := scratch(brief):
-        folder.mkdir(parents=True, exist_ok=True)
-    if not detached and later is None and (preempting(state.load(name), holds(brief)) or not place.admission(state.load(name), None, "handlers", state.now())):
-        start_handler(name, handler_id, prompt)
-        return []
-    kept = brief_path(name, handler_id)
-    kept.parent.mkdir(parents=True, exist_ok=True)
-    kept.write_text(prompt)
-    if later is not None:
-        kept.with_suffix(".json").write_text(json.dumps(later))
-    state.detach(name, ["handler-start", handler_id], "handlers.log")
-    return []
-
-
-def his_message(held: dict) -> bool:
-    """Whether a handler's brief, as holds reads it, answers a message of his rather than a record, which starts at once past this Mac's load gate and caps, by his words through the main session "the owner's answers must never queue behind lane load"; a report's or a digest's handler, which works on a record, waits its turn."""
-    return not held["record"]
-
-
-def preempting(data: dict, held: dict) -> bool:
-    """Whether a handler's brief, as holds reads it, starts at once past this Mac's load gate and caps: one answering a message of his, by his_message, or carrying a report on an open incident order, as place.preempts lets that order's lanes start; a quiet, due or other `POST` report's handler waits its turn."""
-    return his_message(held) or bool(state.open_incidents(data, state.report_orders(data, held.get("attrs", {}))))
-
-
-def threaded(data: dict, held: dict) -> dict:
-    """What a brief holds, as holds read it, but its record's attrs: a record whose brief, attrs and re chain name no thread and reach no message of his is in the thread its order's lines go in, as the thread attr the drive stamps on its own records names it, but for one whose post goes at the root of a channel outside his DM as rooted reads it, such as a staging claim, which starts a thread of its own and so holds none."""
-    found = {key: value for key, value in held.items() if key not in ("attrs", "report")}
-    attrs = held.get("attrs", {})
-    if not found["thread"] and not rooted(attrs) and (order_id := state.report_order(data, attrs)):
-        found |= state.thread_attr(data["orders"][order_id])
-    return found
-
-
-def forget(data: dict, handler: str) -> list[str]:
-    """Take a handler off the drive, and the briefs it leaves to the handler the next brief reaches: each one handed to it that it never took, and for one whose launch never named its session, which never started, its own brief first, its job and that job's order leaving with it."""
-    entry = data["handlers"].pop(handler)
-    if entry["session"]:
-        return entry["handed"]
-    if job_id := state.agent_job(data, handler):
-        del data["orders"][data["jobs"].pop(job_id)["order"]]
-    return [*filter(None, [entry["brief"]]), *entry["handed"]]
-
-
-def unstarted(name: str, handler: str) -> None:
-    """Take a handler that did not start off the drive, with the job it was given and the order made for that job."""
-
-    def forgot(data: dict) -> None:
-        if handler in data["handlers"]:
-            forget(data, handler)
-
-    state.update(name, (("handlers", handler),), forgot)
-
-
-def brief_path(name: str, handler: str) -> Path:
-    return state.drive_dir(name) / "handlers" / f"{handler}.md"
-
-
-def start_kept(name: str, handler: str) -> str:
-    """Start the handler `handle` kept, in its own process after the handler call returned, since `claude --bg` takes seconds, once this Mac admits a local Claude lane, by place.waited_turn, so a handler waits its turn while this Mac is loaded, short of memory or at its local cap, and never fails for it; one that fails to start leaves the drive's handlers, with the job it was given and the order made for that job, and tells the session it runs beside in a done record from lane handler, naming the error and its kept brief. Its line in handlers.log is stamped and says how long this process took to begin after the brief was kept, how long it waited its turn and how long its start took, so a slow launch names which of the three it was."""
-    from drive import place
-
-    kept = brief_path(name, handler)
-    began = time.time()
-    woken = bool(state.saved(name)["handlers"][handler]["session"])
-    try:
-        prompt = kept_prompt(name, handler)
-        briefed = time.time()
-        if woken:
-            wake(name, handler, released(name, state.saved(name), prompt))
-            return f"{state.stamp()} woke {handler}: began {began - kept.stat().st_mtime:.1f}s after its brief was kept, wrote its brief in {briefed - began:.1f}s, its record took {time.time() - briefed:.1f}s"
-        mine = preempting(state.load(name), holds(kept.read_text()))
-        with place.waited_turn(name, lambda: waits_turn(name, handler), mine, None if mine else briefed + place.REPORT_TURN_SECONDS):
-            admitted = time.time()
-            if handler not in state.saved(name)["handlers"]:
-                return f"{state.stamp()} {handler} left the drive while it waited its turn, its briefs handed on, so it starts no session"
-            start_handler(name, handler, prompt)
-    except place.Unadmitted as error:
-        unstarted(name, handler)
-        return f"{state.stamp()} dropped {handler}: a report's handler, {error}"
-    except Exception as error:
-        brief = kept.read_text()
-        if woken:
-            rest(name, handler)
-        else:
-            unstarted(name, handler)
-        line = f"BLOCKED handler {handler} did not start: {start_error(error)}; its brief is kept in {kept}: start it again with the handler tool"
-        if his_message(held := holds(brief)) and held["link"] and HIS_WORDS in brief:
-            from drive import route
-
-            line += f"; his message fell back to {route.on_it(name, held['link'], his_words(brief), held['thread'])}"
-        reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"{beside(state.saved(name))[0]}@{name}", "--id", f"handler-start-{handler}", "--text", line], Path.cwd(), reads.posting())
-        return line
-    return f"{state.stamp()} started {handler}: began {began - kept.stat().st_mtime:.1f}s after its brief was kept, wrote its brief in {briefed - began:.1f}s, waited {admitted - briefed:.1f}s for its turn, its start took {time.time() - admitted:.1f}s"
-
-
-def kept_prompt(name: str, handler: str) -> str:
-    """The prompt a kept handler starts on: its kept brief, or the brief cli.briefing writes from what handle kept beside it, closing on the context line handle added."""
-    from drive import cli
-
-    kept = brief_path(name, handler)
-    if not (later := kept.with_suffix(".json")).exists():
-        return kept.read_text()
-    held = json.loads(later.read_text())
-    briefed = cli.briefing(name, held["brief"], held["answer"])
-    return f"{briefed(handler).strip()}{held['context']}" if briefed else kept.read_text()
-
-
-def waits_turn(name: str, handler: str) -> None:
-    """Keep a handler whose start waits its turn on this Mac read as not gone while the process waiting for it runs, by its waiter, that process's pid and start, saved once as it first waits, so no read takes it for a start that never came and a wait that lasts an hour rewrites the handler's row once, not every TURN_SECONDS."""
-    waiter = {"pid": os.getpid(), "started": procs.started(os.getpid())}
-    if (state.saved_row(name, "handlers", handler) or {}).get("waiter") == waiter:
-        return
-
-    def wait(data: dict) -> None:
-        if entry := data["handlers"].get(handler):
-            entry["waiter"] = waiter
-
-    state.update(name, (("handlers", handler),), wait)
-
-
-def waiting(entry: dict) -> bool:
-    """Whether the process a handler's start waits its turn in, its waiter, still runs."""
-    return bool(waiter := entry.get("waiter")) and procs.started(waiter["pid"]) == waiter["started"]
-
-
 def start_error(error: Exception) -> str:
-    """Why a handler did not start: a refusal's or a failed command's own words, else the error as render.raised names one the drive did not expect."""
+    """Why a hand-off did not go out: a refusal's or a failed command's own words, else the error as render.raised names one the drive did not expect."""
     return str(error) if isinstance(error, state.DriveError | reads.ReadError) else render.raised(error)
 
 
@@ -885,61 +543,17 @@ def beside(data: dict) -> tuple[str, dict]:
     return ("communicator", data["roles"]["communicator"]) if "communicator" in data["roles"] else ("root", data["roles"]["coordinator"])
 
 
-def start_handler(name: str, handler: str, prompt: str) -> None:
-    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the drive's checkout at the head of its default branch, wherever the session it runs beside, the communicator's or on a drive with none the coordinator's, still runs, whether that session or the drive's watch starts it, `LONG_RUNNING_HANDLER` naming it, so every check on the communicator's handlers finds it from its first step, its entry keeping the session `claude --bg` names, by which the drive reads whether its turn is over, `CCI_PARENT_SESSION` naming that session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one; the watch's own lane stays out of its environment. Its prompt closes on the release freezes and his release hold as they stand at this start, in place of the line an earlier start of it carried. It runs on light's settings and mcp_flags' servers for a handler."""
-    from drive import orca
-
-    data = state.saved(name)
-    _, held = beside(data)
-    prompt = released(name, data, prompt)
-    env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name}
-    checkout = orca.checkout(name, held["cwd"])
-    settings = light(session_settings(env), HANDLER, checkout)
-    argv = [
-        "claude", "--bg", "--agent", HANDLER, ADVISOR_FLAG, HANDLER_ADVISOR, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings),
-        *LANE_RULES_ARGS, *mcp_flags(HANDLER, checkout), "-n", f"{name} handler {handler}", prompt,
-    ]
-    session = launched(backgrounded(argv, checkout, {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
-
-    def bound(data: dict) -> bool:
-        if entry := data["handlers"].get(handler):
-            entry["session"] = session
-        return bool(entry)
-
-    if not state.update(name, (("handlers", handler),), bound):
-        end_bg(session, checkout, removed=True)
-
-
-def backgrounded(argv: list[str], checkout: Path, env: dict[str, str]) -> str:
-    """What `claude --bg` printed, run again after BACKGROUND_WAITS seconds each time it could not reach Claude Code's background service, as it times out on a loaded Mac, so a handler on his message never fails on that alone, as his 11:00 PM message's did; any other failure raises at once."""
-    for wait in BACKGROUND_WAITS:
-        try:
-            return reads.run(argv, checkout, env)
-        except reads.ReadError as error:
-            if BACKGROUND_UNREACHED not in str(error):
-                raise
-        time.sleep(wait)
-    return reads.run(argv, checkout, env)
-
-
-def released(name: str, data: dict, prompt: str) -> str:
-    """A handler's prompt closing on the release freezes and holds as they stand now, then the repository's rules, by render.repo_block, in place of any its brief carried."""
-    lines = [line for line in prompt.strip().partition(render.REPO_RULES_HEADING)[0].strip().splitlines() if not line.startswith(f"{RELEASES}:")]
-    return "\n".join([*lines, f"{RELEASES}: {releases(name, data)}", *render.repo_block(data)])
-
-
 def light(settings: dict, role: str, checkout: Path) -> dict:
-    """The settings of a leaf session the drive starts as role, a builder, reader, designer, handler or watchdog, which runs headless: leaf's, with no auto-memory, LEAF_ENV's headless switches, every skill a user or claude.ai sync installed turned off in the listing, and only the plugins ROLE_PLUGINS names for the role, CODE_PLUGINS for a role it does not name, on, GUARD_PLUGINS holding this plugin and every plugin its manifest depends on, since Claude Code loads no plugin whose dependency is off, so a disabled plugin's skills and hooks stay out while the guards of GUARD_PLUGINS apply, by his Nov 15 words "make them as lightweight as possible"; a handler or a watchdog, which reads and answers and writes no code, also drops the checkout's own skills but HANDLER_SKILLS and its root CLAUDE.md and AGENTS.md, since its definition carries what it does."""
+    """The settings of a leaf session the drive starts as role, a builder, reader, designer or watchdog, which runs headless: leaf's, with no auto-memory, LEAF_ENV's headless switches, every skill a user or claude.ai sync installed turned off in the listing, and only the plugins ROLE_PLUGINS names for the role, CODE_PLUGINS for a role it does not name, on, GUARD_PLUGINS holding this plugin and every plugin its manifest depends on, since Claude Code loads no plugin whose dependency is off, so a disabled plugin's skills and hooks stay out while the guards of GUARD_PLUGINS apply, by his Nov 15 words "make them as lightweight as possible"; a watchdog, which reads and answers and writes no code, also drops the checkout's own skills and its root CLAUDE.md and AGENTS.md, since its definition carries what it does."""
     reads = role in READ_ROLES
     roots = (install.config_dir() / "skills", *((checkout / ".claude" / "skills",) if reads else ()))
     names = {found[1] if (found := SKILL_NAME.search(path.read_text())) else path.parent.name for root in roots for path in [*root.glob("*/SKILL.md"), *root.glob("synced/*/*/SKILL.md")]}
-    kept = set(HANDLER_SKILLS) if role == HANDLER else set()
     plugins = ROLE_PLUGINS.get(role, CODE_PLUGINS)
     leafed = leaf(settings)
     return leafed | {
         "autoMemoryEnabled": False,
         "claudeMdExcludes": [*leafed["claudeMdExcludes"], *((str(checkout / "CLAUDE.md"), str(checkout / "AGENTS.md")) if reads else ())],
-        "skillOverrides": {skill: "off" for skill in sorted(names - kept)},
+        "skillOverrides": {skill: "off" for skill in sorted(names)},
         "enabledPlugins": leafed["enabledPlugins"] | {key: key in plugins for key in plugin_keys()},
         "env": leafed["env"] | LEAF_ENV,
     }
@@ -948,25 +562,6 @@ def light(settings: dict, role: str, checkout: Path) -> dict:
 def plugin_keys() -> list[str]:
     """Each plugin installed in any scope, by its installed_plugins.json key."""
     return list(json.loads((install.config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"])
-
-
-def mcp_flags(role: str, checkout: Path) -> tuple[str, ...]:
-    """The flags that start a leaf session as role on only the MCP servers ROLE_SERVERS names for it, `--strict-mcp-config` keeping out every plugin's and the user's own, none for a role it does not name, since its definition calls the drive, cci, cc-slack and Datadog through their CLIs; `--mcp-config` takes every word up to the next flag, so these go before another flag."""
-    servers = plugin_servers(ROLE_SERVERS.get(role, ()), checkout)
-    return ("--strict-mcp-config", *(("--mcp-config", json.dumps(servers)) if servers["mcpServers"] else ()))
-
-
-def plugin_servers(wanted: tuple[tuple[str, str], ...], checkout: Path) -> dict:
-    """An `--mcp-config` of each installed plugin's server wanted names, under the name Claude Code gives a plugin's server, `plugin:<plugin>:<server>`, so its tools keep the names the agent definitions allow and deny, with the plugin's root and checkout put in place of the `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_PROJECT_DIR}` Claude Code fills only for a plugin's own servers."""
-    found = {}
-    for plugin, server in wanted:
-        root = Path(install.installed(plugin)["installPath"])
-        manifest = json.loads((root / ".claude-plugin" / "plugin.json").read_text())
-        declared = manifest.get("mcpServers", ".mcp.json")
-        servers = declared if isinstance(declared, dict) else json.loads((root / declared).read_text())["mcpServers"]
-        filled = json.dumps(servers[server]).replace("${CLAUDE_PLUGIN_ROOT}", str(root)).replace("${CLAUDE_PROJECT_DIR}", str(checkout))
-        found[f"plugin:{manifest['name']}:{server}"] = json.loads(filled)
-    return {"mcpServers": found}
 
 
 def start_job(name: str, job_id: str, agent: str, call: dict, held: dict, cwd: Path) -> str:
@@ -1003,16 +598,6 @@ def end_bg(session: str, cwd: Path, removed: bool) -> None:
             os.kill(pid, signal.SIGTERM)
 
 
-def reap_orphans(name: str) -> None:
-    """End each live `<drive> handler <id>` session whose id the drive keeps no row for, as a start that outlived START_WINDOW leaves once forget took its row and handed its briefs on, so the handlers alive never pass the rows the pool and the handlers cap count."""
-    prefix = f"{name} handler "
-    rows = state.saved(name)["handlers"]
-    for pid, record in session_records():
-        handler = (record.get("name") or "").removeprefix(prefix)
-        if handler != record.get("name") and handler not in rows and running([(pid, record.get("procStartFt") or record.get("procStart"))]):
-            end_bg(record["sessionId"], Path(record["cwd"]), removed=True)
-
-
 def take_pointed(name: str, job_id: str) -> list[str]:
     """Take the pointer lines a job's own session has not been handed yet, each naming a cci record a resume posted to its address while its turn ran, for its next step or its stop to hand it."""
     if not (state.saved_row(name, "jobs", job_id).get("bg") or {}).get("pointed"):
@@ -1035,7 +620,7 @@ def watchdog(name: str, brief: str, cwd: str, out: Path) -> int:
     """Start a watchdog agent on a stall's brief as its own `claude -p` process on its agent definition, which sets its model and tools, in the drive's checkout, its brief closing on the repository's rules, by render.repo_block, its answer written to out and its spend capped at WATCHDOG_USD; its environment names the drive and marks it the watchdog, by which the bash_guard hook lets it run WATCHDOG_RUNS alone, the reads and the two acts of his pick "Report, plus two safe acts, rerunning a failed build and messaging the owning job"; its pid."""
     settings = light(session_settings({state.WATCHDOG_ENV: name, state.DRIVE_ENV: name, **ADVISOR_OFF}), WATCHDOG, Path(cwd))
     brief = "\n\n".join([brief, *filter(None, ["\n".join(render.repo_block(state.load(name)))])])
-    argv = ["claude", "-p", "--agent", WATCHDOG, "--permission-mode", "bypassPermissions", *LANE_RULES_ARGS, *mcp_flags(WATCHDOG, Path(cwd)), "--max-budget-usd", WATCHDOG_USD, "--settings", json.dumps(settings), brief]
+    argv = ["claude", "-p", "--agent", WATCHDOG, "--permission-mode", "bypassPermissions", *LANE_RULES_ARGS, *STRICT_MCP, "--max-budget-usd", WATCHDOG_USD, "--settings", json.dumps(settings), brief]
     out.parent.mkdir(parents=True, exist_ok=True)
     env = {key: value for key, value in os.environ.items() if key not in ("CLAUDE_LONG_RUNNING_LANE", "CLAUDE_CODE_SESSION_ID")} | settings["env"]
     with out.open("w") as written:
@@ -1044,7 +629,7 @@ def watchdog(name: str, brief: str, cwd: str, out: Path) -> int:
 
 def lane_session(env: dict[str, str], role: str, checkout: Path) -> tuple[dict, tuple[str, ...]]:
     """The `--settings` value and the flags a lane the drive starts as its own Claude Code session on this Mac runs on, such as a builder or reader the watch starts with `claude --bg`: light's settings for role with no advisor, the 350,000-token window of lib/lane.json, mcp_flags' servers for role, and EFFORT_CEILING, the flags going before any other flag or prompt, as LANE_RULES_ARGS must."""
-    return light(session_settings(env | ADVISOR_OFF), role, checkout), (*LANE_RULES_ARGS, *mcp_flags(role, checkout), "--effort", EFFORT_CEILING)
+    return light(session_settings(env | ADVISOR_OFF), role, checkout), (*LANE_RULES_ARGS, *STRICT_MCP, "--effort", EFFORT_CEILING)
 
 
 def session_settings(env: dict[str, str]) -> dict:
@@ -1080,9 +665,10 @@ def filled(page: str) -> str:
 
     def holes(line: str) -> dict[str, str]:
         seat = SEAT.search(line)
-        window = COMMUNICATOR_WINDOW if seat and seat[1] == "communicator" else ROOT_WINDOW
+        speaks = bool(seat) and (seat[1] == "communicator" or seat[1].endswith("-communicator"))
+        window = COMMUNICATOR_WINDOW if speaks else ROOT_WINDOW
         settings = session_settings({COMPACT_ENV: window})
-        below = bool(seat) and seat[1] not in TOP_SEATS
+        below = bool(seat) and seat[1] not in TOP_SEATS and not speaks
         settings = leaf(settings) if below else settings
         words = {
             SESSION_ENV: shlex.join(env_words(settings)),
@@ -1104,7 +690,8 @@ def filled(page: str) -> str:
 def launch(name: str, role: str, project: str | None, worktree: str) -> list[str]:
     """The `cci session register` line of Start or resume that starts the role's session, or a project's sub-coordinator's, under its alias in the worktree, and the `orca terminal create` line that shows it in Orca, as `drive manual start` fills them."""
     lines = filled(START_PAGE.read_text()).splitlines()
-    register = next(line for line in lines if line.startswith(f"cci session register <drive>-{'<lane>' if project else role} "))
+    seat = ("<lane>-communicator" if role == "communicator" else "<lane>") if project else role
+    register = next(line for line in lines if line.startswith(f"cci session register <drive>-{seat} "))
     show = next(line for line in lines if line.startswith("orca terminal create --worktree path:<worktree> --title <alias> "))
     named = {"<alias>": state.alias(name, role, project), "<drive>": name, "<worktree>": shlex.quote(worktree), "<lane>": state.project_lane(project or ""), "<project>": project or ""}
     for hole, value in named.items():
@@ -1163,16 +750,6 @@ def pointed(lines: list[str]) -> str:
     return f"Texts for your job reached your cci address while you worked, as your starter's SendMessage would hand them: {' | '.join(lines)}"
 
 
-def handed(briefs: list[str]) -> str:
-    """What a handler reads of the briefs drive handler handed it while it worked: each brief, his words or a record, in the thread, on the message or on the record it is at work on, to cover in its own post."""
-    return (
-        f"drive handler handed you {len(briefs)} more {'brief' if len(briefs) == 1 else 'briefs'} in the thread, on the message or on the record you are at work on,"
-        f" since a thread has one handler at a time: {' | '.join(briefs)}. Read each brief, and the record it names, as your brief says and cover it"
-        " in the post you are writing; once you have posted, post one more line in his thread with only what your posts left out,"
-        " or nothing when they already said it. Your last line names what you did for each."
-    )
-
-
 def hold_rules(name: str, session: str) -> str | None:
     """Keep on the session's seat the digest of its role's rules in this install, returning that role when the seat held other rules or none, so the session is due them whole; None when it held these or the session holds no seat, as a handler's does."""
     if not due_rules(state.saved(name), session):
@@ -1189,98 +766,6 @@ def due_rules(data: dict, session: str) -> str | None:
     if held is None or held.get("rules") == render.rules_digest(data, role := state.session_role(data, session)):
         return None
     return role
-
-
-def take_handed(name: str, handler: str) -> list[str]:
-    """The briefs drive handler handed the handler since its last step, moved to the ones it took so each reaches it once and a restart hands them again."""
-    if not state.saved(name)["handlers"][handler]["handed"]:
-        return []
-
-    def take(data: dict) -> list[str]:
-        entry = data["handlers"][handler]
-        briefs, entry["handed"] = entry["handed"], []
-        entry["took"] += briefs
-        return briefs
-
-    return state.update(name, (("handlers", handler),), take)
-
-
-def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | None:
-    """End a handler's turn once refused, the Stop hook's checks of its line, lets it: hand the line it ended on to the session it runs beside, the communicator or on a drive with none the coordinator, as one cci record led by TOOK and the ts of each message of his it took by handover, each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, each permalink named once where it first appears, and remove its session. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended. In that edit its posts carry each record it held or took, and with none each `POST` report it held or took stays owed, by settled; the done record of each report given up goes to that report's writer too, led by UNPOSTED and its seq, and carries it. A check that raises still posts the handler's line before its error goes on."""
-    name = state.session_drives(payload["session_id"])[0]
-    try:
-        if reason := refused(payload):
-            return reason
-        held_job = state.agent_job(state.load(name), payload["agent_id"])
-
-        def end(data: dict) -> tuple[dict, list]:
-            ended_handler = data["handlers"][payload["agent_id"]]
-            if briefs := ended_handler["handed"]:
-                ended_handler["handed"] = []
-                ended_handler["took"] += briefs
-            else:
-                if job_id := state.agent_job(data, payload["agent_id"]):
-                    data["jobs"][job_id]["transcript"] = payload["agent_transcript_path"]
-                settled(data, ended_handler)
-                if ended_handler["pool"]:
-                    if job_id:
-                        data["jobs"][job_id]["agent"] = f"{payload['agent_id']}@{ended_handler['given']}"
-                    ended_handler = dict(ended_handler)
-                    data["handlers"][payload["agent_id"]] |= {"session": payload["handler_session"], "busy": False, "brief": None, "holds": None, "took": [], "posted": [], "ended": state.stamp(), "items": ended_handler["items"] + 1}
-                else:
-                    data["handlers"].pop(payload["agent_id"])
-            return ended_handler, briefs
-
-        ended_handler, briefs = state.update(name, (("handlers", payload["agent_id"]), ("", "carried"), *((("jobs", held_job),) if held_job else ())), end)
-        if briefs:
-            return Unjudged(f"Refused on purpose: {handed(briefs)}")
-    except Exception:
-        post_done(name, payload, state.saved(name)["handlers"][payload["agent_id"]])
-        raise
-    post_done(name, payload, ended_handler)
-
-
-def settled(data: dict, entry: dict) -> None:
-    """Settle each record a handler that ended held or took: its first post carries every one."""
-    if entry["posted"]:
-        link = SAY_RESULT.search(entry["posted"][0])[2].split()[0]
-        for seq in held_records(entry):
-            data["carried"].setdefault(seq, link)
-
-
-def post_done(name: str, payload: dict, ended_handler: dict) -> None:
-    """Post the line a handler ended on as its done record to the lane it runs beside."""
-    line = (payload.get("last_assistant_message") or "").strip()
-    if posted := ended_handler["posted"]:
-        line = "; ".join(filter(None, [SAY_RESULT.sub("", line).strip(" ;"), *named_once(posted)]))
-    if took := [f"{found[2]}.{found[3]}" for brief in ended_handler["took"] if HIS_WORDS in brief and (linked := LINK.search(brief)) and (found := state.CARD_LINK.search(linked[1]))]:
-        line = f"TOOK {' '.join(took)}; {line}"
-    if ended_handler["brief"] or not ended_handler["pool"]:
-        done_record(name, Path(payload["cwd"]), f"handler-{payload['agent_id']}" + (f"-{ended_handler['items']}" if ended_handler["items"] else ""), line)
-    if ended_handler["pool"]:
-        slack.cc_slack("unfollow", "--channel", slack.dm(), "--session", payload["handler_session"], "--cwd", payload["cwd"])
-    else:
-        remove_session(name, payload)
-
-
-def done_record(name: str, cwd: Path, key: str, line: str) -> None:
-    """Post a done record from lane handler, idempotent on key, to the session the drive's handlers run beside."""
-    reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"{beside(state.saved(name))[0]}@{name}", "--id", key, "--text", line], cwd, reads.posting())
-
-
-def named_once(posted: list[str]) -> list[str]:
-    """Each say result a handler's posts returned, naming each permalink only where it first appears: an edit of a post already named, or a card's line in its own post's thread, adds no link the line already holds, and a result left with none drops out."""
-    seen: set[str] = set()
-    kept = []
-    for said in posted:
-        parts = []
-        for verb, links in SAY_RESULT.findall(said):
-            if fresh := [link for link in links.split() if link not in seen]:
-                seen.update(fresh)
-                parts.append(" ".join([verb, *fresh]))
-        if parts:
-            kept.append(" ".join(parts))
-    return kept
 
 
 def limit_hit(payload: dict) -> dict | None:
@@ -1301,22 +786,12 @@ def resume(payload: dict) -> str | None:
         return None
     transcript = Path(payload["transcript_path"])
     rows = tail(transcript)
-    handler = seen(payload)
-    if refused(last := next((row for row in reversed(rows) if row["type"] in ("user", "assistant")), {})):
-        if "handler_session" in handler:
-            end_handler(handler | {"last_assistant_message": notice(last)}, lambda _: None)
+    if refused(next((row for row in reversed(rows) if row["type"] in ("user", "assistant")), {})):
         return None
     tries = resumes(rows)
     if tries >= len(OUTAGE_WAITS):
-        if "handler_session" in handler:
-            restart_handler(names[0], handler)
         return None
     since = datetime.now(UTC)
-    if "handler_session" in handler:
-        def resume_write(data: dict):
-            data["handlers"][handler["agent_id"]]["resumes"] = state.stamp(since + timedelta(minutes=OUTAGE_WAITS[tries]))
-
-        state.update(names[0], None, resume_write)
     time.sleep(OUTAGE_WAITS[tries] * 60)
     if any(state.parse_time(row["timestamp"]) > since for row in tail(transcript) if row["type"] in ("user", "assistant")):
         return None
@@ -1329,26 +804,6 @@ def resumes(rows: list[dict]) -> int:
     return sum(row["type"] == "user" and RESUMED in str(row["message"]["content"]) for row in rows[calm + 1 :])
 
 
-def restart_handler(name: str, payload: dict) -> None:
-    """Start a handler whose turn an API error ended again once its four resumes met the error too, as the same handler on the brief its transcript opens with, kept for `drive handler-start`, so what it holds, its job, each post it made and each brief it was handed stay with it, those it took handed again, until a turn that answers posts its done; it reads as in flight until its new launch names its session, so the session it replaces, whose job `claude rm` takes, never frees what it holds and no brief meanwhile takes it. A restart the error meets again resumes and starts again the same way."""
-    kept = brief_path(name, payload["agent_id"])
-    kept.parent.mkdir(parents=True, exist_ok=True)
-    kept.write_text(opening(Path(payload["agent_transcript_path"])))
-    def restart_handler_write(data: dict):
-        entry = data["handlers"][payload["agent_id"]]
-        entry.update(session=None, started=state.stamp(), handed=[*entry["took"], *entry["handed"]], took=[])
-
-    state.update(name, None, restart_handler_write)
-    state.detach(name, ["handler-start", payload["agent_id"]], "handlers.log")
-    remove_session(name, payload)
-
-
-def remove_session(name: str, payload: dict) -> None:
-    """Remove a handler's ended session, which would otherwise sit idle holding its memory: `claude rm` takes the id of the background job Claude Code keeps for it. The session then stops hearing his DM, so cc-slack hands each reply of his it never took to the session holding his DM at once rather than once the process exits."""
-    end_bg(payload["handler_session"], Path(payload["cwd"]), removed=True)
-    slack.cc_slack("unfollow", "--channel", slack.dm(), "--session", payload["handler_session"], "--cwd", payload["cwd"])
-
-
 def ended(row: dict) -> bool:
     """Whether a transcript row is a response's last: the model stopped rather than for a tool call or a paused server tool, so the session's turn is over and its next wake starts another."""
     return row.get("type") == "assistant" and row["message"].get("stop_reason") not in (None, "tool_use", "pause_turn")
@@ -1357,6 +812,11 @@ def ended(row: dict) -> bool:
 def died(row: dict) -> bool:
     """Whether a transcript row is a response that ended on an API error or a refusal, the row Claude Code writes itself under model `<synthetic>` or one stopped for any reason but the end of its turn, so the agent's turn ended without its work and a SendMessage meets the same stop."""
     return ended(row) and (row["message"].get("stop_reason") != "end_turn" or row["message"].get("model") == SYNTHETIC)
+
+
+def limited(row: dict) -> bool:
+    """Whether a transcript row is a response a Claude usage limit stopped, Claude Code's notice "You've hit your weekly limit · resets …" or the API's "would exceed your account's rate limit": no outage to wait out, since Escape on its dialog keeps this Mac working on paid usage, by his words "Keep working on paid usage", so the watch restarts the agent or lane it stopped at once."""
+    return died(row) and bool(state.USAGE_LIMIT.search(text := notice(row)) or RATE_LIMITED in text)
 
 
 def refused(row: dict) -> bool:

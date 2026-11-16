@@ -599,7 +599,7 @@ function decisionCard(item, at, total) {
   const metrics = option.metrics.length ? `<dl class="story-metrics">${option.metrics.map((metric) => `<div><dd>${esc(metric.value)}</dd><dt>${esc(metric.label)}</dt></div>`).join('')}</dl>` : '';
   const pictured = item.option_pictures[showing].map((each) => (each.kind === 'image' ? shot(each.source, each.caption) : visual(each.kind, each.source, each.caption)));
   const media = pictured.length ? `<div class="story-outcome-media" data-option="${showing}"${pictured.length > 1 ? ` tabindex="0" aria-label="${pictured.length} pictures of this path"` : ''}>${pictured.join('')}</div>` : '';
-  const outcome = `<section class="story-outcome" aria-live="polite"><span class="eyebrow">${recommended ? 'Recommended outcome' : showing === state.selected ? 'Selected outcome' : 'Previewed outcome'}</span><h3>${esc(option.title)}</h3>${option.consequence ? `<p>${esc(option.consequence)}</p>` : ''}${media}${metrics}${item.card.hints?.[option.label] ? `<div class="story-hint">${prose(item.card.hints[option.label])}</div>` : ''}</section>`;
+  const outcome = `<section class="story-outcome" aria-live="polite"><span class="eyebrow">${recommended ? 'Recommended outcome' : showing === state.selected ? 'Selected outcome' : 'Previewed outcome'}</span><h3>${esc(option.title)}</h3>${option.consequence ? `<p>${esc(option.consequence)}</p>` : ''}${media}${metrics}${item.card.hints?.[option.label] ? (option.consequence ? `<details class="story-more"><summary>In the card's own words</summary><div class="story-hint">${prose(item.card.hints[option.label])}</div></details>` : `<div class="story-hint">${prose(item.card.hints[option.label])}</div>`) : ''}</section>`;
   const options = `<div class="story-options" role="group" aria-label="Choose a path">${story.options.map((choice, i) => `<button class="story-option" data-story-pick="${i}" data-story-card="${esc(key)}" aria-pressed="${i === state.selected}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.title)}</strong>${choice.label === item.card.recommended ? '<em>Recommended</em>' : ''}${story.format === 'lab' ? `<span class="option-metrics">${choice.metrics.map((metric) => `<span><b>${esc(metric.value)}</b>${esc(metric.label)}</span>`).join('')}</span>` : ''}</span><span aria-hidden="true">→</span></button>`).join('')}</div>`;
   const given = answers.get(key);
   const action = given?.done ? `<p class="answered">✓ ${esc(given.label)}</p>` : `<div class="story-action"><button class="btn" data-story-review="${esc(key)}"${given && !given.error ? ' disabled' : ''}>Review this choice <kbd>↵</kbd></button><small>Choose first. Review before sending.</small>${given?.error ? `<p role="alert">${esc(given.error)}</p>` : ''}</div>`;
@@ -727,7 +727,7 @@ function risks(entry, row, pr, read) {
   const proof = (entry?.staging ?? '').match(/\[proof\]\((https?:[^)\s]+)\)/)?.[1];
   const staged = proof ? `<li class="good"><span class="mark">✓</span><span>${link('Open its staging proof', proof)}</span></li>` : '';
   const said = RISK_FIELDS.filter(([field]) => row[field]).map(([field, label]) => {
-    const text = row[field].replace(/^\s*[-*•]\s*/, '').trim();
+    const text = unjobbed(row[field].replace(/^\s*[-*•]\s*/, '').trim());
     const [lead, rest] = firstSentence(text);
     const body = `<b>${esc(label)}.</b> ${inline(lead, pr)}`;
     return `<li><span class="mark">!</span>${rest ? `<details><summary>${body}</summary><p>${inline(rest, pr)}</p></details>` : `<span>${body}</span>`}</li>`;
@@ -954,6 +954,7 @@ const DONE_STATES = new Set(['merged', 'live']);
 const STAGE_ORDER = [['not started', 'Not started'], ['waiting', 'Waiting'], ['blocked', 'Blocked'], ['running', 'Being built'], ['built', 'Built, waits on you'], ['merged', 'Merged'], ['live', 'Live']];
 const BLOCK_DEFAULTS = { title: '', text: '', tone: 'plain', prs: [], questions: [], orders: [], beats: [], steps: [], options: [], before: '', after: '', diagram: '' };
 const appletPicks = new Map();
+const TOLD_MOMENTS = new Set(['order', 'answer', 'answered', 'tap', 'merged', 'live', 'failed']);
 
 function defaultLayout(page, shown) {
   const waiting = shown.prs.filter((entry) => entry.group === 'you').map((entry) => entry.key);
@@ -1023,7 +1024,8 @@ const APPLET_BLOCKS = {
       const options = item.card.options.map((label, i) => {
         const path = told?.options[i];
         const recommended = label === item.card.recommended;
-        return `<button class="ap-option${recommended ? ' recommended' : ''}" data-card="${esc(item.answer)}" data-label="${esc(label)}"${given && !given.error ? ' disabled' : ''}><strong>${esc(path?.title ?? decisionPlain(optionParts(label)[0]))}${recommended ? '<em>Recommended</em>' : ''}</strong>${path?.consequence ? `<small>${esc(path.consequence)}</small>` : ''}</button>`;
+        const acts = told ? `data-ap-decide="${esc(item.answer)}" data-index="${i}"` : `data-card="${esc(item.answer)}" data-label="${esc(label)}"`;
+        return `<button class="ap-option${recommended ? ' recommended' : ''}" ${acts}${given && !given.error ? ' disabled' : ''}><strong>${esc(path?.title ?? decisionPlain(optionParts(label)[0]))}${recommended ? '<em>Recommended</em>' : ''}</strong>${path?.consequence ? `<small>${esc(path.consequence)}</small>` : ''}</button>`;
       }).join('');
       return `<article class="ap-decision"><h3>${esc(told?.headline ?? item.headline ?? decisionPlain(item.title))}</h3>${told?.beats?.[0] ? `<p>${esc(told.beats[0].text)}</p>` : ''}<div class="ap-options">${options}</div>${given?.done || given?.label ? `<p class="answered">✓ ${esc(given.label)}</p>` : ''}<a class="linkish" href="${esc(item.href)}">Open its full story in the queue ›</a></article>`;
     }).join('')}</div>`);
@@ -1062,7 +1064,7 @@ const APPLET_BLOCKS = {
     }).join('')}</ol>`);
   },
   timeline(page, shown, block) {
-    const moments = shown.story.filter((entry) => entry.kind !== 'heard');
+    const moments = shown.story.filter((entry) => TOLD_MOMENTS.has(entry.kind));
     return moments.length ? blockShell(block, 'timeline', `<ol class="ap-timeline">${moments.slice(0, 12).map((entry) => `<li><time>${clock(entry.at)}</time><p>${momentText(entry)}</p></li>`).join('')}</ol>`, false) : '';
   },
   compare(page, shown, block) {
@@ -2543,7 +2545,7 @@ function morph(old, made) {
     if (old.nodeValue !== made.nodeValue) old.nodeValue = made.nodeValue;
     return;
   }
-  if (old.matches('.visual-host.drawn') && old.dataset.visual === made.dataset.visual && old.dataset.source === made.dataset.source) return;
+  if (old.matches('.visual-host.drawn')) return old.dataset.visual === made.dataset.visual && old.dataset.source === made.dataset.source ? undefined : old.replaceWith(made);
   if (old.matches('figure.recording') && old.dataset.recording === made.dataset.recording) return;
   if (old.matches('.story-outcome-media') && old.dataset.option !== made.dataset.option) old.scrollLeft = 0;
   if (old.matches('.packets')) return;
@@ -2850,6 +2852,11 @@ document.addEventListener('click', (event) => {
   }
   const pr = event.target.closest('button[data-pr]');
   if (pr) return openPR(pr.dataset.pr);
+  const deciding = event.target.closest('button[data-ap-decide]');
+  if (deciding) {
+    decisionStates.set(deciding.dataset.apDecide, { selected: Number(deciding.dataset.index), step: 0, compare: false });
+    return reviewDecision(deciding.dataset.apDecide);
+  }
   const approving = event.target.closest('button[data-ap-approve]');
   if (approving) {
     const page = model.pages.find((each) => approving.dataset.apApprove.startsWith(`${each.slug}:`));

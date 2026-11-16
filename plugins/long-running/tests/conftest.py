@@ -44,7 +44,6 @@ from drive import (
 )
 
 SESSION = "session-under-test"
-UNFROZEN = "\nRelease freezes: no release freeze or release hold of his stands"
 STANDING_FREEZE = {
     "freeze": {"id": "45ab54019c"},
     "text": "freeze 45ab54019c: everything until Nov 13, 5:00 PM for incident, set by Yasyf Mohamedali (to end it sooner, ask Yasyf Mohamedali, its owner, to lift it from its #releases post). Staging still ships.",
@@ -94,7 +93,6 @@ REAL_MACHINE = place.machine
 SPRITE_CONFIG = "4b925c205080" + "0" * 52
 LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
 INSTALLED_PLUGINS = ("cc-review@cc-review", "datadog@claude-plugins-official", "long-running@skills", "captain-hook@captain-hook", "open-pr@skills")
-REAL_PLUGIN_SERVERS = agents.plugin_servers
 SETTLED_NOTE = cli.settled_note
 POST_ASK = cli.post_ask
 SETTLED_MATCHED = settled.matched
@@ -464,9 +462,8 @@ def lane_spec(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def plugins_installed(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every leaf session the drive starts reads INSTALLED_PLUGINS as the plugins installed and starts each MCP server it is given under its plugin's name with nothing to run, never this Mac's; a test of either puts back REAL_PLUGIN_SERVERS."""
+    """Every leaf session the drive starts reads INSTALLED_PLUGINS as the plugins installed, never this Mac's."""
     monkeypatch.setattr(agents, "plugin_keys", lambda: list(INSTALLED_PLUGINS))
-    monkeypatch.setattr(agents, "plugin_servers", lambda wanted, checkout: {"mcpServers": {f"plugin:{plugin.split('@')[0]}:{server}": {} for plugin, server in wanted}})
 
 
 @pytest.fixture(autouse=True)
@@ -1584,14 +1581,11 @@ def unrecorded(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 @pytest.fixture(autouse=True)
 def detached_in_the_call(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Run the handler start `drive handler` detaches and the order record `say` detaches in the test's own process, the record with no session as state.detach runs it, so a test reads the `claude --bg` it ran and say's line carries its record, and start no `drive job start` the watch's start_jobs detaches, which a test runs itself where it reads one, and records in transcripts_kept the job of each transcript copy the watch detaches at a Sprite lane's turn end; every other detached verb is detached as before."""
+    """Run the order record `say` detaches in the test's own process, the record with no session as state.detach runs it, so say's line carries its record, and start no `drive job start` the watch's start_jobs detaches, which a test runs itself where it reads one, and records in transcripts_kept the job of each transcript copy the watch detaches at a Sprite lane's turn end; every other detached verb is detached as before."""
     detached, transcripts_kept = state.detach, []
 
     def detach(name: str, args: list[str], log: str) -> int:
         if args[:2] == ["job", "start"]:
-            return 0
-        if args[:1] == ["handler-start"]:
-            agents.start_kept(name, args[1])
             return 0
         if args[:1] == ["transcripts-keep"]:
             transcripts_kept.append(args[1])

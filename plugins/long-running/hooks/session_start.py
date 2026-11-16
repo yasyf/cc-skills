@@ -1,5 +1,4 @@
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -16,14 +15,14 @@ def role_context(session: str) -> str | None:
         return None
     data = state.load(bound[0])
     role = state.session_role(data, session)
-    project = state.session_project(data, session)
+    project = state.session_seat(data, session)
     context = render.context(data, role, project)
     agents.hold_rules(bound[0], session)
     if role == "coordinator":
         watch.ensure(bound[0])
     if state.scratch():
         return context
-    held = data["subcoordinators"][project] if project else data["roles"][role]
+    held = state.seat(data, session)
     try:
         agents.register(bound[0], role, project, str(orca.checkout(bound[0], held["cwd"])), session)
     except state.DriveError as error:
@@ -41,22 +40,7 @@ def respond(payload: dict) -> dict | None:
     return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}
 
 
-def open_item(handler_env: str) -> dict | None:
-    """A pool handler's open item as the drive's rows hold it, its brief and each brief handed to it since, so a wake, resume or compaction that lost its context reads its work again from the rows; None while it rests."""
-    name, _, handler = handler_env.partition("/")
-    entry = state.saved(name)["handlers"].get(handler)
-    if not entry or not entry["brief"]:
-        return None
-    briefs = "\n\n".join([entry["brief"], *entry["took"], *entry["handed"]])
-    text = f"Your open item, as the drive's rows hold it, which you have not finished: handle it by your definition and end on its line.\n\n{briefs}"
-    return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}
-
-
 def main() -> None:
-    if handler_env := os.environ.get(state.HANDLER_ENV):
-        if output := open_item(handler_env):
-            print(json.dumps(output))
-        return
     payload = json.load(sys.stdin)
     try:
         output = respond(payload)

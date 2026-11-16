@@ -5,7 +5,7 @@ import json
 import os
 import sys
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from datetime import datetime
 
 from drive import agents, brief, orca, spend, state, view, watch
@@ -21,13 +21,12 @@ HOST_CPU_LOAD_INFO = 3
 HOST_CPU_STATES = 4
 HOST_CPU_IDLE = 2
 CAPS_FILE = "caps.json"
-CAPS = {"local": 12, "sprite": 30, "handlers": 8, "handler_pool": 4, "load_per_core": 1, "free_memory": 15}
-CAP_NAMES = {"local": "local Claude lanes work", "sprite": "Sprite lanes run", "handlers": "handler sessions work"}
+CAPS = {"local": 12, "sprite": 30, "load_per_core": 1, "free_memory": 15}
+CAP_NAMES = {"local": "local Claude lanes work", "sprite": "Sprite lanes run"}
 LANES_FILE = "lane-counts.json"
 LANES_SECONDS = 20
 ADMISSION_LOCK = "admission.lock"
 TURN_SECONDS = 30
-REPORT_TURN_SECONDS = 60
 
 
 def cpu_ticks() -> tuple[int, int]:
@@ -116,11 +115,11 @@ def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> str | 
 
 
 def waiting_builders(data: dict) -> list[str]:
-    """The builder jobs waiting their turn for a slot on this Mac, a priority order's first, by state.first_in_line, then by where its project and workstream stand, by ranked, then the oldest added; a job moving here from its Sprite waits in whatever state its lane there left it."""
+    """The builder jobs waiting their turn for a slot on this Mac, a priority order's first, by state.first_in_line, then by where its project and workstream stand, by ranked, then the oldest added; a job moving here from its Sprite, or a running one whose brief's Mac line drive job launch queued here, waits in whatever state it is in."""
     waiting = [
         job_id
         for job_id, job in data["jobs"].items()
-        if state.SLOT_WAIT in job["waits"] and (job["state"] == "waiting" or on_sprite(job) and job["state"] not in state.FINISHED_JOB_STATES)
+        if state.SLOT_WAIT in job["waits"] and job["state"] not in state.FINISHED_JOB_STATES
     ]
     held = standings(data)
     return sorted(waiting, key=lambda job_id: (not state.first_in_line(data, data["jobs"][job_id]), *ranked(data, data["jobs"][job_id], held), state.parse_time(data["jobs"][job_id]["created"])))
@@ -161,7 +160,7 @@ def paused(data: dict, job_id: str, line: list[str]) -> str:
 
 
 def caps() -> dict[str, float]:
-    """The caps every drive and watch on this Mac shares on the Claude lanes it starts, read at each admission so a change holds at once: how many local Claude lanes, of any role, work at once, how many Sprite lanes run, how many handler sessions work across every drive and how many pool handlers each drive keeps warm, the 1-minute load per core and the percent of memory free past which no local lane starts, CAPS unless the owner's caps.json under the state root sets any of them, as {"local": 12, "sprite": 30, "handlers": 8, "handler_pool": 4, "load_per_core": 1, "free_memory": 15}."""
+    """The caps every drive and watch on this Mac shares on the Claude lanes it starts, read at each admission so a change holds at once: how many local Claude lanes, of any role, work at once, how many Sprite lanes run, the 1-minute load per core and the percent of memory free past which no local lane starts, CAPS unless the owner's caps.json under the state root sets any of them, as {"local": 12, "sprite": 30, "load_per_core": 1, "free_memory": 15}."""
     path = state.root() / CAPS_FILE
     return CAPS | (json.loads(path.read_text()) if path.is_file() else {})
 
@@ -206,11 +205,6 @@ def local_lanes(data: dict, moment: datetime) -> dict[str, str]:
     return jobs | watchdogs
 
 
-def handler_lanes(data: dict) -> dict[str, str]:
-    """The drive's handler sessions whose turn is not over, by agents.gone, which hold the handlers cap of their own pool and never the local cap, so a full local cap never holds back a post he waits on."""
-    return {f"handler {handler}": f"handler {handler}, its session {entry['session']}" for handler, entry in data["handlers"].items() if entry["session"] and not agents.gone(entry)}
-
-
 def sprite_lanes(data: dict, moment: datetime) -> dict[str, str]:
     """The drive's lanes running on a Sprite, each beside what it is doing: each running job whose live lane is on one, each launching its first, and each whose turn for one came within the time a launch takes, its lane not started yet."""
     return {
@@ -245,12 +239,11 @@ def lanes(moment: datetime) -> dict[str, dict[str, str]]:
         kept = json.loads(path.read_text())
         if (moment - state.parse_time(kept["at"])).total_seconds() < LANES_SECONDS:
             return kept["lanes"]
-    counted: dict[str, dict[str, str]] = {"local": {}, "sprite": {}, "handlers": {}}
+    counted: dict[str, dict[str, str]] = {"local": {}, "sprite": {}}
     for name in state.names():
         data = state.load(name)
         counted["local"] |= {f"{name}/{key}": line for key, line in local_lanes(data, moment).items()}
         counted["sprite"] |= {f"{name}/{key}": line for key, line in sprite_lanes(data, moment).items()}
-        counted["handlers"] |= {f"{name}/{key}": line for key, line in handler_lanes(data).items()}
     made = path.with_name(f"{LANES_FILE}.{os.getpid()}")
     made.write_text(json.dumps({"at": state.stamp(moment), "lanes": counted}))
     os.replace(made, path)
@@ -269,7 +262,7 @@ def preempts(data: dict, job: dict) -> bool:
 
 
 def admission(data: dict, job_id: str | None, where: str, moment: datetime) -> str | None:
-    """Why no new Claude lane starts now, where "local" for a lane on this Mac of any role and "sprite" for one on a Sprite, None when it may: one of a job preempts lets through starts at once; a job whose project spent its daily budget waits for the next day, by spend.over; a local one waits while strained reads this Mac loaded or short of memory, and either while the lanes every drive here runs fill its cap by caps, the job's own lane not counted. Its work waits its turn, never fails. A handler, where "handlers", has a pool of its own, the handlers cap, which the load gate closes and the local cap never touches."""
+    """Why no new Claude lane starts now, where "local" for a lane on this Mac of any role and "sprite" for one on a Sprite, None when it may: one of a job preempts lets through starts at once; a job whose project spent its daily budget waits for the next day, by spend.over; a local one waits while strained reads this Mac loaded or short of memory, and either while the lanes every drive here runs fill its cap by caps, the job's own lane not counted. Its work waits its turn, never fails."""
     job = data["jobs"].get(job_id) if job_id else None
     if job and preempts(data, job):
         return None
@@ -285,27 +278,7 @@ def admission(data: dict, job_id: str | None, where: str, moment: datetime) -> s
     return f"{len(held)} {CAP_NAMES[where]} across this Mac's drives, at its cap of {cap} set by {state.root() / CAPS_FILE} ({shown}{'; …' if len(held) > 5 else ''})"
 
 
-class Unadmitted(state.DriveError):
-    pass
-
-
 @contextlib.contextmanager
-def waited_turn(name: str, waiting: Callable[[], None], exempt: bool = False, within: float | None = None) -> Iterator[None]:
-    """Hold this Mac's admission lock once it admits a new handler session of the drive, by admission on the handlers pool, which the load gate closes and the local cap never does, calling waiting and reading again every TURN_SECONDS while it does not, so the start in the body waits its turn rather than failing, and drop the kept count once it started; an exempt start, a handler answering a message of his, runs at once."""
-    if exempt:
-        yield
-        counted_again()
-        return
-    while True:
-        with admitting():
-            if not admission(state.load(name), None, "handlers", state.now()):
-                yield
-                counted_again()
-                return
-        if within is not None and time.time() >= within:
-            raise Unadmitted(f"this Mac admitted no handler before its {REPORT_TURN_SECONDS}s turn ran out")
-        waiting()
-        time.sleep(TURN_SECONDS if within is None else max(0.0, min(TURN_SECONDS, within - time.time())))
 
 
 def await_admission(name: str, job_id: str, where: str) -> None:

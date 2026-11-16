@@ -157,7 +157,7 @@ RELEASE_HELD = (
     + ". Once he says releases can go again, his answer saying so supersedes the hold: `ccn answer supersede {hold} --by <id>`"
 )
 UNCARRIED = (
-    'refused: `--order {order}` names his answer to the card asking "{asked}", which names {named}, and {why}: start it from a commit'
+    '`--order {order}` names his answer to the card asking "{asked}", which names {named}, and {why}: start it from a commit'
     " holding each merged pull request that card names, such as `--from {newest}`, the newest of their merge commits, or name each in `--landed`"
 )
 JOB_HELD = (
@@ -359,8 +359,8 @@ def scope_refusal(release: str, record: dict, data: dict, said: str) -> str | No
     )
 
 
-def uncarried_refusal(command: str, data: dict) -> str | None:
-    """Why the one release a command starts may not start from its commit: the card his `--order` answer answers, by settled.answered_card, names a merged PR of the drive's checkout's repository, in a link of its words or by link or #N on its `Holds:` line, that its `--landed` does not name, and its `--from` or `--commit` lacks that PR's merge commit, as contained() reads it once each commit the checkout lacks is fetched by its sha, or it names no commit, so go/ci picks one; refused naming the newest of those merge commits to pass as `--from`, and naming the read when GitHub or git could not read one. A hotfix or rollback, a rehearsal() naming no `--order`, a PR the card names that has not merged, and an answer no kept card holds pass."""
+def uncarried(command: str, data: dict) -> str | None:
+    """The note a release start prints when its commit lacks a pull request his card names, never a refusal, since his answer can waive one: the card his `--order` answer answers, by settled.answered_card, names a merged PR of the drive's checkout's repository, in a link of its words or by link or #N on its `Holds:` line, that its `--landed` does not name, and its `--from` or `--commit` lacks that PR's merge commit, as contained() reads it once each commit the checkout lacks is fetched by its sha, or it names no commit, so go/ci picks one; refused naming the newest of those merge commits to pass as `--from`, and naming the read when GitHub or git could not read one. A hotfix or rollback, a rehearsal() naming no `--order`, a PR the card names that has not merged, and an answer no kept card holds pass."""
     from drive import github
 
     [flags] = map(settled.shipped, started(command))
@@ -394,7 +394,7 @@ def uncarried_refusal(command: str, data: dict) -> str | None:
         else:
             why = "this start names no `--from` or `--commit`, so go/ci picks the commit it ships, which may lack one"
     except github.GithubError as error:
-        return f"refused: whether this release's commit holds each merged pull request the card his `--order` answer answers names could not be read: {error}; run it again"
+        return f"whether this release's commit holds each merged pull request the card his `--order` answer answers names could not be read: {error}"
     return UNCARRIED.format(order=flags["order"][-1], asked=cut(asked.title, 200), named=", ".join(merges), why=why, newest=newest)
 
 

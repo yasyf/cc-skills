@@ -13,7 +13,7 @@ from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json", "dry_run"}
 OPS = {"order": ("add", "set", "posted", "told"), "job": ("add", "set", "brief"), "pr": ("add", "set"), "incident": ("open", "stop", "freeze")}
-ONE_VERB = {"heard": ("heard",), "handler": ("handler",), "status": ("status",), "search_plan": ("plan", "search"), "page": ("page", "make")}
+ONE_VERB = {"heard": ("heard",), "status": ("status",), "search_plan": ("plan", "search"), "page": ("page", "make")}
 POST_SECONDS = 60
 POSTED_KEPT = 100
 UNHEARD = "Opus did not read whether his words pick or direct ({failure}), so they could end a card he only asked about; run this again"
@@ -198,42 +198,11 @@ def verb_tools() -> list[dict]:
             "inputSchema": {"type": "object", "properties": {**schema(leaf("heard", root=root))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}},
         },
         {
-            "name": "handler",
-            "description": (
-                "Give a brief to the drive's warm pool of long-lived handler sessions. A brief carrying his words and his message's Link"
-                " goes through drive route first, which hears him and picks its route with one Jev call: the communicator's answer from the"
-                " rows, his owner record to the coordinator or the seat working its order, or a handler; any other brief goes to a handler."
-                " A resting pool handler is resumed with the brief as its next prompt, a busy one takes the brief at its next step, and a new session"
-                " starts only while the pool is below caps.json's handler_pool. Returns started <its id>, handed to <id>, ANSWERED or the record"
-                " line; the line each item ends on comes back as one cci done record from lane handler, and the session stays up for the next"
-                " item. The routes table keeps a thread, card or order on the handler that took it. A message of his and a thread each have one handler at a time: any brief, his words, a record or neither, in"
-                " a live handler's thread, a record's own thread, else the thread its brief's Link or Thread: line names, else its order's thread, on the message of his it"
-                " holds, or naming its record up a re chain or named by its record's, returns handed to <that handler's id>,"
-                " which takes it at its next step and covers it in its post, a copy of the same record or the same message of his"
-                " a live handler holds included, which adds nothing to it; a record whose post goes at the root of a channel outside"
-                " his DM, its until attr naming no thread, such as a staging claim, holds no thread, and one whose post goes elsewhere"
-                " than the thread of the message of his its re chain reaches holds no message of his, so neither waits on the handler"
-                " of his messages; it refuses only a POST report to the communicator"
-                " a post already carries, naming it, and starts no other report. records, the record tool's owner records of his words"
-                " for an order or alert, go out first in the same call, so a card his words withdraw or change ends before the"
-                " handler starts, and the brief's Context: line names them, so the handler sends no second record of those words;"
-                " a ruling's record, whose cc-notes answer the handler adds first, stays the handler's. For his read-only question, answer"
-                " alone adds his answer order and the handler's reader job on it in the same call, so no job call follows,"
-                " and the handler files that order under the project and workstream it reads his question is about; a brief"
-                " handed over adds neither."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "properties": {**schema(leaf("handler", root=root))["properties"], "records": {"type": "array", "items": item}, "drive": DRIVE, "dry_run": DRY_RUN},
-                "required": ["brief"],
-            },
-        },
-        {
             "name": "record",
             "description": (
                 "Send his words (owner), his answer to a card or this session's own answer to a record, re <seq> (answer), a step the session holding an order owes on it"
                 " (handoff) or a tool's refusal (defect) to another session of the drive in one call, as this session's role,"
-                " a handler's included: a defect reaches the meta session, an answer or handoff naming a job the coordinator session"
+                " a defect reaches the meta session, an answer or handoff naming a job the coordinator session"
                 " whose agent runs it on this Mac, the communicator's handoff naming no job the coordinator that wrote the record its"
                 " re answers, else the session holding the order its attrs.order names, as does any other session's handoff naming"
                 " no to, while any other session's record naming a to reaches that lane,"
@@ -337,17 +306,10 @@ def run(tool: str, name: str, arguments: dict) -> str:
     match tool:
         case "record":
             return record(name, listing(arguments, "records", "owner, answer, handoff or defect records"), dry_run)
-        case "heard" | "handler" | "status" | "search_plan" | "page":
-            records = arguments.pop("records", None)
-            sent = record(name, records, dry_run).splitlines() if records else []
-            if sent and not dry_run:
-                arguments["brief"] += f"\nContext: his owner record went out with the handler call: {'; '.join(sent)}"
+        case "heard" | "status" | "search_plan" | "page":
             said: list[str] = []
-            try:
-                printed, _ = ran(name, said, 1, ONE_VERB[tool], arguments, dry_run) or ([], [])
-            except DriveError as error:
-                raise DriveError("\n".join([*sent, str(error)])) from None
-            return "\n".join([*sent, *(said if dry_run or not printed else printed)])
+            printed, _ = ran(name, said, 1, ONE_VERB[tool], arguments, dry_run) or ([], [])
+            return "\n".join(said if dry_run or not printed else printed)
         case group:
             return batch(name, group, listing(arguments, "ops", ", ".join(OPS[group])), dry_run)
 
@@ -614,7 +576,13 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
             " its order and reader, by drive manual meta defect"
         )
     project = state.session_project(data, session)
-    lane, other = {"communicator": ("communicator", "root"), "meta": ("meta", "communicator")}.get(role) or (state.project_lane(project) if project else "root", "communicator")
+    if spoke := state.communicator_project(data, session):
+        lane, other = state.communicator_lane(spoke), state.project_lane(spoke) if spoke in data["subcoordinators"] else "root"
+    else:
+        lane, other = {"communicator": ("communicator", "root"), "meta": ("meta", "communicator")}.get(role) or (
+            state.project_lane(project) if project else "root",
+            state.communicator_lane(project) if project in data["communicators"] else "communicator",
+        )
     posts = []
     for index, item in enumerate(records, start=1):
         try:

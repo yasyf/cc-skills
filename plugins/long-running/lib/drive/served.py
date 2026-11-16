@@ -142,7 +142,7 @@ def check(name: str, unit: tuple[str, ...], bound: list[str]) -> dict[str, dict]
         raise Against(list(lacking), "; ".join(lacking.values()), cited, [*binding["cited"], *near])
     carried = (state.pr_key(url) for job in data["jobs"].values() if any(pr["url"] in job["prs"] for pr in prs.values()) for url in job["prs"])
     others = [other for other in dict.fromkeys(carried) if other in data["prs"] and other not in prs and data["prs"][other]["state"] != "closed"]
-    found = judged(name, words(data, list(prs.values()), orders, answered, near, others, [each for key in unit for each in owes[key]], ruled), reads)
+    found = judged(name, words(data, list(prs.values()), orders, answered, near, others, [each for key in unit for each in owes[key]], ruled), reads, [ruled_dir for _, _, ruled_dir in ruled])
     if against := [(item, changing) for item in found["against"] if not (changing := [key for key in unit if item["file"] in lines[key]]) or any(passed[key].get(item["file"]) != lines[key][item["file"]] for key in changing)]:
         faulted = [key for key in unit if any(not changing or key in changing for _, changing in against)]
         raise Against(faulted, "; ".join(f'{item["order"]} "{item["words"]}": {item["change"]}' for item, _ in against), cited, [*binding["cited"], *near])
@@ -675,25 +675,25 @@ def shown(changes: dict[str, dict], trees: dict[str, str]) -> str:
     return "\n".join([*out, *([f"{len(omitted)} files left out for length: {cut(', '.join(omitted), LEFT_OUT_CHARS)}"] if omitted else [])])
 
 
-def judged(name: str, said: str, changes: dict[str, dict]) -> dict:
-    """Where a Claude session given only Read, Grep and Glob over each change's tree, its repository's files at its head, kept for the PRs at those heads by judge_trees, which is the session's cwd and only --add-dir, judges of the change, by RULES, once it has listed each change to what already exists, before and after, reading at the head the code a hunk relies on that its diff does not show, such as a parent PR's lines under a stacked child: `against`, each place it goes against his words, empty when it meets them."""
+def judged(name: str, said: str, changes: dict[str, dict], ruled: list[str]) -> dict:
+    """Where a Claude session given only Read, Grep and Glob over each change's tree, its repository's files at its head under each directory its diff changes a file in and each ruled directory, by read_paths, kept for the PRs at those heads by judge_trees, which is the session's cwd and only --add-dir, judges of the change, by RULES, once it has listed each change to what already exists, before and after, reading at the head the code a hunk relies on that its diff does not show, such as a parent PR's lines under a stacked child: `against`, each place it goes against his words, empty when it meets them."""
     clone = state.load(name)["roles"]["coordinator"]["cwd"]
-    root = judge_trees(clone, changes)
+    root = judge_trees(clone, changes, ruled)
     trees = {key: str(root / tree_name(key)) for key in changes}
     prompt = f"<his_words>\n{said}\n</his_words>\n\n<change>\n{shown(changes, trees)}\n</change>"
     return structured(root, RULES, prompt, VERDICT, JUDGE_SECONDS, f"judging {', '.join(changes)} against his words", reads=True)
 
 
-def judge_trees(clone: str, changes: dict[str, dict]) -> Path:
+def judge_trees(clone: str, changes: dict[str, dict], ruled: list[str]) -> Path:
     """The folder holding each PR's files at its head, extracted once for those PRs at those heads and kept under the state root's judge-trees, so every check of the same heads, a retry or a check after his answers changed, reads it again with no extraction; built aside and renamed into place, so a second check building it meanwhile keeps the first, and the oldest beyond JUDGE_TREES kept that no check used for twice JUDGE_SECONDS deleted."""
     trees = state.root() / "judge-trees"
-    kept = trees / hashlib.sha256(json.dumps(sorted((key, read["head"]) for key, read in changes.items())).encode()).hexdigest()[:20]
+    kept = trees / hashlib.sha256(json.dumps([sorted((key, read["head"]) for key, read in changes.items()), sorted(ruled)]).encode()).hexdigest()[:20]
     if not kept.is_dir():
         trees.mkdir(parents=True, exist_ok=True)
         building = Path(tempfile.mkdtemp(prefix="drive-judge-", dir=trees))
         try:
             for key, read in changes.items():
-                tree(clone, key, read["head"], str(building))
+                tree(clone, key, read["head"], str(building), read_paths(read["diff"], ruled))
             building.rename(kept)
         except OSError:
             if not kept.is_dir():
@@ -702,9 +702,16 @@ def judge_trees(clone: str, changes: dict[str, dict]) -> Path:
             if building.exists():
                 shutil.rmtree(building)
     os.utime(kept)
-    stale = sorted((path for path in trees.iterdir() if path.is_dir() and not path.name.startswith("drive-judge-")), key=lambda path: path.stat().st_mtime, reverse=True)[JUDGE_TREES:]
-    for path in stale:
-        if time.time() - path.stat().st_mtime >= 2 * JUDGE_SECONDS:
+    aged = []
+    for path in trees.iterdir():
+        if path.name.startswith("drive-judge-"):
+            continue
+        try:
+            aged.append((path.stat().st_mtime, path))
+        except FileNotFoundError:
+            continue
+    for used, path in sorted(aged, reverse=True)[JUDGE_TREES:]:
+        if time.time() - used >= 2 * JUDGE_SECONDS:
             shutil.rmtree(path, ignore_errors=True)
     return kept
 
@@ -713,12 +720,20 @@ def tree_name(key: str) -> str:
     return key.replace("/", "-").replace("#", "-")
 
 
-def tree(clone: str, key: str, head: str, root: str) -> str:
-    """The directory under root holding the PR's files at its head, fetched into the clone, by fetched, and extracted from its objects with git archive."""
+def read_paths(diff: bytes, ruled: list[str]) -> list[str]:
+    """The paths of the repository the judge reads at a head: the directory of each file the diff changes, a file at the root alone, and each ruled directory but the root, whose ruling the judge reads against the diff's lines."""
+    return sorted({*(str(Path(path).parent) if Path(path).parent != Path(".") else path for path, _ in files(diff)), *(ruled_dir for ruled_dir in ruled if ruled_dir != ".")})
+
+
+def tree(clone: str, key: str, head: str, root: str, paths: list[str]) -> str:
+    """The directory under root holding the PR's files at its head under paths, those of them its head holds, fetched into the clone, by fetched, and extracted from its objects with git archive, never the whole tree."""
     fetched(clone, key, head)
     path = Path(root, tree_name(key))
     path.mkdir()
-    with subprocess.Popen(["git", "-C", clone, "archive", head], stdout=subprocess.PIPE) as archive:
+    held = subprocess.run(["git", "-C", clone, "ls-tree", "--name-only", head, "--", *paths], capture_output=True, text=True, check=True).stdout.splitlines() if paths else []
+    if not held:
+        return str(path)
+    with subprocess.Popen(["git", "-C", clone, "archive", head, "--", *held], stdout=subprocess.PIPE) as archive:
         subprocess.run(["tar", "-x", "-C", str(path)], stdin=archive.stdout, check=True)
     if archive.returncode:
         raise subprocess.CalledProcessError(archive.returncode, archive.args)

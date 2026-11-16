@@ -216,15 +216,11 @@ def test_a_reader_or_designer_posting_to_him_is_refused_and_its_defect_goes_out_
         assert "drive job report <j>" in reason and "meta@<drive>" in reason
     assert record_lines.decision(by("long-running:reader", kind="defect", text="drive job report fails", to=META)) is None
     assert record_lines.decision(by("long-running:reader", kind="defect", text="drive job report fails", to=TO))["updatedInput"]["to"] == META
-    assert record_lines.decision(by("long-running:handler", kind="decision", text="j12 found the leak", to=["owner@demo"])) is None
 
 
-def test_a_handler_returns_a_defect_line_instead_of_posting_one(communicator: str) -> None:
-    reason = refusal(record_lines.decision(by("long-running:handler", kind="defect", text="cc-slack say fails", to=["root@demo"])))
-    assert "DEFECT <tool>" in reason
+def test_a_communicators_or_designers_defect_to_the_meta_session_goes_out(communicator: str) -> None:
     assert record_lines.decision(post(lane="communicator", kind="defect", text="cc-slack say fails", to=META)) is None
     assert record_lines.decision(by("long-running:designer", kind="defect", text="drive job ask fails", to=META, lane="communicator")) is None
-    assert record_lines.decision(by("long-running:handler", kind="report", text="POST j12 merged", to=TO, lane="handler", attrs=PROGRESS)) is None
 
 
 def test_a_post_goes_out_as_its_sessions_lane_and_an_agents_post_to_that_lane_alone_as_the_agents_own(
@@ -243,9 +239,6 @@ def test_a_post_goes_out_as_its_sessions_lane_and_an_agents_post_to_that_lane_al
     assert record_lines.decision(post("iris-1", "iris", **defect)) is None
     fyi = {"kind": "report", "text": "FYI j12 merged", "to": ["root@demo"]}
     assert record_lines.decision(by("long-running:builder", **fyi))["updatedInput"] == {"lane": "builder"} | fyi
-    relayed = by("long-running:handler", session="talker", lane="communicator", kind="report", text="POST j12 merged", to=TO, attrs=PROGRESS)
-    assert record_lines.decision(relayed)["updatedInput"]["lane"] == "handler"
-    assert record_lines.decision(by("long-running:handler", session="talker", kind="decision", text="j12 merged", to=["root@demo"]))["updatedInput"]["lane"] == "communicator"
 
 
 def test_725715_a_post_naming_another_drive_goes_out_on_the_sessions_own_drive_and_lane_to_that_drives_lanes_as_cci_refuses_a_foreign_drive(demo: str) -> None:
@@ -544,7 +537,7 @@ def said(count: int) -> str:
     return " ".join(["word"] * count)
 
 
-def test_a_post_report_past_a_posts_length_goes_to_the_handler_whose_post_say_checks(demo: str) -> None:
+def test_a_post_report_past_a_posts_length_goes_to_the_communicator_whose_post_say_checks(demo: str) -> None:
     assert "permissionDecision" not in record_lines.decision(post(kind="report", text=f"POST {said(90)}", to=TO, attrs=PROGRESS))
 
 

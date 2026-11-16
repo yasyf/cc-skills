@@ -7,7 +7,7 @@ description: Use when work will outlive one context window, spans several PRs or
 
 A drive is three Claude Code sessions, the communicator, coordinator and meta session, and their jobs. The top coordinator and the designer run Fable 5.2 (`claude-fable-5-2`); every other session runs Opus 5.5 (`claude-opus-5-5`) advised by Fable (`start`), and every other agent Opus, Sonnet only for a one-fact lookup.
 
-The communicator is the only session he talks to, and it answers him itself. It reads his message against the whole thread, shows progress in the thread's status, posts the answer with `say`, and gives a long read to a background Explore or Sonnet subagent so his next message never waits. No handler session starts: a `POST` report, and the watch's `ANSWER THIS:` note on a record to post or a message of his unanswered for 10 minutes, are the communicator's to post (`communicator`). He reads only Slack, and no session has AskUserQuestion.
+The communicator is the only session he talks to, and it answers him itself. It reads his message against the whole thread, shows progress in the thread's status, posts the answer with `say`, and gives a long read to a background Explore or Sonnet subagent so his next message never waits. A `POST` report, and the watch's `ANSWER THIS:` note on a record to post or a message of his unanswered for 10 minutes, are the communicator's to post (`communicator`). He reads only Slack, and no session has AskUserQuestion.
 
 The coordinator turns his messages into orders and gives each to one job that owns it end to end: code, PR, CI, merge, install, check (`jobs`). It routes its watch's events, lands, installs and reports. The meta session does the same for the drive's own tools (`meta`).
 

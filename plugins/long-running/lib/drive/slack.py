@@ -76,9 +76,13 @@ def handle() -> str:
     return whoami()["handle"]
 
 
-def channel_name(name: str, project: str | None = None) -> str:
-    """The name of a drive's private channel: his handle, drive and the drive's name, as ada-drive-launch, then for a project's own channel the project's words but a leading article, lowercased and joined by hyphens, as ada-drive-launch-search, cut to Slack's 80 characters."""
-    words = re.findall(r"[a-z0-9]+", re.sub(r"^(the|an?)\s+", "", project.casefold())) if project else []
+def channel_name(name: str, project: str | None = None, priority: str | None = None) -> str:
+    """The name of a drive's private channel: his handle, drive and the drive's name, as ada-drive-launch, then for a priority seat prio and the words naming what it holds, as ada-drive-launch-prio-releases, by his words "it should probably be called something like yasyf-drive-durable-agents-prio-XXX", and for a project's own channel the project's words but a leading article and a leading drive, which the name carries already, lowercased and joined by hyphens, as ada-drive-launch-search and ada-drive-launch-tooling, so no project channel reads as the drive's own in a sidebar that cuts names short; cut to Slack's 80 characters."""
+    if priority:
+        words = ["prio", *re.findall(r"[a-z0-9]+", priority.casefold())]
+    else:
+        words = re.findall(r"[a-z0-9]+", re.sub(r"^(the|an?)\s+", "", project.casefold())) if project else []
+        words = words[1:] if words[:1] == ["drive"] and len(words) > 1 else words
     return "-".join([handle(), "drive", name, *words])[:80].rstrip("-")
 
 

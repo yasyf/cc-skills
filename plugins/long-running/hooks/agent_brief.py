@@ -180,7 +180,7 @@ def in_line(data: dict, job_id: str) -> str:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session may not start this agent, in the shape `agents.shaped` gives its call: a handler starts with the drive's handler tool, a reader, builder or designer starts only on a brief the drive wrote, a build order's codex lane waits on its reader's research, a reader or designer starts here only while this Mac admits a local Claude lane, by unadmitted, drive tooling is the meta session's alone, a builder's Goal that is a pass over a team's data names what it runs as, a monorepo builder starts here over this Mac's load limit only when its brief declares a step only this Mac runs, and a builder starts here only in its turn for one of this Mac's builder slots."""
+    """Why a drive session may not start this agent, in the shape `agents.shaped` gives its call: a reader, builder or designer starts only on a brief the drive wrote, a build order's codex lane waits on its reader's research, a reader or designer starts here only while this Mac admits a local Claude lane, by unadmitted, drive tooling is the meta session's alone, a builder's Goal that is a pass over a team's data names what it runs as, a monorepo builder starts here over this Mac's load limit only when its brief declares a step only this Mac runs, and a builder starts here only in its turn for one of this Mac's builder slots."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
@@ -192,12 +192,6 @@ def deny_reason(payload: dict) -> str | None:
     call = payload["tool_input"]
     kind = call.get("subagent_type") or ""
     prompt = call.get("prompt") or ""
-    if kind == agents.HANDLER:
-        return agents.Unjudged(
-            "refused: a handler starts with the drive's handler tool, this prompt its brief, as its own claude --bg session"
-            " whose line comes back as one cci record, never through the Agent tool, whose launch and finish notices add"
-            " 2,232 characters to your context"
-        )
     if kind in BRIEFED and (refused := unbriefed(names[0], data, prompt, kind)):
         return refused
     text = brief.carried(prompt)

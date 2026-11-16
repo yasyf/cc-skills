@@ -648,7 +648,7 @@ def kept_later(known: dict[str, tuple[str, dict]], changes: dict[str, dict]) -> 
 
 
 def record_kept(name: str, kept: Path) -> None:
-    """Apply a receipt kept_later kept to the drive in one write that is never refused, since the card is already drawn: each PR's stack, its undrawn pictures and its refusal, telling the session hearing its order a reason it was not told before, so a refusal cc-slack gives again after every draw is told once until its reason changes; a PR the drive stopped tracking since is passed over. The receipt is removed once applied."""
+    """Apply a receipt kept_later kept to the drive in one write that is never refused and waits out the drive's lock however long it is held, since the card is already drawn: each PR's stack, its undrawn pictures and its refusal, telling the session hearing its order a reason it was not told before, so a refusal cc-slack gives again after every draw is told once until its reason changes; a PR the drive stopped tracking since is passed over. The receipt is removed once applied."""
     changes = json.loads(kept.read_text())
 
     def applied(data: dict) -> list[tuple[str, dict]]:
@@ -669,7 +669,9 @@ def record_kept(name: str, kept: Path) -> None:
                 events.append(("refused", told | {"reason": change["refused"]}))
         return events
 
-    for kind, fields in state.update(name, None, applied):
+    with state.waiting_out_lock():
+        events = state.update(name, None, applied)
+    for kind, fields in events:
         state.append_event(name, kind, **fields)
     kept.unlink()
 
@@ -927,7 +929,7 @@ def unrecorded(name: str, ask: dict, tap: str, failure: Exception) -> None:
 
 def answer_question(name: str, ask: dict) -> dict:
     """What question_answered does once it heard his tap, which land.start runs for each card his Approve on a PR picks an option on, that Approve heard already, with its Slack action, which dates the answer record and keeps it idempotent; his tap ends each question on the card view.tappable lets it, in place of whatever answer of his ended it before the tap, whose cc-notes answer recording the tap supersedes, and the question's own card follows when he tapped another copy of it."""
-    from drive import settled, superseded, tools, view
+    from drive import agents, settled, superseded, tools, view
 
     undone = bool(ask.get("undone"))
     data = state.load(name)
@@ -946,8 +948,8 @@ def answer_question(name: str, ask: dict) -> dict:
             raise state.DriveError(tools.UNHEARD.format(failure=failure)) from failure
         if asks:
             thread = view.card_thread(ask["url"])
-            state.detach(name, ["route", f"Message (his words): {ask['label']}\nLink: {ask['url']}\nThread: {state.slack_message(ask['url'])[0]} {thread}\nDrive: {name}\nScratch: {state.drive_dir(name) / 'scratch' / f'other-{thread}'}\nContext: his words in the Other box of the question card {ask['waits']}, which they answer nothing on"], "routes-run.log")
-            return {"ok": False, "asks": True, "routed": True, "why": asks}
+            agents.handle(name, f"Message (his words): {ask['label']}\nLink: {ask['url']}\nThread: {state.slack_message(ask['url'])[0]} {thread}\nDrive: {name}\nScratch: {state.drive_dir(name) / 'scratch' / f'other-{thread}'}\nContext: his words in the Other box of the question card {ask['waits']}, which they answer nothing on")
+            return {"ok": False, "asks": True, "handed": True, "why": asks}
     closed = state.new_close("answered", said, ask["url"], at=state.tap_time(item.get("id")), tap=ask.get("action_ts"))
     if undone and (drawn := view.drawn_on(data, ask["waits"], ask["url"])):
         if not (taken := answered_at(data, drawn, ask["url"])):

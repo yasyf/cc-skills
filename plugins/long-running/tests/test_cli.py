@@ -5001,6 +5001,38 @@ def test_job_ask_drop_answer_on_his_tooling_ruling_ends_a_drawn_tooling_card_dec
     assert state.load("demo")["jobs"]["j1"]["questions"][-1]["closed"] is None
 
 
+def test_job_ask_drop_answer_on_his_unwaited_words_records_the_drives_decision_as_an_answer_of_its_own_that_drive_answer_dropped_takes_and_refuses_an_options_only_order(
+    run: Run, asking: str, recorded: Answers, noted: list[tuple[str, str, str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    recorded.shown["11e3586"] = {"id": "11e358629f6fbfa73016db3665bb8f48b2110219", "title": "On.", "body": settled.UNWAITED_SAID, "tags": ["from:owner", "scope:durable"]}
+    title = SHORT_ASK.splitlines()[0].removeprefix("ASK ")
+    kept = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(SHORT_ASK)}.md"
+    kept.parent.mkdir(exist_ok=True)
+    kept.write_text(SHORT_ASK)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"] = [state.new_question(str(kept), title, state.stamp(), card=DESIGN_CARD) | {"waits": "demo:j1-7"}]
+        data["orders"]["o1"]["options_only"] = True
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: calls.append(argv) or {"answered": True})
+    assert cli.main(["job", "ask", asking, "--drop", str(kept), "--answer", "11e3586"]) == 2
+    assert "j1's order o1 is limited to options, so its card stays his until he picks" in capsys.readouterr().err
+    assert (noted, calls, state.load("demo")["jobs"]["j1"]["questions"][-1]["closed"]) == ([], [], None)
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["options_only"] = False
+    option = "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests"
+    words = settled.UNWAITED.format(option=option)
+    decided = f"1c0ffee{'0' * 33}"
+    code, out = run("job", "ask", asking, "--drop", str(kept), "--answer", "11e3586")
+    assert code == 0
+    assert out.splitlines()[0] == f'j1\'s question "{render.cut(title, 80)}" ended decided by the drive on its recommended option, "{option}", under his words 11e3586, as its answer {decided}'
+    assert f"drive answer {decided} --dropped o1:<part> takes off each part its pick rules out" in out
+    assert noted == [("demo", title, words)]
+    data = state.load("demo")
+    closed = data["jobs"]["j1"]["questions"][-1]["closed"]
+    assert (closed["how"], closed["words"], closed["answer"]) == ("answered", words, decided)
+    assert (data["answers"][decided]["words"], data["answers"][decided]["link"], data["answers"][decided]["cards"]["demo:j1-7"]["mark"]) == (words, DESIGN_CARD, "settled")
+
+
 def test_a_card_whose_summary_cites_320b7a7_draws_already_answered_with_his_words_and_the_link_drive_answer_kept_and_his_tap_closes_it_on_them(
     run: Run, asking: str, recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -7469,7 +7501,7 @@ def test_a_pr_whose_job_carries_one_part_of_its_order_passes_on_that_part_while_
     run("pr", "add", PR, "--job", "j1", *LEAD)
     run("pr", "add", STACKED, "--job", "j2", *LEAD)
     refused = {"order": "o1", "words": purpose, "file": "", "change": "Agent.purpose still reads the agents table"}
-    monkeypatch.setattr(served, "judged", lambda name, said, changes: judge.asked.append((said, changes)) or {"against": [] if f"other changes deliver: {purpose}" in said else [refused]})
+    monkeypatch.setattr(served, "judged", lambda name, said, changes, ruled: judge.asked.append((said, changes)) or {"against": [] if f"other changes deliver: {purpose}" in said else [refused]})
     assert cli.main(["pr", "check", PR, "--drive", demo]) == 0
     said, changes = judge.asked[-1]
     assert (list(changes), f"this change delivers: {sessions}\n" in said) == (["Forge-AI/monorepo#42"], True)
@@ -7485,7 +7517,7 @@ def test_a_pr_set_to_serve_an_order_its_job_carries_is_judged_against_that_order
         state.carry(data, "j1", "o2", [grant])
     recorded.shown["3185177"] = DOORS | {"id": "3185177", "title": "How does a grant reach the guards?", "body": f"{grant}; the guards admit it then, never otherwise. One PR"}
     judge.against = [{"order": "o1", "words": "land it", "file": "", "change": "no moved table"}]
-    monkeypatch.setattr(served, "judged", lambda name, said, changes: judge.asked.append((said, changes)) or {"against": list(judge.against) if '"land it"' in said else []})
+    monkeypatch.setattr(served, "judged", lambda name, said, changes, ruled: judge.asked.append((said, changes)) or {"against": list(judge.against) if '"land it"' in said else []})
     assert run("pr", "set", PR, "--serves", "o2", "--design", "asked:3185177")[0] == 0
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}") == (0, "")
     assert cli.main(["pr", "check", PR, "--drive", "demo"]) == 0
@@ -10836,66 +10868,6 @@ def test_a_drive_tooling_order_his_words_already_hold_adds_none(run: Run, demo: 
     assert list(state.load("demo")["orders"]) == ["o1"]
 
 
-def drive_terms(text: str, asked: list[str]) -> list[str]:
-    return [f"1:{found.start() + 1} drive-term {found[0]!r}: say what happens to the reader's work instead" for found in re.finditer(r"(?<![\w./:-])[oj]\d{2,}\b", text)]
-
-
-@pytest.mark.parametrize(
-    ("flagged", "reworded"),
-    [
-        (
-            "Drive tooling: the thread reader cannot open a teammate's session (defect 661904, j844): its script takes only a local path",
-            "Drive tooling: the thread reader cannot open a teammate's session: its script takes only a local path",
-        ),
-        (
-            "Drive tooling: say refuses the PR card of o341, whose words check-post refuses",
-            "Drive tooling: say refuses a PR card whose tooling order's words check-post refuses",
-        ),
-    ],
-)
-def test_a_drive_tooling_orders_words_pass_check_post_since_his_pr_card_quotes_them(
-    run: Run, demo: str, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, flagged: str, reworded: str
-) -> None:
-    monkeypatch.setattr(slack, "check_post", drive_terms)
-    filed = ["order", "add", "--title", "Short title", "--project", "p", "--workstream", "w"]
-    assert cli.main([*filed, flagged]) == 2
-    refused = capsys.readouterr().err
-    assert refused.startswith(f"drive: refused, `cc-slack check-post` finds {'; '.join(drive_terms(flagged, []))}; ")
-    assert 'a "Drive tooling:" order\'s words reach him verbatim, quoted on the line above its PR card' in refused
-    assert refused.count("\n") == 1 and flagged not in refused
-    assert run(*filed, reworded) == (0, "o1")
-    assert run(*filed, "send j844's numbers to o341's thread") == (0, "o2")
-    with state.edit("demo") as data:
-        data["orders"]["o1"]["text"] = flagged
-    assert cli.main(["order", "set", "o1", "--words", flagged]) == 2
-    assert capsys.readouterr().err == refused
-    assert cli.main(["order", "set", "o1", "--words", "the thread reader opens a teammate's session"]) == 2
-    assert cli.main(["order", "set", "o2", "--words", "Drive tooling: send the numbers"]) == 2
-    assert capsys.readouterr().err.count('--words: refused, only a "Drive tooling:" order\'s words change') == 2
-    assert run("order", "set", "o1", "--words", reworded)[0] == 0
-    assert [order["text"] for order in state.load("demo")["orders"].values()] == [reworded, "send j844's numbers to o341's thread"]
-
-
-def commit_shas(text: str, asked: list[str]) -> list[str]:
-    return [f"1:{found.start() + 1} commit-sha {found[0]!r}: link the commit" for found in re.finditer(r"\b[0-9a-f]{7}\b", text)]
-
-
-def test_a_drive_tooling_orders_words_may_cite_his_ruling_by_its_answer_id_but_never_an_unlinked_commit(
-    demo: str, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def shown(answer_id: str, cwd: str) -> dict:
-        if answer_id != "f03a0aa":
-            raise state.DriveError(f"could not read his answer {answer_id}")
-        return {"body": "you need to fix the hookw henver it wrongly refuses yu"}
-
-    monkeypatch.setattr(slack, "check_post", commit_shas)
-    monkeypatch.setattr(settled, "shown", shown)
-    filed = ["order", "add", "--title", "Short title", "--project", "p", "--workstream", "w"]
-    assert cli.main([*filed, 'Drive tooling: check-post wrongly refuses handler posts; his ruling f03a0aa: "you need to fix the hookw henver it wrongly refuses yu"']) == 0
-    assert cli.main([*filed, "Drive tooling: revert 1a2b3c4, which broke the card hook"]) == 2
-    assert "finds 1:23 commit-sha '1a2b3c4': link the commit;" in capsys.readouterr().err
-
-
 def test_a_drive_tooling_order_with_no_project_or_workstream_is_filed_under_the_drive_and_his_order_is_refused_naming_the_pairs_in_use(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -12927,7 +12899,7 @@ def test_a_staging_release_start_names_one_rehearsal_env_alone() -> None:
     assert (brief.leased_env(start.split()), brief.leased_env("tools/ci release start api --order 23eefb9".split()), brief.leased_env(f"{start} --env core-usw2-prod".split())) == ("plat-usw2-staging", None, None)
 
 
-def test_dropping_an_order_whose_staging_test_holds_a_dangerous_pr_is_refused_naming_the_pr(
+def test_dropping_an_order_closes_its_open_prs_with_the_reason_and_is_refused_while_one_is_queued_to_land(
     run: Run, demo: str, on_github: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     dangerous_repo(tmp_path, on_github, ["api/migrations/1700_add_runs.sql"])
@@ -12936,10 +12908,18 @@ def test_dropping_an_order_whose_staging_test_holds_a_dangerous_pr_is_refused_na
     key = "Forge-AI/monorepo#42"
     reaching(monkeypatch, key)
     run("pr", "add", PR, "--job", "j1", *LEAD)
-    assert state.dangerous_staged(state.load("demo"), "o1") == [key]
+    closed: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(github, "close", lambda url, comment=None: closed.append((url, comment)))
+    with state.edit("demo") as data:
+        data["prs"][key]["stage"] = {"name": "landing", "owner": "the lander", "since": state.stamp()}
     code, out = run("order", "set", "o1", "--state", "dropped", "--note", "backlog cut")
-    assert (code, f"o1: refused, {key} waits on o1's staging test, staged because its head changes a dangerous class of file" in out) == (2, True)
-    assert state.load("demo")["orders"]["o1"]["state"] not in state.CLOSED_ORDER_STATES
+    assert (code, f"o1: refused, nothing changed: {key} is queued to land" in out, closed) == (2, True, [])
+    with state.edit("demo") as data:
+        data["prs"][key]["stage"] = None
+    code, out = run("order", "set", "o1", "--state", "dropped", "--note", "backlog cut")
+    data = state.load("demo")
+    assert (code, closed, data["prs"][key]["state"], data["jobs"]["j1"]["state"]) == (0, [(PR, "Closed by the drive: backlog cut.")], "closed", "stopped")
+    assert f"{key} closed with o1: backlog cut" in out
 
 
 def test_a_new_waiting_replaces_a_jobs_staging_waits_and_a_withdrawn_cut_frees_a_wait_on_its_commit(
@@ -12978,3 +12958,12 @@ def test_a_status_of_one_job_prints_that_jobs_row_and_its_prs_not_its_whole_orde
     code, out = run("status", "j1")
     assert (code, "j1 builder" in out, "j2 builder" not in out, "the proof" not in out) == (0, True, True, True)
     assert set(run("job", "show", "j1", "--json")[1] and json.loads(run("job", "show", "j1", "--json")[1])["jobs"]) == {"j1"}
+
+
+def test_the_jobs_page_names_the_hand_over_the_repository_settings_give(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(state, "resolve", lambda name=None: "d")
+    monkeypatch.setattr(state, "load", lambda name: {"name": "d", "roles": {"coordinator": {"cwd": "/clone"}}, "subcoordinators": {}})
+    monkeypatch.setattr(state, "repo_config", lambda data: {"mac_box": {"hand_over": "tools/ci mac-box up {box} --holder {holder} --from {from}"}})
+    assert cli.hand_over_filled("run <mac box hand over> first", None) == "run `tools/ci mac-box up <box> --holder <drive>/<new job> --from <drive>/<old job>` first"
+    monkeypatch.setattr(state, "repo_config", lambda data: {})
+    assert cli.hand_over_filled("run <mac box hand over> first", None) == "run the `[mac_box] hand_over` command of the repository's `.claude/long-running.toml` first"

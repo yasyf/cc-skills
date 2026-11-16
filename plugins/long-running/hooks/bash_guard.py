@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, brief, github, install, land, limits, orca, state
+from drive import agents, brief, github, install, land, limits, orca, reports, state
 from drive.orca import OrcaError
 from drive.shell import KEYWORDS, Case, Function, Loop, expanded, grouped, literal, runnable, simple_commands, spread
 
@@ -39,18 +39,12 @@ RERUNS = {
 HELP = frozenset({"-h", "--help", "-help"})
 DEV = "dev"
 RETRY_PATH = re.compile(r"(?:^|/)(?:organizations/(?P<org>[\w-]+)/)?pipelines/(?P<pipeline>[\w.-]+)/builds/(?P<number>\d+)/(?:jobs/(?P<job>[\w-]+)/retry|rebuild)/?$")
-PASSED = frozenset({"passed", *(conclusion.lower() for conclusion in github.PASSED)})
 FAILED = frozenset({"failed", "canceled", "timed_out", "expired", *(conclusion.lower() for conclusion in github.FAILED)})
 FLAKE = "--flake"
 FIX_THE_CAUSE = (
     f"a check that fails is fixed at its cause, never retried past with {FLAKE} or a rerun. Read the failed job's own output"
     " with `tools/ci bk log '<job URL>'`, or `gh run view <run> --log-failed` on GitHub Actions, fix the cause and push the"
     " fix; a test that flakes gets a flake fix of its own"
-)
-RERUN_PASSED = (
-    "refused: `{step}` reruns {target}, which reads `{state}`, and a drive session reruns only a build, job or run that"
-    " passed, such as for a forced uncached regrade of a green build, since a rerun of one that did not pass retries past its"
-    " check, and one still running is waited out: " + FIX_THE_CAUSE
 )
 RERUN_FAILED = (
     "refused: `{step}` reruns {target}, which reads `{state}`, and the watchdog reruns only a build that failed, by his pick"
@@ -188,6 +182,13 @@ def option(words: list[str], name: str) -> str | None:
     return given[-1] if given else None
 
 
+def cci_chatter(found: list[list[str]]) -> str | None:
+    """Why a `cci post` from a drive session, agent or lane is chatter, as the cci post hook reads the same record, by reports.chatter."""
+    posts = [words for words in found if verb(words)[:2] == ["cci", "post"]]
+    records = [{"kind": option(words, "--kind"), "to": [value for flag, value in pairwise(words) if flag == "--to"], "text": option(words, "--text")} for words in posts]
+    return next(filter(None, map(reports.chatter, records)), None)
+
+
 def terminal_scripts(found: list[list[str]]) -> list[list[list[str]]]:
     """The commands each `orca terminal create --command` starts its terminal with."""
     return [commands(runnable(option(words, "--command") or "")) for words in found if verb(words)[:3] == ["orca", "terminal", "create"]]
@@ -273,21 +274,19 @@ def shell_after_claude(scripts: list[list[list[str]]]) -> str | None:
 
 
 def reran(found: list[list[str]], cwd: str, watchdog: bool = False) -> str | None:
-    """Why a call retries past a failing check, or reruns what the watchdog may not: `stack-enqueue --flake` requeues a PR past its failed verification; a drive session's rerun names a build, job or run that reads anything but passed, and the watchdog's one that reads anything but failed, by his pick that it reruns a failed build; and a rerun whose target's state could not be read waits until it can."""
+    """Why a call retries past a failing check, or reruns what the watchdog may not: `stack-enqueue --flake` requeues a PR past its failed verification; a drive session reruns what it judges a rerun remedies, a release job its tool names the rerun for included, and the watchdog only one that reads failed, by his pick that it reruns a failed build, waiting while that state could not be read."""
     for words in found:
         if verb(words)[0] == "stack-enqueue" and any(word == FLAKE or word.startswith(f"{FLAKE}=") for word in words):
             return f"refused: `stack-enqueue {FLAKE}` retries past a failing check, and {FIX_THE_CAUSE}"
-        if (rerun := rerun_target(words, cwd)) is None:
+        if not watchdog or (rerun := rerun_target(words, cwd)) is None:
             continue
         step, read = rerun
         try:
             target, reads = read()
         except github.GithubError as error:
             return RERUN_UNREAD.format(step=step, error=error)
-        if watchdog and reads not in FAILED:
+        if reads not in FAILED:
             return RERUN_FAILED.format(step=step, target=target, state=reads, command=" ".join(words))
-        if not watchdog and reads not in PASSED:
-            return RERUN_PASSED.format(step=step, target=target, state=reads)
     return None
 
 
@@ -816,12 +815,13 @@ def deny_reason(payload: dict) -> str | None:
     if (drives or kind.startswith(AGENTS) or os.environ.get(state.REMOTE_LANE_ENV)) and (touched := team_data(call["command"], cwd)):
         return touched
     if not drives and os.environ.get(state.REMOTE_LANE_ENV):
-        return lane_held(found)
+        return cci_chatter(found) or lane_held(found)
     if not drives and not kind.startswith(AGENTS):
         return helper_install(found, drives)
     scripts = terminal_scripts(found)
     reasons = (
         lambda: datadog_cli(call["command"], cwd),
+        lambda: cci_chatter(found),
         lambda: designer_push(found) if kind == DESIGNER else None,
         lambda: bare_pr(found, call["command"]) if kind == BUILDER else None,
         lambda: held_pr(found, payload.get("agent_id") or "", drives) if kind == BUILDER else None,

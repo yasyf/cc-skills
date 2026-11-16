@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from drive import agents, card, cli, limits, mcp, reads, settled, slack, state, superseded, tools, view, watch
+from drive import agents, card, cli, limits, mcp, reads, render, settled, slack, state, superseded, tools, view, watch
 from conftest import LEAD, LOCK_STALL, LOCK_STALL_AGAIN, RESEARCH, STANDING_FREEZE, Answers, Cci, Heard, Jev, Thread, Withdrawals
 from drive.state import DriveError
 
@@ -155,24 +155,6 @@ def test_a_call_with_a_refused_op_writes_nothing_and_names_every_refused_op_with
         tools.run("order", demo, {"ops": [{"set": {"id": "o1", "colour": "red"}}]})
     with pytest.raises(DriveError, match="1 order set refused: name its id, since no add came before it"):
         tools.run("order", demo, {"ops": [{"set": {"note": "x"}}]})
-
-
-def test_a_call_whose_second_tooling_order_check_post_refuses_adds_neither_and_names_that_op_with_its_finding(
-    demo: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(slack, "check_post", lambda text, asked: ["1:44 drive-term 'o610': say what happens to the reader's work instead"] if "o610" in text else [])
-    ops = [{"add": {"words": "Drive tooling: a report states job start times in the future", "title": "Short title"}}, {"add": {"words": "Drive tooling: a promised time left o610 due", "title": "Short title"}}]
-    with pytest.raises(DriveError) as refused:
-        tools.run("order", demo, {"ops": ops})
-    [head, line] = str(refused.value).splitlines()
-    assert head == "refused, nothing written: 1 of 2 ops refused; fix each and send the whole call again"
-    assert line.startswith("2 order add \"Drive tooling: a promised time left o610 due\" refused: refused, `cc-slack check-post` finds 1:44 drive-term 'o610'")
-    assert state.load(demo)["orders"] == {}
-    with pytest.raises(DriveError, match="2 order add .* refused: refused, `cc-slack check-post` finds"):
-        tools.run("order", demo, {"dry_run": True, "ops": ops})
-    ops[1]["add"]["words"] = "Drive tooling: a promised time stays due until a handler sets it"
-    assert tools.run("order", demo, {"ops": ops}).splitlines() == ["1 order add: o1", "2 order add: o2"]
-    assert [(order["project"], order["workstream"]) for order in state.load(demo)["orders"].values()] == [("The drive", "Drive tooling")] * 2
 
 
 def test_a_job_add_naming_no_part_of_the_two_part_order_it_adds_is_refused_before_that_order_is_written(demo: str) -> None:
@@ -795,6 +777,43 @@ def test_a_sub_coordinator_posts_from_its_lane_his_answer_to_its_card_or_an_owne
         tools.run("record", demo, {"records": [{"kind": "owner", "text": "fix the alert", "to": "platform", "about": "his work"}]})
 
 
+def test_a_seats_communicator_holds_its_channel_alone_and_its_records_and_its_sub_coordinators_reach_each_other(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    run("start", demo, "--role", "coordinator", "--project", "Iris")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-talk")
+    with pytest.raises(DriveError, match="--project Iris: the drive keeps no channel for it"):
+        run("start", demo, "--role", "communicator", "--project", "Iris")
+    with state.edit(demo) as data:
+        data["slack"]["channels"] = {"": {"id": "C666", "name": "him-drive-demo"}, "Iris": {"id": "C777", "name": "him-drive-demo-iris"}}
+    run("start", demo, "--role", "communicator", "--project", "Iris")
+    data = state.load(demo)
+    assert state.session_role(data, "iris-talk") == "communicator"
+    assert state.alias(demo, "communicator", "Iris") == f"{demo}-iris-communicator"
+    assert render.hold_line(data, "communicator", "Iris") == "Hold with slack_watch: #him-drive-demo-iris C777"
+    assert render.hold_line(data, "communicator").startswith("Hold with slack_watch: his DM D123, #him-drive-demo C666; slack_unwatch")
+    assert "rules" not in data["roles"]["communicator"]
+    posted: list[tuple[str, list[dict]]] = []
+
+    def post(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        records = json.loads(kwargs["input"])
+        posted.append((argv[argv.index("--lane") + 1], records))
+        return subprocess.CompletedProcess(argv, 0, "".join(json.dumps({"seq": n}) + "\n" for n, _ in enumerate(records)), "")
+
+    monkeypatch.setattr(subprocess, "run", post)
+    tools.run("record", demo, {"records": [{"kind": "owner", "text": "a new order", "about": "his work"}]})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    tools.run("record", demo, {"records": [{"kind": "owner", "text": "why did the page wait?", "url": "terminal", "about": "his work"}]})
+    assert [(lane, [record["to"] for record in records]) for lane, records in posted] == [
+        ("iris-communicator", [["iris@demo"]]),
+        ("iris", [["iris-communicator@demo"]]),
+    ]
+
+
 def test_a_record_to_an_unfinished_jobs_id_goes_out_and_is_held_on_that_job_with_its_seq_and_sender_and_a_finished_jobs_is_refused(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1240,7 +1259,7 @@ def test_the_communicators_own_answer_to_a_record_goes_out_while_his_cards_canno
     assert len(posted) == 1
 
 
-def test_a_handlers_handoff_goes_to_the_coordinator_that_wrote_the_record_it_answers_else_the_session_holding_the_order_its_order_attr_names(
+def test_the_communicators_handoff_goes_to_the_coordinator_that_wrote_the_record_it_answers_else_the_session_holding_the_order_its_order_attr_names(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
@@ -1250,9 +1269,6 @@ def test_a_handlers_handoff_goes_to_the_coordinator_that_wrote_the_record_it_ans
     run("start", demo, "--role", "coordinator", "--project", "Iris")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", demo, "--role", "communicator")
-    with state.edit(demo) as data:
-        data["handlers"]["h1"] = {"session": "handler-1", "transcript": None, "started": state.stamp(), "holds": [], "handed": [], "posted": []}
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "handler-1")
     monkeypatch.setattr(agents, "shown", lambda seq: {"lane": "root"})
     records = [{"kind": "handoff", "text": "redraw the run page card with both PRs", "attrs": {"order": order}} for order in ("o1", "o2", "o3")]
     answering = {"kind": "handoff", "text": "the permalink of his release card", "re": "686826", "attrs": {"order": "o1"}}
@@ -1338,10 +1354,7 @@ def test_an_answer_or_handoff_naming_a_job_goes_to_the_coordinator_session_whose
     run("start", demo, "--role", "coordinator", "--project", "Iris")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", demo, "--role", "communicator")
-    with state.edit(demo) as data:
-        data["handlers"]["h1"] = {"session": "handler-1", "transcript": None, "started": state.stamp(), "holds": [], "handed": [], "posted": []}
     open_cards(monkeypatch, "demo:j1-7")
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "handler-1")
     records = [
         {"kind": "answer", "text": "Yes: the normal release hands each primary over on its own node", "url": UNDER_CARD, "to": "root", "waits": "demo:j1-7"},
         {"kind": "handoff", "text": "Resume j1 now: plan, then start, the clock release", "to": "root", "attrs": {"job": "j1", "order": "o1"}},
@@ -1520,21 +1533,6 @@ def test_his_owner_words_under_a_question_card_ordering_other_work_beside_it_go_
     jev.beside.clear()
     withdrawn = beside | {"text": "Drop the ring question, the run page ships without it"}
     assert tools.run("record", demo, {"records": [withdrawn]}).splitlines()[1] == '1 j1\'s question "Which ring?" ended withdrawn by 61'
-
-
-def test_his_words_withdrawing_a_card_go_out_with_the_handler_call_so_its_question_ends_before_the_handler_starts(
-    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
-    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
-    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 61}\n', ""))
-    open_cards(monkeypatch, "demo:j1-7")
-    withdraw = {"kind": "owner", "text": "So then withdraw the card", "url": UNDER_CARD, "about": "his work", "thread_card": "demo:j1-7"}
-    brief = f"Message (his words): So then withdraw the card\nLink: {UNDER_CARD}\nDrive: demo"
-    said = tools.run("handler", demo, {"brief": brief, "records": [withdraw]}).splitlines()
-    assert said[:2] == ["1 owner 61", '1 j1\'s question "Which ring?" ended withdrawn by 61']
-    handler = said[-1].removeprefix("started ")
-    assert "Context: his owner record went out with the handler call: 1 owner 61; " in agents.brief_path(demo, handler).read_text()
 
 
 def test_his_feedback_on_a_card_leaves_its_question_asking_even_under_a_drive_tooling_card(

@@ -58,7 +58,7 @@ TRANSCRIPTS_FIELD = re.compile(r"^Transcripts:\n(?:- .*(?:\n|$))+", re.MULTILINE
 TRANSCRIPT_PATH = re.compile(r"^- (j\d+) (\w+)[^:\n]*: ([/~]\S*)$", re.MULTILINE)
 REPORT_FILE = re.compile(r"reports/(j\d+)\.md")
 REPRO_FILE = re.compile(r"repro/(j\d+)(?:\.\w+)?")
-CARRIED = "reports|asks|repro|scratch|jobs"
+CARRIED = "reports|asks|repro|scratch|jobs|stalls"
 PATH_CHARS = r"[^\s`'\"<>()\[\]{}*,;|]+"
 PATH_END = re.compile(r"[^\w/]+$")
 LOCAL_PATH = re.compile(rf"(?<![\w./~-])~?/{PATH_CHARS}")
@@ -353,18 +353,18 @@ def type_prompt(terminal: str, text: str, *served: str) -> None:
     request("terminal", "send", *served, "--terminal", terminal, "--enter")
 
 
-def dismiss_limit_dialog() -> bool:
-    """Dismiss Claude Code's usage-limit dialog, and any login screen it leads to, in this session's own Orca terminal with Escape alone, which keeps the session working on paid usage, by his words "Keep working on paid usage"; never one of its options and never a login, since "if u answer it with the paid limit it makes you log in again" and "if u end up at teh login prompt esc out of that too". Each read that still shows either screen gets Escape again. True once a read after an Escape shows neither; False outside an Orca terminal or when that takes more than LIMIT_DIALOG_READS reads."""
-    if not (handle := own_terminal()):
+def dismiss_limit_dialog(handle: str | None = None) -> bool:
+    """Dismiss Claude Code's usage-limit dialog, and any login screen it leads to, in the Orca terminal handle names, else this session's own, with Escape alone, which keeps the session working on paid usage, by his words "Keep working on paid usage"; never one of its options and never a login, since "if u answer it with the paid limit it makes you log in again" and "if u end up at teh login prompt esc out of that too". Each read that still shows either screen gets Escape again. True once a read after an Escape shows neither; False outside an Orca terminal, when that takes more than LIMIT_DIALOG_READS reads, or at the first read of another session's terminal showing neither, since its stop drew any dialog long before."""
+    if not (own := handle or own_terminal()):
         return False
     sent = False
     for _ in range(LIMIT_DIALOG_READS):
-        screen = "\n".join(request("terminal", "read", "--terminal", handle, "--screen")["terminal"]["tail"])
+        screen = "\n".join(request("terminal", "read", "--terminal", own, "--screen")["terminal"]["tail"])
         if any(marker in screen for marker in BLOCKING_SCREENS):
-            request("terminal", "send", "--terminal", handle, "--text", ESCAPE)
+            request("terminal", "send", "--terminal", own, "--text", ESCAPE)
             sent = True
-        elif sent:
-            return True
+        elif sent or handle:
+            return sent
         time.sleep(LIMIT_DIALOG_SECONDS)
     return False
 

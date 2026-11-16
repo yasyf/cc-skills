@@ -33,7 +33,7 @@ def test_the_watch_ends_only_parentless_reloads_and_long_proofs_an_older_install
     assert lines == [f"ended pid {pid}, left by an older install: {commands[pid]}" for pid in (11, 12, 17)] + ["started drive reload on demo from long-running 1.0.1300"]
 
 
-def test_the_drives_watch_ends_an_older_installs_handler_start_and_starts_its_handler_again_from_this_one_while_it_has_not_started(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_drives_watch_ends_an_older_installs_handler_start_and_starts_no_handler(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(state, "VERSION", "1.0.1400")
     commands = {
         21: f"{PYTHON}/1.0.1349/bin/drive handler-start a1b2c3d4 --drive demo",
@@ -42,11 +42,10 @@ def test_the_drives_watch_ends_an_older_installs_handler_start_and_starts_its_ha
     }
     monkeypatch.setattr(procs, "table", lambda: [procs.Process(pid, 1, pid, False) for pid in commands])
     monkeypatch.setattr(procs, "command", commands.get)
-    monkeypatch.setattr(state, "load", lambda name: {"handlers": {"a1b2c3d4": {"session": None}, "b2c3d4e5": {"session": "s1"}, "c3d4e5f6": {"session": None}}})
     killed: list[int] = []
     monkeypatch.setattr(os, "kill", lambda pid, signum: killed.append(pid))
     detached: list[list[str]] = []
     monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append([name, *args]) or 1)
     assert superseded_procs.end("demo", False) == []
-    assert superseded_procs.end("demo", True) == [*(f"ended pid {pid}, left by an older install: {commands[pid]}" for pid in (21, 22)), "started drive handler-start a1b2c3d4 on demo from long-running 1.0.1400"]
-    assert (killed, detached) == ([21, 22], [["demo", "handler-start", "a1b2c3d4"]])
+    assert superseded_procs.end("demo", True) == [f"ended pid {pid}, left by an older install: {commands[pid]}" for pid in (21, 22)]
+    assert (killed, detached) == ([21, 22], [])

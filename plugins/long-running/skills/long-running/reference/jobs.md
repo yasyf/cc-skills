@@ -23,18 +23,18 @@ Contents:
   the session's Orca terminal, and Escape again to a login screen, because picking the paid option
   or logging in forces a fresh login. It then resumes the turn as it resumes any API error. Each hit
   is counted on the job under `limit_hits` and logged as one line of `claude-usage-limits.jsonl`
-  under the state folder, which every drive on this Mac shares. A hit does not fail or relaunch the
-  job.
+  under the state folder, which every drive on this Mac shares. A hit does not fail the job. The
+  watch tells him of each hit once for the whole Mac, as a milestone, whichever drive reads it first.
 - **Caps.** `caps.json` under the drive's state root is read at each start, so a change holds at
-  once. Its defaults are `{"local": 12, "sprite": 30, "handlers": 8, "load_per_core": 1,
-  "free_memory": 15}`. At most `local` Claude lanes of any role work here at once and `sprite` lanes on Sprites;
-  `handlers` capped handler sessions, and none starts now. No new local lane starts
+  once. Its defaults are `{"local": 12, "sprite": 30, "load_per_core": 1,
+  "free_memory": 15}`. At most `local` Claude lanes of any role work here at once and `sprite` lanes on Sprites.
+  No new local lane starts
   while the 1-minute load average is over the core count times `load_per_core`, or less than
   `free_memory` percent of memory is free. What happens at a full cap:
   - A builder waits on `builder-slot`, or starts on a Sprite when its brief declares no step only
     this Mac runs.
   - A reader or designer the `agent_brief` hook refuses starts on a Sprite.
-  - No handler session starts: the watch hands a report or an unanswered message of his to the
+  - The watch hands a report or an unanswered message of his to the
     communicator as one `ANSWER THIS:` note, which meets no cap.
   - A stall's watchdog waits for a later pass.
   - A first Sprite lane past the `sprite` cap waits on `sprite-slot`. The watch's `FREE` line
@@ -118,9 +118,8 @@ Contents:
   drive and job from its brief's `Drive:` line, which tags the box `mac-box:holder`. The save that
   moves a job to done, failed or stopped starts `drive mac-boxes-down <job>`, which runs
   `<ci> mac-box down --holder <drive>/<job>` and logs to the drive's `mac-boxes.log`. A waiting job
-  keeps its box. To hand a box on, run
-  `<ci> mac-box up <box> --holder <drive>/<new job> --from <drive>/<old job>` before the old job's
-  save: it moves the tag. A box handed on without it comes down at the old job's save, and its host
+  keeps its box. To hand a box on, run <mac box hand over> before the old job's save: it moves the
+  tag. A box handed on without it comes down at the old job's save, and its host
   sits in AWS's scrub for an hour or more.
 
 ## Start one on this Mac
@@ -181,8 +180,8 @@ How an agent is recorded on a job:
   builder, `long-running:reader` on a reader, `long-running:designer` on a design job, and an
   incident's second-lane `long-running:builder` on a codex job. Its first call after a prompt that
   reached it after its return, such as a `SendMessage`, marks the job running again.
-- An agent of another type is not recorded, even when its prompt names a job: a
-  `long-running:handler` that runs `drive job launch <j>`, an `orca:orca-doctor`, an Explore agent.
+- An agent of another type is not recorded, even when its prompt names a job:
+  an `orca:orca-doctor` or an Explore agent.
 - No agent is recorded over a remote job's dispatch, or while a `drive job launch` or
   `drive job resume` holds the job's lock to start a Sprite lane. `drive job set <j> --agent`
   refuses it then. `drive job set <j> --agent <the dispatch the job records>` puts a remote job an
@@ -394,9 +393,11 @@ with a blocking question.
   waiting job's dead lane is recorded with no line and its Sprite freed.
 - The watch relaunches a running job's dead lane in the same pass, with `drive job resume <j>` as a
   process of its own, and the `LANE … died` line says so. It does the same for an agent here whose
-  last response ended on an API error, once the session holding it has had a response since
+  last response ended on an API error, once the session holding it has had a response since, or at
+  once when Claude's usage limit stopped it, since a holder stopped on the same limit never answers
   (`LANE … died as agent`). A lane here whose transcript ends that way gets the StopFailure resume
-  prompt typed into its terminal, once per stop, four times at most
+  prompt typed into its terminal, after Escape on the usage-limit dialog for a limit stop, once per
+  stop, four times at most
   (`LANE … stopped on this Mac`).
 - A job whose agent or lane a model's safeguards stopped is set `stopped` at once, with nothing
   resumed. Claude Code's notice asks that it go to him and that nobody do the agent's work, so the
@@ -587,8 +588,8 @@ by [incidents.md](incidents.md), because minutes matter more there than tokens.
 **Session settings.** The roots compact at 400,000 tokens, the communicator at 300,000, and every
 other session and lane at 350,000, set by `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the orca plugin's
 `lib/lane.json`. Each leaf session runs headless and light, by `agents.light` and
-`agents.mcp_flags`: `--strict-mcp-config` with the servers its role calls (a handler's drive,
-cc-slack, cci and Datadog; none for the rest, which use the CLIs), its role's plugins and the
+`agents.STRICT_MCP`: `--strict-mcp-config` with no MCP server, since every role uses the CLIs,
+its role's plugins and the
 drive's, no user skills, no auto-memory. An Agent call, launch or `codex-ask` naming an effort
 names `high` or lower.
 

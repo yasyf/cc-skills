@@ -18,7 +18,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import agents, artifacts, brief, children, codex, github, install, land, limits, orca, page_check, pages, picture, place, published, reads, receiver, refs, render, route, served, settled, slack, state, superseded, watch
+from drive import agents, artifacts, brief, children, codex, github, install, land, limits, orca, page_check, pages, picture, place, published, reads, receiver, refs, render, served, settled, slack, state, superseded, watch
 from drive.shell import simple_commands
 from drive.state import DriveError
 
@@ -63,6 +63,7 @@ UNTRACKED_PRS = {("pr", "add"): "url", ("pr", "tapped"): "url", ("pr", "ci"): "u
 WAITS_CARD = re.compile(rf"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+|{state.ASK_WAITS.pattern}")
 WAITS_ARGS = ("waits", "redraws", "card", "via", "stands", "dropped", "settled", "superseded", "reopened")
 GO_CI = Path("tools", "ci")
+MAC_BOX_HAND_OVER = "<mac box hand over>"
 CARGO_LOCK = "rust/Cargo.lock"
 GO_CI_BUILT = Path("go", "ci", ".build", "ci.dev")
 LIVE_SAND_NEXT_SECONDS = 60
@@ -122,12 +123,12 @@ REPORTER_HELP = (
 )
 WATCH_HELP = (
     "a teammate's Slack thread he ordered watched, by its permalink or slack:<channel>/<its thread's ts>: the watch reads it once"
-    " a minute and starts a handler on each new message there from anyone but him, the drive and a bot, until the order closes"
+    " a minute and hands the communicator each new message there from anyone but him, the drive and a bot, until the order closes"
 )
 FOLLOW_HELP = (
     "a Buildkite build's link and his message in his DM asking to be kept updated on it: the watch keeps one status message in the thread"
     " of his ask current with the build's running steps, rewriting it each minute from the Buildkite read each delivery to the receiver"
-    " makes, and once the build ends starts a handler on the end line, which delivers the part --part names, the order's only part by"
+    " makes, and once the build ends hands the communicator the end line, which delivers the part --part names, the order's only part by"
     " default; no other post delivers that part meanwhile"
 )
 ALERT_HELP = (
@@ -155,7 +156,7 @@ PAGE_STORIES = (
 LIST_ITEM = re.compile(r"\s*(?:[-*] |\d+\. )")
 MANIFEST = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
 LAUNCHED = ("run", "dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree", "sprite_config")
-MCP_TOOLS = ("say", "heard", "handler", "record", "order", "job", "pr", "incident", "status", "search_plan", "page")
+MCP_TOOLS = ("say", "heard", "record", "order", "job", "pr", "incident", "status", "search_plan", "page")
 
 
 def emit(args: argparse.Namespace, line: str, payload: object) -> int:
@@ -172,15 +173,17 @@ def start(args: argparse.Namespace) -> int:
             f"drive start {args.name} --role {args.role}: refused, this session runs in no Orca terminal, so he cannot open it from Orca;"
             f" start the session under cci and show it in one with {' then '.join(agents.launch(args.name, args.role, args.project, str(kept)))}"
         )
-    if args.project and args.role != "coordinator":
-        raise DriveError(f"--project binds a sub-coordinator, which holds the coordinator role; the {state.title(args.role)} holds no project")
+    if args.project and args.role == "meta":
+        raise DriveError("--project binds a sub-coordinator or a seat's communicator; the meta session holds no project")
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     fresh = state.new_drive(args.name, args.role, session, str(kept))
     fresh["roles"][args.role]["rules"] = render.rules_digest(fresh, args.role)
     with state.edit_or_create(args.name, fresh) as data:
-        if args.project:
+        if args.project and args.role == "communicator":
+            bind_communicator(data, args.project, fresh["roles"][args.role])
+        elif args.project:
             bind_subcoordinator(data, args.project, fresh["roles"][args.role])
-        elif project := state.session_project(data, session):
+        elif project := state.session_seat(data, session):
             raise DriveError(
                 f"--role {args.role}: session {session} is the sub-coordinator for {project} in drive {args.name}; the top coordinator,"
                 " the communicator and the meta session are sessions of their own, so start this role from another session"
@@ -196,7 +199,8 @@ def start(args: argparse.Namespace) -> int:
     opened = channel_opened(args.name, data)
     siblings = "".join(sibling_started(args.name, role, held["cwd"], data["launched"].get(role)) for role in SIBLINGS if role not in data["roles"])
     watched = f"{watch.ensure(args.name)}\n" if args.role == "coordinator" else ""
-    seat = f"sub-coordinator for {args.project}" if args.project else args.role
+    watched += f"{said}\n" if args.project and args.role == "coordinator" and (said := communicator_started(args.name, args.project)) else ""
+    seat = (f"communicator for {args.project}" if args.role == "communicator" else f"sub-coordinator for {args.project}") if args.project else args.role
     elsewhere = "" if Path.cwd() == kept.resolve() else f"this session runs in {Path.cwd()} until it next exits, when cci resumes it in the drive's checkout {kept}\n"
     text = f"{render.context(data, args.role, args.project)}\n\n{registered}{opened}{siblings}{watched}{elsewhere}{seat}: session {held['session']}, {seen}"
     return emit(args, text, {**data, "orca": {seat: seen}})
@@ -262,6 +266,33 @@ def seat_started(name: str, seat: str) -> str:
     return f"started the sub-coordinator for {seat}, which holds this order alone, in Orca terminal {handle}; its project's coordinator hears it until it binds"
 
 
+def communicator_started(name: str, seat: str) -> str:
+    """Start the communicator of a seat, a project's or a priority order's, in an Orca terminal of its own while none is bound for it, once the drive keeps that seat's channel, making it first while the drive keeps its own channel, by his words "we should move so every project has a communicator to pair with its coordinator and messages in that channel should go to it", in the top coordinator's checkout, so its first turn binds it with drive start --role communicator --project <seat>; the line saying so, or nothing for a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves."""
+    if state.scratch():
+        return ""
+    data = state.load(name)
+    if seat in data["communicators"]:
+        return f"the communicator for {seat} is bound, session {data['communicators'][seat]['session']}, and holds its channel"
+    if seat not in data["slack"]["channels"]:
+        if "" not in data["slack"]["channels"]:
+            return f"the communicator for {seat} did not start: the drive keeps no channel; drive channels makes them"
+        open_channel(name, seat)
+        data = state.load(name)
+    key = f"communicator {seat}"
+    try:
+        handle = orca.start_session(name, "communicator", seat, data["roles"]["coordinator"]["cwd"], data["launched"].get(key))
+    except orca.OrcaError as error:
+        return f"the communicator for {seat} did not start: {error}; drive manual start prints its commands"
+    if handle is None:
+        return f"the communicator for {seat} starts in Orca terminal {data['launched'][key]}, which an earlier start opened"
+
+    def communicator_started_write(data: dict):
+        data["launched"][key] = handle
+
+    state.update(name, None, communicator_started_write)
+    return f"started the communicator for {seat}, which holds its channel #{data['slack']['channels'][seat]['name']}, in Orca terminal {handle}"
+
+
 def bind_subcoordinator(data: dict, project: str, held: dict) -> None:
     """Bind this session as the project's sub-coordinator, or as a priority order's by the seat drive order set --priority names, replacing any session bound for it before, and keep where the event log ended at its first binding, which its watch reads from; refused for a project no order is filed under and no order holds as its seat, a session holding another seat, and a lane another seat, record or numbered name of the drive takes."""
     if project not in (filed := [*state.projects(data), *sorted(order["priority"] for order in data["orders"].values() if order["priority"])]):
@@ -278,6 +309,20 @@ def bind_subcoordinator(data: dict, project: str, held: dict) -> None:
     if clash := lane_clash(data, project, bound is None):
         raise DriveError(f"--project {project}: {clash}; file its orders under a project whose lane no one else takes")
     data["subcoordinators"][project] = held | {"from": bound["from"] if bound else state.events_end(data["name"])}
+
+
+def bind_communicator(data: dict, project: str, held: dict) -> None:
+    """Bind this session as the communicator for a project or priority seat, holding that seat's channel alone, paired with its sub-coordinator, by his words "every project has a communicator to pair with its coordinator and messages in that channel should go to it", replacing any session bound for it before; the drive's communicator gets its held channels again at its next call, so it lets that channel go. Refused for a seat whose channel the drive has not made and for a session holding another seat or role."""
+    if project not in data["slack"]["channels"]:
+        raise DriveError(f"--project {project}: the drive keeps no channel for it, so its communicator would hold none; the channels it keeps: {', '.join(seat for seat in data['slack']['channels'] if seat) or 'none'}")
+    session = held["session"]
+    if role := next((role for role, bound in data["roles"].items() if session and bound["session"] == session), None):
+        raise DriveError(f"--project {project}: session {session} holds the {ROLE_NAMES[role]} role of drive {data['name']}; a seat's communicator is a session of its own")
+    if (other := state.session_seat(data, session)) not in (None, project) or state.session_project(data, session):
+        raise DriveError(f"--project {project}: session {session} already holds the seat {other} of drive {data['name']}; bind {project}'s communicator from another session")
+    data["communicators"][project] = held
+    if root := data["roles"].get("communicator"):
+        root.pop("rules", None)
 
 
 def lane_clash(data: dict, project: str, first: bool) -> str | None:
@@ -433,8 +478,6 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
     if held := held_order(state.load(name), args.words, args.owner):
         return held, state.load(name)["orders"][held], [f"{held} already holds these words, so no order was added"], []
     title = titled(args.title)
-    if tooling:
-        check_tooling_words(name, args.words)
     if not (args.joins or args.incident or args.options_only or unfiled or args.kind == "answer"):
         args.joins = settled.repeats(state.load(name), args.words, tooling)
     project, workstream = (None, None) if unfiled or args.joins else filing(state.load(name), args.words, args.project, args.workstream, "refused, no order added")
@@ -739,15 +782,6 @@ def check_thread(data: dict, flag: str, message: tuple[str, str, str | None] | N
     return where
 
 
-def check_tooling_words(name: str, words: str) -> None:
-    """Refuse a drive tooling order's words that `cc-slack check-post` finds anything in but the id of a recorded answer of his, since they reach him verbatim: quoted on the line above its PR card, and as the title an {order:} link shows. One line, each finding with its fix first, so a shell keeping only a refusal's last line keeps all of it."""
-    if findings := refs.answer_ids(slack.post_findings(words, True), state.load(name)):
-        raise DriveError(
-            f"refused, `cc-slack check-post` finds {'; '.join(findings)}; a \"{state.TOOLING}\" order's words reach him verbatim, quoted on"
-            " the line above its PR card and as the title an {order:} link shows, so fix each in words of your own and pass the fixed words"
-        )
-
-
 def filing(data: dict, words: str, project: str | None, workstream: str | None, refused: str) -> tuple[str, str]:
     """The project and workstream the dashboard's Now screen files an order under: on a "Drive tooling:" order The drive and Drive tooling unless a flag names another, and on his order both named, refused naming the pairs in use, and refused by `one_home` for a name filing its subject elsewhere."""
     if words.startswith(state.TOOLING):
@@ -760,7 +794,7 @@ def filing(data: dict, words: str, project: str | None, workstream: str | None, 
 
 
 def unfiled_refusal(data: dict, order_id: str) -> str | None:
-    """Why say may not close his answer order yet: the handler tool added it under no project and workstream, which its handler sets from the card or order his question is about."""
+    """Why say may not close his answer order yet: it is filed under no project and workstream, which the communicator sets from the card or order his question is about."""
     order = find(data["orders"], order_id, "order")
     if order["project"] and order["workstream"]:
         return None
@@ -926,6 +960,23 @@ def refuse_unquotable_parts(flag: str, parts: list[str]) -> None:
         )
 
 
+def closed_prs(name: str, order_id: str, keys: list[str], why: str) -> list[str]:
+    """Close on GitHub each open PR a dropped order leaves with no live order, its comment the drop's reason, so no PR outlives the order it served; the line of each, a close GitHub refused naming its error."""
+    lines = []
+    for key in keys:
+        try:
+            github.close(state.pr_url(key), f"Closed by the drive: {why}.")
+        except github.GithubError as error:
+            lines.append(f"{key} not closed: {error}; close it with gh pr close {state.pr_url(key)}")
+            continue
+        def closed_prs_write(data: dict):
+            data["prs"][key]["state"] = "closed"
+
+        state.update(name, None, closed_prs_write)
+        lines.append(f"{key} closed with {order_id}: {why}")
+    return lines
+
+
 def order_set(args: argparse.Namespace) -> int:
     """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; --add-part refuses a name a part cannot hold, by state.unquotable_part, and --add-part and --drop-part change only the parts they name, by change_parts, and --add-part prints each open part of another order and open PR Jev reads as already making a new part's change, by repeated_lines; closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns; --incident turns an open order into an incident by turned_incident and names each open question card of his its words point at, by state.asked_lines; --kind answer --part takes each part off each done builder, codex or design job holding it, whose hold would keep it work he ordered, and delivers it by the post one's POSTED line names when that answer reaches him only by a post, saying so by answered_line; --standing keeps each --part standing on its goal, or takes it out with an empty one, by standing_parts, which --part needs no --kind for; a change to its parts, kind, standing parts, options-only mark or incident mark from a session of the drive that does not hold the order is refused before anything is written, by state.held_elsewhere, the check every job verb makes, but for the communicator and its handlers, which file his words onto any order's parts and kind and are refused only the incident mark. --unjoin takes it off the order it joined, by state.unjoin, filed under its own project and workstream by filing, from any session, since it changes no part. --priority puts its work first at each admission point, by state.first_in_line, and gives it a coordinator session of its own, by seat_started, from any session; a close, a drop or --no-priority retires each priority seat no open order holds any longer in the same step, by seats_retired."""
     name = state.resolve(args.drive)
@@ -949,7 +1000,6 @@ def order_set(args: argparse.Namespace) -> int:
     if args.words is not None:
         if not (order["text"].startswith(state.TOOLING) and args.words.startswith(state.TOOLING)):
             raise DriveError(f'--words: refused, only a "{state.TOOLING}" order\'s words change, to words that open "{state.TOOLING}"; an order of his keeps his words verbatim')
-        check_tooling_words(name, args.words)
     if args.proof is not None:
         check_proof(args.proof)
     if args.title is not None:
@@ -980,7 +1030,11 @@ def order_set(args: argparse.Namespace) -> int:
         )
     message = his_message(args.source) if args.source else state.slack_message(order["from"])
     thread = check_thread(data, args.thread, message) if args.thread else None
-    if args.state in state.CLOSED_ORDER_STATES and order["state"] not in state.CLOSED_ORDER_STATES and (untested := state.dangerous_staged(data, args.id)):
+    dropping = args.state == "dropped" and order["state"] not in state.CLOSED_ORDER_STATES
+    closing = state.order_open_prs(data, args.id) if dropping else []
+    if landing := [key for key in closing if (data["prs"][key]["stage"] or {}).get("name") == "landing"]:
+        raise DriveError(f"{args.id}: refused, nothing changed: {', '.join(landing)} {'is' if len(landing) == 1 else 'are'} queued to land, so dropping {args.id} would close a PR mid-merge: let it land or dequeue it first")
+    if not dropping and args.state in state.CLOSED_ORDER_STATES and order["state"] not in state.CLOSED_ORDER_STATES and (untested := state.dangerous_staged(data, args.id)):
         raise DriveError(
             f"{args.id}: refused, {', '.join(untested)} {'waits' if len(untested) == 1 else 'wait'} on {args.id}'s staging test, staged because {'its head changes' if len(untested) == 1 else 'their heads change'} a dangerous class of file,"
             f" and closing {args.id} frees that wait, so {'it' if len(untested) == 1 else 'they'} would land untested: let the test pass, or move the wait onto another order's part with drive pr set <url> --waits"
@@ -1079,9 +1133,10 @@ def order_set(args: argparse.Namespace) -> int:
     parts = [answered_lines.get(part) or f"{args.id} {render.part_line(data, args.id, part)}" for part in dict.fromkeys([*sorted_parts, *standing, *([followed[0]] if followed else [])])]
     turned += state.asked_lines(data, order["text"]) if turning else []
     repeated = repeated_lines(data, args.id, list(dict.fromkeys(args.add_part)))
-    seated = [said] if args.priority and (said := seat_started(name, order["priority"])) else []
+    seated = [said for said in (seat_started(name, order["priority"]), communicator_started(name, order["priority"])) if said] if args.priority else []
     seated += [priority_page(name, args.id, order)] if args.priority and not args.dry_run else []
     retired = list(seats_retired(name).values()) if args.state in state.CLOSED_ORDER_STATES or args.priority is False else []
+    retired += closed_prs(name, args.id, closing, args.note or f"its order {args.id} was dropped") if closing and not args.dry_run else []
     return emit(args, render.order_line(data, args.id, order) + "".join(f"\n{line}" for line in [*turned, *unjoined, *parts, *stopped, *restarted, *repeated, *render.builder_lines(name, data, added), *reworked, *seated, *retired]), {"id": args.id, **(state.load(name)["orders"][args.id] if restarted else order)})
 
 
@@ -1171,12 +1226,12 @@ def untold(data: dict, order_id: str, order: dict) -> str:
     if order["kind"] == "answer":
         heard = (
             f"its question was asked in {links}, and no note of its answer there is recorded. Once the answer is posted, the"
-            f" handler of a report on it posts the answer in one plain line in {there} with slack_reply"
+            f" communicator posts a report on it as the answer in one plain line in {there} with slack_reply"
         )
     else:
         heard = (
             f"its bug was reported in {links}, and no fix-live note there is recorded. Once drive order set {order_id} --proof"
-            f" <the check> keeps the proof its fix is live, the handler of a report on it posts one plain line in {there} with"
+            f" <the check> keeps the proof its fix is live, the communicator posts a report on it as one plain line in {there} with"
             " slack_reply saying what is fixed and since when"
         )
     return (
@@ -1274,7 +1329,7 @@ def need_record_close(data: dict, order_id: str, seq: str | None, dropped_with_n
     if seq is None:
         if not dropped_with_note and state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) == "communicator":
             raise DriveError(
-                f"{order_id}: a handler closes only an order the report record it posted names in its close attr;"
+                f"{order_id}: the communicator closes only an order the report record it posted names in its close attr;"
                 " pass --record <that record's seq>, or drop an order no record names with --state dropped --note <why>"
             )
         return {}
@@ -1421,14 +1476,9 @@ def communicators_order(data: dict, order_id: str) -> dict:
 
 
 def recording_refusal(data: dict, route: str) -> str | None:
-    """Why this session may post nothing to him, record no post on an order nor take back a part's mark, the one check say runs before it posts and order posted and order told run, `route` naming what the session does instead: only the communicator's side does them, the communicator and each handler the drive binds to it, and a handler's session the drive binds to no handler is unbound, bound to the drive as nothing."""
+    """Why this session may post nothing to him, record no post on an order nor take back a part's mark, the one check say runs before it posts and order posted and order told run, `route` naming what the session does instead: only the communicator does them."""
     if state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) == "communicator":
         return None
-    if handler := os.environ.get(state.HANDLER_ENV, "").partition("/")[2]:
-        return (
-            f"this session runs handler {handler} and is unbound: the drive binds no handler {handler} to it, so it is bound to the drive as nothing,"
-            " while only the communicator and a handler bound to it record a post on an order or take back a part's mark; post no copy, and return a DEFECT line quoting this"
-        )
     return route
 
 
@@ -1451,20 +1501,13 @@ def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
     return f"refused, the report is the {state.title(writer)}'s and {order_id} is the {state.title(holder)}'s order, so it delivers nothing there: {carried}, or post with no record, a progress line"
 
 
-def post_order(data: dict, session: str | None, post: dict, report: dict) -> str | None:
-    """The one order a say post is recorded on, which say decides and no caller names: a post carrying a record goes on the order that record is about, the report it relays or the record of his words it answers; a handler's close goes on the order the record it holds names, else the order his message it holds started, never another order that only shares the thread, which is not that message's to close; any other post with no record goes on the open answer order whose message its asked names, which it answers; an edit, a card, a PR card, an answer in a teammate's watched thread and a post with neither go on none."""
+def post_order(data: dict, post: dict, report: dict) -> str | None:
+    """The one order a say post is recorded on, which say decides and no caller names: a post carrying a record goes on the order that record is about, the report it relays or the record of his words it answers; any other post with no record goes on the open answer order whose message its asked names, which it answers; an edit, a card, a PR card, an answer in a teammate's watched thread and a post with neither go on none."""
     if post.get("edit") or post.get("card") or post.get("tap_prs") or report.get("watch"):
         return None
     if post.get("record"):
         return state.report_order(data, report)
-    if not post.get("close"):
-        return next((order_id for order_id in data["orders"] if answers_order(data, order_id, post)), None)
-    if not (handler := state.handler_id(data, session)):
-        return None
-    held = data["handlers"][handler]["holds"] or {}
-    return (held.get("record") and state.named_order(data, agents.shown(held["record"])["fields"].get("attrs", {}))) or (
-        held.get("message") and state.started_order(data, state.slack_message(held["link"])[0], held["message"])
-    ) or None
+    return next((order_id for order_id in data["orders"] if answers_order(data, order_id, post)), None)
 
 
 def answers_order(data: dict, order_id: str, post: dict) -> bool:
@@ -1603,9 +1646,9 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     refuse_a_mark_off_a_builder(args.kind, args.builds_nothing)
     lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
     found = check_waits(name, args.waits)
-    unreleased = args.release and (brief.release_refusal(args.release, args.reading) or brief.approval_refusal(args.release, known := state.load(name), args.reading) or brief.uncarried_refusal(args.release, known) or brief.away_refusal("start", args.release, known, state.now()))
+    unreleased = args.release and (brief.release_refusal(args.release, args.reading) or brief.approval_refusal(args.release, known := state.load(name), args.reading) or brief.away_refusal("start", args.release, known, state.now()))
     if args.release and not unreleased:
-        for line in brief.release_notes([args.release], state.load(name)):
+        for line in filter(None, [brief.uncarried(args.release, known), *brief.release_notes([args.release], known)]):
             print(f"drive job add: {line}", file=sys.stderr)
     running = args.release and not unreleased and release_running(name, args.release)
     unworded = brief.unworded_return(args.kind, {"--goal": args.goal})
@@ -2178,7 +2221,7 @@ def drop_ask(name: str, job_id: str, file: Path) -> tuple[str | None, bool]:
 
 
 def answered_drop(name: str, job_id: str, file: Path, answer_id: str) -> list[str]:
-    """End the job's own open question on his card kept in this file on his recorded answer that already settles it, by `ended_on`, its card closing in place on his words and the link where he gave them: the way out for a card whose recommended option his answer already chose, which no redraw may ask again. On his ruling state.TOOLING_DETAILS_RULING it ends a question of a drive tooling order, the meta session or its job having read it as asking him only a detail, decided on the recommended option the file keeps, by settled.ruled_close as `keep_decided` keeps one no card was drawn for, its card showing settled.TOOLING_DETAILS's decided words and a link to his ruling's message; refused there on any other order, since his ruling reaches drive tooling alone, and for a card kept unsettled, which asks him to lift words of his. Refused for a question on no card, which --drop alone throws away, one that ended, and an answer holding no words of his. What was done, a line each, then who builds on it, by `builds_on`."""
+    """End the job's own open question on his card kept in this file on his recorded answer that already settles it, by `ended_on`, its card closing in place on his words and the link where he gave them: the way out for a card whose recommended option his answer already chose, which no redraw may ask again. On his ruling state.TOOLING_DETAILS_RULING it ends a question of a drive tooling order, the meta session or its job having read it as asking him only a detail, decided on the recommended option the file keeps, by settled.ruled_close as `keep_decided` keeps one no card was drawn for, its card showing settled.TOOLING_DETAILS's decided words and a link to his ruling's message; refused there on any other order, since his ruling reaches drive tooling alone, and for a card kept unsettled, which asks him to lift words of his. On his words state.UNWAITED_RULING that the drive not wait on him it ends the question decided by the drive on its recommended option, as settled.UNWAITED words it, recorded first as an answer of its own by `decision`, which the close names, refused for a card kept unsettled. Either ruling is refused on an order limited to options, whose card stays his. Refused for a question on no card, which --drop alone throws away, one that ended, and an answer holding no words of his. What was done, a line each, then who builds on it, by `builds_on`."""
     data = state.load(name)
     job = find(data["jobs"], job_id, "job")
     question = state.kept_in(job, file)
@@ -2191,6 +2234,19 @@ def answered_drop(name: str, job_id: str, file: Path, answer_id: str) -> list[st
     if not (words := settled.his(answer["body"])):
         raise DriveError(f"refused, nothing ended: cc-notes keeps no words of his under {answer_id}, so it settles no card; name the recorded answer whose words settle it")
     title = render.cut(question["title"] or "", 80)
+    if answer["id"][:7] in (state.TOOLING_DETAILS_RULING, state.UNWAITED_RULING) and data["orders"][job["order"]]["options_only"]:
+        raise DriveError(
+            f"refused, nothing ended: {job_id}'s order {job['order']} is limited to options, so its card stays his until he picks; no ruling of his decides it"
+        )
+    if answer["id"][:7] == state.UNWAITED_RULING:
+        if question["unsettled"]:
+            raise DriveError(f'refused, nothing ended: his card asks him to lift "{render.cut(question["unsettled"], 200)}", which only his answer decides, so the drive decides nothing under his words {state.UNWAITED_RULING}')
+        option = limits.question_problems(limits.ask_block(file.read_text()), kept=True)[0].recommended
+        words = settled.UNWAITED.format(option=option)
+        decided = decision(name, job_id, question, words)
+        said = f'{job_id}\'s question "{title}" ended decided by the drive on its recommended option, "{render.cut(option, 200)}", under his words {state.UNWAITED_RULING}, as its answer {decided}'
+        ended = ended_on(name, state.new_close("answered", words, None, answer=decided), question["waits"], question["card"], f'"{render.cut(words, 300)}"')
+        return [said, *ended, f"drive answer {decided} --dropped {job['order']}:<part> takes off each part its pick rules out", builds_on(state.load(name), job_id)]
     if answer["id"][:7] != state.TOOLING_DETAILS_RULING:
         said = f'{job_id}\'s question "{title}" ended answered by his answer {answer["id"][:7]}, "{render.cut(words, settled.QUOTED_CHARS)}"'
         ended = ended_on(name, state.new_close("answered", words, settled.given_at(data, answer), answer=answer["id"]), question["waits"], question["card"])
@@ -2206,6 +2262,29 @@ def answered_drop(name: str, job_id: str, file: Path, answer_id: str) -> list[st
     closed = settled.ruled_close(option, settled.given_at(data, answer), state.TOOLING_DETAILS_RULING)
     said = f'{job_id}\'s question "{title}" ended decided on its recommended option, "{render.cut(option, 200)}", under his ruling {state.TOOLING_DETAILS_RULING} on tooling details'
     return [said, *ended_on(name, closed, question["waits"], question["card"], f'"{render.cut(closed["words"], 300)}" linked to {closed["link"] or "itself"}'), builds_on(state.load(name), job_id)]
+
+
+def decision(name: str, job_id: str, question: dict, words: str) -> str:
+    """Record the drive's decision on the job's question, drawn on his card, as an answer of its own in cc-notes, labelled settled.DECISION_LABEL and under:<his ruling state.UNWAITED_RULING>, and in the drive at its card as `drive answer` records his, listing what it could change, its card marked settled, so `drive answer <its id> --dropped` takes off what its pick rules out and his answer to the same question supersedes it; refused while cc-notes holds another standing answer to that question, which it would supersede. Its id."""
+    from drive import superseded, view
+
+    data = state.load(name)
+    cwd = data["roles"]["coordinator"]["cwd"]
+    found = view.live_cards(name)
+    if found is None:
+        raise DriveError("refused, nothing ended: his cards could not be read, so nothing can say what the drive's decision leaves asking him; the watch rereads them every minute, run this again then")
+    asked = settled.titled(question["title"])
+    if other := next((answer["id"] for answer in settled.listed(f"drive:{name}", cwd) if state.same_question(answer["title"], asked) and settled.plain(settled.his(answer["body"])) != settled.plain(words)), None):
+        raise DriveError(f'refused, nothing ended: cc-notes holds answer {other[:7]} to "{render.cut(asked, 120)}", which a decision of the drive would supersede: drive job ask {job_id} --drop {question["file"]} --answer {other[:7]} ends it on that answer')
+    decided = settled.recorded(name, question["title"], words, [settled.DECISION_LABEL, f"under:{state.UNWAITED_RULING}"], question["card"], cwd)
+
+    def decision_write(data: dict):
+        kept = superseded.record(data, decided, words, question["card"], superseded.asking(data, found, question["card"]), {}, state.stamp(), False)
+        kept["cards"][question["waits"]] = {"mark": "settled", "job": job_id, "card": question["card"]}
+        return data
+
+    state.update(name, None, decision_write)
+    return decided
 
 
 def ask_checked(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None) -> str:
@@ -3674,7 +3753,7 @@ def job_start(args: argparse.Namespace) -> int:
             raise DriveError(f"{args.id}: refused, not started: {refused}")
         agent, cwd = uuid.uuid4().hex[:17], orca.checkout(name, held["cwd"])
         def job_start_write(data: dict):
-            data["jobs"][args.id]["bg"] = {"agent": agent, "session": None, "started": state.stamp(), "cwd": str(cwd), "pointed": [], "pool": False}
+            data["jobs"][args.id]["bg"] = {"agent": agent, "session": None, "started": state.stamp(), "cwd": str(cwd), "pointed": []}
             return data
 
         data = state.update(name, None, job_start_write)
@@ -4203,7 +4282,7 @@ def started_here(name: str, job_id: str, kept: Path, text: str, cwd: Path) -> di
     if not held.get("session"):
         raise orca.Unstarted(f"{kept.stem}: no worker started, since no session holds {job['order']}, so none would hear its agent")
     call = agents.shaped({"session_id": held["session"], "tool_input": {"subagent_type": state.JOB_AGENTS[job["kind"]][0], "prompt": f"Read your brief first: {kept}"}})
-    bg = {"agent": uuid.uuid4().hex[:17], "session": None, "started": state.stamp(), "cwd": str(cwd), "pointed": [], "pool": False}
+    bg = {"agent": uuid.uuid4().hex[:17], "session": None, "started": state.stamp(), "cwd": str(cwd), "pointed": []}
     try:
         bg["session"] = agents.start_job(name, job_id, bg["agent"], call, held, cwd)
     except (reads.ReadError, state.DriveError) as error:
@@ -4544,6 +4623,22 @@ def slot_hand(args: argparse.Namespace) -> int:
     return emit(args, f"{line}{told}; drive {' '.join(command[:3])} runs now", {"env": args.env, "job": args.to, "line": line, "stopped": stopped})
 
 
+def slot_hold(args: argparse.Namespace) -> int:
+    """Hold a staging env's slot for a job or an order until a time, from the top coordinator's session, so the watch gives it to no other job and hands a lease that ends to the one it names; --until with a past time is refused, and --clear drops the hold."""
+    name = state.resolve(args.drive)
+    if not state.top_coordinator(state.load(name), os.environ.get("CLAUDE_CODE_SESSION_ID")):
+        raise DriveError(f"refused: only the top coordinator holds the {args.env} slot")
+    with state.edit(name) as data:
+        if args.clear:
+            (data["slots"].get(args.env) or {})["hold"] = None
+            line = f"{args.env} holds for no one now"
+        else:
+            if args.held not in data["jobs"] and args.held not in data["orders"]:
+                raise DriveError(f"{args.held}: refused, no job or order of this drive")
+            line = state.slot_hold(data, args.env, args.held, state.parse_time(args.until), args.reason, state.now())
+    return emit(args, line, {"env": args.env, "line": line})
+
+
 def slot_release(args: argparse.Namespace) -> int:
     """Give a staging env's slot back, or leave its queue, so the watch's next pass hands it to the job first in line."""
     name = state.resolve(args.drive)
@@ -4565,7 +4660,8 @@ def slot_queue(args: argparse.Namespace) -> int:
         held = slot["holder"]
         riding = "".join(", " + rider["job"] + " riding its cut" for rider in held["riders"]) if held else ""
         said = (f"GO {held['job']} until {held['until']}{riding}" if state.cut_started(data, held, env) else f"held for {held['job']} until {held['until']}{riding}, waiting for its START") if held else "free"
-        lines.append(f"{env}: {said}")
+        hold = f"; held for {slot['hold']['for']} until {slot['hold']['until']}: {slot['hold']['reason']}" if slot.get("hold") else ""
+        lines.append(f"{env}: {said}{hold}")
         lines += [f"  {place}. {each['job']} for {each['minutes']} minutes, queued {each['at']}" for place, each in enumerate(slot["queue"], 1)]
     return emit(args, "\n".join(lines) or "no staging slot is held or queued", {"slots": shown})
 
@@ -5727,7 +5823,9 @@ def answer(args: argparse.Namespace) -> int:
                 done.append(f"his pick {pick}, which bound {order_id}, is superseded by {args.id} in cc-notes, so ccn answer match no longer reads it as standing")
             def dropped_order(data: dict) -> tuple[dict, list[str]]:
                 data["answers"][args.id]["cards"].update({key: {"mark": "dropped", "job": None, "card": None} for key in keys})
-                return data, superseded.drop_order(data, args.id, order_id)
+                if order_id in superseded.whole(data, asked, keys):
+                    return data, superseded.drop_order(data, args.id, order_id)
+                return data, [line for key in keys for line in superseded.drop(data, args.id, order_id, asked[key]["title"])]
 
             data, lines = state.update(name, None, dropped_order)
             done += lines
@@ -5987,37 +6085,6 @@ def page_owner(args: argparse.Namespace) -> int:
     return emit(args, paged, {"paged": paged, "order": args.order})
 
 
-def handler(args: argparse.Namespace) -> int:
-    name = state.resolve(args.drive)
-    if extra := agents.beyond_brief(args.brief):
-        raise DriveError(
-            f"refused: a handler's brief is its lines alone, every line under one of {', '.join(render.HANDLER_LABELS)};"
-            f" `{render.cut(extra, 44)}` is more: a rule in a brief overrides its agent definition, so drop the line"
-        )
-    if re.search(rf"^{re.escape(agents.HIS_WORDS)}:", args.brief, re.MULTILINE):
-        if (linked := agents.LINK.search(args.brief)) and state.slack_message(linked[1]):
-            found = route.route(name, args.brief, args.answer, args.away)
-            return emit(args, routed_line(found) if "handler" not in found else f"{'handed to' if found['handed'] or found.get('again') else 'started'} {found['handler']}", found)
-        watch.hear(name, state.now(), args.away)
-    briefs = briefing(name, args.brief, args.answer) is not None
-    handler_id, handed = agents.handle(name, args.brief, detached=True, answer=args.answer, briefs=briefs)
-    if handed:
-        return emit(args, f"handed to {handler_id}", {"handler": handler_id, "handed": True})
-    return emit(args, f"started {handler_id}", {"handler": handler_id})
-
-
-def route_message(args: argparse.Namespace) -> int:
-    found = route.route(state.resolve(args.drive), args.brief)
-    return emit(args, routed_line(found), found)
-
-
-def routed_line(found: dict) -> str:
-    """Where the router sent his message: the route, why, what took it, and how long Jev and the whole route took, or that an earlier call routed it."""
-    took = found.get("answered") or found.get("recorded") or (found.get("handler") and f"{'handed to' if found['handed'] else 'started'} {found['handler']}")
-    line = f"ROUTED {found['route']}{' again' if found.get('again') else ''}: {found.get('why') or 'routed earlier'}" + (f"; {took}" if took else "") + (f"; {found['fell']}" if found.get("fell") else "")
-    return f"{line} (Jev {found['jev_ms']} ms, {found['ms']} ms in all)" if "ms" in found else line
-
-
 def answer_message(args: argparse.Namespace) -> int:
     from drive import answer
 
@@ -6031,10 +6098,6 @@ def say_record(args: argparse.Namespace) -> int:
     from drive import talk
 
     return emit(args, talk.record_kept(state.resolve(args.drive), Path(args.receipt)), {"receipt": args.receipt})
-
-
-def handler_start(args: argparse.Namespace) -> int:
-    return emit(args, agents.start_kept(state.resolve(args.drive), args.id), {"handler": args.id})
 
 
 def mac_boxes_down(args: argparse.Namespace) -> int:
@@ -6053,53 +6116,6 @@ def fde_scan(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     checkout = orca.checkout(name, state.load(name)["roles"]["coordinator"]["cwd"])
     return subprocess.run([str(checkout / GO_CI), "fde-scan", *args.arguments], cwd=checkout, stdin=subprocess.DEVNULL, check=False).returncode
-
-
-def briefing(name: str, brief: str, answer: str | None) -> Callable[[str], str] | None:
-    """What writes a handler's brief from its id: answering's for his read-only question with an --answer title, else in_thread's; the handler's own start runs it, so the handler call returns before its writes and reads."""
-    return answering(name, brief, answer) if answer else in_thread(name, brief)
-
-
-def answering(name: str, brief: str, answer: str) -> Callable[[str], str]:
-    """The brief of his read-only question's handler once its answer order, titled as --answer names and filed under no project or workstream, and the handler's reader job on it are added, naming both, the pairs in use, which the handler picks from when it files the order with drive order set, and every open order in his thread with its jobs, questions and PRs, read from the drive and its stored cards, so the handler reads no drive status."""
-    held = agents.holds(brief)
-    if not (held["link"] and re.search(rf"^{re.escape(agents.HIS_WORDS)}:", brief, re.MULTILINE)):
-        raise DriveError("--answer: refused, no handler started: it adds his answer order from his message, so the brief carries his words and the Link of his message")
-
-    def briefed(handler_id: str) -> str:
-        words = agents.his_words(brief)
-        order_id = added_order(parser().parse_args(["order", "add", words, "--from", held["link"], "--kind", "answer", "--complex", "--title", answer, "--drive", name]), unfiled=True)[0]
-        part = state.load(name)["orders"][order_id]["title"]
-        job_id = added_job(parser().parse_args(["job", "add", "reader", "--order", order_id, "--part", part, "--goal", answer, "--agent", handler_id, "--drive", name]))[0]
-        data = state.load(name)
-        return "\n".join([brief.strip(), f"{agents.ORDER}: {order_id}, job {job_id}", f"{agents.PAIRS}: {pairs_in_use(data)}", *thread_work(name, data, held["thread"], order_id)])
-
-    return briefed
-
-
-def in_thread(name: str, brief: str) -> Callable[[str], str] | None:
-    """The brief of a handler whose brief names a Thread, with the work of that thread added by thread_work, so the handler answers from that thread's work alone and reads no drive status; None for a brief naming none."""
-    if not (line := agents.THREAD.search(brief)):
-        return None
-    return lambda _: "\n".join([brief.strip(), *thread_work(name, state.load(name), line[1])])
-
-
-def thread_work(name: str, data: dict, thread: str | None, but: str | None = None) -> list[str]:
-    """A handler brief's In his thread block: each open order but the one named that has a thread at ts thread, else none. With no order named, an order whose own thread is at ts thread is drawn by render.live_block, its unfinished jobs each with its last said line, its questions and PRs, the cards of those alone read by with_cards; every other order is one line naming the drive status that draws it whole, so a brief never carries whole orders a thread only touches, which grew handler briefs to 162 KB and their starts to 90 s."""
-    ids = thread_orders(data, thread, but)
-    asked = [] if but else [order_id for order_id in ids if (own := state.own_thread(data["orders"][order_id])) and own[1] == thread]
-    if asked:
-        with_cards(name, data, only(data, asked))
-    work = [
-        line
-        for order_id in ids
-        for line in (
-            render.live_block(data, order_id, data["orders"][order_id])
-            if order_id in asked
-            else [f"- {render.order_line(data, order_id, data['orders'][order_id])}; whole: drive status {order_id}"]
-        )
-    ]
-    return [f"{agents.IN_THREAD}:{'' if work else ' none'}", *work]
 
 
 def thread_orders(data: dict, thread: str | None, but: str | None = None) -> list[str]:
@@ -6309,10 +6325,16 @@ def with_build(place: str, held: dict) -> str:
     return f"{place}; {note}" if note else place
 
 
+def priority_words(data: dict, seat: str | None) -> str | None:
+    """What a priority seat's channel is named for: the workstream its order is filed under, else the order's id; None for a seat no priority order holds."""
+    order_id = next((order_id for order_id, order in data["orders"].items() if seat and order["priority"] == seat), None)
+    return (data["orders"][order_id]["workstream"] or order_id) if order_id else None
+
+
 def open_channel(name: str, project: str | None) -> dict:
     """Make, as him with cc-slack's user token, the drive's own private channel for no project, or a project's under it, named by slack.channel_name, which cc-slack reads as it reads his DM, one he already has kept; keep its id and name in the drive's slack row, and hand the communicator its Hold with line again at its next tool call, so it holds the channel with no restart."""
     project = slack.channel_project(project)
-    made = slack.cc_slack("operator-channel", slack.channel_name(name, project))
+    made = slack.cc_slack("operator-channel", slack.channel_name(name, project, priority_words(state.load(name), project)))
     def open_channel_write(fresh: dict):
         fresh["slack"]["channels"][project or ""] = {"id": made["id"], "name": made["name"]}
         if held := fresh["roles"].get("communicator"):
@@ -6328,8 +6350,8 @@ def channels(args: argparse.Namespace) -> int:
 
     name = state.resolve(args.drive)
     data = state.load(name)
-    seats = [seat for seat in data["subcoordinators"] if seat not in {state.priority_seat(order_id) for order_id in data["orders"]}]
-    made = [open_channel(name, project) for project in dict.fromkeys([None, *seats, TOOLING_FILING[0]])]
+    made = [open_channel(name, project) for project in dict.fromkeys([None, *data["subcoordinators"], TOOLING_FILING[0]]) if (slack.channel_project(project) or "") not in data["slack"]["channels"]]
+    started = [communicator_started(name, seat) for seat in state.load(name)["subcoordinators"]]
     data = state.load(name)
     found, dm, moved = view.cards(name), slack.dm(), []
     try:
@@ -6345,7 +6367,7 @@ def channels(args: argparse.Namespace) -> int:
                 with state.edit(name) as fresh:
                     state.join_pr_cards(fresh, stack, [url], state.stamp())
         view.refresh_cards(name)
-    lines = [*(f"#{channel['name']} {channel['id']}" for channel in made), f"{len(moved)} open card(s) of his DM moved to their project's channel"]
+    lines = [*(f"#{channel['name']} {channel['id']}" for channel in made), *started, f"{len(moved)} open card(s) of his DM moved to their project's channel"]
     return emit(args, "\n".join(lines), {"channels": made, "moved": [{"from": card["url"], "to": url} for card, _, url in moved]})
 
 
@@ -6356,7 +6378,7 @@ def context(args: argparse.Namespace) -> int:
     role = args.role or state.session_role(data, session)
     if role is None:
         raise DriveError(f"this session holds no role in drive {name}; pass --role")
-    print(render.context(data, role, None if args.role else state.session_project(data, session)))
+    print(render.context(data, role, None if args.role else state.session_seat(data, session)))
     return 0
 
 
@@ -6364,7 +6386,7 @@ def manual(args: argparse.Namespace) -> int:
     if not args.page:
         print("\n".join(["drive manual <page> prints one of these pages:", *(f"- {page}" for page in manual_pages())]))
         return 0
-    text = agents.filled((PAGES / f"{args.page}.md").read_text()) + repo_page(args.drive, args.page)
+    text = hand_over_filled(agents.filled((PAGES / f"{args.page}.md").read_text()), args.drive) + repo_page(args.drive, args.page)
     if not args.row:
         sys.stdout.write(text)
         return 0
@@ -6374,6 +6396,17 @@ def manual(args: argparse.Namespace) -> int:
         raise DriveError(f"nothing in drive manual {args.page} names {args.row}; drive manual {args.page} prints the page")
     print("\n\n".join(parts))
     return 0
+
+
+def hand_over_filled(text: str, drive: str | None) -> str:
+    """The page with each `<mac box hand over>` filled with the [mac_box] hand_over command of the .claude/long-running.toml in the drive's checkout, its {box}, {holder} and {from} named as the box and the new and old jobs, so the page names the verb the repository's tool takes; the setting's name when no drive or no such setting is there to read."""
+    try:
+        data = state.load(state.resolve(drive))
+    except DriveError:
+        data = None
+    command = state.mac_box_command(data, "hand_over") if data and state.bound_sessions(data) else None
+    shown = f"`{command.format_map({'box': '<box>', 'holder': '<drive>/<new job>', 'from': '<drive>/<old job>'})}`" if command else "the `[mac_box] hand_over` command of the repository's `.claude/long-running.toml`"
+    return text.replace(MAC_BOX_HAND_OVER, shown)
 
 
 def repo_page(drive: str | None, page: str) -> str:
@@ -6864,7 +6897,7 @@ def parser() -> argparse.ArgumentParser:
 
     order = verbs.add_parser("order", help="his orders").add_subparsers(dest="action", required=True)
     verb = order.add_parser("add", parents=both)
-    verb.add_argument("words", help='his words, verbatim, or a "Drive tooling:" order\'s own, which `cc-slack check-post` must pass, since its PR card quotes them')
+    verb.add_argument("words", help='his words, verbatim, or a "Drive tooling:" order\'s own')
     verb.add_argument("--from", dest="source", default="terminal", help=FROM_HELP)
     verb.add_argument(
         "--thread",
@@ -6952,7 +6985,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id", help="the order")
     verb.add_argument(
         "--words",
-        help='a "Drive tooling:" order\'s new words, which `cc-slack check-post` must pass, since its PR card quotes them; an order of his keeps his words verbatim',
+        help='a "Drive tooling:" order\'s new words; an order of his keeps his words verbatim',
     )
     verb.add_argument(
         "--state",
@@ -7058,7 +7091,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--record",
         metavar="SEQ",
-        help="the report record a handler posted; a close from the communicator's session needs it and closes only an order its close attr names",
+        help="the report record the communicator posted; a close from the communicator's session needs it and closes only an order its close attr names",
     )
     verb.set_defaults(run=rehearsed(order_set))
     verb = order.add_parser("unfiled", parents=both, help="each open order that names no project, workstream or title yet, then the project and workstream pairs in use")
@@ -7109,7 +7142,7 @@ def parser() -> argparse.ArgumentParser:
         "told",
         parents=both,
         help=(
-            "the communicator's handler posted the one note each of the order's reporters gets in the thread of their message, or in the"
+            "the communicator posted the one note each of the order's reporters gets in the thread of their message, or in the"
             " group DM of that reporter, him and the bot when the bot cannot post there: a bug's fix-live note once its proof is kept, or a"
             " question's answer once it is posted to him; done refuses until each is recorded"
         ),
@@ -7197,6 +7230,13 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("env", help="the staging env")
     verb.add_argument("--job", required=True, help="the job giving it back")
     verb.set_defaults(run=slot_release)
+    verb = slot.add_parser("hold", parents=both, help="hold a staging env's slot for a job or order until a time, from the top coordinator")
+    verb.add_argument("env", help="the staging env")
+    verb.add_argument("--for", dest="held", help="the job or order the slot is held for")
+    verb.add_argument("--until", help="when the hold ends, an RFC 3339 time with its offset")
+    verb.add_argument("--reason", help="why, in plain words, naming the record that set it")
+    verb.add_argument("--clear", action="store_true", help="drop the slot's hold")
+    verb.set_defaults(run=slot_hold)
     verb = slot.add_parser("hand", parents=both, help="hand a staging env's slot to a job in its queue now, from its holder or the top coordinator")
     verb.add_argument("env", help="the staging env")
     verb.add_argument("--to", required=True, help="the queued job taking the slot")
@@ -7417,7 +7457,9 @@ def parser() -> argparse.ArgumentParser:
             f" link where he gave them with no buttons; with {state.TOOLING_DETAILS_RULING}, his ruling on tooling details, end a"
             " question of a Drive tooling order asking him only a detail decided on its recommended option, its card showing that"
             " option decided without him and a link to his ruling's message, refused on any other order and for a card kept"
-            " unsettled; either way it prints who builds on it; refused for a question on no card and an id cc-notes keeps no words of his under"
+            f" unsettled; with {state.UNWAITED_RULING}, his words that the drive not wait on him, end it decided by the drive on its recommended option,"
+            " recorded as an answer of its own whose id `drive answer <id> --dropped` takes; neither ruling decides a card on an order limited to options;"
+            " either way it prints who builds on it; refused for a question on no card and an id cc-notes keeps no words of his under"
         ),
     )
     verb.set_defaults(run=job_ask)
@@ -8026,58 +8068,17 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--order", help="the order the page is for, so the watch does not page him for it again")
     verb.set_defaults(run=page_owner)
     verb = verbs.add_parser(
-        "handler",
-        parents=both,
-        help=(
-            "start a handler on its brief as its own claude --bg session, recording that he wrote when the brief carries his"
-            " words; its line comes back as one cci record when it ends; prints started <its id>, or handed to <id> for a"
-            " brief, his words or a record, on the message of his, in the thread or on the re chain a live handler is at work on"
-        ),
-    )
-    verb.add_argument(
-        "brief",
-        help=f"the handler's brief: its lines, each opening with one of {', '.join(label + ':' for label in render.HANDLER_LABELS)}",
-    )
-    verb.add_argument("--away", action="store_true", help="he said he is going to sleep or away, for a brief carrying his words")
-    verb.add_argument(
-        "--answer",
-        metavar="TITLE",
-        help=(
-            "his read-only question's title, a few words naming it: the call adds his answer order from the brief's words and Link,"
-            " filed under no project or workstream, and the handler's reader job on it, and writes both into the brief with the"
-            " pairs in use and every open order in his thread, its jobs, questions and PRs, so the handler reads no drive status,"
-            " files the order with drive order set <o> --project --workstream and closes it with say(close=true)"
-        ),
-    )
-    verb.set_defaults(run=handler)
-    verb = verbs.add_parser(
-        "route",
-        parents=both,
-        help=(
-            "route his message once: hear him, one tool-less Jev call over his words, his thread's rows and the open routes picks the coordinator,"
-            " a seat working an order, a handler or the communicator's answer from the rows, the drive records the route and why with its"
-            " timings in its routed rows and routes.log, and the route takes it; prints ROUTED <route>: <why>"
-        ),
-    )
-    verb.add_argument("brief", help="a handler brief carrying his words and the Link of his message")
-    verb.set_defaults(run=route_message)
-    verb = verbs.add_parser(
         "answer-now",
         parents=both,
         help=(
             "answer his message from the drive's rows for its thread in seconds: eyes on it, one tool-less model call over those rows,"
-            " and the answer posted in his thread, or ESCALATE and why, for a handler to take it; the handler verb runs it first on every brief carrying his words"
+            " and the answer posted in his thread, or ESCALATE and why, for the communicator to take it"
         ),
     )
     verb.add_argument("link", help="his message's permalink")
     verb.add_argument("words", help="his words")
     verb.add_argument("--dry-run", action="store_true", help="print the answer it would post, posting nothing and adding no eyes")
     verb.set_defaults(run=answer_message)
-    verb = verbs.add_parser(
-        "handler-start", parents=both, help="start the handler drive handler kept, as its own claude --bg session; the handler verb runs it detached once it returns"
-    )
-    verb.add_argument("id", help="the handler's id, as drive handler printed it")
-    verb.set_defaults(run=handler_start)
     verb = verbs.add_parser(
         "mac-boxes-down", parents=both, help="take down the Mac box each job holds with the [mac_box] down command of the drive checkout's .claude/long-running.toml, {box} the job's id and {holder} <drive>/<job>; a save that finishes a job runs it detached, and the watch hourly for each finished job a live box is named after"
     )

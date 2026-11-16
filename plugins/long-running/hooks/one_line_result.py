@@ -9,9 +9,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from drive import agents, orca, state
 
 RESULT_CHARS = 500
-HANDLER_FACTS = 3
-HANDLER_RESULT = re.compile(r"(POSTED|RECORDED|NOTHING|MISSING)\b")
-HANDLER_OPENING = re.compile(r"(?:POSTED|RECORDED|NOTHING|MISSING|DEFECT)\b")
 REFUSAL = r"(?:access denied|permission denied|forbidden|\b403\b|unauthori[sz]ed)"
 FAILURE = r"\b(?:couldn't|could not|can't|cannot|unable to|failed|refused)\b"
 REFUSED_READ = re.compile(
@@ -22,10 +19,7 @@ STAFF_ROUTES = ("break-glass", "db-read", "pass-box")
 
 
 def block_reason(payload: dict) -> str | None:
-    """Why a drive session's background agent, a handler's own session included, may not stop yet: its final message lands whole in that session's context, a handler's as its cci record, so it is one line, kept first with `drive job report` by every job's agent."""
-    handler = payload.get("agent_type") == agents.HANDLER
-    if handler and (work := in_flight(payload)):
-        return work
+    """Why a drive session's background agent may not stop yet: its final message lands whole in that session's context, so it is one line, kept first with `drive job report` by every job's agent."""
     if payload.get("stop_hook_active"):
         return None
     session = payload.get("session_id") or ""
@@ -38,13 +32,9 @@ def block_reason(payload: dict) -> str | None:
     lines = message.splitlines()
     job_id = state.agent_job(data, payload.get("agent_id"))
     if len(lines) <= 1 and len(message) <= RESULT_CHARS:
-        unread(payload, data, handler, job_id, message)
-        overfull(handler, message)
-        return (
-            unkept(names[0], data, job_id, message)
-            or unopened(handler, message)
-            or unanswered(handler, payload, data, message)
-        )
+        if skipped := unread(payload, data, job_id, message):
+            print(skipped, file=sys.stderr)
+        return unkept(names[0], data, job_id, message)
     keep = (
         f"keep your whole return first, if you have not, by piping it into `drive job report {job_id or '<your job>'} -`"
         " from a quoted heredoc, then end"
@@ -56,20 +46,6 @@ def block_reason(payload: dict) -> str | None:
         f" and it lands whole in the {role}'s"
         f" context, which every compaction has to clear. A final message is one line of at most {RESULT_CHARS}"
         f" characters: {keep} with that one line alone."
-    )
-
-
-def in_flight(payload: dict) -> str | None:
-    """Why a handler may not end while Claude Code's Stop input lists a background task or wakeup in its session, whatever `stop_hook_active` says: the drive lets go of the item once its line passes, and each of them is orphaned with it, so a step left to one never happens."""
-    tasks = [f"`{task['id']}` ({task.get('command') or task.get('description') or task['type']})" for task in payload.get("background_tasks") or []]
-    wakeups = [f"`{cron['id']}` ({cron['schedule']}: {cron['prompt']})" for cron in payload.get("session_crons") or []]
-    if not tasks and not wakeups:
-        return None
-    return agents.Unjudged(
-        f"Refused on purpose: your session still holds {', '.join([*tasks, *wakeups])}. Once your line passes, the drive lets go"
-        " of this item and may send you the next, and every background task and wakeup of this one is orphaned with it. Finish that step in this turn: post him the answer,"
-        " or what is known while it is not, and hand any other step to the session that asked, as a record `re` its record. Then stop each task with"
-        " `TaskStop` and each wakeup with `CronDelete`, and end."
     )
 
 
@@ -99,49 +75,20 @@ def unbuilt(job_id: str, job: dict) -> None:
         print(f"one_line_result: {job_id} ends on an ASK and built nothing; building the recommended option while he decides, ending on BUILT or PUSHED, usually saves him a round trip.", file=sys.stderr)
 
 
-def overfull(handler: bool, line: str) -> None:
-    """Let a handler end on its line, noting on stderr when past its results it carries more than three facts, since the line lands whole in the communicator's context."""
-    if not handler or "DEFECT " in line:
-        return
-    facts = [part for part in line.split(";") if part.strip() and not HANDLER_RESULT.match(part.strip())]
-    if len(facts) > HANDLER_FACTS:
-        print(f"one_line_result: your line carries {len(facts)} facts past its results; {HANDLER_FACTS} keep the communicator's context small.", file=sys.stderr)
-
-
-def unanswered(handler: bool, payload: dict, data: dict, line: str) -> str | None:
-    """Why a handler holding a message of his may not end on NOTHING with no post: its open item lives in the drive's rows, not its context, so a handler that lost its brief to a resume or compaction reads it again and answers him."""
-    entry = data["handlers"].get(payload.get("agent_id") or "")
-    if not handler or not entry or not line.startswith("NOTHING") or entry["posted"] or not (entry["holds"] or {}).get("message"):
+def unread(payload: dict, data: dict, job_id: str | None, line: str) -> str | None:
+    """The note a reader ending on a refused read gets on stderr: his asking authorizes the read, and a staff route usually opens it."""
+    if not REFUSED_READ.search(line) or not (job_id and data["jobs"][job_id]["kind"] == "reader"):
         return None
-    return agents.Unjudged(f"Refused on purpose: you hold a message of his you have not answered, as the drive's rows say, so NOTHING drops it. Your open item: {entry['brief']}")
-
-
-def unopened(handler: bool, line: str) -> str | None:
-    """Why a handler may not end on a line that opens with words: only the communicator reads it, so it opens with what the handler did, never a message to him."""
-    if not handler or HANDLER_OPENING.match(line):
-        return None
-    return agents.Unjudged(
-        "Refused on purpose: a handler's line opens with what it did, `POSTED <permalink>` for each post, `RECORDED <seq>`"
-        " for each record, `NOTHING <why>` when it posted and recorded nothing, `MISSING <path>` or `DEFECT <tool>: <its refusal>`,"
-        " since only the communicator reads it and his answer is already in Slack or a record. Open the line with those, then"
-        " end again with that line."
-    )
-
-
-def unread(payload: dict, data: dict, handler: bool, job_id: str | None, line: str) -> None:
-    """Let a handler or reader end on a refused read, noting on stderr the staff routes that often open it when its transcript tried none."""
-    if not REFUSED_READ.search(line) or not (handler or (job_id and data["jobs"][job_id]["kind"] == "reader")):
-        return
     steps = (json.loads(entry).get("message") or {} for entry in agents.transcript(payload).read_text().splitlines())
     calls = (json.dumps(block["input"]) for step in steps for block in step.get("content") or [] if isinstance(block, dict) and block.get("type") == "tool_use")
     if any(route in call for call in calls for route in STAFF_ROUTES):
-        return
-    print(
-        "one_line_result: your line ends on a refused read, and a staff route often opens it: an admin view, the"
+        return None
+    return (
+        "one_line_result: your line ends on a refused read, and the read his words or the order name is authorized"
+        " by his asking. In this turn take the staff route that opens it: an admin view, the"
         " `db-read` skill, or `drive break-glass`, which runs it under this Mac's machine profile with no sign-in, and for a team's"
         " data, which none of those reads, a service account on a pass box, by docs/pass-boxes.md in Forge-AI/monorepo. Then read"
-        " it and end on what it says; a read every route refuses goes on `UNPROVEN:` with each refusal.",
-        file=sys.stderr,
+        " it and end on what it says; a read every route refuses goes on `UNPROVEN:` with each refusal."
     )
 
 
@@ -155,9 +102,7 @@ def main() -> None:
             sys.exit(2)
         return
     payload = agents.seen(payload)
-    if "handler_session" in payload:
-        reason = agents.end_handler(payload, block_reason)
-    elif "job_session" in payload and (pointed := agents.take_pointed(*os.environ[state.JOB_ENV].split("/")[:2])):
+    if "job_session" in payload and (pointed := agents.take_pointed(*os.environ[state.JOB_ENV].split("/")[:2])):
         reason = agents.Unjudged(f"Refused on purpose: {agents.pointed(pointed)}")
     else:
         agents.hold(payload)

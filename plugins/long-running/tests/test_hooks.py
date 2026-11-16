@@ -173,12 +173,12 @@ def test_a_communicator_holds_each_channel_drive_channels_made_from_its_next_cal
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", "demo", "--role", "communicator")
     assert rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"}) is None
-    made = {"him-drive-demo": {"id": "G0DRIVE", "name": "him-drive-demo"}, "him-drive-demo-drive-tooling": {"id": "G0TOOLS", "name": "him-drive-demo-drive-tooling"}}
+    made = {"him-drive-demo": {"id": "G0DRIVE", "name": "him-drive-demo"}, "him-drive-demo-tooling": {"id": "G0TOOLS", "name": "him-drive-demo-tooling"}}
     monkeypatch.setattr(slack, "cc_slack", lambda verb, channel: made[channel])
     monkeypatch.setattr(slack, "operator_channels", lambda: list(made.values()))
     run("channels")
     context = rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"})
-    assert context.splitlines()[1] == "Hold with slack_watch: his DM D123, #him-drive-demo G0DRIVE, #him-drive-demo-drive-tooling G0TOOLS"
+    assert context.splitlines()[1] == "Hold with slack_watch: his DM D123, #him-drive-demo G0DRIVE, #him-drive-demo-tooling G0TOOLS"
     assert rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"}) is None
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
@@ -407,9 +407,6 @@ def test_no_session_bound_to_a_drive_asks_in_its_terminal_and_a_session_bound_to
     run("start", "demo", "--role", "communicator")
     assert no_terminal_questions.deny_reason(file_call("AskUserQuestion", "talker")) is not None
     assert no_terminal_questions.deny_reason(file_call("AskUserQuestion", "talker", agent_id="a-1", agent_type="long-running:builder")) is not None
-    with state.edit(demo) as data:
-        data["handlers"]["h1"] = {"session": "handler-own", "started": state.stamp(), "holds": None, "handed": []}
-    assert no_terminal_questions.deny_reason(file_call("AskUserQuestion", "handler-own", agent_type="long-running:handler")) is not None
     assert hook_output(no_terminal_questions, monkeypatch, capsys, json.dumps(file_call("AskUserQuestion", "someone-else"))) == ""
 
 
@@ -462,7 +459,7 @@ def test_a_drive_job_with_a_long_final_message_is_sent_back_to_keep_it_in_its_re
     assert "is 1 line and 501 characters" in one_line_result.block_reason(agent_stop("x" * 501))
 
 
-def test_a_handler_is_held_to_one_line_and_other_sessions_are_left_alone(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_drive_agent_is_held_to_one_line_and_other_sessions_are_left_alone(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", "demo", "--role", "communicator")
     reason = one_line_result.block_reason(agent_stop("POSTED https://acme.slack.com/archives/D1/p1\nI posted it", "talker"))
@@ -668,16 +665,6 @@ def test_an_agent_whose_brief_names_no_job_runs_the_job_recorded_with_it_after_a
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
 
 
-def test_a_handlers_steps_never_bind_it_to_the_job_its_brief_names(
-    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--remote")
-    handled = stepped(tmp_path, "Record: 661301\nDrive: demo, order o1, job j1\nScratch: /x", agent_type="long-running:handler")
-    assert hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | handled)) == ""
-    assert state.load("demo")["jobs"]["j1"]["agent"] is None
-
-
 @pytest.mark.parametrize("agent_type", ["orca:orca-doctor", "Explore", "general-purpose", "long-running:reader"])
 def test_an_agent_of_another_kind_never_holds_the_job_its_brief_names(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], agent_type: str
@@ -855,26 +842,6 @@ def test_an_agent_started_on_a_brief_drive_wrote_is_recorded_on_that_briefs_job(
     assert (job["agent"], job["state"], job["brief"]) == ("a-9", "running", str(state.drive_dir("demo") / "jobs" / "j1.brief.md"))
 
 
-def test_a_handler_whose_brief_or_record_names_a_job_never_holds_that_job_and_files_no_return_on_it(
-    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--remote")
-    run("job", "brief", "j1", "--serves", "drive tooling", "--done-when", "merged", "--where", "Forge-AI/monorepo dev")
-    written = state.load("demo")["jobs"]["j1"]["brief"]
-    launch = f"drive job launch j1 {written}"
-    monkeypatch.setattr(agents, "record", lambda seq: f"{seq} report root>communicator [job=j1 order=o1] POST j1 kept\n{Path(written).read_text()}")
-    for prompt in (f"Context: j1, a remote builder, brief at {written} Drive: demo Deliverable: `{launch}`", "Record: 7"):
-        handler = stepped(tmp_path, prompt, agent_type=agents.HANDLER)
-        assert hook_output(no_file_tools, monkeypatch, capsys, json.dumps(bash(launch) | handler)) == ""
-        assert hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop("RECORDED none; j1 started on a Sprite", **handler))) == ""
-        job = state.load("demo")["jobs"]["j1"]
-        assert (job["agent"], job["where"], job["said"]) == (None, "remote", state.NOT_STARTED)
-    builder = stepped(tmp_path, f"Read your brief first: {written}", agent_type="long-running:builder")
-    assert hook_output(no_file_tools, monkeypatch, capsys, json.dumps(bash("git status") | builder)) == ""
-    assert state.load("demo")["jobs"]["j1"]["agent"] == "a-9"
-
-
 def turn_stop(message: str, **fields: object) -> dict:
     return {
         "session_id": os.environ["CLAUDE_CODE_SESSION_ID"],
@@ -957,11 +924,11 @@ def test_scratch_folder_exists_before_a_drive_agent_starts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     record = tmp_path / "scratch" / "drive-communicator"
-    hook_output(scratch_folder, monkeypatch, capsys, agent_call("long-running:handler", f"Record: 658250 Drive: demo Scratch: {record}"))
+    hook_output(scratch_folder, monkeypatch, capsys, agent_call("long-running:reader", f"Record: 658250 Drive: demo Scratch: {record}"))
     assert record.is_dir()
     message = tmp_path / "scratch" / "handler-2"
     prompt = f'Message (his words): "ship it"\nDrive: demo. Scratch: {message}. Deliverable: an owner record'
-    hook_output(scratch_folder, monkeypatch, capsys, agent_call("long-running:handler", prompt))
+    hook_output(scratch_folder, monkeypatch, capsys, agent_call("long-running:reader", prompt))
     assert message.is_dir()
     job = tmp_path / "jobs" / "j7"
     hook_output(scratch_folder, monkeypatch, capsys, agent_call("long-running:builder", f"Order: o1\nScratch: {job}\nDrive: demo"))
@@ -1687,8 +1654,8 @@ def test_the_release_gate_refuses_a_start_whose_commit_lacks_a_merged_pr_the_car
     recorded.shown = {answer["id"][:7]: answer for answer in (CUT_PICK, CUT_TAP, RELEASE_PICK)}
     pr_reads |= {f"{repo}#7": {"state": "MERGED", "mergeCommit": merge, "base_pr": None}, f"{repo}#8": {"state": "OPEN", "mergeCommit": None, "base_pr": None}}
     data = state.load(demo)
-    asked = f'refused: `--order 7ab1e20` names his answer to the card asking "{CUT_PICK["title"]}", which names #7, and'
-    then = f": start it from a commit holding each merged pull request that card names, such as `--from {merge}`, the newest of their merge commits, or name each in `--landed`"
+    asked = f'`--order 7ab1e20` names his answer to the card asking "{CUT_PICK["title"]}", which names #7, and'
+    then = f": it starts as given, since his answer may leave one out; to carry each, start from a commit holding them, such as `--from {merge}`, the newest of their merge commits"
     starts = {
         "tools/ci release start --order 7ab1e20": f"{asked} this start names no `--from` or `--commit`, so go/ci picks the commit it ships, which may lack one{then}",
         f"tools/ci release start --from {older} --order 7ab1e20": f"{asked} at `{older}` it lacks #7 ({merge[:12]}){then}",
@@ -1700,10 +1667,10 @@ def test_the_release_gate_refuses_a_start_whose_commit_lacks_a_merged_pr_the_car
         f"tools/ci release start sand --from {older} --order 5d0c4a1": None,
         "tools/ci release start dashboard --env plat-usw2-staging": None,
     }
-    assert {start: brief.uncarried_refusal(start, data) for start in starts} == starts
+    assert {start: brief.uncarried(start, data) for start in starts} == starts
     del pr_reads[f"{repo}#8"]
-    assert brief.uncarried_refusal(f"tools/ci release start --from {merge} --order 7ab1e20", data) == (
-        "refused: whether this release's commit holds each merged pull request the card his `--order` answer answers names could not be read: GitHub did not read #8; run it again"
+    assert brief.uncarried(f"tools/ci release start --from {merge} --order 7ab1e20", data) == (
+        "whether this release's commit holds each merged pull request the card his `--order` answer answers names could not be read: GitHub did not read #8"
     )
 
 
@@ -3018,9 +2985,9 @@ def test_a_communicators_bash_cci_post_naming_a_lane_other_than_the_session_hear
     run("start", demo, "--role", "coordinator", "--project", "Iris")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", demo, "--role", "communicator")
-    handler = {"session_id": "talker", "agent_id": "a1", "agent_type": "long-running:handler"}
+    talker = {"session_id": "talker"}
     held = "cci post --kind refused --lane communicator --to root@demo --resolves 8 --attr job=j1 'the report names no card'"
-    assert landing_guard.deny_reason(bash(held) | handler) == (
+    assert landing_guard.deny_reason(bash(held) | talker) == (
         "This refused record goes to iris@demo: a defect, and the communicator's owner record about the drive, to the meta"
         " session, the communicator's answer, handoff or refused record naming a job a coordinator session's agent runs on"
         " this Mac to that session, its answer, handoff or refused record naming no job to the coordinator that wrote the"
@@ -3028,17 +2995,17 @@ def test_a_communicators_bash_cci_post_naming_a_lane_other_than_the_session_hear
         " serves; post it again with `--to iris@demo`, or on the cci `post` tool, whose hook addresses it"
     )
     refused = "zsh -c \"cci post --kind=refused --lane communicator --to=root@demo,owner --attr job=j1 'cc-slack refused the card'\""
-    assert "`--to iris@demo --to owner`" in landing_guard.deny_reason(bash(refused) | handler)
+    assert "`--to iris@demo --to owner`" in landing_guard.deny_reason(bash(refused) | talker)
     sent = (
         "cci post --kind refused --lane communicator --to iris@demo --resolves 8 --attr job=j1 'the report names no card'",
         "cci post --kind report --lane communicator --attr close=o1 'FYI j1 merged'",
     )
-    assert [landing_guard.deny_reason(bash(command) | handler) for command in sent] == [None, None]
-    unparted = landing_guard.deny_reason(bash("cci post --kind owner --lane communicator --to root@demo --attr 'about=his work' 'a new order'") | handler)
+    assert [landing_guard.deny_reason(bash(command) | talker) for command in sent] == [None, None]
+    unparted = landing_guard.deny_reason(bash("cci post --kind owner --lane communicator --to root@demo --attr 'about=his work' 'a new order'") | talker)
     assert unparted.startswith("refused, nothing posted: his words go out on the drive's `record` tool, kind owner")
-    unsaid = landing_guard.deny_reason(bash("cci post --kind owner --lane communicator --to root@demo 'a new order'") | handler)
+    unsaid = landing_guard.deny_reason(bash("cci post --kind owner --lane communicator --to root@demo 'a new order'") | talker)
     assert unsaid.startswith('refused, nothing posted: an owner record names what his words are about, about "drive" for drive tooling')
     for to in ("meta@demo", "root@demo"):
-        unordered = landing_guard.deny_reason(bash(f"cci post --kind owner --lane communicator --to {to} --attr about=drive 'the dashboard drops my cards'") | handler)
+        unordered = landing_guard.deny_reason(bash(f"cci post --kind owner --lane communicator --to {to} --attr about=drive 'the dashboard drops my cards'") | talker)
         assert unordered.startswith("refused, nothing posted: his words about the drive go out on the drive's `record` tool")
     assert landing_guard.deny_reason(bash(held) | {"session_id": "iris-1"}) is None

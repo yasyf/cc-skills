@@ -8,7 +8,7 @@ from pathlib import Path
 import bash_guard
 import pytest
 from conftest import SESSION, commit_files, git_in
-from drive import agents, github, install, land, limits, orca, settled, state
+from drive import agents, github, install, land, limits, orca, reports, settled, state
 from drive.orca import OrcaError
 
 Run = Callable[..., tuple[int, str]]
@@ -302,7 +302,7 @@ def targets(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return asked
 
 
-def test_a_drive_session_reruns_only_a_build_job_or_run_that_passed_and_a_call_naming_none_runs(demo: str, targets: list[str]) -> None:
+def test_a_drive_session_reruns_what_it_judges_a_rerun_remedies_reading_nothing_and_only_a_flake_requeue_is_refused(demo: str, targets: list[str]) -> None:
     passed = (
         "tools/ci bk rerun test 131031 --unit go-sand --count 3",
         "cd /work && tools/ci bk rerun --unit sand --unit=go-sand --count 3 test dev",
@@ -313,28 +313,19 @@ def test_a_drive_session_reruns_only_a_build_job_or_run_that_passed_and_a_call_n
         "gh run rerun 43473590680 -R yasyf/cc-skills",
     )
     assert [bash_guard.deny_reason(bash(command)) for command in passed] == [None] * len(passed)
-    assert targets == ["forge/test build 131031", "forge/test build 131031", "forge/test build 131031", "forge/test build 131031", "test build 131031", "yasyf/cc-skills 43473590680"]
+    assert targets == []
     unnamed = ("tools/ci bk rerun --help", "gh run rerun -h", "bk job retry --help", "tools/ci bk rerun test", "tools/ci bk api /pipelines/test/builds/126856/rebuild")
     assert [bash_guard.deny_reason(bash(command)) for command in unnamed] == [None] * len(unnamed)
-    failed = {
-        "tools/ci bk rerun test 128914 --unit go-sand": ("ci bk rerun", "forge/test build 128914", "failed"),
-        "tools/ci bk rerun test 131041 --unit go-sand --count 3": ("ci bk rerun", "forge/test build 131041", "failing"),
-        f"bk job retry {FAILED_JOB}": ("bk job retry", f"job {FAILED_JOB} of forge/test build 126856", "failed"),
-        f"tools/ci bk api -X PUT organizations/forge/pipelines/test/builds/126856/jobs/{FAILED_JOB}/retry": ("ci bk api", f"job {FAILED_JOB} of forge/test build 126856", "failed"),
-        "gh run rerun --job 132051522191 -R yasyf/cc-skills": ("gh run rerun", "GitHub Actions job 132051522191 of yasyf/cc-skills", "failure"),
-        "gh run rerun 43473590671 --failed": ("gh run rerun", "GitHub Actions run 43473590671", "failure"),
-    }
-    for command, (step, target, reads) in failed.items():
-        reason = bash_guard.deny_reason(bash(command))
-        assert reason == bash_guard.RERUN_PASSED.format(step=step, target=target, state=reads)
-        assert "`tools/ci bk log '<job URL>'`" in reason
-    assert bash_guard.deny_reason(bash("bk build rebuild 131031")) == bash_guard.RERUN_UNREAD.format(
-        step="bk build rebuild",
-        error="it names no build number or no pipeline, so the build it rebuilds is unknown; name both, as `bk build rebuild <number> -p <org/pipeline>`",
+    failed = (
+        "tools/ci bk rerun test 128914 --unit go-sand",
+        f"bk job retry {FAILED_JOB}",
+        f"tools/ci bk api -X PUT /pipelines/release/builds/17493/jobs/{FAILED_JOB}/retry",
+        "gh run rerun 43473590671 --failed",
+        "bk build rebuild 131031",
+        "tools/ci bk rerun test 999 --unit go-sand",
     )
-    assert bash_guard.deny_reason(bash("tools/ci bk rerun test 999 --unit go-sand")) == bash_guard.RERUN_UNREAD.format(
-        step="ci bk rerun", error="could not read forge/test build 999 from Buildkite: HTTP 404"
-    )
+    assert [bash_guard.deny_reason(bash(command)) for command in failed] == [None] * len(failed)
+    assert targets == []
     reason = bash_guard.deny_reason(bash("cd /work && .agents/skills/submit-pr/scripts/stack-enqueue 4244 --flake"))
     assert reason.startswith("refused: `stack-enqueue --flake` retries past a failing check, and a check that fails is fixed at its cause")
     assert bash_guard.deny_reason(bash("tools/ci bk log 0190a1b2-job")) is None
@@ -834,7 +825,6 @@ def test_a_refused_team_data_call_blocks_outright_since_jev_never_weighs_it(demo
     assert "judged" not in json.loads(capsys.readouterr().out)
 
 
-HANDLER_SESSION = "5e48f8c7-ad54-49d0-bf4e-bbc509e11035"
 MONITOR_READ = (
     "pup monitors get 337843756 2>&1 | python3 -I -c \"import json,sys; d=json.load(sys.stdin); d=d.get('data',d);"
     " print({k:d.get(k) for k in ['name','overall_state','overallState']}); print(json.dumps(d.get('state',{}))[:600])\""
@@ -847,12 +837,9 @@ LOGS_READ = (
 )
 
 
-def test_handler_9d78cc4es_pup_reads_are_refused_naming_the_datadog_mcp(communicator: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    with state.edit(communicator) as data:
-        data["handlers"]["9d78cc4e"] = {"session": HANDLER_SESSION, "started": state.stamp(), "holds": None, "handed": []}
-    own = {"agent_type": "long-running:handler", "transcript_path": str(tmp_path / "handler.jsonl")}
+def test_the_communicators_pup_reads_are_refused_naming_the_datadog_mcp(communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     for command in (MONITOR_READ, LOGS_READ):
-        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(bash(command, session=HANDLER_SESSION, **own))))
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(bash(command))))
         bash_guard.main()
         output = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
         assert (output["permissionDecision"], output["permissionDecisionReason"]) == ("deny", bash_guard.DATADOG_READ), command
@@ -875,3 +862,11 @@ def test_every_drive_session_and_drive_agent_reads_datadog_through_its_mcp_never
     assert bash_guard.deny_reason(bash("which pup dog datadog")) is None
     assert bash_guard.deny_reason(bash(f"cat > {tmp_path / 'later.sh'} <<'EOF'\npup monitors get 1\nEOF")) is None
     assert bash_guard.deny_reason(bash(MONITOR_READ, session="ordinary")) is None
+
+
+def test_a_cci_post_from_a_drive_agent_that_is_chatter_is_refused_as_the_post_hook_refuses_it(demo: str) -> None:
+    builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
+    assert bash_guard.deny_reason(bash("cci post --drive demo --kind state --to root --text 'LAST-READ j7 box j6 is free'", **builder)) == reports.CHATTY.format(kind="state")
+    fanned = "cci post --drive demo --kind handoff --to root --to meta --text 'box j6 is free'"
+    assert bash_guard.deny_reason(bash(fanned, **builder)) == reports.FANNED.format(lanes="root, meta")
+    assert bash_guard.deny_reason(bash("cci post --drive demo --kind handoff --to root --text 'box j6 is free'", **builder)) is None

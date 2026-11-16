@@ -17,7 +17,6 @@ from drive import brief, cli, codex, render, state, watch
 
 Run = Callable[..., tuple[int, str]]
 POST = "https://acme.slack.com/archives/D1/p1"
-HANDLER = {"agent_type": "long-running:handler"}
 REAL_CODEX_GAP = watch.codex_gap
 TOOL_RESULT = {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]}}
 SAVED = "/Users/me/.claude/projects/p/s/tool-results/b6.txt"
@@ -99,49 +98,19 @@ def test_a_reader_on_a_build_order_keeps_its_researched_report_and_one_on_an_ans
     assert state.load(demo)["jobs"]["j3"]["state"] == "done"
 
 
-def test_a_handlers_line_past_three_facts_ends_with_a_note(communicator: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    capsys.readouterr()
-    assert one_line_result.block_reason(agent_stop(f"POSTED {POST}; waits w12; record 4410; job j7; /x/a.md", tmp_path, **HANDLER)) is None
-    assert capsys.readouterr().err.startswith("one_line_result: your line carries 4 facts past its results; 3 keep")
-    assert one_line_result.block_reason(agent_stop(f"POSTED {POST}; POSTED {POST}2; waits w12; record 4410; job j7", tmp_path, **HANDLER)) is None
-    assert capsys.readouterr().err == ""
-
-
-def test_a_handlers_line_opens_with_what_it_did_never_a_message_to_him(communicator: str, tmp_path: Path) -> None:
-    reason = one_line_result.block_reason(agent_stop("I filed your answer and your ruling; 662062; 662063", tmp_path, **HANDLER))
-    assert reason.startswith("Refused on purpose: a handler's line opens with what it did, `POSTED <permalink>` for each post, `RECORDED <seq>`")
-    assert one_line_result.block_reason(agent_stop("RECORDED 662062; RECORDED 662063; card j810-661541 closed with his words", tmp_path, **HANDLER)) is None
-    assert one_line_result.block_reason(agent_stop("DEFECT say: refused; a ; in its refusal", tmp_path, **HANDLER)) is None
-    nothing = "NOTHING for 662342: the card is already the newest message in thread 1794387242.405329"
-    assert one_line_result.block_reason(agent_stop(nothing, tmp_path, **HANDLER)) is None
-
-
-def test_an_ordinary_subagent_in_the_communicators_session_is_no_handler(communicator: str, tmp_path: Path) -> None:
-    assert one_line_result.block_reason(agent_stop("DONE found parser", tmp_path, agent_type="Explore")) is None
-    assert one_line_result.block_reason(agent_stop("DONE found parser", tmp_path, **HANDLER)).startswith("Refused on purpose: a handler's line opens with what it did")
-
-
-def test_a_handler_or_reader_ending_on_a_refused_read_ends_with_a_note_naming_the_staff_routes(
-    communicator: str, run: Run, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_a_reader_ending_on_a_refused_read_ends_with_a_note_naming_the_staff_routes(communicator: str, run: Run, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     blocked = "BLOCKED access denied reading the bucket"
-    handled = f"POSTED {POST}; UNPROVEN: access denied reading the bucket"
-    capsys.readouterr()
-    assert one_line_result.block_reason(agent_stop(handled, tmp_path, called("Bash", command="gsutil ls gs://acme-backups"), **HANDLER)) is None
-    told = capsys.readouterr().err
-    assert told.startswith("one_line_result: your line ends on a refused read")
-    assert "the `db-read` skill, or `drive break-glass`, which runs it under this Mac's machine profile with no sign-in" in told
-    assert "`UNPROVEN:`" in told
-    assert one_line_result.block_reason(agent_stop(handled, tmp_path, called("Skill", skill="break-glass", args="his words"), **HANDLER)) is None
-    assert capsys.readouterr().err == ""
-    granted = called("Bash", command='drive break-glass o1 --stack storage/plat-usw2-prod --reason "list the backups" -- aws s3 ls s3://acme-backups')
-    assert one_line_result.block_reason(agent_stop(handled, tmp_path, granted, **HANDLER)) is None
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "what is in the bucket")
     run("job", "add", "reader", "--order", "o1", "--goal", "read the bucket")
     run("job", "set", "j1", "--agent", "a-7")
     capsys.readouterr()
     assert one_line_result.block_reason(agent_stop(f"DONE {blocked}", tmp_path)).startswith("Refused on purpose: j1's return is not kept")
-    assert capsys.readouterr().err.startswith("one_line_result: your line ends on a refused read")
+    told = capsys.readouterr().err
+    assert told.startswith("one_line_result: your line ends on a refused read")
+    assert "the `db-read` skill, or `drive break-glass`, which runs it under this Mac's machine profile with no sign-in" in told
+    assert "`UNPROVEN:`" in told
+    assert one_line_result.block_reason(agent_stop(f"DONE {blocked}", tmp_path, called("Skill", skill="break-glass", args="his words"))).startswith("Refused on purpose: j1's return is not kept")
+    assert capsys.readouterr().err == ""
     assert one_line_result.block_reason(agent_stop("DONE the bucket holds 3 backups", tmp_path)).startswith("Refused on purpose: j1's return is not kept")
 
 

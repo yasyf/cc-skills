@@ -1,6 +1,7 @@
 import collections
 import contextlib
 import faulthandler
+import fcntl
 import functools
 import hashlib
 import itertools
@@ -38,6 +39,7 @@ RESPOND_SECONDS = 5
 RELAY_JOIN_SECONDS = 10
 RELAY = "--relay"
 READ_EVERY = timedelta(seconds=60)
+CHECK_SWEEP = timedelta(minutes=30)
 SETTLED_READ_EVERY = timedelta(minutes=10)
 PASS_FOR = timedelta(minutes=5)
 HAND_OFF_EVERY = timedelta(minutes=10)
@@ -72,6 +74,8 @@ QUIET_LINES = ("CARD ", "WAITING-ON-HIM ", "STANDING ", "WATCH compacted", "WATC
 SAID_FILE = "said.json"
 SAID_FOR = timedelta(hours=24)
 EVERY_TIME = ("DOWN ",)
+COALESCE = timedelta(minutes=10)
+URGENT = ("TAP ", "DUE ", "MOVED ", "WATCH stopped", "DOWN ")
 TAP_EVENT = re.compile(rf"TAP (?P<label>\S+) (?P<key>\S+)(?P<stalled> {NOT_LANDED})?")
 LANE = "watch"
 READS_LOG = "reads.log"
@@ -179,6 +183,7 @@ class Watcher:
     made: list[str] = field(default_factory=list)
     resume: str | None = None
     unsent: dict[str, list[str]] = field(default_factory=dict)
+    handed_at: dict[str, datetime] = field(default_factory=dict)
     down: str | None = None
     dashboard_down: bool = False
     serving: dict[str, dict[str, bool]] | None = None
@@ -199,11 +204,15 @@ class Watcher:
     relayed: collections.deque[str] = field(default_factory=collections.deque)
     redrawn_whole: set[str] = field(default_factory=set)
     restacked: dict[str, tuple] = field(default_factory=dict)
+    checking: set[str] = field(default_factory=set)
+    swept_at: datetime | None = None
+    rulings: frozenset[str] | None = None
     others: dict[str, Self] = field(default_factory=dict)
     joined_at: datetime | None = None
     passed_version: int | None = None
     passed_at: float = 0.0
     receiver_took: set[str] | None = None
+    posted: dict[str, datetime] = field(default_factory=dict)
     floor: datetime | None = None
 
     @property
@@ -523,14 +532,15 @@ def main_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def broken(repo: str, pr: dict) -> dict[str, dict]:
-    """The tests a merged PR broke on main: each its own run failed at its head that main's last finished run before the merge passed and no finished main run since has passed, with that run's link, its workflow and when the merge landed; none once its run passed."""
+    """The tests a merged PR broke on main: each its own run failed at its head that main's last finished run before the merge passed and no finished main run since has passed, with that run's link, its workflow and when the merge landed; none once its run passed, and none of a workflow whose last run before the merge says nothing of any test, by install.main_failures, since main may have failed them already."""
     if pr["checks"] != "fail":
         return {}
     failures = install.head_failures(repo, pr["head"])
     since = install.merged_at(repo, pr["merged_sha"]) if failures else ""
     found = {}
     for workflow in {failure["workflow"] for failure in failures.values()}:
-        before = install.main_failures(repo, workflow, f"<{since}") or []
+        if (before := install.main_failures(repo, workflow, f"<{since}")) is None:
+            continue
         after = install.main_failures(repo, workflow, f">={since}")
         found |= {test: failure | {"since": since} for test, failure in failures.items() if failure["workflow"] == workflow and test not in before and (after is None or test in after)}
     return found
@@ -1214,7 +1224,7 @@ def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
         try:
             agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'reporter-{seq}'}")
         except state.DriveError as error:
-            lines += failed(watcher, f"reporter {order_id}", f"handler on the line {order_id}'s reporters get once its fix is live", error, moment)
+            lines += failed(watcher, f"reporter {order_id}", f"hand-off of the line {order_id}'s reporters get once its fix is live", error, moment)
     return lines + proved_lines(watcher, moment)
 
 
@@ -1233,7 +1243,7 @@ def proved_lines(watcher: Watcher, moment: datetime) -> list[str]:
             outcome = f"{order_id} live line posted by the watch: {talk.proved_line(watcher.name, post)}"
             closes = state.load(watcher.name)["orders"][order_id]["state"] in state.CLOSED_ORDER_STATES
         except (state.DriveError, slack.SlackError) as error:
-            outcome, closes = f"{order_id} live line left to its handler: {error}", report["seq"] not in state.load(watcher.name)["carried"]
+            outcome, closes = f"{order_id} live line left to the communicator: {error}", report["seq"] not in state.load(watcher.name)["carried"]
         with open(state.drive_dir(watcher.name) / POSTS_LOG, "a") as log:
             log.write(f"{when(state.stamp(moment))} {outcome}\n")
         if not closes:
@@ -1299,11 +1309,11 @@ def closed(watcher: Watcher, head: str, links: list[str], fix: str, moment: date
     try:
         said = talk.watch_line(watcher.name, live)
     except (slack.SlackError, state.DriveError) as error:
-        lines = failed(watcher, f"live line {head}", f"Live line of {head}, left to a handler", error, moment)
+        lines = failed(watcher, f"live line {head}", f"Live line of {head}, left to the communicator", error, moment)
         try:
             agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'live-{seq}'}")
         except state.DriveError as failure:
-            lines += failed(watcher, f"live handler {head}", f"handler on the Live line of {head}", failure, moment)
+            lines += failed(watcher, f"live hand-off {head}", f"hand-off of the Live line of {head}", failure, moment)
     with state.edit(watcher.name) as data:
         for order_id in group:
             data["orders"][order_id]["recovered"] = state.stamp(moment)
@@ -1413,12 +1423,18 @@ def follow_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def checks(watcher: Watcher, moment: datetime) -> None:
-    """Start the check against his words of each PR the watch hears that owes one, within one GitHub read of finding it unchecked and with no coordinator turn: redraw_lines draws its verdict on his card in place, so his Approve of a changed patch lands it once it is green, and its NOT READY goes to the builders of the PRs it faults, by objections."""
+    """Start the check against his words of each PR an event names that owes one, with no coordinator turn: a GitHub delivery naming it, such as a push to its head or a review, by take_deliveries, every PR once his rulings change, and every PR on the watch's first pass and each CHECK_SWEEP after, the one sweep that catches a delivery the receiver missed or a check that failed; redraw_lines draws its verdict on his card in place, so his Approve of a changed patch lands it once it is green, and its NOT READY goes to the builders of the PRs it faults, by objections."""
     if watcher.cards is None:
         return
     data = state.load(watcher.name)
+    rulings = frozenset(data["answers"])
+    if watcher.swept_at is None or moment - watcher.swept_at >= CHECK_SWEEP or rulings != watcher.rulings:
+        watcher.swept_at, watcher.rulings, named = moment, rulings, set(data["prs"])
+    else:
+        named = watcher.checking & data["prs"].keys()
+    watcher.checking = set()
     stacks = land.landing_stacks(data)
-    if owed := [key for key, pr in data["prs"].items() if hears(watcher, data, pr["order"]) and check_owed(watcher.name, key, pr, data, stacks.get(key, (key,)), moment)]:
+    if owed := [key for key in sorted(named) if hears(watcher, data, (pr := data["prs"][key])["order"]) and check_owed(watcher.name, key, pr, data, stacks.get(key, (key,)), moment)]:
         served.start(watcher.name, owed)
     objections(watcher)
 
@@ -1572,7 +1588,7 @@ def released(data: dict, owner: dict, own: str, cards: dict | None, out: dict[st
 
 
 def replies(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, str], list[str]]:
-    """Each reply wait of a live job the watch hears, his cards asking it nothing, that a teammate's reply or another drive's record ended, with who replied or posted and its link or seq, read once a minute: for a teammate's, the first message after the drive's question from anyone but the drive and a bot, which first goes to the communicator in a report, whose handler posts it in the thread of the job's order, and onto the job's held texts, which the watch carries it once nothing holds it; for another drive's, by posted_after. A failed read or write is said as a failed read is and tried again next read, the report under the same idempotency key."""
+    """Each reply wait of a live job the watch hears, his cards asking it nothing, that a teammate's reply or another drive's record ended, with who replied or posted and its link or seq, read once a minute: for a teammate's, the first message after the drive's question from anyone but the drive and a bot, which first goes to the communicator in a report, which the communicator posts it in the thread of the job's order, and onto the job's held texts, which the watch carries it once nothing holds it; for another drive's, by posted_after. A failed read or write is said as a failed read is and tried again next read, the report under the same idempotency key."""
     out, lines, followed = {}, [], {}
     for job_id, job in data["jobs"].items():
         if job["state"] in state.FINISHED_JOB_STATES or not heard_job(watcher, data, job) or view.open_cards(job):
@@ -1688,8 +1704,15 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
             job.update(report=body, ask=None)
         return None
     if kind == "escalation":
-        output = body.partition("Last output:")[2].partition("\nFull output:")[0] or first_line(body)
-        return f"JOB {job_id} {job['order']} STOPPED without a report, last output: {' '.join(output.split())}"
+        output = " ".join((body.partition("Last output:")[2].partition("\nFull output:")[0] or first_line(body)).split())
+        if not (limit := state.USAGE_LIMIT.search(output)):
+            return f"JOB {job_id} {job['order']} STOPPED without a report, last output: {output}"
+        restart = (
+            f"the watch sends Escape to its dialog and types the resume prompt into its terminal {job['terminal']}, so resume it no second time"
+            if state.on_mac(job) and job.get("terminal")
+            else f"drive job resume {job_id} <the event> relaunches it"
+        )
+        return f'JOB {job_id} {job["order"]} stopped on Claude\'s usage limit {orca.place(job)}, "{limit[0]}", not on its work: {restart}'
     if kind == "status":
         owed.append((job_id, [f"MESSAGE {message['id']}: {message['subject'] or first_line(body)}"], [], []))
         return None
@@ -2181,8 +2204,8 @@ def landing_pass(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
 
 
 def owed_reads(watcher: Watcher, moment: datetime) -> list[functools.partial]:
-    """The stages that take the GitHub reads the deliveries since the last read owe, by github_owed_lines, then each builder's PUSHED, or READY a lane sent since, that read settles, so a READY whose checks are green waits on no 60-second landing pass."""
-    return [functools.partial(stage, watcher, moment) for stage in (github_owed_lines, pushed_lines)]
+    """The stages that take the GitHub reads the deliveries since the last read owe, by github_owed_lines, then each builder's PUSHED, or READY a lane sent since, that read settles, so a READY whose checks are green waits on no 60-second landing pass, then the check of each PR those deliveries named that owes one, by checks."""
+    return [functools.partial(stage, watcher, moment) for stage in (github_owed_lines, pushed_lines, checks)]
 
 
 def respond_pass(watcher: Watcher, moment: datetime) -> list[str]:
@@ -2201,10 +2224,10 @@ def respond_pass(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """Take each ended codex-ask run, by codex_takes, start the disk check once DISKS_EVERY is due, by check_disks, hand on each staging slot whose lease ended or whose turn came, by slot_lines, then start the handler on each POST report that needs one, by post_lines, so none of these clocks waits on a main pass that runs minutes; the lanes' reads are respond_pass's."""
+    """Take each ended codex-ask run, by codex_takes, start the disk check once DISKS_EVERY is due, by check_disks, hand on each staging slot whose lease ended or whose turn came, by slot_lines, tell him once of each Claude usage limit this Mac hit, by limit_lines, then start the handler on each POST report that needs one, by post_lines, so none of these clocks waits on a main pass that runs minutes; the lanes' reads are respond_pass's."""
     clocks_drawn(watcher)
     codex_takes(watcher)
-    return check_disks(watcher, moment) + slot_lines(watcher, moment) + post_lines(watcher, moment)
+    return limit_lines(watcher, moment) + check_disks(watcher, moment) + slot_lines(watcher, moment) + post_lines(watcher, moment)
 
 
 CLOCKS_DRAWN: dict[str, int] = {}
@@ -2258,7 +2281,7 @@ def post_lines(watcher: Watcher, moment: datetime) -> list[str]:
     try:
         agents.start_posts(watcher.name, moment)
     except (slack.SlackError, state.DriveError) as error:
-        return failed(watcher, "POST reports", "start of the POST reports' handlers", error, moment)
+        return failed(watcher, "POST reports", "hand-off of the POST reports", error, moment)
     watcher.failures.pop("POST reports", None)
     return []
 
@@ -2588,8 +2611,33 @@ def take_deliveries(watcher: Watcher) -> list[str] | None:
             prs |= {int(key.partition("#")[2]): {} for key in carried if github.repo_of(key) == repo}
         keys = [f"{repo}#{number}" for number in receiver.named(delivery, prs)]
         (watcher.merging if delivery["event"] in receiver.REMERGES else watcher.owed).update(keys)
+        watcher.checking.update(keys)
         named += keys
     return named
+
+
+def limit_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Tell him once for this Mac each Claude usage limit a session here hit that has not reset, as the usage-limit log every drive here shares records it, by his words on the stop "nothing restarts them or tells him": a milestone he wants to know, which the watch posts itself through milestone, with no model; it posts under that log's lock and marks the hit told there once the post went out, so no other drive's watch tells him again, and a post that fails is tried again next pass."""
+    log = state.root() / state.USAGE_LIMIT_LOG
+    if not log.exists():
+        return []
+    with log.open("r+") as kept:
+        fcntl.flock(kept, fcntl.LOCK_EX)
+        rows = [json.loads(line) for line in kept if line.strip()]
+        told = {row["told"] for row in rows if "told" in row}
+        if not (hit := next((row for row in reversed(rows) if "until" in row and row["until"] not in told and state.parse_time(row["until"]) > moment), None)):
+            return []
+        words = (
+            f'Claude Code hit its {hit["limit"]} limit on this Mac: "{hit["notice"]}". Sessions here dismiss its dialog and keep working on paid usage,'
+            " and the watch restarts each agent and lane it stopped."
+        )
+        try:
+            milestone(watcher, {"kind": "report", "attr": {}, "topic": f"usage-limit-{hit['until']}", "text": f"Claude Code hit its {hit['limit']} limit on this Mac", "body": hit["notice"] + "\n"}, words)
+        except (slack.SlackError, state.DriveError) as error:
+            return failed(watcher, "limit notice", "post telling him of Claude's usage limit on this Mac", error, moment)
+        kept.write(json.dumps({"told": hit["until"], "drive": watcher.name}) + "\n")
+    watcher.failures.pop("limit notice", None)
+    return []
 
 
 def claim_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -2762,8 +2810,6 @@ def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Get each message of his answered that `cc-slack dm-owed` lists, in his DM and each operator channel, since no post answering it named it as asked, as an ack never does, while the session this drive's handlers run beside holds his DM, so the drive owes it: at once, `drive route` detached on each no route or answer claimed yet, whose one Jev call sends it to the coordinator, a seat, a handler or the communicator's answer from the drive's rows; two minutes on, the watch hands it as a message of his to the live handler holding its thread each read until it starts one of its own on it, which it does once, and ten minutes on writes one report for the handler in its thread to say there what the answer waits on. Each handler starts detached, as the handler tool starts one, so a read owing many messages hands and reports each in seconds, never waiting on one `claude --bg` launch after another while the messages after it go stale. An open order the message started is left to that order's own lines. The drive keeps each message's marks while cc-slack owes it, so a watch restart hands nothing twice. A failed read or write is said as a failed read is and tried again next read; a launch that fails tells the session the handlers run beside, as the handler tool's does."""
     if watcher.project:
         return []
-    agents.release_quiet(watcher.name)
-    agents.reap_orphans(watcher.name)
     data = state.load(watcher.name)
     try:
         replies = slack.owed(agents.beside(data)[1]["session"])
@@ -2785,7 +2831,7 @@ def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         source = f"owed {ts}"
         try:
-            if not mark["handed"] and not agents.handle(watcher.name, owed_brief(watcher.name, reply, channel, thread), detached=True)[1]:
+            if not mark["handed"] and not agents.handle(watcher.name, owed_brief(watcher.name, reply, channel, thread))[1]:
                 def owed_lines_write2(saved: dict):
                     saved["owed_replies"][ts]["handed"] = True
 
@@ -2884,7 +2930,7 @@ def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
             threads = f"the thread {asked}, has not heard {heard}" if len(owed) == 1 else f"the threads {asked}, have not heard {heard}"
             lines.append(
                 f"TELL {order_id}: {happened} and nothing moved on it for 10 minutes, but {' and '.join(held['link'] for held in owed)}, {threads}:"
-                f" send its report with --attr close={order_id}, whose handler posts {note} {'there' if len(owed) == 1 else 'in each'} and records it with"
+                f" send its report with --attr close={order_id}, which the communicator posts {note} {'there' if len(owed) == 1 else 'in each'} and records it with"
                 f" drive order told {order_id} <its permalink>; done refuses until then"
             )
     return lines
@@ -3425,10 +3471,10 @@ def agent_death(job: dict, data: dict) -> str | None:
 
 
 def agent_stop(job: dict, data: dict) -> dict | None:
-    """The stop of a running local job's agent the watch acts on, its last response: at once when a model's safeguards stopped it, which safeguard_lines passes to him, and when it ended on an API error only once the session holding it has had a response answered since, so the fresh worker the watch hands the job to does not start inside the outage that stopped it; None until then, and for an agent that ended with its session."""
+    """The stop of a running local job's agent the watch acts on, its last response: at once when a model's safeguards stopped it, which safeguard_lines passes to him, or a Claude usage limit did, by agents.limited, since the holding session may never answer again to show it lifted, and when it ended on any other API error only once the session holding it has had a response answered since, so the fresh worker the watch hands the job to does not start inside the outage that stopped it; None until then, and for an agent that ended with its session."""
     if not job.get("agent") or (holder := session_of(job, data)) is None or not (turn := stopped_turn(holder, job, data)):
         return None
-    return turn if agents.refused(turn) or answered_since(holder, turn) else None
+    return turn if agents.refused(turn) or agents.limited(turn) or answered_since(holder, turn) else None
 
 
 def answered_since(holder: dict, turn: dict) -> bool:
@@ -3445,15 +3491,17 @@ def stopped_turn(holder: dict, job: dict, data: dict) -> dict | None:
 
 
 def stopped_on(turn: dict) -> str:
+    if agents.limited(turn):
+        return f'it stopped on Claude\'s usage limit at {when(turn["timestamp"])}: "{cut(said_last(turn), 100)}"'
     return f'its last response ended on {turn["message"]["stop_reason"]} at {when(turn["timestamp"])}: "{cut(said_last(turn), 100)}"'
 
 
 def lane_stop(worker: dict, data: dict) -> tuple[dict, Path] | None:
-    """The last row of the lane_transcript of a lane on this Mac, and that transcript, when a model's safeguards stopped that response, or when it ended on an API error and a session bound to the drive has had a response answered since; None until then."""
+    """The last row of the lane_transcript of a lane on this Mac, and that transcript, when a model's safeguards or a Claude usage limit stopped that response, or when it ended on any other API error and a session bound to the drive has had a response answered since; None until then."""
     path = lane_transcript(worker["terminal"]["worktreePath"])
     if not path or not (turn := last_turn(path)) or not agents.died(turn):
         return None
-    return (turn, path) if agents.refused(turn) or any(answered_since(held, turn) for held in state.bound_sessions(data).values()) else None
+    return (turn, path) if agents.refused(turn) or agents.limited(turn) or any(answered_since(held, turn) for held in state.bound_sessions(data).values()) else None
 
 
 def lane_transcript(worktree: str) -> Path | None:
@@ -3463,7 +3511,7 @@ def lane_transcript(worktree: str) -> Path | None:
 
 
 def resume_lane(watcher: Watcher, job_id: str, job: dict, terminal: str, stop: tuple[dict, Path], moment: datetime) -> list[str]:
-    """Type agents.RESUMED into the terminal of a lane on this Mac that stopped, once for each stop, as the StopFailure hook resumes a lane on a Sprite, whose RESUMED prompts count toward the same four; once four resumes met the stop again, say so once and type no more."""
+    """Type agents.RESUMED into the terminal of a lane on this Mac that stopped, once for each stop, as the StopFailure hook resumes a lane on a Sprite, whose RESUMED prompts count toward the same four, after Escape on the usage-limit dialog a limit stop leaves up, which holds every key typed into the pane until it closes; once four resumes met the stop again, say so once and type no more."""
     turn, path = stop
     if watcher.resumed.get(job_id) == turn["timestamp"]:
         return []
@@ -3473,17 +3521,20 @@ def resume_lane(watcher: Watcher, job_id: str, job: dict, terminal: str, stop: t
         return [f"{head}, after {tries} resumes met the same stop. The watch types no more into it; drive job resume {job_id} <the event> sends it one"]
     source = f"resume of {job_id}"
     try:
+        if agents.limited(turn):
+            orca.dismiss_limit_dialog(terminal)
         orca.type_prompt(terminal, agents.RESUMED)
     except orca.OrcaError as error:
         return failed(watcher, source, f"typing the resume into {job_id}'s terminal {terminal}", error, moment)
     watcher.failures.pop(source, None)
     watcher.resumed[job_id] = turn["timestamp"]
-    return [f"{head}. The watch typed the resume prompt into its terminal {terminal}"]
+    dismissed = "sent Escape to its usage-limit dialog and " if agents.limited(turn) else ""
+    return [f"{head}. The watch {dismissed}typed the resume prompt into its terminal {terminal}, so resume it no second time"]
 
 
 def agent_transcript(holder: dict, job: dict, data: dict) -> Path:
     """A local job's agent's transcript: its handler's own session's, else the one beside the session holding it."""
-    return Path(own) if (own := state.own_transcript(data, job)) else transcript(holder, job["agent"])
+    return Path(own) if (own := state.own_transcript(job)) else transcript(holder, job["agent"])
 
 
 def last_write(job: dict, data: dict) -> tuple[datetime, dict | None]:
@@ -4320,6 +4371,9 @@ def pass_reads(name: str, data: dict, prs: list[str]) -> tuple[list[str] | None,
     return paths, sorted({component for key in prs if key in reach for component in reach[key]["components"]}) if all(key in reach for key in prs) else None
 
 
+WAITERS_QUEUED = False
+
+
 def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Hand on each staging slot, by state.slot_turns: end a lease whose job finished, extend once a lease that ran past its end and end it at its second, and give a free slot to the first job in its queue with a GO, packed with each later pass whose PRs change none of its files, up to six, each of those resumed with its RIDE line, every resume by `drive job resume`, so no session sequences or packs staging by hand; it reads the files of each queued pass whose files it has not read while the slot is held, so a pass is packed the moment the slot frees. Its lines go as evidence and wake nobody; a GO's resume that is refused reaches the session holding the job as its relaunch_refused event."""
     if watcher.project or not (slots := state.load(watcher.name)["slots"]):
@@ -4333,11 +4387,11 @@ def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     paths, stacks = unread[each["job"]]
                     each["paths"] = each["paths"] if paths is None else paths
                     each["stacks"] = each["stacks"] if stacks is None else stacks
-        moved = state.slot_turns(data, moment, state.repo_config(data).get("release"))
-        return moved
+        waiters = state.queue_waiters(data) if WAITERS_QUEUED else []
+        return waiters, state.slot_turns(data, moment, state.repo_config(data).get("release"))
 
-    moved = state.update(watcher.name, None, slot_lines_write)
-    lines = []
+    waiters, moved = state.update(watcher.name, None, slot_lines_write)
+    lines = list(waiters)
     for env, job_id, kind, line in moved:
         if kind == "go":
             start_verb(watcher, job_id, ["job", "resume", job_id, line], moment)
@@ -4974,8 +5028,8 @@ def orphan_lines(watcher: Watcher, moment: datetime, said: type | tuple[type, ..
     data = state.load(watcher.name)
     if not any(orphan_change(data, key, gap, moment) for key, gap in part_gaps(watcher, data, moment).items() if isinstance(gap, said)):
         return []
-    lines = []
-    with state.edit(watcher.name) as data:
+    def orphaned(data: dict) -> list[str]:
+        lines = []
         for key, gap in part_gaps(watcher, data, moment).items():
             change = orphan_change(data, key, gap, moment) if isinstance(gap, said) else None
             part = data["orders"][key[0]]["parts"][key[1]]
@@ -4985,7 +5039,9 @@ def orphan_lines(watcher: Watcher, moment: datetime, said: type | tuple[type, ..
                 part.update(orphan_said=state.stamp(moment), orphan_gap=gap)
             if change == "say":
                 lines.append(f'ORPHAN {key[0]} "{cut(key[1], 80)}": {gap}')
-    return lines
+        return lines
+
+    return state.update(watcher.name, None, orphaned)
 
 
 def hear(name: str, moment: datetime, away: bool = False) -> dict:
@@ -5606,20 +5662,22 @@ def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
             kept.append(line)
     watcher.made = kept
     lanes = dict.fromkeys([*state.HOLDERS, *routed, *watcher.unsent])
-    failures = [failure for lane in lanes if lane != watcher.lane and (lane in routed or not lines) for failure in sent(watcher, lane, routed.get(lane, []), moment)]
+    failures = [failure for lane in lanes if lane != watcher.lane and (lane in routed or not lines or watcher.unsent.get(lane)) for failure in sent(watcher, lane, routed.get(lane, []), moment)]
     watcher.made = []
     return kept + failures
 
 
 def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> list[str]:
     """Post the lines owed the lane over cci as one record, by posted_record, a handoff when any of them asks a step now, by wakes, or the lane is the communicator's or the meta session's, else evidence, which reaches the lane with others at most every five minutes, the lander's own failures apart as one defect, which the meta session starts a fix from, so a pass that says many gaps reaches the lane as one record however many it says; but drop each line that needs_step, judging it as it posts, finds asks no step now, each one quiet() reads its row saying Nothing for, each one said to the lane already within SAID_FOR, by unsaid, and each one owed the communicator or the meta session that is a READY whose fix its builder owes, by fixing(), by his words "make everything less chatty", so a line held across a newer install's takeover or a failed post never hands work that ended meanwhile: each credential cci refuses is withheld from it, and a record that fails goes again when the next pass starts, sent with no lines, each line made meanwhile waiting behind it, so a pass tries a failing lane once and its third failure in a row is said. The lines stay among the watcher's unsent until their record posts, so a newer install that takes the watch over meanwhile gets them."""
-    if lines and watcher.unsent.get(lane):
-        watcher.unsent[lane] += lines
+    if lines and watcher.unsent.get(lane) and lane in state.HOLDERS:
+        watcher.unsent[lane] = list(dict.fromkeys(watcher.unsent[lane] + lines))
         return []
-    owed = watcher.unsent[lane] = watcher.unsent.get(lane, []) + lines
-    if not owed:
+    owed = watcher.unsent[lane] = list(dict.fromkeys(watcher.unsent.get(lane, []) + lines))
+    if not owed or coalescing(watcher, lane, owed, moment):
         return []
     data = state.load(watcher.name)
+    if untaken(watcher, data, lane):
+        return []
     posting = unsaid(watcher.name, lane, [line for line in owed if needs_step(line, data, watcher.cards) and not quiet(line) and (lane not in state.HOLDERS or not fixing(line, data, watcher.cards))], moment)
     defects = [line for line in posting if line.startswith(LANDER)]
     rest = [line for line in posting if line not in defects]
@@ -5632,13 +5690,23 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
             unsent += said
             refusal = error
     keep_said(watcher.name, lane, [line for line in posting if line not in unsent], moment)
+    if posting and not unsent:
+        watcher.posted[lane] = moment
     watcher.unsent[lane] = unsent
+    if kind == "handoff" and rest and not unsent:
+        watcher.handed_at[lane] = moment
     project = next((project for project in data["subcoordinators"] if state.project_lane(project) == lane), lane)
     what = {"communicator": "handoff post to the communicator", "meta": "handoff post to the meta session", "root": "post to the coordinator"}.get(lane, f"post to the sub-coordinator for {project}")
     if refusal is None:
         watcher.failures.pop(what, None)
         return []
     return failed(watcher, what, what, refusal, moment)
+
+
+def coalescing(watcher: Watcher, lane: str, owed: list[str], moment: datetime) -> bool:
+    """Whether a coordinator's lines wait for its next record: one went to it within COALESCE and none of them is URGENT, his tap, a promised time, a move of his orders, a stopped watch or a process gone, so a lane hears the watch at most once every COALESCE in one record of all it made, by his words "make everything less chatty"; the communicator and the meta session hear each line as it comes."""
+    at = watcher.posted.get(lane)
+    return lane not in state.HOLDERS and at is not None and moment - at < COALESCE and not any(line.startswith(URGENT) for line in owed)
 
 
 def quiet(line: str) -> bool:
@@ -5672,6 +5740,15 @@ def keep_said(name: str, lane: str, lines: list[str], moment: datetime) -> None:
     taking = path.with_name(f"{SAID_FILE}.{os.getpid()}.{threading.get_ident()}")
     taking.write_text(json.dumps(said | {said_key(lane, line): state.stamp(moment) for line in lines}))
     os.replace(taking, path)
+
+
+def untaken(watcher: Watcher, data: dict, lane: str) -> bool:
+    """Whether a coordinator lane's session wrote nothing to its transcript since the last handoff the watch posted it, so it took no turn on that handoff, as a session stopped on Claude's usage limit takes none, and each line owed it waits, deduplicated, for the one record that follows its next write; the communicator and the meta session, whose handlers write no role transcript, never wait."""
+    if lane not in state.coordinator_lanes(data) or (handed := watcher.handed_at.get(lane)) is None:
+        return False
+    holder = data["roles"]["coordinator"] if lane == "root" else next(held for project, held in data["subcoordinators"].items() if state.project_lane(project) == lane)
+    path = session_transcript(holder)
+    return not path.exists() or datetime.fromtimestamp(path.stat().st_mtime).astimezone() <= handed
 
 
 def posted_record(name: str, lane: str, kind: str, lines: list[str], checkout: Path) -> None:

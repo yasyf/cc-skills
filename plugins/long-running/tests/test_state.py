@@ -2761,7 +2761,7 @@ def test_a_staging_slot_goes_to_its_first_claimer_and_then_to_each_queued_job_in
 def test_a_staging_lease_that_runs_past_its_end_extends_once_and_an_incident_tester_jumps_the_queue() -> None:
     moment = datetime(2026, 11, 15, 22, 5, tzinfo=UTC)
     orders = {"o1": {"incident": False, "priority": None, "state": "open"}, "o2": {"incident": True, "priority": None, "state": "open"}}
-    data = {"slots": {}, "orders": orders, "jobs": {"j1": {"state": "running", "order": "o1", "carries": [], "goal": ""}, "j2": {"state": "waiting", "order": "o1", "carries": [], "goal": ""}, "j3": {"state": "waiting", "order": "o2", "carries": [], "goal": ""}}}
+    data = {"slots": {}, "orders": orders, "jobs": {"j1": {"state": "running", "order": "o1", "carries": [], "goal": "", "waits": ["staging:api/plat-usw2-staging@abc1234"], "release_build": None}, "j2": {"state": "waiting", "order": "o1", "carries": [], "goal": ""}, "j3": {"state": "waiting", "order": "o2", "carries": [], "goal": ""}}}
     state.slot_claim(data, "plat-usw2-staging", "j1", 30, [], None, moment)
     state.slot_claim(data, "plat-usw2-staging", "j2", 25, [], None, moment)
     assert state.slot_claim(data, "plat-usw2-staging", "j3", 10, [], None, moment).startswith("QUEUED j3 for the plat-usw2-staging slot, place 1, behind j1")
@@ -2889,3 +2889,46 @@ def test_changed_since_names_each_row_committed_after_a_revision_and_none_once_t
     with state.edit("demo") as data:
         data["binder"] = "term-3"
     assert state.changed_since("demo", rev)[1] is None
+
+
+def test_a_slot_held_for_an_order_goes_to_none_of_the_other_jobs_and_frees_when_the_hold_ends() -> None:
+    moment = datetime(2026, 11, 16, 2, 0, tzinfo=UTC)
+    orders = {order_id: {"incident": False, "priority": None, "state": "open"} for order_id in ("o1", "o1339")}
+    data = {"slots": {}, "orders": orders, "jobs": {"j1": {"state": "waiting", "order": "o1", "carries": [], "goal": "", "priority": None}, "j2": {"state": "waiting", "order": "o1339", "carries": [], "goal": "", "priority": None}}}
+    assert state.slot_hold(data, "plat-usw2-sandbox", "o1339", moment + timedelta(hours=2), "release 3 rehearsal (730930)", moment) == "plat-usw2-sandbox held for o1339 until 2026-11-16T04:00:00+00:00: release 3 rehearsal (730930)"
+    assert state.slot_claim(data, "plat-usw2-sandbox", "j1", 20, [], None, moment).startswith("QUEUED j1 for the plat-usw2-sandbox slot, place 1, held for o1339")
+    assert state.slot_turns(data, moment + timedelta(minutes=1)) == []
+    assert state.slot_claim(data, "plat-usw2-sandbox", "j2", 30, [], None, moment).startswith("GO j2 holds the plat-usw2-sandbox slot")
+    data["jobs"]["j2"]["state"] = "done"
+    moved = state.slot_turns(data, moment + timedelta(minutes=40))
+    assert ([kind for _, _, kind, _ in moved], data["slots"]["plat-usw2-sandbox"]["holder"]) == (["freed"], None)
+    moved = state.slot_turns(data, moment + timedelta(hours=2))
+    assert [(job_id, kind) for _, job_id, kind, _ in moved] == [("o1339", "unheld"), ("j1", "go")]
+
+
+def test_a_running_job_queued_for_a_builder_slot_by_its_mac_line_has_a_place_in_line() -> None:
+    from drive import place
+
+    created = "2026-11-16T02:00:00-08:00"
+    data = {"orders": {"o1": {"project": "P", "workstream": "W", "updated": created, "state": "open", "priority": None, "incident": False}}, "jobs": {
+        "j1": {"kind": "builder", "order": "o1", "carries": [], "state": "running", "waits": [state.SLOT_WAIT], "created": created, "where": "local"},
+        "j2": {"kind": "builder", "order": "o1", "carries": [], "state": "done", "waits": [state.SLOT_WAIT], "created": created, "where": "local"},
+    }}
+    assert place.positions(data) == {"j1": "1 of 1 in line"}
+
+
+def test_a_tester_waiting_on_a_cut_with_no_slot_place_is_queued_at_its_waiting_time_and_a_cut_that_never_started_returns_its_riders(monkeypatch: pytest.MonkeyPatch) -> None:
+    moment = datetime(2026, 11, 16, 2, 30, tzinfo=UTC)
+    monkeypatch.setattr(state, "staging_parts", lambda data, job: [("o1", "staging test of #55891 before it lands")] if job is data["jobs"]["j4862"] else [])
+    monkeypatch.setattr(state, "tested_prs", lambda data, job: ["Forge-AI/monorepo#55891"])
+    orders = {"o1": {"incident": False, "priority": None, "state": "open"}}
+    job = lambda **extra: {"state": "waiting", "order": "o1", "carries": [], "goal": "", "priority": None, "waits": [], "release_build": None, "updated": "2026-11-15T06:00:00+00:00"} | extra
+    data = {"slots": {}, "orders": orders, "jobs": {"j1": job(updated="2026-11-16T01:00:00+00:00"), "j2": job(), "j4862": job(waits=["staging:api/plat-usw2-staging@abc1234"])}}
+    state.slot_claim(data, "plat-usw2-staging", "j1", 20, [], None, moment)
+    assert state.queue_waiters(data) == ["SLOT plat-usw2-staging queued j4862, whose WAITING on a staging cut held no place in its queue, at its place from 2026-11-15T06:00:00+00:00"]
+    assert state.queue_waiters(data) == []
+    state.slot_claim(data, "plat-usw2-staging", "j2", 20, [], None, moment + timedelta(minutes=1))
+    data["slots"]["plat-usw2-staging"]["holder"]["extended"] = True
+    [(_, freed, kind, line), (_, given, go, _)] = state.slot_turns(data, moment + timedelta(minutes=60))
+    assert (freed, kind, "which never started, so j1 went back to their places in its queue" in line, given) == ("j1", "freed", True, "j4862")
+    assert [each["job"] for each in data["slots"]["plat-usw2-staging"]["queue"]] == ["j1", "j2"]

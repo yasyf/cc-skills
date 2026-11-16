@@ -35,10 +35,6 @@ ELEVEN_FIXES = {
     "Batch adds": "Several orders or jobs added in one call all land or none do.",
     "Status tables": "Status posts draw tables as Slack tables, and the bot reads back its canvas.",
 }
-RELAY_BRIEF = (
-    "Record: 670054 report from meta (job j1546, closes o598)\nDrive: demo\nContext: read 670054 whole. Post it in o598's thread if it"
-    " has one, else at his DM root.\nDeliverable: the line from 670054 posted"
-)
 TEAMMATE = "U0TEAMMATE"
 CCI_READ = "mcp__plugin_cc-inbox_cci__read"
 SHARE_ORDER = f"can you summarize all our findings, the session IDs, the patterns, the fixes we are considering, etc to <@{TEAMMATE}>"
@@ -407,7 +403,6 @@ def call(tool: str, transcript: Path, session: str | None = None, **tool_input: 
         "session_id": session or os.environ["CLAUDE_CODE_SESSION_ID"],
         "transcript_path": str(transcript),
         "agent_id": HANDLER,
-        "agent_type": "long-running:handler",
         "tool_name": f"mcp__plugin_cc-slack_cc-slack__{tool}",
         "tool_input": tool_input,
     }
@@ -1250,6 +1245,23 @@ def test_the_communicators_own_post_is_refused_with_each_check_post_finding_and_
 
     monkeypatch.setattr(slack, "check_post", broken)
     assert "unchecked" in message_limits.hook_output(payload)["hookSpecificOutput"]["additionalContext"]
+
+
+def test_the_communicators_own_post_gets_one_quick_jev_read_against_his_standard_over_its_words_and_blocks_failing_open_when_jev_is_silent(
+    talker: str, transcript: Path, checked: Checked, jev: Jev
+) -> None:
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "*What happens next:* staging waits on your card"}}, {"type": "context", "elements": [{"type": "mrkdwn", "text": "sandbox first"}]}]
+    payload = call("mcp__plugin_cc-slack_cc-slack__slack_reply", transcript, channel_id="C0CJ378LSBT", thread_ts="1.2", text="Release 3 is on sandbox.", blocks=blocks)
+    del payload["agent_id"]
+    assert message_limits.hook_output(payload) == {}
+    assert checked.texts[-1] == "Release 3 is on sandbox.\n\n*What happens next:* staging waits on your card\n\nsandbox first"
+    assert jev.asked[-1]["state"] == {"guidelines": message_limits.CRAFT_GUIDE, "post": {"text": checked.texts[-1], "pictures": 0}}
+    jev.ruled = {"craft": ("elsewhere", 0.9)}
+    refused = message_limits.hook_output(payload)["hookSpecificOutput"]
+    assert refused["permissionDecision"] == "deny"
+    assert refused["permissionDecisionReason"].endswith("\nelsewhere: " + message_limits.CRAFT_FIXES["craft.elsewhere"])
+    jev.answer = None
+    assert "without the quick read" in message_limits.hook_output(payload)["hookSpecificOutput"]["additionalContext"]
 
 
 def test_the_communicators_own_post_has_no_brief_to_quote(talker: str, transcript: Path) -> None:
@@ -3061,22 +3073,6 @@ def test_his_messages_a_handler_answers_in_his_thread_record_him_heard_never_bac
         data["owner"]["heard"] = state.stamp(later)
     say(transcript, text="Both are in the merge queue.", thread_ts="1.2", asked="Status?")
     assert state.parse_time(state.load("demo")["owner"]["heard"]) == later
-
-def test_a_handlers_own_session_hands_jev_none_of_its_brief_as_his_words_and_his_own_message_still_posts(
-    talker: str, tmp_path: Path, slack_thread: Thread, records: dict[str, str]
-) -> None:
-    records["670054"] = "POST resume works from any session\no598 has no thread, so the line goes at his DM root."
-    own = tmp_path / "handler.jsonl"
-    handler(own, RELAY_BRIEF, "1.2")
-    with state.edit("demo") as data:
-        data["handlers"]["f796ccf3"] = {"session": "handler-session", "started": state.stamp(), "holds": None, "handed": []}
-    relayed = {"session_id": "handler-session", "transcript_path": str(own), "agent_type": "long-running:handler", "tool_name": message_limits.SAY}
-    root = agents.seen(relayed | {"tool_input": {"text": "Resume works from any session now."}})
-    assert message_limits.his_words(root) == []
-    his(slack_thread, "tell me when resume works from the meta session")
-    answer = agents.seen(relayed | {"tool_input": {"text": "Resume works from the meta session now.", "thread_ts": "1.2", "asked": "tell me when resume works from the meta session"}})
-    assert [(word["id"], word["quote"]) for word in message_limits.his_words(answer)] == [("slack:1794310000.000000", "tell me when resume works from the meta session")]
-    assert message_limits.deny_reason(answer) is None
 
 
 def test_a_say_code_visual_of_raw_data_is_refused_and_a_short_snippet_goes_out(talker: str, transcript: Path) -> None:

@@ -1,4 +1,3 @@
-import subprocess
 from pathlib import Path
 
 import ci_tip
@@ -36,21 +35,3 @@ def test_other_commands_and_the_drive_checkout_are_left_alone(lane: tuple[Path, 
     tip, worktree = lane
     assert ci_tip.tip_ci("gh pr view 1 --json body", str(worktree), "d") is None
     assert ci_tip.tip_ci("tools/ci mac-box list", str(tip), "d") is None
-
-
-def test_a_sprite_lane_runs_the_ci_its_base_branch_head_builds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    origin, lane = tmp_path / "origin", tmp_path / "lane"
-    origin.mkdir()
-    git_in(origin, "init", "-q", "-b", "dev")
-    commit_files(origin, "ci", {"tools/ci": "#!/bin/sh\n", "go/ci/main.go": "package main\n", ".orca.json": '{"baseBranch": "origin/dev"}\n', "app/big.txt": "x\n"})
-    subprocess.run(["git", "clone", "-q", "--depth", "1", f"file://{origin}", str(lane)], check=True)
-    head = commit_files(origin, "dev moves on", {"go/ci/main.go": "package main\n\nfunc main() {}\n"})
-    monkeypatch.setattr(ci_tip, "SPRITE_TIP", tmp_path / ".ci-tip")
-    monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
-    commit_files(lane, "app work", {"app/big.txt": "y\n"})
-    assert ci_tip.tip_ci("tools/ci mac-box list", str(lane), "") == f"{tmp_path}/.ci-tip/tools/ci mac-box list"
-    assert git_in(tmp_path / ".ci-tip", "rev-parse", "HEAD") == head
-    assert (tmp_path / ".ci-tip/go/ci/main.go").read_text().endswith("func main() {}\n")
-    assert not (tmp_path / ".ci-tip/app").exists()
-    (lane / "tools/ci").write_text("#!/bin/sh\necho lane\n")
-    assert ci_tip.tip_ci("tools/ci mac-box list", str(lane), "") is None

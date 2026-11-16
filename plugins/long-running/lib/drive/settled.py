@@ -190,6 +190,9 @@ PREFERENCE = Noul(
     " process or wait does it, what an agent, hook or verb is refused or made to do, how many requests or processes it makes, or which"
     " branch, pin or commit holds a change, which by `ruling.said` its job decides.",
 )
+UNWAITED_SAID = "It also should not wait on me: it should start building everything it can with its recommendations, and any design decisions sent to me can just steer it later"
+UNWAITED = "{option}: decided by the drive under your words \"" + UNWAITED_SAID + "\"; reply here to overrule"
+DECISION_LABEL = "from:drive-decision"
 FRESH_SAID = "I've said so many times to do this design from the ground up and only ask me for the crucial directional decisions yet you keep bringing me old questions"
 DIRECTION = Noul(
     "Do the options of `card.text`, asked by a builder of a design his words ordered from scratch, differ in the design's direction:"

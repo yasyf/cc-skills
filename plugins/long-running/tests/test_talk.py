@@ -79,14 +79,6 @@ def test_one_post_links_each_reference_the_way_slack_and_the_dashboard_each_show
     assert (kept["url"], kept["thread"]) == (POSTED, "1794300000.000900")
 
 
-def test_a_post_in_his_dm_goes_as_the_session_holding_it_from_every_session_but_a_handler(demo: str, posts: list[tuple[str, ...]]) -> None:
-    talk.say(demo, {"text": "The fix is up."})
-    with state.edit(demo) as data:
-        data["handlers"]["h1"] = {"session": os.environ["CLAUDE_CODE_SESSION_ID"], "transcript": None, "started": state.stamp(), "holds": {}, "handed": [], "posted": []}
-    talk.say(demo, {"text": "The fix is in."})
-    assert ["--as-holder" in argv for argv in posts] == [True, False]
-
-
 def test_a_root_post_on_an_order_goes_to_its_projects_operator_channel_and_keeps_the_messages_it_answers(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C777", "name": "him-drive-demo-iris"}])
     with state.edit(demo) as data:
@@ -102,9 +94,9 @@ def test_a_root_post_on_an_order_goes_to_its_projects_operator_channel_and_keeps
 
 
 def test_a_card_of_no_project_asks_at_the_root_of_the_drives_own_channel_while_a_status_line_of_none_stays_in_his_dm(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C777", "name": "him-drive-demo-iris"}, {"id": "C888", "name": "him-drive-demo-drive-tooling"}])
+    monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C777", "name": "him-drive-demo-iris"}, {"id": "C888", "name": "him-drive-demo-tooling"}])
     with state.edit(demo) as data:
-        data["slack"]["channels"] = {"Iris": {"id": "C777", "name": "him-drive-demo-iris"}, "Drive tooling": {"id": "C888", "name": "him-drive-demo-drive-tooling"}}
+        data["slack"]["channels"] = {"Iris": {"id": "C777", "name": "him-drive-demo-iris"}, "Drive tooling": {"id": "C888", "name": "him-drive-demo-tooling"}}
         data["orders"]["o1"] = state.new_order("design the store", "D123", None, {}, state.stamp()) | {"jobs": ["j1"]}
         data["jobs"]["j1"] = state.new_job("o1", "builder", "design the store", [], state.stamp())
         data["jobs"]["j1"]["questions"].append(state.new_question(None, "Keep the old store?", state.stamp()) | {"waits": "demo:j1-8"})
@@ -129,7 +121,7 @@ def test_once_the_drive_has_its_own_channel_a_post_of_a_project_with_none_makes_
 
 
 def test_a_priority_orders_post_makes_its_bound_seats_own_channel_while_its_projects_other_orders_stay_in_the_projects(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
-    made = {"him-drive-demo-iris": {"id": "C777", "name": "him-drive-demo-iris"}, "him-drive-demo-priority-o2": {"id": "C790", "name": "him-drive-demo-priority-o2"}}
+    made = {"him-drive-demo-iris": {"id": "C777", "name": "him-drive-demo-iris"}, "him-drive-demo-prio-o2": {"id": "C790", "name": "him-drive-demo-prio-o2"}}
     sent = slack.cc_slack
     monkeypatch.setattr(slack, "cc_slack", lambda *argv, **_: made[argv[1]] if argv[0] == "operator-channel" else sent(*argv))
     with state.edit(demo) as data:
@@ -140,7 +132,7 @@ def test_a_priority_orders_post_makes_its_bound_seats_own_channel_while_its_proj
     talk.posted(demo, {"text": "The page is up."}, "o1")
     talk.posted(demo, {"text": "The lock is fixed."}, "o2")
     assert [argv[argv.index("--channel") + 1] for argv in posts] == ["C777", "C790"]
-    assert state.load(demo)["slack"]["channels"][state.priority_seat("o2")] == made["him-drive-demo-priority-o2"]
+    assert state.load(demo)["slack"]["channels"][state.priority_seat("o2")] == made["him-drive-demo-prio-o2"]
 
 
 def test_the_drives_own_channel_posts_one_line_per_project_channel_linking_it_and_its_queue(demo: str, unposted_waits: Callable[..., dict[str, str]]) -> None:
@@ -156,7 +148,7 @@ def test_drive_channels_moves_each_open_card_of_his_dm_to_its_projects_channel_o
         data["orders"][order_id] = state.new_order("ship the run page", "D123", None, {}, state.stamp()) | {"project": "Iris", "jobs": [job_id]}
         data["jobs"][job_id] = state.new_job(order_id, "builder", "ship the run page", [], state.stamp()) | {"waits": [CARD_URL]}
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr(PR_URL, job_id, order_id)
-    iris, drive, moved = {"id": "C777", "name": "him-drive-demo-iris"}, {"id": "C888", "name": "him-drive-demo-drive-tooling"}, "https://acme.slack.com/archives/C777/p1794300000000950"
+    iris, drive, moved = {"id": "C777", "name": "him-drive-demo-iris"}, {"id": "C888", "name": "him-drive-demo-tooling"}, "https://acme.slack.com/archives/C777/p1794300000000950"
     made = {"him-drive-demo": {"id": "C666", "name": "him-drive-demo"}, iris["name"]: iris, drive["name"]: drive}
     unfiled = question_card("https://acme.slack.com/archives/D123/p1794300000000300", "Which drive?", "demo:j99-7")
     pr_card = {"prs": [PR_URL], "asked": ASKED, "url": "https://acme.slack.com/archives/D123/p1794300000000200", "card": {"title": "Merge #7?", "waits": "merge:yasyf/cc-skills#7"}}
@@ -188,12 +180,10 @@ def test_replaying_o2068_a_post_in_an_orders_thread_recorded_on_no_order_is_stil
     assert (orders["o1"]["last_line"], orders["o2"]["last_line"]) == (state.stamp(slack.sent_at(slack.posted(reply, ""))), None)
 
 
-def test_a_post_answering_his_words_names_the_message_its_handler_holds_and_an_edit_names_none(demo: str, posts: list[tuple[str, ...]]) -> None:
-    with state.edit(demo) as data:
-        data["handlers"]["h1"] = {"session": os.environ["CLAUDE_CODE_SESSION_ID"], "transcript": None, "started": state.stamp(), "holds": {"message": "1794200000.000400"}, "handed": [], "posted": []}
+def test_a_post_answering_his_words_names_the_message_its_permalink_names_and_an_edit_names_none(demo: str, posts: list[tuple[str, ...]]) -> None:
     talk.posted(demo, {"text": "It is up.", "asked": ["is it up?", "https://acme.slack.com/archives/D123/p1794200000000500"]})
     talk.posted(demo, {"edit": POSTED, "text": "It is in.", "asked": ["is it up?"]})
-    assert [event["answers"] for event in said(demo)] == [["1794200000.000400", "1794200000.000500"], []]
+    assert [event["answers"] for event in said(demo)] == [["1794200000.000500"], []]
 
 
 def test_a_card_named_in_its_own_thread_reads_this_card_with_no_link(demo: str, posts: list[tuple[str, ...]]) -> None:
@@ -681,31 +671,20 @@ def test_a_local_image_goes_to_slack_as_a_copy_named_for_the_title_slack_gives_i
     assert (sent.name, sent.read_bytes()) == (f"{title}.png", shot.read_bytes())
     assert said(demo)[0]["visuals"][0]["picture"] == str(sent)
 
+REFUSAL = "nothing posted: only the communicator posts to him: send these words as a report record to communicator@demo, which posts and records them"
 
-@pytest.mark.parametrize(
-    ("handler", "refusal"),
-    [
-        (
-            "demo/31957310",
-            "nothing posted: this session runs handler 31957310 and is unbound: the drive binds no handler 31957310 to it, so it is bound to the drive as nothing,"
-            " while only the communicator and a handler bound to it record a post on an order or take back a part's mark; post no copy, and return a DEFECT line quoting this",
-        ),
-        (None, "nothing posted: only the communicator's handlers post to him: send these words as a report record to communicator@demo, whose handler posts and records them"),
-    ],
-)
-def test_705235_a_post_from_a_session_neither_the_communicator_nor_its_bound_handler_goes_nowhere_with_or_without_a_record_and_names_an_unbound_handlers_session(
-    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, posts: list[tuple[str, ...]], unrecorded: list[str], handler: str | None, refusal: str
+
+def test_705235_a_post_from_a_session_not_the_communicator_goes_nowhere_with_or_without_a_record(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, posts: list[tuple[str, ...]], unrecorded: list[str]
 ) -> None:
     thread = "1794261099.160079"
     run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "SandSQL", "why app actions fail", "--thread", thread, "--owner", "coordinator")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = "communicator-session"
-    if handler:
-        monkeypatch.setenv(state.HANDLER_ENV, handler)
     report(monkeypatch, {"order": "o1", "stall": "true", "thread": thread}, lane="watch")
     line = {"text": "The copy still stalls on the lock.", "thread_ts": thread}
     for each in (line | {"record": "705228", "dry_run": True}, line | {"record": "705228"}, line | {"dry_run": True}, line):
-        with pytest.raises(DriveError, match=f"^{re.escape(refusal)}$"):
+        with pytest.raises(DriveError, match=f"^{re.escape(REFUSAL)}$"):
             talk.say(demo, each)
     assert (posts, said(demo), unrecorded, state.load(demo)["orders"]["o1"]["last_line"]) == ([], [], [], None)
 
@@ -727,7 +706,7 @@ def test_705235_a_post_from_a_session_neither_the_communicator_nor_its_bound_han
         ),
     ],
 )
-def test_a_handlers_post_in_its_orders_thread_is_recorded_on_that_order_though_the_record_runs_as_no_session(
+def test_a_post_in_its_orders_thread_is_recorded_on_that_order_though_the_record_runs_as_no_session(
     demo: str,
     run: Callable[..., tuple[int, str]],
     monkeypatch: pytest.MonkeyPatch,
@@ -742,9 +721,8 @@ def test_a_handlers_post_in_its_orders_thread_is_recorded_on_that_order_though_t
     run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "SandSQL", "why app actions fail", "--kind", "answer", "--thread", thread, "--parts", "fix")
     run("start", "demo", "--role", "communicator")
     with state.edit(demo) as data:
-        data["roles"]["communicator"]["session"] = "communicator-session"
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
-        data["handlers"]["a74493d1"] = {"session": os.environ["CLAUDE_CODE_SESSION_ID"], "transcript": None, "started": state.stamp(), "holds": {}, "handed": [], "posted": []}
     answer = slack_thread.post(state.now(), from_claude=True)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": thread})
     report(monkeypatch, attrs, lane=lane)
@@ -790,23 +768,15 @@ def report(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, str], lane: str = "
     monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], **record}))
 
 
-def handling(name: str, order_id: str, message: str | None = None) -> None:
+def answering_his(name: str, order_id: str, message: str | None = None) -> None:
     with state.edit(name) as data:
         channel, thread = data["orders"][order_id]["thread"]
         his = message or thread
         data["orders"][order_id]["from"] = f"slack:{channel}/{his}"
-        link = f"https://acme.slack.com/archives/{channel}/p{his.replace('.', '')}?thread_ts={thread}&cid={channel}"
-        data["handlers"]["h1"] = {
-            "session": os.environ["CLAUDE_CODE_SESSION_ID"],
-            "transcript": None,
-            "started": state.stamp(),
-            "holds": {"message": his, "link": link, "thread": thread, "record": None, "re": []},
-            "handed": [],
-            "posted": [],
-        }
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
 
 
-def test_a_handlers_reply_goes_on_the_order_of_the_record_of_his_words_it_carries_delivering_no_part_and_one_with_no_record_on_none_each_the_last_line_of_every_order_in_its_thread(
+def test_a_reply_goes_on_the_order_of_the_record_of_his_words_it_carries_delivering_no_part_and_one_with_no_record_on_none_each_the_last_line_of_every_order_in_its_thread(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, unrecorded: list[str]
 ) -> None:
     thread, his = "1794200000.000100", "1794201723.677000"
@@ -817,7 +787,7 @@ def test_a_handlers_reply_goes_on_the_order_of_the_record_of_his_words_it_carrie
         data["roles"]["communicator"]["session"] = "communicator-session"
         data["roles"]["coordinator"]["session"] = "elsewhere"
         data["orders"]["o2"]["created"] = state.stamp(state.now() + timedelta(minutes=1))
-    handling(demo, "o2", his)
+    answering_his(demo, "o2", his)
     assert state.thread_order(state.load(demo), thread) == "o2"
     answer = slack_thread.post(state.now(), from_claude=True)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": thread})
@@ -976,7 +946,7 @@ def test_a_say_of_a_record_retried_after_cc_slack_posted_and_failed_hands_cc_sla
         return {"permalink": held[keys[-1]], "thread_ts": thread}
 
     monkeypatch.setattr(slack, "cc_slack", cc_slack)
-    handling(demo, "o1")
+    answering_his(demo, "o1")
     report(monkeypatch, {"order": "o1", "thread": thread}, lane="communicator", kind="owner")
     post = {"text": "The copy stalls on the lock.", "thread_ts": thread, "record": "690001"}
     with pytest.raises(slack.SlackError, match="context deadline exceeded"):
@@ -1003,22 +973,6 @@ def test_a_records_post_keys_on_its_words_so_a_second_line_on_one_record_goes_ou
     keys = [argv[argv.index("--request-key") + 1] for argv in posts]
     assert keys[0] == keys[1] != keys[2]
     assert all(key.startswith("1794388096896-demo.690001.") for key in keys)
-
-
-def test_a_handlers_post_of_no_record_keys_on_his_message_it_holds_and_its_words(demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]) -> None:
-    thread = "1794200000.000100"
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", thread)
-    run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
-        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
-        data["roles"]["coordinator"]["session"] = "elsewhere"
-    talk.say(demo, {"text": "The copy stalls on the lock.", "thread_ts": thread})
-    handling(demo, "o1", "1794200000.000300")
-    for text in ("The copy stalls on the lock.", "The copy stalls on the lock.", "The lock is released."):
-        talk.say(demo, {"text": text, "thread_ts": thread})
-    keys = [argv[argv.index("--request-key") + 1] if "--request-key" in argv else None for argv in posts]
-    assert keys[0] is None and keys[1] == keys[2] != keys[3]
-    assert all(key.startswith("1794200000000-demo.1794200000.000300.") for key in keys[1:])
 
 
 def test_a_report_delivers_on_an_order_only_from_the_lane_of_its_holder_and_a_refusal_names_the_report_the_handler_passes(
@@ -1106,7 +1060,7 @@ def test_a_second_report_closing_one_order_posts_nothing_whoever_wrote_it_and_a_
     report(monkeypatch, {"close": "o1"}, lane="watch")
     assert talk.say(demo, {"text": "The fix is live.", "thread_ts": thread, "record": "684712"}).startswith(f"POSTED {answer}")
     report(monkeypatch, {"close": "o1"}, lane="meta")
-    refused = "refused, report 684712 already closes o1, so this second close of it posts nothing: send no close of o1, and a handler passed this one returns NOTHING o1 closes on report 684712"
+    refused = "refused, report 684712 already closes o1, so this second close of it posts nothing: send no close of o1"
     with pytest.raises(DriveError, match=re.escape(f"nothing posted: {refused}")):
         talk.say(demo, {"text": "The fix is live.", "thread_ts": thread, "record": "684713"})
     assert len(sent) == 1
@@ -1187,22 +1141,6 @@ def test_a_correction_of_a_report_already_posted_names_the_post_it_went_out_in_t
     with pytest.raises(DriveError, match=f"nothing posted: record 669980 corrects report 669950, which went out in {re.escape(POSTED)}: reword that post with say\\(edit={re.escape(POSTED)}"):
         talk.say(demo, {"text": "Each request reads 16 MiB.", "record": "669980"})
     assert len(posts) == 1
-
-
-def test_721809_a_report_one_handler_posted_goes_nowhere_from_a_second_handler_and_names_that_post_while_the_first_may_post_it_again(
-    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]
-) -> None:
-    report(monkeypatch, {"orders": "o1"})
-    entry = {"transcript": None, "started": state.stamp(), "holds": {"record": "721809"}, "handed": [], "posted": []}
-    with state.edit(demo) as data:
-        data["handlers"]["f85f14dd"] = entry | {"session": os.environ["CLAUDE_CODE_SESSION_ID"]}
-    talk.say(demo, {"text": "Testing the journal fix on staging for 30 minutes.", "record": "721809"})
-    talk.say(demo, {"text": "The journal fix holds staging for 30 minutes.", "record": "721809"})
-    with state.edit(demo) as data:
-        data["handlers"] = {"f85f14dd": data["handlers"]["f85f14dd"] | {"session": "f85f14dd-session"}, "a2c4e6f8": entry | {"session": os.environ["CLAUDE_CODE_SESSION_ID"]}}
-    with pytest.raises(DriveError, match=f"^nothing posted: report 721809 already went out in {re.escape(POSTED)}, which another handler posted: return NOTHING already posted at {re.escape(POSTED)}$"):
-        talk.say(demo, {"text": "Testing the journal fix on staging for 30 minutes.", "record": "721809"})
-    assert len(posts) == 2
 
 
 def test_a_post_goes_out_in_exactly_the_words_it_was_given_while_built_work_waits_on_his_card(

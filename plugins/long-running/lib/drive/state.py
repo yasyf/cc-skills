@@ -126,6 +126,7 @@ BACKLOG_DRAIN = 3
 TOOLING_DETAILS_RULING = "43aa665"
 REHEARSAL_RULING = "716e70d"
 FRESH_DETAILS_RULING = "ff17121"
+UNWAITED_RULING = "11e3586"
 AREA_LABEL = "area:"
 POST_FEEDBACK = f"{TOOLING} post feedback:"
 DRIVE_TOOLING = (
@@ -149,7 +150,6 @@ ROLES = ("communicator", "coordinator", "meta")
 REPO_RULES = ".claude/long-running.toml"
 HOLDERS = ("communicator", "meta")
 ORDERS_MOVED = "orders_moved"
-HANDLER_ENV = "LONG_RUNNING_HANDLER"
 JOB_ENV = "LONG_RUNNING_JOB"
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
 OWN_JOB_ENV = "LONG_RUNNING_OWN_JOB"
@@ -331,10 +331,10 @@ BACKUP = "drive.json.before-sqlite"
 MOVED = "moved_to"
 MOVED_SAVER = "999999.0.0"
 SCHEMA = "1"
-COLLECTIONS = ("orders", "jobs", "prs", "answers", "handlers", "stalls")
+COLLECTIONS = ("orders", "jobs", "prs", "answers", "stalls")
 FIELDS_ONCE_COLLECTIONS = ("routed", "routes")
 CLOCKS = "clocks"
-BINDINGS = ("driver", "roles", "subcoordinators", "handlers")
+BINDINGS = ("driver", "roles", "subcoordinators", "communicators")
 TABLES = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
 CREATE TABLE rows (collection TEXT NOT NULL, key TEXT NOT NULL, place INTEGER NOT NULL, body TEXT, PRIMARY KEY (collection, key)) WITHOUT ROWID;
@@ -539,7 +539,9 @@ def coordinator_lanes(data: dict) -> tuple[str, ...]:
 
 
 def alias(drive: str, role: str, project: str | None = None) -> str:
-    """The cci alias a role's session, or a project's sub-coordinator's, is registered under, which names its tmux session too."""
+    """The cci alias a role's session, a project's sub-coordinator's or a seat's communicator's, is registered under, which names its tmux session too."""
+    if project and role == "communicator":
+        return f"{drive}-{communicator_lane(project)}"
     return f"{drive}-{project_lane(project) if project else role}"
 
 
@@ -844,7 +846,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "name": name,
         "roles": {role: {"session": session, "cwd": cwd, "started": stamp()}},
         "subcoordinators": {},
-        "handlers": {},
+        "communicators": {},
         "slack": {"page": None, "watch": [], "swept": None, "waiting": {}, "digest": None, "channels": {}},
         "owner": {"heard": None, "away": None, "absence": None},
         "orders": {},
@@ -852,8 +854,6 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "prs": {},
         "answers": {},
         "stalls": {},
-        "routed": {},
-        "routes": {},
         "slots": {},
         "stand_ins": {},
         "owed_replies": {},
@@ -903,7 +903,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
 
 
 def saved(name: str) -> dict:
-    """The drive's name and the sessions bound to it as saved, read alone from its database: each role's, each sub-coordinator's and each handler's, one saved with a single driver session reading as that session coordinating."""
+    """The drive's name and the sessions bound to it as saved, read alone from its database: each role's, each sub-coordinator's and each project communicator's, one saved with a single driver session reading as that session coordinating."""
     return bound(stored(name, BINDINGS)) | {"name": name}
 
 
@@ -1050,25 +1050,13 @@ def bound(data: dict) -> dict:
     if "driver" in data:
         data["roles"] = {"coordinator": data.pop("driver")}
     data.setdefault("subcoordinators", {})
-    data.setdefault("handlers", {})
+    data.setdefault("communicators", {})
     data.setdefault("launched", {})
     data.setdefault("terminal", None)
     data.setdefault("binder", None)
     data.pop("run", None)
     data.pop("saved_by", None)
-    for handler in data["handlers"].values():
-        handler.setdefault("holds", None)
-        handler.setdefault("brief", None)
-        handler["handed"] = [*handler.get("handed", []), *handler.pop("held_back", [])]
-        handler.setdefault("took", [])
-        handler.setdefault("posted", [])
-        handler.setdefault("pool", False)
-        handler.setdefault("busy", True)
-        handler.setdefault("ended", None)
-        handler.setdefault("given", handler["started"])
-        handler.setdefault("topics", [])
-        handler.setdefault("items", 0)
-    for held in [*data["roles"].values(), *data["subcoordinators"].values()]:
+    for held in [*data["roles"].values(), *data["subcoordinators"].values(), *data["communicators"].values()]:
         held.pop("terminal", None)
     return data
 
@@ -1313,6 +1301,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data.setdefault("stalls", {})
     data.setdefault("slots", {})
     for slot in data["slots"].values():
+        slot.setdefault("hold", None)
         for each in slot["queue"]:
             each.setdefault("paths", None)
             each.setdefault("stacks", None)
@@ -1332,8 +1321,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data.pop("held", None)
     data.pop("catch_up", None)
     data.setdefault("owed_replies", {})
-    data.setdefault("routed", {})
-    data.setdefault("routes", {})
+    data.pop("routed", None)
+    data.pop("routes", None)
     data.setdefault("carried", {})
     data.setdefault("posts", {"mark": None})
     data["posts"].pop("unposted", None)
@@ -1361,8 +1350,6 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         kept.setdefault("pinned", False)
     for job in data["jobs"].values():
         job.pop("may_settle", None)
-        if job.get("bg"):
-            job["bg"].setdefault("pool", False)
         for question in job["questions"]:
             question.setdefault("refused", None)
             if "settled" in question:
@@ -2894,6 +2881,16 @@ def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
     return added
 
 
+def order_open_prs(data: dict, order_id: str) -> list[str]:
+    """Each open PR of the order that no other live order holds: its job's order and every order it carries are closed or are this one."""
+    return [
+        key
+        for key, pr in data["prs"].items()
+        if pr["order"] == order_id and pr["state"] == "open"
+        and not any(other != order_id and data["orders"][other]["state"] not in CLOSED_ORDER_STATES for other in ([data["jobs"][pr["job"]]["order"], *data["jobs"][pr["job"]]["carries"]] if pr["job"] in data["jobs"] else []))
+    ]
+
+
 def dangerous_staged(data: dict, order_id: str) -> list[str]:
     """Each open PR waiting on a staging test part of the order that the watch staged because its head changes a dangerous class of file, by its tester's DANGEROUS_GOAL, so closing the order, which frees that wait, would let it land untested."""
     return [
@@ -4347,7 +4344,7 @@ def moved(name: str) -> None:
 
 def pointed(name: str, data: dict) -> None:
     """Replace drive.json with a pointer to the drive's database, saved_by an install newer than any, so every older install's load, edit, batch and edit_or_create refuse the drive as a newer install's, its bindings kept so an older verb still resolves the drive and says so."""
-    pointer = {MOVED: DATABASE, "backup": BACKUP, "saved_by": MOVED_SAVER, "name": name, "roles": {}, "subcoordinators": {}, "handlers": {}, "launched": {}}
+    pointer = {MOVED: DATABASE, "backup": BACKUP, "saved_by": MOVED_SAVER, "name": name, "roles": {}, "subcoordinators": {}, "communicators": {}, "launched": {}}
     tmp = state_path(name).with_name("drive.json.tmp")
     tmp.write_text(json.dumps(pointer | {field: data[field] for field in BINDINGS if field in data}, indent=2) + "\n")
     os.replace(tmp, state_path(name))
@@ -4714,7 +4711,7 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
             db.execute("PRAGMA wal_checkpoint(PASSIVE)")
     down_mac_boxes(name, mine, [job_id for job_id, then in ended.items() if then not in FINISHED_JOB_STATES])
     bound = any(collection == "" and key in BINDINGS for collection, key in held)
-    if bound or any(collection in ("orders", "jobs", "handlers") for collection, _ in held):
+    if bound or any(collection in ("orders", "jobs") for collection, _ in held):
         if bound:
             moved = {order_id: (holding_lane(base, order), holding_lane(mine, mine["orders"][order_id])) for order_id, order in open_orders(base).items() if order_id in mine["orders"]}
         else:
@@ -4938,7 +4935,7 @@ def read_updated[T](name: str, change: Callable[[dict], T]) -> T:
 
 def update[T](name: str, rows: tuple[Row, ...] | None, change: Callable[[dict], T]) -> T:
     """Apply change, a function of the drive that only reads and changes data, to the drive and return what it returns, as a write of rows that is never refused, or with rows None as a write naming no rows: on the drive as it loads, saved by rows_saved, and again on the drive as it then stands each time another write changed one of the rows meanwhile, up to UPDATE_TRIES runs; a change changing a row it did not name, or one raced past those runs, runs once more as a write naming no rows; locks.log names each such last run."""
-    if name in BATCHED or WAITS_OUT_LOCK.get() or not database_path(name).exists():
+    if name in BATCHED or not database_path(name).exists():
         with edit(name) as data:
             return change(data)
     if rows is None:
@@ -5087,13 +5084,13 @@ def next_id(records: dict, prefix: str) -> str:
 
 
 def session_role(data: dict, session: str | None) -> str | None:
-    """The role a session holds; a sub-coordinator's is coordinator and a handler's the communicator's, so every rule of that role binds it too."""
+    """The role a session holds; a sub-coordinator's is coordinator, so every rule of that role binds it too."""
     role = next((role for role, held in data["roles"].items() if session and held["session"] == session), None)
     if role:
         return role
     if session_project(data, session):
         return "coordinator"
-    return "communicator" if handler_id(data, session) else None
+    return "communicator" if communicator_project(data, session) else None
 
 
 def top_coordinator(data: dict, session: str | None) -> bool:
@@ -5122,19 +5119,11 @@ def held_since(held: list[dict]) -> str:
     return "".join(f"\n{since_heading(who)}" + "".join(f"\n- {kept['words']}" for kept in held if kept["sender"] == who) for who in senders)
 
 
-def handler_id(data: dict, session: str | None) -> str | None:
-    """The handler a `claude --bg` session runs for the communicator: for this process's own session the one its LONG_RUNNING_HANDLER names, which its launch sets before the session exists, so a handler is bound from its first step though its launch saves its session only once `claude --bg` returns and the drive's lock frees; else the one whose entry keeps the session."""
-    own = os.environ.get(HANDLER_ENV, "").partition("/")[2]
-    if session and session == os.environ.get("CLAUDE_CODE_SESSION_ID") and own in data["handlers"]:
-        return own
-    return next((handler for handler, held in data["handlers"].items() if session and held["session"] == session), None)
-
-
-def own_transcript(data: dict, job: dict) -> str | None:
-    """The transcript of a job a handler holds, or one whose agent `drive job start` started, its own claude --bg session's rather than one beside the communicator's or its starter's: that session's while it runs, once Claude Code has written it, the job's own once it ended."""
+def own_transcript(job: dict) -> str | None:
+    """The transcript of a job whose agent `drive job start` started, its own claude --bg session's rather than one beside the communicator's or its starter's: that session's while it runs, once Claude Code has written it, the job's own once it ended."""
     from drive import install
 
-    session = (data["handlers"].get(job.get("agent")) or {}).get("session") or own_session(job)
+    session = own_session(job)
     return job.get("transcript") or (session and next(map(str, (install.config_dir() / "projects").glob(f"*/{session}.jsonl")), None))
 
 
@@ -5143,9 +5132,29 @@ def session_project(data: dict, session: str | None) -> str | None:
     return next((project for project, held in data["subcoordinators"].items() if session and held["session"] == session), None)
 
 
+def communicator_project(data: dict, session: str | None) -> str | None:
+    """The project or priority seat a session is the communicator for, paired with that seat's sub-coordinator and holding that seat's channel, or None for any other session, the drive's own communicator included."""
+    return next((project for project, held in data["communicators"].items() if session and held["session"] == session), None)
+
+
+def session_seat(data: dict, session: str | None) -> str | None:
+    """The project or priority seat a session holds, as its sub-coordinator or as its communicator."""
+    return session_project(data, session) or communicator_project(data, session)
+
+
+def communicator_lane(project: str) -> str:
+    """The cci lane of a project's or priority seat's communicator."""
+    return f"{project_lane(project)}-communicator"
+
+
+def communicator_lanes(data: dict) -> tuple[str, ...]:
+    """The cci lanes of the drive's communicator sessions, the drive's own and each seat's."""
+    return ("communicator", *map(communicator_lane, data["communicators"]))
+
+
 def bound_sessions(data: dict) -> dict[str, dict]:
-    """Every session bound to the drive: each role's by the role's name, each sub-coordinator's as `sub-coordinator <its project>`."""
-    return data["roles"] | {f"sub-coordinator {project}": held for project, held in data["subcoordinators"].items()}
+    """Every session bound to the drive: each role's by the role's name, each sub-coordinator's as `sub-coordinator <its project>`, each seat's communicator as `communicator <its project>`."""
+    return data["roles"] | {f"sub-coordinator {project}": held for project, held in data["subcoordinators"].items()} | {f"communicator {project}": held for project, held in data["communicators"].items()}
 
 
 def repo_config(data: dict) -> dict:
@@ -5482,6 +5491,8 @@ def session_lane(data: dict, session: str | None) -> str | None:
     """The cci lane a session of the drive posts with: a sub-coordinator's its project's, any other role's its own; None for a session the drive does not bind."""
     if project := session_project(data, session):
         return project_lane(project)
+    if spoke := communicator_project(data, session):
+        return communicator_lane(spoke)
     role = session_role(data, session)
     return next((lane for lane, held in LANE_ROLES.items() if held == role), None)
 
@@ -5553,7 +5564,7 @@ def unread(drives: dict[str, dict], to: list[str], drive: str | None, held: bool
     for entry in to:
         lane, _, name = entry.partition("@")
         name = name or drive or ""
-        if not (data := drives.get(name)) or lane in (lanes := ["root", "communicator", "meta", *map(project_lane, data["subcoordinators"]), "owner"]) or held and lane in open_jobs(data) or lane in {agent_address(job) for job in data["jobs"].values() if job.get("agent") and job.get("session")}:
+        if not (data := drives.get(name)) or lane in (lanes := ["root", *communicator_lanes(data), "meta", *map(project_lane, data["subcoordinators"]), "owner"]) or held and lane in open_jobs(data) or lane in {agent_address(job) for job in data["jobs"].values() if job.get("agent") and job.get("session")}:
             continue
         return job_addressed(drives, [entry], drive) or f"refused, nothing posted: to {lane}: no session of drive {name} reads that lane; name one of {', '.join(lanes)}, or an unfinished job's id on the drive's `record` tool"
     return None
@@ -5703,12 +5714,11 @@ def last_started(data: dict) -> str:
 
 
 def session_drives(session: str) -> list[str]:
-    """The drives that bind the session, a handler's included, by handler_id, the newest binding first, read from each drive's saved bindings alone, so a call loads no drive it is not bound to."""
+    """The drives that bind the session, the newest binding first, read from each drive's saved bindings alone, so a call loads no drive it is not bound to."""
     bound = []
     for name in names():
         data = saved(name)
         bound += [(held["started"], name) for held in bound_sessions(data).values() if held["session"] == session]
-        bound += [(data["handlers"][handler]["started"], name)] if (handler := handler_id(data, session)) else []
     return list(dict.fromkeys(name for _, name in sorted(bound, reverse=True)))
 
 
@@ -5877,7 +5887,7 @@ def open_orders(data: dict) -> dict[str, dict]:
 
 
 def clocks(data: dict) -> list[dict]:
-    """Each open order he asked a line every so many minutes on, by his words "And give me updates, every 15 mins, concise, on all 3 of these, in this thread, until all done", due that many minutes after its thread's last line, with when that thread last got a line, the session of the role holding it and of each handler holding a message in its thread, and the agent of each job of it running, an incident or one with a thread that no recovery, close report, close or proof finished; a promised time and five quiet minutes owe no line, by his words "clearly these reports are useless / not valuable / spammy, so remove them entirely or rethink the whole model". Each edit and batch saves it as one row, which hooks/role_rules.py reads alone with no lock."""
+    """Each open order he asked a line every so many minutes on, by his words "And give me updates, every 15 mins, concise, on all 3 of these, in this thread, until all done", due that many minutes after its thread's last line, with when that thread last got a line, the session of the role holding it, and the agent of each job of it running, an incident or one with a thread that no recovery, close report, close or proof finished; a promised time and five quiet minutes owe no line, by his words "clearly these reports are useless / not valuable / spammy, so remove them entirely or rethink the whole model". Each edit and batch saves it as one row, which hooks/role_rules.py reads alone with no lock."""
     from drive import view
 
     waited = {
@@ -5890,18 +5900,13 @@ def clocks(data: dict) -> list[dict]:
     for order_id, order in waited.items():
         lined = parse_time(order["last_line"] or order["created"])
         heard[keyed[order_id]] = max(heard.get(keyed[order_id], lined), lined)
-    handled: dict[str, list[str]] = {}
-    for handler in data["handlers"].values():
-        if thread := (handler["holds"] or {}).get("thread"):
-            handled.setdefault(thread, []).append(handler["session"])
     entries = []
     for order_id, order in waited.items():
         since = heard[keyed[order_id]]
         running = [job for job in orders_jobs(data, [order_id]).values() if at_work(job)]
         if not order["every"]:
             continue
-        where = own_thread(order)
-        sessions = [holding_role(data, order)[1].get("session"), *(handled.get(where[1], []) if where else [])]
+        sessions = [holding_role(data, order)[1].get("session")]
         entries.append(
             {
                 "order": order_id,
@@ -6155,7 +6160,7 @@ def second_close(data: dict, order_id: str, report: dict) -> str | None:
     if not closer or closer == report.get("seq"):
         return None
     posting = "" if order["closed_on"] else ", which the watch posts on its next read,"
-    return f"refused, report {closer}{posting} already closes {order_id}, so this second close of it posts nothing: send no close of {order_id}, and a handler passed this one returns NOTHING {order_id} closes on report {closer}"
+    return f"refused, report {closer}{posting} already closes {order_id}, so this second close of it posts nothing: send no close of {order_id}"
 
 
 def part_items(report: dict, order_id: str | None) -> list[tuple[str | None, str]]:
@@ -6753,12 +6758,13 @@ def slot_claim(data: dict, env: str, job_id: str, minutes: int, prs: list[str], 
     if job_id in slot_members(slot) or any(each["job"] == job_id for each in slot["queue"]):
         raise DriveError(f"{job_id}: refused, it already holds or waits for the {env} slot: drive slot queue {env} names its place")
     asked = {"job": job_id, "prs": prs, "minutes": minutes, "cases": cases, "at": stamp(moment), "paths": paths, "stacks": stacks, "starts": starts}
-    if slot["holder"] is None:
+    if slot["holder"] is None and held_for(data, slot, job_id, moment):
         slot["holder"] = leased(asked, moment, [])
         return f"GO {job_id} holds the {env} slot until {slot['holder']['until']}: {SLOT_GO_STEPS.format(env=env, job=job_id)}{holding(release, data, [job_id])}"
     place = sum(1 for each in slot["queue"] if jumps_queue(data, each["job"])) if jumps_queue(data, job_id) else len(slot["queue"])
     slot["queue"].insert(place, asked)
-    return f"QUEUED {job_id} for the {env} slot, place {place + 1}, behind {slot['holder']['job']}, whose lease ends {slot['holder']['until']}"
+    behind = f"behind {slot['holder']['job']}, whose lease ends {slot['holder']['until']}" if slot["holder"] else f"held for {slot['hold']['for']} until {slot['hold']['until']}: {slot['hold']['reason']}"
+    return f"QUEUED {job_id} for the {env} slot, place {place + 1}, {behind}"
 
 
 def jumps_queue(data: dict, job_id: str) -> bool:
@@ -6798,6 +6804,32 @@ def cut_started(data: dict, held: dict, env: str) -> bool:
     return bool(job.get("release_build")) or any((found := STAGING_WAIT.fullmatch(wait)) and found["env"] == env for wait in job["waits"])
 
 
+QUEUED_KEYS = ("job", "prs", "minutes", "cases", "at", "paths", "stacks", "starts")
+WAITER_MINUTES = 30
+
+
+def staged_waiter(job: dict, env: str) -> bool:
+    return job["state"] == "waiting" and any((found := STAGING_WAIT.fullmatch(wait)) and found["env"] == env for wait in job["waits"])
+
+
+def queue_waiters(data: dict) -> list[str]:
+    """Give a place in its env's slot queue, dated when it began waiting, to each staging tester whose WAITING names staging serving its cut while it holds, rides and waits in no slot, as a tester that rode a packed cut or a packer's ask did, so packing sees it, but for one a cut of the top coordinator's holding or queued for a slot names in its goal, which rides that cut, or one whose tested PRs are all merged or closed; the place goes once the job waits on no staging cut there; the line of each queued."""
+    lines = []
+    carried = {named for slot in data["slots"].values() for member in [*slot_members(slot), *(each["job"] for each in slot["queue"] if each["starts"])] for named in JOB_ID.findall(data["jobs"][member]["goal"])}
+    for job_id, job in data["jobs"].items():
+        if job["state"] != "waiting" or job_id in carried or starts_cut(job) or not staging_parts(data, job):
+            continue
+        if not (prs := [key for key in tested_prs(data, job) if key in data["prs"] and data["prs"][key]["state"] == "open"]):
+            continue
+        for env in dict.fromkeys(found["env"] for wait in job["waits"] if (found := STAGING_WAIT.fullmatch(wait))):
+            slot = data["slots"].setdefault(env, {"holder": None, "queue": [], "hold": None})
+            if job_id in slot_members(slot) or any(each["job"] == job_id for each in slot["queue"]):
+                continue
+            slot["queue"].append({"job": job_id, "prs": prs, "minutes": WAITER_MINUTES, "cases": None, "at": job["updated"], "paths": None, "stacks": None, "starts": False, "auto": True})
+            lines.append(f"SLOT {env} queued {job_id}, whose WAITING on a staging cut held no place in its queue, at its place from {job['updated']}")
+    return lines
+
+
 def slot_hand(data: dict, env: str, to: str, moment: datetime) -> tuple[dict, str]:
     """Hand a staging env's slot to a job waiting in its queue now, its lease starting now, putting the cut that held it back at the head of the queue, by drive slot hand, so a priority cut ready now never waits behind a lease running nothing; the new holder's queue entry and the line saying so, refused for a job not in the queue."""
     slot = data["slots"].get(env) or {"holder": None, "queue": []}
@@ -6805,7 +6837,7 @@ def slot_hand(data: dict, env: str, to: str, moment: datetime) -> tuple[dict, st
         raise DriveError(f"{to}: refused, it waits in no {env} slot queue: drive slot queue {env} names who does")
     slot["queue"].remove(entry)
     if held := slot["holder"]:
-        back = [{key: member[key] for key in ("job", "prs", "minutes", "cases", "at", "paths", "stacks", "starts")} for member in [held, *held["riders"]] if data["jobs"][member["job"]]["state"] not in SLOT_LIVE_END]
+        back = [{key: member[key] for key in QUEUED_KEYS} for member in [held, *held["riders"]] if data["jobs"][member["job"]]["state"] not in SLOT_LIVE_END]
         slot["queue"][:0] = back
     slot["holder"] = leased(entry, moment, [])
     return entry, f"{to} holds the {env} slot until {slot['holder']['until']}{', ' + held['job'] + ' back at the head of its queue' if held else ''}"
@@ -6814,6 +6846,24 @@ def slot_hand(data: dict, env: str, to: str, moment: datetime) -> tuple[dict, st
 def leased(asked: dict, moment: datetime, riders: list[dict]) -> dict:
     minutes = max(each["minutes"] for each in [asked, *riders])
     return asked | {"minutes": minutes, "since": stamp(moment), "until": stamp(moment + CLAIM_WAIT + timedelta(minutes=minutes)), "extended": False, "riders": riders, "released": False}
+
+
+def held_for(data: dict, slot: dict, job_id: str, moment: datetime) -> bool:
+    """Whether a staging slot's hold, the one drive slot hold wrote, lets this job take the slot now: no hold stands, its end passed, or it names the job or an order the job serves or carries."""
+    hold = slot.get("hold")
+    if not hold or parse_time(hold["until"]) <= moment:
+        return True
+    job = data["jobs"][job_id]
+    return hold["for"] in (job_id, job["order"], *job["carries"])
+
+
+def slot_hold(data: dict, env: str, held: str, until: datetime, reason: str, moment: datetime) -> str:
+    """Hold a staging env's slot for a job or an order until a time, by drive slot hold, so the watch gives it to no other job and hands a lease that ends to the job it names, or to a job of the order it names, first in its queue; the line saying so."""
+    if until <= moment:
+        raise DriveError(f"refused: --until {stamp(until)} has passed")
+    slot = data["slots"].setdefault(env, {"holder": None, "queue": []})
+    slot["hold"] = {"for": held, "until": stamp(until), "reason": reason, "at": stamp(moment)}
+    return f"{env} held for {held} until {stamp(until)}: {reason}"
 
 
 def slot_members(slot: dict) -> list[str]:
@@ -6888,10 +6938,19 @@ def slot_turns(data: dict, moment: datetime, release: dict | None = None) -> lis
             moved.append((env, held["job"], "extended", f"SLOT {env} lease of {held['job']}'s cut ran past its end, extended once to {held['until']}"))
         elif held and (not running or parse_time(held["until"]) <= moment):
             slot["holder"] = None
-            moved.append((env, held["job"], "freed", f"SLOT {env} freed by {held['job']}'s cut"))
-        slot["queue"] = sorted((each for each in slot["queue"] if data["jobs"][each["job"]]["state"] not in FINISHED_JOB_STATES), key=lambda each: not jumps_queue(data, each["job"]))
-        if slot["holder"] is None and slot["queue"]:
+            unstarted = [] if not running or cut_started(data, held, env) else [{key: member[key] for key in QUEUED_KEYS} for member in [held, *held["riders"]] if member["job"] in running]
+            slot["queue"] += unstarted
+            moved.append((env, held["job"], "freed", f"SLOT {env} freed by {held['job']}'s cut" + (f", which never started, so {', '.join(each['job'] for each in unstarted)} went back to their places in its queue" if unstarted else "")))
+        slot["queue"] = sorted((each for each in slot["queue"] if data["jobs"][each["job"]]["state"] not in FINISHED_JOB_STATES and not (each.get("auto") and not staged_waiter(data["jobs"][each["job"]], env))), key=lambda each: (not jumps_queue(data, each["job"]), parse_time(each["at"])))
+        if (hold := slot.get("hold")) and parse_time(hold["until"]) <= moment:
+            slot["hold"] = None
+            moved.append((env, hold["for"], "unheld", f"SLOT {env} hold for {hold['for']} ended at {hold['until']}"))
+        if slot["holder"] is None and slot.get("hold"):
+            slot["queue"].sort(key=lambda each: not held_for(data, slot, each["job"], moment))
+        if slot["holder"] is None and slot["queue"] and held_for(data, slot, slot["queue"][0]["job"], moment):
             head, riders = packed(slot["queue"])
+            slot["queue"][:0] = [rider for rider in riders if not held_for(data, slot, rider["job"], moment)]
+            riders = [rider for rider in riders if held_for(data, slot, rider["job"], moment)]
             slot["holder"] = leased(head, moment, riders)
             until = slot["holder"]["until"]
             carried = f" Your cut carries {', '.join(pr for rider in riders for pr in rider['prs'])} too, packed with yours since no two change one file: start it from a branch with each of their heads and yours cherry-picked onto what staging serves, under one freeze and one claim naming them all." if riders else ""

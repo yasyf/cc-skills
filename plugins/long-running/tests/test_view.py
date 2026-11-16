@@ -1484,12 +1484,12 @@ def test_staging_lookups_share_one_order_partition_per_projection() -> None:
 @pytest.mark.parametrize(
     ("line", "word", "tone"),
     [
-        ("Tested on staging: plat-usw2-staging at abc1234, passed at 6:37 AM", "Passed on staging", "good"),
-        ("Testing on staging: plat-usw2-staging at abc1234, running", "Testing on staging now", "warn"),
-        ("Not on staging yet: waiting for plat-usw2-staging to run abc1234", "Queued for staging", "warn"),
+        ("Tested on staging: demo-staging at abc1234, passed at 6:37 AM", "Passed on staging", "good"),
+        ("Testing on staging: demo-staging at abc1234, running", "Testing on staging now", "warn"),
+        ("Not on staging yet: waiting for demo-staging to run abc1234", "Queued for staging", "warn"),
         ("Not on staging: no staging test is set for it", "No staging test", ""),
         ("Not on staging: its test ended, no pass: CASE waits", "Failed on staging", "bad"),
-        ("Not on staging: Forge-AI/litestream has no staging env", "No staging for this repo", ""),
+        ("Not on staging: demo-org/widget has no staging env", "No staging for this repo", ""),
     ],
 )
 def test_a_staging_line_reads_as_a_few_plain_words_with_no_env_commit_or_job(line: str, word: str, tone: str) -> None:
