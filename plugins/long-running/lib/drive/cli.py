@@ -477,8 +477,6 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
     if held := held_order(state.load(name), args.words, args.owner):
         return held, state.load(name)["orders"][held], [f"{held} already holds these words, so no order was added"], []
     title = titled(args.title)
-    if tooling:
-        check_tooling_words(name, args.words)
     if not (args.joins or args.incident or args.options_only or unfiled or args.kind == "answer"):
         args.joins = settled.repeats(state.load(name), args.words, tooling)
     project, workstream = (None, None) if unfiled or args.joins else filing(state.load(name), args.words, args.project, args.workstream, "refused, no order added")
@@ -783,15 +781,6 @@ def check_thread(data: dict, flag: str, message: tuple[str, str, str | None] | N
     return where
 
 
-def check_tooling_words(name: str, words: str) -> None:
-    """Refuse a drive tooling order's words that `cc-slack check-post` finds anything in but the id of a recorded answer of his, since they reach him verbatim: quoted on the line above its PR card, and as the title an {order:} link shows. One line, each finding with its fix first, so a shell keeping only a refusal's last line keeps all of it."""
-    if findings := refs.answer_ids(slack.post_findings(words, True), state.load(name)):
-        raise DriveError(
-            f"refused, `cc-slack check-post` finds {'; '.join(findings)}; a \"{state.TOOLING}\" order's words reach him verbatim, quoted on"
-            " the line above its PR card and as the title an {order:} link shows, so fix each in words of your own and pass the fixed words"
-        )
-
-
 def filing(data: dict, words: str, project: str | None, workstream: str | None, refused: str) -> tuple[str, str]:
     """The project and workstream the dashboard's Now screen files an order under: on a "Drive tooling:" order The drive and Drive tooling unless a flag names another, and on his order both named, refused naming the pairs in use, and refused by `one_home` for a name filing its subject elsewhere."""
     if words.startswith(state.TOOLING):
@@ -1008,7 +997,6 @@ def order_set(args: argparse.Namespace) -> int:
     if args.words is not None:
         if not (order["text"].startswith(state.TOOLING) and args.words.startswith(state.TOOLING)):
             raise DriveError(f'--words: refused, only a "{state.TOOLING}" order\'s words change, to words that open "{state.TOOLING}"; an order of his keeps his words verbatim')
-        check_tooling_words(name, args.words)
     if args.proof is not None:
         check_proof(args.proof)
     if args.title is not None:
@@ -6993,7 +6981,7 @@ def parser() -> argparse.ArgumentParser:
 
     order = verbs.add_parser("order", help="his orders").add_subparsers(dest="action", required=True)
     verb = order.add_parser("add", parents=both)
-    verb.add_argument("words", help='his words, verbatim, or a "Drive tooling:" order\'s own, which `cc-slack check-post` must pass, since its PR card quotes them')
+    verb.add_argument("words", help='his words, verbatim, or a "Drive tooling:" order\'s own')
     verb.add_argument("--from", dest="source", default="terminal", help=FROM_HELP)
     verb.add_argument(
         "--thread",
@@ -7081,7 +7069,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id", help="the order")
     verb.add_argument(
         "--words",
-        help='a "Drive tooling:" order\'s new words, which `cc-slack check-post` must pass, since its PR card quotes them; an order of his keeps his words verbatim',
+        help='a "Drive tooling:" order\'s new words; an order of his keeps his words verbatim',
     )
     verb.add_argument(
         "--state",

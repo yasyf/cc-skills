@@ -1119,25 +1119,80 @@ def own_communicator(payload: dict) -> bool:
     return not payload.get("agent_id") and not os.environ.get(state.HANDLER_ENV) and not str(payload.get("tool_use_id") or "").startswith("watch-") and his_drive(payload.get("session_id") or "") is not None
 
 
+CRAFT_SECONDS = 5
+CRAFT_GUIDE = (
+    "His standard for every post to him: the answer first, in one plain sentence saying what changed for him; past about 60 words,"
+    " short parts under bold headings such as *What changed:* and *What happens next:*, lists as bullets; every PR, build, card or"
+    " doc linked on words saying what it is; anything it refers to, a card, a question, a release, shown or linked right here, never"
+    " left for him to find in another thread; plain words for what happens to his work, never the drive's own machinery; and a"
+    " picture of progress when work moves through stages, such as a release across sandbox, staging and production."
+)
+CRAFT = {
+    "craft.answer": settled.Noul("Does `post.text` open on something other than the answer, in one plain sentence saying what changed for him?"),
+    "craft.sections": settled.Noul("Is `post.text` past about 60 words yet not cut into short parts under bold headings, or does it run a list of several items through one sentence where bullets would serve?"),
+    "craft.elsewhere": settled.Noul(
+        "Does `post.text` tell him something waits or sits somewhere else, such as his card in another thread, without linking it or showing what it asks right here?"
+    ),
+    "craft.machinery": settled.Noul(
+        "Does `post.text` name the drive's own machinery or process, such as a job, seat, reader, builder, lane, design job, order or job id, or which read or session backs a claim, where plain words for what happens to his work would serve?"
+    ),
+    "craft.visual": settled.Noul("Does `post.text` walk through progress across several stages, such as a release moving through sandbox, staging and production, in words alone while `post.pictures` is 0?"),
+}
+CRAFT_FIXES = {
+    "craft.answer": "open with the answer in one plain sentence",
+    "craft.sections": "cut it into short parts under bold headings, with lists as bullets",
+    "craft.elsewhere": "show what the card or thread it names asks right here, or link it on its words",
+    "craft.machinery": "say what happens to his work in plain words, never the drive's machinery or which read backs a claim",
+    "craft.visual": "attach a picture of the stages, as a visual, beside the words",
+}
+
+
+def block_words(blocks: object) -> list[str]:
+    """Every text a Block Kit payload shows, section, field, context and button text alike, so the checks read the words the blocks put in front of him."""
+    if isinstance(blocks, str):
+        blocks = json.loads(blocks)
+    if isinstance(blocks, dict):
+        own = [blocks["text"]] if isinstance(blocks.get("text"), str) else []
+        return own + [word for value in blocks.values() if isinstance(value, dict | list) for word in block_words(value)]
+    if isinstance(blocks, list):
+        return [word for block in blocks for word in block_words(block)]
+    return []
+
+
+def crafted(text: str, pictures: int) -> list[str]:
+    """What one quick Jev read of the post against CRAFT_GUIDE finds, by his words "have the check be super quick, like a tiny jev check with their smallest model that just gets the guidelines and compares against the post": each rule it reads as broken at settled.YES or more, with its fix; none when Jev gives no reading within CRAFT_SECONDS, since this check fails open."""
+    answers = settled.jev({"guidelines": CRAFT_GUIDE, "post": {"text": text, "pictures": pictures}}, CRAFT, CRAFT_SECONDS, "crafted")
+    return [f"{key.partition('.')[2]}: {CRAFT_FIXES[key]}" for key, chance in answers.items() if chance >= settled.YES]
+
+
 def mechanical(payload: dict) -> dict:
-    """What the say hook prints for the communicator's own post: only the checks a mark decides, by his words "it needs to be just as fast and fluid asking me things and making the right judgement calls as you would", so no Jev pass, record or read gate holds his answer: a placeholder text, and each `cc-slack check-post` finding in the words it types, refused with the list to fix and post again, by his words "this message is terrible. don't follow our standards at all; the URL is not even a hyperlink on text, it's just pasted in"; a check-post that cannot run lets the post out with a warning."""
+    """What the say hook prints for the communicator's own post on every write tool, say, slack_edit, slack_reply, slack_send and slack_dm_status alike: only the quick checks, by his words "it needs to be just as fast and fluid asking me things and making the right judgement calls as you would", so no full Jev pass, record or read gate holds his answer: a placeholder text, each `cc-slack check-post` finding in the words it types and its blocks show, refused with the list to fix and post again, by his words "this message is terrible. don't follow our standards at all; the URL is not even a hyperlink on text, it's just pasted in", then one quick Jev read against his standard, by crafted; a check that cannot run lets the post out with a warning."""
     tool_input = payload["tool_input"]
     text = (tool_input.get("text") or "").strip()
     if PLACEHOLDER.fullmatch(text):
         return denial(f"The text {text} is a placeholder, and Slack would send it as written. Pass the post's own words as text.")
-    if not text:
+    shown = "\n\n".join(filter(None, [text, *block_words(tool_input.get("blocks") or [])]))
+    if not shown:
         return {}
     drive = his_drive(payload["session_id"])
     try:
-        found = refs.resolved(drive["name"], text) if payload["tool_name"] == SAY else {}
-        typed = refs.typed(text, found, None) if found else text
+        found = refs.resolved(drive["name"], shown) if payload["tool_name"] == SAY else {}
+        typed = refs.typed(shown, found, None) if found else shown
         findings = refs.answer_ids(slack.post_findings(typed, bool(tool_input.get("card") or tool_input.get("tap_prs")), tool_input.get("asked") or ""), drive)
     except (DriveError, slack.SlackError) as error:
         return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": f"message_limits: this post goes out as written, unchecked: `cc-slack check-post` could not check its words: {error}."}}
-    if not findings:
+    if findings:
+        return denial(
+            "refused: `cc-slack check-post` finds this in the post's words; rewrite it to the standard in your role block, fix each, then post the fixed words:\n" + "\n".join(findings)
+        )
+    try:
+        broken = crafted(typed, len(tool_input.get("visuals") or []) + len(tool_input.get("files") or []))
+    except settled.Unheard as error:
+        return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": f"message_limits: this post goes out without the quick read against his standard: {error}."}}
+    if not broken:
         return {}
     return denial(
-        "refused: `cc-slack check-post` finds this in the post's words; rewrite it to the standard in your role block, fix each, then post the fixed words:\n" + "\n".join(findings)
+        "refused: a quick read against his standard, \"How every answer to him reads\" in your role block, finds this post breaks it; fix each, then post again:\n" + "\n".join(broken)
     )
 
 

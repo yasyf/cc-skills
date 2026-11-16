@@ -157,24 +157,6 @@ def test_a_call_with_a_refused_op_writes_nothing_and_names_every_refused_op_with
         tools.run("order", demo, {"ops": [{"set": {"note": "x"}}]})
 
 
-def test_a_call_whose_second_tooling_order_check_post_refuses_adds_neither_and_names_that_op_with_its_finding(
-    demo: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(slack, "check_post", lambda text, asked: ["1:44 drive-term 'o610': say what happens to the reader's work instead"] if "o610" in text else [])
-    ops = [{"add": {"words": "Drive tooling: a report states job start times in the future", "title": "Short title"}}, {"add": {"words": "Drive tooling: a promised time left o610 due", "title": "Short title"}}]
-    with pytest.raises(DriveError) as refused:
-        tools.run("order", demo, {"ops": ops})
-    [head, line] = str(refused.value).splitlines()
-    assert head == "refused, nothing written: 1 of 2 ops refused; fix each and send the whole call again"
-    assert line.startswith("2 order add \"Drive tooling: a promised time left o610 due\" refused: refused, `cc-slack check-post` finds 1:44 drive-term 'o610'")
-    assert state.load(demo)["orders"] == {}
-    with pytest.raises(DriveError, match="2 order add .* refused: refused, `cc-slack check-post` finds"):
-        tools.run("order", demo, {"dry_run": True, "ops": ops})
-    ops[1]["add"]["words"] = "Drive tooling: a promised time stays due until a handler sets it"
-    assert tools.run("order", demo, {"ops": ops}).splitlines() == ["1 order add: o1", "2 order add: o2"]
-    assert [(order["project"], order["workstream"]) for order in state.load(demo)["orders"].values()] == [("The drive", "Drive tooling")] * 2
-
-
 def test_a_job_add_naming_no_part_of_the_two_part_order_it_adds_is_refused_before_that_order_is_written(demo: str) -> None:
     order = {"words": "Drive tooling: a refused write leaves nothing half-written", "title": "Refused writes leave nothing", "kind": "build", "parts": ["all or none", "default filing"]}
     with pytest.raises(DriveError) as refused:

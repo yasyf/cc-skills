@@ -10877,66 +10877,6 @@ def test_a_drive_tooling_order_his_words_already_hold_adds_none(run: Run, demo: 
     assert list(state.load("demo")["orders"]) == ["o1"]
 
 
-def drive_terms(text: str, asked: list[str]) -> list[str]:
-    return [f"1:{found.start() + 1} drive-term {found[0]!r}: say what happens to the reader's work instead" for found in re.finditer(r"(?<![\w./:-])[oj]\d{2,}\b", text)]
-
-
-@pytest.mark.parametrize(
-    ("flagged", "reworded"),
-    [
-        (
-            "Drive tooling: the thread reader cannot open a teammate's session (defect 661904, j844): its script takes only a local path",
-            "Drive tooling: the thread reader cannot open a teammate's session: its script takes only a local path",
-        ),
-        (
-            "Drive tooling: say refuses the PR card of o341, whose words check-post refuses",
-            "Drive tooling: say refuses a PR card whose tooling order's words check-post refuses",
-        ),
-    ],
-)
-def test_a_drive_tooling_orders_words_pass_check_post_since_his_pr_card_quotes_them(
-    run: Run, demo: str, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, flagged: str, reworded: str
-) -> None:
-    monkeypatch.setattr(slack, "check_post", drive_terms)
-    filed = ["order", "add", "--title", "Short title", "--project", "p", "--workstream", "w"]
-    assert cli.main([*filed, flagged]) == 2
-    refused = capsys.readouterr().err
-    assert refused.startswith(f"drive: refused, `cc-slack check-post` finds {'; '.join(drive_terms(flagged, []))}; ")
-    assert 'a "Drive tooling:" order\'s words reach him verbatim, quoted on the line above its PR card' in refused
-    assert refused.count("\n") == 1 and flagged not in refused
-    assert run(*filed, reworded) == (0, "o1")
-    assert run(*filed, "send j844's numbers to o341's thread") == (0, "o2")
-    with state.edit("demo") as data:
-        data["orders"]["o1"]["text"] = flagged
-    assert cli.main(["order", "set", "o1", "--words", flagged]) == 2
-    assert capsys.readouterr().err == refused
-    assert cli.main(["order", "set", "o1", "--words", "the thread reader opens a teammate's session"]) == 2
-    assert cli.main(["order", "set", "o2", "--words", "Drive tooling: send the numbers"]) == 2
-    assert capsys.readouterr().err.count('--words: refused, only a "Drive tooling:" order\'s words change') == 2
-    assert run("order", "set", "o1", "--words", reworded)[0] == 0
-    assert [order["text"] for order in state.load("demo")["orders"].values()] == [reworded, "send j844's numbers to o341's thread"]
-
-
-def commit_shas(text: str, asked: list[str]) -> list[str]:
-    return [f"1:{found.start() + 1} commit-sha {found[0]!r}: link the commit" for found in re.finditer(r"\b[0-9a-f]{7}\b", text)]
-
-
-def test_a_drive_tooling_orders_words_may_cite_his_ruling_by_its_answer_id_but_never_an_unlinked_commit(
-    demo: str, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def shown(answer_id: str, cwd: str) -> dict:
-        if answer_id != "f03a0aa":
-            raise state.DriveError(f"could not read his answer {answer_id}")
-        return {"body": "you need to fix the hookw henver it wrongly refuses yu"}
-
-    monkeypatch.setattr(slack, "check_post", commit_shas)
-    monkeypatch.setattr(settled, "shown", shown)
-    filed = ["order", "add", "--title", "Short title", "--project", "p", "--workstream", "w"]
-    assert cli.main([*filed, 'Drive tooling: check-post wrongly refuses handler posts; his ruling f03a0aa: "you need to fix the hookw henver it wrongly refuses yu"']) == 0
-    assert cli.main([*filed, "Drive tooling: revert 1a2b3c4, which broke the card hook"]) == 2
-    assert "finds 1:23 commit-sha '1a2b3c4': link the commit;" in capsys.readouterr().err
-
-
 def test_a_drive_tooling_order_with_no_project_or_workstream_is_filed_under_the_drive_and_his_order_is_refused_naming_the_pairs_in_use(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:

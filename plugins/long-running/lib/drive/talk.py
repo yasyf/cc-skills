@@ -21,7 +21,7 @@ CARDS_A_MESSAGE = 5
 CARD_KINDS = (("question", "question"), ("tap", "PR card"))
 NO_CARDS = "No open cards"
 TICKET_FLAGS = {"ticket_id": "--ticket", "ticket_tree": "--ticket-tree", "ticket_agent": "--ticket-agent", "ticket_call": "--ticket-call", "ticket_fingerprint": "--ticket-fingerprint"}
-EDIT_TAKES = {"edit", "text", "asked", "claims", "dry_run", *TICKET_FLAGS}
+EDIT_TAKES = {"edit", "text", "blocks", "asked", "claims", "dry_run", *TICKET_FLAGS}
 RECORD_WAIT_SECONDS = 1.0
 RECORD_POLL_SECONDS = 0.05
 BARE_TS = re.compile(r"\d{10}\.\d{6}")
@@ -511,7 +511,7 @@ def posted(name: str, post: dict, order: str | None = None, receipt: dict | None
     operators = slack.operators() | {made["id"] for made in data["slack"]["channels"].values()}
     reply = slack.cc_slack(
         *(
-            ["edit", "--url", post["edit"], "--text", sent, *ticketed(post)]
+            ["edit", "--url", post["edit"], "--text", sent, *blocked(post), *ticketed(post)]
             if post.get("edit")
             else replied(post, pictures, sent)
             if first[0] not in operators
@@ -720,7 +720,7 @@ def status(name: str, data: dict, post: dict, stack: list[str], pictures: list[s
         argv += ["--about", about]
     argv += [flag for key in stack for flag in ("--tap-pr", data["prs"][key]["url"])]
     argv += [flag for path in pictures for flag in ("--file", path)]
-    argv += keyed(post)
+    argv += blocked(post) + keyed(post)
     return [*argv, "--", sent] if sent else argv
 
 
@@ -768,7 +768,14 @@ def replied(post: dict, pictures: list[str], sent: str) -> list[str]:
     thread = ["--thread", post["thread_ts"]] if post.get("thread_ts") else []
     argv = ["reply" if thread else "send", "--agent", "claude", "--channel", post["channel_id"], *thread, "--text", sent]
     argv += [flag for path in pictures for flag in ("--file", path)]
-    return argv + keyed(post) + ticketed(post)
+    return argv + blocked(post) + keyed(post) + ticketed(post)
+
+
+def blocked(post: dict) -> list[str]:
+    """The flag handing cc-slack the post's Block Kit blocks, which Slack draws as the message while its text stays the notification and the fallback."""
+    if not (blocks := post.get("blocks")):
+        return []
+    return ["--blocks", blocks if isinstance(blocks, str) else json.dumps(blocks)]
 
 
 def keyed(post: dict) -> list[str]:

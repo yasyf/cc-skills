@@ -203,6 +203,15 @@ SAY = {
                     " them to the communicator to post in the job's order's thread"
                 ),
             },
+            "blocks": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": (
+                    "Slack Block Kit blocks the post draws as, such as section, fields, context, divider, header, image and actions,"
+                    " with text kept as the notification and fallback words; the checks read every text the blocks show. Attach a"
+                    " picture or file through visuals, an image visual taking a file's absolute path"
+                ),
+            },
             "visuals": {"type": "array", "items": VISUAL},
             "close": {
                 "type": "boolean",
