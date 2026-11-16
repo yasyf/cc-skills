@@ -1932,7 +1932,6 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             f" so a second builder would ship the same change beside it: send it the event with drive job resume {job_id} \"<the event>\", or pass --beside when two builders on the part are meant"
             for job_id in beside
         ],
-        order=(args.order, before["orders"][args.order]),
     )
     given = {
         "kind": args.kind,

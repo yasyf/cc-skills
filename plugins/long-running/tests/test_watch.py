@@ -4213,9 +4213,10 @@ def test_an_incident_codex_fix_jobs_handoff_reaches_its_session_naming_the_build
     with edit(demo) as data:
         data["orders"]["o1"]["parts"][state.INCIDENT_FIX].update(orphan_said=state.stamp(T0), orphan_gap=stale.partition('": ')[2])
     watching = watcher(demo)
-    watching.unsent["root"] = [stale]
+    watch.keep_posted(demo, "root", T0)
+    watching.owed_at["root"] = T0
     lines = codex_taken(watching)
-    assert watch.sent(watching, "root", lines, T0) == []
+    assert watch.sent(watching, "root", [stale, *lines], T0 + timedelta(minutes=1)) == []
     assert posted(sent) == [("handoff", f"root@{demo}", lines[0])]
     assert "j2, an Opus 5.5 long-running:builder the drive added" in lines[0]
     assert state.load(demo)["orders"]["o1"]["parts"][state.INCIDENT_FIX]["orphan_said"] is None

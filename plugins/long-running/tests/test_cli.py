@@ -4586,6 +4586,7 @@ Agent::start case: j2377 measured per option p(his words rule it out) one-api-st
 Next question: once he picks, j2643 rebuilds yasyf/cc-skills#4664 on main to that option, pushes, and the lander merges it.
 """
 TAPPED = "https://acme.slack.com/archives/D123/p1794300000000100"
+REAL_CODEX_GAP = watch.codex_gap
 
 
 SNAPSHOT_PICK = "One snapshot file per finished run\nOptions: One snapshot file per finished run | A map file beside each journal file"
@@ -5080,8 +5081,9 @@ def test_job_report_refuses_an_empty_stdin(run: Run, demo: str, capsys: pytest.C
 
 
 def test_job_report_prints_the_reply_a_running_codex_jobs_ended_run_left_before_the_watch_takes_it_never_kept_no_report_as_j8197s_handoff_read(
-    run: Run, demo: str, codex_ask: CodexAsk
+    run: Run, demo: str, codex_ask: CodexAsk, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the runs")
     run("job", "add", "codex", "--order", "o1", "--goal", "fix the runs")
     folder = codex_ask.run("completed", codex_reply("HANDOFF", "edits left uncommitted on branch fix-runs", "NEXT: ship them"))

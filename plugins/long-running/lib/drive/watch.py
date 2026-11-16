@@ -87,6 +87,7 @@ COALESCE = timedelta(minutes=10)
 POSTED_KEY = "posted:"
 WATCH_STARTS = "start no agent for it"
 SHIPS_FIX = "its fix is not live, so "
+ORPHAN_FIX = re.compile(rf'ORPHAN (?P<order>o\d+) "{re.escape(state.INCIDENT_FIX)}": ')
 URGENT = ("TAP ", "DUE ", "MOVED ", "WATCH stopped", "DOWN ")
 TAP_EVENT = re.compile(rf"TAP (?P<label>\S+) (?P<key>\S+)(?P<stalled> {NOT_LANDED})?")
 LANE = "watch"
@@ -2750,7 +2751,7 @@ def post_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def codex_takes(watcher: Watcher) -> None:
-    """Take as its result each running codex job's codex-ask run that ended, and as its BLOCKED each one no agent holds that has no run going and none left to take, by Gone, of the jobs this watch hears, by heard_job, so its returned event tells the coordinator within RELAY_SECONDS of the run's end however long a pass holds the watch, with where his card on its ASK stands and, for an incident fix job, the builder that ships its fix, each ORPHAN line on that fix part still waiting on the watcher dropped in the same pass, since that builder carries it; codex_gap reads each run's status and pid files first, so a run that still goes starts no `codex-ask --collect`. A job another process took meanwhile is not taken again."""
+    """Take as its result each running codex job's codex-ask run that ended, and as its BLOCKED each one no agent holds that has no run going and none left to take, by Gone, of the jobs this watch hears, by heard_job, so its returned event tells the coordinator within RELAY_SECONDS of the run's end however long a pass holds the watch, with where his card on its ASK stands and, for an incident fix job, the builder that ships its fix; codex_gap reads each run's status and pid files first, so a run that still goes starts no `codex-ask --collect`. A job another process took meanwhile is not taken again."""
     data = state.load(watcher.name)
     ended = {
         job_id: gap
@@ -2768,9 +2769,6 @@ def codex_takes(watcher: Watcher) -> None:
         return data, taken, shippers
 
     data, taken, shippers = state.write(watcher.name, took, budget=state.WATCH_WRITE_SECONDS)
-    stale = tuple(f'ORPHAN {data["jobs"][job_id]["order"]} "{cut(state.INCIDENT_FIX, 80)}": ' for job_id in shippers)
-    for lane, owed in watcher.unsent.items():
-        watcher.unsent[lane] = [line for line in owed if not line.startswith(stale)]
     for job_id in taken:
         state.returned(watcher.name, data, job_id, "; ".join(filter(None, [data["jobs"][job_id]["said"], *(codex_asks(watcher.name, job_id) if isinstance(ended[job_id], Answered) else []), *([fix_shipped(watcher.name, shippers[job_id])] if job_id in shippers else [])])))
 
@@ -6694,10 +6692,10 @@ def line_lane(line: str, data: dict) -> str | None:
 
 
 def needs_step(line: str, data: dict, cards: dict | None) -> bool:
-    """Whether a line asks for a step now: any line but a PR's, his tap but an Approve, which the drive's lander lands in every repository once its stage reads ready, a STAGE line on a PR the drive tracks only while stage.of still names that stage, so one made before its PR merged or its lander tried a newer head asks nothing, a PR's merged line only when nobody else says it, never GitHub's merged line for a PR the lander merges and says so itself or whose job took DONE at its merge, whose prover's JOB line asks the step, or is one the watch finishes in that pass, nor the lander's merged line on a job already proved or whose proof the watch runs, whose proof line says so, and a line on a PR no longer open or folded only when it says how the PR ended, its merge, close or failed proof, while its job does not run to take it, never a move made while it was open, such as a lander's try refused at an older head, new heads, checks or a check against his words. An open PR's moves wake nobody, since its stage wakes its owner. A standing part's pass that ended DONE or HANDOFF asks nothing by its own line alone, since the watch alone starts the next pass, quoting it, nor does a WAITING or PUSHED return, by settled_return, whose row of the coordinator's manual says Nothing; a clause the drive adds to either line, such as an ASK it did not keep, still asks its step. A HELD line whose SendMessage went, by held_sent, asks nothing."""
+    """Whether a line asks for a step now: any line but a PR's, his tap but an Approve, which the drive's lander lands in every repository once its stage reads ready, a STAGE line on a PR the drive tracks only while stage.of still names that stage, so one made before its PR merged or its lander tried a newer head asks nothing, a PR's merged line only when nobody else says it, never GitHub's merged line for a PR the lander merges and says so itself or whose job took DONE at its merge, whose prover's JOB line asks the step, or is one the watch finishes in that pass, nor the lander's merged line on a job already proved or whose proof the watch runs, whose proof line says so, and a line on a PR no longer open or folded only when it says how the PR ended, its merge, close or failed proof, while its job does not run to take it, never a move made while it was open, such as a lander's try refused at an older head, new heads, checks or a check against his words. An open PR's moves wake nobody, since its stage wakes its owner. A standing part's pass that ended DONE or HANDOFF asks nothing by its own line alone, since the watch alone starts the next pass, quoting it, nor does a WAITING or PUSHED return, by settled_return, whose row of the coordinator's manual says Nothing; a clause the drive adds to either line, such as an ASK it did not keep, still asks its step. A HELD line whose SendMessage went, by held_sent, asks nothing, nor an ORPHAN line on an incident's fix part healed since, by orphan_healed."""
     if (tapped := TAP_EVENT.match(line)) and tapped["label"] == "Approve":
         return False
-    if held_sent(line, data):
+    if held_sent(line, data) or orphan_healed(line, data):
         return False
     if (job := JOB_LINE.match(line)) and (standing_pass_ended(data, job["job"], line) or settled_return(data, job["job"], line)):
         return False
@@ -6714,6 +6712,13 @@ def needs_step(line: str, data: dict, cards: dict | None) -> bool:
     if pr["state"] in github.UNLANDED or not found["change"].startswith(ENDED):
         return False
     return data["jobs"][found["job"]]["state"] != "running"
+
+
+def orphan_healed(line: str, data: dict) -> bool:
+    """Whether an ORPHAN line on an incident's fix part waiting on the watcher names a gap healed since, as state.fix_shipper heals it in the save adding the builder that ships a codex fix job's work, so a line made before that builder, as the one o2316's session read at 11:34 AM was, never sends its session to add a second."""
+    found = ORPHAN_FIX.match(line)
+    order = found and data["orders"].get(found["order"])
+    return bool(order and order["incident"] and (part := order["parts"].get(state.INCIDENT_FIX)) and not part["orphan_said"])
 
 
 def held_sent(line: str, data: dict) -> bool:
@@ -6818,14 +6823,14 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
 
 
 def coalescing(watcher: Watcher, lane: str, owed: list[str], moment: datetime) -> bool:
-    """Whether a coordinator's lines wait for its next record: one went to it within COALESCE, none of them is URGENT, his tap, a promised time, a move of his orders, a stopped watch or a process gone, and none has waited on this watcher COALESCE already, so a lane hears the watch at most once every COALESCE in one record of all it made, whichever watch or install posted it last, by his words "make everything less chatty", yet the landing loop's and the watch's records, which share that clock, never hold one another's lines back past it, as they held a Sprite builder's three build requests to priority-o1339 for half an hour; the communicator and the meta session hear each line as it comes."""
+    """Whether a coordinator's lines wait for its next record: one went to it within COALESCE, none of them is URGENT, his tap, a promised time, a move of his orders, a stopped watch or a process gone, or names the builder the drive added to ship a codex fix job's work, by fix_shipped, which its session must hear before it adds a second, and none has waited on this watcher COALESCE already, so a lane hears the watch at most once every COALESCE in one record of all it made, whichever watch or install posted it last, by his words "make everything less chatty", yet the landing loop's and the watch's records, which share that clock, never hold one another's lines back past it, as they held a Sprite builder's three build requests to priority-o1339 for half an hour; the communicator and the meta session hear each line as it comes."""
     at = said_lines(watcher.name).get(f"{POSTED_KEY}{lane}")
     return (
         lane not in state.HOLDERS
         and at is not None
         and moment - state.parse_time(at) < COALESCE
         and moment - watcher.owed_at[lane] < COALESCE
-        and not any(line.startswith(URGENT) for line in owed)
+        and not any(line.startswith(URGENT) or SHIPS_FIX in line for line in owed)
     )
 
 
