@@ -7136,7 +7136,7 @@ def test_a_builders_pushed_naming_a_monorepo_pr_on_its_staging_test_gives_its_on
     assert [event["line"] for event, _ in state.read_events("demo") if event["kind"] == state.RETURNED and tester_id in event["line"]] == [f'{tester_id} builder on "{part}": the watch starts its agent on its brief {tester["brief"]}, so start no agent for it; drive job resume reaches it']
     assert run("job", "brief", tester_id)[0] == 0
     written = Path(state.load("demo")["jobs"][tester_id]["brief"]).read_text()
-    assert (f"Mac: {cli.STAGING_MAC.format(drive='demo')}" in written, "`root@demo` on topic `staging-slots`" in written, "`tools/ci release start" in written) == (True, True, False)
+    assert (f"Mac: {cli.STAGING_MAC.format(drive='demo')}" in written, "`drive slot claim plat-usw2-staging --job" in written, "staging-slots" in written) == (True, True, False)
     assert ('"incident": "true"' in written, "Researched:" in written) == (True, False)
 
 

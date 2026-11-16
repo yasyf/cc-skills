@@ -857,6 +857,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "stalls": {},
         "routed": {},
         "routes": {},
+        "slots": {},
         "stand_ins": {},
         "held": {},
         "owed_replies": {},
@@ -1310,6 +1311,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             pr["tap"] = new_tap(tap["label"], tap["head"], tap["source"], tap.get("action_ts"), tap["at"], tap.get("picks"), tap.get("card"), tap.get("approval"))
     data.setdefault("answers", {})
     data.setdefault("stalls", {})
+    data.setdefault("slots", {})
     data.setdefault("reader_pilot", None)
     data.setdefault("tooling_backlog", False)
     for answer in data["answers"].values():
@@ -6455,3 +6457,65 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "reviewed": [],
         "updated": stamp(),
     }
+
+
+CLAIM_WAIT = timedelta(minutes=5)
+SLOT_GO_STEPS = (
+    "post the staging claim the repository's staging-claim rule names, a `POST` report to the communicator with `until` the lease's end; a tester whose PR has not merged"
+    " then starts its cut at once, `tools/ci release start <each target its paths reach> --from <your branch> --emergency --env {env} --order 23eefb9`, and returns"
+    " `WAITING staging:<target>/{env}@<head>` for each target; run your cases once staging serves your commit, past the claim's 5 minutes, and"
+    " `drive slot release {env} --job {job}` gives the slot back when you finish early"
+)
+
+
+def slot_claim(data: dict, env: str, job_id: str, minutes: int, prs: list[str], cases: str | None, moment: datetime) -> str:
+    """Give a staging env's slot to the job when no job holds it, its lease ending minutes past the staging-claim rule's CLAIM_WAIT, else queue the job, first in first out but for a job jumps_queue reads as serving a priority order or an open incident, which goes behind only the jobs that jump too, by his ruling that they jump the line as their builders jump the builder-slot line; the line saying which, refused for a job already holding or queued on it."""
+    slot = data["slots"].setdefault(env, {"holder": None, "queue": []})
+    if (slot["holder"] or {}).get("job") == job_id or any(each["job"] == job_id for each in slot["queue"]):
+        raise DriveError(f"{job_id}: refused, it already holds or waits for the {env} slot: drive slot queue {env} names its place")
+    asked = {"job": job_id, "prs": prs, "minutes": minutes, "cases": cases, "at": stamp(moment)}
+    if slot["holder"] is None:
+        slot["holder"] = leased(asked, moment)
+        return f"GO {job_id} holds the {env} slot until {slot['holder']['until']}: {SLOT_GO_STEPS.format(env=env, job=job_id)}"
+    place = sum(1 for each in slot["queue"] if jumps_queue(data, each["job"])) if jumps_queue(data, job_id) else len(slot["queue"])
+    slot["queue"].insert(place, asked)
+    return f"QUEUED {job_id} for the {env} slot, place {place + 1}, behind {slot['holder']['job']}, whose lease ends {slot['holder']['until']}"
+
+
+def jumps_queue(data: dict, job_id: str) -> bool:
+    job = data["jobs"][job_id]
+    return first_in_line(data, job) or bool(open_incidents(data, [job["order"], *job["carries"]]))
+
+
+def leased(asked: dict, moment: datetime) -> dict:
+    return asked | {"since": stamp(moment), "until": stamp(moment + CLAIM_WAIT + timedelta(minutes=asked["minutes"])), "extended": False}
+
+
+def slot_release(data: dict, env: str, job_id: str) -> str:
+    """Take the job off a staging env's slot, as its holder or from its queue; the line saying which, refused for a job that neither holds nor waits for it."""
+    slot = data["slots"].get(env) or {"holder": None, "queue": []}
+    if (slot["holder"] or {}).get("job") == job_id:
+        slot["holder"] = None
+        return f"{job_id} gave back the {env} slot"
+    if any(each["job"] == job_id for each in slot["queue"]):
+        slot["queue"] = [each for each in slot["queue"] if each["job"] != job_id]
+        return f"{job_id} left the {env} slot's queue"
+    raise DriveError(f"{job_id}: refused, it neither holds nor waits for the {env} slot")
+
+
+def slot_turns(data: dict, moment: datetime) -> list[tuple[str, str, str, str]]:
+    """End each staging slot's lease whose job finished, stopped or failed, extend once by its minutes a lease whose end passed while its job still runs, by his ruling that an overrunning lease extends once, and end it at its second end, then give each free slot to the first job in its queue that still runs or waits, dropping finished ones, its lease starting now; each (env, job, kind, line) of a slot that changed, kind freed, extended or go, a go's line the GO its job is resumed with."""
+    moved = []
+    for env, slot in data["slots"].items():
+        if (held := slot["holder"]) and data["jobs"][held["job"]]["state"] not in FINISHED_JOB_STATES and parse_time(held["until"]) <= moment and not held["extended"]:
+            held.update(until=stamp(parse_time(held["until"]) + timedelta(minutes=held["minutes"])), extended=True)
+            moved.append((env, held["job"], "extended", f"SLOT {env} lease of {held['job']} ran past its end, extended once to {held['until']}"))
+        elif held and (data["jobs"][held["job"]]["state"] in FINISHED_JOB_STATES or parse_time(held["until"]) <= moment):
+            slot["holder"] = None
+            moved.append((env, held["job"], "freed", f"SLOT {env} freed by {held['job']}"))
+        slot["queue"] = [each for each in slot["queue"] if data["jobs"][each["job"]]["state"] not in FINISHED_JOB_STATES]
+        if slot["holder"] is None and slot["queue"]:
+            head = slot["queue"].pop(0)
+            slot["holder"] = leased(head, moment)
+            moved.append((env, head["job"], "go", f"GO staging {env} until {slot['holder']['until']}: {SLOT_GO_STEPS.format(env=env, job=head['job'])}"))
+    return moved
