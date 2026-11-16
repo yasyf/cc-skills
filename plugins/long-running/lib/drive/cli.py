@@ -930,7 +930,7 @@ def change_parts(name: str, data: dict, order_id: str, added: list[str], dropped
         raise DriveError(f"{order_id}: refused, its parts stay as they are: it holds {quoted_parts(held)} already, so --add-part adds none; name it as it stands with --part")
     if dropped:
         pick_parts(order_id, data["orders"][order_id], dropped)
-    if not added and set(parts) <= set(dropped):
+    if dropped and not added and set(parts) <= set(dropped):
         raise DriveError(f"{order_id}: refused, its parts stay as they are: --drop-part takes off its every part, which closes it: drive order set {order_id} --state done or dropped")
     if designed := [
         f'{json.dumps(part, ensure_ascii=False)} of {design}\'s design'

@@ -12902,3 +12902,11 @@ def test_his_undo_of_an_answer_owes_a_revert_on_each_job_that_acted_on_it_the_jo
     with edit(demo) as data:
         owing.posted(data, "o1", "https://acme.slack.com/archives/D123/p1794800100000100", None, None, [reverts[0]["id"]], state.now())
         assert [item["id"] for item in owing.still_open(data["orders"]["o1"]) if item["kind"] == owing.REVERT] == [reverts[1]["id"]]
+
+
+def test_an_open_order_with_no_parts_left_takes_a_note_and_a_job_as_o1676_could_not(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Job ran on staging inside another slot's freeze")
+    with edit("demo") as data:
+        data["orders"]["o1"]["parts"] = {}
+    assert run("order", "set", "o1", "--note", "record 735756")[0] == 0
+    assert run("job", "add", "reader", "--order", "o1", "--goal", "read why the job ran in the freeze")[0] == 0
