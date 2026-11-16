@@ -4878,7 +4878,7 @@ def test_no_new_cut_starts_while_a_cut_or_release_holds_the_env_or_a_release_wai
     data["slots"][env]["promotion_due"] = False
     assert work.STAGE.why_not(data, moment) is None
     monkeypatch.setattr(state, "packed", lambda ready, most: (ready[0], ready[1:most]))
-    monkeypatch.setattr(work, "cut_shape", lambda data: {"cut_items": 6, "cut_minutes": 30})
+    monkeypatch.setattr(work, "cut_shape", lambda data: work.CUT_SHAPE)
     monkeypatch.setattr(state, "tested_prs", lambda data, job: [])
     data["jobs"] |= {"j7394": {}, "j7632": {}}
     group, go = work.STAGE.group_of(data, "j7989", ["j7394", "j7632"], moment)

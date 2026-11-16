@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 from conftest import LEAD, REAL_DOWN_MAC_BOXES, REAL_SCRATCH, edit, EnvsRelease, NamedRepo, provide
-from drive import cli, github, install, picture, providers, reads, render, served, settled, stage, state
+from drive import cli, github, install, picture, providers, reads, render, served, settled, stage, state, work
 from drive.state import DriveError
 
 REFERENCE = datetime(2026, 11, 9, 14, 0).astimezone()
@@ -2857,7 +2857,8 @@ def train_drive(*job_ids: str, **extra: dict) -> dict:
     return {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: job | extra.get(job_id, {}) for job_id in job_ids}}
 
 
-def test_a_release_takes_a_free_staging_env_at_once_and_waits_for_a_cut_to_end_then_starts_before_any_new_cut_his_incidents_first() -> None:
+def test_a_release_takes_a_free_staging_env_at_once_and_waits_for_a_cut_to_end_then_starts_before_any_new_cut_his_incidents_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(work, "cut_shape", lambda data: work.CUT_SHAPE)
     moment = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
     env = "plat-usw2-staging"
     data = train_drive("j1", "j2", "j3", "j4", j3={"created": "2026-11-16T00:00:00+00:00"}, j4={"order": "o2"})
@@ -2873,18 +2874,35 @@ def test_a_release_takes_a_free_staging_env_at_once_and_waits_for_a_cut_to_end_t
     assert (data["slots"][env]["holder"]["job"], state.train_waiting(data, env)) == ("j4", ["j3", "j2"])
 
 
-def test_a_cuts_lease_extends_once_past_its_end_while_its_items_or_a_tester_mid_case_still_run_and_ends_at_its_second_end() -> None:
+def test_a_cuts_lease_extends_once_past_its_end_while_its_items_still_run_and_ends_at_its_second_end_whatever_other_jobs_say_of_staging() -> None:
     moment = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
     env = "plat-usw2-staging"
-    data = train_drive("j1", "j2", "j9", j2={"state": "running", "waits": [f"staging:api/{env}@abc1234"]})
+    data = train_drive("j1", "j2", "j9", j1={"state": "running"}, j2={"state": "running", "waits": [f"staging:api/{env}@abc1234"]})
     first, riders = state.packed([{"job": "j1", "prs": [], "minutes": 30, "cases": None, "at": state.stamp(moment), "paths": ["a"], "stacks": ["api"], "starts": False}], 6)
     data["slots"][env] = {"holder": state.leased(first, moment, riders) | {"work": "j9"}}
-    data["jobs"]["j1"]["state"] = "done"
     end = state.parse_time(data["slots"][env]["holder"]["until"])
     assert state.slot_ends(data, end) == []
     assert (data["slots"][env]["holder"]["extended"], data["slots"][env]["holder"]["until"]) == (True, state.stamp(end + timedelta(minutes=30)))
     state.slot_ends(data, end + timedelta(minutes=30))
     assert data["slots"][env]["holder"] is None
+
+
+def test_an_incidents_release_takes_the_env_from_a_running_cut_whose_items_wait_on_it_and_the_cut_gets_the_env_back_when_it_ends(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(work, "cut_shape", lambda data: work.CUT_SHAPE)
+    moment = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
+    env = "plat-usw2-staging"
+    data = train_drive("j1", "j2", "j3", "j4", "j9", j1={"state": "running"}, j2={"state": "running"}, j4={"order": "o2"})
+    data["orders"]["o2"] = {"incident": True, "priority": None, "state": "open"}
+    first, riders = state.packed([{"job": job_id, "prs": [], "minutes": 30, "cases": None, "at": state.stamp(moment), "paths": [job_id], "stacks": [job_id], "starts": False} for job_id in ("j1", "j2")], 6)
+    data["slots"][env] = {"holder": state.leased(first, moment, riders) | {"work": "j9"}}
+    assert state.train_lease(data, env, "j3", moment) is False
+    assert state.train_lease(data, env, "j4", moment) is True
+    held = data["slots"][env]["holder"]
+    assert (held["job"], held["preempted"]["work"], "j4" in data["jobs"]["j1"]["waits"], "j4" in data["jobs"]["j2"]["waits"], state.train_waiting(data, env)) == ("j4", "j9", True, True, ["j3"])
+    data["jobs"]["j4"].update(state="done", release_build="https://buildkite.com/forge/release/builds/1")
+    held["released"] = True
+    assert state.slot_ends(data, moment + timedelta(minutes=5)) == []
+    assert (data["slots"][env]["holder"]["job"], data["slots"][env]["holder"]["work"]) == ("j1", "j9")
 
 
 def test_a_lease_cut_short_by_a_release_for_production_holds_while_its_item_waits_on_that_release_and_runs_its_full_length_after() -> None:

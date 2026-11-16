@@ -13,12 +13,8 @@ TOLD = ("ASK", "BLOCKED", "DONE")
 WORKER = "worker"
 WORKER_ITEMS = 18
 READS_PER_PASS = 12
-CUT_SHAPE = {"cut_items": 6, "cut_minutes": 30}
-CUT_STEPS = (
-    "post the staging claim the repository's staging-claim rule names, a `POST` report to the communicator with `until` the lease's end; then start one cut"
-    " through the release provider's start, of each target the items' paths reach, carrying every item's PR head cherry-picked onto what {env} serves, as an emergency"
-    " start on {env} whose order is his answer 23eefb9, and run the items' cases once staging serves it, past the claim's 5 minutes"
-)
+CUT_SHAPE = {"cut_items": 6, "cut_minutes": 30, "train_minutes": 60, "cut_steps": ""}
+CUT_STEPS = "start one cut on {env} of the items' PR heads through the release provider, then run the items' cases once staging serves it"
 STALL_AFTER = timedelta(minutes=10)
 DONE_WHEN = "drive work pull --worker {worker} prints NONE or HOLD and every item it gave you is reported; return DONE ran <each item you reported>"
 
@@ -37,7 +33,7 @@ def env(data: dict) -> str | None:
 
 
 def cut_shape(data: dict) -> dict:
-    """How big a staging cut the queue's packer forms: at most cut_items tests planned at cut_minutes, from the repository's [work] table in its .claude/long-running.toml, these defaults for a key it leaves out, so the drive holds shared staging for one short cut at a time."""
+    """How big a staging cut the queue's packer forms and how it runs: at most cut_items tests planned at cut_minutes, a release's lease of train_minutes, and the repository's own cut_steps after the plugin's, from the repository's [work] table in its .claude/long-running.toml, these defaults for a key it leaves out, so the drive holds shared staging for one short cut at a time."""
     return CUT_SHAPE | (providers.of(data).config.get("work") or {})
 
 
@@ -260,7 +256,7 @@ class StageTest(Kind):
         group = [first["job"], *(rider["job"] for rider in riders)]
         self.slot(data)["holder"] = state.leased(first, moment, riders) | {"work": worker_id}
         prs = ", ".join(pr for job_id in group for pr in state.tested_prs(data, data["jobs"][job_id]))
-        return group, f"GO staging {env(data)} until {self.slot(data)['holder']['until']} for {', '.join(group)}, one cut carrying {prs}: {CUT_STEPS.format(env=env(data))}"
+        return group, f"GO staging {env(data)} until {self.slot(data)['holder']['until']} for {', '.join(group)}, one cut carrying {prs}: {CUT_STEPS.format(env=env(data))}{f'; {steps}' if (steps := cut_shape(data)['cut_steps']) else ''}"
 
     def row(self, data: dict, job_id: str) -> str:
         return f"{super().row(data, job_id)}; needs staging:{env(data)}; tests {', '.join(state.tested_prs(data, data['jobs'][job_id]))}"

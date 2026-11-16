@@ -7335,7 +7335,6 @@ def priority_family(data: dict) -> set[str]:
 
 
 SLOT_LIVE_END = ("done", "stopped")
-TRAIN_MINUTES = 60
 
 
 def staging_owed(data: dict, key: str) -> bool:
@@ -7351,15 +7350,6 @@ def staging_owed(data: dict, key: str) -> bool:
 def leased(asked: dict, moment: datetime, riders: list[dict]) -> dict:
     minutes = max(each["minutes"] for each in [asked, *riders])
     return asked | {"minutes": minutes, "since": stamp(moment), "until": stamp(moment + CLAIM_WAIT + timedelta(minutes=minutes)), "extended": False, "riders": riders, "released": False, "gave_way_to": None}
-
-
-def mid_case(data: dict, slot: dict, env: str) -> list[str]:
-    """The testers mid-case on what an env's staging serves, so its lease outlives them: each running job whose waits or last return name staging on that env."""
-    return [
-        job_id
-        for job_id, job in data["jobs"].items()
-        if job["state"] == "running" and any((found := STAGING_WAIT.fullmatch(token)) and found["env"] == env for token in [*job["waits"], *(job["said"] or "").split()])
-    ]
 
 
 def slot_members(slot: dict) -> list[str]:
@@ -7399,20 +7389,29 @@ def slot_release(data: dict, env: str, job_id: str) -> str:
 
 
 def train_waiting(data: dict, env: str) -> list[str]:
-    """The releases waiting for an env a cut holds, the release train, which goes before any new cut: each unfinished job drive job add --release marked for the env whose release has not started and that holds no lease on it, his priority's and an open incident's first, by jumps_queue, then the oldest."""
-    held = slot_members(data["slots"].get(env) or {"holder": None})
+    """The releases waiting for an env a cut holds, the release train, which goes before any new cut: each unfinished job drive job add --release marked for the env whose release has not started and that holds no lease on it and no cut its lease set aside, his priority's and an open incident's first, by jumps_queue, then the oldest."""
+    slot = data["slots"].get(env) or {"holder": None}
+    held = {*slot_members(slot), *slot_members({"holder": (slot["holder"] or {}).get("preempted")})}
     waiting = [job_id for job_id, job in data["jobs"].items() if job.get("train") == env and job["state"] not in FINISHED_JOB_STATES and not job.get("release_build") and job_id not in held]
     return sorted(waiting, key=lambda job_id: (not jumps_queue(data, job_id), parse_time(data["jobs"][job_id]["created"])))
 
 
 def train_lease(data: dict, env: str, job_id: str, moment: datetime) -> bool:
-    """Give a release starting on an env its lease now when no cut or release holds the env and no release waits ahead of it, else mark it waiting there, so the watch starts it once the env frees, ahead of the work queue's next cut, by his ruling that the train goes first between cuts; whether it holds the env now."""
+    """Give a release starting on an env its lease now when no cut or release holds the env and no release waits ahead of it, else mark it waiting there, so the watch starts it once the env frees, ahead of the work queue's next cut, by his ruling that the train goes first between cuts; whether it holds the env now. His priority's or an open incident's release, by jumps_queue, takes the env from a running cut at once, by his ruling that incidents go above everything: the cut's unfinished items wait on that release, their cases counting for nothing, and the cut gets the env back when the release's lease ends, so a fresh worker reruns them from the start."""
+    from drive import work
+
     slot = data["slots"].setdefault(env, {"holder": None})
     data["jobs"][job_id]["train"] = env
-    if slot["holder"] is None and train_waiting(data, env)[:1] in ([], [job_id]):
-        slot["holder"] = leased({"job": job_id, "prs": [], "minutes": TRAIN_MINUTES, "cases": None, "at": stamp(moment), "paths": None, "stacks": None, "starts": True}, moment, [])
-        return True
-    return False
+    cut = slot["holder"]
+    first = train_waiting(data, env)[:1] in ([], [job_id])
+    if not first or cut and not (cut.get("work") and jumps_queue(data, job_id)):
+        return False
+    for member in slot_members(slot) if cut else []:
+        if data["jobs"][member]["state"] not in FINISHED_JOB_STATES:
+            data["jobs"][member]["waits"] = list(dict.fromkeys([*data["jobs"][member]["waits"], job_id]))
+            hold_text(data["jobs"][member], f"{env} went to {job_id}'s release, his priority's or an incident's, which goes above every test: your cases on {env} count for nothing; once that release ends the queue's cut gets {env} back and a fresh worker reruns every case from the start", WATCH_SENDER)
+    slot["holder"] = leased({"job": job_id, "prs": [], "minutes": work.cut_shape(data)["train_minutes"], "cases": None, "at": stamp(moment), "paths": None, "stacks": None, "starts": True}, moment, []) | {"preempted": cut}
+    return True
 
 
 def migrated_queue(data: dict, env: str, slot: dict) -> None:
@@ -7428,19 +7427,19 @@ def migrated_queue(data: dict, env: str, slot: dict) -> None:
 
 
 def slot_ends(data: dict, moment: datetime) -> list[tuple[str, str]]:
-    """End each staging env's lease once every item of its cut is done, stopped or gave it back and no tester runs cases on what the env serves, by mid_case, extending once a lease that ran past its end while its items still run and ending it at its second end, a release's lease lasting to its end unless released; then give a free env to the first release the train waits with, by train_waiting, never to a cut, which the work queue's packer forms; each (env, job) whose release the watch starts now."""
+    """End each staging env's lease once every item of its cut is done, stopped or gave it back, extending once a lease that ran past its end while its items still run and ending it at its second end, a release's lease lasting to its end unless released; then give a free env to the first release the train waits with, by train_waiting, never to a new cut, which the work queue's packer forms, a cut an incident's release set aside getting the env back first; each (env, job) whose release the watch starts now."""
     started = []
     for env, slot in data["slots"].items():
         migrated_queue(data, env, slot)
         held = slot["holder"]
-        running = held and list(dict.fromkeys([*(job_id for job_id in slot_members(slot) if data["jobs"][job_id]["state"] not in SLOT_LIVE_END and not (job_id == held["job"] and held["released"])), *mid_case(data, slot, env)]))
+        running = held and [job_id for job_id in slot_members(slot) if data["jobs"][job_id]["state"] not in SLOT_LIVE_END and not (job_id == held["job"] and held["released"])]
         kept = held and held["starts"] and not held["released"] and not held["extended"] and moment < parse_time(held["until"])
         if held and running and held["gave_way_to"] in {wait for job_id in running for wait in data["jobs"][job_id]["waits"]}:
             held.update(until=stamp(moment + CLAIM_WAIT + timedelta(minutes=held["minutes"])), extended=False)
         elif held and running and parse_time(held["until"]) <= moment and not held["extended"]:
             held.update(until=stamp(parse_time(held["until"]) + timedelta(minutes=held["minutes"])), extended=True)
         elif held and (not running and not kept or parse_time(held["until"]) <= moment):
-            slot["holder"] = None
+            slot["holder"] = (cut := held.get("preempted")) and leased(cut, moment, cut["riders"])
         if slot["holder"] is None and (train := train_waiting(data, env)) and train_lease(data, env, train[0], moment):
             started.append((env, train[0]))
         elif (held := slot["holder"]) and unlaunched(data, held["job"], env):
