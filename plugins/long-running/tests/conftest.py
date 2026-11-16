@@ -487,6 +487,7 @@ def drive_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(orca, "FENCED_RUNS", set())
     monkeypatch.setattr(orca, "MAIL_READ", {})
     monkeypatch.setattr(orca, "MAIL_SHARED_SECONDS", 0)
+    monkeypatch.setattr(brief, "RECORD_KEPT_SECONDS", 0)
     monkeypatch.setattr(github, "signatures", lambda keys: ({}, github.GithubError("no signatures read in tests")))
     for kept in (restack.trunk_subjects, restack.subjects, restack.changed):
         kept.cache_clear()

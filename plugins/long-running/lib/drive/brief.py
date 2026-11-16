@@ -325,12 +325,20 @@ def followed(words: list[str], verb: str) -> str | None:
     return next((word for word in words[words.index(verb) + 1 :] if not word.startswith("-")), None) if verb in words else None
 
 
+RECORD_KEPT_SECONDS = 300
+RECORDS: dict[str, tuple[float, dict | None]] = {}
+
+
 def release_record(release: str, data: dict) -> dict | None:
-    """What the repository's release tool keeps of a release, by the status of its release provider: a JSON object naming the release's `name`, `build`, the `order` approving it, its `commit`, the targets it `carries`, those it picked and each one the tool pulled in, and each of its `failures` as the `step` that failed, the tool's `said` cause line and the `job` link, which watch.release_told reads; None when the repository has no release provider or its status reads none or fails."""
+    """What the repository's release tool keeps of a release, by the status of its release provider: a JSON object naming the release's `name`, `build`, the `order` approving it, its `commit`, the targets it `carries`, those it picked and each one the tool pulled in, and each of its `failures` as the `step` that failed, the tool's `said` cause line and the `job` link, which watch.release_told reads; None when the repository has no release provider or its status reads none or fails. A read answered within RECORD_KEPT_SECONDS is answered again from this process's memory, since each read waits on the Buildkite client's shared rate budget, 18-36 s apiece, and a watch pass that must tell a job its release retries the same build."""
+    if (kept := RECORDS.get(release)) and time.monotonic() - kept[0] < RECORD_KEPT_SECONDS:
+        return kept[1]
     try:
-        return providers.of(data).release.status(release)
+        record = providers.of(data).release.status(release)
     except providers.ProviderError:
         return None
+    RECORDS[release] = (time.monotonic(), record)
+    return record
 
 
 def recorded_job(record: dict, data: dict) -> dict | None:
