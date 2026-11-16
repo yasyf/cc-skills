@@ -452,3 +452,15 @@ def test_a_first_lane_at_the_sprite_cap_waits_its_turn_on_sprite_slot_until_the_
     assert place.sprite_turns(data, state.now()) == ([], 30)
     monkeypatch.setattr(place, "lanes", lambda moment: {"local": {}, "sprite": {}})
     assert place.sprite_turns(data, state.now()) == (["j1"], 0)
+
+
+def test_a_relaunch_or_takeover_waits_its_turn_in_its_own_process_until_the_sprite_cap_has_room(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Hotfix", "ship his fix", "--parts", "the hotfix")
+    run("job", "add", "builder", "--order", "o1", "--part", "the hotfix", "--goal", "build the hotfix")
+    full = {"local": {}, "sprite": {f"other/x{number}": f"x{number} builder on o9, its Sprite lane at work" for number in range(30)}}
+    reads = iter([full, full, {"local": {}, "sprite": {}}])
+    monkeypatch.setattr(place, "lanes", lambda moment: next(reads))
+    monkeypatch.setattr(place, "TURN_SECONDS", 0)
+    place.await_admission(demo, "j1", "sprite")
+    assert capsys.readouterr().err.startswith("j1: waits its turn for a Sprite lane: 30 Sprite lanes run across this Mac's drives, at its cap of 30")
+    assert next(reads, None) is None
