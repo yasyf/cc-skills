@@ -22,7 +22,7 @@ Before anything else, read `lib/lane/danger.md` beside this page, his list of wh
 ## Steps
 
 1. `lane-land --drive <drive> candidates --reach` lists the dangerous stacks waiting on a proof, best-ranked first. Each one comes with its PRs (bottom first), its top head, whether it is green and approved, its changed files, and what its release select reaches. The rank comes from the drive's queue. Never re-rank.
-2. Take the first stack. It is the reason this run exists.
+2. Every lane whose candidate carries `wanted` asked for this test and waits on its result. Take the first of them; then serve as many of the other waiting lanes as can share the cut, before any stack no lane asked for. A lane must never wait out a whole cut that could have carried its stack.
 3. Judge where each stack is tested **from its release select reach, never from a path list**. A stack whose releases reach a staging env goes on the staging cut. A stack that reaches another target is tested on that target: an infra change that deploys only to the CI fleet is proven by a run on the CI host at its current head. A proof that already passed at a stack's current top head on its real target counts, and that stack needs no new run.
 4. Read the rest of the list and decide what joins the first stack on this cut. A stack joins when:
    - its files do not overlap any stack already in the cut,
@@ -32,9 +32,9 @@ Before anything else, read `lib/lane/danger.md` beside this page, his list of wh
    
    No formula decides this, and there is no fixed cut size beyond what `AGENTS.md` allows. Write down why you took or left each of the first several stacks.
 5. `lane-land --drive <drive> decide --cut <id> <file>` keeps the batch: each stack with its target and why, and the stacks left out with why.
-6. `lane-land --drive <drive> take --holder <your id> --lane <the first stack's lane> --minutes <n>` asks the queue for the env; it answers granted, or your place in line. Renew with `renew` while the cut runs. Start one release carrying every stack's top head, then run each stack's cases once staging serves it. If a stack fails, cut it out and rerun the rest.
-7. `lane-land --drive <drive> result --cut <id> <file>` writes each stack, keyed by its bottom PR, as `{"stack": [PRs bottom first], "head": <top head>, "target": <where it ran>, "result": "pass" or "fail"}`. That write wakes each stack's lane owner, and the owner lands the stack while he is present.
-8. `lane-land --drive <drive> release --holder <your id>`, then end with one line naming the cut, the stacks and their results.
+6. When the supervisor started you, you already hold the env as holder `stager`; otherwise `lane-land --drive <drive> take --holder stager --lane <the first stack's lane> --minutes <n>` asks the queue for it and answers granted, or your place in line. Renew with `renew` while the cut runs. Start one release carrying every stack's top head, then run each stack's cases once staging serves it. If a stack fails, cut it out and rerun the rest.
+7. `lane-land --drive <drive> result --cut <id> <file>` writes each stack, keyed by its bottom PR, as `{"lane": <its lane>, "stack": [PRs bottom first], "head": <top head>, "target": <where it ran>, "result": "pass" or "fail"}`; each waiting lane gets its own result under the cut id it waits on, which wakes it. That write wakes each stack's lane owner, and the owner lands the stack while he is present.
+8. `lane-land --drive <drive> release --holder stager`, then end with one line naming the cut, the stacks and their results.
 
 Until cutover the verbs run in shadow. `take` and `result` refuse, and `decide` keeps your batch under `shadow/`. In shadow you stop after step 5 and end with the batch and your reasons.
 

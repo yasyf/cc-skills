@@ -5,12 +5,17 @@ The tester is an agent (agents/stager.md). Code here gathers facts and records r
 
 import json
 import os
+import subprocess
 from pathlib import Path
 
 from lane import landing, queue, rows, store
 
 SHADOW = "shadow"
 STAGING_ENV = "staging-env"
+STAGER = "stager"
+STAGER_MINUTES = 60
+WANTS = "staging-wants"
+PAGE = Path(__file__).resolve().parents[2] / "agents" / "stager.md"
 CUTS = "cuts"
 DECISIONS = "decisions"
 RANK = "rank.json"
@@ -47,6 +52,7 @@ def lane_candidates(drive: str) -> list[dict]:
     folder = lanes_dir(drive)
     order = json.loads((folder / RANK).read_text())["order"]
     read = rows.view(drive)
+    asked = wants(drive)
     found = []
     for rank, lane_id in enumerate(order):
         lane = rows.seen(store.load(drive, lane_id), read)
@@ -56,6 +62,7 @@ def lane_candidates(drive: str) -> list[dict]:
                 found.append(
                     {
                         "rank": rank,
+                        "wanted": (asked.get(lane_id) or {}).get("cut"),
                         "lane": lane_id,
                         "stack": [landing.key(row) for row in open_rows],
                         "top_head": open_rows[-1]["head"],
@@ -154,5 +161,51 @@ def result(drive: str, cut: str, stacks: dict[str, dict]) -> Path:
     path = lanes_dir(drive) / CUTS / f"{cut}.json"
     kept = json.loads(path.read_text()) if path.exists() else {}
     rows.prove(drive, cut, stacks)
+    served(drive, stacks)
     verdicts = {stack["result"] for stack in stacks.values()}
     return written(path, kept | {"stacks": stacks, "result": "pass" if verdicts == {"pass"} else "fail"})
+
+
+def want(drive: str, lane_id: str) -> str:
+    """A lane's ask for a staging test of its pending stack: kept under wants/ until a stager's cut serves it, one per lane, so asking again returns the same cut id; the cut id the lane waits on as staging_result:<id>. The lane never takes the env itself: the stager holding it folds every waiting lane's stack into its cut, by his words "let me check if there's anything else pending I can pull in"."""
+    path = lanes_dir(drive) / WANTS / f"{lane_id}.json"
+    if path.is_file():
+        return json.loads(path.read_text())["cut"]
+    cut = f"{lane_id}-{store.now().strftime('%Y%m%d%H%M%S')}"
+    written(path, {"lane": lane_id, "cut": cut, "at": store.stamp()})
+    return cut
+
+
+def wants(drive: str) -> dict[str, dict]:
+    """Each lane's open ask for a staging test, by lane."""
+    folder = lanes_dir(drive) / WANTS
+    return {path.stem: json.loads(path.read_text()) for path in sorted(folder.glob("*.json"))} if folder.is_dir() else {}
+
+
+def served(drive: str, stacks: dict[str, dict]) -> None:
+    """Write each served lane's own cut result, the file its staging_result:<cut id> wait reads, from the stacks of its lane in a cut, and close its ask."""
+    held = wants(drive)
+    for lane_id, asked in held.items():
+        if mine := {bottom: result for bottom, result in stacks.items() if result.get("lane") == lane_id}:
+            verdicts = {result["result"] for result in mine.values()}
+            written(lanes_dir(drive) / CUTS / f"{asked['cut']}.json", {"stacks": mine, "result": "pass" if verdicts == {"pass"} else "fail", "lane": lane_id})
+            (lanes_dir(drive) / WANTS / f"{lane_id}.json").unlink()
+
+
+def start(drive: str) -> str | None:
+    """Start the drive's one stager session when a lane waits on a staging test and the env is free for it: the queue grants staging-env to the stager on behalf of the best-ranked waiting lane, and the stager, holding it, folds every waiting lane's stack into its cut; None when none waits, the stager already holds the env, or the queue said wait."""
+    if not live(drive) or not (asked := wants(drive)):
+        return None
+    order = {lane: index for index, lane in enumerate(json.loads((lanes_dir(drive) / RANK).read_text())["order"])} if (lanes_dir(drive) / RANK).is_file() else {}
+    first = min(asked, key=lambda lane: (order.get(lane, len(order)), asked[lane]["at"]))
+    if any(lease["holder"] == STAGER and store.parse(lease["until"]) > store.now() for lease in queue.kept(drive)["leases"].get(STAGING_ENV, [])):
+        return None
+    grant = queue.take(drive, STAGING_ENV, STAGER, first, STAGER_MINUTES)
+    if not grant["granted"]:
+        return None
+    prompt = f"You are the drive's stager for drive {drive}. Read {PAGE} and follow it, running its verbs as {PAGE.parents[1] / 'bin' / 'lane-land'} --drive {drive}: you already hold staging-env as holder {STAGER}. Serve every lane waiting in {lanes_dir(drive) / WANTS}, starting with {first}."
+    done = subprocess.run(["claude", "--bg", "--model", "opus", "--effort", "high", "--permission-mode", "bypassPermissions", "-n", f"stager {drive}", prompt], stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, timeout=120)
+    if done.returncode:
+        queue.release(drive, STAGING_ENV, STAGER)
+        raise store.Refused(f"stager start: claude --bg exited {done.returncode}: {(done.stderr or done.stdout).strip()[:300]}")
+    return done.stdout.strip()

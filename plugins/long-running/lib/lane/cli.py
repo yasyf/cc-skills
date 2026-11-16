@@ -62,7 +62,8 @@ def reserved(drive: str, keys: list[str]) -> Iterator[bool]:
 
 
 def land(args: argparse.Namespace) -> None:
-    """Write each waited release's result file by releases.write, read every lane PR's state by rows.view, write each unjudged head's verdict by rows.judge, then print what his Approve lands now in each lane, and in live mode queue each landing unit by merged() under its reservation."""
+    """Start the stager when a lane waits on a staging test and the env is free, by stager.start, write each waited release's result file by releases.write, read every lane PR's state by rows.view, write each unjudged head's verdict by rows.judge, then print what his Approve lands now in each lane, and in live mode queue each landing unit by merged() under its reservation."""
+    stager.start(args.drive)
     releases.write(args.drive)
     read = rows.view(args.drive)
     rows.judge(args.drive, read)
@@ -80,6 +81,10 @@ def spawn(drive: str) -> None:
     """Start one detached lane-land land for the drive, the supervisor's landing step each pass once live; its reservations keep two from queueing one unit."""
     if stager.live(drive):
         subprocess.Popen([str(Path(__file__).resolve().parents[2] / "bin" / "lane-land"), "--drive", drive, "land"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+def want(args: argparse.Namespace) -> None:
+    print(stager.want(args.drive, args.lane))
 
 
 def candidates(args: argparse.Namespace) -> None:
@@ -113,6 +118,9 @@ def main() -> int:
     verb = verbs.add_parser("land", help="what his Approve lands now, queued only once live")
     verb.add_argument("--dry-run", action="store_true", help="run the merge queue's --check for each landing unit and queue nothing")
     verb.set_defaults(run=land)
+    verb = verbs.add_parser("want", help="ask the stager for a staging test of the lane's pending stack; prints the cut id to wait on as staging_result:<id>")
+    verb.add_argument("--lane", required=True)
+    verb.set_defaults(run=want)
     verb = verbs.add_parser("candidates", help="dangerous stacks waiting on a proof, best ranked first")
     verb.add_argument("--reach", action="store_true", help="add changed files and release select's reach for the first few")
     verb.add_argument("--limit", type=int, default=30)
