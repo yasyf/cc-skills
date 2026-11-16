@@ -3896,8 +3896,9 @@ def reaped_lines(watcher: Watcher, data: dict, read: set[str], lost: dict[str, s
     due = {job_id: why for job_id, why in lost.items() if (since := data["jobs"][job_id].get("lost_since")) and moment - state.parse_time(since) >= REAP_AFTER}
     if not marking and not due:
         return []
-    lines = []
-    with state.edit(watcher.name) as data:
+
+    def reaped(data: dict) -> list[str]:
+        lines = []
         for job_id in marking:
             if (job := data["jobs"][job_id])["state"] == "running":
                 job["lost_since"] = state.stamp(moment) if job_id in lost else None
@@ -3909,7 +3910,9 @@ def reaped_lines(watcher: Watcher, data: dict, read: set[str], lost: dict[str, s
             said = f"failed: the watch found no live worker on every read since {when(since)} ({why})"
             job.update(state="failed", said=said, lost_since=None, updated=state.stamp(moment))
             lines.append(f"LANE {job_id} {job['order']} {said}; its part's ORPHAN line names who starts its next worker")
-    return lines
+        return lines
+
+    return state.update(watcher.name, None, reaped)
 
 
 def unread_lines(watcher: Watcher, finished: dict[str, dict], relaunched: set[str], moment: datetime) -> list[str]:
