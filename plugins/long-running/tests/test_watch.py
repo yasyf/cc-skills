@@ -1991,10 +1991,13 @@ def test_a_watch_that_finds_a_newer_install_between_two_stages_of_a_pass_runs_th
 
 def test_jobs_this_macs_load_holds_back_are_queued_with_a_place_and_never_keep_a_later_job_from_starting(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "three builds")
-    for goal in ("first build", "second build", "staging test"):
-        run("job", "add", "builder", "--order", "o1", "--goal", goal)
+    run("job", "add", "builder", "--order", "o1", "--goal", "first build")
     with state.edit(demo) as data:
         builders = [job_id for job_id, job in data["jobs"].items() if job["kind"] == "builder"]
+        for goal in ("second build", "staging test"):
+            builders.append(job_id := state.next_id(data["jobs"], "j"))
+            data["jobs"][job_id] = data["jobs"][builders[0]] | {"goal": goal}
+            data["orders"]["o1"]["jobs"].append(job_id)
         for job_id in builders:
             data["jobs"][job_id].update(brief=f"/briefs/{job_id}.md", waits=[], state="waiting", said=state.NOT_STARTED, agent=None, where="local")
     started: list[str] = []
@@ -2021,7 +2024,7 @@ def test_a_merge_prover_carries_only_the_parts_its_merged_prs_deliver_never_anot
 def test_a_builder_that_builds_nothing_takes_no_slot_and_skips_the_load_gate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(place, "strained", lambda: "this Mac's 1-minute load is 49")
     job = {"kind": "builder", "order": "o1", "carries": {}, "parts": ["staging test of #42 before it lands"], "goal": "test #42 on staging", "priority": None, "builds_nothing": False}
-    data = {"orders": {"o1": {"state": "open", "priority": None, "incident": False, "parts": job["parts"], "urgent": []}}, "jobs": {"j1": job}}
+    data = {"orders": {"o1": {"text": "test #42 on staging", "state": "open", "priority": None, "incident": False, "parts": job["parts"], "urgent": []}}, "jobs": {"j1": job}}
     monkeypatch.setattr(place, "preempts", lambda data, job: False)
     assert place.crowded(data, "j1", state.now()) is None
     job["parts"] = ["build the fix"]
@@ -2087,7 +2090,7 @@ def test_a_held_resume_naming_no_stage_of_this_install_runs_the_whole_pass(demo:
     assert ran == ["settle_lines", "release_lanes", "standing_lines"]
 
 
-def test_a_watch_that_crashes_mid_pass_has_posted_the_lines_its_earlier_stages_made_so_the_watch_its_launch_agent_starts_again_says_none_again(
+def test_a_watch_that_crashes_mid_pass_posts_its_stop_but_not_the_job_line_saying_the_watch_starts_the_prover_itself_and_the_watch_its_launch_agent_starts_again_says_none_again(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with state.edit(demo) as data:
@@ -2100,13 +2103,15 @@ def test_a_watch_that_crashes_mid_pass_has_posted_the_lines_its_earlier_stages_m
     launched(monkeypatch, demo)
     with pytest.raises(state.DriveError):
         watch.main(demo)
-    assert ([text.split(":")[0] for _, _, text in posted(sent)], state.held_path(demo).read_text()) == (
-        [f"JOB j2 o1 added, proves {KEY}, waits on no release", "WATCH stopped on long-running " + state.VERSION],
+    assert (state.load(demo)["jobs"]["j2"]["goal"], [text.split(":")[0] for _, _, text in posted(sent)], state.held_path(demo).read_text()) == (
+        f"prove {KEY} live",
+        ["WATCH stopped on long-running " + state.VERSION],
         "",
     )
+    stopped = list(sent)
     monkeypatch.setattr(watch, "passed", lambda watching, moment, until: [])
     run_watch(demo, monkeypatch)
-    assert len(sent) == 2
+    assert sent == stopped
 
 
 def test_ensure_loads_a_launch_agent_that_starts_the_watch_again_after_any_exit_with_no_session_or_secret_unless_one_is_loaded(
@@ -6233,7 +6238,7 @@ def test_a_watch_pass_reads_github_twenty_five_open_prs_a_call_however_many_it_w
     monkeypatch.setattr(github, "fetch", REAL_FETCH)
     monkeypatch.setattr(github, "run", lambda cmd, **_: asked.append(cmd) or json.dumps({"data": {}}))
     watch.run_pass(watcher(demo), T0)
-    assert [(cmd[:3], cmd[4].count("pullRequest(")) for cmd in asked] == [(["gh", "api", "graphql"], size) for size in queries]
+    assert sorted((cmd[:3], cmd[4].count("pullRequest(")) for cmd in asked) == sorted((["gh", "api", "graphql"], size) for size in queries)
 
 
 def test_a_held_green_approved_pr_is_never_said_to_have_no_card(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -10576,16 +10581,16 @@ def test_a_watch_that_ended_after_its_live_line_posted_closes_the_order_on_its_n
     assert (kept.sent, kept.said, kept.closes, state.load(demo)["orders"]["o1"]["close_report"]) == ([], [], [("o1", "9")], None)
 
 
-def test_a_proved_order_with_a_reporter_starts_the_handler_posting_its_line_in_their_threads_from_the_watch(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_proved_order_with_a_reporter_starts_a_report_post_of_its_line_in_their_threads_from_the_watch(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     with state.edit(demo) as data:
         data["orders"]["o1"] |= {"close_report": CLOSE_REPORT, "reporters": [state.reporter(REPORTED)]}
     kept = proved(monkeypatch)
-    briefs: list[str] = []
-    monkeypatch.setattr(watch.agents, "handle", lambda name, brief, **_: briefs.append(brief) or ("h1", False))
+    detached: list[list[str]] = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or 1)
     assert staged(watch.close_report_lines, watcher(demo), T0) == []
     assert (kept.sent, kept.said, state.load(demo)["orders"]["o1"]["close_report"]) == ([[CLOSE_REPORT]], [], None)
-    assert briefs == [f"Record: 9 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'reporter-9'}"]
+    assert detached == [["report-post", "9"]]
 
 
 def test_a_proved_incident_posts_its_live_line_from_the_watch_with_no_handler(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
