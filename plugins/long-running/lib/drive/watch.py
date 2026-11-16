@@ -5177,14 +5177,14 @@ def starts_here(watcher: Watcher, data: dict, job: dict, first: bool) -> bool:
 
 
 def start_jobs(watcher: Watcher, moment: datetime, first: bool = False) -> None:
-    """Start each heard job's first worker that nothing holds, so no session's Agent call or launch starts it and no root relays it: `drive job start` for a briefed builder or reader on this Mac, which starts its agent as its own claude --bg session past every check an Agent start meets, counting its builder slot or holding it waiting its turn, and `drive job launch` for one placed on a Sprite, each by start_verb once busy lets it and at most once per RELAUNCH a watch, at most START_AT_ONCE a pass, a job whose brief declares no step only this Mac runs, by place.mac_step, launched on a Sprite at once beside the rest, taking no place of that count, or queued on sprite-slot under the Sprite cap, whose line launches it as a lane frees, a local job this Mac's load or caps hold back taking no place of that count, a builder of them queued waiting its turn on builder-slot with its place, whose FREE line starts it when a slot frees, and a builder already queued so left to that line, since refused starts heading the jobs every pass once kept about 25 briefed jobs from ever starting but for a priority order's, which first takes past that count, so a burst of freed jobs starts over several passes, and a refusal, which reaches the session holding the job as its relaunch_refused event, leaves the job to that session. A job no order of a coordinator or the meta session holds, such as a handler's, a stopped or finished one, one whose cards or waits hold it, by view.start_refusal, or one launching is left alone. With first, only a job drive job set --priority marks or one serving an open priority order, by state.first_in_line, which first_starts runs on every pass."""
-    data, room, queued, sprites = state.load(watcher.name), START_AT_ONCE, [], []
+    """Start each heard reader's or design job's first worker that nothing holds, so no session's Agent call or launch starts it and no root relays it, a builder's being the work queue's: `drive job start` for a briefed one on this Mac, which starts its agent as its own claude --bg session past every check an Agent start meets, and `drive job launch` for one placed on a Sprite, each by start_verb once busy lets it and at most once per RELAUNCH a watch, at most START_AT_ONCE a pass, a job whose brief declares no step only this Mac runs, by place.mac_step, launched on a Sprite at once beside the rest, taking no place of that count, or queued on sprite-slot under the Sprite cap, whose line launches it as a lane frees, and a local job this Mac's load or caps hold back taking no place of that count, since refused starts heading the jobs every pass once kept about 25 briefed jobs from ever starting but for a priority order's, which first takes past that count, so a burst of freed jobs starts over several passes, and a refusal, which reaches the session holding the job as its relaunch_refused event, leaves the job to that session. A job no order of a coordinator or the meta session holds, such as a handler's, a stopped or finished one, one whose cards or waits hold it, by view.start_refusal, or one launching is left alone. With first, only a job drive job set --priority marks or one serving an open priority order, by state.first_in_line, which first_starts runs on every pass."""
+    data, room, sprites = state.load(watcher.name), START_AT_ONCE, []
     for job_id, job in data["jobs"].items():
         if first and not (job.get("priority") or state.first_in_line(data, job)):
             continue
         if room <= 0 and not first:
             break
-        if not starts_itself(job) or work.queued(data, job) or job["state"] in (*state.FINISHED_JOB_STATES, "running") or state.SLOT_WAIT in job["waits"] or state.SPRITE_WAIT in job["waits"] or moment - watcher.started.get(job_id, moment - RELAUNCH) < RELAUNCH or not starts_here(watcher, data, job, first) or view.open_cards(job) or launching(job, moment):
+        if not starts_itself(job) or job["kind"] == "builder" or work.queued(data, job) or job["state"] in (*state.FINISHED_JOB_STATES, "running") or state.SLOT_WAIT in job["waits"] or state.SPRITE_WAIT in job["waits"] or moment - watcher.started.get(job_id, moment - RELAUNCH) < RELAUNCH or not starts_here(watcher, data, job, first) or view.open_cards(job) or launching(job, moment):
             continue
         if state.holding_lane(data, data["orders"][job["order"]]) == "communicator" or view.start_refusal(data, job_id, False) or busy(watcher, job_id, moment):
             continue
@@ -5194,16 +5194,12 @@ def start_jobs(watcher: Watcher, moment: datetime, first: bool = False) -> None:
             else:
                 start_verb(watcher, job_id, ["job", "launch", job_id], moment)
             continue
-        if place.crowded(data, job_id, moment) if job["kind"] == "builder" else place.admission(data, job_id, "local", moment):
-            queued += [job_id] if job["kind"] == "builder" and place.queueable(data, job_id) else []
+        if place.admission(data, job_id, "local", moment):
             continue
         start_verb(watcher, job_id, ["job", "launch", job_id] if job.get("where") == "remote" else ["job", "start", job_id], moment)
         room -= 1
-    if queued or sprites:
+    if sprites:
         def start_jobs_write(data: dict) -> None:
-            for job_id in queued:
-                if place.queueable(data, job_id) and state.unstarted(data["jobs"][job_id]):
-                    place.queue(data["jobs"][job_id], moment)
             for job_id in sprites:
                 if state.unstarted(data["jobs"][job_id]):
                     place.queue_sprite(data["jobs"][job_id], moment)

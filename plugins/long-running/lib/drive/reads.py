@@ -272,7 +272,7 @@ def claimed(drive: str, worker_id: str) -> set[str]:
 
 
 def lane_refusal(args: argparse.Namespace, parse: Callable[[list[str]], argparse.Namespace], drive: str, job_id: str) -> str | None:
-    """Why a Sprite lane's drive command, as drive parsed it to run, may not: a `break-glass`, whose command would run on this Mac as its user, so the step moves to a lane on this Mac; a verb no builder runs, such as a tap or an order verb; a write, a `job report` keeping stdin or one of LANE_WRITES, naming a job other than its own in any value it parsed, while a read, such as another job's `job report`, `job replies` or `status`, reads it as a Mac lane does; a `job set` other than its `--repro`; a `pr set` other than its `--flaky`, or on a PR its own job does not carry; or another drive. It reads the parsed values, so an abbreviated flag, a `--flag=value` and a word after `--` mean here what they mean to the verb."""
+    """Why a Sprite lane's drive command, as drive parsed it to run, may not: a `break-glass`, whose command would run on this Mac as its user, so the step moves to a lane on this Mac; a verb no builder runs, such as a tap or an order verb; a write, a `job report` keeping stdin or one of LANE_WRITES, naming a job other than its own or an item it holds as a worker of the queue in any value it parsed, while a read, such as another job's `job report`, `job replies` or `status`, reads it as a Mac lane does; a `job set` other than its `--repro`; a `pr set` other than its `--flaky`, or on a PR neither its own job nor an item it holds carries; or another drive. It reads the parsed values, so an abbreviated flag, a `--flag=value` and a word after `--` mean here what they mean to the verb."""
     words = tuple(word for word in (args.verb, getattr(args, "action", None)) if word)
     verb = next((verb for verb in LANE_VERBS if words[: len(verb)] == verb), None)
     refused = f"drive {' '.join(words)}: refused, nothing ran:"
@@ -286,7 +286,7 @@ def lane_refusal(args: argparse.Namespace, parse: Callable[[list[str]], argparse
     parsed = {key: value for key, value in vars(args).items() if key != "run"}
     values = {word for value in parsed.values() for word in (value if isinstance(value, list | tuple) else [value]) if isinstance(word, str)}
     writes = verb in LANE_WRITES or verb == ("job", "report") and args.stdin
-    if writes and (others := sorted({word for word in values if JOB_WORD.fullmatch(word)} - {job_id} - (claimed(drive, job_id) if verb[0] == "work" else set()))):
+    if writes and (others := sorted({word for word in values if JOB_WORD.fullmatch(word)} - {job_id} - claimed(drive, job_id))):
         return f"{refused} it names {', '.join(others)}, and a lane's drive writes act on its own job, {job_id}, alone, or on the items it holds as a worker of the queue, while its reads read any job"
     if verb in LANE_FLAGS and (
         flags := sorted(
@@ -296,8 +296,8 @@ def lane_refusal(args: argparse.Namespace, parse: Callable[[list[str]], argparse
         )
     ):
         return f"{refused} a lane's {' '.join(verb)} takes only --{LANE_FLAGS[verb]}, and it names {', '.join(flags)}"
-    if verb == ("pr", "set") and (state.load(drive)["prs"].get(state.pr_key(args.url)) or {}).get("job") != job_id:
-        return f"{refused} a lane's pr set acts on a PR its own job, {job_id}, carries, and {args.url} is none of them"
+    if verb == ("pr", "set") and (state.load(drive)["prs"].get(state.pr_key(args.url)) or {}).get("job") not in {job_id, *claimed(drive, job_id)}:
+        return f"{refused} a lane's pr set acts on a PR its own job, {job_id}, or an item it holds as a worker of the queue carries, and {args.url} is none of them"
     if parsed.get("drive") not in (None, drive):
         return f"{refused} it names drive {parsed['drive']}, and a lane acts on its own drive, {drive}, alone"
     return None

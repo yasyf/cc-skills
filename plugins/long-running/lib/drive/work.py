@@ -1,7 +1,8 @@
-"""The drive's work queue: items a worker pulls in compatible groups, reports one by one, and pulls again, holding its capacity only while it works; drive work enable turns a kind over to it, one kind at a time."""
+"""The drive's work queue: items a worker pulls in compatible groups, reports one by one, and pulls again, holding its capacity only while it works; every kind it runs runs there on every drive, its old start path gone."""
 
 import uuid
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from drive import agents, orca, place, providers, reads, state, view
 from drive.render import when
@@ -12,6 +13,8 @@ BUILD = "build"
 TOLD = ("ASK", "BLOCKED", "DONE")
 WORKER = "worker"
 WORKER_ITEMS = 18
+WORKERS_PER_PASS = 4
+POOLS = ("local", "remote")
 READS_PER_PASS = 12
 CUT_SHAPE = {"cut_items": 6, "cut_minutes": 30, "train_minutes": 60, "promotion_minutes": 30, "ci_minutes": 20, "start_moves": 10, "cut_steps": ""}
 CUT_STEPS = "start one cut on {env} of the items' PR heads through the release provider, then run the items' cases once staging serves it"
@@ -124,11 +127,6 @@ def untimed(data: dict, job_id: str, moment: datetime) -> str:
     return "; ".join(said)
 
 
-def enabled(data: dict, kind: str) -> bool:
-    """Whether the queue runs this kind of work on this drive: stage-test on every drive, by his approval of code-formed cuts, and another kind once drive work enable turned it over."""
-    return kind == STAGE_TEST or kind in data.get("work", {}).get("kinds", [])
-
-
 def claimed_by(data: dict, job: dict) -> str | None:
     """The worker holding the item's claim, None once that worker finished, so its next pull goes to a fresh one."""
     held = (job.get("claim") or {}).get("worker")
@@ -148,9 +146,23 @@ def rank(data: dict, job_id: str) -> tuple:
     return (state.class_rank(data, data["jobs"][job_id]), not state.jumps_queue(data, job_id), state.parse_time(data["jobs"][job_id]["created"]))
 
 
+def carried(data: dict, job_id: str, moment: datetime) -> None:
+    """Put each text an item holds, his answers among them, into its brief before a worker reads it, by cli.answers_since, the way a launch briefs a job's first lane, and mark them gone to it, since carry_held never starts a queued item and no lane of its own would carry them."""
+    from drive import cli, superseded
+
+    job = data["jobs"][job_id]
+    written = Path(job["brief"]).read_text()
+    if (briefed := cli.answers_since(data, job_id, written)) == written:
+        return
+    Path(job["brief"]).write_text(briefed)
+    state.went(data["name"], data, job_id, job["undelivered"], f"in the brief a worker of the work queue pulled at {when(state.stamp(moment))}")
+    superseded.hear(data, job_id, briefed, moment)
+
+
 def claim(data: dict, worker_id: str, items: list[str], moment: datetime, go: str) -> None:
     data["jobs"][worker_id]["work_go"] = go
     for job_id in items:
+        carried(data, job_id, moment)
         job = data["jobs"][job_id]
         job.update(
             claim={"worker": worker_id, "attempt": uuid.uuid4().hex[:12], "at": state.stamp(moment)},
@@ -167,6 +179,10 @@ class Kind:
     group = 6
     goal = ""
     loop = ""
+    agent = "builder"
+    compiles = False
+    told: tuple[str, ...] | None = TOLD
+    most: int | None = None
 
     def matches(self, data: dict, job: dict) -> bool:
         raise NotImplementedError
@@ -182,8 +198,8 @@ class Kind:
         return False
 
     def queued(self, data: dict, job: dict) -> bool:
-        """Whether the queue, never start_jobs or carry_held, starts this job's work: an item of this kind on a drive that enabled it, that no agent or lane of its own took or that the queue adopted."""
-        return (untaken(job) or self.adopted(job)) and job["state"] not in state.FINISHED_JOB_STATES and self.matches(data, job) and enabled(data, self.name)
+        """Whether the queue, never start_jobs or carry_held, starts this job's work: an item of this kind that no agent or lane of its own took or that the queue adopted."""
+        return (untaken(job) or self.adopted(job)) and job["state"] not in state.FINISHED_JOB_STATES and self.matches(data, job)
 
     def ready(self, data: dict, job_id: str) -> bool:
         """Whether an item may be pulled now: queued, waiting, briefed, claimed by no live worker, no card of his open on it, nothing its start waits on holding it, by view.start_waits, and still worth running."""
@@ -212,8 +228,11 @@ class Kind:
         """Items a worker runs again where they ran before, ahead of the line; none for a kind that holds nothing between pulls."""
         return []
 
-    def head(self, data: dict) -> list[str]:
-        return self.resumed(data) or self.line(data)
+    def pool(self, data: dict, where: str) -> list[str]:
+        """The items a worker running where may take: those to run again there first, else the line's items placed there."""
+        if (again := self.resumed(data)) and self.where(data, data["jobs"][again[0]]) == where:
+            return again
+        return [job_id for job_id in self.line(data) if self.where(data, data["jobs"][job_id]) == where]
 
     def why_not(self, data: dict, moment: datetime) -> str | None:
         return None if self.line(data) else f"no {self.name} item is ready"
@@ -244,9 +263,9 @@ class Kind:
             return "HOLD", [], f"HOLD {why}"
         if why := self.why_not(data, moment):
             return "NONE", [], f"NONE {why}"
-        if self.where(data, data["jobs"][(first := self.line(data)[0])]) != where:
-            return "NONE", [], f"NONE the queue's head {first} runs {'on this Mac' if where == 'remote' else 'on a Sprite'}, so a worker there takes it: end"
-        group, go = self.group_of(data, worker_id, [job_id for job_id in self.line(data) if self.where(data, data["jobs"][job_id]) == where], moment)
+        if not (line := self.pool(data, where)):
+            return "NONE", [], f"NONE every ready {self.name} item runs {'on this Mac' if where == 'remote' else 'on a Sprite'}, so a worker there takes it: end"
+        group, go = self.group_of(data, worker_id, line, moment)
         claim(data, worker_id, group, moment, go)
         return "GO", group, go
 
@@ -257,19 +276,22 @@ class Kind:
     def done(self, data: dict, job_id: str, line: str) -> None:
         """What a reported item gives back beside its claim."""
 
-    def wanted(self, data: dict, moment: datetime) -> bool:
-        """Whether the queue wants a worker of this kind it does not have: none lives, none failed to start in the last STALL_AFTER, so a failing start is tried again at that pace, and items wait to run again or a new group may start, by why_not."""
-        if not enabled(data, self.name) or live_worker(data, self.name) or any(
-            worker(job) and job.get("work_kind") == self.name and job["state"] == "failed" and not (job["agent"] or job.get("dispatch")) and moment - state.parse_time(job["updated"]) < STALL_AFTER for job in data["jobs"].values()
+    def wanted(self, data: dict, where: str, moment: datetime) -> bool:
+        """Whether the queue wants another worker of this kind running where: the kind holds fewer live workers than its most, none of its workers there failed to start in the last STALL_AFTER, so a failing start is tried again at that pace, and items placed there wait to run again, or wait unclaimed while a new group may start, by why_not; a worker that finished its group pulls again on its own, so a ready item no worker holds needs a new one."""
+        if self.most is not None and len(live_workers(data, self.name)) >= self.most or any(
+            worker(job) and job.get("work_kind") == self.name and job.get("where") == where and job["state"] == "failed" and not (job["agent"] or job.get("dispatch")) and moment - state.parse_time(job["updated"]) < STALL_AFTER for job in data["jobs"].values()
         ):
             return False
-        return bool(self.resumed(data)) or self.why_not(data, moment) is None
+        if (again := self.resumed(data)) and self.where(data, data["jobs"][again[0]]) == where:
+            return True
+        return self.why_not(data, moment) is None and bool(self.pool(data, where))
 
 
 class StageTest(Kind):
     """Staging tests: a builder holding a `staging test of #N before it lands` part that starts no cut, run in groups whose PRs change no file and reach no stack in common, one group a cut on the env's one slot, whose ledger the old first-in-first-out line shares."""
 
     name = STAGE_TEST
+    most = 1
     goal = "pull and run stage-test items on {env}, one cut a group"
     loop = (
         "You are {worker}, the drive's stage-test worker for {env}: you run groups of staging tests, each group on one cut, report every test as its own item, then pull the next group, holding the {env} slot only while a group of yours runs."
@@ -378,15 +400,17 @@ class Prove(Kind):
 
 
 class Build(Kind):
-    """First builds: a builder or codex-free change job that no worker ever started, neither a staging tester nor a prover, run in groups on one stack, its repo and branch, or its order where it names no branch yet, so one worker pushes each branch; once it returns, its PR's events go to its own next worker as before."""
+    """Builds: a builder no agent or lane of its own took, holding no PR yet, neither a staging tester, a prover nor a production cut's starter, its first build or one that returned WAITING and whose waits ended, run in groups on one stack, its repo and branch, or its order where it names no branch yet, so one worker pushes each branch; once it returns, its PR's events go to its own next worker as before."""
 
     name = BUILD
     group = 3
+    compiles = True
+    told = None
     goal = "pull and build changes, a group on one stack at a time"
     loop = (
         "You are {worker}, the drive's build worker: you build a group of changes on one stack, each its own job, then pull the next group."
         " 1) Run `drive work pull --worker {worker}`: it prints your group, each item's job id and brief; on `NONE` or `HOLD` go to 4."
-        " 2) For each item, read its brief whole and build it as a builder builds its own job, in the order the pull lists them, each on the branch its brief names or stacked on the one before it, and when it is pushed or blocked pipe its whole return, in the shape agents/builder.md gives a builder's, into `drive work done {worker} <item> -` from a quoted heredoc."
+        " 2) For each item, read its brief whole and build it as a builder builds its own job, the item's id standing for your job wherever agents/builder.md names it, such as `drive pr add <url> --job <item>`, in the order the pull lists them, each on the branch its brief names or stacked on the one before it, and when it is pushed or blocked pipe its whole return, in the shape agents/builder.md gives a builder's, into `drive work done {worker} <item> -` from a quoted heredoc."
         " 3) Go to 1."
         " 4) Return. Never push a branch another worker builds, and never report an item another worker holds."
     )
@@ -399,7 +423,6 @@ class Build(Kind):
             and not state.PROVER_GOAL.fullmatch(job["goal"])
             and not state.starts_cut(job)
             and not job["prs"]
-            and (job["said"] == state.NOT_STARTED or claimed_by(data, job) is not None)
         )
 
     def stack(self, data: dict, job: dict) -> tuple:
@@ -423,7 +446,6 @@ class Build(Kind):
 
 STAGE = StageTest()
 KIND = {kind.name: kind for kind in (STAGE, Prove(), Build())}
-KINDS = tuple(KIND)
 
 
 def kind_of(data: dict, job: dict) -> Kind | None:
@@ -432,7 +454,7 @@ def kind_of(data: dict, job: dict) -> Kind | None:
 
 
 def queued(data: dict, job: dict) -> bool:
-    """Whether the queue, never start_jobs or carry_held, starts this job's work: a worker, or an item a kind the drive enabled queues."""
+    """Whether the queue, never start_jobs or carry_held, starts this job's work: a worker, or an item one of its kinds queues."""
     return worker(job) or any(kind.queued(data, job) for kind in KIND.values())
 
 
@@ -440,8 +462,14 @@ def ready(data: dict, job_id: str) -> bool:
     return any(kind.ready(data, job_id) for kind in KIND.values())
 
 
-def live_worker(data: dict, kind: str) -> str | None:
-    return next((job_id for job_id, job in data["jobs"].items() if worker(job) and job.get("work_kind", STAGE_TEST) == kind and job["state"] not in state.FINISHED_JOB_STATES), None)
+def live_workers(data: dict, kind: str, where: str | None = None) -> list[str]:
+    """The kind's workers not finished, those running where alone when it names one."""
+    return [job_id for job_id, job in data["jobs"].items() if worker(job) and job.get("work_kind", STAGE_TEST) == kind and job["state"] not in state.FINISHED_JOB_STATES and (where is None or job.get("where") == where)]
+
+
+def item_of(data: dict, job: dict) -> Kind | None:
+    """The kind whose queue starts this job's work, None for a worker or a job no kind queues, so drive job start and launch start no second worker beside the queue's."""
+    return next((kind for kind in KIND.values() if kind.queued(data, job)), None)
 
 
 def shown(data: dict, kind: Kind, word: str, items: list[str], said: str) -> str:
@@ -472,33 +500,34 @@ def pulled(name: str, worker_id: str) -> str:
 
 
 def done(name: str, worker_id: str, job_id: str, whole: str) -> tuple[str, dict]:
-    """drive work done: take an item's whole return as drive job report takes it, refused unless its claim is the worker's, then end the claim and the item's wait on its worker, and give back what its kind holds for it; a refused return leaves the claim with the worker, to fix and send again. Its line stays on the item, and only one someone must act on, ASK, BLOCKED or DONE, goes to the session holding its order as a JOB line, so the queue's workers add no cci record for a WAITING, READY or PUSHED."""
+    """drive work done: take an item's whole return as drive job report takes it, refused unless its claim is the worker's, then end the claim and the item's wait on its worker, and give back what its kind holds for it; a refused return leaves the claim with the worker, to fix and send again. Its line stays on the item, and only one someone must act on, ASK, BLOCKED or DONE, goes to the session holding its order as a JOB line, so the queue's workers add no cci record for a WAITING, READY or PUSHED, but a kind whose told is None, a build, whose every line reaches its holder as a builder's does."""
     from drive import cli
 
     data = state.load(name)
     if not (job := data["jobs"].get(job_id)) or claimed_by(data, job) != worker_id:
         raise state.DriveError(f"{job_id}: refused, {worker_id} holds no claim on it: drive work pull --worker {worker_id} names what it holds")
-    said, payload = cli.take_report(name, job_id, whole, tell=whole.strip().startswith(TOLD))
+    kind = KIND[data["jobs"][worker_id].get("work_kind", STAGE_TEST)]
+    said, payload = cli.take_report(name, job_id, whole, tell=kind.told is None or whole.strip().startswith(kind.told))
 
     def done_write(data: dict) -> None:
         data["jobs"][job_id].update(claim=None, waits=[wait for wait in data["jobs"][job_id]["waits"] if wait != worker_id])
         data["jobs"][worker_id]["work_done"] = [*(data["jobs"][worker_id].get("work_done") or []), job_id]
-        KIND[data["jobs"][worker_id].get("work_kind", STAGE_TEST)].done(data, job_id, whole.strip())
+        kind.done(data, job_id, whole.strip())
 
     state.write(name, done_write)
     return said, payload
 
 
-def add_worker(data: dict, kind: Kind, moment: datetime) -> str:
-    """Record a new worker of the kind on the order of its head item, a builder building nothing, on a Sprite unless that item runs only on this Mac, by placed, its first group claimed by take in the same write; its id. drive work start briefs and starts it."""
-    first = data["jobs"][kind.head(data)[0]]
+def add_worker(data: dict, kind: Kind, where: str, moment: datetime) -> str:
+    """Record a new worker of the kind running where on the order of the head item placed there, a job of the kind's agent that builds nothing unless the kind compiles, its first group claimed by take in the same write; its id. drive work start briefs and starts it."""
+    first = data["jobs"][kind.pool(data, where)[0]]
     worker_id = state.next_id(data["jobs"], "j")
     _, held = state.holding_role(data, data["orders"][first["order"]])
-    data["jobs"][worker_id] = state.new_job(first["order"], "builder", kind.goal.format(env=env(data)), [], state.stamp(moment)) | {
+    data["jobs"][worker_id] = state.new_job(first["order"], kind.agent, kind.goal.format(env=env(data)), [], state.stamp(moment)) | {
         "work": WORKER,
         "work_kind": kind.name,
-        "builds_nothing": True,
-        "where": kind.where(data, first),
+        "builds_nothing": not kind.compiles,
+        "where": where,
         "session": held.get("session"),
         "brief_flags": {flag: None for flag in state.BRIEF_FLAGS},
         "work_done": [],
@@ -520,7 +549,7 @@ def start(name: str, worker_id: str) -> str:
     _, held = state.holding_role(data, data["orders"][job["order"]])
     if not held.get("session"):
         raise state.DriveError(f"{worker_id}: refused, not started: no session holds {job['order']}, so none would hear its agent")
-    call = agents.shaped({"session_id": held["session"], "tool_input": {"subagent_type": state.JOB_AGENTS["builder"][0], "prompt": f"Read your brief first: {job['brief']}"}})
+    call = agents.shaped({"session_id": held["session"], "tool_input": {"subagent_type": state.JOB_AGENTS[job["kind"]][0], "prompt": f"Read your brief first: {job['brief']}"}})
     agent, cwd = uuid.uuid4().hex[:17], orca.checkout(name, held["cwd"])
 
     def start_write(data: dict) -> None:
@@ -556,26 +585,47 @@ def unread(data: dict) -> list[str]:
     return [job_id for job_id in STAGE.line(data) if not data["jobs"][job_id].get("work_reads")][:READS_PER_PASS]
 
 
-def admitted(data: dict, kind: Kind, moment: datetime) -> str | None:
-    """Why no new worker of the kind starts now, by place.admission for a Sprite lane or one on this Mac, as its head item is placed and under the cap of the head's class, None when it may."""
-    if not (first := kind.head(data)):
+def admitted(data: dict, kind: Kind, where: str, moment: datetime) -> str | None:
+    """Why no new worker of the kind starts where now, None when it may: by place.crowded for one on this Mac of a kind that compiles, which adds the builder cap, else by place.admission, each read for the head item placed there, so its class picks the cap and an urgent head starts past the elastic one."""
+    if not (first := kind.pool(data, where)):
         return None
-    return place.admission(data, first[0], "sprite" if kind.where(data, data["jobs"][first[0]]) == "remote" else "local", moment)
+    if where == "local" and kind.compiles:
+        return place.crowded(data, first[0], moment)
+    return place.admission(data, first[0], "sprite" if where == "remote" else "local", moment)
+
+
+def room(data: dict, kind: Kind, where: str, moment: datetime) -> int:
+    """How many workers of the kind may start where this pass, at most WORKERS_PER_PASS: none while admitted refuses one, all of them for a kind that builds nothing on this Mac, which holds no cap there, else the room under the cap of the head's class, and, for one compiling here, under the builder cap too, since a worker recorded this pass counts in neither until it starts."""
+    if admitted(data, kind, where, moment):
+        return 0
+    if where == "local" and not kind.compiles:
+        return WORKERS_PER_PASS
+    urgent = place.preempts(data, data["jobs"][kind.pool(data, where)[0]])
+    left = place.admitted_room("local" if where == "local" else "sprite", moment, urgent)
+    if where == "local" and not urgent:
+        left = min(left, place.LOCAL_BUILDERS - len(place.local_builders(data, moment)))
+    return min(left, WORKERS_PER_PASS)
 
 
 def spawned(data: dict, moment: datetime) -> tuple[list[str], list[str]]:
-    """The spawner's write: a worker recorded for each kind that wants one and is admitted; the lines saying so and the workers to start."""
+    """The spawner's write: for each kind and pool, workers recorded while it wants one and room lets one start, each claiming its first group, so ready items no worker holds start as fast as the caps allow; the lines saying so and the workers to start."""
     lines, workers = [], []
+    for job in data["jobs"].values():
+        if KIND[BUILD].queued(data, job) and (left := [wait for wait in job["waits"] if wait not in (state.SLOT_WAIT, state.SPRITE_WAIT)]) != job["waits"]:
+            job.update(waits=left, slot=None, sprite_turn=None)
     for kind in KIND.values():
-        if kind.wanted(data, moment) and not admitted(data, kind, moment):
-            workers.append(worker_id := add_worker(data, kind, moment))
-            lines.append(f"WORK {worker_id} records a {kind.name} worker, its first group claimed")
+        for where in POOLS:
+            for _ in range(room(data, kind, where, moment) if kind.wanted(data, where, moment) else 0):
+                if not kind.wanted(data, where, moment):
+                    break
+                workers.append(worker_id := add_worker(data, kind, where, moment))
+                lines.append(f"WORK {worker_id} records a {kind.name} worker {'on this Mac' if where == 'local' else 'on a Sprite'}, its first group claimed")
     return lines, workers
 
 
 def stalled(data: dict, job_id: str, moment: datetime) -> str | None:
     """Why the queue leaves an item it holds with no one, None while a worker holds it, its waits hold it, or its kind keeps a new group from starting: a ready item STALL_AFTER since its last change while no worker of its kind lives and one is admitted, which the spawner should have answered."""
     job = data["jobs"][job_id]
-    if worker(job) or not (kind := kind_of(data, job)) or not kind.ready(data, job_id) or live_worker(data, kind.name) or kind.why_not(data, moment) or admitted(data, kind, moment) or moment - state.parse_time(job["updated"]) < STALL_AFTER:
+    if worker(job) or not (kind := kind_of(data, job)) or not kind.ready(data, job_id) or kind.why_not(data, moment) or admitted(data, kind, where := kind.where(data, job), moment) or not kind.wanted(data, where, moment) or moment - state.parse_time(job["updated"]) < STALL_AFTER:
         return None
     return f"{job_id} is ready in the work queue {int((moment - state.parse_time(job['updated'])).total_seconds() // 60)} minutes with no worker while one may start: drive work show says why none started"

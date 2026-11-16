@@ -4866,6 +4866,31 @@ def test_slot_queue_lists_the_work_queues_stage_test_items_marked_in_the_queue_s
     assert cli.queue_items(data, "plat-usw2-sandbox") == []
 
 
+def test_the_spawner_starts_a_build_worker_per_pool_for_each_ready_group_no_worker_holds_and_none_once_every_item_is_claimed(monkeypatch: pytest.MonkeyPatch) -> None:
+    moment = state.parse_time("2026-11-16T12:00:00-08:00")
+    data = {"name": "demo", "orders": {"o1": {}}, "slots": {}, "jobs": {}}
+    for job_id, where, branch in (("j1", "local", "a"), ("j2", "local", "b"), ("j3", "remote", "c")):
+        data["jobs"][job_id] = state.new_job("o1", "builder", "build", [], state.stamp(moment)) | {"where": where, "branch": branch, "repo": "demo/app", "brief": f"{job_id}.md"}
+    build = work.KIND[work.BUILD]
+    monkeypatch.setattr(work, "KIND", {work.BUILD: build})
+    monkeypatch.setattr(work.Build, "queued", lambda self, data, job: not work.worker(job))
+    monkeypatch.setattr(work.Build, "ready", lambda self, data, job_id: not work.worker(data["jobs"][job_id]) and work.claimed_by(data, data["jobs"][job_id]) is None)
+    monkeypatch.setattr(work.Build, "where", lambda self, data, job: job["where"])
+    monkeypatch.setattr(work, "rank", lambda data, job_id: job_id)
+    monkeypatch.setattr(work, "env", lambda data: "plat-usw2-staging")
+    monkeypatch.setattr(work, "carried", lambda data, job_id, moment: None)
+    monkeypatch.setattr(state, "holding_role", lambda data, order: (None, {"session": "s1"}))
+    monkeypatch.setattr(place, "crowded", lambda data, job_id, moment: None)
+    monkeypatch.setattr(place, "admission", lambda data, job_id, where, moment: None)
+    monkeypatch.setattr(place, "preempts", lambda data, job: False)
+    monkeypatch.setattr(place, "admitted_room", lambda where, moment, priority=False: 10)
+    monkeypatch.setattr(place, "local_builders", lambda data, moment: {})
+    lines, workers = work.spawned(data, moment)
+    assert [(data["jobs"][worker_id]["where"], data["jobs"][worker_id]["builds_nothing"]) for worker_id in workers] == [("local", False), ("local", False), ("remote", False)]
+    assert [data["jobs"][job_id]["claim"]["worker"] for job_id in ("j1", "j2", "j3")] == workers
+    assert work.spawned(data, moment) == ([], [])
+
+
 def test_no_new_cut_starts_while_a_cut_or_release_holds_the_env_or_a_release_waits_and_the_cut_the_packer_forms_writes_no_record(monkeypatch: pytest.MonkeyPatch) -> None:
     moment = state.parse_time("2026-11-16T06:37:00-08:00")
     env = "plat-usw2-staging"

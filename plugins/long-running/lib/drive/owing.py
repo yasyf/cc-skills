@@ -151,7 +151,7 @@ def settle(data: dict, moment: datetime) -> bool:
 
 
 def waiting(data: dict, moment: datetime) -> dict[str, tuple[str, str]]:
-    """Each job of an incident's or asked order waiting on a contended resource, with what blocks it, as a reason that stays the same while the block does, and why in words: a stage-test item the queue starts no cut for, by work.STAGE.why_not, a release the train holds behind a cut, by state.train_waiting, and a builder that has waited on a builder slot SLOT_QUIET or more, so a brief routine wait says nothing, by his words "make the tooling even less chatty"."""
+    """Each job of an incident's or asked order waiting on a contended resource, with what blocks it, as a reason that stays the same while the block does, and why in words: a stage-test item the queue starts no cut for, by work.STAGE.why_not, a release the train holds behind a cut, by state.train_waiting, a builder that has waited on a builder slot SLOT_QUIET or more, and a build or prove item ready SLOT_QUIET or more with no worker of the queue, so a brief routine wait says nothing, by his words "make the tooling even less chatty"."""
     from drive import work
 
     held = {}
@@ -164,6 +164,13 @@ def waiting(data: dict, moment: datetime) -> dict[str, tuple[str, str]]:
         job_id: ("builder-slot", f"it has waited on a builder slot since {when(since)}")
         for job_id, job in data["jobs"].items()
         if state.SLOT_WAIT in job["waits"] and job["state"] not in state.FINISHED_JOB_STATES and moment - state.parse_time(since := job.get("slot_since") or job["updated"]) >= SLOT_QUIET
+    }
+    held |= {
+        job_id: (f"work:{kind.name}", f"it has waited since {when(job['updated'])} for a {kind.name} worker: {work.admitted(data, kind, kind.where(data, job), moment) or 'none has taken it yet'}")
+        for kind in work.KIND.values()
+        if kind is not work.STAGE
+        for job_id in kind.line(data)
+        if moment - state.parse_time((job := data["jobs"][job_id])["updated"]) >= SLOT_QUIET
     }
     return {job_id: found for job_id, found in held.items() if state.class_rank(data, data["jobs"][job_id]) < state.CLASSES.index("process")}
 

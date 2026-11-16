@@ -59,10 +59,10 @@ Contents:
   `drive job launch --local` while it launches or runs. An agent that ended its turn, a launch that
   started no worker, a Sprite lane, and a job freed from a wait whose agent has not started hold
   none.
-  - `drive job add builder` past eight, or while builders wait, records the job to start on a Sprite
-    at once (`where` remote) and prints why, with its `drive job launch <j> <brief>`.
-  - A builder whose brief declares a step only this Mac runs, on its `Mac:` or `Release:` line,
-    waits on `builder-slot` instead. `drive status` shows its place.
+  - A new builder is a build item of the work queue. The watch starts its build worker under the
+    caps: a local worker takes a slot like any builder, and a worker for items whose briefs declare
+    no step only this Mac runs starts on a Sprite. A builder moving here from its Sprite, or taking
+    over from its agent here, waits on `builder-slot`, and `drive status` shows its place.
   - Each watch pass gives each open slot to the waiting builder added first. Its `FREE` line goes once to the
     session holding its order.
   - A builder on an open incident's order, on an order `drive order set <o> --priority` marked, or
@@ -132,7 +132,12 @@ Contents:
    `ruling` is optional: name an answer of his when it helps the job. An old-tree port takes the
    part `port of #N`, which the `add` gives its order when missing, and its `Serves:` line reads
    that part.
-2. The watch starts a briefed builder, reader or design job once nothing holds it: here with
+2. A briefed builder holding no PR is a build item of the work queue. Once nothing holds it, the
+   watch starts a build worker under the caps, on this Mac or on a Sprite as its brief places it.
+   That worker builds a group of items on one stack. `drive work show` names each worker and
+   ready item. `drive job start` or `drive job launch` on an item no worker holds takes it off the
+   queue as its own lane, and is refused while a worker holds it. The watch starts a briefed reader
+   or design job once nothing holds it: here with
    `drive job start <j>`, which runs its agent as its own `claude --bg` session on the line the
    `brief` op printed, or on a Sprite with `drive job launch <j>` when the job was placed there.
    `drive job start` runs every check the `agent_brief` hook runs and refuses a second start while
