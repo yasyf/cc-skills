@@ -3549,7 +3549,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
     mac, release = mac_lines(name, job, flags)
     fields = {
         "Order (his words)": order["text"] + carried,
-        "Its parts (his words)": [part for part in job["parts"] if his_part(part) and part not in order["text"]],
+        "Its parts (his words)": [part for part in job["parts"] if his_part(part) and part not in order["text"] and part != order["title"]],
         "From": order["from"],
         "Linked messages": linked_messages(job_id, [order["text"], *(data["orders"][order_id]["text"] for order_id in job["carries"])], flags["handoff"]),
         "Serves": flags["serves"],
