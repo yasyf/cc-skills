@@ -3066,13 +3066,16 @@ def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
     if not (still := owed_answers(watcher, heard, moment)):
         return []
     locked = {job_id: why for job_id in {job_id for job_id, _ in still} if (why := orca.locked_out(watcher.name, job_id, heard["jobs"][job_id]))}
-    lines = []
-    with state.edit(watcher.name) as data:
+
+    def said_undelivered(data: dict) -> list[str]:
+        lines = []
         for job_id, answer in owed_answers(watcher, data, moment):
             answer["said"] = state.stamp(moment)
             job = data["jobs"][job_id]
             lines.append(f'ANSWER undelivered {job_id}: {unreached(job_id, job, data, answer, locked.get(job_id), moment)} [{job["order"]} {job_id}]')
-    return lines
+        return lines
+
+    return state.update(watcher.name, None, said_undelivered)
 
 
 def case_lines(watcher: Watcher, moment: datetime) -> list[str]:
