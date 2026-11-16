@@ -650,7 +650,7 @@ def run_landing_loop(name: str, monkeypatch: pytest.MonkeyPatch) -> list[dict[st
 
     lines, given = os.pipe()
     monkeypatch.setattr(watch, "time", SimpleNamespace(sleep=stop))
-    monkeypatch.setattr(watch, "signal", SimpleNamespace(signal=lambda signum, handler: None, SIGTERM=signal.SIGTERM))
+    monkeypatch.setattr(watch, "signal", SimpleNamespace(signal=lambda signum, handler: None, SIGTERM=signal.SIGTERM, SIG_BLOCK=signal.SIG_BLOCK, SIG_UNBLOCK=signal.SIG_UNBLOCK, pthread_sigmask=lambda how, mask: set()))
     with pytest.raises(KeyboardInterrupt):
         watch.landing_loop(name, None, given)
     with os.fdopen(lines) as written:
@@ -1041,7 +1041,7 @@ def relay_passes(monkeypatch: pytest.MonkeyPatch, ended_on: int) -> list[str]:
         return [f"DUE o{len(passes)} was due\nby noon"]
 
     monkeypatch.setattr(watch, "relay_pass", relay_pass)
-    monkeypatch.setattr(watch, "signal", SimpleNamespace(signal=handlers.__setitem__, SIGTERM=signal.SIGTERM))
+    monkeypatch.setattr(watch, "signal", SimpleNamespace(signal=handlers.__setitem__, SIGTERM=signal.SIGTERM, SIG_BLOCK=signal.SIG_BLOCK, SIG_UNBLOCK=signal.SIG_UNBLOCK, pthread_sigmask=lambda how, mask: set()))
     monkeypatch.setattr(watch, "time", SimpleNamespace(sleep=lambda seconds: None))
     return passes
 
@@ -1050,15 +1050,29 @@ def test_the_relay_process_writes_each_line_to_the_watch_moving_onto_the_newest_
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     lines, given = os.pipe()
-    state.save_watch_cursor(demo, 7, "Iris")
+    state.save_watch_cursor(demo, 7)
     passes = relay_passes(monkeypatch, 2)
     monkeypatch.setattr(watch, "upgraded", lambda: Path("/newer/bin/drive"))
     reopened: list[list[str]] = []
     monkeypatch.setattr(install, "reopen", reopened.append)
-    assert watch.relay(demo, "Iris", given) == 0
+    assert watch.relay(demo, None, given) == 0
     with os.fdopen(lines) as written:
         assert written.read() == "DUE o1 was due by noon\nDUE o2 was due by noon\n"
-    assert (passes, reopened) == ([f"{state.project_lane('Iris')} at offset 7"] * 2, [["watch", "--relay", str(given), "--drive", demo, "--project", "Iris"]] * 2)
+    assert (passes, reopened) == (["root at offset 7"] * 2, [["watch", "--relay", str(given), "--drive", demo]] * 2)
+
+
+def test_a_relay_an_older_installs_project_watch_started_ends_at_once_so_that_watch_ends_and_the_drives_watch_takes_its_project(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lines, given = os.pipe()
+    passes = relay_passes(monkeypatch, 2)
+    monkeypatch.delenv(watch.EVERY_PROJECT_ENV, raising=False)
+    landing = os.dup(given)
+    assert (watch.relay(demo, "Iris", given), watch.landing_loop(demo, "Iris", landing), passes) == (0, 0, [])
+    os.close(landing)
+    os.close(given)
+    with os.fdopen(lines) as written:
+        assert written.read() == ""
 
 
 def test_the_responder_process_runs_only_respond_passes_moving_onto_the_newest_install_before_each(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1122,7 +1136,7 @@ def test_the_landing_loop_holds_the_reads_it_owes_before_it_runs_on_a_newer_inst
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
     monkeypatch.setattr(watch, "upgraded", lambda: newer)
     monkeypatch.setattr(install, "upgraded", lambda: newer)
-    monkeypatch.setattr(watch, "signal", SimpleNamespace(signal=lambda signum, handler: None, SIGTERM=signal.SIGTERM))
+    monkeypatch.setattr(watch, "signal", SimpleNamespace(signal=lambda signum, handler: None, SIGTERM=signal.SIGTERM, SIG_BLOCK=signal.SIG_BLOCK, SIG_UNBLOCK=signal.SIG_UNBLOCK, pthread_sigmask=lambda how, mask: set()))
 
     def execv(path: Path, argv: list[str]) -> None:
         raise SystemExit((path, argv))

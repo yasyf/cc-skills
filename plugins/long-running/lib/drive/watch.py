@@ -1768,14 +1768,16 @@ def responder(name: str, project: str | None, lines: int) -> int:
 
 def beside_passes(name: str, project: str | None, lines: int, flag: str, passing: Callable[[Watcher, datetime], list[str]], seconds: float) -> int:
     """Run one pass after another, seconds apart, each first moving this process onto the newest install, by install.reopen, once watch_upgraded reads that install running other code than this one, so the code installed now runs it however long a pass holds the watch on the install it started on, and an install that changes none of its code moves nothing. Each line a pass makes goes to the watch down the pipe end it inherited, for the watch's next pass to hand on; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag rather than an Event, which a handler setting it can deadlock on. It keeps a Watcher of its own, so a failed Orca read of its own never reruns the pass's 60-second block."""
-    ended: list[int] = []
-    signal.signal(signal.SIGTERM, lambda signum, frame: ended.append(signum))
+    ended = term_flag()
+    if unwatched(project):
+        return 0
     children.reap_inherited()
     passer = Watcher(name, offset=state.watch_cursor(name, project), project=project)
     with os.fdopen(lines, "w", buffering=1) as written:
         while not ended:
             if upgraded():
-                install.reopen(["watch", flag, str(lines), "--drive", name, *(["--project", project] if project else [])])
+                with term_held():
+                    install.reopen(["watch", flag, str(lines), "--drive", name, *(["--project", project] if project else [])])
             if every_project():
                 joined(passer, state.now(), held_beside(name), lambda project: Watcher(name, offset=state.watch_cursor(name, project), project=project))
             for one in [passer, *passer.others.values()]:
@@ -1787,6 +1789,29 @@ def beside_passes(name: str, project: str | None, lines: int, flag: str, passing
     return 0
 
 
+def term_flag() -> list[int]:
+    """Keep each SIGTERM the watch sends a process beside it as a flag, then let one through that came while the process before this one held it back over its re-exec, by term_held, so a watch that ends its relay as it re-executes onto a newer install still ends it."""
+    ended: list[int] = []
+    signal.signal(signal.SIGTERM, lambda signum, frame: ended.append(signum))
+    signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM})
+    return ended
+
+
+@contextlib.contextmanager
+def term_held() -> Iterator[None]:
+    """Hold back SIGTERM while a process beside the watch keeps what it owes and re-executes onto a newer install, so one the watch sends then stays pending across the exec for term_flag to take, never lost with the flag of the image it replaced."""
+    signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM})
+    try:
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM})
+
+
+def unwatched(project: str | None) -> bool:
+    """Whether this process beside a watch was started for one project's own watch, which an older install ran: it ends at once, so that watch ends too and the drive's watch takes its project."""
+    return project is not None and not every_project()
+
+
 def held_beside(name: str) -> Callable[[str], bool]:
     """Whether the watch this process runs beside holds a project, its pid in the project's pid file, so a process beside the drive's watch runs no project an older install's project watch still holds."""
     return lambda project: holder(state.pid_path(name, project)) == os.getppid()
@@ -1794,8 +1819,9 @@ def held_beside(name: str) -> Callable[[str], bool]:
 
 def landing_loop(name: str, project: str | None, lines: int) -> int:
     """Run the watch's landing loop, the process the watch starts beside its passes: a landing pass the moment anything appends to the drive's events file or the receiver's deliveries log, as the receiver does for each delivery, or POLL_SECONDS after the last, by rests, each first moving this process onto the newest install, by install.reopen, once it held what it owes for the landing loop it starts there, so a GitHub read, a stage's wake and a landing wait on no lane read, Sprite launch or install a pass of the watch runs, and a fix to any of them runs within a pass of its install. It hands its own lines on as the watch does, those the process before it held with the first stage of its first pass, so lines kept back for a later post never cost a landing pass, and writes the watch down the pipe end it inherited each new map of the PRs the drive does not track it read, first the one the landing loop before it held. It takes the reads the landing loop before it held, with the events and deliveries offsets it had read to, else owes a read of every PR from each file's end; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag, and however it ends it holds its unposted lines and owed reads for the landing loop after it."""
-    ended: list[int] = []
-    signal.signal(signal.SIGTERM, lambda signum, frame: ended.append(signum))
+    ended = term_flag()
+    if unwatched(project):
+        return 0
     children.reap_inherited()
     landing = landing_watcher(name, project)
     argv = ["watch", "--land", str(lines), "--drive", name, *(["--project", project] if project else [])]
@@ -1806,9 +1832,10 @@ def landing_loop(name: str, project: str | None, lines: int) -> int:
                 if ended:
                     break
                 if upgraded():
-                    for one in [landing, *landing.others.values()]:
-                        hold(one)
-                    install.reopen(argv)
+                    with term_held():
+                        for one in [landing, *landing.others.values()]:
+                            hold(one)
+                        install.reopen(argv)
                 if every_project():
                     joined(landing, state.now(), held_beside(name), functools.partial(landing_watcher, name))
                 for one in [landing, *landing.others.values()]:
