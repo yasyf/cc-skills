@@ -4175,7 +4175,7 @@ def pr_wake(args: argparse.Namespace) -> int:
 
 
 def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False, lead: dict | None = None, parts: list[str] | None = None, waits: list[str] = ()) -> tuple[dict, list[str]]:
-    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title and branch it read, so a PR merged and proved before the watch's next read is named by it and a card naming its branch holds it at once, and the parts of its job's orders it names as delivering, so its first check judges it on those, and, for an open one whose head changes a dangerous class of file, its staging test with a tester, by state.mark_dangerous, before his card draws; the PR as registered, the job's first in place of each wait on its change, and the tester added. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR his words on its order do not name is refused before any check that would have its title or body edited. The lead lines given are kept over those kept before, and each teammate's review it waits on, as review:<login>, beside its other waits, so his card draws only once each lands on its head. A PR is refused once, nothing written, naming every one of these it has, so one relayed call or dry run names them all: a title his card cannot name the kind of, a Show me picture that does not draw, and, on a PR his card asks his tap on, a lead that does not tell him why it is made, what it does and what it changes downstream, by limits.lead_problems; a FIX line's PR, given no lead, is someone else's and kept as it reads. An open PR waiting on his tap whose paths reach a component staging runs is kept waiting on its staging test, by staging_reach, so his first card on it names that wait, and a failed read of that reach refuses the add, nothing kept."""
+    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title and branch it read, so a PR merged and proved before the watch's next read is named by it and a card naming its branch holds it at once, and the parts of its job's orders it names as delivering, so its first check judges it on those, and, for an open one whose head changes a dangerous class of file, its staging test with a tester, by state.mark_dangerous, before his card draws; the PR as registered, the job's first in place of each wait on its change, and the tester added. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR his words on its order do not name is refused before any check that would have its title or body edited. The lead lines given are kept over those kept before, and each teammate's review it waits on, as review:<login>, beside its other waits, so his card draws only once each lands on its head. A PR is refused once, nothing written, naming every one of these it has, so one relayed call or dry run names them all: a title his card cannot name the kind of, a Show me picture that does not draw, and, on a PR his card asks his tap on, a lead that does not tell him why it is made, what it does and what it changes downstream, by limits.lead_problems; a FIX line's PR, given no lead, is someone else's and kept as it reads. A PR registered for the first time with no class or port named keeps the class its listed files put it in, by path_class, so a CI fix of his draws no card from any of these callers. An open PR waiting on his tap whose paths reach a component staging runs is kept waiting on its staging test, by staging_reach, so his first card on it names that wait, and a failed read of that reach refuses the add, nothing kept."""
     from drive import stage
 
     url = state.pr_url(key)
@@ -4200,6 +4200,8 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         refuse_an_exempt_revert(known, key, incidents[0], read, f"Add it waiting on his tap with drive pr add {url} --job {job_id}. ")
     if exempt and exempt != state.FLAKE_FIX:
         refuse_an_unexempt(key, exempt, "added")
+    if not (exempt or port_of):
+        exempt = path_class(known, key, added, read)
     wants_tap = state.waits_his_tap(known, key, added["order"])
     flaky = flake_tap(key, wants_tap) if exempt == state.FLAKE_FIX else None
 
@@ -4728,6 +4730,16 @@ def refuse_an_unexempt(key: str, exempt: str, done: str) -> None:
     """Refuse an exempt class the PR is not in, by land.outside, the class check the lander runs before it lands an exempt PR, on the PR as GitHub has it now, before anything is kept, so no class the lander would refuse takes Approve off his card, by his ruling to keep a lane's exempt word and check the class; a flake fix outside test and fixture code keeps his tap instead, by flake_tap."""
     if why := land.outside(exempt, key, served.change(key)):
         raise DriveError(f'{key}: refused, nothing {done}: it is no "{exempt}": {why}, by the class check the lander runs before it lands an exempt PR')
+
+
+def path_class(data: dict, key: str, job: dict, read: dict) -> str | None:
+    """The exempt class the files a PR's GitHub read lists put it in when the drive first registers it: ci-only when it lists any and land.not_ci finds none outside CI configuration and CI tooling, so a CI fix lands with no tap and no session names its class by hand, by his words "any CI fix PRs uoiu can merge without getting a tp from me"; None for a PR the drive tracks, which keeps the class it has, someone else's, which only his tap lands, and a revert on an order an incident is open on, which no incident approves."""
+    paths = [changed["path"] for changed in read["files"]]
+    if key in data["prs"] or not paths or land.not_ci(paths) or read["author"]["login"].casefold() != state.HIS_LOGIN:
+        return None
+    if state.open_incidents(data, [job["order"], *job["carries"]]) and land.REVERT.search(f"{read['title']}\n{read['body']}"):
+        return None
+    return state.CI_ONLY
 
 
 def flake_tap(key: str, wants_tap: bool) -> bool:

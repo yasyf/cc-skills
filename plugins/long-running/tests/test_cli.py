@@ -8209,6 +8209,26 @@ def test_an_exempt_class_its_files_are_outside_is_refused_by_the_landers_class_c
     assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["exempt"] == "test-only"
 
 
+def test_a_pr_he_opened_changing_only_ci_files_registers_ci_only_from_its_paths_and_draws_no_card_while_any_other_file_someone_elses_pr_or_a_tracked_pr_keeps_his_tap(
+    run: Run, demo: str, on_github: dict, draws: Draws
+) -> None:
+    run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it and https://github.com/Forge-AI/monorepo/pull/45")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    ci = ["go/ci/image.go", "infra/ci/src/pipelines/test/images.ts", ".buildkite/pipeline.yml", "tools/ci"]
+    on_github |= {"changedFiles": len(ci), "files": [{"path": path} for path in ci]}
+    assert run("pr", "add", PR, "--job", "j1", *LEAD) == (0, "Forge-AI/monorepo#42")
+    on_github |= {"changedFiles": len(ci) + 1, "files": [*on_github["files"], {"path": "api/src/index.ts"}]}
+    assert run("pr", "add", STACKED, "--job", "j1", *LEAD) == (0, f"Forge-AI/monorepo#43, his card {draws.link}")
+    on_github |= {"changedFiles": len(ci), "files": [{"path": path} for path in ci], "author": {"login": "teammate", "is_bot": False}}
+    assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/45", "--job", "j1", *LEAD)[0] == 0
+    prs = state.load("demo")["prs"]
+    assert [(prs[key]["exempt"], stage.carded(prs[key])) for key in ("Forge-AI/monorepo#42", "Forge-AI/monorepo#43", "Forge-AI/monorepo#45")] == [("ci-only", False), (None, True), (None, True)]
+    on_github["author"] = {"login": "yasyf", "is_bot": False}
+    assert run("pr", "set", PR, "--no-exempt", "--tap")[0] == 0
+    assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
+    assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["exempt"] is None
+
+
 def test_a_main_fix_is_refused_while_no_workflow_fails_on_the_default_branch_and_once_kept_keeps_the_tap_its_forge_ai_pr_waits_on(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], redraws: Redraws
 ) -> None:
