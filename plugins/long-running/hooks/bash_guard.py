@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, brief, github, install, land, limits, orca, providers, reports, state
+from drive import agents, github, install, land, limits, orca, providers, reports, state
 from drive.orca import OrcaError
 from drive.shell import KEYWORDS, Case, Function, Loop, expanded, grouped, literal, runnable, simple_commands, spread
 
@@ -28,15 +28,12 @@ PUSHES = (("gh", "pr", "create"), ("git", "push"), ("jj", "git", "push"), SHIP, 
 PUSH_ONLY = {"--no-pr", "--dry-run"}
 CACHED_PAGE = re.compile(r"plugins/cache/([^/\s'\"]+)/long-running/([^/\s'\"]+)/skills/long-running/reference/")
 RERUNS = {
-    ("ci", "bk", "rerun"): frozenset({"--unit", "-unit", "--count", "-count"}),
-    ("ci", "bk", "api"): frozenset({"-X", "--X", "-d", "--d"}),
     ("bk", "api"): frozenset({"-X", "--method", "-H", "--headers", "-d", "--data", "-f", "--file"}),
     ("bk", "build", "rebuild"): frozenset({"-p", "--pipeline", "-b", "--branch", "-u", "--user"}),
     ("bk", "job", "retry"): frozenset(),
     ("gh", "run", "rerun"): frozenset({"-R", "--repo", "-j", "--job"}),
 }
 HELP = frozenset({"-h", "--help", "-help"})
-DEV = "dev"
 RETRY_PATH = re.compile(r"(?:^|/)(?:organizations/(?P<org>[\w-]+)/)?pipelines/(?P<pipeline>[\w.-]+)/builds/(?P<number>\d+)/(?:jobs/(?P<job>[\w-]+)/retry|rebuild)/?$")
 FAILED = frozenset({"failed", "canceled", "timed_out", "expired", *(conclusion.lower() for conclusion in github.FAILED)})
 FLAKE = "--flake"
@@ -234,7 +231,13 @@ def reran(found: list[list[str]], cwd: str, watchdog: bool = False) -> str | Non
     for words in found:
         if any(word == FLAKE or word.startswith(f"{FLAKE}=") for word in words) and (retry := flake_retry(words, cwd)):
             return retry
-        if not watchdog or (rerun := rerun_target(words, cwd)) is None:
+        if not watchdog:
+            continue
+        try:
+            rerun = rerun_target(words, cwd)
+        except providers.ProviderError as error:
+            return RERUN_UNREAD.format(step=" ".join(verb(words)[:3]), error=error)
+        if rerun is None:
             continue
         step, read = rerun
         try:
@@ -261,10 +264,13 @@ def flake_retry(words: list[str], cwd: str) -> str | None:
 
 
 def rerun_target(words: list[str], cwd: str) -> tuple[str, Callable[[], tuple[str, str]]] | None:
-    """The step a command reruns with and the read of what it reruns, which answers that build, job or run by name and its state: a `ci bk rerun` build, or with dev the newest dev build of its pipeline to finish, a `bk build rebuild` build, the job a `bk job retry` or a Buildkite API retry names and the build an API rebuild names, or a `gh run rerun` run or job; None for a command that reruns nothing, such as a help read or one naming no target, which its tool refuses."""
+    """The step a command reruns with and the read of what it reruns, which answers that build, job or run by name and its state: what a run of the repository's own CI tool reruns, as its BuildProvider reads it, a branch meaning its pipeline's newest build there to finish, a `bk build rebuild` build, the job a `bk job retry` or a Buildkite API retry names and the build an API rebuild names, or a `gh run rerun` run or job; None for a command that reruns nothing, such as a help read or one naming no target, which its tool refuses."""
     if HELP & set(words):
         return None
-    head = "ci" if Path(words[0]).name in brief.CI_BINARIES else Path(words[0]).name
+    if (own := own_build(cwd).retried(words)) is not None:
+        read = partial(newest, own["pipeline"], own["branch"]) if own["branch"] else partial(job_in, own["pipeline"], own["build"], own["job"]) if own["job"] else partial(built, own["pipeline"], own["build"])
+        return own["step"], read
+    head = Path(words[0]).name
     for path, valued in RERUNS.items():
         positionals, values = operands(words[1:], valued)
         if (head, *positionals[: len(path) - 1]) == path:
@@ -272,19 +278,22 @@ def rerun_target(words: list[str], cwd: str) -> tuple[str, Callable[[], tuple[st
     return None
 
 
+def own_build(cwd: str) -> providers.BuildProvider:
+    """The BuildProvider of the repository at the folder's default branch, the base class, which reruns nothing of its own, when the folder is no clone."""
+    try:
+        providers.default_head(Path(cwd))
+    except providers.ProviderError:
+        return providers.BuildProvider(Path(), Path(), {})
+    return providers.at(Path(cwd)).build
+
+
 def rerun_read(path: tuple[str, ...], args: list[str], values: dict[str, str], cwd: str) -> tuple[str, Callable[[], tuple[str, str]]] | None:
     step = " ".join(path)
-    if path == ("ci", "bk", "rerun"):
-        if len(args) != 2:
-            return None
-        pipeline = f"{github.BUILDKITE_ORG}/{args[0]}"
-        return step, partial(newest, pipeline, DEV) if args[1] == DEV else partial(built, pipeline, args[1])
     if path[-1] == "api":
         method = values.get("-X") or values.get("--X") or values.get("--method") or "GET"
         if method.upper() == "GET" or not (found := RETRY_PATH.search(next(iter(args), ""))):
             return None
-        org = found["org"] or (github.BUILDKITE_ORG if path[0] == "ci" else None)
-        pipeline = f"{org}/{found['pipeline']}" if org else found["pipeline"]
+        pipeline = f"{found['org']}/{found['pipeline']}" if found["org"] else found["pipeline"]
         return step, partial(job_in, pipeline, found["number"], found["job"]) if found["job"] else partial(built, pipeline, found["number"])
     if path == ("bk", "build", "rebuild"):
         pipeline, number = values.get("-p") or values.get("--pipeline"), next(iter(args), None)

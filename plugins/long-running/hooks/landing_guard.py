@@ -117,29 +117,25 @@ COORDINATOR_WORK = (
 RELEASE_CUTS = frozenset({"start", "hotfix", "resume", "approve", "rollback", "rerun", "api"})
 SCOPED_FOLLOWS = frozenset({"approve", "resume"})
 READS_ONLY = frozenset({"--plan", "--dry-run", "--help", "-h"})
-RELEASE_PIPELINE = "release"
-RELEASE_BUILDS = re.compile(rf"(?:^|/)pipelines/{RELEASE_PIPELINE}/builds(?:/([^/\s?]+))?(?:[/?]|$)")
-RELEASE_BUILDKITE = f"{github.BUILDKITE_ORG}/{RELEASE_PIPELINE}"
-RELEASE_START_ENV = "RELEASE_START"
-CLUSTER_JOB_ENV = "CLUSTER_JOB"
-CLUSTER_JOB_FLAGS = {"--cluster": "cluster", "--cronjob": "cronJob", "--reason": "reason"}
-API_FLAGS = {"-X": "method", "--X": "method", "-d": "body", "--d": "body"}
 HOLD_UNREAD = (
     "Refused on purpose: whether he holds every release could not be read, so `{command}` waits until it can: {error}."
     " Run it again once it answers"
 )
 CUT_UNRESOLVED = (
-    "landing_guard let `{command}` through unjudged: whether forge/release build {build} is a release cut, one whose env holds RELEASE_START,"
-    " could not be read ({error}), and a gate that cannot finish lets the call go. A literal build number lets it judge the call."
+    "landing_guard let `{command}` through unjudged: whether release build {build} is a release cut could not be read ({error}),"
+    " and a gate that cannot finish lets the call go. A literal build number lets it judge the call."
 )
 UNJUDGED: list[str] = []
 JOB_UNREAD = (
-    "Refused on purpose: which cluster this forge/release build starts a Job on, its env's CLUSTER_JOB, could not be read, so `{command}`"
-    " waits until it can: {error}. Run it again once Buildkite answers"
+    "Refused on purpose: which cluster this release build starts a Job on could not be read, so `{command}`"
+    " waits until it can: {error}. Run it again once CI answers"
 )
 JOB_UNASKED = (
     "Refused on purpose: this Sprite holds no copy of the drive, so it asked the coordinator's Mac with `drive job held --cluster`"
     " whether a Job may start on {cluster} now, and the Mac did not say: {error}. Run it again once it answers"
+)
+PROVIDERS_UNREAD = (
+    "Refused on purpose: the providers that say whether `{command}` writes a release failed to load, so it waits until they do: {error}"
 )
 RELEASE_CANCEL = (
     "Refused on purpose: a drive job never cancels a release, one it started included, however wide its plan reads, by his"
@@ -505,21 +501,30 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
     """Why a drive session, an agent it started or a Sprite lane may not run this release verb, which a help read, plan or dry run never is: a drive job cancels no release, so it returns with one held for the coordinator; a sub-coordinator's session may not start, resume, approve, rerun or roll back a production cut, since one cut carries every project's changes and the top coordinator alone runs them, one at a time; none of them starts or hotfixes a release by hand, since `drive job add --release` starts each one on his answer approving it; and while he holds every release, each other verb runs only on his exception for the release it runs, which a Sprite lane asks the coordinator's Mac with `drive job held --release`, a codex job's run, whose environment names its job, reads from the Release line of the brief the drive kept for that job, and the watchdog, whose environment names its drive, reads from the job whose release build it reruns; and while he is not present, a start, resume or approve that brief.away_refusal() reads as dangerous waits for his next word."""
     if READS_ONLY & set(words):
         return None
-    try:
-        verb = release_verb(words)
-    except github.GithubError as error:
-        UNJUDGED.append(CUT_UNRESOLVED.format(command=" ".join(words), build=(release_write(words) or ("", "?"))[1], error=error))
-        return None
-    if verb is None:
-        return None
     lane = os.environ.get(state.REMOTE_LANE_ENV)
     codex = codex_job()
     job = shell.job or bool(lane or codex)
+    names = state.session_drives(shell.session)
+    if not (job or shell.driving or names or os.environ.get(state.DRIVE_ENV)):
+        return None
+    try:
+        made = release_guard(shell, names)
+    except providers.ProviderError as error:
+        return PROVIDERS_UNREAD.format(command=" ".join(words), error=error)
+    if (found := made.mutation(words)) is None or found["kind"] == "job":
+        return None
+    write = found if found["kind"] == "write" else None
+    try:
+        verb = release_verb(made, found, words)
+    except (github.GithubError, providers.ProviderError) as error:
+        UNJUDGED.append(CUT_UNRESOLVED.format(command=" ".join(words), build=found.get("build") or "?", error=error))
+        return None
+    if verb is None:
+        return None
     if verb == "cancel" and job:
         return RELEASE_CANCEL
     if verb not in RELEASE_CUTS:
         return None
-    names = state.session_drives(shell.session)
     if verb == "start" and job and (held_in := names or list(filter(None, [os.environ.get(state.DRIVE_ENV)]))) and leased_start(words, state.load(held_in[0]), shell):
         return None
     for name in names if not brief.leased_env(words) else []:
@@ -534,14 +539,14 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
     if verb in brief.RELEASE_STARTS and (shell.driving or job):
         return RELEASE_BY_HAND.format(command=" ".join(words))
     if lane:
-        return lane_release_reason(release_of(words, agents.brief(shell.caller)), verb)
+        return lane_release_reason(release_of(words, write, agents.brief(shell.caller)), verb)
     if not (drives := names if names and not codex else list(filter(None, [os.environ.get(state.DRIVE_ENV)]))):
         return None
     data = state.load(drives[0])
     briefed = Path(data["jobs"][codex]["brief"]).read_text() if codex else agents.brief(shell.caller)
-    record = verb in RELEASE_CUTS - {*brief.RELEASE_STARTS, "api"} and not release_write(words) and (named := brief.followed(words, verb)) and brief.release_record(named, data)
+    record = verb in RELEASE_CUTS - {*brief.RELEASE_STARTS, "api"} and not write and (named := brief.followed(words, verb)) and brief.release_record(named, data)
     job = record and brief.recorded_job(record, data)
-    release = release_of(words, briefed, data["jobs"].values(), job and job["brief_flags"]["release"])
+    release = release_of(words, write, briefed, data["jobs"].values(), job and job["brief_flags"]["release"])
     said = "\n".join([briefed, *([job["goal"], Path(job["brief"]).read_text() if job.get("brief") else ""] if job else [])])
     try:
         hold = settled.hold(data["roles"]["coordinator"]["cwd"])
@@ -562,20 +567,21 @@ def leased_start(words: list[str], data: dict, shell: Shell) -> bool:
 
 def job_reason(words: list[str], shell: Shell) -> str | None:
     """Why a drive session, an agent it started or a Sprite lane may not start a Job from a suspended CronJob now, by brief.cluster_job_refusal, which a Sprite lane asks the coordinator's Mac with `drive job held --cluster`, and a codex job's run or the watchdog reads in the drive its environment names; a reading in the Job's reason counts only in the top coordinator's session."""
+    names = [] if os.environ.get(state.OWN_JOB_ENV) else state.session_drives(shell.session)
+    lane = os.environ.get(state.REMOTE_LANE_ENV)
+    if not (lane or (drives := names or list(filter(None, [os.environ.get(state.DRIVE_ENV)])))):
+        return None
     try:
-        job = cluster_job(words)
-    except github.GithubError as error:
+        job = cluster_job(release_guard(shell, names), words)
+    except (github.GithubError, providers.ProviderError) as error:
         return JOB_UNREAD.format(command=" ".join(words), error=error)
     if job is None:
         return None
-    if os.environ.get(state.REMOTE_LANE_ENV):
+    if lane:
         try:
             return land.lane_held(f"--cluster={job['cluster']}", f"--cronjob={job['cronJob']}", f"--reason={job['reason']}")["cluster"]
         except state.DriveError as error:
             return JOB_UNASKED.format(cluster=job["cluster"], error=error)
-    names = [] if os.environ.get(state.OWN_JOB_ENV) else state.session_drives(shell.session)
-    if not (drives := names or list(filter(None, [os.environ.get(state.DRIVE_ENV)]))):
-        return None
     try:
         data = state.load(drives[0])
         return brief.cluster_job_refusal(job, data, state.now(), state.top_coordinator(data, shell.session))
@@ -583,84 +589,55 @@ def job_reason(words: list[str], shell: Shell) -> str | None:
         return HOLD_UNREAD.format(command=" ".join(words), error=error)
 
 
-def cluster_job(words: list[str]) -> dict | None:
-    """The Job a command starts from a suspended CronJob, its cluster, CronJob and reason as a forge/release build's CLUSTER_JOB keeps them: the --cluster, --cronjob and --reason of a `ci cluster-job` start, never the `run` inside the build it starts, the CLUSTER_JOB of the forge/release build a `ci bk rerun` or `ci bk api` write names, or the one created_job() reads in the inline body of a `ci bk api` write creating that build; None when it names no --cluster, or the build no cluster."""
-    if Path(words[0]).name not in brief.CI_BINARIES:
+def release_guard(shell: Shell, drives: list[str]) -> providers.ReleaseProvider:
+    """The ReleaseProvider of the repository at the session's folder, whatever folder the command `cd`s to, or of the session's drive when that folder is no clone or its repository releases nothing, as a meta job's checkout of a tool repository."""
+    try:
+        providers.default_head(Path(shell.cwd))
+    except providers.ProviderError:
+        found = providers.ReleaseProvider(Path(), Path(), {})
+    else:
+        found = providers.at(Path(shell.cwd)).release
+    if type(found) is providers.ReleaseProvider and (named := drives or list(filter(None, [os.environ.get(state.DRIVE_ENV)]))):
+        return providers.of(state.load(named[0])).release
+    return found
+
+
+def cluster_job(made: providers.ReleaseProvider, words: list[str]) -> dict | None:
+    """The Job a command starts from a suspended CronJob, its cluster, CronJob and reason, as the release provider reads it: a start of one by name, the Job of the release build a rerun or API write names, or the one an API write creating that build starts by its inline body; None when it names no cluster, or the build none."""
+    if (found := made.mutation(words)) is None or found["kind"] == "release":
         return None
-    if words[1:2] == ["cluster-job"]:
-        flags, rest = {}, iter(words[2:])
-        for word in rest:
-            flag, given, value = word.partition("=")
-            if flag in CLUSTER_JOB_FLAGS:
-                flags[CLUSTER_JOB_FLAGS[flag]] = value if given else next(rest, "")
-        return {"cronJob": "", "reason": ""} | flags if "cluster" in flags else None
-    if not (write := release_write(words)) or write[0] == "cancel":
+    if found["kind"] == "job":
+        return found["job"]
+    if found["verb"] == "cancel" or (found["build"] and not found["build"].isdigit()):
         return None
-    if write[1] and not write[1].isdigit():
-        return None
-    if not write[1]:
-        return created_job(words) if write[0] == "api" else None
-    job = json.loads(github.build(RELEASE_BUILDKITE, write[1])["env"].get(CLUSTER_JOB_ENV) or "{}")
-    return job if job.get("cluster") else None
+    if not found["build"]:
+        return found["job"] if found["verb"] == "api" else None
+    return made.build_job(found["build"])
 
 
-def created_job(words: list[str]) -> dict | None:
-    """The Job the forge/release build a `ci bk api` write creates starts, when the JSON its -d gives inline sets the env `ci cluster-job` sets, a CLUSTER_JOB alone naming a cluster, with its CronJob and reason as strings where it names them, as `ci cluster-job run` reads it, so that build runs no release and no side job beside the Job; None for any other body, or one the guard cannot read, such as one a file or a command substitution supplies."""
-    with suppress(json.JSONDecodeError):
-        match json.loads(api_flags(words)["body"]):
-            case {"env": {"CLUSTER_JOB": str(said)} as env} if len(env) == 1:
-                match json.loads(said):
-                    case {"cluster": str(cluster)} as job if cluster and all(isinstance(job.get(key, ""), str) for key in ("cronJob", "reason")):
-                        return {"cronJob": "", "reason": ""} | job
-    return None
-
-
-def release_of(words: list[str], briefed: str, jobs: Iterable[dict] = (), recorded: str | None = None) -> str:
+def release_of(words: list[str], write: dict | None, briefed: str, jobs: Iterable[dict] = (), recorded: str | None = None) -> str:
     """The release a release verb runs, as his exception names it: the newest Release line of the caller's brief, the release its job started on, else the release of the job among jobs whose release build the verb writes to, as the watchdog's rerun of a failed one names it, else recorded, the release of the job that the release tool's record of the release an approve, resume, rollback or rerun names leads to, by brief.recorded_job, so the top coordinator's own approve passes on that job's kept pass, else the verb's own words."""
-    build = (write := release_write(words)) and write[1]
+    build = write and write["build"]
     built = (job["brief_flags"]["release"] for job in jobs if build and job["release_build"] and (found := github.BUILD.match(job["release_build"])) and found["number"] == build)
     return next(reversed(brief.RELEASE.findall(briefed)), None) or next(built, None) or recorded or " ".join(words)
 
 
-def release_verb(words: list[str]) -> str | None:
-    """The release verb a command runs: a `ci release` verb, a `ci bk rerun` or `cancel` of a forge/release build that is a release cut, or `api` for a `ci bk api` call creating a forge/release build that starts no cluster Job or writing to a cut, such as unblocking its approval step; a build is a cut only when its env holds RELEASE_START, the release tool's own test, so the gate of a cluster job or any other build go/ci starts on that pipeline is no release verb, and creating a cluster job's build with its env inline is none either."""
-    if Path(words[0]).name not in brief.CI_BINARIES:
-        return None
-    if words[1:2] == ["release"]:
-        return next(iter(words[2:3]), None)
-    if (write := release_write(words)) is None:
-        return None
-    return write[0] if release_cut(write, words) else None
+def release_verb(made: providers.ReleaseProvider, found: dict, words: list[str]) -> str | None:
+    """The release verb a release mutation runs: the release tool's own verb, or a rerun, cancel or API write to a release build that is a release cut, as release_cut reads it, so the gate of a cluster job or any other build on that pipeline is no release verb, and creating a cluster job's build with its env inline is none either."""
+    if found["kind"] == "release":
+        return found["verb"]
+    return found["verb"] if release_cut(made, found, words) else None
 
 
-def release_write(words: list[str]) -> tuple[str, str | None] | None:
-    """The verb and build number of a `ci bk rerun` or `cancel` of a forge/release build, or `api` with the build a `ci bk api` write to forge/release builds names, None when it names none, as when it creates one."""
-    if words[1:2] == ["bk"] and words[2:3] in (["rerun"], ["cancel"]) and words[3:4] == [RELEASE_PIPELINE]:
-        return words[2], next(iter(words[4:5]), None)
-    if words[1:3] != ["bk", "api"] or not (named := next(filter(None, map(RELEASE_BUILDS.search, words[3:])), None)):
-        return None
-    return ("api", named[1]) if api_flags(words)["method"].upper() != "GET" else None
-
-
-def api_flags(words: list[str]) -> dict[str, str]:
-    """The method and body a `ci bk api` call sends, its last -X and -d as Go's flag package reads each, `-d <value>` or `-d=<value>` with one dash or two; GET and no body when it gives neither."""
-    flags, rest = {"method": "GET", "body": ""}, iter(words[3:])
-    for word in rest:
-        flag, given, value = word.partition("=")
-        if flag in API_FLAGS:
-            flags[API_FLAGS[flag]] = value if given else next(rest, "")
-    return flags
-
-
-def release_cut(write: tuple[str, str | None], words: list[str]) -> bool:
-    """Whether the forge/release build a release verb names is a release cut: its env holds RELEASE_START; a `ci bk api` write creating a build is one unless created_job() reads the cluster Job it starts in its inline body, and any other write naming no build counts as one. A write to a build the guard cannot resolve to a number, such as `$1` inside a loop, is never called a cut: the call goes through unjudged and the guard says so, since gates fail open."""
-    verb, number = write
+def release_cut(made: providers.ReleaseProvider, found: dict, words: list[str]) -> bool:
+    """Whether the release build a write names is a release cut, as the release provider reads it; an API write creating a build is one unless it starts a cluster Job by its inline body, and any other write naming no build counts as one. A write to a build the guard cannot resolve to a number, such as `$1` inside a loop, is never called a cut: the call goes through unjudged and the guard says so, since gates fail open."""
+    number = found["build"]
     if number and number.isdigit():
-        return bool(github.build(RELEASE_BUILDKITE, number)["env"].get(RELEASE_START_ENV))
+        return made.cut(number)
     if number:
         UNJUDGED.append(CUT_UNRESOLVED.format(command=" ".join(words), build=number, error="not a build number"))
         return False
-    return verb != "api" or created_job(words) is None
+    return found["verb"] != "api" or found["job"] is None
 
 
 def lane_release_reason(release: str, verb: str) -> str | None:

@@ -8,6 +8,7 @@ import sys
 import time
 import urllib.parse
 from collections.abc import Callable, Iterator
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -643,8 +644,91 @@ class HomeBuild(providers.BuildProvider):
     def log_tip(self, job_url: str) -> str:
         return f"`tools/ci bk log '{job_url}'`"
 
+    def retried(self, words: list[str]) -> dict | None:
+        if Path(words[0]).name not in CI_BINARIES or {"-h", "--help", "-help"} & set(words):
+            return None
+        for path, valued in (("bk", "rerun"), frozenset({"--unit", "-unit", "--count", "-count"})), (("bk", "api"), frozenset({"-X", "--X", "-d", "--d"})):
+            positionals, values = operands(words[1:], valued)
+            if tuple(positionals[: len(path)]) != path:
+                continue
+            args, step = positionals[len(path) :], f"ci {' '.join(path)}"
+            if path == ("bk", "rerun"):
+                if len(args) != 2:
+                    return None
+                dev = args[1] == "dev"
+                return {"step": step, "pipeline": f"forge/{args[0]}", "build": None if dev else args[1], "job": None, "branch": args[1] if dev else None}
+            method = values.get("-X") or values.get("--X") or "GET"
+            if method.upper() == "GET" or not (found := RETRY_PATH.search(next(iter(args), ""))):
+                return None
+            return {"step": step, "pipeline": f"{found['org'] or 'forge'}/{found['pipeline']}", "build": found["number"], "job": found["job"], "branch": None}
+        return None
 
-HOME: dict[str, type[providers.Provider]] = {"repo": GuardedRepo, "staging": HomeStaging, "mac_box": HomeMacBox, "build": HomeBuild}
+
+CI_BINARIES = frozenset({"ci", "ci.dev"})
+RELEASE_BUILDS = re.compile(r"(?:^|/)pipelines/release/builds(?:/([^/\s?]+))?(?:[/?]|$)")
+RETRY_PATH = re.compile(r"(?:^|/)(?:organizations/(?P<org>[\w-]+)/)?pipelines/(?P<pipeline>[\w.-]+)/builds/(?P<number>\d+)/(?:jobs/(?P<job>[\w-]+)/retry|rebuild)/?$")
+
+
+def operands(words: list[str], valued: frozenset[str]) -> tuple[list[str], dict[str, str]]:
+    positionals, values, rest = [], {}, iter(words)
+    for word in rest:
+        flag, given, value = word.partition("=")
+        if not word.startswith("-"):
+            positionals.append(word)
+        elif given:
+            values[flag] = value
+        else:
+            values[word] = next(rest, "") if word in valued else ""
+    return positionals, values
+
+
+class HomeRelease(providers.ReleaseProvider):
+    """The monorepo's release writes as its provider reads them: `ci release`, `ci bk rerun|cancel release`, `ci bk api` writes to release builds and `ci cluster-job`, its reads through github.build."""
+
+    def mutation(self, words: list[str]) -> dict | None:
+        if Path(words[0]).name not in CI_BINARIES:
+            return None
+        if words[1:2] == ["release"]:
+            return {"kind": "release", "verb": next(iter(words[2:3]), None)}
+        if words[1:2] == ["cluster-job"]:
+            flags, rest = {}, iter(words[2:])
+            for word in rest:
+                flag, given, value = word.partition("=")
+                if flag in ("--cluster", "--cronjob", "--reason"):
+                    flags[{"--cluster": "cluster", "--cronjob": "cronJob", "--reason": "reason"}[flag]] = value if given else next(rest, "")
+            return {"kind": "job", "job": {"cronJob": "", "reason": ""} | flags if "cluster" in flags else None}
+        if words[1:2] == ["bk"] and words[2:3] in (["rerun"], ["cancel"]) and words[3:4] == ["release"]:
+            return {"kind": "write", "verb": words[2], "build": next(iter(words[4:5]), None), "job": None}
+        if words[1:3] != ["bk", "api"] or not (named := next(filter(None, map(RELEASE_BUILDS.search, words[3:])), None)):
+            return None
+        flags, rest = {"method": "GET", "body": ""}, iter(words[3:])
+        for word in rest:
+            flag, given, value = word.partition("=")
+            if flag in ("-X", "--X", "-d", "--d"):
+                flags["method" if flag.endswith("X") else "body"] = value if given else next(rest, "")
+        if flags["method"].upper() == "GET":
+            return None
+        return {"kind": "write", "verb": "api", "build": named[1], "job": None if named[1] else created_job(flags["body"])}
+
+    def cut(self, build: str) -> bool:
+        return bool(github.build("forge/release", build)["env"].get("RELEASE_START"))
+
+    def build_job(self, build: str) -> dict | None:
+        job = json.loads(github.build("forge/release", build)["env"].get("CLUSTER_JOB") or "{}")
+        return job if job.get("cluster") else None
+
+
+def created_job(body: str) -> dict | None:
+    with suppress(json.JSONDecodeError):
+        match json.loads(body):
+            case {"env": {"CLUSTER_JOB": str(said)} as env} if len(env) == 1:
+                match json.loads(said):
+                    case {"cluster": str(cluster)} as job if cluster and all(isinstance(job.get(key, ""), str) for key in ("cronJob", "reason")):
+                        return {"cronJob": "", "reason": ""} | job
+    return None
+
+
+HOME: dict[str, type[providers.Provider]] = {"repo": GuardedRepo, "release": HomeRelease, "staging": HomeStaging, "mac_box": HomeMacBox, "build": HomeBuild}
 
 
 @pytest.fixture

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import landing_guard
 import pytest
-from conftest import QUEUE_REASON, LEAD, SESSION, SHORT_ASK, Answers
+from conftest import QUEUE_REASON, LEAD, SESSION, SHORT_ASK, Answers, HomeRelease
 from drive import agents, brief, github, land, limits, render, settled, shell, stage, state, view
 
 Run = Callable[..., tuple[int, str]]
@@ -309,7 +309,7 @@ def test_a_sub_coordinators_unblock_of_a_build_it_cannot_resolve_or_of_a_cluster
     assert landing_guard.cut_reason(unblock.format("17611").split(), shell).startswith("ci bk api: the sub-coordinator for Platform starts, approves and rolls back no production cut")
     assert landing_guard.UNJUDGED == []
     assert landing_guard.cut_reason(unblock.format("$1").split(), shell) is None
-    assert landing_guard.cluster_job(unblock.format("$1").split()) is None
+    assert landing_guard.cluster_job(HomeRelease(Path(), Path(), {}), unblock.format("$1").split()) is None
     assert landing_guard.UNJUDGED == [landing_guard.CUT_UNRESOLVED.format(command=unblock.format("$1"), build="$1", error="not a build number")]
     monkeypatch.setattr(github, "build", lambda pipeline, number: (_ for _ in ()).throw(github.GithubError("Buildkite timed out")))
     assert landing_guard.cut_reason(unblock.format("17612").split(), shell) is None
