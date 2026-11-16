@@ -2917,7 +2917,7 @@ def take_deliveries(watcher: Watcher) -> list[str] | None:
 
 
 def applet_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Send him each applet page made or changed for him since he was last sent it, by applet.unannounced, by his words "a link to one has never been sent to me": one line through milestone in the channel of the page's first order, its seat's by state.channel_seat_of, else his DM, the page's title linked on its words and its glance, once per material change and never per recompose; a post that fails is tried again next pass."""
+    """Send him each applet page made or changed for him since he was last sent it, by applet.unannounced, by his words "a link to one has never been sent to me": one line through milestone in the channel of the page's first order, its seat's by state.channel_seat_of, else his DM, the page's title linked on its words, where it stands and what changed for him, leaving its next step to the page, whose glance leads with it, so a step naming a release never meets say's release check without his hold, once per material change and never per recompose; a post that fails is tried again next pass."""
     from drive import applet
 
     if watcher.project is not None:
@@ -2930,7 +2930,7 @@ def applet_lines(watcher: Watcher, moment: datetime) -> list[str]:
         made = data["slack"]["channels"].get(state.channel_seat_of(data, order) or "")
         glance = layout["glance"]
         title = layout["headline"].translate(refs.LINK_WORDS)
-        words = "\n".join([f"<{board}#/pages/{page_shown['slug']}|{title}>", f"*Where it stands:* {glance['status'].rstrip('.')}.", f"*What changed:* {(layout['changed_for_him'] or glance['changed']).rstrip('.')}.", f"*What you do next:* {glance['next'].rstrip('.')}. {glance['why'].rstrip('.')}"])
+        words = "\n".join([f"<{board}#/pages/{page_shown['slug']}|{title}>", f"*Where it stands:* {glance['status'].rstrip('.')}.", f"*What changed:* {(layout['changed_for_him'] or glance['changed']).rstrip('.')}.", "The page opens on what you do next"])
         record = {
             "kind": "report",
             "attr": {"order": order_id} | ({"channel": made["id"]} if made else {}),
