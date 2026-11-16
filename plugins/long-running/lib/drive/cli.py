@@ -4255,7 +4255,7 @@ def starter_post(name: str, job_id: str, job: dict, lane: str, text: str, at: st
     [seq] = tools.sent(name, sender, [limits.shortened(record) or record])
     sent_kept(name, job_id, {"words": text, "request": seq, "held": held, "at": at, "ask": job.get("ask")})
     if session:
-        return seq, own_post(name, job_id, session, seq)
+        return seq, own_post(name, job_id, session, seq, at)
     line = f'{job_id}: {OWED} SendMessage {job["agent"]} "{superseded.POINTER.format(seq)}"'
     if not starter:
         return seq, line
@@ -4282,7 +4282,7 @@ RETURN_SAID = re.compile(rf"({'|'.join([*state.RESULT_STATES, 'BUILT'])})\b")
 
 
 def finished(job: dict, kept: list[dict], bg: dict) -> str | None:
-    """Why a job's gone `claude --bg` session is left alone, neither resumed nor started fresh: a session that finished is not dead, so only a job still owing work with held texts wakes. It finished when the job's newest kept report came after its session's last tool call, or its last turn ended on a text opening with a result word, as a return the drive already kept is, or the job reads DONE, BUILT, BLOCKED or WAITING with nothing held for it."""
+    """Why a job's gone `claude --bg` session ended normally rather than died: a session that finished is never started fresh, and own_post resumes it only on a text held after its end, so a text held for it is never stranded. It finished when the job's newest kept report came after its session's last tool call, or its last turn ended on a text opening with a result word, as a return the drive already kept is, or the job reads DONE, BUILT, BLOCKED or WAITING with nothing held for it."""
     path = watch.session_transcript(bg)
     called = watch.last_tool_call(path) if path.exists() else None
     if kept and called and state.parse_time(kept[0]["created_at"]) > called:
@@ -4294,7 +4294,7 @@ def finished(job: dict, kept: list[dict], bg: dict) -> str | None:
     return None
 
 
-def own_post(name: str, job_id: str, session: str, seq: str) -> str:
+def own_post(name: str, job_id: str, session: str, seq: str, at: str) -> str:
     """Point a job's agent running as its own `claude --bg` session at the record starter_post just posted to its address, with no SendMessage: while its turn runs, its next step's hook, or its stop's, hands it the pointer, and once its turn ended `claude --bg --resume` wakes it on the pointer; the line the verb prints."""
     pointer = superseded.POINTER.format(seq)
     job = state.load(name)["jobs"][job_id]
@@ -4307,7 +4307,10 @@ def own_post(name: str, job_id: str, session: str, seq: str) -> str:
         return f"{job_id}: posted to its own session {session}'s cci address as handoff record {seq}, which its next step reads"
     kept = state.returns(name, job_id)
     if why := finished(job, kept, bg):
-        return f"{job_id}: posted as handoff record {seq}; its session {session} is gone but {why}, so nothing resumes or starts it: the record waits at its cci address"
+        ended = session_end(bg)
+        if ended and state.parse_time(at) <= ended:
+            return f"{job_id}: posted as handoff record {seq}; its session {session} is gone but {why}, and the text was held before that end, so nothing resumes or starts it: the record waits at its cci address"
+        return resumed_on(name, job_id, bg, pointer, seq, f"; its session {session} ended normally, {why}, so it is never started fresh, and the text held after that end resumes it")
     if why := fresh_start(bg, kept):
         old = watch.session_transcript(bg)
         def fresh_write(data: dict):
@@ -4316,11 +4319,23 @@ def own_post(name: str, job_id: str, session: str, seq: str) -> str:
         state.write(name, fresh_write)
         state.detach(name, ["job", "start", job_id], watch.RELAUNCHES_LOG)
         return f"{job_id}: posted as handoff record {seq}; its session {session} {why}, so drive job start starts a fresh agent on its brief, holding its texts and a pointer to {old}"
+    return resumed_on(name, job_id, bg, pointer, seq, "")
+
+
+def resumed_on(name: str, job_id: str, bg: dict, pointer: str, seq: str, why: str) -> str:
+    """Resume a job's gone `claude --bg` session, the same session in a new process, on the pointer to the record starter_post posted it."""
     try:
         agents.resume_job(name, job_id, bg, pointer)
     except reads.ReadError as error:
-        raise DriveError(f"{job_id}: posted as handoff record {seq}, but claude --bg --resume {session} did not wake it: {error}") from None
-    return f"{job_id}: posted to its own session {session}'s cci address as handoff record {seq}, and resumed that session on it"
+        raise DriveError(f"{job_id}: posted as handoff record {seq}, but claude --bg --resume {bg['session']} did not wake it: {error}") from None
+    return f"{job_id}: posted to its own session {bg['session']}'s cci address as handoff record {seq}{why}, and resumed that session on it"
+
+
+def session_end(bg: dict) -> datetime | None:
+    """When a job's gone `claude --bg` session ended, by its transcript's newest assistant entry; None with no transcript."""
+    path = watch.session_transcript(bg)
+    last = path.exists() and watch.last_turn(path, ("assistant",))
+    return state.parse_time(last["timestamp"]) if last else None
 
 
 def returned(job: dict) -> str | None:

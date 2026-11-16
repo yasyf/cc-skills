@@ -145,7 +145,7 @@ def test_own_post_to_a_finished_gone_session_neither_resumes_nor_starts_it(monke
     monkeypatch.setattr(state, "returns", lambda name, job_id: [REPORTED])
     monkeypatch.setattr(agents, "resume_job", lambda *args: pytest.fail("resumed a finished session"))
     monkeypatch.setattr(state, "detach", lambda *args: pytest.fail("started a fresh agent for a finished session"))
-    line = cli.own_post("durable-agents", "j4481", "299d123b", "734148")
+    line = cli.own_post("durable-agents", "j4481", "299d123b", "734148", "2026-11-16T07:05:00-08:00")
     assert line.startswith("j4481: posted as handoff record 734148; its session 299d123b is gone but kept its report at 2026-11-16T07:06:12-08:00")
     assert line.endswith("so nothing resumes or starts it: the record waits at its cci address")
 
@@ -183,3 +183,20 @@ def test_a_session_resumed_that_ended_on_the_same_waiting_the_drive_already_kept
     )
     transcript.write_text(final + tool_call("2026-11-16T15:05:20Z"))
     assert cli.finished({"said": "running", "undelivered": held}, kept, bg) is None
+
+
+def test_a_new_text_of_his_held_after_a_normal_end_resumes_the_same_session_and_never_starts_it_fresh(monkeypatch: pytest.MonkeyPatch, ended_session: tuple[Path, dict]) -> None:
+    from drive import cli
+
+    transcript, bg = ended_session
+    transcript.write_text(tool_call("2026-11-16T15:06:10Z"))
+    monkeypatch.setattr(agents, "gone", lambda holder: True)
+    monkeypatch.setattr(state, "load", lambda name: {"jobs": {"j4481": {"bg": bg, "said": "DONE https://buildkite.com/forge/release/builds/17947", "undelivered": []}}})
+    monkeypatch.setattr(state, "returns", lambda name, job_id: [REPORTED])
+    monkeypatch.setattr(state, "detach", lambda *args: pytest.fail("started a fresh agent for a session that ended normally"))
+    resumed: list[tuple] = []
+    monkeypatch.setattr(agents, "resume_job", lambda *args: resumed.append(args))
+    line = cli.own_post("durable-agents", "j4481", "299d123b", "734300", "2026-11-16T07:31:00-08:00")
+    assert [call[:3] for call in resumed] == [("durable-agents", "j4481", bg)]
+    assert line.startswith("j4481: posted to its own session 299d123b's cci address as handoff record 734300; its session 299d123b ended normally, kept its report at")
+    assert line.endswith("so it is never started fresh, and the text held after that end resumes it, and resumed that session on it")
