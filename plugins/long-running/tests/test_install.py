@@ -1913,11 +1913,11 @@ def test_the_mac_line_of_a_merged_builders_return_goes_onto_its_unstarted_prover
         install.merged_done("demo", data, "j1")
         reach, parts = {"Forge-AI/monorepo#9": {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"]}}, {"o1": data["jobs"]["j1"]["parts"]}
         added = install.add_prover("demo", data, "j1", reach, parts, set())
-        unplaced = dict(data["jobs"][added]["brief_flags"])
+        first = data["jobs"][added]["brief_flags"]["mac"]
         state.keep_report("demo", "j1", f"READY {product}", f"READY {product}\nPROVE: db-read counts none\nMac: {step}")
         widened = install.add_prover("demo", data, "j1", reach, parts, set())
         again = install.add_prover("demo", data, "j1", reach, parts, set())
-    assert (added, widened, again, "mac" in unplaced, state.load("demo")["jobs"]["j2"]["brief_flags"]["mac"]) == ("j2", "j2", "j2", False, step)
+    assert (added, widened, again, first, state.load("demo")["jobs"]["j2"]["brief_flags"]["mac"]) == ("j2", "j2", "j2", "drive job prove j2", f"drive job prove j2; {step}")
 
 
 def test_a_product_merge_whose_paths_reach_no_release_says_its_prover_in_one_line_briefing_it_to_start_now(
