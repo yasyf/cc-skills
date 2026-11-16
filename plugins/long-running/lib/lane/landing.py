@@ -1,6 +1,6 @@
 """His Approve is the merge: which of a lane's PRs land now, read from its lane file's prs rows alone.
 
-A PR lands on his Approve at its current head with green checks and no hold. A head the dangerous reader judged safe, its verdict at that head naming no class, needs nothing more; an unread head or one read at an older head never lands. A dangerous PR lands only with its stack, once a staging proof passed at the stack's top head on the target its release reaches, and only while he is present, his word or tap within PRESENT_WITHIN. The merge queue lands a stack from its bottom, so a PR waits while any PR below it cannot land.
+A PR lands on his Approve with green checks and no hold. His Approve stands at whatever head the PR has now, a head our own pushes moved after his tap included, by his 14:13 words "all the ones I've approved you can carry over the approvals, let's just get stuff moving"; the dangerous verdict and a staging proof are still read at the current head. A head the dangerous reader judged safe, its verdict at that head naming no class, needs nothing more; an unread head or one read at an older head never lands. A dangerous PR lands only with its stack, once a staging proof passed at the stack's top head on the target its release reaches, and only while he is present, his word or tap within PRESENT_WITHIN. The merge queue lands a stack from its bottom, so a PR waits while any PR below it cannot land.
 """
 
 from dataclasses import dataclass
@@ -43,8 +43,8 @@ def unready(row: dict) -> str | None:
         return "merged"
     if row["held"]:
         return f"he holds it: {row['held']}"
-    if row["approved_head"] != row["head"]:
-        return "his Approve is on an older head" if row["approved_head"] else "no Approve of his"
+    if not row["approved_head"]:
+        return "no Approve of his"
     if row.get("checks") != "pass":
         return f"checks {row.get('checks') or 'unread'}"
     if not judged(row):

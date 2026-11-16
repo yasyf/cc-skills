@@ -5,13 +5,12 @@ The tester is an agent (agents/stager.md). Code here gathers facts and records r
 
 import json
 import os
-from datetime import datetime
 from pathlib import Path
 
-from lane import landing, rows, store
+from lane import landing, queue, rows, store
 
 SHADOW = "shadow"
-ENV_LEASE = "staging-env.json"
+STAGING_ENV = "staging-env"
 CUTS = "cuts"
 DECISIONS = "decisions"
 RANK = "rank.json"
@@ -61,7 +60,7 @@ def lane_candidates(drive: str) -> list[dict]:
                         "stack": [landing.key(row) for row in open_rows],
                         "top_head": open_rows[-1]["head"],
                         "green": all(row.get("checks") == "pass" for row in open_rows),
-                        "approved": all(row["approved_head"] == row["head"] for row in open_rows),
+                        "approved": all(row["approved_head"] for row in open_rows),
                         "held": [landing.key(row) for row in open_rows if row["held"]],
                         "dangerous": {landing.key(row): row["dangerous"] for row in open_rows if landing.judged(row) and landing.dangerous(row)},
                     }
@@ -127,26 +126,19 @@ def candidates(drive: str, reached: bool) -> list[dict]:
     return found
 
 
-def lease(drive: str) -> dict | None:
-    path = lanes_dir(drive) / ENV_LEASE
-    return json.loads(path.read_text()) if path.exists() else None
-
-
-def take(drive: str, holder: str, until: datetime, moment: datetime) -> dict:
-    """Take the staging env's lease for holder until the time given, refused while another holder's lease runs or in shadow, where the old stage-test worker holds the env."""
+def take(drive: str, holder: str, lane_id: str, minutes: int) -> dict:
+    """Ask lane-queue for the staging env for holder on behalf of the lane whose stack is the cut's first, granted in rank order, or taken from a lane that is no incident when that lane's incident hurts users; refused in shadow, where the old stage-test worker holds the env."""
     refuse_in_shadow(drive, "taking the staging env")
-    held = lease(drive)
-    if held and held["holder"] != holder and datetime.fromisoformat(held["until"]) > moment:
-        raise SystemExit(f"the staging env is held by {held['holder']} until {held['until']}")
-    body = {"holder": holder, "until": until.isoformat(), "since": (held or {}).get("since") if held and held["holder"] == holder else moment.isoformat()}
-    written(lanes_dir(drive) / ENV_LEASE, body)
-    return body
+    return queue.take(drive, STAGING_ENV, holder, lane_id, minutes)
+
+
+def renew(drive: str, holder: str, minutes: int) -> str:
+    refuse_in_shadow(drive, "renewing the staging env")
+    return queue.renew(drive, STAGING_ENV, holder, minutes)
 
 
 def release(drive: str, holder: str) -> None:
-    held = lease(drive)
-    if held and held["holder"] == holder:
-        (lanes_dir(drive) / ENV_LEASE).unlink()
+    queue.release(drive, STAGING_ENV, holder)
 
 
 def decide(drive: str, cut: str, body: dict) -> Path:

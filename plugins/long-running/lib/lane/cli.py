@@ -3,12 +3,12 @@ import fcntl
 import json
 import os
 import subprocess
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from lane import landing, rows, stager, store
+from lane import landing, releases, rows, stager, store
 
 LANDING = "landing"
 
@@ -62,7 +62,8 @@ def reserved(drive: str, keys: list[str]) -> Iterator[bool]:
 
 
 def land(args: argparse.Namespace) -> None:
-    """Read every lane PR's state by rows.view, write each unjudged head's verdict by rows.judge, then print what his Approve lands now in each lane, and in live mode queue each landing unit by merged() under its reservation."""
+    """Write each waited release's result file by releases.write, read every lane PR's state by rows.view, write each unjudged head's verdict by rows.judge, then print what his Approve lands now in each lane, and in live mode queue each landing unit by merged() under its reservation."""
+    releases.write(args.drive)
     read = rows.view(args.drive)
     rows.judge(args.drive, read)
     moment = store.now()
@@ -86,8 +87,11 @@ def candidates(args: argparse.Namespace) -> None:
 
 
 def take(args: argparse.Namespace) -> None:
-    moment = datetime.now().astimezone()
-    print(json.dumps(stager.take(args.drive, args.holder, moment + timedelta(minutes=args.minutes), moment)))
+    print(json.dumps(stager.take(args.drive, args.holder, args.lane, args.minutes)))
+
+
+def renew(args: argparse.Namespace) -> None:
+    print(stager.renew(args.drive, args.holder, args.minutes))
 
 
 def release(args: argparse.Namespace) -> None:
@@ -113,11 +117,16 @@ def main() -> int:
     verb.add_argument("--reach", action="store_true", help="add changed files and release select's reach for the first few")
     verb.add_argument("--limit", type=int, default=30)
     verb.set_defaults(run=candidates)
-    verb = verbs.add_parser("take", help="take the staging env's lease")
+    verb = verbs.add_parser("take", help="ask lane-queue for the staging env, for the lane of the cut's first stack")
+    verb.add_argument("--lane", required=True)
     verb.add_argument("--holder", required=True)
     verb.add_argument("--minutes", type=int, required=True)
     verb.set_defaults(run=take)
-    verb = verbs.add_parser("release", help="give the staging env's lease back")
+    verb = verbs.add_parser("renew", help="extend the staging env's grant")
+    verb.add_argument("--holder", required=True)
+    verb.add_argument("--minutes", type=int, required=True)
+    verb.set_defaults(run=renew)
+    verb = verbs.add_parser("release", help="give the staging env back")
     verb.add_argument("--holder", required=True)
     verb.set_defaults(run=release)
     verb = verbs.add_parser("decide", help="keep the batch the tester chose, from a JSON file")

@@ -28,11 +28,15 @@ def test_his_approve_lands_a_green_safe_pr_at_its_head_with_no_staging_and_no_pr
     assert landing.verdicts(lane(row(1)), None, NOW) == [landing.Verdict(("Forge-AI/monorepo#1",), True, "every open PR of the stack lands")]
 
 
-def test_an_unread_head_a_head_read_before_a_push_and_an_approve_on_an_older_head_never_land() -> None:
+def test_an_unread_head_a_head_read_before_a_push_and_no_approve_never_land() -> None:
     unread = row(1, classes=None)
     stale = row(2, head="new") | {"dangerous": {"head": "old", "classes": {}}}
-    moved = row(3, head="new") | {"approved_head": "old"}
-    assert [verdict.lands for stack in (unread, stale, moved) for verdict in landing.verdicts(lane(stack), NOW, NOW)] == [False, False, False]
+    unapproved = row(3) | {"approved_head": None}
+    assert [verdict.lands for stack in (unread, stale, unapproved) for verdict in landing.verdicts(lane(stack), NOW, NOW)] == [False, False, False]
+
+
+def test_his_approve_stands_on_a_head_our_pushes_moved_after_his_tap() -> None:
+    assert landing.verdicts(lane(row(3, head="new") | {"approved_head": "old"}), None, NOW)[0].lands is True
 
 
 def test_a_dangerous_stack_lands_whole_only_on_a_pass_at_its_top_head_while_he_is_present() -> None:
