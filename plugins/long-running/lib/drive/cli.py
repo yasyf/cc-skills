@@ -1865,17 +1865,22 @@ def started_release(name: str, job_id: str, command: str) -> list[str]:
 def job_release(args: argparse.Namespace) -> int:
     """Start the release a job's --release names, in the process drive job add starts for it, by release_start, once more RELEASE_RETRY_SECONDS on when the first start failed on a GitHub 5xx, by GITHUB_5XX; `ci release` names the build it started, by release_answer, which the job keeps as its release_build in a save holding nothing else, so a later step that fails leaves it kept, before the designs it carries and each failed job it replaces end and its brief is written, and then kicks off the prebuild of a staging or sandbox start's commit, by prebuild; a start naming none leaves the job with no build, its wait on the release start it adopted ending on what it said, which the watch's FREE line names, so the watch never ends that wait first and loses why, and tells the coordinator and the session holding its order at once, by release_start_failed."""
     name = state.resolve(args.drive)
-    state.adopt_reserved(name, ("jobs", args.id, "release_start"), args.reserved)
-    command = state.load(name)["jobs"][args.id]["brief_flags"]["release"]
+    member = ("jobs", args.id, "release_start")
+    state.adopt_reserved(name, member, args.reserved)
+    if args.reserved is None and (running := state.write(name, lambda data: release_starter(data, member))):
+        raise DriveError(f"{args.id}: refused, nothing started: process {running} runs its release start now, and its lines are in the drive's {RELEASES_LOG} or {watch.RELAUNCHES_LOG}")
+    job = state.load(name)["jobs"][args.id]
+    command = job["brief_flags"]["release"]
+    session = args.session or job["session"]
     [words] = simple_commands(command)
     manual = "manual" in providers.of(state.load(name)).release.start(words)
-    kept = args.checkout or state.load(name)["jobs"][args.id].get("release_checkout")
+    kept = args.checkout or job.get("release_checkout")
     cwd = release_checkout(name, command, Path(kept)) if kept else None
-    answer, failure = release_start(name, words, manual, args.session, cwd)
+    answer, failure = release_once(name, args.id, command, words, manual, session, cwd)
     if failure and GITHUB_5XX.search(failure):
         print(f"{args.id}: its release did not start, failing on GitHub: {failure}; starting it once more in {RELEASE_RETRY_SECONDS} s", file=sys.stderr, flush=True)
         time.sleep(RELEASE_RETRY_SECONDS)
-        answer, failure = release_start(name, words, manual, args.session, cwd)
+        answer, failure = release_once(name, args.id, command, words, manual, session, cwd)
     if failure:
         why = f"its release did not start: {failure}"
         def job_release_write3(data: dict):
@@ -1901,6 +1906,22 @@ def job_release(args: argparse.Namespace) -> int:
     kicked = prebuild(name, args.id, command, answer.get("commit"))
     print("\n".join([*replaced, f"{args.id} started `{command}` as {build} and left it running: its agent follows it with `{answer['follow']}` and reads its approve hold", *kicked, line]))
     return 0
+
+
+def release_once(name: str, job_id: str, command: str, words: list[str], manual: bool, session: str | None, cwd: Path | None) -> tuple[dict, str | None]:
+    """Start a job's release by release_start unless release_running reads the same release running, a first try that failed after its start named a build included: what release_start gives, else no answer and the refusal as its failure."""
+    if running := release_running(name, command, job_id):
+        return {}, f"refused, nothing started: {running}"
+    return release_start(name, words, manual, session, cwd)
+
+
+def release_starter(data: dict, member: tuple[str, ...]) -> int | None:
+    """The pid of another live process holding a job's release start, a drive job release run with no --reserved, as a slot hand or the watch starts one, holding it itself, by state.reserve, for as long as it runs, so a second run of that job, by hand or by a later hand, starts nothing beside it; None once this process holds it."""
+    if (pid := state.holder(state.record_at(data, member).get(member[-1]))) not in (None, os.getpid()):
+        return pid
+    if pid is None:
+        state.reserve(data, (member,))
+    return None
 
 
 def release_checkout(name: str, command: str, checkout: Path) -> Path:
@@ -1975,18 +1996,18 @@ def prebuild(name: str, job_id: str, command: str, commit: str | None) -> list[s
     return [f"{job_id} kicked off {url}, which builds every image and app a release at {commit} adopts, so the production start at {commit} reuses them"]
 
 
-def release_running(name: str, command: str) -> str | None:
-    """Why a release may not start while a start of the same release runs, the same by shipped_release past the --order approving it: a job of the drive holding it unfinished with no build, its start still running or never having named one, or one whose build the build provider reads as unfinished, an approve hold included, read in one call of its builds(), so a call that failed once its release started never starts it twice."""
+def release_running(name: str, command: str, starting: str | None = None) -> str | None:
+    """Why a release may not start while a start of the same release runs, the same by shipped_release past the --order approving it: a job of the drive holding it unfinished with no build, its start still running or never having named one, starting, the job whose start this is, aside, or one whose build the build provider reads as unfinished, an approve hold included, read in one call of its builds(), so a call that failed once its release started never starts it twice; else, by running_elsewhere, a start the release tool still runs of a target it ships, to a place it names, at its commit, whoever started it."""
     data = state.load(name)
     ships = shipped_release(command, data)
     same = {job_id: job for job_id, job in data["jobs"].items() if state.starts_cut(job) and shipped_release(job["brief_flags"]["release"], data) == ships}
-    if unbuilt := next((job_id for job_id, job in same.items() if not job["release_build"] and job["state"] not in state.FINISHED_JOB_STATES), None):
+    if unbuilt := next((job_id for job_id, job in same.items() if job_id != starting and not job["release_build"] and job["state"] not in state.FINISHED_JOB_STATES), None):
         return (
             f"{unbuilt} holds the same release and has kept no build: its start's lines are in {state.drive_dir(name) / RELEASES_LOG}, the watch's FREE line on {unbuilt} names its brief once that start ends,"
             f" and drive job set {unbuilt} --state stopped ends a job whose release did not start"
         )
     if not (builds := {job["release_build"]: job_id for job_id, job in same.items() if job["release_build"]}):
-        return None
+        return running_elsewhere(data, ships)
     try:
         read = watch.read_builds(Path(data["roles"]["coordinator"]["cwd"]), state.drive_checkout(name, data["roles"]["coordinator"]["cwd"]), list(builds))
     except (DriveError, reads.ReadError, json.JSONDecodeError) as error:
@@ -1994,7 +2015,21 @@ def release_running(name: str, command: str) -> str | None:
     return next(
         (f"{builds[link]} started the same release as {link}, which Buildkite reads {found['state']}: its job follows it, and this one starts once it ends" for link, found in read.items() if found and found["state"] not in watch.FOLLOW_ENDS),
         None,
-    )
+    ) or running_elsewhere(data, ships)
+
+
+def running_elsewhere(data: dict, ships: list[dict[str, tuple[str, ...]]]) -> str | None:
+    """Why a release start may not start while the release tool runs one shipping a target it ships, to a place it names, at the commit it ships, by the release provider's running(), whoever started that one, a start naming no place or no target's row naming one sharing every place; a start naming no commit matches none."""
+    try:
+        rows = providers.of(data).release.running()
+    except (DriveError, reads.ReadError, json.JSONDecodeError) as error:
+        return f"the release provider did not say which releases run now: {error}; send it again once it answers"
+    for flags in ships:
+        for row in rows:
+            shared = row["target"] in flags.get("targets", ()) and (row["env"] is None or not flags.get("env") or row["env"] in flags["env"])
+            if shared and any(row["commit"].startswith(commit) or commit.startswith(row["commit"]) for commit in flags.get("from", ())):
+                return f"{row['build']} already ships {row['target']} to {row['env'] or 'every place it reaches'} at {row['commit'][:12]} and still runs: follow that one, and start this once it ends"
+    return None
 
 
 def shipped_release(command: str, data: dict) -> list[dict[str, tuple[str, ...]]]:

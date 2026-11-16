@@ -19,7 +19,7 @@ import quiet_turn
 import role_rules
 import scratch_folder
 import session_start
-from conftest import QUEUE_REASON, EnvsRelease, HomeRepo, provide, ACME_CUT, ANSWERED_CUT, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess, own_time, unreserved, edit
+from conftest import QUEUE_REASON, EnvsRelease, HomeRelease, HomeRepo, provide, ACME_CUT, ANSWERED_CUT, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess, own_time, unreserved, edit
 from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, slack, state, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -1425,6 +1425,43 @@ def test_730933_a_release_start_failing_on_a_github_5xx_starts_once_more_30_seco
     [post] = release_posts
     assert (posted_to(post), post[-1]) == (["root@demo"], f"RELEASE j2 o1: `{J2666_START}` did not start: {GITHUB_500}; j2 did not start, and drive job release j2 starts it again")
     assert state.load(demo)["jobs"]["j2"]["release_build"] is None
+
+
+SANDBOX_START = "tools/ci release start sandsql --env plat-usw2-sandbox --commit e3fde34affa3 --emergency"
+MISTY_KO = "https://buildkite.com/forge/release/builds/18159"
+
+
+class RunningRelease(HomeRelease):
+    def running(self) -> list[dict]:
+        return [{"target": "sandsql", "env": "plat-usw2-sandbox", "commit": "e3fde34affa3138422ed34c77860be9a567c7c72", "build": MISTY_KO}]
+
+
+def test_735104_a_jobs_release_starts_once_whoever_runs_it_carrying_the_session_that_added_the_job_and_never_beside_a_release_the_tool_runs(
+    demo: str, run: Run, no_calls: list[list[str]], release_posts: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "rehearse on sandbox")
+    run("job", "add", "builder", "--order", "o1", "--goal", "hold sandbox for the rehearsal")
+    started = released(demo, f"""printf "%s\\n" "$CLAUDE_CODE_SESSION_ID" >> "$(dirname "$0")/../sessions"\necho '{STARTED}'""")
+    adder = state.load(demo)["jobs"]["j1"]["session"]
+
+    def flagged(data: dict) -> None:
+        data["jobs"]["j1"]["brief_flags"] = {"release": SANDBOX_START}
+        data["jobs"]["j1"]["release_start"] = {"token": "0" * 32, "members": [["jobs", "j1", "release_start"]], "starter": state.born(os.getppid()), "child": state.born(os.getppid()), "state": "adopted"}
+
+    state.write(demo, flagged)
+    assert cli.main(["job", "release", "j1"]) == 2
+    assert capsys.readouterr().err.strip() == f"drive: j1: refused, nothing started: process {os.getppid()} runs its release start now, and its lines are in the drive's {cli.RELEASES_LOG} or {watch.RELAUNCHES_LOG}"
+    assert not started.exists()
+    provide(monkeypatch, started.parent, release=RunningRelease)
+    state.write(demo, lambda data: data["jobs"]["j1"].pop("release_start"))
+    assert cli.main(["job", "release", "j1"]) == 2
+    refusal = f"refused, nothing started: {MISTY_KO} already ships sandsql to plat-usw2-sandbox at e3fde34affa3 and still runs: follow that one, and start this once it ends"
+    assert capsys.readouterr().err.strip().splitlines()[-1] == f"drive: j1: its release did not start: {refusal}"
+    assert (started.exists(), state.load(demo)["jobs"]["j1"]["release_build"], len(release_posts)) == (False, None, 1)
+    provide(monkeypatch, started.parent)
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
+    assert cli.main(["job", "release", "j1"]) == 0
+    assert ((started.parent / "sessions").read_text().splitlines(), state.load(demo)["jobs"]["j1"]["release_build"]) == ([adder], BUILD)
 
 
 def test_a_release_starts_from_the_drives_checkout_at_its_default_branchs_head_never_the_coordinators_own_tree(

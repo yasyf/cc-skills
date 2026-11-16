@@ -160,6 +160,10 @@ class ReleaseProvider(Provider):
         """Each cluster of every service and the commit it serves, one row each with its `target`, `env`, `cluster` and `commit`."""
         return []
 
+    def running(self) -> list[dict]:
+        """Each release start the release tool still runs, whoever started it, one row per target it ships and place it names, with its `target`, `env`, None when it names no place and so ships every place its target reaches, its full `commit` and its `build` link; empty when the repository knows of none."""
+        return []
+
     def place(self, env: str) -> Place:
         return Place(None, True, ())
 
