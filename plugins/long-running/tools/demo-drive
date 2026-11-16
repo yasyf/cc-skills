@@ -41,6 +41,7 @@ data["orders"]["o2"] = tests = state.new_order("demo staging tests", "owner", No
 testers = {"t1": ("staging test of #1 before it lands", ["staging:demo/demo-staging@abc1234"]), "t2": ("staging test of #2 before it lands", [])}
 for job_id, (part, waits) in testers.items():
     data["jobs"][job_id] = state.new_job("o2", "builder", "demo staging test", [part], state.stamp()) | {"waits": waits, "brief": str(clone / f"{job_id}.md"), "work_reads": {"paths": [], "stacks": []}}
+    Path(data["jobs"][job_id]["brief"]).write_text("Demo staging test\n")
     tests["jobs"].append(job_id)
 for number, job_id in ((1, "t1"), (2, "t2")):
     url = f"https://github.com/demo/repo/pull/{number}"
