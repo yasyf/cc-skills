@@ -190,8 +190,8 @@ def compose(name: str, page: dict, told: dict, before: dict | None) -> dict:
 
 
 def digest(page: dict, told: dict) -> str:
-    """What a layout is composed from: the page's goal and the set of PRs, decisions and orders its slice holds, so a state change redraws live without composing again, and new work in scope composes anew."""
-    keys = {field: sorted(each["key"] for each in told[field]) for field in ("prs", "questions", "orders")}
+    """What a layout's glance turns on: the page's goal, its decisions, the PRs waiting on him and its orders, so a PR that needs nothing from him joining the slice, or any state change, redraws live without composing again, and a new decision, a PR newly waiting on him or a new order composes anew."""
+    keys = {"questions": sorted(each["key"] for each in told["questions"]), "prs": sorted(each["key"] for each in told["prs"] if each["waits_on_him"]), "orders": sorted(each["key"] for each in told["orders"])}
     return hashlib.sha256(json.dumps({"goal": page["goal"], "version": COMPOSE_VERSION, **keys}, sort_keys=True).encode()).hexdigest()[:32]
 
 

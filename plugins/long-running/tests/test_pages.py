@@ -574,7 +574,7 @@ def test_an_order_marked_priority_gets_its_applet_page(run: Run, ordered: str, m
 def test_a_composed_layout_keeps_only_the_keys_its_slice_holds_and_composes_again_only_when_its_work_changes(monkeypatch: pytest.MonkeyPatch, state_root: Path) -> None:
     from drive import applet, served
 
-    told = {"orders": [{"key": "o1"}], "prs": [{"key": "a/b#1"}], "questions": [{"key": "https://x.slack.com/archives/D1/p1"}], "moments": []}
+    told = {"orders": [{"key": "o1"}], "prs": [{"key": "a/b#1", "waits_on_him": True}], "questions": [{"key": "https://x.slack.com/archives/D1/p1"}], "moments": []}
     block = applet.SCHEMA["properties"]["blocks"]["items"]["required"]
     drawn = {field: [] for field in block} | {"kind": "approve", "title": "Land it", "text": "", "tone": "plain", "before": "", "after": "", "diagram": "", "prs": ["a/b#1", "a/b#9"], "orders": ["o1", "o7"], "steps": [{"label": "Ship", "orders": ["o1", "o8"]}]}
     monkeypatch.setattr(served, "structured", lambda *args: {"headline": "h", "summary": "s", "blocks": [drawn]})
@@ -582,7 +582,8 @@ def test_a_composed_layout_keeps_only_the_keys_its_slice_holds_and_composes_agai
     assert (composed["prs"], composed["orders"], composed["steps"]) == (["a/b#1"], ["o1"], [{"label": "Ship", "orders": ["o1"]}])
     page = {"goal": "ship it"}
     assert applet.digest(page, told) == applet.digest(page, told | {"moments": [{"at": "now"}]})
-    assert applet.digest(page, told) != applet.digest(page, told | {"prs": [{"key": "a/b#2"}]})
+    assert applet.digest(page, told) == applet.digest(page, told | {"prs": [*told["prs"], {"key": "a/b#2", "waits_on_him": False}]})
+    assert applet.digest(page, told) != applet.digest(page, told | {"prs": [*told["prs"], {"key": "a/b#2", "waits_on_him": True}]})
 
 
 def test_a_page_reaches_him_once_when_first_composed_and_again_only_when_its_compose_says_something_changed_for_him(ordered: str) -> None:

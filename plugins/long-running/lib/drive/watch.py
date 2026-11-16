@@ -2917,7 +2917,7 @@ def take_deliveries(watcher: Watcher) -> list[str] | None:
 
 
 def applet_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Send him each applet page made or changed for him since he was last sent it, by applet.unannounced, by his words "a link to one has never been sent to me": one line through milestone in the channel of the page's first order, its seat's by state.channel_seat_of, else his DM, the page's title linked on its words, where it stands and what changed for him, leaving its next step to the page, whose glance leads with it, so a step naming a release never meets say's release check without his hold, once per material change and never per recompose; a post that fails is tried again next pass."""
+    """Send him each applet page made or changed for him since he was last sent it, by applet.unannounced, by his words "a link to one has never been sent to me": one line through milestone in the channel of the page's first order, its seat's by state.channel_seat_of, else his DM, the page's title linked on its words, where it stands and what changed for him, leaving its next step to the page, whose glance leads with it, so a step naming a release never meets say's release check without his hold, once per material change; its facts record is keyed by the page's layout, so a post retried after a refusal reuses the one record rather than reporting the page again each pass and never per recompose; a post that fails is tried again next pass."""
     from drive import applet
 
     if watcher.project is not None:
@@ -2934,7 +2934,8 @@ def applet_lines(watcher: Watcher, moment: datetime) -> list[str]:
         record = {
             "kind": "report",
             "attr": {"order": order_id} | ({"channel": made["id"]} if made else {}),
-            "topic": f"page-{page_shown['slug']}-{laid}",
+            "topic": f"page-{page_shown['slug']}",
+            "id": f"page-{page_shown['slug']}-{laid}",
             "text": f"the page {page_shown['slug']} is new or changed for him",
             "body": json.dumps({"page": page_shown["slug"], "glance": glance, "changed_for_him": layout["changed_for_him"]}, indent=1) + "\n",
         }
