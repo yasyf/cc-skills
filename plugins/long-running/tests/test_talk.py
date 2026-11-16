@@ -2072,3 +2072,17 @@ def test_a_start_time_drawn_right_after_a_typed_clock_time_is_dropped_so_the_pos
     found = {"{started:j1}": {"kind": "started", "title": f"3:20 AM {refs.JOB_START}", "url": None, "board": None}}
     assert refs.slack("The Mac testing started at 3:23 AM ({started:j1})", found, None) == "The Mac testing started at 3:23 AM"
     assert refs.slack("Started at 3:23 AM {started:j1}; done by 4:00 AM", found, None) == "Started at 3:23 AM; done by 4:00 AM"
+
+
+def test_post_deduplication_and_watch_delivery_clocks_own_separate_files(demo: str) -> None:
+    moment = datetime(2026, 11, 16, 20, tzinfo=UTC)
+    post = {"channel_id": "D123", "thread_ts": "1794851267.832189", "text": "The update is installed"}
+    line = "JOB j1 o1 DONE installed"
+    talk.remember_said(demo, post, CARD_URL)
+    watch.keep_said(demo, "root", [line], moment)
+    watch.keep_posted(demo, "root", moment)
+    assert talk.said_before(demo, post) == CARD_URL
+    assert watch.unsaid(demo, "root", [line], moment) == []
+    talk.remember_said(demo, post | {"text": "The next update is installed"}, PR_URL)
+    assert watch.unsaid(demo, "root", [line], moment + watch.SAID_FOR) == [line]
+    assert talk.said_before(demo, post) == CARD_URL

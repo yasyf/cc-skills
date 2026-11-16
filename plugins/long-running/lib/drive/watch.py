@@ -75,7 +75,7 @@ NOT_LANDED = "not landed"
 LANDER = "LANDER "
 FAILED_LINE = re.compile(r"WATCH .+ failed \d+ times in a row: ")
 QUIET_LINES = ("CARD ", "WAITING-ON-HIM ", "STANDING ", "WATCH compacted", "WATCH status page")
-SAID_FILE = "said.json"
+SAID_FILE = "watch-said.json"
 SAID_FOR = timedelta(hours=24)
 EVERY_TIME = ("DOWN ",)
 STALE_FOR = timedelta(hours=1)
