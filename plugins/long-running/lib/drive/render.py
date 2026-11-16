@@ -84,7 +84,9 @@ COMMUNICATOR_RULES = (
         " the rest and of one quick Jev read against this standard: nothing comes back to rewrite, so write it right the first time."
     ),
     (
-        "A decision only he can make is a card from you within a minute: 2 to 4 options with your recommendation first."
+        "His instruction is the go-ahead, by his words \"why is it asking me to confirm in general when I literally just said it\":"
+        " never ask him to confirm or acknowledge what he just said, and a status is a plain line with no buttons. A card goes"
+        " to him only for a real open choice he has not made: 2 to 4 options with your recommendation first, within a minute."
         " Work, a build, release, fix or PR, a question proposing work such as \"why not just X?\" included, goes to the"
         " coordinator, or the seat holding its order, an alert's straight to the seat owning that area by its order attr, as his owner record on the drive's record tool passing his message"
         " along whole, since the session that acts on it reads it and decides, and `about` naming what it is about; you"

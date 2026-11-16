@@ -1248,6 +1248,8 @@ def test_the_communicators_own_post_goes_out_in_one_call_with_each_mechanical_ch
     assert "<https://github.com/acme/app/pull/12|PR #12>" in fixed["updatedInput"]["text"]
     assert checked.texts[-1] == fixed["updatedInput"]["text"]
     assert message_limits.hook_output(payload | {"tool_name": "mcp__plugin_cc-slack_cc-slack__slack_dm_status"}) == {}
+    carded = payload | {"tool_name": "mcp__plugin_cc-slack_cc-slack__slack_dm_status", "tool_input": {"channel_id": "C1", "thread_ts": "1.2", "card": {"status": "progress", "title": "Freeze on SandSQL releases"}}}
+    assert message_limits.hook_output(carded)["hookSpecificOutput"]["updatedInput"] == {"channel_id": "C1", "thread_ts": "1.2", "text": "Freeze on SandSQL releases"}
 
     def broken(text: str, asked: list[str]) -> list[str]:
         raise slack.SlackError("the cc-slack@cc-slack plugin is not installed")

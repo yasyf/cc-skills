@@ -1155,10 +1155,22 @@ def findings_in(drive: dict, payload: dict, tool_input: dict) -> tuple[str, list
     return typed, refs.answer_ids(slack.post_findings(typed, bool(tool_input.get("card") or tool_input.get("tap_prs")), tool_input.get("asked") or ""), drive)
 
 
+STATUS_WORDS = ("title", "summary", "body", "text", "detail")
+
+
+def plain_status(tool_input: dict) -> dict:
+    """A communicator's status line as plain text, never a status card, whose Ack and Pause buttons ask him to confirm what he just said, by his words "ack and pause makes no sense here, and why is it asking me to confirm in general when I literally just said it": a status card's words become the line's text; a line with no card goes as it is."""
+    if not isinstance(card := tool_input.get("card"), dict) or {"options", "question", "waits", "actions"} & card.keys():
+        return {}
+    words = " · ".join(str(card[key]).strip() for key in STATUS_WORDS if isinstance(card.get(key), str) and card[key].strip())
+    plain = {key: value for key, value in tool_input.items() if key != "card"} | {"text": tool_input.get("text") or words or "Working on it"}
+    return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": plain, "additionalContext": "message_limits: a status goes as a plain line, never a card with buttons; it went as text."}}
+
+
 def mechanical(payload: dict) -> dict:
     """What the say hook prints for the communicator's own post on say, slack_edit, slack_reply and slack_send, by his words "it needs to be just as fast and fluid asking me things and making the right judgement calls as you would", so nothing holds his answer: a placeholder text refuses; each `cc-slack check-post` finding whose fix is mechanical, a UTC stamp, a zone label, a bare link or a paragraph over three sentences, is made in the post's text, by fixes.mended, and the fixed post goes out in the same call, every other finding going with it as a warning, so no post is refused and written again; one quick Jev read against his standard, by crafted, only warns. slack_dm_status, a status line, gets no check; a check that cannot run lets the post out with a warning."""
     if payload["tool_name"].endswith("slack_dm_status"):
-        return {}
+        return plain_status(payload["tool_input"])
     tool_input = payload["tool_input"]
     text = (tool_input.get("text") or "").strip()
     if PLACEHOLDER.fullmatch(text):
