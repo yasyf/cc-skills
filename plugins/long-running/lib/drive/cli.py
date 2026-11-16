@@ -3316,11 +3316,11 @@ def other_sessions_agent(data: dict, job: dict) -> str | None:
 
 
 def starters_lane(data: dict, job_id: str, job: dict, resume: bool) -> str | None:
-    """The cci lane of the session of the drive that started the Agent running the job, when its agent still takes messages, since only that session's SendMessage reaches it, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once": another session's, and this session's own for a resume, with a text or with none, while place.woken leaves the agent a turn; None for any other job."""
+    """The cci lane of the session of the drive that started the Agent running the job, when its agent still takes messages, since only that session's SendMessage reaches it, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once": another session's, and this session's own for a resume, with a text or with none, while place.woken leaves the agent a turn, the gate the SendMessage hook reads, so a resume whose agent has no turn takes relaunch's route to a lane, whichever session started it; None for any other job."""
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     if not (session and job["where"] == "local" and job["agent"]):
         return None
-    if job["session"] == session and (not resume or place.woken(data, job_id, state.now())):
+    if job["session"] == session and not resume or resume and place.woken(data, job_id, state.now()):
         return None
     lane = state.session_lane(data, job["session"])
     return lane if lane and not watch.agent_death(job, data) else None

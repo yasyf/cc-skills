@@ -1515,11 +1515,35 @@ def test_the_watch_posts_a_staging_case_to_the_running_tester_its_session_starte
     posted = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend((lane, post) for post in posts) or ["720380"])
     assert watch.case_lines(watch.Watcher(demo, offset=state.events_end(demo)), T0) == []
-    pointer = 'j1: SendMessage a4e953525ff2a4e17 "Read cci record 720380 whole and act on it"'
+    pointer = 'j1: owed, send it now: SendMessage a4e953525ff2a4e17 "Read cci record 720380 whole and act on it"'
     assert [(lane, post["to"], post["text"]) for lane, post in posted] == [("j1", [f"peer:{top}/a4e953525ff2a4e17"], case), ("j1", [f"root@{demo}"], pointer)]
     assert [kept["request"] for kept in state.load(demo)["jobs"]["j1"]["undelivered"]] == ["req-other"]
     assert watch.case_lines(watch.Watcher(demo, offset=state.events_end(demo)), T0) == []
     assert len(posted) == 2
+
+
+def test_a_tester_whose_turn_ended_while_this_macs_builder_slots_are_full_keeps_its_staging_case_and_its_resume_names_no_sendmessage_the_hook_refuses(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    case = state.STAGING_CASE.format(key="Forge-AI/monorepo#42", goal="a run that resumes after the runner restarts")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test it on staging")
+    run("job", "add", "builder", "--order", "o1", "--goal", "test #42 on staging")
+    held = {"seq": None, "words": case, "at": state.stamp(T0), "said": None, "request": "req-case", "sender": None}
+    with state.edit(demo) as data:
+        top = data["roles"]["coordinator"]["session"]
+        data["jobs"]["j1"].update(agent="a4e953525ff2a4e17", session=top, where="local", state="waiting", waits=["staging:api/plat-usw2-staging@abc"], undelivered=[held])
+    loaded = "its turn ended and this Mac's 1-minute load is 70, over its 32 cores times 1.5"
+    monkeypatch.setattr(place, "woken", lambda data, job_id, moment: loaded)
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: pytest.fail("a tester with no turn gets no post the SendMessage hook refuses"))
+    assert watch.case_lines(watch.Watcher(demo, offset=state.events_end(demo)), T0) == []
+    assert [kept["request"] for kept in state.load(demo)["jobs"]["j1"]["undelivered"]] == ["req-case"]
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-session")
+    data = state.load(demo)
+    assert cli.starters_lane(data, "j1", data["jobs"]["j1"], True) is None
+    assert cli.starters_lane(data, "j1", data["jobs"]["j1"], False) == "root"
+    monkeypatch.setattr(place, "woken", lambda data, job_id, moment: None)
+    assert cli.starters_lane(data, "j1", data["jobs"]["j1"], True) == "root"
 
 
 STOPPED_TEXT ="API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup). This sometimes happens with safe, normal conversations."

@@ -3121,7 +3121,7 @@ def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def case_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Post each staging case a tester holds, by state.stage_pr, to its agent on this Mac that the session holding it started, at once and whole, as drive job resume posts a held text to such an agent, by cli.starter_post: a handoff record to the agent's cci address and the SendMessage pointing it there to that session's lane, so the tester adds the case to the test it runs rather than leaving it to its next worker; a Sprite tester's worker gets it from agent_lines, and a tester no agent of a session runs, or whose agent died, from its next worker. Says only a post that failed."""
+    """Post each staging case a tester holds, by state.stage_pr, to its agent on this Mac that the session holding it started, at once and whole, as drive job resume posts a held text to such an agent, by cli.starter_post: a handoff record to the agent's cci address and the SendMessage pointing it there to that session's lane, so the tester adds the case to the test it runs rather than leaving it to its next worker, while place.woken, the gate the SendMessage hook reads, leaves its agent a turn, the case staying held on the job until it does; a Sprite tester's worker gets it from agent_lines, and a tester no agent of a session runs, or whose agent died, from its next worker. Says only a post that failed."""
     from drive import cli
 
     opens = state.STAGING_CASE.partition("{key}")[0]
@@ -3134,6 +3134,7 @@ def case_lines(watcher: Watcher, moment: datetime) -> list[str]:
         and heard_job(watcher, data, job)
         and (lane := state.agent_lane(data, job))
         and not agent_death(job, data)
+        and not place.woken(data, job_id, moment)
         and not superseded.fresh_builder(data, job_id, job, "", "a staging case")
         for held in job["undelivered"]
         if held["words"].startswith(opens)
@@ -3147,7 +3148,7 @@ def case_lines(watcher: Watcher, moment: datetime) -> list[str]:
             lines += failed(watcher, f"case of {job_id}", f"staging case post to {job_id}", error, moment)
             continue
         watcher.failures.pop(f"case of {job_id}", None)
-        if line.startswith(f"{job_id}: SendMessage"):
+        if line.startswith(f"{job_id}: owed, send it now: SendMessage"):
             lines.append(f"CASE {line} [{job['order']} {job_id}]")
     return lines
 
