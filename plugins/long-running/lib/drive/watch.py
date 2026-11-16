@@ -2843,7 +2843,7 @@ def watched_report(watcher: Watcher, order_id: str, order: dict) -> str | None:
 
 
 def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Get each message of his answered that `cc-slack dm-owed` lists, in his DM and each operator channel, since no post answering it named it as asked, as an ack never does, while the session this drive's handlers run beside holds his DM, so the drive owes it: at once, `drive answer-now` detached on each no answer claimed yet, which answers it from the drive's rows in seconds; two minutes on, the watch hands it as a message of his to the live handler holding its thread each read until it starts one of its own on it, which it does once, and ten minutes on writes one report for the handler in its thread to say there what the answer waits on. Each handler starts detached, as the handler tool starts one, so a read owing many messages hands and reports each in seconds, never waiting on one `claude --bg` launch after another while the messages after it go stale. An open order the message started is left to that order's own lines. The drive keeps each message's marks while cc-slack owes it, so a watch restart hands nothing twice. A failed read or write is said as a failed read is and tried again next read; a launch that fails tells the session the handlers run beside, as the handler tool's does."""
+    """Get each message of his answered that `cc-slack dm-owed` lists, in his DM and each operator channel, since no post answering it named it as asked, as an ack never does, while the session this drive's handlers run beside holds his DM, so the drive owes it: at once, `drive route` detached on each no route or answer claimed yet, whose one Jev call sends it to the coordinator, a seat, a handler or the communicator's answer from the drive's rows; two minutes on, the watch hands it as a message of his to the live handler holding its thread each read until it starts one of its own on it, which it does once, and ten minutes on writes one report for the handler in its thread to say there what the answer waits on. Each handler starts detached, as the handler tool starts one, so a read owing many messages hands and reports each in seconds, never waiting on one `claude --bg` launch after another while the messages after it go stale. An open order the message started is left to that order's own lines. The drive keeps each message's marks while cc-slack owes it, so a watch restart hands nothing twice. A failed read or write is said as a failed read is and tried again next read; a launch that fails tells the session the handlers run beside, as the handler tool's does."""
     if watcher.project:
         return []
     data = state.load(watcher.name)
@@ -2860,8 +2860,8 @@ def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
         channel, ts, thread = state.slack_message(reply["permalink"])
         owed_for = moment - slack.sent_at(reply)
         mark = marks[ts]
-        if not answer.claim_path(watcher.name, ts).exists():
-            state.detach(watcher.name, ["answer-now", reply["permalink"], reply["text"]], "answers-run.log")
+        if ts not in data["routed"] and not answer.claim_path(watcher.name, ts).exists():
+            state.detach(watcher.name, ["route", owed_brief(watcher.name, reply, channel, thread)], "routes-run.log")
         if owed_for < OWED_HAND or state.started_order(data, channel, ts) in state.open_orders(data):
             continue
         source = f"owed {ts}"

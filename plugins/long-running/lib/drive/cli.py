@@ -18,7 +18,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import agents, artifacts, brief, children, codex, github, install, land, limits, orca, page_check, pages, picture, place, reads, receiver, refs, render, served, settled, slack, state, superseded, watch
+from drive import agents, artifacts, brief, children, codex, github, install, land, limits, orca, page_check, pages, picture, place, reads, receiver, refs, render, route, served, settled, slack, state, superseded, watch
 from drive.shell import simple_commands
 from drive.state import DriveError
 
@@ -5636,9 +5636,10 @@ def handler(args: argparse.Namespace) -> int:
             f" `{render.cut(extra, 44)}` is more: a rule in a brief overrides its agent definition, so drop the line"
         )
     if re.search(rf"^{re.escape(agents.HIS_WORDS)}:", args.brief, re.MULTILINE):
+        if agents.LINK.search(args.brief):
+            found = route.route(name, args.brief, args.answer, args.away)
+            return emit(args, routed_line(found) if "handler" not in found else f"{'handed to' if found['handed'] else 'started'} {found['handler']}", found)
         watch.hear(name, state.now(), args.away)
-        if (link := agents.LINK.search(args.brief)) and (answered := answer_from_rows(name, link[1], agents.his_words(args.brief)))["answered"]:
-            return emit(args, f"ANSWERED {answered['answered']}: the drive answered his message from its rows, so no handler started", answered)
     briefs = briefing(name, args.brief, args.answer) is not None
     owed = bool((named := agents.RECORD.search(args.brief)) and agents.posting(name, agents.shown(named[1])))
     handler_id, handed = agents.handle(name, args.brief, detached=True, answer=args.answer, briefs=briefs, owed=owed)
@@ -5647,14 +5648,16 @@ def handler(args: argparse.Namespace) -> int:
     return emit(args, f"started {handler_id}", {"handler": handler_id})
 
 
-def answer_from_rows(name: str, link: str, words: str) -> dict:
-    """The drive's own answer of his message from its rows, by answer.answer, or why it posted none, a refused post or failed Slack call included, so a handler takes the message."""
-    from drive import answer
+def route_message(args: argparse.Namespace) -> int:
+    found = route.route(state.resolve(args.drive), args.brief)
+    return emit(args, routed_line(found), found)
 
-    try:
-        return answer.answer(name, link, words)
-    except (DriveError, reads.ReadError, slack.SlackError) as error:
-        return {"answered": None, "why": str(error)}
+
+def routed_line(found: dict) -> str:
+    """Where the router sent his message: the route, why, what took it, and how long Jev and the whole route took, or that an earlier call routed it."""
+    took = found.get("answered") or found.get("recorded") or (found.get("handler") and f"{'handed to' if found['handed'] else 'started'} {found['handler']}")
+    line = f"ROUTED {found['route']}{' again' if found.get('again') else ''}: {found.get('why') or 'routed earlier'}" + (f"; {took}" if took else "") + (f"; {found['fell']}" if found.get("fell") else "")
+    return f"{line} (Jev {found['jev_ms']} ms, {found['ms']} ms in all)" if "ms" in found else line
 
 
 def answer_message(args: argparse.Namespace) -> int:
@@ -7509,6 +7512,17 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.set_defaults(run=handler)
+    verb = verbs.add_parser(
+        "route",
+        parents=both,
+        help=(
+            "route his message once: hear him, one tool-less Jev call over his words, his thread's rows and the open routes picks the coordinator,"
+            " a seat working an order, a handler or the communicator's answer from the rows, the drive records the route and why with its"
+            " timings in its routed rows and routes.log, and the route takes it; prints ROUTED <route>: <why>"
+        ),
+    )
+    verb.add_argument("brief", help="a handler brief carrying his words and the Link of his message")
+    verb.set_defaults(run=route_message)
     verb = verbs.add_parser(
         "answer-now",
         parents=both,
