@@ -1567,7 +1567,7 @@ def test_a_release_starts_on_order_naming_an_incidents_answer_or_one_jev_reads_a
     [asked] = jev.asked
     assert asked["state"] == {
         "action": f"start this release on {settled.PRODUCTION}, shipping only sand: `{start.format('5d0c4a1')}`",
-        "answer": {"asked": RELEASE_PICK["title"], "said": "Release now (Recommended)"},
+        "answer": {"asked": RELEASE_PICK["title"], "said": "Release now (Recommended)", "notes": "A session's reading, not his words: the fix ships on the next cut."},
     }
     assert asked["questions"] == {"orders.5d0c4a1": settled.ORDERS, "more": settled.SHIPS_MORE}
     assert brief.approval_refusal(start.format("9e1f2b3"), state.load("demo")) is None
@@ -1584,7 +1584,7 @@ def test_a_release_starts_on_order_naming_an_incidents_answer_or_one_jev_reads_a
     assert len(jev.asked) == 3
 
 
-def test_the_release_gate_reads_a_start_against_the_drive_release_notes_at_its_default_branch_head_never_refusing_and_parses_a_manual_starts_stack_and_commit(
+def test_the_release_gate_reads_a_start_against_the_drive_release_notes_in_its_range_at_its_default_branch_head_never_refusing_and_parses_a_manual_starts_stack_and_commit(
     demo: str, tmp_path: Path, jev: Jev, release_noted: list[dict], pr_reads: dict[str, dict]
 ) -> None:
     merge = cloned(tmp_path, "demo", {"catalog.rs": "the catalog change"})
@@ -1592,14 +1592,15 @@ def test_the_release_gate_reads_a_start_against_the_drive_release_notes_at_its_d
     data = state.load("demo")
     pr_reads[f"{github.checkout_repo(data['roles']['coordinator']['cwd'])}#55980"] = {"state": "MERGED", "mergeCommit": merge, "base_pr": None}
     release_noted.append(SANDSQL_NOTE)
-    start, hotfix = "tools/ci release start --targets sandsql --order 5d0c4a1", "tools/ci release hotfix 56001 --order 5d0c4a1"
-    assert brief.release_notes([start, hotfix], data) == []
+    start, hotfix, fix = (f"tools/ci release {release} --order 5d0c4a1" for release in ("start --targets sandsql", "hotfix 56001", "hotfix 55980"))
+    assert brief.release_notes([start, hotfix, fix], data) == []
     jev.speaks = {"3e6822d": 0.9}
-    [line] = brief.release_notes([start, hotfix], data)
+    [line] = brief.release_notes([start, hotfix, fix], data)
     assert line.startswith(
         f'Jev reads release note 3e6822d, "{SANDSQL_NOTE["title"]}", as speaking to `{start}` (at main\'s head {head[:12]}: holds #55980 ({merge[:12]}));'
-        f" `{hotfix}` (a hotfix cuts from the build live now, which git here cannot name). Nothing is refused"
+        f" `{fix}` (it hotfixes #55980). Nothing is refused"
     )
+    assert sorted(jev.asked[-1]["questions"]) == ["speaks.n1.s1", "speaks.n1.s3"]
     jev.answer = None
     assert brief.release_notes([start], data) == [
         f"the drive's release notes were not read against `{start}` (Jev gave no reading: no jev decision within 20s): read each note"
@@ -1749,6 +1750,58 @@ def test_while_he_holds_every_release_a_drive_runs_none_but_on_his_exception_rec
     recorded.listed = recorded.listed[1:]
     jev.picks("5d0c4a1")
     assert [brief.approval_refusal(start.format("5d0c4a1"), data), landing_guard.deny_reason(bash(HELD_VERBS[0]) | top)] == [None, None]
+
+
+PLAN_THREAD = "https://acme.slack.com/archives/D1/p{}?thread_ts=1794774184.502879&cid=D1"
+RELEASE_PLAN = {
+    "id": "42a0764" + "0" * 33,
+    "title": "Owner 2:32 PM Nov 15 (ruling, his release card's thread): how should the whole-platform release go out without hurting production?",
+    "body": (
+        "we need to get this out without fucking yo production so ideally we do 1) hotfx release with his fix only, 2) release with everything other than ssql, 3) ssql once we figure out how to not pause production"
+        '\nNotes: "his bug fix" is the run-secrets fix, #56539, which the 11:40 AM order linked.'
+    ),
+    "tags": ["scope:durable", "drive:demo", "ruling"],
+    "created_at": "2026-11-15T22:33:40Z",
+}
+HOTFIX_GO = {
+    "id": "9bce65a" + "0" * 33,
+    "title": "Nov 15 2:50 PM, his release card's thread: is the production hotfix of the run-secrets fix #56539 approved, and how do the second and third releases go?",
+    "body": "Approved that one. Work on the second release then, everything but ssql",
+    "tags": ["scope:durable", "drive:demo"],
+    "created_at": "2026-11-15T22:54:43Z",
+}
+ALL_THREE = {
+    "id": "304ffb2" + "0" * 33,
+    "title": "Nov 15 3:00 PM, his release card's thread: are the hotfix, the second release and the third release approved, and does anything in them wait on him?",
+    "body": "All 3 of these are approved given my constraints and top priority don't block on me for anything in them just get it done",
+    "tags": ["scope:durable", "drive:demo"],
+    "created_at": "2026-11-15T23:01:30Z",
+}
+
+
+def test_his_answer_pointing_at_releases_his_earlier_answers_in_its_thread_name_orders_each_while_a_dangerous_start_still_waits_for_him_once_he_is_quiet_15_minutes(
+    demo: str, recorded: Answers, jev: Jev
+) -> None:
+    with state.edit("demo") as data:
+        data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+        for answer, message in ((RELEASE_PLAN, "1794781948643349"), (HOTFIX_GO, "1794782083000100"), (ALL_THREE, "1794782490000100")):
+            data["answers"][answer["id"]] = {"words": settled.his(answer["body"]), "link": PLAN_THREAD.format(message), "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+        data["owner"]["heard"] = state.stamp(state.now() - timedelta(minutes=15))
+    recorded.listed = [RELEASE_HOLD, SSQL_EXCEPTION, RELEASE_PLAN, HOTFIX_GO, ALL_THREE]
+    recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
+    data = state.load("demo")
+    plan = {"asked": RELEASE_PLAN["title"], "said": settled.his(RELEASE_PLAN["body"]), "notes": '"his bug fix" is the run-secrets fix, #56539, which the 11:40 AM order linked.'}
+    releases = [f"tools/ci release {release} --order 304ffb2" for release in ("hotfix 56539", "start --without sandsql", "start sandsql")]
+    jev.picks("304ffb2")
+    assert [brief.approval_refusal(release, data) for release in releases] == [None] * 3
+    assert [asked["state"]["earlier"] for asked in jev.asked] == [{"9bce65a": {"asked": HOTFIX_GO["title"], "said": HOTFIX_GO["body"], "notes": ""}, "42a0764": plan}] * 3
+    assert [list(asked["state"]["earlier"]) for asked in jev.asked] == [["9bce65a", "42a0764"]] * 3
+    jev.picks("9bce65a")
+    assert brief.approval_refusal("tools/ci release hotfix 56539 --order 9bce65a", data) is None
+    assert jev.asked[-1]["state"]["earlier"] == {"42a0764": plan}
+    assert brief.away_refusal("start", releases[2], data, state.now()).startswith(
+        "refused: he last wrote or tapped 15 minutes ago, and while he is not present a production release starts or resumes only as an incident's hotfix"
+    )
 
 
 def test_a_cluster_job_build_is_no_release_cut_so_any_drive_session_opens_its_gate_on_his_answer_since_ordering_it_while_he_holds_every_release(

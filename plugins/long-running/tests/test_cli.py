@@ -2959,40 +2959,36 @@ def test_a_design_job_redraws_a_card_another_orders_job_asked_about_its_order_an
     )
 
 
-def test_j4258_an_ask_jev_reads_as_asking_again_what_n_open_cards_ask_takes_the_newest_card_and_folds_the_other_n_minus_1_into_it_each_closed_asked_again(
+def test_j4258_an_ask_jev_reads_as_asking_again_what_its_jobs_open_cards_ask_takes_the_newest_and_folds_the_other_while_another_jobs_card_it_asks_again_stays_that_jobs(
     run: Run, asking: str, tmp_path: Path, jev: Jev, monkeypatch: pytest.MonkeyPatch, slack_calls: list[tuple[str, ...]]
 ) -> None:
-    run("order", "add", "--title", "Other title", "--project", "The drive", "--workstream", "Drive tooling", "design the status page")
-    for order in ("o1", "o2", "o1"):
-        run("job", "add", "reader", "--order", order, "--goal", "research the run page")
+    for _ in range(2):
+        run("job", "add", "reader", "--order", "o1", "--goal", "research the run page")
     titles = ["Which layout should a finished run's files take?", "Where should a finished run's files go so its page opens?", "How are a finished run's files laid out for its page?"]
     cards = [f"https://acme.slack.com/archives/D123/p{1794300000000100 + n}" for n in (2, 3, 1)]
-    waits = ["demo:j1-1", "demo:j2-2", "demo:j3-3"]
+    waits = ["demo:j3-1", "demo:j3-2", "demo:j2-3"]
     with state.edit("demo") as data:
-        for job_id, title, card, wait in zip(("j1", "j2", "j3"), titles, cards, waits):
-            data["jobs"][job_id].update(waits=[wait], questions=[state.new_question(str(tmp_path / f"{job_id}.md"), title, state.stamp(), card=card) | {"waits": wait}])
-        data["jobs"]["j1"]["waits"] = [cards[0]]
+        for job_id, title, card, wait in zip(("j3", "j3", "j2"), titles, cards, waits):
+            data["jobs"][job_id]["questions"].append(state.new_question(str(tmp_path / f"{wait}.md"), title, state.stamp(), card=card) | {"waits": wait})
+            data["jobs"][job_id]["waits"].append(wait)
     jev.again = set(titles)
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
-    kept = state.drive_dir("demo") / "asks" / f"j4-{state.ask_hash(SHORT_ASK)}.md"
-    assert run("job", "ask", "j4", "-") == (
+    kept = state.drive_dir("demo") / "asks" / f"j3-{state.ask_hash(SHORT_ASK)}.md"
+    assert run("job", "ask", "j3", "-") == (
         0,
-        f"{kept}\nhis card {slack_card(1)} asks it under demo:j2-2;"
-        f" demo:j1-1: his card {cards[0]} now shows his words with no buttons, its question superseded;"
-        f" demo:j3-3: his card {cards[2]} now shows his words with no buttons, its question superseded",
+        f"{kept}\nhis card {slack_card(1)} asks it under demo:j3-2; demo:j3-1: his card {cards[0]} now shows his words with no buttons, its question superseded",
     )
     [request] = [request for request in jev.asked if "again1" in request["questions"]]
-    assert sorted(key for key in request["questions"] if key.startswith("again")) == ["again1", "again2", "again3"]
-    assert drawn_waits(slack_calls) == ["demo:j2-2"]
-    assert [argv for argv in slack_calls if argv[0] == "card-answer"] == [
-        ("card-answer", "--card", card, "--label", cli.ASKED_AGAIN, "--withdrawn", "--via", slack_card(1)) for card in (cards[0], cards[2])
-    ]
+    assert sorted(key for key in request["questions"] if key.startswith("again")) == ["again1", "again2"]
+    assert drawn_waits(slack_calls) == ["demo:j3-2"]
+    assert [argv for argv in slack_calls if argv[0] == "card-answer"] == [("card-answer", "--card", cards[0], "--label", cli.ASKED_AGAIN, "--withdrawn", "--via", slack_card(1))]
     data = state.load("demo")
-    assert [(job_id, question["waits"], question["card"], question["replaced"], question["closed"]) for job_id in ("j1", "j2", "j3", "j4") for question in data["jobs"][job_id]["questions"]] == [
-        *((job_id, "demo:j2-2", slack_card(1), str(kept), None) for job_id in ("j1", "j2", "j3")),
-        ("j4", "demo:j2-2", slack_card(1), None, None),
+    assert [(job_id, question["waits"], question["card"], question["replaced"]) for job_id in ("j2", "j3") for question in data["jobs"][job_id]["questions"]] == [
+        ("j2", "demo:j2-3", cards[2], None),
+        ("j3", "demo:j3-2", slack_card(1), str(kept)),
+        ("j3", "demo:j3-2", slack_card(1), None),
     ]
-    assert [data["jobs"][job_id]["waits"] for job_id in ("j1", "j2", "j3")] == [["demo:j2-2"]] * 3
+    assert data["jobs"]["j2"]["waits"] == ["demo:j2-3"]
 
 
 def test_j4050_a_replaces_line_naming_two_cards_redraws_the_first_shows_the_second_asked_again_linking_it_and_his_one_answer_ends_both(
@@ -4143,7 +4139,7 @@ def test_job_ask_keeps_unsettled_a_card_whose_other_option_breaks_his_ruling_so_
     assert (state.load("demo")["jobs"]["j3"]["questions"][-1]["unsettled"], land.ship_held(state.load("demo"), "j3")) == (None, [])
 
 
-def test_job_ask_prints_each_release_note_jev_reads_as_speaking_to_a_start_any_option_offers_with_what_git_finds_at_its_commit_refusing_nothing(
+def test_job_ask_prints_each_release_note_in_its_range_jev_reads_as_speaking_to_a_start_any_option_offers_with_what_git_finds_at_its_commit_refusing_nothing(
     asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev, release_noted: list[dict], pr_reads: dict[str, dict]
 ) -> None:
     base = cloned(tmp_path, "demo")
@@ -4164,15 +4160,15 @@ def test_job_ask_prints_each_release_note_jev_reads_as_speaking_to_a_start_any_o
     assert captured.out == "ready\n"
     assert captured.err == (
         f'drive job ask: Jev reads release note 3e6822d, "{SANDSQL_NOTE["title"]}", as speaking to `ci release start --targets sandsql --from {later}`'
-        f" (at {later}: holds #55980 ({merge[:12]})); `ci release start --targets sandsql --from {base}` (at {base}: lacks #55980 ({merge[:12]})). Nothing is refused:"
+        f" (at {later}: holds #55980 ({merge[:12]})). Nothing is refused:"
         f" follow its words before you offer or start one, and `ccn note show 3e6822d` prints them whole: {SANDSQL_NOTE['body'].strip()}\n"
     )
     [asked] = [asked for asked in jev.asked if any(key.startswith("speaks.") for key in asked["questions"])]
     assert [note["id"] for note in asked["state"]["notes"].values()] == ["3e6822d", "1510272"]
-    assert len(asked["questions"]) == 4
+    assert sorted(asked["questions"]) == ["speaks.n1.s1", "speaks.n2.s1", "speaks.n2.s2"]
 
 
-def test_job_ask_draws_a_cited_answer_whose_order_the_recommended_option_starts_by_the_release_gates_own_reading_as_his_cards_already_answered_tap_never_asking_him_to_lift_it(
+def test_job_ask_draws_a_cited_answer_whose_order_the_recommended_option_starts_by_the_release_gates_own_reading_as_his_cards_already_answered_tap_never_asking_him_to_lift_it_or_an_older_answer_it_breaks(
     run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev, recorded: Answers
 ) -> None:
     answered_cut(run, demo, [CUT_PICK, CUT_TAP])
@@ -4195,7 +4191,7 @@ def test_job_ask_draws_a_cited_answer_whose_order_the_recommended_option_starts_
     assert cli.main(["job", "ask", builder, str(block)]) == 0
     advice = capsys.readouterr().err
     assert (ordered in advice, "kept the card unsettled" in advice) == (True, False)
-    tap = {"answer": "5d17d9c", "asked": CUT_PICK["title"], "words": CUT_PICK["body"], "link": CUT_LINK}
+    tap = {"answer": "5d17d9c", "asked": CUT_PICK["title"], "words": CUT_PICK["body"], "link": CUT_LINK, "at": CUT_PICK["created_at"]}
     question = state.load(demo)["jobs"][builder]["questions"][-1]
     assert (question["unsettled"], question["ordered"], question["recorded"]) == (None, [tap], [tap])
     code, printed = run("job", "card", builder)
@@ -4207,6 +4203,12 @@ def test_job_ask_draws_a_cited_answer_whose_order_the_recommended_option_starts_
     advice = capsys.readouterr().err
     assert ("orders the recommended option's" in advice, f'kept the card unsettled as "7ab1e20: {settled.MARKED.format(option="the recommended option")}"' in advice) == (False, True)
     assert state.load(demo)["jobs"][builder]["questions"][-1]["ordered"] == []
+    recorded.shown["7ab1e20"] = CUT_TAP | {"created_at": "2026-11-14T05:00:00Z"}
+    block.write_text(asked.replace(holds, f"{holds}\n5d17d9c: option 1 carries out his pick\n7ab1e20: option 1 leaves out the full release"))
+    assert cli.main(["job", "ask", builder, str(block)]) == 0
+    advice = capsys.readouterr().err
+    assert (settled.OUTWEIGHED.format(id="7ab1e20", later="5d17d9c", asked=CUT_PICK["title"]) in advice, "kept the card unsettled" in advice) == (True, False)
+    assert state.load(demo)["jobs"][builder]["questions"][-1]["unsettled"] is None
 
 
 def test_job_ask_draws_no_card_when_an_order_its_job_carries_says_ask_him_nothing_unless_the_card_asks_a_step_his_rules_keep_for_him(
@@ -11001,6 +11003,26 @@ def test_his_messages_in_a_row_are_one_answer_kept_at_the_first_link_and_a_kept_
         assert cli.main(["answer", "a1", *again]) == 2
         assert f"a1 is recorded already, at {PICK}, so --words and --link would change nothing" in capsys.readouterr().err
     assert state.load("demo")["answers"]["a1"] == kept
+
+
+def test_his_kept_answer_reworded_by_title_answers_the_new_question_in_cc_notes_its_whole_question_in_its_notes_only_while_cut(
+    run: Run, designing: str, recorded: Answers, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cards_asking(monkeypatch, PR)
+    calls: list[tuple[list[str], str]] = []
+    monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: calls.append((argv, text)) or "")
+    words = "text and file pointers … reuse the blob pointer"
+    recorded.shown["a1"] = {"id": "a1", "title": "Which topology?", "body": f"{words}{settled.NOTES} drive note{settled.WHOLE}Which topology?", "tags": []}
+    cli.main(["answer", "a1", "--link", PICK])
+    capsys.readouterr()
+    long = "Which topology does the blob store take? " * 8
+    for title in ("Which topology?", long, "Which topology now?"):
+        cli.main(["answer", "a1", "--title", title])
+    assert [call for call in calls if call[0][:3] == ["ccn", "answer", "edit"]] == [
+        (["ccn", "answer", "edit", "a1", f"--title={settled.titled(long)}", "--body-file", "-"], f"{words}{settled.NOTES} drive note{settled.WHOLE}{long}"),
+        (["ccn", "answer", "edit", "a1", "--title=Which topology now?", "--body-file", "-"], f"{words}{settled.NOTES} drive note"),
+    ]
+    assert 'his answer a1 now answers "Which topology now?" in cc-notes, where it answered "Which topology?"' in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(("how", "refusal"), [("answered", None), ("withdrawn", f"{DESIGN_CARD} is neither his own message nor a card he answered")])

@@ -181,24 +181,28 @@ UNSETTLED = (
     ' on an incident too until he answers, by his pick "Hold the PR until you answer; the drive finds each card against your'
     ' recorded answers"; --unsettled "<id>: <why>" names other words of his it asks him to lift.'
 )
+OUTWEIGHED = (
+    "drive job ask: kept the card settled though Jev reads it as breaking {id}, since his later answer {later}, \"{asked}\", chooses it, and his newest words on a card stand"
+)
 SUPERSEDES = Noul("Does `answer.said`, his answer to a newer question of the same job, settle everything `open.{slot}` asks him?")
 REPEATS = Noul(
     "Is `order` on the feature `open.{slot}` holds: the same fault or change, a slice of it, a fix to it or a step after it?",
     no="It asks for work that order is not about, even in the same code.",
 )
 ORDERS = Noul(
-    "Do `answer.said`, read with `card`, have the release in `action` run?",
+    "Do `answer.said`, read with `answer.notes`, `card` and his `earlier` answers in that thread, have the release in `action` run?",
     yes=(
         "His order to ship or release that work, or his pick on a card about it reaching production whose option has that release run; a condition such as once tests pass orders it once it holds."
         " His words to get work built or tested on places that are not production, such as a sandbox or staging, order each release of it that runs on those places alone."
+        " Words pointing at releases, such as that one or all 3 of these, order each release the notes or his earlier answers say they point at."
     ),
     no=(
         "His Approve or tap on a pull request, a pick to land, merge or enqueue one, or a pick of a design, a repair or whether a check holds releases nothing."
-        " Words to get work built or tested order no release that runs on production."
+        " Words to get work built or tested order no release that runs on production. The notes and his earlier answers only say what `answer.said` points at and order nothing themselves."
     ),
 )
 SHIPS_MORE = Noul(
-    "Does the release in `action` ship more than `answer.said` orders: another change, more components or other places?",
+    "Does the release in `action` ship more than `answer.said` orders, read with what `answer.notes` and his `earlier` answers say it points at: another change, more components or other places?",
     no=(
         "His words past a bare option number order only what they name, such as a team brought to where the picked option put the others."
         " His words to get work built or tested on places order a release of that work there, on those places alone, whatever flags it starts with."
@@ -342,6 +346,7 @@ TAP_HEADER = "header:Tap"
 TAP_QUESTION = re.compile(r"(?:PR )?(?:Taps?\b|Approv|Land\b).*?(?:#\d+|/pull/\d+)", re.IGNORECASE)
 RARE = re.compile(r"[a-z][a-z0-9-]{4,}")
 NOTES = "\nNotes:"
+WHOLE = " the whole question: "
 PROVISIONAL = "PROVISIONAL"
 ELIDED = re.compile(r"\.\.\.|…|\[[^\[\]]*\]")
 UNWORDED = re.compile(r"[\W_]+")
@@ -386,13 +391,23 @@ def recorded(name: str, title: str, words: str, labels: list[str], where: str, c
     said = (plain(handle), plain(words))
     if kept := next((answer["id"] for answer in listed("scope:durable", cwd) if (plain(answer["title"]), plain(his(answer["body"]))) == said), None):
         return kept
-    body = words if handle == title else f"{words}{NOTES} the whole question: {title}"
+    body = words if handle == title else f"{words}{NOTES}{WHOLE}{title}"
     standing = [answer["id"] for answer in listed(f"drive:{name}", cwd) if state.same_question(answer["title"], handle)]
     add = ["ccn", "answer", "add", f"--title={handle}", "--body-file", "-", *(f"--label={label}" for label in ["scope:durable", f"drive:{name}", *kind(words), *labels]), "--json"]
     answer_id = json.loads(ccn(add, body, cwd, f'could not record in cc-notes his answer "{cut(words, 80)}" to "{cut(title, 120)}" on {where}'))["id"]
     for pick in standing:
         supersede(pick, answer_id, cwd)
     return answer_id
+
+
+def retitled(answer: dict, title: str, cwd: str) -> str:
+    """Reword in cc-notes the question his kept answer answers to title, as `titled` fits it, the whole question in its notes when its title is cut as recorded() keeps it, so the release gate and every later read take the question as it reads now; the title it keeps."""
+    handle = titled(title)
+    kept = answer["body"].partition(WHOLE)[0].removesuffix(NOTES)
+    body = kept if handle == title else f"{kept}{'' if NOTES in kept else NOTES}{WHOLE}{title}"
+    edit = ["ccn", "answer", "edit", answer["id"], f"--title={handle}", *(["--body-file", "-"] if body != answer["body"] else [])]
+    ccn(edit, body, cwd, f'could not reword the question of his answer {answer["id"][:7]} to "{cut(title, 120)}" in cc-notes')
+    return handle
 
 
 def titled(question: str) -> str:
@@ -880,7 +895,7 @@ def unordered(answer: dict, release: str, data: dict) -> str | None:
 
 
 def ordered_by(answer: dict, release: str, flags: dict, matches: Callable[[dict, dict, str, str], str | None], data: dict) -> str | None:
-    """Why his answer does not order a release, its flags as shipped() reads them and the start Jev reads; None when it does. When the card his answer answers is kept, found by answered_card(), and his leading option number or tap picks an option whose words name a release in backticks, code decides: his answer orders the release when matches, placed() or tests(), reads it shipping what one of those ships, its `--only` left out by narrowed() where the card says those components ship alone, placed() every flag the same but its places, `--from` and `--order`, and on staging alone under one on staging alone its targets, `--only` and how it starts, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. An answer no kept card holds, to a question listing releases as numbered items, his own or one the drive recorded the same message of his under, by message_questions(), orders in code a release one item it picks orders, by listed_order(). Any other answer Jev reads in one request, his words beside that card and the places the release runs on with their stages and the components its `--only` ships alone, by runs_on(), one Noul whether his words have that release run and one whether it ships more than they order: it orders the release at YES on the first and under NO on the second, either in the band between refusing it as unsure; Unheard when Jev gave no answer."""
+    """Why his answer does not order a release, its flags as shipped() reads them and the start Jev reads; None when it does. When the card his answer answers is kept, found by answered_card(), and his leading option number or tap picks an option whose words name a release in backticks, code decides: his answer orders the release when matches, placed() or tests(), reads it shipping what one of those ships, its `--only` left out by narrowed() where the card says those components ship alone, placed() every flag the same but its places, `--from` and `--order`, and on staging alone under one on staging alone its targets, `--only` and how it starts, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. An answer no kept card holds, to a question listing releases as numbered items, his own or one the drive recorded the same message of his under, by message_questions(), orders in code a release one item it picks orders, by listed_order(). Any other answer Jev reads in one request, his words and the drive's notes on them beside that card, his answers recorded before it in its thread, by threaded(), as many as fill() holds whole, and the places the release runs on with their stages and the components its `--only` ships alone, by runs_on(), one Noul whether his words have that release run and one whether it ships more than they order: it orders the release at YES on the first and under NO on the second, either in the band between refusing it as unsure; Unheard when Jev gave no answer."""
     from drive import brief
 
     said = his(answer["body"])
@@ -901,7 +916,10 @@ def ordered_by(answer: dict, release: str, flags: dict, matches: Callable[[dict,
     if not asked and any(listed_order(said, question, flags, matches, cwd) for question in message_questions(answer, said, data)):
         return None
     card = {"card": card_text(asked)} if asked else {}
-    read = jev({"action": f"start this release on {runs_on(shipped(brief.started(release)[0]), cwd)}: `{release}`", "answer": {"asked": answer["title"], "said": said}} | card, {f"orders.{answer['id'][:7]}": ORDERS, "more": SHIPS_MORE})
+    notes = {"notes": answer["body"].partition(NOTES)[2].strip()[:BODY_CHARS]} if said and NOTES in answer["body"] else {}
+    context = {"action": f"start this release on {runs_on(shipped(brief.started(release)[0]), cwd)}: `{release}`", "answer": {"asked": answer["title"], "said": said} | notes} | card
+    request, questions, _ = fill(context, {f"orders.{answer['id'][:7]}": ORDERS, "more": SHIPS_MORE}, (({"earlier": {earlier["id"][:7]: earlier_words(earlier)}}, {}) for earlier in threaded(answer, data)))
+    read = jev(request, questions)
     orders, more = reading(read[f"orders.{answer['id'][:7]}"]), reading(read["more"])
     if orders and more is False:
         return None
@@ -976,6 +994,20 @@ def target_parts(cwd: str) -> dict[str, tuple[str, ...]]:
         elif listed := LISTED_PARTS.search(block):
             parts[target] = tuple(line.strip().removeprefix("- ").strip() for line in listed[1].splitlines())
     return parts
+
+
+def threaded(answer: dict, data: dict) -> list[dict]:
+    """His answers this drive recorded before this one in the Slack thread where he gave it, newest first, as listed() reads them in one call, so words of his such as all 3 of these read as what his earlier words there named; none when the drive kept no thread link for it."""
+    links = {whole[:7]: kept["link"] for whole, kept in data["answers"].items() if kept.get("link")}
+    if not (thread := view.card_thread(links.get(answer["id"][:7], ""))):
+        return []
+    earlier = listed(f"drive:{data['name']}", data["roles"]["coordinator"]["cwd"])
+    return [other for other in earlier if other["created_at"] < answer["created_at"] and view.card_thread(links.get(other["id"][:7], "")) == thread and his(other["body"])]
+
+
+def earlier_words(answer: dict) -> dict:
+    """One earlier answer of his as Jev reads it beside a later one in its thread: its question, his words and the drive's notes on them."""
+    return {"asked": answer["title"], "said": his(answer["body"])[:BODY_CHARS], "notes": answer["body"].partition(NOTES)[2].strip()[:BODY_CHARS]}
 
 
 def card_text(asked: limits.Question) -> str:

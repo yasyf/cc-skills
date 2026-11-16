@@ -170,7 +170,8 @@ it offers does, the verb keeps the card unsettled on it, as `<id>: Jev reads the
 breaking it` or `<id>: Jev reads option "<that option>" as breaking it`, asking him to lift those words, so it holds
 its PR on an incident too until he answers. Another option alone never marks an answer that already
 answers the card, one its Already answered tap carries or one Jev reads below, since offering an
-option his answer did not choose asks him to lift nothing. A cited answer the release gate reads as ordering a release
+option his answer did not choose asks him to lift nothing. His newest words stand: no answer is marked
+while a cited answer he gave after it orders the recommended option's release or decides the card. A cited answer the release gate reads as ordering a release
 the recommended option names in backticks is his order carried out, never words to lift: his card
 offers it as its Already answered tap, and the verb prints that his one tap settles the card and
 `drive job add --release "<release> --order <id>"` starts that release, by his pick 1bd8a74 "Your

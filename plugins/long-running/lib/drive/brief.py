@@ -344,7 +344,7 @@ def hold_words(hold: dict) -> str:
 
 
 def release_notes(releases: list[str], data: dict) -> list[str]:
-    """What the drive's release notes, by kept_notes(), say of these releases, each a `ci release start` or `hotfix`, by his ruling 17f763e that the tooling only helps the agent follow the prose rules: Jev reads every release against every note in SPEAKS_TO_START Nouls, in as many requests as settled.batched packs them into, so no note goes unread however many the drive keeps, and each note Jev does not read as silent on one, its unsure band included since a note missed is a cut it forbids offered or started, comes back as one NOTED line naming each release it speaks to with what git says of the PRs and commits its title names at the commit that release cuts, by note_facts(), and the note's words whole, so the agent offering or starting it follows them; one UNNOTED line when cc-notes or Jev gave no reading, or naming each note too large for any request alone. It refuses nothing."""
+    """What the drive's release notes, by kept_notes(), say of these releases, each a `ci release start` or `hotfix`, by his ruling 17f763e that the tooling only helps the agent follow the prose rules: Jev reads each release against each note in its range, by note_facts(), in SPEAKS_TO_START Nouls, in as many requests as settled.batched packs them into, so no note goes unread however many the drive keeps and none on work the release does not ship crowds the agent's read, and each note Jev does not read as silent on one, its unsure band included since a note missed is a cut it forbids offered or started, comes back as one NOTED line naming each release it speaks to with what git says of the PRs and commits its title names, and the note's words whole, so the agent offering or starting it follows them; one UNNOTED line when cc-notes or Jev gave no reading, or naming each note too large for any request alone. It refuses nothing."""
     from drive import github
 
     if not releases:
@@ -356,33 +356,34 @@ def release_notes(releases: list[str], data: dict) -> list[str]:
         return [UNNOTED.format(starts=named, why=error, name=data["name"])]
     if not notes:
         return []
+    try:
+        facts = note_facts(set(releases), {note["id"]: note["title"] for note in notes}, data["roles"]["coordinator"]["cwd"])
+    except github.GithubError as error:
+        facts = dict.fromkeys(itertools.product(releases, [note["id"] for note in notes]), f" (git read no commit it cuts: {error})")
     starts = {f"s{number}": release for number, release in enumerate(releases, 1)}
-    slots = {note["id"]: f"n{number}" for number, note in enumerate(notes, 1)}
+    ranged = [note for note in notes if any((release, note["id"]) in facts for release in releases)]
+    slots = {note["id"]: f"n{number}" for number, note in enumerate(ranged, 1)}
     items = [
-        ({"notes": {slots[note["id"]]: {"id": note["id"][:7], "title": note["title"], "body": note["body"]}}}, {f"speaks.{slots[note['id']]}.{start}": settled.asking(settled.SPEAKS_TO_START, note=slots[note["id"]], start=start) for start in starts})
-        for note in notes
+        (
+            {"notes": {slots[note["id"]]: {"id": note["id"][:7], "title": note["title"], "body": note["body"]}}},
+            {f"speaks.{slots[note['id']]}.{start}": settled.asking(settled.SPEAKS_TO_START, note=slots[note["id"]], start=start) for start, release in starts.items() if (release, note["id"]) in facts},
+        )
+        for note in ranged
     ]
     try:
         read = settled.jev_all(settled.batched({"starts": starts, "notes": {}}, {}, items))
     except settled.Unheard as failure:
         return [UNNOTED.format(starts=named, why=f"Jev gave no reading: {failure}", name=data["name"])]
-    left = [note["id"][:7] for note, (_, asked) in zip(notes, items) if not asked.keys() <= read.keys()]
+    left = [note["id"][:7] for note, (_, asked) in zip(ranged, items) if not asked.keys() <= read.keys()]
     skipped = [UNNOTED.format(starts=named, why="no room in a Jev request for " + ", ".join(left), name=data["name"])] if left else []
     speaking: dict[str, list[str]] = {}
-    for note in notes:
+    for note in ranged:
         for start, release in starts.items():
             if (key := f"speaks.{slots[note['id']]}.{start}") in read and settled.reading(read[key]) is not False:
                 speaking.setdefault(note["id"], []).append(release)
-    if not speaking:
-        return skipped
-    spoken = {note["id"]: note["title"] for note in notes if note["id"] in speaking}
-    try:
-        facts = note_facts(set(itertools.chain(*speaking.values())), spoken, data["roles"]["coordinator"]["cwd"])
-    except github.GithubError as error:
-        facts = dict.fromkeys(itertools.product(releases, spoken), f" (git read no commit it cuts: {error})")
     return skipped + [
         NOTED.format(id=note["id"][:7], title=note["title"], starts="; ".join(f"`{release}`{facts[release, note['id']]}" for release in speaking[note["id"]]), body=note["body"].strip())
-        for note in notes
+        for note in ranged
         if note["id"] in speaking
     ]
 
@@ -402,47 +403,55 @@ def kept_notes(data: dict) -> list[dict]:
 
 
 def note_facts(releases: set[str], titles: dict[str, str], cwd: str) -> dict[tuple[str, str], str]:
-    """What git says, by release and note id, of each PR and commit a note's title names at the commit the release cuts: its --from or --commit, else its repository's default branch head, which one fetch brings into the drive's checkout, and a PR at the merge commit `github.landing` reads for it in one `github.fetch`; a hotfix with neither cuts from the build live now, which git here cannot name. GithubError when the checkout's repository or default branch head could not be read."""
+    """What git says, by release and note id, of each PR and commit a note's title names, for each note in the release's range: a note naming none; for a hotfix, a note naming a PR it hotfixes or that PR's merge commit; for a start, a note naming a PR or commit the commit it cuts holds, or one git or GitHub cannot place, at its --from or --commit, else its repository's default branch head, which one fetch brings into the drive's checkout, a PR at the merge commit `github.landing` reads for it in one `github.fetch`. GithubError when the checkout's repository or default branch head could not be read."""
     from drive import github
 
     refs = {note_id: NOTE_REFS.findall(title) for note_id, title in titles.items()}
+    if not any(refs.values()):
+        return dict.fromkeys(itertools.product(releases, titles), "")
+    flagged = {release: settled.shipped(started(release)[0]) for release in releases}
     repo = github.checkout_repo(cwd)
     branch = github.default_branch(repo)
     head = github.fetched(cwd, branch)
-    keys = sorted({f"{repo}#{number}" for found in refs.values() for number, _ in found if number})
+    keys = sorted({f"{repo}#{number}" for found in refs.values() for number, _ in found if number} | {f"{repo}#{number}" for flags in flagged.values() for number in flags.get("hotfix", ())})
     reads, refused = github.fetch(keys) if keys else ({}, None)
     landed = {key: github.landing(read) for key, read in reads.items()}
     facts = {}
-    for release, note_id in itertools.product(releases, titles):
-        [flags] = map(settled.shipped, started(release))
-        given = (flags.get("from") or (None,))[-1]
-        if given is None and "hotfix" in flags:
-            facts[release, note_id] = " (a hotfix cuts from the build live now, which git here cannot name)"
+    for (release, flags), note_id in itertools.product(flagged.items(), titles):
+        if not refs[note_id]:
+            facts[release, note_id] = ""
             continue
+        if "hotfix" in flags:
+            merges = [pull["merged_sha"] for number in flags["hotfix"] if (pull := landed.get(f"{repo}#{number}")) and pull["merged_sha"]]
+            if hotfixed := [f"#{number}" if number else sha for number, sha in refs[note_id] if number in flags["hotfix"] or sha and any(merge.startswith(sha) for merge in merges)]:
+                facts[release, note_id] = f" (it hotfixes {', '.join(hotfixed)})"
+            continue
+        given = (flags.get("from") or (None,))[-1]
         commit = given or head
-        said = []
+        found = []
         for number, sha in refs[note_id]:
             pull = landed.get(f"{repo}#{number}") if number else None
             if sha:
-                said.append(contained(cwd, sha, sha, commit))
+                found.append(contained(cwd, sha, sha, commit))
             elif pull is None:
-                said.append(f"GitHub did not read #{number}" + (f": {refused}" if refused else ""))
+                found.append((None, f"GitHub did not read #{number}" + (f": {refused}" if refused else "")))
             elif pull["state"] != "merged":
-                said.append(f"lacks #{number}, which is {pull['state']}" + (f" into {pull['into']}" if pull["into"] else ""))
+                found.append((False, f"lacks #{number}, which is {pull['state']}" + (f" into {pull['into']}" if pull["into"] else "")))
             else:
-                said.append(contained(cwd, f"#{number}", pull["merged_sha"], commit))
+                found.append(contained(cwd, f"#{number}", pull["merged_sha"], commit))
         where = given or f"{branch}'s head {head[:12]}"
-        facts[release, note_id] = f" (at {where}: {'; '.join(said)})" if said else ""
+        if any(held is not False for held, _ in found):
+            facts[release, note_id] = f" (at {where}: {'; '.join(said for _, said in found)})"
     return facts
 
 
-def contained(cwd: str, named: str, sha: str, commit: str) -> str:
-    """Whether commit holds sha, as `git merge-base --is-ancestor` answers in the drive's checkout, said of named, its PR or the sha itself."""
+def contained(cwd: str, named: str, sha: str, commit: str) -> tuple[bool | None, str]:
+    """Whether commit holds sha, as `git merge-base --is-ancestor` answers in the drive's checkout, None when git cannot place it, beside what that says of named, its PR or the sha itself."""
     shown = named if named == sha else f"{named} ({sha[:12]})"
     ran = subprocess.run(["git", "-C", cwd, "merge-base", "--is-ancestor", sha, commit], capture_output=True, text=True, check=False)
     if ran.returncode in (0, 1):
-        return f"{'holds' if ran.returncode == 0 else 'lacks'} {shown}"
-    return f"git cannot place {shown}: {' '.join(ran.stderr.split())}"
+        return ran.returncode == 0, f"{'holds' if ran.returncode == 0 else 'lacks'} {shown}"
+    return None, f"git cannot place {shown}: {' '.join(ran.stderr.split())}"
 
 
 def freezes(name: str, data: dict) -> list[dict]:
