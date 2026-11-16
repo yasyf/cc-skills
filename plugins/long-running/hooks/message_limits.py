@@ -1097,7 +1097,7 @@ def own_communicator(payload: dict) -> bool:
     return (not payload.get("agent_id") or bool(payload.get("agent_type")) and not payload["agent_type"].startswith("long-running:")) and not str(payload.get("tool_use_id") or "").startswith("watch-") and his_drive(payload.get("session_id") or "") is not None
 
 
-CRAFT_SECONDS = 5
+CRAFT_SECONDS = 3
 CRAFT_GUIDE = (
     "His standard for every post to him: the answer first, in one plain sentence saying what changed for him; past about 60 words,"
     " short parts under bold headings such as *What changed:* and *What happens next:*, lists as bullets; every PR, build, card or"

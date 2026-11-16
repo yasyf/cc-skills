@@ -87,7 +87,7 @@ COMMUNICATOR_RULES = (
         " Work, a build, release, fix or PR, a question proposing work such as \"why not just X?\" included, goes to the"
         " coordinator, or the seat holding its order, an alert's straight to the seat owning that area by its order attr, as his owner record on the drive's record tool passing his message"
         " along whole, since the session that acts on it reads it and decides, and `about` naming what it is about; you"
-        " never wait on that session to answer a read."
+        " never wait on that session to answer a read, and the owner record goes in the same message as your answer's say, never a step before it; the record tool returns at once and sends it in the background."
     ),
     (
         "A question-card answer (slack.action with waits: true) and an Undo get no record: cc-slack closed the card and"

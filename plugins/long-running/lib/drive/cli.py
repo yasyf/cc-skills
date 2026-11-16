@@ -6685,16 +6685,46 @@ def tool_command(args: argparse.Namespace) -> int:
     return 0
 
 
+BACKGROUND_RECORD_ENV = "LONG_RUNNING_RECORD_BACKGROUND"
+
+
 def run_tool(tool: str, given: dict) -> str:
-    """The lines one MCP tool prints for the arguments its call sent, in whatever process runs it: its own `drive tool` or the MCP server's."""
+    """The lines one MCP tool prints for the arguments its call sent, in whatever process runs it: its own `drive tool` or the MCP server's; a communicator's record call is checked as a dry run here, so a refusal still comes back to it, then sent by its own process, by backgrounded, so no answer to him waits on an order add or a defect."""
     from drive import mcp, tools
 
     try:
         arguments = tools.parsed_arguments(given, mcp.tool_named(tool)["inputSchema"]["properties"])
         with state.naming(arguments):
-            return tools.run(tool, state.resolve(arguments.pop("drive", None)), arguments)
+            name = state.resolve(arguments.pop("drive", None))
+            if tool == "record" and not arguments.get("dry_run") and not os.environ.get(BACKGROUND_RECORD_ENV) and state.session_role(state.saved(name), os.environ.get("CLAUDE_CODE_SESSION_ID")) == "communicator":
+                tools.run(tool, name, arguments | {"dry_run": True})
+                return backgrounded(name, given)
+            if os.environ.get(BACKGROUND_RECORD_ENV):
+                return kept_record(name, lambda: tools.run(tool, name, arguments))
+            return tools.run(tool, name, arguments)
     except reads.ReadError as error:
         raise DriveError(str(error)) from None
+
+
+def backgrounded(name: str, given: dict) -> str:
+    """Send a communicator's records from a `drive tool record` process of their own, under its session, which outlives the call, its call's arguments in a file under the drive's records folder and what it printed in records.log, so the call returns at once."""
+    kept = state.drive_dir(name) / "records" / f"{uuid.uuid4().hex}.json"
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    kept.write_text(json.dumps(given | {"drive": name}))
+    with kept.open() as stdin, (state.drive_dir(name) / "records.log").open("a") as out:
+        subprocess.Popen([str(Path(__file__).resolve().parents[2] / "bin" / "drive"), "tool", "record"], stdin=stdin, stdout=out, stderr=subprocess.STDOUT, env=os.environ | {BACKGROUND_RECORD_ENV: kept.name}, start_new_session=True)
+    return f"sending in the background; what it sends lands in {state.drive_dir(name) / 'records.log'}, and a refusal reaches the meta session as a defect"
+
+
+def kept_record(name: str, send: Callable[[], str]) -> str:
+    """Send a communicator's records in the process backgrounded started, telling the meta session as a defect when they are refused, since no turn waits to read the refusal."""
+    from drive import tools
+
+    try:
+        return send()
+    except DriveError as error:
+        tools.sent(name, "communicator", [{"kind": "defect", "to": [f"meta@{name}"], "text": f"the communicator's record call {os.environ[BACKGROUND_RECORD_ENV]} was refused in the background: {error}"}])
+        raise
 
 
 def datadog_command(args: argparse.Namespace) -> int:
