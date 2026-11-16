@@ -10,6 +10,7 @@ import time
 import tomllib
 from collections import Counter
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, closing
 from datetime import datetime
 from fnmatch import fnmatchcase
@@ -51,6 +52,7 @@ FAILED_TEST = re.compile(r"^\S+ (?:FAILED|ERROR) (?P<pytest>\S+\.py(?:::[^\r\n]+
 PRS_PER_QUERY = 25
 MERGEABILITY = "state headRefOid mergeable"
 MERGEABILITY_PER_QUERY = 100
+QUERIES_AT_ONCE = 4
 PATHS = "headRefOid baseRefOid changedFiles files(first: 100) { nodes { path } pageInfo { hasNextPage endCursor } }"
 STACKS_AGE = "60s"
 STACK = "stack { baseRefName entries(first: 100) { nodes { position pullRequest { number state } } } }"
@@ -160,6 +162,19 @@ def split(key: str) -> tuple[str, str, int]:
 
 def repo_of(key: str) -> str:
     return key.split("#")[0]
+
+
+def at_once(chunks: list[list[str]], read: Callable[[list[str]], object]) -> list[tuple[list[str], object]]:
+    """Each chunk with what read gave for it, or the GithubError it raised, QUERIES_AT_ONCE chunks read side by side, so a pass waits on its slowest query rather than on every query in turn."""
+
+    def one(chunk: list[str]) -> object:
+        try:
+            return read(chunk)
+        except GithubError as error:
+            return error
+
+    with ThreadPoolExecutor(QUERIES_AT_ONCE) as pool:
+        return list(zip(chunks, pool.map(one, chunks)))
 
 
 def by_repository(keys: list[str], size: int) -> list[list[str]]:
@@ -565,25 +580,17 @@ def fetch(keys: list[str], into: dict[str, str] | None = None) -> tuple[dict[str
     into = into or {}
     asked = list(dict.fromkeys([*keys, *(into[key] for key in keys if key in into)]))
     found, refused = {}, []
-    for chunk in by_repository(asked, PRS_PER_QUERY):
-        try:
-            found |= parse(graphql(query(chunk, READ, RULES), f"{len(chunk)} PRs of {repo_of(chunk[0])}"), chunk)
-        except GithubError as error:
-            refused.append(str(error))
-    for chunk in by_repository([key for key, read in found.items() if unheaded(read)], PRS_PER_QUERY):
-        try:
-            ahead([(key, found[key]) for key in chunk])
-        except GithubError as error:
-            refused.append(str(error))
-            for key in chunk:
-                del found[key]
-    for chunk in by_repository([key for key, read in found.items() if key not in into and merged_off_landing_base(read)], PRS_PER_QUERY):
-        try:
-            bases([(key, found[key]) for key in chunk])
-        except GithubError as error:
-            refused.append(str(error))
-            for key in chunk:
-                del found[key]
+    for chunk, read in at_once(by_repository(asked, PRS_PER_QUERY), lambda chunk: parse(graphql(query(chunk, READ, RULES), f"{len(chunk)} PRs of {repo_of(chunk[0])}"), chunk)):
+        if isinstance(read, GithubError):
+            refused.append(str(read))
+        else:
+            found |= read
+    for fill, keys_of in ((ahead, lambda: [key for key, read in found.items() if unheaded(read)]), (bases, lambda: [key for key, read in found.items() if key not in into and merged_off_landing_base(read)])):
+        for chunk, failed in at_once(by_repository(keys_of(), PRS_PER_QUERY), lambda chunk, fill=fill: fill([(key, found[key]) for key in chunk])):
+            if isinstance(failed, GithubError):
+                refused.append(str(failed))
+                for key in chunk:
+                    del found[key]
     while unread := [key for key in found if key in into and into[key] not in found]:
         for key in unread:
             del found[key]
@@ -596,11 +603,11 @@ def fetch(keys: list[str], into: dict[str, str] | None = None) -> tuple[dict[str
 def mergeability(keys: list[str]) -> tuple[dict[str, dict], GithubError | None]:
     """Each PR's state, head and mergeability, MERGEABLE, CONFLICTING or UNKNOWN while GitHub works it out again, MERGEABILITY_PER_QUERY PRs of one repository to a `gh api graphql` call: the read a push to a base owes the PRs on it, since it moves none of their heads, checks or reviews, only what GitHub merges each into. It gives the reads of every call that answered and an error joining what the others could not read, as fetch does."""
     found, refused = {}, []
-    for chunk in by_repository(keys, MERGEABILITY_PER_QUERY):
-        try:
-            found |= nodes(graphql(query(chunk, MERGEABILITY), f"the mergeability of {len(chunk)} PRs of {repo_of(chunk[0])}"), chunk)
-        except GithubError as error:
-            refused.append(str(error))
+    for chunk, read in at_once(by_repository(keys, MERGEABILITY_PER_QUERY), lambda chunk: nodes(graphql(query(chunk, MERGEABILITY), f"the mergeability of {len(chunk)} PRs of {repo_of(chunk[0])}"), chunk)):
+        if isinstance(read, GithubError):
+            refused.append(str(read))
+        else:
+            found |= read
     return found, GithubError("; ".join(refused)) if refused else None
 
 
