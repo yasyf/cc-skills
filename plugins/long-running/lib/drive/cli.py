@@ -2309,7 +2309,7 @@ def job_ask(args: argparse.Namespace) -> int:
 
 
 def drop_ask(name: str, job_id: str, file: Path) -> tuple[str | None, bool]:
-    """Throw away a question the job kept with no card drawn for it, such as one refused for an answer of his that settles it: it leaves the job's questions, so nothing counts it open, and its file is deleted unless another of the job's questions keeps it; a question on a card is refused, since only his answer to that card closes it. A file of the job's whose question a later ask of the job replaced, as drive job ask printed its path, is deleted alone. A question a `Replaces:` line folded into the dropped one asks on its own again. Its title, and whether a later ask had replaced it."""
+    """Throw away a question the job kept with no card drawn for it, such as one refused for an answer of his that settles it: it leaves the job's questions, so nothing counts it open, and its file is deleted unless another of the job's questions keeps it; a question on a card is refused, since only his answer to that card closes it. A file of the job's whose question a later ask of the job replaced, as drive job ask printed its path, is deleted alone, a drop racing another of the same file finding it gone and deleting nothing, with no title. A question a `Replaces:` line folded into the dropped one asks on its own again. Its title, and whether a later ask had replaced it."""
     asks = state.drive_dir(name) / "asks"
     def dropped(data: dict) -> tuple[dict, dict | None]:
         job = find(data["jobs"], job_id, "job")
@@ -2337,9 +2337,12 @@ def drop_ask(name: str, job_id: str, file: Path) -> tuple[str | None, bool]:
 
     job, question = state.update(name, None, dropped)
     if question is None:
-        title = limits.ask_block(file.read_text()).splitlines()[0].removeprefix("ASK ").strip()
-        file.unlink()
-        return title, True
+        try:
+            text = file.read_text()
+        except FileNotFoundError:
+            return None, True
+        file.unlink(missing_ok=True)
+        return limits.ask_block(text).splitlines()[0].removeprefix("ASK ").strip(), True
     if state.kept_in(job, file) is None:
         file.unlink(missing_ok=True)
     return question["title"], False
