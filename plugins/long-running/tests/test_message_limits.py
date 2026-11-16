@@ -1300,6 +1300,28 @@ def test_a_refused_post_to_one_place_goes_through_with_a_warning_when_the_sessio
     assert message_limits.refused_once(payload, unsendable) is unsendable and message_limits.refused_once(payload, unsendable) is unsendable
 
 
+def test_a_post_calling_an_event_unexplained_is_weighed_against_the_records_beside_it_and_blocks_once(talker: str, transcript: Path, checked: Checked, jev: Jev, monkeypatch: pytest.MonkeyPatch) -> None:
+    deleted = {"seq": 735744, "at": "10:58 AM", "lane": "root", "kind": "report", "attrs": {"case": "S2-DELETE", "order": "o1339"}, "text": "S2: deleted the sandsql writer pod on staging"}
+    windows: list[list[datetime]] = []
+    monkeypatch.setattr(message_limits, "event_records", lambda name, order_id, times: windows.append(times) or [deleted])
+    text = "The kubelet killed staging's writer pod at 10:58 AM; the cause is unread. A reader is on it."
+    payload = call("slack_reply", transcript, channel_id="C0CHZM7A478", thread_ts="1794830198.687629", text=text)
+    del payload["agent_id"]
+    payload |= {"tool_name": message_limits.SAY}
+    jev.ruled = {"craft": ("unexplained", 0.9)}
+    refused = message_limits.hook_output(payload)["hookSpecificOutput"]
+    assert refused["permissionDecision"] == "deny" and "735744" in refused["permissionDecisionReason"]
+    assert jev.asked[-1]["state"]["records"] == [deleted]
+    assert [time.hour for time in windows[0]] == [10]
+    again = message_limits.hook_output(payload)["hookSpecificOutput"]
+    assert "permissionDecision" not in again and "unexplained: " in again["additionalContext"]
+    jev.ruled = {}
+    plain = call("slack_reply", transcript, channel_id="C0CHZM7A478", thread_ts="1794830198.687629", text="The writer pod restarted at 10:58 AM.")
+    del plain["agent_id"]
+    message_limits.hook_output(plain | {"tool_name": message_limits.SAY})
+    assert "records" not in jev.asked[-1]["state"]
+
+
 def test_the_communicators_own_post_has_no_brief_to_quote(talker: str, transcript: Path) -> None:
     payload = call("slack_dm_status", transcript, text=said(80), asked="explain the layout in full")
     del payload["agent_id"]
