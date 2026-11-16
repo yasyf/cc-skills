@@ -46,6 +46,7 @@ JOB_AGENTS = {"builder": ("long-running:builder",), "reader": ("long-running:rea
 JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
 ENDED_JOB_STATES = ("failed", "stopped")
 ANSWERING = timedelta(minutes=10)
+POSTS_LANE = "posts"
 FINISHED_JOB_STATES = ("done", *ENDED_JOB_STATES)
 BRIEF_FLAGS = ("serves", "done_when", "where", "runs_as", "release", "mac", "after", "handoff", "ruling", "native", "interactions", "would_he_ask", "plan", "incident", "scratch")
 CHANGE_KINDS = ("builder", "codex")
@@ -5630,7 +5631,7 @@ def unread(drives: dict[str, dict], to: list[str], drive: str | None, held: bool
     for entry in to:
         lane, _, name = entry.partition("@")
         name = name or drive or ""
-        if not (data := drives.get(name)) or lane in (lanes := ["root", *communicator_lanes(data), "meta", *map(project_lane, data["subcoordinators"]), "owner"]) or held and lane in open_jobs(data) or lane in {agent_address(job) for job in data["jobs"].values() if job.get("agent") and job.get("session")}:
+        if not (data := drives.get(name)) or lane in (lanes := ["root", *communicator_lanes(data), POSTS_LANE, "meta", *map(project_lane, data["subcoordinators"]), "owner"]) or held and lane in open_jobs(data) or lane in {agent_address(job) for job in data["jobs"].values() if job.get("agent") and job.get("session")}:
             continue
         return job_addressed(drives, [entry], drive) or f"refused, nothing posted: to {lane}: no session of drive {name} reads that lane; name one of {', '.join(lanes)}, or an unfinished job's id on the drive's `record` tool"
     return None

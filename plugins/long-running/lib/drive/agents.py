@@ -370,19 +370,22 @@ def answering(name: str, seq: str) -> list[dict]:
 
 
 def posts(name: str, since: int) -> tuple[list[tuple[str, datetime]], int]:
-    """The seq of each `POST` report or correction to communicator@<drive> after since, oldest first, with when cci took it, read in one cci tail, and the newest seq the read reached, which is short of the drive's newest when the read held more than AMENDMENT_BYTES, since cci then prints the oldest records and the next read goes on from there."""
-    argv = ["cci", "tail", "--drive", name, "--to", "communicator", "--kind", "report", "--kind", "correction", "--since", f"#{since}", "--budget", str(AMENDMENT_BYTES), "--json"]
-    try:
-        records = [json.loads(line) for line in reads.run(argv, Path.cwd()).splitlines()]
-    except reads.ReadError as error:
-        raise state.DriveError(f"the POST reports to communicator@{name} could not be read: {error}") from None
-    found = [(str(record["seq"]), state.parse_time(record["at"])) for record in records if posting(name, record)]
-    return found, max((record["seq"] for record in records), default=since)
+    """The seq of each `POST` report or correction to posts@<drive>, where the drive routes every report, or to a communicator's lane, where a writer outside the record tool still sends one, after since, oldest first, with when cci took it, read in one cci tail a lane, and the newest seq both reads reached, which is short of the drive's newest when a read held more than AMENDMENT_BYTES, since cci then prints the oldest records and the next read goes on from there."""
+    found, reached = {}, []
+    for lane in (state.POSTS_LANE, "communicator"):
+        argv = ["cci", "tail", "--drive", name, "--to", lane, "--kind", "report", "--kind", "correction", "--since", f"#{since}", "--budget", str(AMENDMENT_BYTES), "--json"]
+        try:
+            records = [json.loads(line) for line in reads.run(argv, Path.cwd()).splitlines()]
+        except reads.ReadError as error:
+            raise state.DriveError(f"the POST reports to {lane}@{name} could not be read: {error}") from None
+        found |= {str(record["seq"]): state.parse_time(record["at"]) for record in records if posting(name, record)}
+        reached += [max(record["seq"] for record in records)] if records else []
+    return sorted(found.items(), key=lambda item: int(item[0])), min(reached, default=since)
 
 
 def posting(name: str, record: dict) -> bool:
-    """Whether a record cci holds is a `POST` report or correction to communicator@<drive>."""
-    return bool({"communicator", f"communicator@{name}"} & set(record.get("to", ()))) and record["kind"] in ("report", "correction") and record["text"].startswith("POST")
+    """Whether a record cci holds is a `POST` report or correction to posts@<drive> or a communicator's lane."""
+    return bool(set(record.get("to", ())) & {state.POSTS_LANE, f"{state.POSTS_LANE}@{name}", "communicator", f"communicator@{name}"}) and record["kind"] in ("report", "correction") and record["text"].startswith("POST")
 
 
 def seeded(name: str) -> int:
@@ -430,7 +433,10 @@ def start_posts(name: str, moment: datetime) -> None:
         if not handled_post(data, seq, owed):
             carried[seq] = "progress: the dashboard and records alone"
             continue
-        carried[seq] = "the watch"
+        if answered(seq)["attrs"].get("watch") == "true":
+            carried[seq] = "the communicator, by the note on its watched thread"
+            continue
+        carried[seq] = "the drive"
         try:
             state.detach(name, ["report-post", seq], "posts.log")
         except OSError as error:

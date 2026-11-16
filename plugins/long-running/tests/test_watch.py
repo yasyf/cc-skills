@@ -1432,7 +1432,7 @@ def test_a_thread_his_open_order_watches_starts_a_handler_on_each_new_teammate_m
     watching = watcher(demo)
     assert watch.watched_lines(watching, T0 + timedelta(minutes=1)) == []
     [(report, body), (start, _)] = calls
-    assert (report["text"], report["topic"], report["to"]) == ("POST 1 new in the thread o1 watches: answer it there", "watch-o1", [f"communicator@{demo}"])
+    assert (report["text"], report["topic"], report["to"]) == ("POST 1 new in the thread o1 watches: answer it there", "watch-o1", [f"{state.POSTS_LANE}@{demo}"])
     assert report["attr"] == {"order": "o1", "progress": "true", "watch": "true", "thread": TEAMMATE_THREAD}
     assert body.splitlines()[-2:] == ["New there from anyone but him, the drive and a bot: 1", f"- {slack_thread.messages[1]['ts']} Dana: can we run it again tonight?"]
     assert start[-1] == "ANSWER THIS: " + f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'watch-901'}"

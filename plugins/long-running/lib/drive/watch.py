@@ -1282,7 +1282,7 @@ def reported(watcher: Watcher, records: list[dict]) -> list[str]:
     """Post the watch's reports in one cci batch, each addressed to the communicator, whose handlers post them, so no coordinator's or the meta session's channel carries one, and mark each order a report closes closed on its seq unless another report closes it already, so second_close refuses every later close of it, in the same save taking the close report an order kept off it once cci took it, but keeping one the watch posts itself, by state.watch_posts_itself, with its seq, so the relay starts no handler on it; their seqs."""
     from drive import tools
 
-    seqs = tools.sent(watcher.name, LANE, [record | {"to": [f"communicator@{watcher.name}"]} for record in records])
+    seqs = tools.sent(watcher.name, LANE, [record | {"to": [f"{state.POSTS_LANE}@{watcher.name}"]} for record in records])
     if closes := [(record, order_id, seq) for record, seq in zip(records, seqs, strict=True) for order_id in state.closed_orders(record.get("attr") or {})]:
         def reported_write(data: dict):
             for record, order_id, seq in closes:
