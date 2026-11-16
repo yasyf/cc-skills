@@ -4,6 +4,7 @@ import hmac
 import json
 import os
 import re
+import select
 import socket
 import sys
 import threading
@@ -404,6 +405,7 @@ def test_drive_wait_ends_on_a_delivery_naming_its_pr_by_number_or_tracked_head_o
     assert receiver.settles(want, delivery) == settles
 
 
+@pytest.mark.skipif(not hasattr(select, "kqueue"), reason="drive wait blocks on kqueue, which macOS alone has")
 def test_drive_wait_blocks_until_the_receiver_appends_the_delivery_it_waits_on_and_gives_up_after_its_timeout(home: None) -> None:
     receiver.took(REPO, 9, "g0", "pull_request", {"pull_request": {"number": 42}})
     want = receiver.wanted(f"{REPO}#42", {})
