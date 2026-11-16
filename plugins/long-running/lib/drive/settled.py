@@ -880,11 +880,11 @@ def line_read(lined: Sequence[tuple[str, list[dict]]], read: dict[str, float]) -
 
 
 def overruled(lines: list[str], data: dict) -> list[tuple[str, dict]]:
-    """Each of these lines Jev reads, by `line_read` in one request a line holding only `against`, that line and the LINE_CANDIDATES answers found for it, at YES or more, against the recorded answers of his `line_answers` finds for it floored, as saying no ruling of his covers, putting up for change or asking him again an item that answer, given before it, orders or keeps, beside that answer, but a line naming by id a later answer of his that lifts that one, by `lifted_in`; Unheard when Jev gives no reading. A line whose words after its first colon, or whole words when it has none, are only none, as a bare `open: none` or a `none` list item, names no item to go against, so it reaches neither ccn nor Jev, which would otherwise read it against whatever answer its key word ranks first."""
+    """Each of these lines Jev reads, by `line_read` in one request an answer holding only `against`, that answer and each line it was found for, so no answer goes to Jev twice, at YES or more, against the recorded answers of his `line_answers` finds for it floored, as saying no ruling of his covers, putting up for change or asking him again an item that answer, given before it, orders or keeps, beside that answer, but a line naming by id a later answer of his that lifts that one, by `lifted_in`; Unheard when Jev gives no reading. A line whose words after its first colon, or whole words when it has none, are only none, as a bare `open: none` or a `none` list item, names no item to go against, so it reaches neither ccn nor Jev, which would otherwise read it against whatever answer its key word ranks first."""
     lined = line_answers([line for line in lines if not none_only(line.partition(":")[2] or line)], data, floored=True)
     grouped: dict[str, list[tuple[dict, dict[str, Noul]]]] = {}
     for item in line_items(lined):
-        grouped.setdefault(next(iter(item[0]["lines"])), []).append(item)
+        grouped.setdefault(next(iter(item[0]["answers"])), []).append(item)
     return [(line, answer) for line, answer, sure in line_read(lined, jev_all([together(items) for items in grouped.values()])) if reading(sure) and not lifted_in(line, answer, data)]
 
 

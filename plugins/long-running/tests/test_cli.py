@@ -6487,7 +6487,7 @@ def test_a_design_jev_reads_going_against_his_older_words_is_judged_beside_his_n
     jev.picked["sentence"] = sentence
     kept, err = keep(monkeypatch, capsys, "j1", leasing)
     assert kept == code
-    [weighed] = [asked["state"] for asked in jev.asked if "against.o1" in asked["questions"]]
+    [weighed] = [asked["state"] for asked in jev.asked if "against.q1" in asked["questions"]]
     [picking] = [asked["state"] for asked in jev.asked if "sentence" in asked["questions"]]
     assert (weighed["words"]["w1"]["said"], picking["words"]["said"], picking["newer"]) == (lease, '"from scratch, reusing none of the HA code"', {"n1": {"asked": "Reuse sandsql-ha's claim code for the lease?", "said": lease}})
     assert ('Jev reads this design\'s sentence "It takes its lease through sandsql-ha\'s claim code." as going against' if code else "but picks none of its sentences as doing so, so it is kept") in err
@@ -9423,7 +9423,7 @@ def test_job_brief_on_a_surface_refuses_interactions_jev_reads_as_steps_and_send
         "drive: j1's result is something he uses, by --native: --interactions names \"open the run page, click a step\", steps with no result he must see:"
     )
     [read] = [asked for asked in jev.asked if "steps.s1" in asked["questions"]]
-    assert (read["state"]["stories"]["s1"], read["questions"]["steps.s1"].ask.startswith("Does `stories.s1` list steps on `surface`")) == ("open the run page, click a step", True)
+    assert (read["state"]["story"], read["questions"]["steps.s1"].ask.startswith("Does `story` list steps on `surface`")) == ("open the run page, click a step", True)
     jev.picks("none")
     told = "click a step and its log opens beside it; press j and the next step's log replaces it"
     code, out = run(*briefed, "--interactions", told)
