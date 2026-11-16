@@ -353,7 +353,7 @@ def holds(drive: dict, wait: str, found: dict | None) -> bool:
     if wait in drive["prs"]:
         return drive["prs"][wait]["state"] in github.UNLANDED
     if part := state.part_wait(drive, wait):
-        return shared(drive, wait) or drive["orders"][part[0]]["state"] not in state.CLOSED_ORDER_STATES and not state.delivered(drive, *part)
+        return shared(drive, wait) or (drive["orders"][part[0]]["state"] not in state.CLOSED_ORDER_STATES or state.owes_staging(drive, part[1])) and not state.delivered(drive, *part)
     if wait in drive["orders"]:
         return state.unscheduled(drive, wait)
     if release := state.RELEASE_WAIT.fullmatch(wait):

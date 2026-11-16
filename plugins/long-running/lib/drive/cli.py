@@ -1062,11 +1062,6 @@ def order_set(args: argparse.Namespace) -> int:
     landing = [key for key in closing if (data["prs"][key]["stage"] or {}).get("name") == "landing"]
     if landing and (refused := gate.gate(name, f"drop {args.id}", [f"{', '.join(landing)} {'is' if len(landing) == 1 else 'are'} queued to land, so dropping {args.id} closes a PR mid-merge: let it land or dequeue it first"], order=(args.id, order))):
         raise DriveError(f"{args.id}: nothing changed, {refused}")
-    if not dropping and args.state in state.CLOSED_ORDER_STATES and order["state"] not in state.CLOSED_ORDER_STATES and (untested := state.dangerous_staged(data, args.id)):
-        raise DriveError(
-            f"{args.id}: refused, {', '.join(untested)} {'waits' if len(untested) == 1 else 'wait'} on {args.id}'s staging test, staged because {'its head changes' if len(untested) == 1 else 'their heads change'} a dangerous class of file,"
-            f" and closing {args.id} frees that wait, so {'it' if len(untested) == 1 else 'they'} would land untested: let the test pass, or move the wait onto another order's part with drive pr set <url> --waits"
-        )
     report = need_record_close(data, args.id, args.record, args.state == "dropped" and bool(args.note)) if args.state in state.CLOSED_ORDER_STATES else {}
     changes = {
         "text": args.words,

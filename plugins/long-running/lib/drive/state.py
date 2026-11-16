@@ -1546,6 +1546,11 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         deliver_carried_proofs(data)
     if not data.get("change_waits_stacked"):
         stack_change_waits(name, data)
+    if not data.get("staging_owed_on_prs"):
+        for order_id in data["orders"]:
+            for key in dangerous_staged(data, order_id):
+                data["prs"][key]["owes_staging"] = {"head": data["prs"][key]["head"], "at": stamp()}
+        data["staging_owed_on_prs"] = True
     fill_rows(data)
     return data, keep and not unkept and not unkinded and not uncarded(data)
 
@@ -3134,7 +3139,7 @@ def order_open_prs(data: dict, order_id: str) -> list[str]:
 
 
 def dangerous_staged(data: dict, order_id: str) -> list[str]:
-    """Each open PR waiting on a staging test part of the order that the watch staged because its head changes a dangerous class of file, by its tester's DANGEROUS_GOAL, so closing the order, which frees that wait, would let it land untested."""
+    """Each open PR waiting on a staging test part of the order that the watch staged because its head changes a dangerous class of file, by its tester's DANGEROUS_GOAL: the PRs the migration to owes_staging marks, so the wait lives on the PR itself."""
     return [
         key
         for key, pr in data["prs"].items()
@@ -3170,6 +3175,7 @@ def unstage(data: dict, key: str, why: str, job_id: str) -> None:
     """Lift a PR of the providers' repository off its staging test once its builder's `STAGING: none: <why>` or `#N none: <why>` says AGENTS.md's dangerous rule misses it, keeping why for his card with the head it spoke of, the one whose files were read last, so that head's changed files mark it no more, by markable, while a new head's are read again: the part leaves each order on which it is not delivered and no job runs it now, every job on it untaken or finished, by drop_part, with the PR's wait on it, while a test a job runs stays to its end, by his ruling 0048b14, and one that ended with no pass waits on no rerun once the lift says why."""
     pr = data["prs"][key]
     pr["unstaged"] = {"why": why, "head": pr["paths_at"] or pr["head"]}
+    pr["owes_staging"] = None
     part = STAGING_TEST.format(number=key.split("#")[1])
     for order_id in [order_id for order_id, order in data["orders"].items() if part in order["parts"]]:
         if not delivered(data, order_id, part) and all(untaken(job) or job["state"] in FINISHED_JOB_STATES for _, job in part_jobs(data, order_id, part)):
@@ -3275,7 +3281,13 @@ def mark_dangerous(data: dict, key: str, head: str, paths: list[str]) -> str | N
     if not markable(data, key, head) or not (classes := dangerous(data, paths, head)):
         return None
     changes = "; ".join(f"{kind}: {', '.join(made[:DANGEROUS_SHOWN])}{f' and {len(made) - DANGEROUS_SHOWN} more' if len(made) > DANGEROUS_SHOWN else ''}" for kind, made in classes.items())
+    pr["owes_staging"] = {"head": head, "at": stamp()}
     return stage_pr(data, key, DANGEROUS_GOAL.format(key=key, number=key.split("#")[1], changes=changes, rules=REPO_RULES), data["jobs"][pr["job"]].get("session"))
+
+
+def owes_staging(data: dict, part: str) -> bool:
+    """Whether a staging test part names an open PR the drive staged for a dangerous change, its owes_staging kept on the PR itself, so its wait on that part holds whether or not the order holding the part is still open, and closing an order never lets it land untested."""
+    return bool((named := STAGING_PART.fullmatch(part)) and (pr := data["prs"].get(f"{home(data)}#{named['number']}")) and pr["state"] == "open" and pr["owes_staging"])
 
 
 def wait_on_staging(data: dict, key: str) -> tuple[str, str]:
@@ -3303,6 +3315,7 @@ def unreach(data: dict, key: str) -> list[str]:
     """Take a PR the retired release reach put on its staging test off it, as watch.reach_lines does for each that changes nothing dangerous: unmarked reached, its ungranted exception cleared, and its `staging test of #N before it lands` part off each order, by drop_part, with its wait on any staging part naming it, a shared one included, whose test a dangerous partner still owes, whichever job took the test up, since a change that plans like dev passes untested, by his answer bb9cf91, and his ruling 0048b14 that a started staging test is finished binds a high-risk change, so his Approve on it stands; each live job drop_part told its part left, which it stops none of."""
     pr, part, number = data["prs"][key], STAGING_TEST.format(number=key.rpartition("#")[2]), f"#{key.rpartition('#')[2]}"
     pr["reached"] = False
+    pr["owes_staging"] = None
     if pr["exception"] and not pr["exception"]["granted"]:
         pr["exception"] = None
     told = []
@@ -7501,6 +7514,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "reached": False,
         "reviewed": [],
         "rulings_held": [],
+        "owes_staging": None,
         "updated": stamp(),
     }
 
