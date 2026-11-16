@@ -93,13 +93,13 @@ def table() -> list[Process]:
     return [Process(pid, int(fields[STAT_PPID]), int(fields[STAT_PGRP]), fields[STAT_STATE] == "Z") for pid in proc_pids() if (fields := proc_stat(pid))]
 
 
-def started(pid: int) -> int | None:
-    """When the process holding pid started, in whole seconds since the epoch as `ps -o lstart=` reads it, None when no process holds pid or this user may not read it."""
+def started(pid: int, zombies: bool = True) -> int | None:
+    """When the process holding pid started, in whole seconds since the epoch as `ps -o lstart=` reads it, None when no process holds pid or this user may not read it, and without zombies None too for a zombie awaiting its parent, which runs nothing more."""
     if sys.platform == "darwin":
         info = BsdInfo()
         read = libsystem().proc_pidinfo(pid, PROC_PIDTBSDINFO, WITH_ZOMBIES,ctypes.byref(info), ctypes.sizeof(info))
-        return info.start_tvsec if read == ctypes.sizeof(info) else None
-    if not (fields := proc_stat(pid)):
+        return info.start_tvsec if read == ctypes.sizeof(info) and (zombies or info.status != SZOMB) else None
+    if not (fields := proc_stat(pid)) or not zombies and fields[STAT_STATE] == "Z":
         return None
     return int(boot_time() + int(fields[STAT_STARTTIME]) / os.sysconf("SC_CLK_TCK"))
 

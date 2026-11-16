@@ -5325,6 +5325,87 @@ def update_or_create[T](name: str, fresh: dict, change: Callable[[dict], T]) -> 
     return create_or_write(name, fresh, change)
 
 
+def born(pid: int) -> list[int | None]:
+    """A process as a reservation names it: its pid and the second it started, None for one already gone or a zombie, so its pid taken by another process later, or a child that exited before its parent reaped it, holds nothing."""
+    return [pid, procs.started(pid, zombies=False)]
+
+
+def lives(process: list[int | None] | None) -> bool:
+    """Whether the process a reservation names by born still runs: a process that is no zombie holds its pid and started at its second."""
+    return process is not None and process[1] is not None and procs.started(process[0], zombies=False) == process[1]
+
+
+def reserve(data: dict, members: tuple[Row, ...]) -> str:
+    """Reserve, inside a write's change, each field members name, as (collection, key, field) of a record that exists, for one launch this process makes once the write commits, the field holding a token record beside the record's other fields: the token, every member, so a child adopts the launch whole or not at all, this process as its starter, by born, no child yet, and reserved; the token, which the launch hands its child as --reserved <token>, and which settle, cancel and adopt take. A member stays held while its holder lives, by holder, so no second launch starts beside it."""
+    token = uuid.uuid4().hex
+    for collection, key, field in members:
+        data[collection][key][field] = {"token": token, "members": [list(member) for member in members], "starter": born(os.getpid()), "child": None, "state": "reserved"}
+    return token
+
+
+def holder(value: object) -> int | None:
+    """The pid of the live process a reservation in a field holds it for: its child once the child adopted it or its starter settled it, while that child runs, else its starter while it runs; None for a cancelled reservation, one whose child ended, one whose starter died before naming a child, which a new reserve may take, and a field holding no reservation. Liveness reads each process's pid and the second it started, never the pid alone."""
+    if not isinstance(value, dict) or value.get("state") not in ("reserved", "adopted"):
+        return None
+    process = value["starter"] if value["child"] is None else value["child"]
+    return process[0] if lives(process) else None
+
+
+def reserved(data: dict, member: Row, token: str) -> list[dict] | None:
+    """Each record of the reservation member holds, as data holds it, every member the token names in turn, while member still holds that token; None once it holds another value."""
+    if not isinstance(held := row_of(data, member), dict) or held.get("token") != token:
+        return None
+    return [record for each in held["members"] if isinstance(record := row_of(data, tuple(each)), dict) and record.get("token") == token]
+
+
+def adopt(name: str, member: Row, token: str) -> bool:
+    """Adopt, as the child a launch started with --reserved <token>, the reservation member holds, before the child does any work outside the drive, in one write taking every member the token names or none: each must still hold that token, reserved with no child or this process named as its child, or adopted by this process already; whether it took them, False once the token is gone from any member, cancelled, or another child's, when the child ends without working."""
+    me = born(os.getpid())
+
+    def took(data: dict) -> bool:
+        records = reserved(data, member, token)
+        if records is None or len(records) != len(row_of(data, member)["members"]):
+            return False
+        if not all(record["state"] == "reserved" and record["child"] in (None, me) or record["state"] == "adopted" and record["child"] == me for record in records):
+            return False
+        for record in records:
+            record |= {"child": me, "state": "adopted"}
+        return True
+
+    return write(name, took)
+
+
+def adopt_reserved(name: str, member: Row, token: str | None) -> None:
+    """The contract of a child a launch started with --reserved <token>, called first: adopt the reservation member holds, by adopt, before any work outside the drive, and end by SystemExit, having done nothing, once it is gone, cancelled or another child's; a child started with no --reserved adopts nothing."""
+    if token is not None and not adopt(name, member, token):
+        raise SystemExit(f"{'.'.join(member)} no longer holds reservation {token} for this process, so it ends without working")
+
+
+def settle(name: str, member: Row, token: str, pid: int) -> None:
+    """Name the child a launch started, by pid, on each member still holding the token reserved with no child, in a patient write, since it records a launch already made; never over a child's adoption, a cancel or a newer reservation, and a child gone before this reads gone, so its reservation frees."""
+    child = born(pid)
+
+    def named(data: dict) -> None:
+        for record in reserved(data, member, token) or []:
+            if record["state"] == "reserved" and record["child"] is None:
+                record["child"] = child
+
+    write(name, named, patient=True)
+
+
+def cancel(name: str, member: Row, token: str) -> bool:
+    """Cancel the reservation member holds where no child adopted it, as a launch that raised does, since a child it may have started must not work, or a halt for a launch not yet adopted, in a patient write: each member still holding the token reserved reads cancelled, which a late child's adopt refuses and holder reads as free; whether a child adopted it instead, a child then working that only a signal to that child, never to its starter, stops."""
+
+    def ended(data: dict) -> bool:
+        records = reserved(data, member, token) or []
+        for record in records:
+            if record["state"] == "reserved":
+                record["state"] = "cancelled"
+        return any(record["state"] == "adopted" for record in records)
+
+    return write(name, ended, patient=True)
+
+
 def create(data: dict) -> None:
     """Save a drive built whole in code, as a proof or a test builds one, marked as needing no label_approvals pass, since its coordinator's cwd may be no checkout at all and every tap `drive answer` records for it is labelled already; `drive start` makes its drives through create_or_write, then migrates each, which labels the older taps of the checkout it starts in."""
     with writing(data["name"]):
