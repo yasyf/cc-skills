@@ -1239,3 +1239,5 @@ button.task-row { cursor: pointer; }
 .ap-more summary { color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; }
 .ap-more .ap-staging { margin-top: 10px; }
 .pr-actions .meta { margin-left: 4px; }
+.story-more { margin-top: 12px; }
+.story-more summary { color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; }
