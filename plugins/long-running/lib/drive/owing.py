@@ -115,7 +115,7 @@ def reverted(data: dict, answer_id: str, link: str, due: datetime, moment: datet
 
 
 def met(data: dict, order_id: str, item: dict) -> bool:
-    """Whether an item's condition holds on the drive's rows: a fix-live note once no reporter is owed it, a claim once its thread closed it, a card once the job it names draws one of his cards or ends, an ask once its order closes; a step or revert closes only on a post naming it or by hand."""
+    """Whether an item's condition holds on the drive's rows: a fix-live note once no reporter is owed it, a claim once its thread closed it, a card once the job it names draws one of his cards or ends, an ask once its order closes, an ask a release left out once that ask is delivered; a step or revert closes only on a post naming it or by hand."""
     from drive import view
 
     order, when = data["orders"][order_id], item["done_when"]
@@ -128,6 +128,8 @@ def met(data: dict, order_id: str, item: dict) -> bool:
         return not job or job["state"] in state.FINISHED_JOB_STATES or bool(view.open_cards(job))
     if "order_closed" in when:
         return order["state"] in state.CLOSED_ORDER_STATES
+    if "ask" in when:
+        return when["ask"] not in order["asks"] or state.ask_delivered(data, order_id, order["asks"][when["ask"]])
     return False
 
 

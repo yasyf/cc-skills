@@ -12616,13 +12616,13 @@ def test_a_release_carries_an_ask_it_names_only_once_each_pr_delivering_it_merge
     monkeypatch.setattr(brief, "contained", lambda cwd, named, sha, commit: (True, f"holds {named}"))
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: reached[key] for key in keys})
     carried, missed = brief.release_asks("tools/ci release start desktop", state.load(demo), ["a1", "a2", "a9"])
-    assert (carried, [line.split(":")[0] for line in missed]) == ([], ['a1 on o1, "show my agents"', 'a2 on o1, "drop the env picker"', "a9 is no ask of his the drive keeps"])
-    assert ("ships in api, which this release, naming only desktop, does not carry" in missed[0], "Forge-AI/monorepo#2 has not merged" in missed[1]) == (True, True)
+    assert (carried, {ask_id: line.split(":")[0] for ask_id, line in missed.items()}) == ({}, {"a1": 'a1 on o1, "show my agents"', "a2": 'a2 on o1, "drop the env picker"', "a9": "a9 is no ask of his the drive keeps"})
+    assert ("ships in api, which this release, naming only desktop, does not carry" in missed["a1"], "Forge-AI/monorepo#2 has not merged" in missed["a2"]) == (True, True)
     reached["Forge-AI/monorepo#1"] = {"releases": ["desktop"]}
     monkeypatch.setattr(brief, "contained", lambda cwd, named, sha, commit: (False, f"lacks {named}"))
-    assert brief.release_asks("tools/ci release start desktop", state.load(demo), ["a1"])[1] == [f'a1 on o1, "show my agents": `{"c" * 40}` lacks Forge-AI/monorepo#1']
+    assert brief.release_asks("tools/ci release start desktop", state.load(demo), ["a1"])[1] == {"a1": f'a1 on o1, "show my agents": `{"c" * 40}` lacks Forge-AI/monorepo#1'}
     monkeypatch.setattr(brief, "contained", lambda cwd, named, sha, commit: (True, f"holds {named}"))
-    assert brief.release_asks("tools/ci release start desktop", state.load(demo), ["a1"]) == (['a1 on o1, "show my agents": Forge-AI/monorepo#1'], [])
+    assert brief.release_asks("tools/ci release start desktop", state.load(demo), ["a1"]) == ({"a1": 'a1 on o1, "show my agents": Forge-AI/monorepo#1'}, {})
 
 
 def test_a_staging_release_start_names_one_rehearsal_env_alone() -> None:

@@ -1861,10 +1861,12 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     unreleased = args.release and (brief.release_refusal(args.release, known := state.load(name), args.reading, args.order) or brief.approval_refusal(args.release, known, args.reading, args.order) or brief.away_refusal("start", args.release, known, state.now()) or gate.gate(name, f"release {args.release}", brief.incident_scope(args.release, known), order=(args.order, known["orders"][args.order]) if args.order in known["orders"] else None))
     if args.asks and not args.release:
         raise DriveError("--asks names the asks of his the release --release starts is made for, so it needs --release")
-    carried, missed = brief.release_asks(args.release, known, args.asks) if args.release and args.asks and not unreleased else ([], [])
+    carried, missed = brief.release_asks(args.release, known, args.asks) if args.release and args.asks and not unreleased else ({}, {})
     if missed:
-        unreleased = brief.ASK_UNCARRIED.format(missed="; ".join(missed))
-        asks_missed(name, args.order, args.release, unreleased)
+        why = brief.ASK_UNCARRIED.format(missed="; ".join(missed.values()))
+        refused = gate.gate(name, f"release {args.order} {args.release}", [why])
+        asks_missed(name, args.order, args.release, why, starts=not refused)
+        unreleased = refused
     if args.release and not unreleased:
         for line in filter(None, [brief.uncarried(args.release, known), *brief.release_notes([args.release], known)]):
             print(f"drive job add: {line}", file=sys.stderr)
@@ -1931,7 +1933,10 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         if args.release:
             job["brief_flags"] = (job.get("brief_flags") or {}) | {"release": args.release}
             job["release_checkout"] = checkout
-            job["release_pass"] = {"release": args.release, "at": created, "reading": args.reading, "asks": args.asks}
+            job["release_pass"] = {"release": args.release, "at": created, "reading": args.reading, "asks": {ask_id: {"carried": True, "why": line} for ask_id, line in carried.items()} | {ask_id: {"carried": False, "why": line} for ask_id, line in missed.items()}}
+            for ask_id, line in missed.items():
+                if found := state.find_ask(data, ask_id):
+                    owing.add(data, found[0], owing.DELIVER, f"his ask {ask_id}, which release job {job_id} left out: {line}", None, {"ask": ask_id}, f"release {job_id}", state.parse_time(created), job_id)
             if (env := brief.leased_env(words := shlex.split(args.release), data)) and not (providers.of(data).release.gives_way(words) and (data["slots"].get(env) or {}).get("holder")) and not state.train_lease(data, env, job_id, state.parse_time(created)):
                 slotted = env
         if args.agent:
@@ -1955,7 +1960,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         waiting.append(
             f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
         )
-    carriage = [f"{job_id} carries his ask {line}" for line in carried] + [
+    carriage = [f"{job_id} carries his ask {line}" for line in carried.values()] + [f"{job_id} leaves out his ask {line}: an owed deliver item tracks it" for line in missed.values()] + [
         f'{job_id} leaves out his open ask {ask_id} on {order_id}, "{render.cut(ask["words"], 120)}": its post names it as left out'
         for order_id in ([args.order] if args.release else [])
         for ask_id, ask in state.open_asks(data, order_id).items()
@@ -1968,11 +1973,11 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     return job_id, job | {"builder": builder_id, "history": history}, [*took, *replaced, *carriage, *started, *waiting, *names, *repeated_lines(data, args.order, new_parts)]
 
 
-def asks_missed(name: str, order_id: str, command: str, why: str) -> None:
-    """Post one handoff record to the session holding the order a release was made for, by state.holding_lane, saying it did not start because it leaves out an ask it names, so his thread hears why from that session, as release_start_failed tells of a start that failed."""
+def asks_missed(name: str, order_id: str, command: str, why: str, starts: bool) -> None:
+    """Post one handoff record to the session holding the order a release was made for, by state.holding_lane, before the release starts, saying which asks it names it leaves out and why, so his thread hears that from that session before the release starts, not after: on the first try, which the gate refuses once, and again on the repeat that starts it."""
     data = state.load(name)
     lane = state.holding_lane(data, find(data["orders"], order_id, "order"))
-    text = f"RELEASE {order_id}: `{command}` did not start: {why}. Tell him in the order's thread which ask it leaves out and why, in his words"
+    text = f"RELEASE {order_id}: `{command}` {'starts now, as a repeat' if starts else 'was refused once'}: {why}. Tell him in the order's thread, before it starts, which of his asks it leaves out and why, naming each by his words"
     argv = ["cci", "post", "--drive", name, "--lane", watch.LANE, "--kind", "handoff", "--to", f"{lane}@{name}", "--topic", f"release-{order_id}"]
     reads.run([*argv, "--text", reads.withheld(text)], Path.cwd(), reads.posting())
 
@@ -8345,9 +8350,9 @@ def parser() -> argparse.ArgumentParser:
         default=[],
         metavar="ASK",
         help=(
-            "with --release, each ask of his, a<n> as drive status lists it, this release is made for: refused, nothing started, unless it carries every one,"
-            " each PR delivering it merged, in the commit it ships and on a target it names, and the order's thread then hears why;"
-            " the job's lines name each it carries and each open ask of his it leaves out"
+            "with --release, each ask of his, a<n> as drive status lists it, this release is made for: one leaving out an ask it names, each PR delivering it merged,"
+            " in the commit it ships and on a target it names, is refused once, naming each and why, and the order's thread hears it before the release starts;"
+            " a repeat starts it, keeping each ask carried or not with why and owing a deliver item for each left out"
         ),
     )
     verb.add_argument(

@@ -417,32 +417,33 @@ def uncarried(command: str, data: dict) -> str | None:
 
 
 ASK_UNCARRIED = (
-    "a release made for his asks carries each one it names, or it does not start and his thread hears why, by his rethink step 5: {missed}."
-    " Land what is missing and add the release again, or name only the asks it carries in --asks, the post then naming each one it leaves out"
+    "this release leaves out asks of his it is made for: {missed}. A release made for his asks carries them, by his words \"it thought it was ok to do a release"
+    " without including either of the 2 fixes\": land what is missing, or name in --asks only the asks it carries; his thread hears which it leaves out and why before it starts"
 )
 
 
-def release_asks(command: str, data: dict, asks: list[str]) -> tuple[list[str], list[str]]:
-    """Which asks a release start carries, each a line naming it and the PRs that deliver it, and why each it names but does not carry is missing: an ask no order holds, one no PR delivers, one a PR of which has not merged, one whose merge the commit its --from or --commit names lacks, by contained(), and one whose PR reaches no target its --targets or --only names, by the release provider's components as cli.release_reach reads them, so the release ships what his asks need, capped by the scope he named. A read of git or the release provider that fails lets the ask through with its line saying so, since an unreadable input never holds the action."""
+def release_asks(command: str, data: dict, asks: list[str]) -> tuple[dict[str, str], dict[str, str]]:
+    """Which asks a release start carries, by id, each a line naming it and the PRs that deliver it, and, by id, why each it names but does not carry is missing: an ask no order holds, one no PR delivers, one a PR of which has not merged, one whose merge the commit its --from or --commit names lacks, by contained(), and one whose PR reaches no target its --targets or --only names, by the release provider's components as cli.release_reach reads them, so the release ships what his asks need, capped by the scope he named. A read of git or the release provider that fails lets the ask through with its line saying so, since an unreadable input never holds the action."""
     from drive import cli, github
 
     [flags] = started(command, data)
     cwd, commit = data["roles"]["coordinator"]["cwd"], (flags.get("from") or (None,))[-1]
     named = set(flags.get("targets", ())) | set(flags.get("only", ()))
     scoped = named and providers.of(data).release.whole not in named
-    carried, missed = [], []
+    carried: dict[str, str] = {}
+    missed: dict[str, str] = {}
     for ask_id in asks:
         if not (found := state.find_ask(data, ask_id)):
-            missed.append(f"{ask_id} is no ask of his the drive keeps")
+            missed[ask_id] = f"{ask_id} is no ask of his the drive keeps"
             continue
         order_id, ask = found
         shown = f'{ask_id} on {order_id}, "{cut(ask["words"], 120)}"'
         keys = state.ask_prs(data, order_id, ask)
         if not keys:
-            missed.append(f"{shown}: no PR delivers it yet")
+            missed[ask_id] = f"{shown}: no PR delivers it yet"
             continue
         if unmerged := [key for key in keys if data["prs"][key]["state"] != "merged"]:
-            missed.append(f"{shown}: {', '.join(unmerged)} has not merged")
+            missed[ask_id] = f"{shown}: {', '.join(unmerged)} has not merged"
             continue
         lacking, unread = [], []
         for key in keys if commit else []:
@@ -455,16 +456,16 @@ def release_asks(command: str, data: dict, asks: list[str]) -> tuple[list[str], 
             held, said = contained(cwd, key, data["prs"][key]["merged_sha"], commit)
             (lacking if held is False else unread if held is None else []).append(f"`{commit}` {said}")
         if lacking:
-            missed.append(f"{shown}: {'; '.join(lacking)}")
+            missed[ask_id] = f"{shown}: {'; '.join(lacking)}"
             continue
         try:
             reach = cli.release_reach(data["name"], data, keys) if scoped else {}
         except (state.DriveError, reads.ReadError, providers.ProviderError, github.GithubError) as error:
             reach, unread = {}, [*unread, f"what {', '.join(keys)} reaches did not read: {error}"]
         if outside := [f"{key} ships in {', '.join(found['releases']) or 'no release target'}" for key, found in reach.items() if found["releases"] and not set(found["releases"]) & named]:
-            missed.append(f"{shown}: {'; '.join(outside)}, which this release, naming only {', '.join(sorted(named))}, does not carry")
+            missed[ask_id] = f"{shown}: {'; '.join(outside)}, which this release, naming only {', '.join(sorted(named))}, does not carry"
             continue
-        carried.append(f"{shown}: {', '.join(keys)}" + (f" ({'; '.join(unread)})" if unread else ""))
+        carried[ask_id] = f"{shown}: {', '.join(keys)}" + (f" ({'; '.join(unread)})" if unread else "")
     return carried, missed
 
 
