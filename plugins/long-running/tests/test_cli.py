@@ -9534,6 +9534,16 @@ def test_a_staging_slot_wait_holds_until_the_job_rides_or_holds_a_staging_cut(ru
     assert view.holds(state.load(demo), "staging-slot:j1", None) is False
 
 
+def test_a_waiting_on_processes_on_a_mac_box_holds_while_the_provider_reads_one_running(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    data = state.load(demo)
+    assert state.named_waits(data, "o1", "WAITING pid:4411,4412@j7842-prod, its screen recordings") == ["pid:4411@j7842-prod", "pid:4412@j7842-prod"]
+    running = {4411}
+    monkeypatch.setattr(providers.MacBoxProvider, "runs", lambda self, box, pid: box == "j7842-prod" and pid in running)
+    assert (view.holds(data, "pid:4411@j7842-prod", None), view.holds(data, "pid:4412@j7842-prod", None)) == (True, False)
+    monkeypatch.setattr(providers.MacBoxProvider, "runs", lambda self, box, pid: (_ for _ in ()).throw(providers.ProviderError("ssh refused")))
+    assert view.holds(data, "pid:4412@j7842-prod", None) is True
+
+
 def test_a_job_waiting_on_a_mac_box_is_freed_once_the_pool_hands_it_one(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test the app on a Mac")
     run("job", "add", "codex", "--order", "o1", "--goal", "test the app on your own Mac box")

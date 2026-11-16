@@ -190,7 +190,7 @@ def take(name: str, data: dict, job_id: str, run: Run) -> str | None:
             if not line
             else state.result_refusal(data, job_id, line, report) or (line.startswith("DONE") and brief.surface(job) and brief.unproven(report, job_id, job))
         )
-        if refused and not (job["said"] or "").startswith(RETRIED):
+        if refused and (line.startswith("WAITING") or not (job["said"] or "").startswith(RETRIED)):
             state.hold_text(job, f"{REFUSED}{refused}\nYour refused reply:\n{report.strip()}", state.WATCH_SENDER)
             moment = state.stamp()
             job.update(state="waiting", said=f"{RETRIED}{refused}"[:SAID_CHARS], updated=moment, returned=moment)

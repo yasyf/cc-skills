@@ -50,7 +50,7 @@ from functools import cache, lru_cache
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from drive import artifacts, github, limits, slack, state
+from drive import artifacts, github, limits, providers, slack, state
 from drive.card import PARENTHETICAL, RECORD_ID, Pasted, kind_and_title, without_records
 from drive.render import cut, when
 
@@ -360,6 +360,11 @@ def holds(drive: dict, wait: str, found: dict | None) -> bool:
         return drive["prs"][release["pr"]]["state"] != "closed"
     if state.PID_WAIT.fullmatch(wait):
         return state.pid_runs(wait)
+    if boxed := state.BOX_PID_WAIT.fullmatch(wait):
+        try:
+            return providers.of(drive).mac_box.runs(boxed["box"], int(boxed["pid"]))
+        except providers.ProviderError:
+            return True
     if boxed := state.MAC_BOX_WAIT.fullmatch(wait):
         return not boxed["handed"]
     if turn := state.SLOT_TURN_WAIT.fullmatch(wait):

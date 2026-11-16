@@ -192,6 +192,10 @@ class MacBoxProvider(Provider):
     def down(self, box: str, holder: str) -> int:
         return 0
 
+    def runs(self, box: str, pid: int) -> bool:
+        """Whether the process numbered pid runs on the Mac box named box now, which a job's pid:<n>@<box> wait holds on."""
+        raise ProviderError("this repository reads no process on a Mac box")
+
     def live_boxes(self) -> list[str] | None:
         """The name of each live box; None when the repository keeps none."""
         return None

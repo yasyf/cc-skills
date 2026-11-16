@@ -386,6 +386,22 @@ def test_a_codex_cause_reply_naming_no_fix_runs_codex_again_and_one_naming_it_re
         assert job["said"].startswith(f"{codex.RETRIED}j2 traces the cause of o1's live bug, so {state.FIX_RULE}"[:200])
 
 
+def test_a_codex_waiting_refused_twice_stays_waiting_with_the_refusal_carried_never_failed_as_j7842s_mac_test_pass_was(
+    demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "test the app on a Mac")
+    run("job", "add", "codex", "--order", "o1", "--goal", "test the app on your own Mac box")
+    brief = tmp_path / "j1.brief.md"
+    brief.write_text(f"Order: test the app on a Mac\nDrive: {demo}, order o1, job j1\n")
+    assert run("job", "launch", "j1", str(brief))[0] == 0
+    folder = Path(state.load(demo)["jobs"]["j1"]["codex_run"])
+    for _ in range(2):
+        codex_ask.end(folder, "completed", codex_reply("WAITING", "on my screen recordings", "the recorder runs"))
+        job = watched(demo, "j1")
+        assert (job["state"], job["said"].startswith(codex.RETRIED)) == ("waiting", True)
+        assert run("job", "launch", "j1")[0] == 0
+
+
 @pytest.mark.parametrize(
     ("answer", "taken", "said"),
     [
