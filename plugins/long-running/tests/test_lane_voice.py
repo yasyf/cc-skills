@@ -63,16 +63,19 @@ def test_importing_voice_makes_it_lane_say_s_sender() -> None:
     assert say.SENDER is voice.send
 
 
-def test_his_message_in_a_lane_channel_reaches_that_lane_by_its_channel_and_thread(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_his_message_reaches_its_lane_by_thread_and_every_lane_in_the_channel_when_unclear(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     from lane import store, verbs
 
-    (tmp_path / "demo").mkdir()
+    root = tmp_path / "lanes"
+    (root / "demo").mkdir(parents=True)
     lanes = {"run-page": {"channel": "C0RUN", "thread": None}, "v3-a": {"channel": "C0SHARED", "thread": "1.1"}, "v3-b": {"channel": "C0SHARED", "thread": "2.2"}}
-    monkeypatch.setattr(store, "root", lambda: tmp_path)
+    monkeypatch.setattr(store, "root", lambda: root)
     monkeypatch.setattr(store, "load_all", lambda drive: lanes)
     heard = []
-    monkeypatch.setattr(verbs, "message", lambda drive, lane_id, words, link, ts: heard.append((drive, lane_id, words, ts)) or 1)
+    monkeypatch.setattr(verbs, "message", lambda drive, lane_id, words, link, ts: heard.append((lane_id, ts)) or 1)
     assert voice.heard("C0RUN", None, "make this a prio lane", None, "9.9") == "run-page: 1 new"
     assert voice.heard("C0SHARED", "2.2", 'tapped "Approve"', None, "9.8") == "v3-b: 1 new"
-    assert voice.heard("C0NONE", None, "hi", None, "9.7") == "no one lane holds C0NONE/: 0 do"
-    assert heard == [("demo", "run-page", "make this a prio lane", "9.9"), ("demo", "v3-b", 'tapped "Approve"', "9.8")]
+    assert voice.heard("C0SHARED", None, "both of these", None, "9.7") == "v3-a: 1 new; v3-b: 1 new"
+    assert voice.heard("C0SHARED", "3.3", "an older thread", None, "9.6") == "v3-a: 1 new; v3-b: 1 new"
+    assert voice.heard("C0NONE", None, "hi", None, "9.5") == "no lane holds C0NONE"
+    assert heard == [("run-page", "9.9"), ("v3-b", "9.8"), ("v3-a", "9.7"), ("v3-b", "9.7"), ("v3-a", "9.6"), ("v3-b", "9.6")]
