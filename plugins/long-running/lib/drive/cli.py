@@ -3435,6 +3435,11 @@ def rebriefed(name: str, job_id: str) -> str:
     return Path(state.load(name)["jobs"][job_id]["brief"]).read_text().strip() + (f"\n\n{over}{taken}" if over else "")
 
 
+def his_part(part: str) -> bool:
+    """Whether a part is his own words, as a part his later message adds to an order is, rather than a part the drive names, such as the immediate fix, an incident's parts, a staging test or a port."""
+    return part not in {state.INCIDENT_FIX, state.IMMEDIATE_FIX, state.FOLLOW_UP, *(named for parts in state.INCIDENT_PARTS.values() for named in parts)} and not state.STAGING_PART.fullmatch(part) and not state.PORT_PART.fullmatch(part)
+
+
 def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tuple[str, dict] | None:
     """Write a job's brief from what the drive holds and its flags: his words verbatim on its order and on each order it carries, where its order came from, such as the record or his message `drive order add --from` names, each Slack message they link by linked_messages, his spec on its feature newest first before its Goal, by brief.spec, each of his words whole and each he replaced named by the newer answers replacing it, the earlier jobs' transcripts, and the lines its flags name; none, writing nothing, when the job's flags are no longer over, the ones this write replaces, since another brief write saved its own as this one ran."""
     data = state.load(name)
@@ -3451,6 +3456,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
     mac, release = mac_lines(name, job, flags)
     fields = {
         "Order (his words)": order["text"] + carried,
+        "Its parts (his words)": [part for part in job["parts"] if his_part(part) and part not in order["text"]],
         "From": order["from"],
         "Linked messages": linked_messages(job_id, [order["text"], *(data["orders"][order_id]["text"] for order_id in job["carries"])], flags["handoff"]),
         "Serves": flags["serves"],

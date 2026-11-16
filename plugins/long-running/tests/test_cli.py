@@ -5794,6 +5794,21 @@ def test_a_readers_builder_builds_its_parts_and_each_later_readers_done_rebriefs
     assert (job["goal"], job["agent"], Path(job["brief"]).read_text() == written) == ("copy it", "a1", True)
 
 
+
+def test_a_builder_whose_goal_came_from_an_older_readers_build_line_names_that_reader_and_carries_his_words_on_its_part(
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy", "fix whatever gives it bad lengths")
+    run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--part", "fix whatever gives it bad lengths", "--goal", "research: read-only, at once: why the lengths are bad")
+    assert keep(monkeypatch, capsys, "j1", RESEARCH.replace("one store_copy_at call per stalled store", "key the length by copy"))[0] == 0
+    run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--part", "fix whatever gives it bad lengths", "--goal", "research: read-only, at once: why the copy stalls")
+    assert keep(monkeypatch, capsys, "j3", RESEARCH)[0] == 0
+    with state.edit("demo") as data:
+        data["jobs"]["j2"].update(parts=["fix whatever gives it bad lengths"], goal="key the length by copy")
+    assert run("job", "brief", "j2")[0] == 0
+    written = Path(state.load("demo")["jobs"]["j2"]["brief"]).read_text()
+    assert ("\nResearched: j1\n" in written, "\nIts parts (his words):\n- fix whatever gives it bad lengths\n" in written) == (True, True)
+
 def test_a_readers_build_line_naming_no_change_names_no_goal_so_its_builder_keeps_its_parts_goal_with_the_research_in_its_brief(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

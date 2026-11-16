@@ -672,9 +672,18 @@ def filled(block: dict[str, str]) -> bool:
 
 
 def researches(name: str, data: dict, order_id: str, parts: list[str], besides: str | None = None) -> Iterator[tuple[str, str]]:
-    """Each job readers names for these parts of the order but the job besides names, with its kept report: each reader or design whose report carries a filled Researched: block, newest first, then each builder whose return listed one as a change, that return as it stands, so a builder of a change a builder left unbuilt starts on that return when nothing researched the work it came from."""
+    """Each job readers names for these parts of the order but the job besides names, with its kept report: each reader or design whose report carries a filled Researched: block, the one whose build: line the job's goal came from first, by his ruling a0e1947 "Name only a reader of the job's own part", since a reader added on every part of an order reads each of them, then newest first, then each builder whose return listed one as a change, that return as it stands, so a builder of a change a builder left unbuilt starts on that return when nothing researched the work it came from."""
+    goal = data["jobs"][besides]["goal"] if besides in data["jobs"] else None
     found = [(job_id, text) for job_id in reversed(readers(data, order_id, parts)) if job_id != besides and (filled(researched(text := state.report_text(name, job_id))) or data["jobs"][job_id]["kind"] not in RESEARCH_KINDS)]
-    yield from sorted(found, key=lambda pair: not filled(researched(pair[1])))
+    yield from sorted(found, key=lambda pair: (not filled(block := researched(pair[1])), not built_from(goal, block)))
+
+
+def built_from(goal: str | None, block: dict[str, str]) -> bool:
+    """Whether a job's goal names the change a Researched: block's build: line names, as name_goals gives a builder its reader's build: line, the same in its first BUILT_FROM characters whatever its case, since a coordinator often shortens the rest."""
+    return bool(goal and block.get("build")) and " ".join(goal.split()).casefold()[:BUILT_FROM] == " ".join(block["build"].split()).casefold()[:BUILT_FROM]
+
+
+BUILT_FROM = 60
 
 
 def research(name: str, data: dict, order_id: str, parts: list[str], besides: str | None = None) -> tuple[str, str] | None:
