@@ -186,6 +186,15 @@ def test_his_dm_is_the_communicators_and_watched_channels_the_coordinators() -> 
     assert render.context(drive, "coordinator").splitlines()[1] == 'Hold with cc-slack subscribe --kind alerts,releases,posts --channel <id>: C0B75AL4XEW, C0822AHFY3G'
 
 
+def test_an_alert_channel_held_by_a_seat_is_that_sub_coordinators_and_not_the_top_coordinators() -> None:
+    drive = sample()
+    drive["slack"]["watch"] = ["C0B75AL4XEW", "C0CAC1HT17W"]
+    drive["slack"]["held_by"] = {"C0CAC1HT17W": {"seat": "Platform", "kinds": "alerts"}}
+    assert render.hold_line(drive, "coordinator") == "Hold with cc-slack subscribe --kind alerts,releases,posts --channel <id>: C0B75AL4XEW"
+    assert render.hold_line(drive, "coordinator", "Platform") == "Hold with cc-slack subscribe --kind alerts --channel <id>: C0CAC1HT17W"
+    assert render.hold_line(drive, "coordinator", "Iris") == "Hold no Slack channel: the top coordinator holds the drive's."
+
+
 def test_hold_line_reads_a_drive_saved_before_watch_existed() -> None:
     drive = sample()
     del drive["slack"]["watch"]

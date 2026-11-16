@@ -6458,6 +6458,8 @@ def channels(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     data = state.load(name)
     missing = [project for project in dict.fromkeys([None, *data["subcoordinators"], TOOLING_FILING[0]]) if (slack.channel_project(project) or "") not in data["slack"]["channels"]]
+    if args.hold:
+        return emit(args, "\n".join(channels_held(name, args.hold, args.kinds)), {"held_by": state.load(name)["slack"]["held_by"]})
     if not (args.make or args.move_cards):
         kept = [f"#{made['name']} {made['id']} {seat or 'the drive'}" for seat, made in data["slack"]["channels"].items()]
         unmade = [f"no channel yet for {project or 'the drive'}: --make makes it" for project in missing]
@@ -6482,6 +6484,29 @@ def channels(args: argparse.Namespace) -> int:
         view.refresh_cards(name)
     lines = [*(f"#{channel['name']} {channel['id']}" for channel in made), *([f"{len(moved)} open card(s) of his DM moved to their project's channel"] if args.move_cards else [])]
     return emit(args, "\n".join(lines), {"channels": made, "moved": [{"from": card["url"], "to": url} for card, _, url in moved]})
+
+
+def channels_held(name: str, holds: list[str], kinds: str) -> list[str]:
+    """Give each watched alert channel <channel>=<seat> to that seat's sub-coordinator, which subscribes to its kinds of lines and keeps it across restarts and compaction by its Hold line, adding the channel to the drive's watched channels; an empty seat hands it back to the top coordinator. Refused for a seat no sub-coordinator holds."""
+    data = state.load(name)
+    pairs = [hold.partition("=")[::2] for hold in holds]
+    if unbound := [seat for _, seat in pairs if seat and seat not in data["subcoordinators"]]:
+        raise DriveError(f"--hold: no sub-coordinator holds {', '.join(unbound)}; the seats bound: {', '.join(data['subcoordinators']) or 'none'}")
+
+    def channels_held_write(fresh: dict):
+        for channel, seat in pairs:
+            if channel not in fresh["slack"]["watch"]:
+                fresh["slack"]["watch"].append(channel)
+            if seat:
+                fresh["slack"]["held_by"][channel] = {"seat": seat, "kinds": kinds}
+            else:
+                fresh["slack"]["held_by"].pop(channel, None)
+            for held in [fresh["roles"].get("coordinator"), *(fresh["subcoordinators"].get(each) for each in {seat, data["slack"]["held_by"].get(channel, {}).get("seat")} if each)]:
+                if held:
+                    held.pop("rules", None)
+
+    state.update(name, None, channels_held_write)
+    return [f"{channel} held by the sub-coordinator for {seat}, which subscribes to its {kinds} lines" if seat else f"{channel} held by the top coordinator again" for channel, seat in pairs]
 
 
 def context(args: argparse.Namespace) -> int:
@@ -8276,6 +8301,8 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=manual)
     verb = verbs.add_parser("channels", parents=both, help="list the drive's private channels, each #name, id and seat, and each the drive has not made yet; bare, it changes nothing")
     verb.add_argument("--make", action="store_true", help="make as him the drive's private channel <handle>-drive-<drive> and the private channel <handle>-drive-<drive>-<project> of each sub-coordinator's project and of the drive's tooling, which cc-slack reads as it reads his DM, keeping each id in the drive, one he has kept; say then makes each other project's channel the first time it posts about it")
+    verb.add_argument("--hold", action="append", metavar="CHANNEL=SEAT", help="give a watched alert channel to a seat's sub-coordinator, as C0CAC1HT17W=Platform, which subscribes to it by its Hold line across restarts and compaction, in place of the top coordinator; an empty seat hands it back; repeatable")
+    verb.add_argument("--kinds", default="alerts", help="with --hold, the kinds of lines the seat subscribes to, of alerts, releases and posts, comma-separated; default alerts")
     verb.add_argument("--move-cards", action="store_true", help="move each open card of his DM whose project has a channel to that channel's root, a card of no project to the drive's tooling channel, its DM card edited to Moved to and a link")
     verb.set_defaults(run=channels)
     verb = verbs.add_parser("context", parents=[drive_opt])

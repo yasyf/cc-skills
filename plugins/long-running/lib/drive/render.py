@@ -484,19 +484,27 @@ FEED_SUBSCRIPTION = "cc-slack subscribe --kind alerts,releases,posts --channel <
 
 
 def held_channels(drive: dict, role: str, project: str | None = None) -> list[str]:
-    """The channels a session holds: a seat's communicator its seat's channel alone, the drive's communicator his DM and each channel of the drive no seat's communicator holds, by his words "every project has a communicator to pair with its coordinator and messages in that channel should go to it"."""
+    """The channels a session holds: a seat's communicator its seat's channel alone, the drive's communicator his DM and each channel of the drive no seat's communicator holds, by his words "every project has a communicator to pair with its coordinator and messages in that channel should go to it"; a sub-coordinator each watched alert channel drive channels --hold gave its seat, and the top coordinator every other watched channel, so no alert channel goes unread, as C0CAC1HT17W's three alerts did until he asked at 3:07."""
     made = drive.get("slack", {}).get("channels", {})
     if role == "communicator" and project:
         return [f"#{made[project]['name']} {made[project]['id']}"] if project in made else []
     if role == "communicator":
         return [f"his DM {slack.dm()}", *(f"#{channel['name']} {channel['id']}" for seat, channel in made.items() if seat not in drive["communicators"])]
-    return drive.get("slack", {}).get("watch", []) if role == "coordinator" else []
+    if role != "coordinator":
+        return []
+    held_by = drive.get("slack", {}).get("held_by", {})
+    if project:
+        return [channel for channel, held in held_by.items() if held["seat"] == project]
+    return [channel for channel in drive.get("slack", {}).get("watch", []) if channel not in held_by]
 
 
 def hold_line(drive: dict, role: str, project: str | None = None) -> str:
-    if project and role != "communicator":
-        return "Hold no Slack channel: the top coordinator holds the drive's."
     channels = held_channels(drive, role, project)
+    if project and role != "communicator":
+        if not channels:
+            return "Hold no Slack channel: the top coordinator holds the drive's."
+        kinds = {channel: drive["slack"]["held_by"][channel]["kinds"] for channel in channels}
+        return "; ".join(f"Hold with cc-slack subscribe --kind {each} --channel <id>: {', '.join(channel for channel in channels if kinds[channel] == each)}" for each in dict.fromkeys(kinds.values()))
     if not channels:
         return "Hold no Slack channel."
     if role != "communicator":
