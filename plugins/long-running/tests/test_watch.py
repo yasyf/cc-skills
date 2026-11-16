@@ -6818,6 +6818,15 @@ def test_a_merge_owns_only_the_tests_its_own_run_failed_that_main_passed_before_
     assert watch.broken("yasyf/cc-skills", pr | {"checks": "pass"}) == {}
 
 
+def test_a_merge_owns_no_test_while_mains_last_run_before_it_names_none_as_6041_was_handed_the_166_main_failed_already(monkeypatch: pytest.MonkeyPatch) -> None:
+    run = "https://github.com/yasyf/cc-skills/actions/runs/43837881567"
+    monkeypatch.setattr(install, "head_failures", lambda repo, head: {test: {"run": run, "workflow": 1} for test in ("t.py::old", "t.py::new")})
+    monkeypatch.setattr(install, "merged_at", lambda repo, sha: "2026-11-16T09:19:59Z")
+    monkeypatch.setattr(install, "main_failures", lambda repo, workflow, created: None if created.startswith("<") else ["t.py::old", "t.py::new"])
+    pr = state.new_pr(state.pr_url("yasyf/cc-skills#6041"), "j334", "o36") | {"state": "merged", "head": "55b16b5a9f47", "merged_sha": "323748450b82", "checks": "fail"}
+    assert watch.broken("yasyf/cc-skills", pr) == {}
+
+
 def test_a_test_main_fails_has_one_fixer_the_first_job_to_claim_it_and_every_other_main_fix_or_merge_is_refused_naming_it(demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]]) -> None:
     repo, run, test, at = "yasyf/cc-skills", "https://github.com/yasyf/cc-skills/actions/runs/9", "plugins/long-running/tests/test_watch.py::test_replayed_5076_a", state.stamp(T0)
     fix, rival, merged = "yasyf/cc-skills#5715", "yasyf/cc-skills#5716", "yasyf/cc-skills#5684"
