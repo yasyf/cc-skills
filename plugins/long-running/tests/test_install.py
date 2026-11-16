@@ -1841,7 +1841,7 @@ def test_a_proof_file_past_its_deadline_keeps_every_line_it_printed_a_python_one
     assert kept.read_text().startswith(f"passed: one\n{last}\nTraceback")
 
 
-def test_a_proof_file_cut_off_at_its_deadline_waiting_out_ccxs_rate_limit_floor_runs_again_once_the_floor_lifts(
+def test_a_proof_file_cut_off_at_its_deadline_waiting_out_ccxs_rate_limit_floor_is_blocked_at_once_and_never_waited_out_or_run_again(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
 ) -> None:
     git = fake([BUILD], {OLD_COMMIT})
@@ -1851,8 +1851,8 @@ def test_a_proof_file_cut_off_at_its_deadline_waiting_out_ccxs_rate_limit_floor_
     waited = tmp_path / "waited"
     script.write_text(f'#!/bin/sh\nif [ -e {waited} ]; then echo "ok opens this PR"; exit 0; fi\ntouch {waited}\necho "proof.sh: waiting 2400 s: {floor}" >&2\nexec sleep 30\n')
     install.prove("demo", "j1", 2)
-    assert 2390 < git.sleeps[-1] <= 2401
-    assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.2"
+    kept = state.proof_path("demo", "j1")
+    assert (git.sleeps, state.load("demo")["jobs"]["j1"]["said"]) == ([], f"BLOCKED {URL}: {script} exits past drive job prove's deadline on long-running@skills 1.0.2, its output {kept}: it printed no FAIL line")
 
 
 def test_a_proof_file_gets_its_whole_timeout_however_long_the_install_before_it_took_and_reads_the_unix_second_it_ends_at(

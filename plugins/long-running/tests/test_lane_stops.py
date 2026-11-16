@@ -82,7 +82,8 @@ def test_a_post_whose_asked_names_his_message_that_started_an_answer_order_close
     replies = {"post": json.dumps({"seq": 700001}), "show": json.dumps(report)}
     monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or replies.get(argv[1], ""))
     line = talk.say("demo", {"text": "It shipped in 1.0.540.", "thread_ts": THREAD, "asked": [asked]})
-    assert line == f'POSTED {answer}; o1 "Copy fix shipped": posted {answer}; o1 closed on report 700001'
+    unended = "; reactions 1794200100.000100 no reaction" if asked == QUESTION_LINK else ""
+    assert line == f'POSTED {answer}; o1 "Copy fix shipped": posted {answer}; o1 closed on report 700001{unended}'
     assert ["cci", "post", "--drive", "demo", "--lane", "communicator", "--kind", "report", "--attr", "close=o1", "--json", "--text", "It shipped in 1.0.540."] in started
     assert state.load("demo")["orders"]["o1"]["state"] == "done"
 
