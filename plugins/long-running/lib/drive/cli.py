@@ -4243,8 +4243,18 @@ def releaded(pr: dict) -> str:
 
 
 @children.capped
-@orca.rides_restarts()
 def pr_wake(args: argparse.Namespace) -> int:
+    """Wake the PR's builder by wake_pr, then write each --woke mark the watch asked for, dated --woke-at, by stage.mark_woken, only once the line went out, so a wake that dies in its slot's queue or mid-send leaves its mark unwritten and the watch asks again."""
+    from drive import stage
+
+    done = wake_pr(args)
+    if args.woke and done == 0:
+        stage.mark_woken(state.resolve(args.drive), args.woke, args.woke_at)
+    return done
+
+
+@orca.rides_restarts()
+def wake_pr(args: argparse.Namespace) -> int:
     """Send a PR's stage line, or the text given, to the builder answering for it, or to the job given, as a PR waiting on that job's work owes it: to a lane Orca holds as a message to its Dispatch, which neither answers its question nor touches its job's ask or state; to a fresh worker on its job when that lane finished or died, as drive job resume relaunches one, and for a lane on a Sprite whose declared_step reads a step only this Mac runs, to a fresh worker on this Mac whatever its Sprite worker is doing; to an adopted PR's job, by state.adopted_pr_job, a drive job launch it detaches with the PR, its head and the line as the brief's handoff, so the event starts its first builder with no hand step; and to any other builder as a handoff record naming superseded.delivery's step that reaches the builder, to the session that step names as the one that may take it: the session holding its order for a fresh builder, the coordinator session that started its agent on this Mac for a SendMessage, else the session state.job_lane names. A PR whose own job is stopped, as his superseding answer stops one, or whose job stopped while the wake waited on its lock, goes the same way to the session holding that job, by state.holding_job_lane, which closes the PR or moves it, so no wake starts work he called off. A lane's send or relaunch runs under the job's own lock, as drive job resume's does, so a second wake arriving while the first starts the job's next worker waits for it and sends that worker its line."""
     from drive import stage, tools, view
 
@@ -6883,6 +6893,8 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("url", help=f"the PR, as {PR_FORMS}")
     verb.add_argument("--text", help="the line to send, the PR's stage line when left out")
     verb.add_argument("--job", help="the job to wake in place of its builder, the one its waiting or blocked stage names as owing it")
+    verb.add_argument("--woke", action="append", default=[], help="a mark the watch writes once the line is delivered: stage:<PR>, objected:<PR>@<head> or main:<repo>@<test>")
+    verb.add_argument("--woke-at", help="the moment of the watch's pass that asked for the wake, which each --woke mark is dated")
     verb.set_defaults(run=pr_wake)
 
     verbs.add_parser("place", parents=both, help="where the next monorepo builder starts").set_defaults(run=place_job)

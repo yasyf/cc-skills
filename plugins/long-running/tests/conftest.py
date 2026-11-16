@@ -834,7 +834,7 @@ def unposted_waits(monkeypatch: pytest.MonkeyPatch) -> Callable[..., dict[str, s
 @pytest.fixture(autouse=True)
 def woken(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
     sent: list[tuple[str, str]] = []
-    monkeypatch.setattr(stage, "wake", lambda name, key, text, job_id=None: sent.append((key, text)))
+    monkeypatch.setattr(stage, "wake", lambda name, key, text, job_id=None, marks=(), at=None: sent.append((key, text)) or (marks and stage.mark_woken(name, list(marks), at)))
     return sent
 
 

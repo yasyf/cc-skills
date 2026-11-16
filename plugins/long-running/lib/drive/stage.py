@@ -15,6 +15,7 @@ GRADERS = "Buildkite and forge-pr-reviewer"
 ACCEPT_RULING = '2bb0472, "you have to accept the risk stop just pretendinf urblocked"'
 UNLANDED_SILENT = "no outcome: its process ended before it said whether it queued anything"
 WAKES_LOG = "wakes.log"
+WAKE_GRACE = timedelta(minutes=30)
 NAMED_HEAD = re.compile(r"\bat ([0-9a-f]{7,40})\b")
 OWN_STEP = ("uncarded", "landing", "unlanded", "unscheduled", "held", "rework", "merged", github.FOLDED, "closed")
 EVERY = {
@@ -423,11 +424,11 @@ def overdue(pr: dict, now: Stage, moment: datetime) -> bool:
     if every is None or now.owner == HIM:
         return False
     kept = pr["stage"]
-    return moment - state.parse_time(kept["woke"] or kept["since"]) >= every
+    return moment - state.parse_time(kept["woke"] or kept["since"]) >= every and not waking(kept.get("waking"), moment)
 
 
 def stamp(pr: dict, now: Stage, moment: datetime) -> None:
-    pr["stage"] = {"name": now.name, "owner": now.owner, "why": now.why, "since": state.stamp(moment), "woke": None}
+    pr["stage"] = {"name": now.name, "owner": now.owner, "why": now.why, "since": state.stamp(moment), "woke": None, "waking": None}
 
 
 def kept(pr: dict, now: Stage) -> None:
@@ -443,7 +444,7 @@ def shown(data: dict, cards: dict | None, keys: list[str]) -> None:
         pr = data["prs"][key]
         now = of(data, key, cards, under, stacks)
         since = pr["stage"]["since"] if pr["stage"] and pr["stage"]["name"] == now.name else None
-        pr["stage"] = {"name": now.name, "owner": now.owner, "why": now.why, "since": since, "woke": None}
+        pr["stage"] = {"name": now.name, "owner": now.owner, "why": now.why, "since": since, "woke": None, "waking": None}
 
 
 def heads(data: dict, said: str, order_id: str, cards: dict | None) -> str:
@@ -461,6 +462,27 @@ def line(key: str, pr: dict, now: Stage) -> str:
     return f"{key} {now.name}{since}, owed by {now.owner}: {now.why}"
 
 
-def wake(name: str, key: str, text: str, job_id: str | None = None) -> None:
-    """Run drive pr wake on the PR as its own process, outliving the watch pass that started it, so an Orca send or a builder's relaunch never holds the watch, to the job its stage names, else its builder; its output appended to the drive's wake log."""
-    state.detach(name, ["pr", "wake", state.pr_url(key), "--text", text, *(["--job", job_id] if job_id else [])], WAKES_LOG)
+def wake(name: str, key: str, text: str, job_id: str | None = None, marks: list[str] | tuple[str, ...] = (), at: str | None = None) -> None:
+    """Run drive pr wake on the PR as its own process, outliving the watch pass that started it, so an Orca send or a builder's relaunch never holds the watch, to the job its stage names, else its builder, with each mark it writes, dated at, the moment of the pass that asked for it, once the line is delivered, by mark_woken; its output appended to the drive's wake log."""
+    state.detach(name, ["pr", "wake", state.pr_url(key), "--text", text, *(["--job", job_id] if job_id else []), *(flag for mark in marks for flag in ("--woke", mark)), *(["--woke-at", at] if marks else [])], WAKES_LOG)
+
+
+def waking(since: str | None, moment: datetime) -> bool:
+    """Whether a wake the watch started within WAKE_GRACE may still deliver its line, so the watch starts no second one while it waits on its slot or sends; one that died undelivered is due again once WAKE_GRACE passes, since only its delivery writes its mark."""
+    return bool(since) and moment - state.parse_time(since) < WAKE_GRACE
+
+
+def mark_woken(name: str, marks: list[str], at: str) -> None:
+    """Write, once a drive pr wake delivered its line, each mark the watch asked for it, dated at, the moment of the pass that asked: `stage:<PR>`, the PR's stage woken then; `objected:<PR>@<head>`, its check's objection told at that head; `main:<repo>@<test>`, the owner of a test its merge broke on main woken then."""
+    with state.edit(name) as data:
+        for mark in marks:
+            kind, _, what = mark.partition(":")
+            if kind == "stage" and (kept := data["prs"][what]["stage"]):
+                kept.update(woke=at, waking=None)
+            elif kind == "objected":
+                key, _, head = what.rpartition("@")
+                data["prs"][key].update(objected=head, objecting=None)
+            elif kind == "main":
+                repo, _, test = what.partition("@")
+                if kept := data["mains"].get(repo, {}).get(test):
+                    kept.update(woke=at, waking=None)

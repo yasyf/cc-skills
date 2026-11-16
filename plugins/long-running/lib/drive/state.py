@@ -1120,6 +1120,9 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         for gone in ("ready_said", "stuck", "unchecked", "card", "added"):
             pr.pop(gone, None)
         pr.setdefault("stage", None)
+        pr.setdefault("objecting", None)
+        if pr["stage"]:
+            pr["stage"].setdefault("waking", None)
         pr.setdefault("native", [])
         pr.setdefault("trunk", None)
         pr.setdefault("reviews_required", 1)
@@ -1204,6 +1207,9 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if isinstance(away := data["owner"]["away"], bool):
         data["owner"]["away"] = (heard := data["owner"]["heard"]) and stamp(parse_time(heard) + (timedelta() if away else AWAY_AFTER))
     data.setdefault("mains", {})
+    for owned in data["mains"].values():
+        for kept in owned.values():
+            kept.setdefault("waking", None)
     if "catch_up" not in data:
         data["catch_up"] = new_catch_up(min(mark["at"] for mark in data["held"].values())) if data["held"] else None
     if data["catch_up"]:
@@ -5809,6 +5815,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "own_reds": None,
         "review_asked": None,
         "objected": None,
+        "objecting": None,
         "rework": None,
         "author": None,
         "checked": None,
