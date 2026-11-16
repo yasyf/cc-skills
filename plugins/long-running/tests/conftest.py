@@ -1661,6 +1661,14 @@ def unrecorded(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 @pytest.fixture(autouse=True)
+def seat_records(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Each line a priority seat's detached start posts as a record, kept here in place of cci."""
+    sent: list[str] = []
+    monkeypatch.setattr(cli, "seat_record", lambda name, seat, order_id, line: sent.append(line))
+    return sent
+
+
+@pytest.fixture(autouse=True)
 def detached_in_the_call(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Run the order record `say` detaches in the test's own process, the record with no session as state.detach runs it, so say's line carries its record, and start no `drive job start` the watch's start_jobs detaches, which a test runs itself where it reads one, and records in transcripts_kept the job of each transcript copy the watch detaches at a Sprite lane's turn end; every other detached verb is detached as before."""
     detached, transcripts_kept = state.detach, []
@@ -1670,6 +1678,9 @@ def detached_in_the_call(monkeypatch: pytest.MonkeyPatch) -> list[str]:
             return 0
         if args[:1] == ["transcripts-keep"]:
             transcripts_kept.append(args[1])
+            return 0
+        if args[:1] == ["seat-start"]:
+            cli.seat_lines(name, args[1])
             return 0
         if args[:1] == ["card-record"]:
             card.record_kept(name, Path(args[1]))

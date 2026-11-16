@@ -233,7 +233,7 @@ def test_a_sub_coordinator_binds_beside_the_top_for_a_project_an_order_is_filed_
 
 
 def test_a_priority_order_gets_a_coordinator_session_of_its_own_that_hears_it_alone_once_bound_and_its_project_hears_it_again_after_no_priority(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, session_launches: SessionLaunches
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, session_launches: SessionLaunches, seat_records: list[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Releases", "ship the SandSQL release")
     run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Releases", "tidy the SandSQL docs")
@@ -244,10 +244,12 @@ def test_a_priority_order_gets_a_coordinator_session_of_its_own_that_hears_it_al
     code, out = run("order", "set", "o1", "--priority")
     data = state.load("demo")
     assert (code, data["orders"]["o1"]["priority"], data["orders"]["o2"]["priority"]) == (0, "Priority o1", None)
-    assert out.splitlines()[1:3] == ["started the sub-coordinator for Priority o1, which holds this order alone, in Orca terminal term_priority-o11; its project's coordinator hears it until it binds", "the communicator for Priority o1 did not start: the drive keeps no channel; drive channels --make makes them"]
+    assert out.splitlines()[1] == "starting Priority o1 apart from this call: its sub-coordinator, its communicator with its channel, and its page, each reporting as a record to root and priority-o1, in seats.log"
+    assert seat_records[:2] == ["started the sub-coordinator for Priority o1, which holds this order alone, in Orca terminal term_priority-o11; its project's coordinator hears it until it binds", "the communicator for Priority o1 did not start: the drive keeps no channel; drive channels --make makes them"]
     assert (session_launches.started, data["launched"]["sub-coordinator Priority o1"]) == ([("demo", "coordinator", "Priority o1", data["roles"]["coordinator"]["cwd"])], "term_priority-o11")
     assert [state.order_lane(data, data["orders"][order_id]) for order_id in ("o1", "o2")] == ["sandsql", "sandsql"]
-    assert "an earlier drive order set --priority opened" in run("order", "set", "o1", "--priority")[1]
+    run("order", "set", "o1", "--priority")
+    assert any("an earlier drive order set --priority opened" in line for line in seat_records)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "priority-1")
     code, out = run("start", "demo", "--role", "coordinator", "--project", "Priority o1")
     assert out.startswith("You are the sub-coordinator for Priority o1 of drive demo: you run his order o1 alone, which drive order set --priority put first in line, its jobs,")
@@ -255,7 +257,8 @@ def test_a_priority_order_gets_a_coordinator_session_of_its_own_that_hears_it_al
     assert [state.order_lane(data, data["orders"][order_id]) for order_id in ("o1", "o2")] == ["priority-o1", "sandsql"]
     assert [state.hears(data, data["orders"]["o1"], project) for project in ("Priority o1", "SandSQL", None)] == [True, False, False]
     assert state.holding_role(data, data["orders"]["o1"]) == ("the sub-coordinator for Priority o1", data["subcoordinators"]["Priority o1"])
-    assert "the sub-coordinator for Priority o1 is bound, session priority-1, and hears the order" in run("order", "set", "o1", "--priority")[1].splitlines()
+    run("order", "set", "o1", "--priority")
+    assert "the sub-coordinator for Priority o1 is bound, session priority-1, and hears the order" in seat_records
     assert len(session_launches.started) == 1
     assert run("order", "set", "o1", "--no-priority")[0] == 0
     data = state.load("demo")

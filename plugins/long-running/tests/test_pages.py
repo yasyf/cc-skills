@@ -560,13 +560,13 @@ def test_page_make_keeps_an_applet_titled_by_its_order_that_a_second_make_widens
     }
 
 
-def test_an_order_marked_priority_gets_its_applet_page(run: Run, ordered: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_order_marked_priority_gets_its_applet_page(run: Run, ordered: str, monkeypatch: pytest.MonkeyPatch, seat_records: list[str]) -> None:
     from drive import applet, cli as drive_cli
 
     monkeypatch.setattr(dashboard, "link", lambda name: "http://127.0.0.1:1/")
     monkeypatch.setattr(drive_cli, "seat_started", lambda name, seat: None)
     code, said = run("order", "set", "o1", "--priority")
-    assert code == 0 and "its page: http://127.0.0.1:1/#/pages/run-page" in said
+    assert code == 0 and "its page: http://127.0.0.1:1/#/pages/run-page" in seat_records
     [page] = pages.listed(ordered)
     assert (page["kind"], page["made_by"], page["orders"]) == (applet.KIND, "priority", ["o1"])
 

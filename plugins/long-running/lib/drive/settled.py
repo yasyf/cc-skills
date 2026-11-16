@@ -1353,19 +1353,29 @@ def jev(state: dict, questions: dict[str, Noul | Pick], seconds: float = DECIDE_
     import httpx
     from spawnllm import Binary, BinaryAnswer, DecideError, DecideKeyMissing, Label, LabelAnswer, Provider, decide_sync
 
-    deadline = time.monotonic() + seconds
-    sized(state, questions, caller or sys._getframe(1).f_code.co_name)
+    began = time.monotonic()
+    deadline = began + seconds
+    named = caller or sys._getframe(1).f_code.co_name
+    sized(state, questions, named)
     try:
         token = jev_key()
         decision = decide_sync(state, {key: Label(*question) if isinstance(question, Pick) else Binary(*question) for key, question in questions.items()}, provider=Provider("jev", MODEL), timeout=deadline - time.monotonic(), api_key=token)
     except (TimeoutError, ValueError, DecideError, DecideKeyMissing, httpx.HTTPError) as error:
+        timed(named, questions, time.monotonic() - began, False)
         raise Unheard(str(error)) from None
+    timed(named, questions, time.monotonic() - began, True)
     if declined := [key for key, answer in decision.answers.items() if not isinstance(answer, BinaryAnswer | LabelAnswer)]:
         raise Unheard(f"Jev declined {', '.join(declined)}")
     return {key: answer.choice if isinstance(answer, LabelAnswer) else answer.p_yes for key, answer in decision.answers.items()}
 
 
 JEV_SIZES = "jev-sizes.jsonl"
+
+
+def timed(caller: str, questions: dict[str, Noul | Pick], seconds: float, answered: bool) -> None:
+    """Keep how long one Jev request took, beside the call site and its question keys, so a slow call, such as drive order add's join read, names itself."""
+    with (state.root() / JEV_SIZES).open("a") as out:
+        out.write(json.dumps({"at": state.stamp(), "caller": caller, "seconds": round(seconds, 2), "answered": answered, "keys": sorted(questions)[:6]}) + "\n")
 
 
 def sized(request: dict, questions: dict[str, Noul | Pick], caller: str) -> None:

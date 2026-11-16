@@ -1182,11 +1182,48 @@ def order_set(args: argparse.Namespace) -> int:
     parts = [answered_lines.get(part) or f"{args.id} {render.part_line(data, args.id, part)}" for part in dict.fromkeys([*sorted_parts, *standing, *([followed[0]] if followed else [])])]
     turned += state.asked_lines(data, order["text"]) if turning else []
     repeated = repeated_lines(data, args.id, list(dict.fromkeys(args.add_part)))
-    seated = [said for said in (seat_started(name, order["priority"]), communicator_started(name, order["priority"])) if said] if args.priority else []
-    seated += [priority_page(name, args.id, order)] if args.priority and not args.dry_run else []
+    if args.priority and args.dry_run:
+        seated = [said for said in (seat_started(name, order["priority"]), communicator_started(name, order["priority"])) if said]
+    elif args.priority:
+        state.detach(name, ["seat-start", args.id], SEATS_LOG)
+        seated = [f"starting {order['priority']} apart from this call: its sub-coordinator, its communicator with its channel, and its page, each reporting as a record to root and {state.project_lane(order['priority'])}, in {SEATS_LOG}"]
+    else:
+        seated = []
     retired = list(seats_retired(name).values()) if args.state in state.CLOSED_ORDER_STATES or args.priority is False else []
     retired += closed_prs(name, args.id, closing, args.note or f"its order {args.id} was dropped") if closing and not args.dry_run else []
     return emit(args, render.order_line(data, args.id, order) + "".join(f"\n{line}" for line in [*turned, *unjoined, *parts, *stopped, *restarted, *repeated, *render.builder_lines(name, data, added), *reworked, *seated, *retired]), {"id": args.id, **(state.load(name)["orders"][args.id] if restarted else order)})
+
+
+SEATS_LOG = "seats.log"
+
+
+def seat_start(args: argparse.Namespace) -> int:
+    """Start a priority order's seat apart from the drive order set --priority that marked it, so that call returns in seconds, by his words on o2296 "20 mins later no channel, no progress on this": its sub-coordinator, then its communicator, which makes its channel, then its page, each line posted as its own record to the top coordinator and the seat's lane, a failure's as one too."""
+    name = state.resolve(args.drive)
+    lines = seat_lines(name, args.id)
+    return emit(args, "\n".join(lines), {"lines": lines})
+
+
+def seat_lines(name: str, order_id: str) -> list[str]:
+    seat = state.load(name)["orders"][order_id]["priority"]
+    lines = []
+    for start in (lambda: seat_started(name, seat), lambda: communicator_started(name, seat), lambda: priority_page(name, order_id, state.load(name)["orders"][order_id])):
+        try:
+            said = start()
+        except (DriveError, reads.ReadError, orca.OrcaError, slack.SlackError) as error:
+            said = f"FAILED starting part of {seat}: {error}"
+        if said:
+            lines.append(said)
+            seat_record(name, seat, order_id, said)
+    return lines
+
+
+def seat_record(name: str, seat: str, order_id: str, line: str) -> None:
+    reads.run(
+        ["cci", "post", "--drive", name, "--lane", "watch", "--kind", "note", "--to", f"root@{name}", "--to", f"{state.project_lane(seat)}@{name}", "--topic", f"seat-{order_id}", "--text", line],
+        Path.cwd(),
+        reads.posting(),
+    )
 
 
 def priority_page(name: str, order_id: str, order: dict) -> str:
@@ -8455,6 +8492,9 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("page", nargs="?", choices=manual_pages(), help="default: list the pages")
     verb.add_argument("row", nargs="?", help="print only the table rows whose first cell names this, such as TAP or READY, else each section, list item, row, fenced block and paragraph carrying it")
     verb.set_defaults(run=manual)
+    verb = verbs.add_parser("seat-start", parents=both, help="start a priority order's seat, its sub-coordinator, communicator, channel and page, each line posted as a record; drive order set --priority detaches it")
+    verb.add_argument("id")
+    verb.set_defaults(run=seat_start)
     verb = verbs.add_parser("channels", parents=both, help="list the drive's private channels, each #name, id and seat, and each the drive has not made yet; bare, it changes nothing")
     verb.add_argument("--make", action="store_true", help="make as him the drive's private channel <handle>-drive-<drive> and the private channel <handle>-drive-<drive>-<project> of each sub-coordinator's project and of the drive's tooling, which cc-slack reads as it reads his DM, keeping each id in the drive, one he has kept; say then makes each other project's channel the first time it posts about it")
     verb.add_argument("--hold", action="append", metavar="CHANNEL=SEAT", help="give a watched alert channel to a seat's sub-coordinator, as C0CAC1HT17W=Platform, which subscribes to it by its Hold line across restarts and compaction, in place of the top coordinator; an empty seat hands it back; repeatable")
