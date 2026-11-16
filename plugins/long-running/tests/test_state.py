@@ -3188,3 +3188,11 @@ def test_drive_retried_runs_a_verb_that_exits_non_zero_once_more_on_the_install_
 
     assert cli.main(["retried", "report-post", "735816", "--drive", "demo"]) == 0
     assert ran == [[str(tmp_path / "1.0.8" / "bin" / "drive"), "report-post", "735816", "--drive", "demo"], [str(tmp_path / "1.0.9" / "bin" / "drive"), "report-post", "735816", "--drive", "demo"]]
+
+
+def test_his_staging_words_lift_a_test_only_within_15_minutes_of_his_message_by_its_slack_time() -> None:
+    link = "https://poetic-technology.slack.com/archives/C0CHZM7A478/p1794850346357249"
+    said = datetime.fromtimestamp(1794850346, state.now().tzinfo)
+    assert state.stale_staging_word(link, said + timedelta(minutes=14)) is None
+    assert "are 16 minutes old" in (state.stale_staging_word(link, said + timedelta(minutes=16)) or "")
+    assert "no Slack message link" in (state.stale_staging_word("his words in the thread", said) or "")

@@ -3194,6 +3194,23 @@ def give_go(data: dict, key: str, order_id: str) -> None:
     data["prs"][key]["go"] = order_id
 
 
+def stale_staging_word(link: str, moment: datetime) -> str | None:
+    """Why his words at link lift no staging test: they are no Slack message link, or his message, by its Slack ts, is older than PRESENT_WITHIN, since a dangerous change merges untested only on his word while he is present, by his words PRESENCE_WORDS; this check is hard, never block-once."""
+    if not (found := CARD_LINK.search(link)):
+        return f"{link} is no Slack message link, so when he said it cannot be read: pass his message's permalink"
+    said = datetime.fromtimestamp(int(found[2]), moment.tzinfo)
+    if moment - said > PRESENT_WITHIN:
+        return f"his words at {link} are {int((moment - said).total_seconds() // 60)} minutes old, and his word lifts a dangerous change's staging test only within {int(PRESENT_WITHIN.total_seconds() // 60)} minutes, by his words {PRESENCE_WORDS}: ask him in the thread for fresh words"
+    return None
+
+
+def lift_staging(data: dict, key: str, link: str) -> None:
+    """Lift an open PR off its staging test on his words at link, by order go --staging: its waits on a staging part or tester end and it is marked unstaged at its head, so it merges with no test; a tester already running finishes, by his answer 0048b14."""
+    pr = data["prs"][key]
+    pr["unstaged"] = {"why": f"his words {link} say it needs no staging test", "head": pr["head"], "his": link}
+    pr["waits"] = [wait for wait in pr["waits"] if not staging_tester(data, wait) and not ((named := STAGING_PARTS.fullmatch(wait.partition(":")[2])) and key.rpartition("#")[2] in re.findall(r"\d+", named["numbers"]))]
+
+
 def incident_goes(data: dict) -> None:
     """Give each open PR serving an open incident-class order that order's go, by give_go, by his ruling that an open incident is his go to merge and hotfix its fix, with no session recording it, run when drive order set makes an order an incident and once over a drive saved before it; drive pr add gives a PR registered later its go itself: its dangerous change still keeps its staging test and his presence."""
     going = {order_id for order_id, order in data["orders"].items() if has_go(order)}
@@ -3986,9 +4003,9 @@ def job_waits(data: dict, pr: dict) -> list[str]:
 
 
 def staging_runs(data: dict, pr: dict) -> list[str]:
-    """Each `staging test of #N before it lands` part naming a PR of the providers' repository, on any order, that a tester started on, by part_testers, or the PR waits on, by wait_on_staging, and that is not delivered, as `<order>:<part>`, so it lands only once that run passes and its proof is posted, by his ruling 0048b14 that a started staging test is finished before its PR merges."""
+    """Each `staging test of #N before it lands` part naming a PR of the providers' repository, on any order, that a tester started on, by part_testers, or the PR waits on, by wait_on_staging, and that is not delivered, as `<order>:<part>`, so it lands only once that run passes and its proof is posted, by his ruling 0048b14 that a started staging test is finished before its PR merges. None hold a PR his words lifted off its test at its head, by lift_staging."""
     repo, number = pr_key(pr["url"]).split("#")
-    if not home_repo(data, repo):
+    if not home_repo(data, repo) or (pr["unstaged"] or {}).get("his") and pr["unstaged"]["head"] == pr["head"]:
         return []
     part = STAGING_TEST.format(number=number)
     orders = orders_holding(data, part)
