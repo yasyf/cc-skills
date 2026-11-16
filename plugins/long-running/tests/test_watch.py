@@ -1993,10 +1993,13 @@ def test_jobs_this_macs_load_holds_back_are_queued_with_a_place_and_a_job_needin
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "four builds")
-    for goal in ("first build", "second build", "staging test", "sprite build", "queued sprite build"):
-        run("job", "add", "builder", "--order", "o1", "--goal", goal)
+    run("job", "add", "builder", "--order", "o1", "--goal", "first build")
     with state.edit(demo) as data:
         builders = [job_id for job_id, job in data["jobs"].items() if job["kind"] == "builder"]
+        for goal in ("second build", "staging test", "sprite build", "queued sprite build"):
+            builders.append(job_id := state.next_id(data["jobs"], "j"))
+            data["jobs"][job_id] = data["jobs"][builders[0]] | {"goal": goal}
+            data["orders"]["o1"]["jobs"].append(job_id)
         for index, job_id in enumerate(builders):
             brief = tmp_path / f"{job_id}.md"
             brief.write_text(f"Goal: build\nMac: drive job prove {job_id}\n" if index < 3 else "Goal: build\n")

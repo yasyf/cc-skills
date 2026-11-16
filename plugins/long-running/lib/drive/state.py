@@ -1068,7 +1068,7 @@ def connect(path: Path) -> sqlite3.Connection:
 
 
 def bound(data: dict) -> dict:
-    """The drive's bindings brought up to the fields this install reads."""
+    """The drive's bindings brought up to the fields this install reads: an older install's one driver read as its coordinator, beside each role a write of rows saved next to it since."""
     if "driver" in data:
         data["roles"] = {"coordinator": data.pop("driver")} | data.get("roles", {})
     data.setdefault("subcoordinators", {})
@@ -1988,7 +1988,7 @@ def kept_hash(file: Path, jobs: dict) -> str | None:
 
 
 def migrate(name: str) -> None:
-    """Make each one-time change to the drive's files that an older install's drive still owes, each skipped once its mark exists; `drive install` runs it from the new install before any session reloads onto it and `drive start` on the drive it makes, and two at once take turns, the second finding each mark written."""
+    """Make each one-time change to the drive's files that an older install's drive still owes, each skipped once its mark exists, and an older install's driver row, dropped by a save of the whole drive as it loads; `drive install` runs it from the new install before any session reloads onto it and `drive start` on the drive it makes, and two at once take turns, the second finding each mark written."""
     with flocked(drive_dir(name) / ".migrate.lock"):
         data = load(name)
         if "driver" in stored(name, ("driver",)):
