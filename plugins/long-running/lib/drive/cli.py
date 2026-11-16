@@ -5718,9 +5718,13 @@ def reopened_mark(text: str) -> tuple[str, str]:
 def heard(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     if args.last:
-        if not args.why or args.away or args.repeats or args.part:
-            raise DriveError("--last takes back what the drive heard after his last word or tap: it needs --why <whose taps or words they were>, and no --away, --repeats or --part")
+        if not args.why or args.now or args.away or args.repeats or args.part:
+            raise DriveError("--last takes back what the drive heard after his last word or tap: it needs --why <whose taps or words they were>, and no --now, --away, --repeats or --part")
         return emit(args, "unheard", watch.unhear(name, args.last, args.why))
+    if not (args.now or args.away or args.repeats or args.part):
+        owner = state.load(name)["owner"]
+        reading = render.owner_reading(owner)
+        return emit(args, f"He is {reading}" if reading else "never heard: the drive has heard no word or tap of his", owner)
     if args.repeats or args.part:
         refuse_an_unheld_repeat(name, state.load(name), args.repeats, args.part)
     return emit(args, "away" if args.away else "heard", watch.hear(name, state.now(), args.away))
@@ -7688,8 +7692,9 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser(
         "heard",
         parents=both,
-        help="he wrote: record it; prints heard, away, or unheard for --last, and nothing to act on",
+        help="with no flag, print when he was last heard and write nothing; --now, --away or --repeats records that he wrote, printing heard or away, and --last unheard",
     )
+    verb.add_argument("--now", action="store_true", help="he wrote just now: record him heard at this moment")
     verb.add_argument("--away", action="store_true", help="he said he is going to sleep or away")
     verb.add_argument(
         "--repeats",

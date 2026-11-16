@@ -327,8 +327,8 @@ def test_heard_returns_one_word_whatever_sub_coordinator_his_thread_is_filed_und
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", "demo", "--role", "coordinator", "--project", "Iris")
-    assert run("heard") == (0, "heard")
-    assert tools.run("heard", "demo", {}) == "heard"
+    assert run("heard", "--now") == (0, "heard")
+    assert tools.run("heard", "demo", {"now": True}) == "heard"
     assert tools.run("heard", "demo", {"away": True}) == "away"
     with pytest.raises(state.DriveError, match="drive heard takes no thread"):
         tools.run("heard", "demo", {"thread": "1794200000.000100"})
@@ -10989,13 +10989,25 @@ def test_status_names_the_open_incidents_and_tells_no_running_job_of_a_restarted
 def test_heard_prints_one_word_with_orders_in_use(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the watch")
     run("order", "add", "--title", "Short title", "--project", "Billing", "--workstream", "Invoices", "why is the invoice late?")
-    assert run("heard") == (0, "heard")
+    assert run("heard", "--now") == (0, "heard")
     assert run("heard", "--away") == (0, "away")
-    assert "in_use" not in json.loads(run("heard", "--json")[1])
+    assert "in_use" not in json.loads(run("heard", "--now", "--json")[1])
+
+
+def test_bare_heard_only_reads_when_he_was_last_heard_and_never_marks_him_heard(run: Run, demo: str) -> None:
+    with state.edit(demo) as data:
+        data["owner"] = {"heard": None, "away": None, "absence": None}
+    assert run("heard") == (0, "never heard: the drive has heard no word or tap of his")
+    assert state.load(demo)["owner"] == {"heard": None, "away": None, "absence": None}
+    run("heard", "--now")
+    owner = state.load(demo)["owner"]
+    assert run("heard")[1] == tools.run("heard", "demo", {}) == f"He is {render.owner_reading(owner)}"
+    assert json.loads(run("heard", "--json")[1]) == owner
+    assert state.load(demo)["owner"] == owner
 
 
 def test_heard_last_takes_back_a_tap_that_was_not_his_so_he_reads_away_an_hour_after_his_last_word(run: Run, demo: str) -> None:
-    assert run("heard") == (0, "heard")
+    assert run("heard", "--now") == (0, "heard")
     taken = state.load(demo)["owner"]["heard"]
     last = state.stamp(state.parse_time(taken) - timedelta(minutes=75))
     assert cli.main(["heard", "--last", last]) == 2
@@ -11013,13 +11025,13 @@ def test_heard_reads_nothing_from_github_so_a_refusal_there_never_leaves_him_unh
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the watch")
     monkeypatch.setattr(github, "run", lambda *args, **kwargs: pytest.fail("drive heard read GitHub"))
     monkeypatch.setattr(card, "run", lambda *args, **kwargs: pytest.fail("drive heard read GitHub"))
-    assert run("heard") == (0, "heard")
+    assert run("heard", "--now") == (0, "heard")
     assert state.load(demo)["owner"]["heard"] is not None
 
 
 def test_heard_refuses_his_words_repeating_a_part_no_live_job_carries(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "ship the unfurl fix and its check", "--parts", "fix", "check")
-    assert run("heard")[0] == 0
+    assert run("heard", "--now")[0] == 0
     owner = state.load("demo")["owner"]
     assert cli.main(["heard", "--repeats", "o1", "--part", "fix"]) == 2
     refusal = capsys.readouterr().err
