@@ -3245,3 +3245,19 @@ def test_each_ask_owes_one_voiced_staging_start_step_carrying_its_earliest_start
     plan["q2"] = (moment + timedelta(minutes=45), moment + timedelta(minutes=75))
     work.scheduled(data, moment)
     assert (len(data["orders"]["o2"]["owed"]), data["orders"]["o2"]["start_said"][1]) == (1, state.stamp(moment + timedelta(minutes=75)))
+
+
+def test_a_done_whose_cases_all_pass_with_no_check_line_is_a_pass_only_on_the_prs_current_head_and_otherwise_is_flagged_as_j7179s_was_not(named_repo: None, state_root: Path) -> None:
+    data = staging_drive("j1")
+    key = f"{state.home(data)}#42"
+    data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": "abc1234def5678"}
+    unheaded = "DONE every case of #42 passed\nCASE a rollback refused: pass\n"
+    state.take_result(data, "j1", unheaded.splitlines()[0], unheaded)
+    first = staging_reads(data)
+    old = "DONE every case of #42 at 0ffbeef passed\nCASE a rollback refused: pass\n"
+    state.take_result(data, "j1", old.splitlines()[0], old)
+    stale = staging_reads(data)
+    current = "DONE every case of #42 at abc1234 passed\nCASE a rollback refused: pass\n"
+    state.take_result(data, "j1", current.splitlines()[0], current)
+    assert (first[1], stale[1], staging_reads(data)) == (None, None, (True, f"{state.pr_url(key)} at abc1234def56", "j1"))
+    assert [len(state.unproven_pass(data, "j1", report)) for report in (unheaded, old, current)] == [1, 1, 0]

@@ -3732,6 +3732,8 @@ def take_report(name: str, job_id: str, whole: str, read_prs: bool = True, tell:
     )
     if refused and not (refused.startswith(state.WAITING_UNFREED) and not gate.gate(name, f"waiting {job_id} {line}", [refused], job["session"], (job["order"], data["orders"][job["order"]]))):
         raise DriveError(f"{job_id}: refused, nothing kept: {refused}{f". {gate.REPEAT}" if refused.startswith(state.WAITING_UNFREED) else ""}")
+    if (unproven := state.unproven_pass(data, job_id, whole)) and (flagged := gate.gate(name, f"unproven pass {job_id}", unproven, job["session"], (job["order"], data["orders"][job["order"]]))):
+        raise DriveError(f"{job_id}: refused, nothing kept: {flagged}")
     unreached(name, data, state.result_waits(data, job_id, line))
     if job["kind"] == "builder" and state.REPORTED_LINE.match(line) and any(not served.named(cited) for cited in served.deciding(whole)):
         print(f"drive job report: {served.NAMELESS}", file=sys.stderr)
