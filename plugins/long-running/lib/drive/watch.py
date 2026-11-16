@@ -701,8 +701,8 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
     changed = {wait: f"{wait} registered {key}" for wait, key in opened.items()} | out
     slot = {state.SLOT_WAIT: f"its turn came as a builder slot opened on this Mac, {held} of its {place.LOCAL_BUILDERS} held"}
     sprite = {state.SPRITE_WAIT: f"its turn came as a Sprite lane opened under this Mac's cap, {running} of its {place.caps()['sprite']} running"}
-    moves, rebriefs, launches = [], [], []
-    with state.edit(watcher.name) as data:
+    def waits_lines_write(data: dict) -> tuple[list[str], list[str], list[str], list[str]]:
+        freed, moves, rebriefs, launches = [], [], [], []
         for job_id, job in data["jobs"].items():
             if not heard_job(watcher, data, job):
                 continue
@@ -758,10 +758,14 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     continue
                 elif starts_itself(job):
                     continue
-                lines.append(f"FREE {job_id} {job['order']}: {ended}, nothing else holds it{built}{stacked}{unlaunched}{unstarted}")
+                freed.append(f"FREE {job_id} {job['order']}: {ended}, nothing else holds it{built}{stacked}{unlaunched}{unstarted}")
         for key, pr in data["prs"].items():
             if hears(watcher, data, pr["order"]) and (ended := released(data, pr, pr["job"], watcher.cards, out)) and pr["state"] == "open":
-                lines.append(f"FREE {key} {pr['job']} {pr['order']}: {ended}, nothing else holds it")
+                freed.append(f"FREE {key} {pr['job']} {pr['order']}: {ended}, nothing else holds it")
+        return freed, moves, rebriefs, launches
+
+    freed, moves, rebriefs, launches = state.update(watcher.name, None, waits_lines_write)
+    lines += freed
     for job_id in moves:
         start_verb(watcher, job_id, ["job", "launch", job_id, "--local"], moment)
     lines += [refused for job_id in rebriefs if (refused := stack_brief(watcher.name, job_id))]
