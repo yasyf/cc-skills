@@ -1241,3 +1241,8 @@ button.task-row { cursor: pointer; }
 .pr-actions .meta { margin-left: 4px; }
 .story-more { margin-top: 12px; }
 .story-more summary { color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; }
+
+.qgroup { list-style: none; margin: 14px 0 4px; font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--muted); }
+.qgroup:first-child { margin-top: 0; }
+.qgroup span { font-weight: 400; margin-left: 4px; }
+.needs-chip { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); margin-right: 6px; }

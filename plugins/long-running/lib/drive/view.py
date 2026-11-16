@@ -1574,7 +1574,11 @@ def outline(entry: dict) -> dict:
 
 
 def headline(told: dict | None) -> str | None:
-    return ((told or {}).get("story") or {}).get("headline")
+    return told_field(told, "headline")
+
+
+def told_field(told: dict | None, field: str) -> str | None:
+    return ((told or {}).get("story") or {}).get(field)
 
 
 def summary(model: dict) -> dict:
@@ -1584,7 +1588,7 @@ def summary(model: dict) -> dict:
     return rest | {
         "queue": [
             {key: value for key, value in item.items() if key not in ("rail", "told")}
-            | {"headline": headline(item.get("told")) or (heads.get(state.pr_key(item["pr"])) if item["kind"] == "tap" and len(item["prs"]) == 1 else None)}
+            | {"headline": headline(item.get("told")) or (heads.get(state.pr_key(item["pr"])) if item["kind"] == "tap" and len(item["prs"]) == 1 else None), "needs": told_field(item.get("told"), "needs_him")}
             | ({"card": glance(item["card"])} if item.get("card") else {})
             for item in model["queue"]
         ],
