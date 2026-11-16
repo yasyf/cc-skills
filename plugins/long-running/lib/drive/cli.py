@@ -5735,8 +5735,11 @@ def answer(args: argparse.Namespace) -> int:
                 raise DriveError(f"{args.id}: not kept, since only his own words settle a card, order or release: {unsaid}")
             args.words = args.words or settled.his(cited["body"])
         bound = superseded.binding(data, args.link[0], asked, cwd)
-        with state.edit(name) as data:
+        def answer_kept(data: dict):
             superseded.record(data, args.id, args.words, args.link[0], asked, bound, state.stamp(), drive)
+            return data
+
+        data = state.update(name, None, answer_kept)
     elif drive:
         def answer_write3(data: dict):
             superseded.tooling_only(data, data["answers"][args.id], superseded.listed(data, data["answers"][args.id], asked))
