@@ -384,8 +384,8 @@ as one blocking Orca question, `DRIVE <its words>` over the JSON of its stdin an
 word names, and the watch's responder starts its reader within seconds. `drive job read` runs it in the coordinator's
 checkout with no session of this Mac's, as the lane's own job on its own drive, and answers
 all it printed under a first line naming its exit status, each file named by the lane's own path,
-which the lane's `drive` prints and exits with. A `job report <its job> -`, a `pr add` and a `job set` are answered before they run, as kept for the drive to run, and the reader then runs each with every check it meets on this Mac; one that refuses changes nothing and wakes the lane by `drive job resume` with what it printed. Any other verb still running 240 s after the lane asked is answered as still running, and the reader carries what it prints to the lane by `drive job resume` once it ends, so no lane waits past its 5-minute prompt cache. While no answer comes, that `drive` says so on
-stderr every 30 s, naming the question, and gives up at 270 s, exiting 1. It runs `job report`, `job ask`, `job set --repro`,
+which the lane's `drive` prints and exits with. A `job report <its job> -`, a `pr add` and a `job set` are answered before they run, as kept for the drive to run, and the reader then runs each with every check it meets on this Mac; one that refuses changes nothing and wakes the lane by `drive job resume` with what it printed. Any other verb still running 225 s after the lane asked is answered as still running, and the reader carries what it prints to the lane by `drive job resume` once it ends, so no lane waits past its 5-minute prompt cache. While no answer comes, that `drive` says so on
+stderr every 30 s, naming the question, and gives up at 240 s, exiting 1. It runs `job report`, `job ask`, `job set --repro`,
 `job replies`, `job held`, `pr add`, `pr set --flaky` on a PR its own job carries, `plan search`, `datadog`, `fde-scan`, `manual`, `page-owner` and `status`, its reads on any job as a Mac lane's,
 so a lane reads the `job report` or `job replies` of any job its brief names, and a bare `status`
 on its own job. It refuses, running nothing, any other verb, such as `pr set --tap` or an order
@@ -445,7 +445,7 @@ lane reads those, and Slack, through this Mac with a blocking question.
   on any the relay had not taken. A question its worker asked again with the same first line before
   either took it runs once, on the later question. The reader claims its question by creating the question's
   file in the drive's `answers/` folder, so a second reader started on it exits, and runs nothing on a
-  question asked over 270 s ago, past which its lane's `drive` gave up, or whose lane ended. It runs
+  question asked over 240 s ago, past which its lane's `drive` gave up, or whose lane ended. It runs
   `cci`, `ccn` or the drive's own cc-slack launcher in
   the directory the coordinator started the drive from, or reads the drive files, and replies with
   the output the moment it ends, a command's cut to 12,000 characters but for a `cc-slack thread`
@@ -468,7 +468,7 @@ lane reads those, and Slack, through this Mac with a blocking question.
 - A lane whose wait ends waits again on the same question, so the relay sends again every 2 s each
   answer its file still marks unsent once its reader ended, past a refused reply or a watch restart,
   until the answer goes through, Orca says it already holds another answer or that the question's
-  dispatch closed, or 270 s pass since the lane asked, which drops it with no line. Its
+  dispatch closed, or 240 s pass since the lane asked, which drops it with no line. Its
   `WATCH the answer to <j>'s read failed` line needs nothing from you.
 
 **What the watch reads each minute.**

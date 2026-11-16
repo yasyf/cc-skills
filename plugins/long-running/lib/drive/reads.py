@@ -34,8 +34,8 @@ CREDENTIALS = [
 ]
 DRIVE_BIN = Path(__file__).resolve().parents[2] / "bin" / "drive"
 DRIVE_SECONDS = 540
-LANE_GIVES_UP = 270
-ANSWER_BY = 240
+LANE_GIVES_UP = 240
+ANSWER_BY = 225
 DRIVE_EXIT = "drive exited"
 SPRITE_LANE = "LONG_RUNNING_SPRITE_LANE"
 LANE_VERBS = (

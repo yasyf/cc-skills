@@ -69,12 +69,12 @@ def test_a_wait_that_times_out_resumes_the_same_question_until_it_is_answered(tm
     ]
 
 
-def test_a_question_unanswered_for_270_seconds_is_given_up_on_naming_it_and_exits_1(tmp_path: Path) -> None:
-    done, asked = drive(tmp_path, [{"timedOut": True, "messageId": "msg_1"}] * 9, "job", "report", "j7")
-    assert (done.returncode, len(asked)) == (1, 9)
+def test_a_question_unanswered_for_240_seconds_is_given_up_on_naming_it_and_exits_1(tmp_path: Path) -> None:
+    done, asked = drive(tmp_path, [{"timedOut": True, "messageId": "msg_1"}] * 8, "job", "report", "j7")
+    assert (done.returncode, len(asked)) == (1, 8)
     assert done.stderr.splitlines()[-2:] == [
-        "drive: no answer yet from the coordinator's Mac to `drive job report j7`, Orca question msg_1, 240 s in; still waiting",
-        "drive: no answer in 270 s from the coordinator's Mac to `drive job report j7`, Orca question msg_1:"
+        "drive: no answer yet from the coordinator's Mac to `drive job report j7`, Orca question msg_1, 210 s in; still waiting",
+        "drive: no answer in 240 s from the coordinator's Mac to `drive job report j7`, Orca question msg_1:"
         " its watch may still run it, so read what it would change before asking again",
     ]
 

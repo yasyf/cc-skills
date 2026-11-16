@@ -40,7 +40,7 @@ ANSWER_SECONDS = 10
 MOST_BYTES = 25 * 1024 * 1024
 RUN = re.compile(r"github\.com/(?P<repo>[^/\s]+/[^/\s]+)/actions/runs/(?P<run>\d+)")
 WAIT_SECONDS_DEFAULT = 110
-WAIT_SECONDS_MOST = 270
+WAIT_SECONDS_MOST = 230
 
 
 def home() -> Path:
