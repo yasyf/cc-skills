@@ -322,9 +322,9 @@ def github_lines(watcher: Watcher, moment: datetime, polled: bool = False) -> li
                     pr["own_reds"] = owns[key]
                 if was["required"]:
                     pr["required"]["read"] = was["required"]["read"]
-                if moved := pr != was:
+                if row_moved := pr != was:
                     pr["updated"] = state.stamp(moment)
-                if moved or key in pushed:
+                if row_moved or key in pushed:
                     pr["required"]["read"] = state.stamp(moment)
                 if why := state.foreign_pr(data, key):
                     foreign[key] = (pr["url"], pr["author"], f"{why} {ids(pr)}")
