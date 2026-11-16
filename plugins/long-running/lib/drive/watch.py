@@ -4005,13 +4005,6 @@ def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: da
             fresh = f'{"in a fresh worktree " + orca.ON_MAC if state.on_mac(job) else "on a fresh Sprite"} with a handoff'
             logs = "" if state.on_mac(job) else f"copies its Sprite's Orca runtime and worker logs to {orca.death_logs(watcher.name, job_id, worker)}, "
             again = f"relaunches it {fresh}" if state.on_mac(job) else f"resumes its Claude session on its Sprite, or else relaunches it {fresh}"
-            if not state.on_mac(job) and (first := state.died_before(job, worker)):
-                again = (
-                    f"reads from them why it died and moves it to a fresh worktree {orca.ON_MAC}, waiting its turn for a builder slot while they are full,"
-                    f" as its lane on Sprite {first['workspace']} died too since its last line, at {when(first['at'])},"
-                    " unless they show its Sprite rebooted after its worker started, which resumes its Claude session there, or failed on its own, a kernel error line"
-                    " after init with no OOM kill and its home volume not full, or did not answer while GitHub holds the job's branch, which relaunches it on a fresh Sprite"
-                )
             lines.append(
                 f'LANE {job_id} {job["order"]} died {orca.place(job)}: {why}, while it worked on "{cut(job["said"] or job["goal"], 60)}".'
                 f" The watch ran drive job resume {job_id}, which {logs}{again}, its output in the drive's {RELAUNCHES_LOG}"

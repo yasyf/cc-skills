@@ -4022,7 +4022,7 @@ def crowded_here(name: str, data: dict, job_id: str, step: str | None, text: str
     job = data["jobs"][job_id]
     if job["kind"] != "builder" or not (why := place.crowded(data, job_id, state.now())):
         return None
-    if not (step or state.died_twice(job)):
+    if not step:
         return f"{why}, so it starts on a Sprite at once: drive job launch {job_id}, with no --local"
     moving = place.on_sprite(job) or bool(job.get("agent"))
     if not (moving or place.queueable(data, job_id)):
@@ -4246,14 +4246,6 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
                 return resume_session(args, name, dispatch, end, message, text, session, root, cause)
             except orca.Unstarted as error:
                 end = orca.died(name, args.id, dispatch, end._replace(why=f"{end.why}, and its Claude session {session} did not resume there: {error}", unfit=isinstance(error, orca.Unfit) or end.unreached), unresumed=str(error))
-    if first:
-        before = f"its lane on Sprite {first['workspace']} died too since its last line, at {render.when(first['at'])} ({state.why_died(first['why'], first['cause'])})"
-        with state.edit(name) as data:
-            state.lane_died(data["jobs"][args.id], dispatch, end.why, state.now(), cause)
-        here, unreached = True, False
-        if crowd := crowded_here(name, data, args.id, declared, text):
-            line = f"{args.id}: no worker started yet: its lane on Sprite {job['workspace']} died ({state.why_died(end.why, cause)}), and {before}, so it starts no worker on a Sprite: {crowd}"
-            return emit(args, line, {"id": args.id, "how": "held"})
     yield_to_launch(name, args.id)
     transcript = None if state.on_mac(job) or end.ended else orca.keep_transcripts(name, args.id, job, dispatch, root)
     stopped = orca.reclaim(job["run"], dispatch, root) if here and end.live else None
@@ -4340,8 +4332,6 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
             line += f"; {released}"
         if declared:
             line += f"; it moved to this Mac, since its brief declares {declared}, a step only this Mac runs"
-        if first:
-            line += f"; it moved to this Mac, since {before}"
     how = f"started {orca.ON_MAC}" if same else "relaunched"
     return emit(args, "\n".join(filter(None, [stopped, line])), {"id": args.id, "how": how, "ended": ended, "branches": branches, "handoff": str(kept), **started})
 

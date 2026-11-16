@@ -2421,7 +2421,7 @@ def died_again(run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.Monkey
 
 
 @pytest.mark.parametrize("workspace", J2504_SPRITES)
-def test_a_lane_whose_sprite_died_resumes_its_own_claude_session_there_with_its_cause_and_a_second_death_since_the_jobs_last_line_moves_the_job_to_a_fresh_worktree_on_this_mac(
+def test_a_lane_whose_sprite_died_resumes_its_own_claude_session_there_with_its_cause_and_a_second_death_since_the_jobs_last_line_relaunches_it_on_a_fresh_sprite_at_once(
     run: Run,
     remote: str,
     tmp_path: Path,
@@ -2451,39 +2451,27 @@ def test_a_lane_whose_sprite_died_resumes_its_own_claude_session_there_with_its_
     monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: acted.append(f"destroyed {job['workspace']}") or f"destroyed {job['workspace']}")
     code, out = run("job", "resume", "j1", "carry on")
     job = state.load(remote)["jobs"]["j1"]
-    first = job["deaths"][0]
-    assert (code, out.startswith("j1: the message went to the job's next worker, relaunched in a fresh worktree on this Mac as its own claude --bg session bg-1")) == (0, True)
+    assert (code, "relaunched on Sprite" in out.splitlines()[0], "this Mac" in out) == (0, True, False)
     assert f"its lane on Sprite {workspace} was dead (its worker exited; {HIGH_CAUSE})" in out
-    assert out.endswith(f"; destroyed {workspace}; it moved to this Mac, since its lane on Sprite {workspace} died too since its last line, at {render.when(first['at'])} (its worker exited; {HIGH_CAUSE})")
-    assert [(name, on, session) for name, _, on, session in launched] == [("j1-2.resume.md", workspace, J2504_SESSION)]
-    [(_, call, _)] = bg_starts
-    assert ("which you act on now:\n\ncarry on" in bg_brief(call), call["prompt"].endswith("j1-3.md")) == (True, True)
+    assert ([name for name, *_ in launched][0], bg_starts) == ("j1-2.resume.md", [])
     assert (acted, kept_logs) == ([f"saved {workspace}", f"destroyed {workspace}"], [("j1", J2504_DISPATCH), ("j1", "dispatch-2")])
-    assert (job["where"], job["route"], job["dispatch"], job["bg"]["session"], job["state"], job["undelivered"]) == ("local", None, None, "bg-1", "running", [])
+    assert (job["where"], job["state"]) == ("remote", "running")
     assert [(death["dispatch"], death["cause"]) for death in job["deaths"]] == [(J2504_DISPATCH, HIGH_CAUSE), ("dispatch-2", HIGH_CAUSE)]
 
 
-def test_a_second_death_since_the_jobs_last_line_while_eight_builders_hold_this_macs_slots_waits_its_turn_to_move_here_and_never_points_back_to_a_sprite(
+def test_a_second_death_since_the_jobs_last_line_while_eight_builders_hold_this_macs_slots_relaunches_on_a_fresh_sprite_and_never_waits_for_a_slot_here(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sessions: dict[str, str], causes: dict[str, str]
 ) -> None:
     workspace = J2504_SPRITES[0]
-    launched = died_again(run, remote, tmp_path, monkeypatch, sessions, causes, workspace, HIGH_CAUSE, "564.20 4158.12\n    543\n")
-    monkeypatch.setattr(orca, "save", lambda *args: pytest.fail("a move waiting its turn saves nothing"))
+    died_again(run, remote, tmp_path, monkeypatch, sessions, causes, workspace, HIGH_CAUSE, "564.20 4158.12\n    543\n")
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: f"destroyed {job['workspace']}")
     eight_builders_here(run)
     code, out = run("job", "resume", "j1", "PR #12: checks failed")
     data = state.load(remote)
     job = data["jobs"]["j1"]
-    first, second = job["deaths"]
-    assert code == 0
-    assert out.startswith(
-        f"j1: no worker started yet: its lane on Sprite {workspace} died (its worker exited; {HIGH_CAUSE}), and its lane on Sprite {workspace} died too since its last line,"
-        f" at {render.when(first['at'])} (its worker exited; {HIGH_CAUSE}), so it starts no worker on a Sprite: 8 builders already run on this Mac"
-    )
-    queued = "so j1 waits its turn for a builder slot on this Mac, 1 of 1 in line, and the watch moves it here from its Sprite with drive job launch j1 --local as its turn comes, its handoff carrying the texts the job holds"
-    assert out.endswith(queued)
-    assert [name for name, *_ in launched] == ["j1-2.resume.md"]
-    assert (job["dispatch"], job["state"], job["waits"], [held["words"] for held in job["undelivered"]], second["cause"]) == ("dispatch-2", "running", [state.SLOT_WAIT], ["PR #12: checks failed"], HIGH_CAUSE)
-    assert (place.waiting_builders(data), cli.crowded_here(remote, data, "j1", None).endswith(queued)) == (["j1"], True)
+    assert (code, "relaunched on Sprite" in out.splitlines()[0], "waits its turn" in out) == (0, True, False)
+    assert (state.SLOT_WAIT in job["waits"], place.waiting_builders(data), job["where"]) == (False, [], "remote")
 
 
 def test_a_second_death_since_the_jobs_last_line_on_a_sprite_whose_vm_booted_after_its_worker_started_resumes_that_workers_claude_session_there(
@@ -5125,10 +5113,7 @@ def test_a_relaunch_that_ended_without_a_next_lane_is_said_at_once(remote: str, 
     [
         (
             {"why": "its worker exited", "cause": HIGH_CAUSE},
-            "reads from them why it died and moves it to a fresh worktree on this Mac, waiting its turn for a builder slot while they are full,"
-            " as its lane on Sprite sprite-first died too since its last line, at {at}, unless they show its Sprite rebooted"
-            " after its worker started, which resumes its Claude session there, or failed on its own, a kernel error line after init with no OOM kill and its"
-            " home volume not full, or did not answer while GitHub holds the job's branch, which relaunches it on a fresh Sprite",
+            "resumes its Claude session on its Sprite, or else relaunches it on a fresh Sprite with a handoff",
         ),
         ({"why": f"its worker exited, and {NBD_CAUSE}"}, "resumes its Claude session on its Sprite, or else relaunches it on a fresh Sprite with a handoff"),
     ],
@@ -5158,7 +5143,7 @@ def test_a_twice_dead_lane_waiting_its_turn_to_move_here_or_moving_in_that_turn_
     job = state.load(remote)["jobs"]["j1"] | {"workspace": "sprite-old", "deaths": [first, second]}
     waiting = job | {"waits": [state.SLOT_WAIT]}
     moving = job | {"slot": state.stamp(T0 - timedelta(minutes=1))}
-    assert (state.died_twice(waiting), watch.ended_gap("j1", waiting, second, T0), watch.ended_gap("j1", moving, second, T0)) == (True, None, None)
+    assert (bool(state.died_before(waiting, DISPATCH)), watch.ended_gap("j1", waiting, second, T0), watch.ended_gap("j1", moving, second, T0)) == (True, None, None)
     assert watch.ended_gap("j1", moving, second, T0 + watch.RELAUNCH).startswith("j1's lane ended ")
 
 

@@ -592,11 +592,9 @@ before it sends or starts.
   that line goes in the death's why, and the death counts against no job. So does a Sprite that did
   not answer once GitHub holds the job's branch, and the lane relaunches on a fresh Sprite from it.
   When another lane of the job died with a cause since its last line, a second death with a cause
-  starts no worker on a Sprite. Its session resumes there first only when the logs show that
-  Sprite's VM booted after its worker started. Otherwise the resume moves the job to a fresh
-  worktree on this Mac, as a builder whose brief has a `Mac:` line moves, its output naming both
-  deaths. A builder that finds this Mac's builder slots full waits its turn on `builder-slot`
-  instead, and the watch moves it with `drive job launch <j> --local` when its turn comes.
+  resumes its session on that Sprite only when the logs show its VM booted after its worker
+  started. Otherwise it relaunches on a fresh Sprite at once, never waiting for a slot on this Mac:
+  only a builder whose brief has a `Mac:` line moves here.
 - Before a relaunch on a fresh Sprite it saves the dead lane's Sprite, found by the job's workspace
   even when Orca dropped its dispatch or environment. Over ssh it commits each worktree's uncommitted
   changes there and pushes each commit, branch or stash GitHub holds nowhere as
