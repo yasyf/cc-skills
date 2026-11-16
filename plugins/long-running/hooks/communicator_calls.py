@@ -31,11 +31,41 @@ def program(command: str) -> list[str]:
     return [Path(commands[0][0]).name, *commands[0][1:]] if commands else []
 
 
+RESEARCH = {"bk", "git", "cc-transcript"}
+HANDED_OFF = (
+    "Refused on purpose: you answer from what you hold, this turn, `drive status <o, j, PR or words>`, your brief and the thread,"
+    " in about 30 seconds, and a read past those is research: post a short status in his thread through say, start one"
+    " background subagent with the Agent tool briefed with his words verbatim, the thread, the ids and the question, which"
+    " posts the answer itself, and end your turn."
+)
+
+
+def research(command: str) -> str | None:
+    """The research a communicator's own Bash call runs, which its subagent runs instead: bk, tools/ci, git, a transcript read, or a bare `drive status`, which reads every open order for most of a minute."""
+    try:
+        found = shell.simple_commands(shell.runnable(command))
+    except ValueError:
+        return None
+    for words in found:
+        named = [Path(words[0]).name, *words[1:]] if words else []
+        if not named:
+            continue
+        if ran := next((word for word in named if Path(word).name in RESEARCH or word.endswith("tools/ci") or word.endswith(".jsonl")), None):
+            return Path(ran).name
+        if named[:2] == ["drive", "status"] and not [word for before, word in zip(named[1:], named[2:]) if not word.startswith("-") and before != "--drive"] and "--prs" not in named:
+            return "a bare drive status"
+    return None
+
+
 def communicator_call(payload: dict) -> agents.Unjudged | None:
-    """Why the communicator's call does not run: it answers him itself with every tool a root session has, by his words "it needs to be just as fast and fluid asking me things and making the right judgement calls as you would", so only a cci write is refused, since the drive's record tool sends its records."""
+    """Why the communicator's own call does not run: a cci write, since the drive's record tool sends its records, and research, bk, tools/ci, git, a transcript read or a bare `drive status`, which its background subagent runs while it stays free for his next message, by his words "it needs to strike the balance of replying quickly when it has the context at hand, but handing off to a subagent (with the relevant context handed to it) to do some further research then respond when it's more involved"; its subagents' calls are their own."""
     name = payload["tool_name"]
     if name in CCI_WRITES or name == "Bash" and program(payload["tool_input"].get("command") or "")[:2] in (["cci", "post"], ["cci", "close"]):
         return agents.Unjudged(f"Refused on purpose: {render.RECORDING}")
+    if name == "Bash" and (ran := research(payload["tool_input"].get("command") or "")):
+        return agents.Unjudged(f"{HANDED_OFF} This call runs {ran}.")
+    if name == "Read" and str(payload["tool_input"].get("file_path") or "").endswith(".jsonl"):
+        return agents.Unjudged(f"{HANDED_OFF} This call reads a transcript.")
     return None
 
 
