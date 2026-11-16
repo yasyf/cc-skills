@@ -1967,7 +1967,7 @@ def reload_sessions(drives: list[str], force: bool) -> list[str]:
     """Reload every session bound to each drive: the communicator, the top coordinator, the meta session and each sub-coordinator, read from each drive's saved bindings alone, each in an Orca terminal one read of Orca and the process tree finds it runs in."""
     from drive import orca
 
-    seats = [(name, seat, held) for name in drives for seat, held in state.bound_sessions(state.saved(name)).items()]
+    seats = [(name, seat, held) for name in drives if not (data := state.saved(name)).get("records_only") for seat, held in state.bound_sessions(data).items()]
     try:
         found = orca.session_terminals([held["session"] for _, _, held in seats])
     except orca.OrcaError as error:

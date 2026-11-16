@@ -5606,6 +5606,17 @@ def test_his_asks_are_kept_in_his_words_on_the_parts_delivering_them_and_a_later
     assert (whole["words"], whole["parts"]) == ("Drive tooling: one thing", ["Whole message"])
 
 
+def test_a_records_only_drive_binds_no_session_yet_resolves_for_the_session_that_registered_it_and_a_lane_on_an_ask_carries_its_part(run: Run) -> None:
+    assert run("start", "kept", "--role", "meta", "--records-only")[0] != 0
+    code, out = run("start", "kept", "--role", "coordinator", "--records-only")
+    data = state.load("kept")
+    assert (code, data["roles"]["coordinator"]["session"], data["records_only"]["session"]) == (0, None, os.environ["CLAUDE_CODE_SESSION_ID"])
+    assert (state.session_drives(os.environ["CLAUDE_CODE_SESSION_ID"]), state.resolve(), install.reload_sessions(["kept"], True)) == ([], "kept", [])
+    run("order", "add", "--title", "Quiet bot", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: less chatty on trivia", "--lane", "oncall-reply-judgment")
+    order = state.load("kept")["orders"]["o1"]
+    assert (state.lane_carried(order, "Quiet bot"), state.lane_carried(order | {"asks": {}}, "Quiet bot")) == (True, False)
+
+
 def test_an_ask_keeps_the_lane_delivering_it_its_check_and_its_due_time_and_a_later_call_sets_them_leaving_his_words(run: Run, meta: str) -> None:
     run(
         "order", "add", "--title", "Quiet bot", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: less chatty on trivia",
