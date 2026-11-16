@@ -44,16 +44,16 @@ def moved(name: str, moment: datetime) -> list[str]:
             continue
         if len(lines) == MOVES_PER_PASS:
             break
-        react(*key.split("/"), step)
+        react(*key.split("/"), step, kept.get(key, True))
         kept[key] = step
         lines.append(f"his message {key} now carries {step or 'no reaction'}")
     path.write_text(json.dumps(kept))
     return lines
 
 
-def react(channel: str, ts: str, step: str | None) -> None:
-    """Leave the one reaction step on his message, taking every other step's away; a reaction already gone or already there is no failure."""
-    for other in STEPS:
+def react(channel: str, ts: str, step: str | None, was: str | None | bool = True) -> None:
+    """Leave the one reaction step on his message, taking away the step it carried before, was, or every other step's when that is not known, True, as on a message the drive never moved, whose eyes a pickup put; a reaction already gone or already there is no failure. Taking away only the step it left keeps a move to one or two Slack calls, since taking away every step each move made 185 unreacts in ten minutes and hit Slack's rate limit."""
+    for other in STEPS if was is True else (was,) if was else ():
         if other != step:
             try:
                 slack.cc_slack("unreact", "--channel", channel, "--ts", ts, "--name", other)
@@ -67,13 +67,13 @@ def react(channel: str, ts: str, step: str | None) -> None:
 
 
 def answered(name: str, channel: str, ts: str, working: bool = False) -> str:
-    """Move his message's reaction once a post answers it without ending it: construction while the post says work it started keeps running or an order's work on it runs, else none, so the construction a pickup put on it never outlives its work, as one stayed on his status question at C0CJ378LSBT/1794857634.488009 after its answer; the step it left."""
+    """Move his message's reaction once a post answers it, to the one its orders want now, as the watch's pass would, in the same call, so a post closing his order with something handled leaves the check at once, never a bare message for a pass: construction while the post says work it started keeps running or an order's work on it runs, a check once its order is done, else none, so the construction a pickup put on it never outlives its work, as one stayed on his status question at C0CJ378LSBT/1794857634.488009 after its answer; the step it left."""
     data = state.load(name, ("orders", "jobs"))
     running = {job["order"] for job in data["jobs"].values() if job["state"] == RUNNING}
-    building = any(order.get("thread") == [channel, ts] and wanted(order, order_id in running) == BUILDING for order_id, order in data["orders"].items())
-    step = BUILDING if building or working else None
-    react(channel, ts, step)
+    wants = [want for order_id, order in data["orders"].items() if order.get("thread") == [channel, ts] and (want := wanted(order, order_id in running)) is not False]
+    step = BUILDING if working else min(wants, key=RANK.index) if wants else None
     path = state.drive_dir(name) / FILE
     kept = json.loads(path.read_text()) if path.exists() else {}
+    react(channel, ts, step, kept.get(f"{channel}/{ts}", True))
     path.write_text(json.dumps(kept | {f"{channel}/{ts}": step}))
     return step or "no reaction"

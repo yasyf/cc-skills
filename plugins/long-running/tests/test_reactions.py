@@ -60,3 +60,20 @@ def test_a_post_answering_his_message_without_ending_it_takes_its_construction_o
     calls.clear()
     assert reactions.answered(demo, "C0CJ378LSBT", "1794857634.488009", working=True) == "construction"
     assert ("react", "--channel", "C0CJ378LSBT", "--ts", "1794857634.488009", "--name", "construction") in calls
+
+
+def test_a_post_closing_his_order_leaves_the_check_in_the_same_call_and_a_known_step_is_the_only_one_taken_away(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: calls.append(argv) or {})
+    with edit(demo) as data:
+        data["orders"]["o5"] = state.new_order("order o5", "terminal", None, {}, ASKED) | {"thread": ["C1", "5.5"], "state": "working", "last_line": ASKED, "updated": state.stamp()}
+        data["jobs"]["j5"] = state.new_job("o5", "builder", "build it", [], ASKED) | {"state": "running"}
+    assert reactions.answered(demo, "C1", "5.5") == "construction"
+    with edit(demo) as data:
+        data["jobs"]["j5"]["state"] = "done"
+        data["orders"]["o5"]["state"] = "done"
+    calls.clear()
+    assert reactions.answered(demo, "C1", "5.5") == "white_check_mark"
+    assert calls == [("unreact", "--channel", "C1", "--ts", "5.5", "--name", "construction"), ("react", "--channel", "C1", "--ts", "5.5", "--name", "white_check_mark")]
+    calls.clear()
+    assert reactions.moved(demo, datetime.now(UTC)) == [] and calls == []

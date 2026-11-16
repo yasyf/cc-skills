@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from drive import slack
-from drive.state import DRIVE_TOOLING, PAGE_RULE, posting_rules, brief_path, communicator_lane, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
+from drive.state import DRIVE_TOOLING, PAGE_RULE, brief_path, communicator_lane, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, parse_time, part_jobs, pass_due, passes, posting_rules, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -119,7 +119,8 @@ COMMUNICATOR_RULES = (
         " never ask him to confirm or acknowledge what he just said, nor to type a word a card can carry: give the card. A"
         " proof that ran a repro is not the real event; say which it was. His message's reaction follows the drive: eyes while"
         " you read or answer it, construction only while work it started runs, a check once handled, none otherwise: pass"
-        " done on the post that ends it and working on one that leaves work running. Every claim of cause or state links the read that"
+        " done on the post that ends it, only when it handled something, and working on one that leaves work running; a"
+        " message that needed nothing, such as thanks, an ack or an FYI, ends with no reaction, its order dropped, never done. Every claim of cause or state links the read that"
         " measured it; a failure of the drive's own says how it is prevented; his recorded answers stand; a line goes out"
         " after the action, never before. A"
         " status is a plain line with no buttons. A card goes"
