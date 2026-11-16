@@ -80,13 +80,14 @@ class Provider:
 
 
 class RepoProvider(Provider):
-    """The repository's identity, its landing queue and the tools its lanes run."""
+    """The repository's identity, its landing queue and the tools its lanes run; research_tools are the programs, by name or by the path they end in, whose runs read CI or the repository's release state, which a communicator hands to its subagent rather than running itself."""
 
     name: str | None = None
     guarded_owner: str | None = None
     review_ask: str | None = None
     fde_scan: str | None = None
     page_owner: str | None = None
+    research_tools: frozenset[str] = frozenset()
 
     def queue(self) -> Queue | None:
         """The merge queue a PR to this repository lands through; None when PRs land through GitHub alone."""
