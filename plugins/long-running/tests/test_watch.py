@@ -211,7 +211,7 @@ def order(**overrides: object) -> dict:
 
 
 def job(**overrides: object) -> dict:
-    base = {"order": "o1", "kind": "builder", "goal": "watch", "prs": [], "branch": None, "waits": [], "questions": [], "state": "running", "said": None, "created": state.stamp(T0), "updated": state.stamp(T0), "accepted_unproven": [], "cut_misses": {}}
+    base = {"order": "o1", "kind": "builder", "goal": "watch", "prs": [], "branch": None, "waits": [], "questions": [], "state": "running", "said": None, "created": state.stamp(T0), "updated": state.stamp(T0), "accepted_unproven": [], "cut_misses": {}, "watch_said": []}
     return {**base, **overrides}
 
 
@@ -3111,6 +3111,30 @@ def test_a_job_waiting_on_a_job_that_returned_built_is_freed_on_its_branch_and_h
     assert watch.waits_lines(watching, T0 + timedelta(minutes=1)) == []
     watch.carry_held(watching, T0 + timedelta(minutes=1))
     assert (detached, len(asked)) == ([["job", "launch", "j3"], ["job", "launch", "j4"]], 1)
+
+
+def test_a_tester_whose_return_names_a_built_job_gets_no_stack_on_line_and_a_builder_named_it_again_hears_it_once_as_j7599_did_every_20_minutes(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(state, "detach", lambda name, args, log: 1)
+    monkeypatch.setattr(github, "graphql", lambda text, what, max_age="0s": {"data": {"r0": {"h0": {"target": {"oid": "eb6227aa4f3c55aa"}}}}})
+    with edit(demo) as data:
+        data["orders"]["o1"]["jobs"] += ["j2", "j3", "j4"]
+        data["jobs"]["j2"] = job(state="built", repo="Forge-AI/monorepo", branch="durable-agents-j2-no-old-flip", said="BUILT durable-agents-j2-no-old-flip")
+        data["jobs"]["j3"] = job(state="waiting", said="WAITING j8: a tip carrying j2's eb6227aa4f3c", waits=["j2"], builds_nothing=True)
+        data["jobs"]["j4"] = job(state="waiting", said="waits on j2", waits=["j2"])
+    watching = watcher(demo)
+    based = "j2 built on durable-agents-j2-no-old-flip at eb6227aa4f3c, the change yours builds on, its PR held on his answer: cut your branch from that head, so your PR stacks on it"
+    watch.waits_lines(watching, T0)
+    data = state.load(demo)
+    assert ([kept["words"] for kept in data["jobs"]["j3"]["undelivered"]], [kept["words"] for kept in data["jobs"]["j4"]["undelivered"]]) == ([], [based])
+    with edit(demo) as data:
+        for job_id in ("j3", "j4"):
+            data["jobs"][job_id].update(state="waiting", waits=["j2"], undelivered=[])
+    watch.waits_lines(watching, T0 + timedelta(minutes=20))
+    data = state.load(demo)
+    assert [data["jobs"][job_id]["undelivered"] for job_id in ("j3", "j4")] == [[], []]
 
 
 def test_his_tap_on_a_lane_questions_card_leads_its_orphan_line_until_his_undo_reopens_the_question_his_card_asks_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

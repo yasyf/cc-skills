@@ -163,6 +163,7 @@ DETACHED_ENV = "LONG_RUNNING_DETACHED"
 HIM = "him"
 ORDER_FIELDS = {"paged": None, "paged_by": None, "page_post": None, "users": None, "users_by": None}
 WATCH_SENDER = "watch"
+WATCH_SAID_KEPT = 500
 SENDER_NAMES = {"coordinator": "the coordinator", "communicator": "the communicator", "meta": "the meta session", WATCH_SENDER: "the watch"}
 CARRY_ON = "The lane that held this job died while it worked, and the watch started you in its place: carry the job on from where that lane left it."
 UNREACHED = "Orca could not reach this job's lane on its Sprite, so the watch had drive job resume wake that Sprite: carry the job on from where the lane left it."
@@ -2420,9 +2421,14 @@ def answer_handoffs(data: dict, answers: list[tuple[str, str, dict]]) -> None:
 
 
 def hold_text(job: dict, text: str, sender: str | None, at: str | None = None, seq: str | None = None) -> bool:
-    """Keep a text on the job's undelivered list as kept_text writes it, which its next worker or codex-ask run carries, unless the job already holds it, by its words or the cci seq of the record it came in, or it is one of the watch's RESTART_NOTES, which tells only the lane a wake or restart reaches to carry on and so rides only the message or handoff of the drive job resume that wakes or restarts it, never a later worker; whether it kept it."""
+    """Keep a text on the job's undelivered list as kept_text writes it, which its next worker or codex-ask run carries, unless the job already holds it, by its words or the cci seq of the record it came in, or it is one of the watch's RESTART_NOTES, which tells only the lane a wake or restart reaches to carry on and so rides only the message or handoff of the drive job resume that wakes or restarts it, never a later worker; whether it kept it. A text the watch sends goes to a job once per distinct content, its digest kept in watch_said, so a pass re-sending a line it already gave wakes no turn that changes nothing."""
     if text in RESTART_NOTES or any(held["words"] == text or seq and held["seq"] == seq for held in job["undelivered"]):
         return False
+    if sender == WATCH_SENDER:
+        digest = hashlib.sha1(text.encode()).hexdigest()[:16]
+        if digest in job["watch_said"]:
+            return False
+        job["watch_said"] = [*job["watch_said"], digest][-WATCH_SAID_KEPT:]
     job["undelivered"].append(kept_text(text, sender, at, seq))
     return True
 
@@ -4411,6 +4417,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "shipped": [],
         "waited": None,
         "waiting_said": [],
+        "watch_said": [],
         "waiting_claims": {},
         "mail_seen": 0,
         "turn_open": False,

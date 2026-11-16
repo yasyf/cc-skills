@@ -762,7 +762,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if sprite_turn and state.SPRITE_WAIT not in job["waits"]:
                 job["sprite_turn"] = state.stamp(moment)
             for wait in waited:
-                if wait in bases:
+                if wait in bases and job["kind"] == "builder" and not state.builds_nothing(job):
                     state.hold_text(job, BUILT_BASE.format(built=bases[wait]), state.WATCH_SENDER)
             if stacks := [opened[wait] for wait in waited if wait in opened and wait not in job["waits"]]:
                 job["stacks_on"] = list(dict.fromkeys([*job["stacks_on"], *stacks]))
