@@ -119,7 +119,7 @@ CHECKOUT_SECONDS = 600
 CHECKOUT_WAIT = 300
 CHECKOUT_FRESH = 60
 CHECKOUT_MOVED = ".checkout.moved"
-LIMIT_DIALOG = "Add funds to continue with usage credits"
+BLOCKING_SCREENS = ("Add funds to continue with usage credits", "Select login method", "claude.ai/oauth", "Paste code here")
 ESCAPE = "\x1b"
 LIMIT_DIALOG_READS = 15
 LIMIT_DIALOG_SECONDS = 2
@@ -313,12 +313,16 @@ def type_prompt(terminal: str, text: str, *served: str) -> None:
 
 
 def dismiss_limit_dialog() -> bool:
-    """Dismiss Claude Code's usage-limit dialog in this session's own Orca terminal with Escape alone, once it draws, which keeps the session working on paid usage, by his words "Keep working on paid usage"; never one of its options, since "if u answer it with the paid limit it makes you log in again". False outside an Orca terminal or when no dialog drew within LIMIT_DIALOG_READS reads."""
+    """Dismiss Claude Code's usage-limit dialog, and any login screen it leads to, in this session's own Orca terminal with Escape alone, which keeps the session working on paid usage, by his words "Keep working on paid usage"; never one of its options and never a login, since "if u answer it with the paid limit it makes you log in again" and "if u end up at teh login prompt esc out of that too". Each read that still shows either screen gets Escape again. True once a read after an Escape shows neither; False outside an Orca terminal or when that takes more than LIMIT_DIALOG_READS reads."""
     if not (handle := own_terminal()):
         return False
+    sent = False
     for _ in range(LIMIT_DIALOG_READS):
-        if LIMIT_DIALOG in "\n".join(request("terminal", "read", "--terminal", handle, "--screen")["terminal"]["tail"]):
+        screen = "\n".join(request("terminal", "read", "--terminal", handle, "--screen")["terminal"]["tail"])
+        if any(marker in screen for marker in BLOCKING_SCREENS):
             request("terminal", "send", "--terminal", handle, "--text", ESCAPE)
+            sent = True
+        elif sent:
             return True
         time.sleep(LIMIT_DIALOG_SECONDS)
     return False

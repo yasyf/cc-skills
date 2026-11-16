@@ -363,11 +363,18 @@ def test_a_usage_limit_stop_is_kept_on_the_job_whose_lane_runs_in_the_sessions_w
     assert [(line["session"], line["job"], line["dismissed"]) for line in logged] == [("s-lane", "j1", True), ("s-root", None, False)]
 
 
-def test_a_limit_dialog_gets_escape_alone_once_it_draws_and_never_an_option(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_limit_dialog_and_the_login_screen_after_it_get_escape_alone_until_a_reread_shows_neither(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TMUX", raising=False)
     monkeypatch.setenv("ORCA_TERMINAL_HANDLE", "term_lane")
     monkeypatch.setattr(orca.time, "sleep", lambda _: None)
-    screens = iter([["working"], ["What do you want to do?", "3. Add funds to continue with usage credits"]])
+    screens = iter(
+        [
+            ["working"],
+            ["What do you want to do?", "3. Add funds to continue with usage credits"],
+            ["Select login method:", "1. Claude account with subscription"],
+            ["> "],
+        ]
+    )
     calls = []
 
     def answered(*args: str, **_: object) -> dict:
@@ -376,7 +383,8 @@ def test_a_limit_dialog_gets_escape_alone_once_it_draws_and_never_an_option(monk
 
     monkeypatch.setattr(orca, "request", answered)
     assert orca.dismiss_limit_dialog() is True
-    assert calls[-1] == ("terminal", "send", "--terminal", "term_lane", "--text", "\x1b")
+    assert [call for call in calls if call[1] == "send"] == [("terminal", "send", "--terminal", "term_lane", "--text", "\x1b")] * 2
+    assert calls[-1][1] == "read"
     monkeypatch.delenv("ORCA_TERMINAL_HANDLE")
     assert orca.dismiss_limit_dialog() is False
 
