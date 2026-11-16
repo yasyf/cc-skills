@@ -83,7 +83,7 @@ def test_a_save_takes_down_the_mac_boxes_of_each_job_it_moves_out_of_running_or_
     assert mac_boxes_downed == ["demo/j1", "demo/j4", "demo/j2", "demo/j1", "demo/j3"]
 
 
-def test_no_save_takes_a_finished_jobs_mac_box_down_while_downs_are_stopped(
+def test_a_save_hands_a_stopped_jobs_mac_boxes_to_a_process_of_its_own_that_returns_them_to_the_pool_from_the_drives_checkout(
     state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run: Callable[..., tuple[int, str]]
 ) -> None:
     checkout = tmp_path / "checkout"
@@ -104,7 +104,7 @@ def test_no_save_takes_a_finished_jobs_mac_box_down_while_downs_are_stopped(
     monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append((name, args, log)) or 0)
     REAL_DOWN_MAC_BOXES("demo", state.load("demo"), ["j1", "j2"])
     REAL_DOWN_MAC_BOXES("demo", state.new_drive("demo", "coordinator", None, str(tmp_path / "elsewhere")), ["j3"])
-    assert detached == []
+    assert detached == [("demo", ["mac-boxes-down", "j1", "j2"], state.MAC_BOXES_LOG)]
     assert run("mac-boxes-down", "j1", "j2", "--drive", "demo")[0] == 0
     assert (tmp_path / "downs").read_text().splitlines() == [f"{checkout.resolve()} mac-box down --holder demo/j1 j1", f"{checkout.resolve()} mac-box down --holder demo/j2 j2"]
 
@@ -3041,3 +3041,10 @@ def test_while_a_slot_hold_stands_only_a_tester_whose_pr_has_his_approve_is_queu
     assert [line.split(" queued ")[1].split(",")[0] for line in state.queue_waiters(data, approved_only=True)] == ["j1"]
     assert [line.split(" queued ")[1].split(",")[0] for line in state.queue_waiters(data)] == ["j2"]
 
+
+def test_the_mac_queue_puts_a_priority_orders_waiting_job_first(state_root: Path) -> None:
+    make("demo")
+    with state.edit("demo") as data:
+        data["orders"]["o2"] = data["orders"]["o1"] | {"priority": True}
+        data["jobs"] |= {job_id: state.new_job(order, "builder", "test on a Mac", [], state.stamp()) | {"state": "waiting", "waits": waits} for job_id, order, waits in (("j1", "o1", ["mac-box:any"]), ("j2", "o2", ["mac-box:any"]), ("j3", "o1", ["staging:api/plat-usw2-staging@abc"]))}
+    assert state.mac_queue(state.load("demo")) == ["j2", "j1"]

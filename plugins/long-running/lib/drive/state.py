@@ -4441,7 +4441,17 @@ def gave_box_back(then: str | None, now: str) -> bool:
 
 
 def down_mac_boxes(name: str, data: dict, finished: list[str]) -> None:
-    """No save takes a Mac box down: by his order 732123 every down stops until the repository's own pool gives boxes back without terminating them."""
+    """Give back to the repository's pool, by `drive mac-boxes-down` in a process of its own, the Mac box of each job a save just moved out of running, by his 03:32 words "releasing back to our pool should be as soon as a job is paused or not working on it", unless box_wanted keeps it for another unfinished job; the provider's down returns the box warm and never terminates it, and refuses one in use. None for a scratch drive or a repository with no mac_box provider."""
+    if not finished or scratch() or not repo_config(data).get("providers", {}).get("mac_box") or not (freed := [job_id for job_id in finished if not box_wanted(data, job_id)]):
+        return
+    detach(name, ["mac-boxes-down", *freed], MAC_BOXES_LOG)
+
+
+def mac_queue(data: dict) -> list[str]:
+    """Each waiting job whose waits name a Mac box, `mac-box:<box>` or `mac-box:any`, a job of a priority order first, then the oldest job first, by his 03:24 words "a prio lane is not getting priority access to the boxes"."""
+    family = priority_family(data)
+    queued = [job_id for job_id, job in data["jobs"].items() if job["state"] == "waiting" and any(str(wait).startswith("mac-box:") for wait in job.get("waits") or [])]
+    return sorted(queued, key=lambda job_id: data["jobs"][job_id]["order"] not in family)
 
 
 

@@ -203,8 +203,15 @@ class MacBoxProvider(Provider):
     def hand_over(self, box: str, holder: str, prior: str) -> str | None:
         return None
 
-    def reap(self) -> None:
-        """Terminate the warm boxes no job took for the repository's idle bound; nothing for a repository that keeps none."""
+    def reap(self, keep: list[str]) -> None:
+        """Scale the repository's warm pool down by one decision, never touching a box keep names; nothing for a repository that keeps none."""
+
+    def warm_boxes(self) -> list[str]:
+        """The name of each warm box the pool holds free."""
+        return []
+
+    def take(self, box: str, holder: str) -> None:
+        """Give holder a box named box, a warm one first, else a new one; ProviderError when no host is free."""
 
     def affected(self, components: list[str]) -> bool:
         return False

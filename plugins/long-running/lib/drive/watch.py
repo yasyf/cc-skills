@@ -134,7 +134,7 @@ ADOPTED = "its Sprite stayed up for this job's lane though no row or death of th
 ADOPT_AFTER = timedelta(hours=1)
 SPRITE_LIST = "sprite list"
 BOX_LIST = "the Mac box list"
-BOX_SWEEP = timedelta(hours=1)
+BOX_SWEEP = timedelta(minutes=10)
 LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
 COMMUNICATOR_IDLE = timedelta(hours=2)
@@ -4859,7 +4859,24 @@ def rest_sessions(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def finished_boxes(watcher: Watcher, moment: datetime) -> list[str]:
-    """No sweep takes a Mac box down: by his order 732123 every down stops until the repository's own pool gives boxes back without terminating them."""
+    """Run the drive's Mac box pool once every BOX_SWEEP, each step a process of its own: give back, by `drive mac-boxes-down`, each live box held by a job of this drive the watch hears that is not running, unless state.box_wanted keeps it; then hand boxes, by `drive mac-boxes-hand`, to the jobs state.mac_queue holds, a priority order's first; it never scales the pool down, which `drive mac-boxes-reap` does only when run by hand; the lines a failed list makes."""
+    if watcher.boxes_at is not None and moment - watcher.boxes_at < BOX_SWEEP:
+        return []
+    data = state.load(watcher.name)
+    watcher.boxes_at = moment
+    try:
+        boxes = providers.of(data).mac_box.live_boxes()
+    except providers.ProviderError as error:
+        return read_failed(watcher, BOX_LIST, error, moment)
+    if boxes is None:
+        return []
+    watcher.failures.pop(BOX_LIST, None)
+    holders = {job_id for drive, _, job_id in (holder.partition("/") for holder in boxes) if drive == watcher.name}
+    held = [job_id for job_id in sorted(holders) if (job := data["jobs"].get(job_id)) and job["state"] != "running" and heard_job(watcher, data, job) and not state.box_wanted(data, job_id)]
+    if held:
+        state.detach(watcher.name, ["mac-boxes-down", *held], state.MAC_BOXES_LOG)
+    if queued := state.mac_queue(data):
+        state.detach(watcher.name, ["mac-boxes-hand", *queued], state.MAC_BOXES_LOG)
     return []
 
 

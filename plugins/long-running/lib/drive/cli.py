@@ -6323,8 +6323,48 @@ def mac_boxes_reap(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     data = state.load(name)
     orca.checkout(name, data["roles"]["coordinator"]["cwd"])
-    providers.of(data).mac_box.reap()
+    boxes = providers.of(data).mac_box
+    boxes.reap([box for box in boxes.warm_boxes() if state.box_wanted(data, box)])
     return 0
+
+
+def mac_boxes_hand(args: argparse.Namespace) -> int:
+    """Give each queued job, in the order given, a box named <job>-mac by the provider's take, a warm one first, else a new host's; a job of a priority order the pool cannot serve takes the box of a waiting job of no priority order, which the provider's down gives back to the pool unless something runs on it, and that job takes one again when it resumes; marks each job's box wait handed, as `drive mac-box handed` does, so the watch frees it; it stops at the first job no host serves."""
+    name = state.resolve(args.drive)
+    data = state.load(name)
+    orca.checkout(name, data["roles"]["coordinator"]["cwd"])
+    boxes = providers.of(data).mac_box
+    family = state.priority_family(data)
+    for job_id in args.jobs:
+        try:
+            boxes.take(f"{job_id}-mac", f"{name}/{job_id}")
+        except providers.ProviderError as error:
+            if data["jobs"][job_id]["order"] in family and mac_box_yielded(name, data, boxes, family):
+                boxes.take(f"{job_id}-mac", f"{name}/{job_id}")
+            else:
+                print(f"{job_id}: {error}", file=sys.stderr)
+                return 1
+        with state.edit(name) as data:
+            ended = state.mac_box_handed(data, job_id, f"{job_id}-mac")
+        state.append_event(name, "mac_box_handed", job=job_id, box=f"{job_id}-mac", host=None, ended=ended)
+        print(f"{job_id}: handed box {job_id}-mac")
+    return 0
+
+
+def mac_box_yielded(name: str, data: dict, boxes: providers.MacBoxProvider, family: set[str]) -> bool:
+    """Whether a waiting job of no priority order gave its box back to the pool for a priority job, the first whose box the provider's down accepts."""
+    held = [job_id for drive, _, job_id in (holder.partition("/") for holder in boxes.live_boxes() or []) if drive == name]
+    for job_id in held:
+        job = data["jobs"].get(job_id)
+        if not job or job["state"] != "waiting" or job["order"] in family or state.box_wanted(data, job_id):
+            continue
+        try:
+            boxes.down(job_id, f"{name}/{job_id}")
+        except providers.ProviderError:
+            continue
+        print(f"{job_id}: gave its box back for a priority job; it takes one again when it resumes")
+        return True
+    return False
 
 
 def fde_scan(args: argparse.Namespace) -> int:
@@ -8452,6 +8492,9 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=mac_boxes_down)
     verb = verbs.add_parser("mac-boxes-reap", parents=both, help="terminate each warm Mac box the repository's Mac box provider keeps that no job took for its idle bound; the watch runs it hourly")
     verb.set_defaults(run=mac_boxes_reap)
+    verb = verbs.add_parser("mac-boxes-hand", parents=both, help="give each queued Mac job, in the order given, a box from the repository's pool, a priority order's job first; the watch runs it each box sweep")
+    verb.add_argument("jobs", nargs="+", help="the queued jobs, in the order they take boxes")
+    verb.set_defaults(run=mac_boxes_hand)
     verb = verbs.add_parser(
         "fde-scan", parents=[drive_opt], help="run the repository's FDE scan with the arguments after -- in the drive's checkout at its default branch's head, for a lane on any branch or Sprite"
     )
