@@ -5757,6 +5757,27 @@ def test_reclaim_destroys_a_left_sprite_and_marks_a_lane_on_this_mac_freed_so_no
     assert started == [["job", "reclaim", "j1", "ctx_mac"]]
 
 
+def test_a_job_moved_to_this_mac_has_the_sprite_its_dead_lane_left_saved_and_destroyed_by_the_watch(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, remote)
+    workspaces = tmp_path / "cc-remote-workspaces"
+    workspaces.mkdir()
+    (workspaces / "pool-left.json").write_text("{}")
+    monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
+    left = {"dispatch": "ctx_sprite", "workspace": "pool-left", "why": "Orca could not reach its Sprite", "at": state.stamp(T0), "unsaved": "could not read /home/sprite/monorepo"}
+    with edit(remote) as data:
+        data["jobs"]["j1"].update(**state.local_lane("ctx_mac"), run="run_mac", updated=state.stamp(T0), deaths=[left])
+    started: list[list[str]] = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: started.append(unreserved(args)) or adopted_as(name, args, ENDED_READER))
+    monkeypatch.setattr(state, "scratch", lambda: False)
+    watch.release_lanes(watch.Watcher(remote, offset=state.events_end(remote)), T0)
+    assert started == [["job", "reclaim", "j1", "pool-left"]]
+    destroyed: list[str] = []
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: destroyed.append(job["workspace"]) or f"destroyed {job['workspace']}")
+    assert (run("job", "reclaim", "j1", "pool-left"), destroyed) == ((0, "destroyed pool-left"), ["pool-left"])
+
+
 def test_reclaim_never_destroys_a_sprite_whose_work_it_cannot_read_and_marks_it_kept_for_a_later_read(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

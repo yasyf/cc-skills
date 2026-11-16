@@ -888,7 +888,12 @@ def keep_sprite(workspace: str) -> None:
 
 def holds_sprite(job: dict) -> bool:
     """Whether cc-remote still records the Sprite workspace the job's lane ran on."""
-    return not state.on_mac(job) and bool(job.get("workspace")) and (CC_REMOTE_WORKSPACES / f"{job['workspace']}.json").is_file()
+    return not state.on_mac(job) and bool(job.get("workspace")) and recorded(job["workspace"])
+
+
+def recorded(workspace: str) -> bool:
+    """Whether cc-remote still records the Sprite at workspace."""
+    return (CC_REMOTE_WORKSPACES / f"{workspace}.json").is_file()
 
 
 def save(drive: str, job_id: str, job: dict, checkout: Path) -> str | None:

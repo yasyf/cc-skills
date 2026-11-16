@@ -4980,15 +4980,16 @@ def unended(job: dict, moment: datetime) -> bool:
 
 def lane_holds(job: dict, moment: datetime, live: set[str]) -> set[str]:
     """What the job's lanes left for the reclaimer: on this Mac, each dispatch no drive job reclaim freed of an earlier lane its deaths record, QUIET_LANE after that death whatever the job's state, since a relaunch, a takeover or a resume in another pane leaves the lane before it running in Orca, and, once a done, failed or stopped job is quiet for QUIET_LANE and no unfinished job shares its Run, its last lane's too; on a Sprite, each Sprite cc-remote still records that a lane of its died on or an end ended, never its own lane's before an end ended it, since unended gives that one to `drive job end`, nor while the end that ended it is in_flight, which destroys it itself, nor one a drive job reclaim kept on the newest death on it, since what it may hold on no remote could not be saved, which that reclaim's refusal says once, so the watch asks for it once and a session asks again by hand."""
+    sprites = {death.get("workspace") for death in job.get("deaths", [])} - {None}
+    here = set()
     if state.on_mac(job):
         quiet = job["state"] in state.FINISHED_JOB_STATES and job.get("run") not in live | {None} and moment - state.parse_time(job["updated"]) >= QUIET_LANE
         left = {death["dispatch"] for death in job.get("deaths", []) if not death.get("workspace") and (quiet or moment - state.parse_time(death["at"]) >= QUIET_LANE)}
         lanes = (left | {job.get("dispatch")} if quiet else left - {job.get("dispatch")}) - {None}
-        return {lane for lane in lanes if not (state.death_on(job, lane) or {}).get("freed")}
-    left = {death.get("workspace") for death in job.get("deaths", [])}
-    if not state.lane_ended(job) or in_flight(state.lane_death(job, "dispatch")["ended"], moment):
-        left.discard(job.get("workspace"))
-    return {workspace for workspace in left - {None} if not kept_lately(state.death_on(job, workspace).get("kept"), moment) and orca.holds_sprite({**job, "workspace": workspace})}
+        here = {lane for lane in lanes if not (state.death_on(job, lane) or {}).get("freed")}
+    elif not state.lane_ended(job) or in_flight(state.lane_death(job, "dispatch")["ended"], moment):
+        sprites.discard(job.get("workspace"))
+    return here | {workspace for workspace in sprites if not kept_lately(state.death_on(job, workspace).get("kept"), moment) and orca.recorded(workspace)}
 
 
 def kept_lately(kept: str | None, moment: datetime) -> bool:

@@ -5191,7 +5191,7 @@ def lane_saved(drive: str, job_id: str, job: dict, root: Path) -> str | None:
 
 def release_sprite(drive: str, job_id: str, job: dict, root: Path) -> str | None:
     """Destroy the Sprite cc-remote still records for the job's lane once what it holds on no remote is saved to GitHub as saved/<lane>/<branch>-<sha>; what happened to it, or None when none is recorded."""
-    if not orca.holds_sprite(job):
+    if not (job.get("workspace") and orca.recorded(job["workspace"])):
         return None
     try:
         return orca.release(drive, job_id, job, root)
@@ -5388,7 +5388,7 @@ def job_reclaim(args: argparse.Namespace) -> int:
     if not state.death_on(job, args.lane):
         raise DriveError(f"{args.id}: refused, nothing reclaimed: no death of its lanes records {args.lane}, so no lane of it left that")
     root = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
-    if not state.on_mac(job):
+    if state.death_on(job, args.lane).get("workspace") == args.lane:
         try:
             released = orca.release(name, args.id, {**job, "workspace": args.lane}, root)
         except orca.OrcaError as error:
