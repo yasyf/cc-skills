@@ -4117,6 +4117,40 @@ def deliver_held(name: str, job_id: str, job: dict, lane: str) -> tuple[str, str
     return seq, line
 
 
+def deliver_returned(name: str, job_id: str, job: dict) -> str | None:
+    """Give each text a builder that returned holds, which superseded.fresh_builder refuses to its agent, to whoever acts on it now, so his words never sit: the job its work was handed to, in turn, while one is not finished, which holds them for its own worker, else the session holding the job's order, as one urgent record carrying the texts, his first, and fresh_builder's step; the line saying where they went, None when the job holds nothing."""
+    from drive import tools
+
+    data = state.load(name)
+    held = sorted(data["jobs"][job_id]["undelivered"], key=lambda kept: kept["sender"] != state.HIM)
+    if not held:
+        return None
+    taker = job["handed_to"]
+    while taker and data["jobs"][taker]["state"] in state.FINISHED_JOB_STATES:
+        taker = data["jobs"][taker]["handed_to"]
+    taken = {kept["request"] for kept in held}
+    if taker:
+        def handed_write(data: dict):
+            for kept in held:
+                state.hold_text(data["jobs"][taker], kept["words"], kept["sender"], kept["at"], kept["seq"])
+            data["jobs"][job_id]["undelivered"] = [kept for kept in data["jobs"][job_id]["undelivered"] if kept["request"] not in taken]
+            return data
+
+        state.update(name, None, handed_write)
+        return f"{job_id}: its builder returned, so its held texts went to {taker}, which took its work"
+    lane, step = superseded.fresh_builder(data, job_id, job, "", "his words")
+    his = any(kept["sender"] == state.HIM for kept in held)
+    text = "\n\n".join([f"{job_id}: {'URGENT, his words ' if his else 'texts '}held for a builder that returned; act on them now. {step}", *(kept["words"] for kept in held)])
+    [seq] = tools.sent(name, state.WATCH_SENDER, [{"kind": "handoff", "to": [f"{lane}@{name}"], "attr": {"order": job["order"], "job": job_id, "urgent": "true"}, "text": text}])
+
+    def returned_write(data: dict):
+        data["jobs"][job_id]["undelivered"] = [kept for kept in data["jobs"][job_id]["undelivered"] if kept["request"] not in taken]
+        return data
+
+    state.update(name, (("jobs", job_id),), returned_write)
+    return f"{job_id}: its builder returned, so its held texts went to {lane}@{name}, which holds its order, as urgent record {seq}"
+
+
 def starter_post(name: str, job_id: str, job: dict, lane: str, text: str, at: str, held: str | None = None) -> tuple[str, str]:
     """Post a text to an agent on this Mac that a session of the drive started and still holds, once superseded.fresh_builder sends no PR event to a builder that returned: whole, at once, from the resuming session's lane as one handoff record to the agent's own cci address, peer:<session>/<agent>, kept by sent_kept dated `at`, when it was held, so each answer of his it carries reads sent and the text the job holds under the request id held leaves the job, addressed to the starter's lane too, its sendmessage attr naming the agent, as one record, by his words "make everything less chatty", since only the starter's SendMessage reaches the agent, which points it at that record's seq; a starter resuming its own agent gets the line as the verb's output. The record's seq and the line the verb prints."""
     from drive import tools

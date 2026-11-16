@@ -3419,7 +3419,7 @@ def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def held_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Post every text a job holds for its agent on this Mac, a subagent only the session that started it reaches, the moment it is held, by cli.deliver_held: one handoff record to the agent's cci address and its starter's lane, his words first, and an urgent record to that session carrying the owed SendMessage line, so his words never sit on a job until a `drive job resume`, as "Stop delaying: staging tests, then merge" sat on j6159 and a packer's answer on j4915 for 2h25m. Says the owed line and each post that failed."""
+    """Post every text a job holds for its agent on this Mac, a subagent only the session that started it reaches, the moment it is held, by cli.deliver_held: one handoff record to the agent's cci address and its starter's lane, his words first, and an urgent record to that session carrying the owed SendMessage line, so his words never sit on a job until a `drive job resume`, as "Stop delaying: staging tests, then merge" sat on j6159 and a packer's answer on j4915 for 2h25m. A builder that returned, which takes no text, hands them on by cli.deliver_returned, to the job its work went to or the session holding its order, as urgent. Says the owed line and each post that failed."""
     from drive import cli
 
     data = state.load(watcher.name)
@@ -3432,10 +3432,16 @@ def held_lines(watcher: Watcher, moment: datetime) -> list[str]:
         and (lane := state.agent_lane(data, job))
         and not agent_death(job, data)
         and not orca.locked_out(watcher.name, job_id, job)
-        and not superseded.fresh_builder(data, job_id, job, "", "a held text")
     ]
     lines = []
     for job_id, lane in owed:
+        if superseded.fresh_builder(state.load(watcher.name), job_id, state.load(watcher.name)["jobs"][job_id], "", "a held text"):
+            try:
+                if line := cli.deliver_returned(watcher.name, job_id, state.load(watcher.name)["jobs"][job_id]):
+                    lines.append(f"HELD {line}")
+            except state.DriveError as error:
+                lines += failed(watcher, f"held of {job_id}", f"held text post for returned {job_id}", error, moment)
+            continue
         job = state.load(watcher.name)["jobs"][job_id]
         try:
             given = cli.deliver_held(watcher.name, job_id, job, lane)
