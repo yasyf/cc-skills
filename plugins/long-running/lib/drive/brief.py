@@ -128,7 +128,7 @@ def leased_env(words: list[str]) -> str | None:
 
 
 def gives_way(words: list[str]) -> bool:
-    """Whether a `ci release start` is the staging release of a production release, `--for-production`, which goes through every staging freeze and every staging slot a test holds, by his pick 18c2fda, "Every staging freeze, a teammate's from Platy included, gives way to a staging release started for production; its thread says so"."""
+    """Whether a `ci release start` is the staging release of a production release, `--for-production`, which goes through every staging freeze and every staging slot a test holds, by his pick 18c2fda, "Every staging freeze … gives way to a staging release started for production; its thread says so"."""
     return "--for-production" in words
 
 

@@ -4796,7 +4796,7 @@ def test_a_staging_test_whose_freeze_gave_way_to_a_staging_release_for_productio
     assert leased.startswith(f"Release freeze f8erwzvg6c, which names you its holder on staging, gave way at `2026-11-15T23:10:00Z` to root@example.com's staging release for production of platform, {build},")
     assert f"return `WAITING {build}`, and again on a wake that finds that build stopped at an approve step, until it passed, failed or was canceled." in leased
     assert leased.endswith("lease started again at the give-way, so then do the steps of your GO, or of your RIDE on another pass's cut, again from the cut on and run every case.")
-    assert "`tools/ci release unfreeze f8erwzvg6c`" in unleased and unleased.endswith("claim the staging slot again with `drive slot claim`, whose GO runs every case again.")
+    assert "`<ci> release unfreeze f8erwzvg6c`" in unleased and unleased.endswith("claim the staging slot again with `drive slot claim`, whose GO runs every case again.")
     holder = data["slots"][state.STAGING_ENV]["holder"]
     assert (holder["job"], holder["since"], holder["until"], holder["extended"]) == ("j1", state.stamp(T0), state.stamp(T0 + state.CLAIM_WAIT + timedelta(minutes=30)), False)
     assert [(data["jobs"][job_id]["waits"], data["jobs"][job_id]["gave_way"]) for job_id in ("j1", "j2", "j3")] == [([], ["f8erwzvg6c/bypassed-0190"])] * 2 + [([], [])]
