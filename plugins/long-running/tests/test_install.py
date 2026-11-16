@@ -1967,6 +1967,7 @@ def test_a_product_merge_on_a_build_order_of_several_parts_with_no_reader_takes_
         " for each order your brief names, write the PROVE: lines of its merged jobs' returns, j1's in reports/j1.md among them, as one proof file,"
         " keep it with drive job set <your job> --repro <file> --order <order> and run drive job prove <your job>, which runs each order's file on its own timeout,"
         " and each one's exit 0 delivers that order's parts and posts its close while the others still run"
+        f"; {state.PROOF_ON_PRODUCTION}"
     )
     assert builder["brief_flags"]["done_when"].startswith(f"drive job prove {builder_id} ")
     assert (builder["brief_flags"]["native"], builder["brief_flags"]["interactions"]) == (page, "open a run's page")

@@ -288,6 +288,11 @@ and nonzero while it does not. Keep it before you return with
   and `SEEN Sn: <the picture or recording it saved, the live post's link it read back, or, for a command, the file holding the output of its run>`.
   `drive job prove` reads those lines in code and takes `BLOCKED` on each story missing one,
   printing a `FAIL` or `GAP` line, or whose `SEEN` line names nothing that exists or opens.
+- A proof, soak or smoke run that can fail calls a production monitor counts, such as reads of a
+  service whose fix is not live there yet, runs on staging or the rehearsal envs until that fix is
+  live in production, never on production before. A proof's 120 failed reads on production opened
+  incident o2298 while no user failed. Its caller sends a user agent of `forge-<what>-proof/<env>`,
+  so a monitor can tell it from a user.
 - A fix to red CI proves itself with `drive pr ci <its PR's url>`, which exits 0 once the CI of the
   push that carried its merge passed. A local test run passes while the default branch stays red,
   so it proves nothing. When the file fails while that CI has not passed, `drive job prove` waits
@@ -565,7 +570,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 | `REUSES:` | on a `READY` whose research found something that exists, how the PR calls, extends or replaces it; `drive job report` refuses a `READY` without it |
 | `STAGING:` | on a `READY` or `PUSHED` naming a PR of the drive's repository, `STAGING: #N <cases>` for each: the cases its staging test runs, as aggressive and as realistic as production. `drive job report` turns each into the PR's `staging test of #N before it lands` part, the PR's wait on it and a tester on this Mac running those cases, so the PR lands once that test passes. A PR whose paths reach what the Mac box provider proves runs its cases in the staging app on a Mac box, and again at its own head when they reach what a Mac box builds too, so write them as clicks a user makes in the app. Or one `STAGING: none: <why the repository's dangerous rule misses it>`, which lifts a test no job took up and shows its why on his card. `drive pr add`, `drive pr set` and the lander put each PR waiting on his tap whose paths reach a component the release provider lists on that part and wait, whatever its exempt class, except one whose part his answer took off, which merges first and gets its after-merge staging pass unless your `STAGING: #N <cases>` line asks for the test, which puts it back at every head. `drive job report` refuses the return without a line for each. |
 | `SUMMARY:` | on a `READY`, at most 15 lines under it, one fact each: the files you touched, the decisions you made and why, and what you left open; the brief of the next builder on your order carries them as its `Earlier parts:` line |
-| `INSTALL:` and `PROVE:` | once the PR is open, the install command and the check that proves it live, so a later handoff runs them without your transcript |
+| `INSTALL:` and `PROVE:` | once the PR is open, the install command and the check that proves it live, so a later handoff runs them without your transcript; a `PROVE:` check that calls production runs only once the fix it proves is live there |
 | `Mac:` | the step only this Mac runs that your `PROVE:` line needs and your brief's `Mac:` line does not name, such as a signed-in app here, written as `drive job brief --mac` writes it, so the prover added at your PR's merge starts on this Mac |
 | `REPRO:` | the reproduction file's path, when you saved one; a `yasyf/*` PR's proof file, which the watch's `drive job prove` runs once it merges |
 | `UNPROVEN:` | what you could not show |

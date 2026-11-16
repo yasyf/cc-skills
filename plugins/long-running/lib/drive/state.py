@@ -258,6 +258,10 @@ PAGE_RULE = (
     "he is paged only when a read, a cci record, shows real users' runs, or their local chats or agents, failing on production;"
     " a failure only the drive's own callers or proofs hit opens the incident but never pages him, by his ruling 07937c4: " + PAGE_WORDS
 )
+PROOF_ON_PRODUCTION = (
+    "a proof run that calls production, which a production monitor counts, runs there only once the build holding its fix serves"
+    " production, never before, so a proof failing on the old build never trips a paging monitor while no user fails"
+)
 TAKEN_BY_PASS = "its staging test passed after your Approve"
 STANDING_EVERY = timedelta(minutes=30)
 PART_CHARS = 80

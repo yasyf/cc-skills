@@ -1157,6 +1157,7 @@ def add_prover(name: str, data: dict, job_id: str, reach: dict[str, dict], parts
         f" for each order your brief names, write the PROVE: lines of its merged jobs' returns, {job_id}'s in reports/{job_id}.md among them, as one proof file,"
         " keep it with drive job set <your job> --repro <file> --order <order> and run drive job prove <your job>, which runs each order's file on its own timeout,"
         " and each one's exit 0 delivers that order's parts and posts its close while the others still run"
+        f"; {state.PROOF_ON_PRODUCTION}"
         if cut
         else f"install it by the INSTALL: line of {job_id}'s return, in reports/{job_id}.md, write its PROVE: line as a proof file,"
         " keep it with drive job set <your job> --repro <file> and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part"
