@@ -716,7 +716,7 @@ def matched(texts: list[str], data: dict) -> list[dict]:
 
 
 def area_rulings(data: dict, order_ids: list[str]) -> list[dict]:
-    """His standing answers on the whole project or workstream any of these orders is filed under, by the labels state.area_labels names, each once with where he gave it and the area its label names, so a ruling such as "every SandSQL card" binds every order filed there whatever feature each is on."""
+    """His standing answers on the whole project or workstream any of these orders is filed under, by the labels state.area_labels names, each once with where he gave it and the area its label names, so a ruling such as "every billing card" binds every order filed there whatever feature each is on."""
     cwd = data["roles"]["coordinator"]["cwd"]
     found = {
         answer["id"][:7]: {"id": answer["id"][:7], "asked": answer["title"], "said": his(answer["body"])[:BODY_CHARS], "link": given_at(data, answer), "area": label.removeprefix(state.AREA_LABEL)}
@@ -1082,7 +1082,7 @@ def numbered(question: str) -> list[str]:
 
 
 def spoken(release: dict, words: str, cwd: str) -> bool:
-    """Whether words naming a release in prose, with no command, name this release, as the release provider's start() reads it: a start of targets the release targets file names, with no flags but targets, places, `--from`, `--order`, `--emergency`, `--only`, `--exclude` and `--for-production`, shipping one component or more by shipped_parts(); words leaving one target or component out, as "all but SandSQL" does, name it when it ships none of that one's components, and any other words when each target it names is one of their words, as "SandSQL's HA release" names `sandsql`."""
+    """Whether words naming a release in prose, with no command, name this release, as the release provider's start() reads it: a start of targets the release targets file names, with no flags but targets, places, `--from`, `--order`, `--emergency`, `--only`, `--exclude` and `--for-production`, shipping one component or more by shipped_parts(); words leaving one target or component out, as "all but billing" does, name it when it ships none of that one's components, and any other words when each target it names is one of their words, as "billing's HA release" names `billing`."""
     if set(release) - SPOKEN_FLAGS or not release.get("targets") or not (ships := shipped_parts(release, cwd)):
         return False
     said = f" {plain(words)} "
@@ -1149,7 +1149,7 @@ def card_text(asked: limits.Question) -> str:
 
 
 def job_unordered(job: dict, hold: dict, data: dict, moment: datetime) -> str | None:
-    """Why no answer of his recorded after his hold on every release orders this Job, a `tools/ci cluster-job` start of one CronJob on one cluster, at this moment; None when one does, the reading unordered() makes of a release for a Job, whose only words are its reason: each answer of his its reason names, as a release names its --order, and each `matched` ranks nearest the Job, read whole with shown(), those recorded after the hold Opus reads in one request, each with its card, beside the others, the hold and this moment in Pacific, ordering it when one JOB_ORDERS Noul reads YES. The why names each answer its reason names, each one recorded before the hold, and each Opus reads as speaking to the Job by JOB_ABOUT or is unsure of, with his words, raised as Unsure when Opus reads none at YES and one in the band between. Unheard when Opus gave no answer."""
+    """Why no answer of his recorded after his hold on every release orders this Job, a cluster-job start, by the release provider, of one CronJob on one cluster, at this moment; None when one does, the reading unordered() makes of a release for a Job, whose only words are its reason: each answer of his its reason names, as a release names its --order, and each `matched` ranks nearest the Job, read whole with shown(), those recorded after the hold Opus reads in one request, each with its card, beside the others, the hold and this moment in Pacific, ordering it when one JOB_ORDERS Noul reads YES. The why names each answer its reason names, each one recorded before the hold, and each Opus reads as speaking to the Job by JOB_ABOUT or is unsure of, with his words, raised as Unsure when Opus reads none at YES and one in the band between. Unheard when Opus gave no answer."""
     cwd = data["roles"]["coordinator"]["cwd"]
     action = f"start the {job['cronJob']} Job from its suspended CronJob on {job['cluster']}: {job['reason']}"
     nearest = [shown(answer["id"], cwd) for answer in matched([action], data)]
@@ -1439,7 +1439,7 @@ SCOPE = Noul(
 )
 WIDER = Noul(
     "Do his words `thread.asked` name a subject wider than the work of the thread they are in, such as a project, all his cards or PRs, or the whole drive?",
-    yes="His words name that wider subject, such as everything in the drive, all his open PRs or the SandSQL work.",
+    yes="His words name that wider subject, such as everything in the drive, all his open PRs or the billing work.",
     no="His words ask what is left, what else waits on him, whether it all merged or where things stand, naming no wider subject: in a work's thread, everything, all the questions or all the taps mean that work's own, by his words \"we're talking about the work this thread is about\".",
 )
 PROTECTS = Noul(
@@ -1743,5 +1743,5 @@ def rare(text: str) -> set[str]:
 
 
 def read(text: str) -> str:
-    """The words of a question as he reads them: a Slack link as its label, other links and bare URLs left out, since every PR link shares github, pull and monorepo with each old answer that names a PR."""
+    """The words of a question as he reads them: a Slack link as its label, other links and bare URLs left out, since every PR link shares github, pull and its repository's name with each old answer that names a PR."""
     return limits.URL.sub(" ", limits.TOKEN.sub(" ", limits.LABELLED.sub(r" \1 ", text)))

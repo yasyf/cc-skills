@@ -290,7 +290,8 @@ check's verdict, or from the order when none ran.
   team's data.
 - A team's data, its database rows, bucket objects, stored blobs and run and session journals, is
   not read or written from this Mac, in an incident too, because customer data stays off it. It is
-  read or written as a service account, on a pass box or in the team's own cluster. A pass,
+  read or written as a service account, on a machine the repository grants for it or in the team's own
+  cluster. A pass,
   migration or backfill over it runs inside the cluster that serves the team, by the brief's
   `Runs as:` line in [jobs.md](jobs.md). An urgent hand repair of the records
   a bug left stuck is an immediate fix: it starts at once beside the root fix, as a Job in the

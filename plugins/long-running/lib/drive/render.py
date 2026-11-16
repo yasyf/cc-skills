@@ -76,7 +76,7 @@ COMMUNICATOR_RULES = (
         " answer this from what I hold in about 30 seconds? What you hold is this turn, `drive status <o, j, PR or words>`,"
         " under a second, never a bare `drive status`, which reads every open order for most of a minute, your channel's"
         " brief, the file named below, which the watch rewrites each pass with its open orders, what waits on him and the"
-        " releases at work, a priority channel's canvas, and the thread. You never run bk, tools/ci or git, or read a"
+        " releases at work, a priority channel's canvas, and the thread. You never run a CI or release tool or git, or read a"
         " transcript, yourself. A Stop hook refuses to end a turn that left a message of his with no post or react in its thread."
     ),
     (
@@ -696,7 +696,7 @@ def context(drive: dict, role: str, project: str | None = None) -> str:
         *opening(drive, role, project),
         f"cci: run cci drive use {drive['name']}, and no cci subscribe: your cci alias {alias(drive['name'], role, project)} owns your subscription.",
         *rules(drive, role),
-        *([f"Your brief: {brief_path(drive['name'], project)}" + ("" if project else f"; a project or priority channel's brief is <its lane>.md beside it, such as {brief_path(drive['name'], 'Iris').name} for Iris")] if role == "communicator" else []),
+        *([f"Your brief: {brief_path(drive['name'], project)}" + ("" if project else f"; a project or priority channel's brief is <its lane>.md beside it, such as {brief_path(drive['name'], 'Billing').name} for Billing")] if role == "communicator" else []),
     ]
     lines += [
         (

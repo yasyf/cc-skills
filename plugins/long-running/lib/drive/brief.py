@@ -244,7 +244,7 @@ def release_refusal(command: str, data: dict, reading: str | None = None) -> str
     """Why `drive job add --release` may not start a command: it is not one `ci release start` or `hotfix` alone, naming in --order the answer of his it starts on unless it is a rehearsal() or the top coordinator gave its reading, or it deploys `--local`, which runs in the shell that starts it and starts no build its job could follow."""
     commands = simple_commands(command)
     if len(commands) != 1 or (flags := providers.of(data).release.start(commands[0])) is None:
-        return f"--release `{command}` is not one `tools/ci release start` or `tools/ci release hotfix` alone: name the one release to start, with its flags as it runs"
+        return f"--release `{command}` is not one release start or hotfix of the release provider alone: name the one release to start, with its flags as it runs"
     if "local" in flags:
         return f"--release `{command}` deploys `--local`, whose plan and apply run in the shell that starts it and start no build its job could follow, so no job starts it: a `--manual` or regular start names the build its job follows"
     if not flags.get("order") and not reading and not rehearsal(command, data):
@@ -408,7 +408,7 @@ def harmless(release: str, data: dict) -> bool:
 
 
 def cluster_job_refusal(job: dict, data: dict, moment: datetime, top: bool = False) -> str | None:
-    """Why a Job may not start now from a suspended CronJob, by `tools/ci cluster-job`, a `ci bk api` write creating the forge/release build it starts or writing to it, such as unblocking its gate, or a rerun of that build, each its cluster, CronJob and reason as the build's CLUSTER_JOB keeps them: claimed_job_refusal() inside another drive's staging claim, job_hold_refusal() while he holds every release, a reading in its reason counting only in the top coordinator's session, top, else away_job_refusal() while he is not present; DriveError when his hold could not be read."""
+    """Why a Job may not start now from a suspended CronJob, by the release provider's cluster-job start, a CI API write creating the release build it starts or writing to it, such as unblocking its gate, or a rerun of that build, each its cluster, CronJob and reason as the build's CLUSTER_JOB keeps them: claimed_job_refusal() inside another drive's staging claim, job_hold_refusal() while he holds every release, a reading in its reason counting only in the top coordinator's session, top, else away_job_refusal() while he is not present; DriveError when his hold could not be read."""
     if claimed := claimed_job_refusal(job, data, moment):
         return claimed
     hold = settled.hold(data["roles"]["coordinator"]["cwd"])
@@ -440,7 +440,7 @@ def job_hold_refusal(job: dict, data: dict, hold: dict, moment: datetime, top: b
 
 
 def away_job_refusal(cluster: str, data: dict, moment: datetime) -> str | None:
-    """Why a Job may not start now from a suspended CronJob on this cluster, by `tools/ci cluster-job`, a `ci bk api` write creating the forge/release build it starts or writing to it, such as unblocking its gate, or a rerun of that build: he is not present, by state.absence, and the cluster is a production one, any but the release provider's rehearsal envs, where every such Job is a pass, backfill, repair or delete of a team's data that the root AGENTS.md calls dangerous, an incident's repair included."""
+    """Why a Job may not start now from a suspended CronJob on this cluster, by the release provider's cluster-job start, a CI API write creating the release build it starts or writing to it, such as unblocking its gate, or a rerun of that build: he is not present, by state.absence, and the cluster is a production one, any but the release provider's rehearsal envs, where every such Job is a pass, backfill, repair or delete of a team's data that the root AGENTS.md calls dangerous, an incident's repair included."""
     if cluster in providers.of(data).release.rehearsal_envs or not (away := state.absence(data, moment)):
         return None
     return (

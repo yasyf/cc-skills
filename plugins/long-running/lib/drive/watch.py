@@ -287,7 +287,7 @@ def polled_settled(watcher: Watcher, pr: dict, key: str, moment: datetime) -> bo
 
 
 def pr_changes(pr: dict, read: dict, entry: dict) -> list[str]:
-    """What moved on the PR since the watch last read it, saved onto its row, its landing by github.live; ejected once Trunk put the trunk-failed label on entry, the read of the PR whose Trunk queue entry carries it, after the PR's lander started its try, since Trunk labels only the top PR its lander queued and leaves the label on through later pushes; its lander's try ends dequeued, out of the queue, once Trunk put the trunk-cancelled label on entry after that try started and ejected nothing, as when a stack-enqueue --dequeue took it out; each review:<login> wait it carries ends once that teammate's newest review is of its head, kept on its reviewed for his card's first line."""
+    """What moved on the PR since the watch last read it, saved onto its row, its landing by github.live; ejected once Trunk put the trunk-failed label on entry, the read of the PR whose Trunk queue entry carries it, after the PR's lander started its try, since Trunk labels only the top PR its lander queued and leaves the label on through later pushes; its lander's try ends dequeued, out of the queue, once Trunk put the trunk-cancelled label on entry after that try started and ejected nothing, as when the merge queue's dequeue took it out; each review:<login> wait it carries ends once that teammate's newest review is of its head, kept on its reviewed for his card's first line."""
     fresh = github.live(read, pr)
     changes = []
     if fresh["head"] != pr["head"] and pr["head"]:
@@ -526,7 +526,7 @@ def reach_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def release_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Land at once each open PR the release reach alone holds from a production release, green, approved and changing nothing dangerous, by state.release_held, land.dangerous and the repository's [[dangerous]] classes, read in one github.paths call: its staging test part taken off and merged first, by state.land_for_release, so the lander queues it through stack-enqueue on this same pass's stage_lines and the cut waits minutes on its landing rather than a skip-or-hold card, by his words state.RELEASE_HOLD_WORDS; a dangerous one stays on its test and his card asks to merge it; each landing and each job it stopped said."""
+    """Land at once each open PR the release reach alone holds from a production release, green, approved and changing nothing dangerous, by state.release_held, land.dangerous and the repository's [[dangerous]] classes, read in one github.paths call: its staging test part taken off and merged first, by state.land_for_release, so the lander queues it through the repository's merge queue on this same pass's stage_lines and the cut waits minutes on its landing rather than a skip-or-hold card, by his words state.RELEASE_HOLD_WORDS; a dangerous one stays on its test and his card asks to merge it; each landing and each job it stopped said."""
     data = state.load(watcher.name)
     keys = [key for key, pr in data["prs"].items() if pr["reached"] and key not in watcher.stale and state.release_held(data, key) and hears(watcher, data, pr["order"])]
     if not keys:
@@ -1266,7 +1266,7 @@ def status(watcher: Watcher, order_id: str, order: dict, part: str, follow: dict
 
 
 def status_words(read: dict, moment: datetime) -> str:
-    """A followed build's status message: its title linked to it, then each step running with its minutes, or the approve step it stopped at, or once it ended its state, minutes and the steps that did not pass, then how many of its steps are done, such as "Staging release plangent-macdiarmid: Watch the tenant smoke on plat-usw2-staging, 4 min; 120 of 136 steps done"."""
+    """A followed build's status message: its title linked to it, then each step running with its minutes, or the approve step it stopped at, or once it ended its state, minutes and the steps that did not pass, then how many of its steps are done, such as "Staging release plangent-macdiarmid: Watch the tenant smoke on staging, 4 min; 120 of 136 steps done"."""
     title = cut(first_line(read["message"] or "") or "the build", 80).translate(refs.LINK_WORDS)
     link = f"<{read['url']}|{title}>"
     tally = f"{read['done']['count']} of {read['steps']['count']} steps done"
@@ -1330,7 +1330,7 @@ def followed(watcher: Watcher, data: dict) -> list[str]:
 
 
 def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read which clusters serve the merged Forge-AI/monorepo PR of each release wait the watch follows and the soak commit of each staging wait, for waits_lines, and of each component in the releases release_reach names for each fix PR of an open incident, for recovered_lines: one the release provider's live read, run in the drive's checkout as orca.checkout moves it, at most once every LIVE_EVERY, since it takes most of a minute, prints the commit each cluster of every service serves, production or not, a stack whose switch never passed serving its older build. Kept on the watcher as serving until the next read, each wait's clusters by whether each serves a commit carrying the PR's merge, by github.carrier's read of the checkout's own history, or, for a staging wait, the soak commit itself or a build carrying it by the same read, so a promotion of dev holding a merge frees a wait on that merge commit while a soak commit off dev's line still frees only at itself, a service no cluster runs reading none, each fix PR's waits as fix_waits, both None while the read fails, and as production the clusters it read that go/ci counts as production, by settled.prod."""
+    """Read which clusters serve the merged home repository PR of each release wait the watch follows and the soak commit of each staging wait, for waits_lines, and of each component in the releases release_reach names for each fix PR of an open incident, for recovered_lines: one the release provider's live read, run in the drive's checkout as orca.checkout moves it, at most once every LIVE_EVERY, since it takes most of a minute, prints the commit each cluster of every service serves, production or not, a stack whose switch never passed serving its older build. Kept on the watcher as serving until the next read, each wait's clusters by whether each serves a commit carrying the PR's merge, by github.carrier's read of the checkout's own history, or, for a staging wait, the soak commit itself or a build carrying it by the same read, so a promotion of dev holding a merge frees a wait on that merge commit while a soak commit off dev's line still frees only at itself, a service no cluster runs reading none, each fix PR's waits as fix_waits, both None while the read fails, and as production the clusters it read that the release provider counts as production, by settled.prod."""
     from drive import cli
 
     data = state.load(watcher.name)
@@ -1414,7 +1414,7 @@ def live_renewed(name: str, release: providers.ReleaseProvider) -> None:
 
 
 def incident_fixes(watcher: Watcher, data: dict) -> dict[str, list[str]]:
-    """The fix PRs of each open incident the watch hears, by its head order, once no job on a fix part of its orders still works, no PR of one is open and each is a merged Forge-AI/monorepo PR."""
+    """The fix PRs of each open incident the watch hears, by its head order, once no job on a fix part of its orders still works, no PR of one is open and each is a merged PR of the home repository."""
     fixes = {}
     for head in state.open_incidents(data, list(data["orders"])):
         if data["orders"][head]["joins"] or data["orders"][head]["recovered"] or not hears(watcher, data, head):
@@ -1431,7 +1431,7 @@ def incident_fixes(watcher: Watcher, data: dict) -> dict[str, list[str]]:
 
 
 def recovered_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Close each open incident the watch hears once its fix is live, every Datadog monitor recorded on it reads OK, one with no monitor on its fix alone, and each of its orders that builds something he uses keeps a proof from there, by brief.unseen, or else say so once by proof_owed: what is left of it moves to a plain order, and a POST report hands the communicator the Live line for its thread, whose handler closes each order of it. Its fix is live when incident_fixes names its PRs and the watch's last release live read, by serving_lines, has it in production for each component it touches, by in_production, one touching none live at its merge; a fix PR outside Forge-AI/monorepo has no such read, so the coordinator closes its incident. The monitors of the incidents whose fix is live are read in one search."""
+    """Close each open incident the watch hears once its fix is live, every Datadog monitor recorded on it reads OK, one with no monitor on its fix alone, and each of its orders that builds something he uses keeps a proof from there, by brief.unseen, or else say so once by proof_owed: what is left of it moves to a plain order, and a POST report hands the communicator the Live line for its thread, whose handler closes each order of it. Its fix is live when incident_fixes names its PRs and the watch's last release live read, by serving_lines, has it in production for each component it touches, by in_production, one touching none live at its merge; a fix PR outside the home repository has no such read, so the coordinator closes its incident. The monitors of the incidents whose fix is live are read in one search."""
     if not watcher.fix_waits:
         return []
     data = state.load(watcher.name)
@@ -1460,7 +1460,7 @@ def recovered_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def in_production(watcher: Watcher, wait: str) -> bool:
-    """Whether a fix PR runs in production for one component, by his pick "Read each fix PR's production landing each pass, no latch": the watch's last release live read has the component on a cluster, and each of its clusters go/ci counts as production serves the merge, whatever staging, dev and sandbox run, as go/ci's liveInProduction reads it."""
+    """Whether a fix PR runs in production for one component, by his pick "Read each fix PR's production landing each pass, no latch": the watch's last release live read has the component on a cluster, and each of its clusters the release provider counts as production serves the merge, whatever staging, dev and sandbox run, as the release provider reads it."""
     clusters = watcher.serving.get(wait)
     return bool(clusters) and all(serves for env, serves in clusters.items() if env in watcher.production)
 
@@ -1874,7 +1874,7 @@ def shipped(watcher: Watcher, data: dict) -> dict[str, str]:
 
 
 def out_because(watcher: Watcher, data: dict, wait: str) -> str | None:
-    """What frees a wait. A release wait is a wake the job set, never a gate: it frees once its PR merged and the watch's release live read finds every cluster of its service, production or not, or the one env the wait names after its @, serving a commit holding the merge, so a bare wait never frees while staging alone serves it, and at once once its PR merged where release live cannot follow it, a PR outside Forge-AI/monorepo or a service or env no cluster runs, naming why. A staging wait frees once release live reads its env's target serving its commit or a build carrying it, a build wait once the watch's Buildkite read finds it ended or stopped at an approve step, and a wait on a PR the drive does not track once github_lines reads it merged or closed. None for any other wait, or while it holds."""
+    """What frees a wait. A release wait is a wake the job set, never a gate: it frees once its PR merged and the watch's release live read finds every cluster of its service, production or not, or the one env the wait names after its @, serving a commit holding the merge, so a bare wait never frees while staging alone serves it, and at once once its PR merged where release live cannot follow it, a PR outside the home repository or a service or env no cluster runs, naming why. A staging wait frees once release live reads its env's target serving its commit or a build carrying it, a build wait once the watch's Buildkite read finds it ended or stopped at an approve step, and a wait on a PR the drive does not track once github_lines reads it merged or closed. None for any other wait, or while it holds."""
     if found := state.RELEASE_WAIT.fullmatch(wait):
         key, service, env = found["pr"], found["service"], found["env"]
         if not data["prs"][key]["merged_sha"]:
@@ -5151,7 +5151,7 @@ def seated_first(watcher: Watcher) -> list[Watcher]:
 
 
 def pass_reads(name: str, data: dict, prs: list[str]) -> tuple[list[str] | None, list[str] | None]:
-    """Every file a staging pass's PRs change, by github.paths, and every component they reach, by cli.release_reach, the repository's own reach read, which slot_turns packs passes by; None for each that a pass naming no PR, or whose PRs GitHub or go/ci could not read, leaves unread, so it rides no other pass's cut."""
+    """Every file a staging pass's PRs change, by github.paths, and every component they reach, by cli.release_reach, the repository's own reach read, which slot_turns packs passes by; None for each that a pass naming no PR, or whose PRs GitHub or the release provider could not read, leaves unread, so it rides no other pass's cut."""
     from drive import cli
 
     if not prs:
@@ -6277,7 +6277,7 @@ def redraw_lines(watcher: Watcher, moment: datetime, keys: set[str] | None = Non
 
 
 def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, redraw whole from drive card his card standing on each open one whose stage owner changed, so the stage his card says, such as blocked on him, never outlives the line that set it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each PR that entered uncarded or passed its deadline there, one card for the PRs of one card unit as drive card draws them, once no PR of the unit entered uncarded for stage.STACK_QUIET or one of them passed its deadline, by quiet_draws, unless a card of his already stands on one of them, or redraw in place the card cc-slack keeps closed on one, so it offers Approve again and no second card shares its waits id, or, once a card of the unit leaves off a PR of its stack, native or chained by base branch, by view.apart, draw one card for the unit and those PRs, which cc-slack draws in place over the newest card carrying some of them and marks each other one replaced by, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake past its deadline the job a waiting or blocked PR names as owing it and the builder of one its author lands, wake the session holding its order on one unlanded and on any other past its deadline but uncarded. A draw or redraw in place that fails, or leaves a PR that asks his tap with no card of his offering Approve at its head, as one cc-slack answers by linking a card he already answered does or a redraw cc-slack leaves the card closed under, clears the PR's stage, so the next read enters uncarded again and draws, and is said to the meta session from its third failure in a row."""
+    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, redraw whole from drive card his card standing on each open one whose stage owner changed, so the stage his card says, such as blocked on him, never outlives the line that set it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each PR that entered uncarded or passed its deadline there, one card for the PRs of one card unit as drive card draws them, once no PR of the unit entered uncarded for stage.STACK_QUIET or one of them passed its deadline, by quiet_draws, unless a card of his already stands on one of them, or redraw in place the card cc-slack keeps closed on one, so it offers Approve again and no second card shares its waits id, or, once a card of the unit leaves off a PR of its stack, native or chained by base branch, by view.apart, draw one card for the unit and those PRs, which cc-slack draws in place over the newest card carrying some of them and marks each other one replaced by, wake the builder answering for a PR rework or red owe, ask the repository's review bot once for a review of a head grading an hour and then wake its builder, wake past its deadline the job a waiting or blocked PR names as owing it and the builder of one its author lands, wake the session holding its order on one unlanded and on any other past its deadline but uncarded. A draw or redraw in place that fails, or leaves a PR that asks his tap with no card of his offering Approve at its head, as one cc-slack answers by linking a card he already answered does or a redraw cc-slack leaves the card closed under, clears the PR's stage, so the next read enters uncarded again and draws, and is said to the meta session from its third failure in a row."""
     if watcher.cards is None:
         return []
 

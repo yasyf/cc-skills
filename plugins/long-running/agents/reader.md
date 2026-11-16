@@ -57,13 +57,13 @@ His order authorizes every read it names, whoever owns the data, since a read wr
 a read refuses, take the next route the same turn: an admin view, the `db-read` skill, or
 `drive break-glass <job> --stack <domain>/<env> --reason "<why>" -- <command>`, which runs the read
 under this Mac's machine profile once its grant passes, with no sign-in and no card. Any other AWS
-read, a pass box's key included, runs under a profile `~/.aws/config` chains to the machine
+read, the key of a machine the repository grants included, runs under a profile `~/.aws/config` chains to the machine
 certificate, so nothing needs his sign-in, Touch ID or cc-sudo. A session's journal is found the
 way the brief's `Repo rules` line says. A read goes on `UNPROVEN:` only when every route refused,
 naming each route you tried.
 
 The one limit: a team's data, its database rows, bucket objects, stored blobs and run and session
-journals, is read or written as a service account, on a pass box or in the team's own cluster, and
+journals, is read or written as a service account, on a machine the repository grants for it or in the team's own cluster, and
 not on this Mac, a Sprite or under `drive break-glass`, because customer data does not belong on
 this machine. The `bash_guard` hook refuses such a read and prints its route:
 

@@ -69,7 +69,7 @@ def newest_checks() -> dict:
 REMOTE_LANE = "LONG_RUNNING_REMOTE_LANE"
 QUOTING = re.compile(r"[\"'\\]")
 EXPANSION = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?")
-LANDING_WORDS = re.compile(r"(?<![\w.-])(?:gh|ccx|ci|cci|stack-enqueue)(?![\w.-])")
+LANDING_WORDS = re.compile(r"(?<![\w.-])(?:gh|ccx|ci|cci|[\w-]*enqueue)(?![\w.-])")
 HELPER_WORDS = re.compile(r"(?<![\w.-])(?:helper|brew)(?![\w.-])")
 BATCHES_KEPT = 64
 RUNNER = """
@@ -202,7 +202,7 @@ def unquoted_command(payload: dict) -> str:
 
 
 def lands_or_posts(payload: dict) -> bool:
-    """Whether landing_guard may refuse this call from a session no drive binds: a Bash command naming gh, ccx, ci, cci or stack-enqueue, which it reads for a landing on a guarded repo or a cci post the drive routes."""
+    """Whether landing_guard may refuse this call from a session no drive binds: a Bash command naming gh, ccx, ci, cci or a merge queue's enqueue script, which it reads for a landing on a guarded repo or a cci post the drive routes."""
     return bool(LANDING_WORDS.search(unquoted_command(payload)))
 
 

@@ -1309,7 +1309,7 @@ def test_drive_job_add_release_starts_it_on_his_answer_in_a_process_of_its_own_t
         (J2666_START.removesuffix(" --order 5419ffd"), f"--release names no --order. {brief.RELEASE_APPROVAL}"),
         (
             f"cd go && {J2666_START}",
-            f"--release `cd go && {J2666_START}` is not one `tools/ci release start` or `tools/ci release hotfix` alone: name the one release to start, with its flags as it runs",
+            f"--release `cd go && {J2666_START}` is not one release start or hotfix of the release provider alone: name the one release to start, with its flags as it runs",
         ),
     )
     for command, why in refusals:

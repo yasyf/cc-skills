@@ -1992,7 +1992,7 @@ def test_a_product_merge_of_paths_on_go_cis_dev_list_waits_on_no_release_owes_no
     assert builder["brief_flags"]["handoff"] == (
         "Forge-AI/monorepo#9 at fedcba987654 merged: install it by the INSTALL: line of j1's return, in reports/j1.md, write its PROVE: line as a proof file,"
         " keep it with drive job set <your job> --repro <file> and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part;"
-        " Forge-AI/monorepo#9 changes tools/ci and 1 more on go/ci's dev list, which a checkout of dev holding fedcba987654 runs"
+        " Forge-AI/monorepo#9 changes tools/ci and 1 more on the release tool's dev list, which a checkout of dev holding fedcba987654 runs"
     )
 
 

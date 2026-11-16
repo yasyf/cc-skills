@@ -405,7 +405,7 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), undrawn: tuple[st
 
 
 def stored_words(found: dict[str, str]) -> str:
-    """What the PR body says of how the data stored before it moves and what keeps that from breaking, from its first section headed so, such as `## How old data moves`, `## How the old rows move` or a monorepo body's `## Migration risk`."""
+    """What the PR body says of how the data stored before it moves and what keeps that from breaking, from its first section headed so, such as `## How old data moves`, `## How the old rows move` or `## Migration risk`."""
     return next((words for heading in found if STORED_HEADING.search(heading) and (words := section_words(found, heading))), "")
 
 
@@ -574,7 +574,7 @@ def pictured(name: str, pr: dict, jobs: list[str], taken: set[str]) -> tuple[tup
 
 
 def groups(known: dict[str, tuple[str, dict]], keys: list[str], reads: dict[str, dict], redraw: bool = False) -> list[list[str]]:
-    """The cards the asked PRs draw on, bottom PR first. A PR in a native GitHub stack, the one stack-enqueue and his Approve land, draws with every PR of it the drives track that is not closed, so a PR added to the stack later joins its stack's card, but a redraw keeps the card each was last drawn on, since cc-slack redraws only the one card in place and the card the watch draws for a stack split across cards goes in place over the newest of them, which cc-slack redraws under the new PR set, and replaces the rest. Any other read PR draws on its loose_cards() card, the rule state.card_unit names: its chain by base branch, by chained(), every open PR of its drive on that chain with it, so a PR added to the chain later joins its chain's card, a redraw keeping the PRs asked, else the PRs among them of its repository serving its order, keeping the card it was drawn on, closed and natively stacked PRs left out, until they group into a longer card around it."""
+    """The cards the asked PRs draw on, bottom PR first. A PR in a native GitHub stack, the one the repository's merge queue and his Approve land, draws with every PR of it the drives track that is not closed, so a PR added to the stack later joins its stack's card, but a redraw keeps the card each was last drawn on, since cc-slack redraws only the one card in place and the card the watch draws for a stack split across cards goes in place over the newest of them, which cc-slack redraws under the new PR set, and replaces the rest. Any other read PR draws on its loose_cards() card, the rule state.card_unit names: its chain by base branch, by chained(), every open PR of its drive on that chain with it, so a PR added to the chain later joins its chain's card, a redraw keeping the PRs asked, else the PRs among them of its repository serving its order, keeping the card it was drawn on, closed and natively stacked PRs left out, until they group into a longer card around it."""
     native = github.stacks(list(dict.fromkeys([*keys, *(mate for key in keys for mate in known[key][1].get("stack") or [] if mate in known)])))
     stacked = {member for stack in native.values() for member, _ in stack}
     units = dict.fromkeys(tuple(member for member, status in native[key] if status != "closed" and member in known) for key in keys if key in native)

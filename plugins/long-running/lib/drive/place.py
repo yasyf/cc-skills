@@ -63,7 +63,7 @@ def mac_step(text: str) -> str | None:
 
 
 def verdict(share: float, ceiling: float, builders: dict[str, str]) -> tuple[str, str]:
-    """Where the next monorepo builder starts, and why."""
+    """Where the next builder on the home repository starts, and why."""
     if share >= ceiling:
         return "remote", f"this Mac is {share:.0%} busy, at or over its {ceiling:.0%} limit"
     if len(builders) >= LOCAL_BUILDERS:

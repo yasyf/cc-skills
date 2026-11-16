@@ -477,9 +477,9 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   `ccx vcs job-log <job> -R <owner/repo> --budget 1000000`, since its default budget keeps only the
   log's tail.
 - Start your own branch's test build yourself; it needs no coordinator turn. Push first, then run
-  the repository's build verb from the checkout on your branch, such as `tools/ci build test` in
-  Forge-AI/monorepo. The sprite door builds that branch's head on GitHub and passes no env or
-  meta-data. It refuses the default branch and release, dry-run and merge-queue branches.
+  the repository's build verb from the checkout on your branch. The sprite door builds that
+  branch's head on GitHub and passes no env or meta-data. It refuses the default
+  branch and release, dry-run and merge-queue branches.
 - The Sprite holds no copy of the drive's records and no Slack credential, so `cci`, `ccn` and
   `cc-slack` are missing, and your brief copies in no drive file it names. Read the report of each
   job its `Researched:` and `Plan:` lines name with `drive job report <job>`, and each file under

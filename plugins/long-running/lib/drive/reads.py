@@ -282,7 +282,7 @@ def lane_refusal(args: argparse.Namespace, parse: Callable[[list[str]], argparse
         return f"{refused} no Sprite lane runs break-glass, by {NO_SPRITE_GRANT}: return BLOCKED naming the step and its command, and the coordinator moves it to a lane on this Mac"
     if verb is None:
         return (
-            f"{refused} a lane runs only these verbs: {', '.join(' '.join(verb) for verb in LANE_VERBS)}. When the step needs this Mac, a pass box or a Mac box, return BLOCKED naming it,"
+            f"{refused} a lane runs only these verbs: {', '.join(' '.join(verb) for verb in LANE_VERBS)}. When the step needs this Mac, a machine the repository grants or a Mac box, return BLOCKED naming it,"
             f' and the coordinator moves you to this Mac with `drive job launch {job_id} --local --mac "<the step>"`; for a proof only this Mac runs, return DONE with the proof pending, naming its file, and the coordinator runs `drive job prove {job_id}`'
         )
     parsed = {key: value for key, value in vars(args).items() if key != "run"}

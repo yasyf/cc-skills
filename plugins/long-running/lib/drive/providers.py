@@ -97,6 +97,10 @@ class RepoProvider(Provider):
         """The tool a lane runs from its tree that the drive points at its checkout; None when lanes run each tool as their own tree holds it."""
         return None
 
+    def reviewer(self) -> str | None:
+        """The review bot review_ask asks, by its login; None when the repository asks none."""
+        return self.review_ask.split()[0].removeprefix("@") if self.review_ask else None
+
     def ci_config(self, path: str) -> bool:
         return False
 

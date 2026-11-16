@@ -108,7 +108,7 @@ Where it goes:
 """ + render.POST_CRAFT + """
 
 The mechanics of a drive post:
-- only links the report prints; a release as {release:<its Platy name or build number>}, never its Buildkite link; keep each {record:…|…}, {pr:…}, {card:…} and {order:…} reference exactly as written, a card he must answer as {card:<waits id>} so it draws under the post;
+- only links the report prints; a release as {release:<its release name or build number>}, never its CI build link; keep each {record:…|…}, {pr:…}, {card:…} and {order:…} reference exactly as written, a card he must answer as {card:<waits id>} so it draws under the post;
 - times as the report writes them in Pacific; a correction says what was wrong and what is right, never "correction" alone;
 - each visual is {"kind": "chart" | "compare" | "mermaid" | "dot", "source": "<its source>", "caption": "<what it shows>"}, one a post; blocks are Block Kit, with text kept as the notification line.
 Shape of a reply: {"text": "<the lead>", "place": "root", "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "*<the lead>*"}}, {"type": "section", "fields": [{"type": "mrkdwn", "text": "*<item>*\\n<its state>"}]}]}

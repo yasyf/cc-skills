@@ -226,7 +226,7 @@ def labeled(node: dict, labels: list[str], label: str) -> str | None:
 
 
 def review(read: dict) -> str:
-    """approved once every reviewer's latest approval is on the PR's head, the only approval stack-enqueue counts; stale while GitHub's reviewDecision still counts one given on an older head; changes or none otherwise."""
+    """approved once every reviewer's latest approval is on the PR's head, the only approval the repository's merge queue counts; stale while GitHub's reviewDecision still counts one given on an older head; changes or none otherwise."""
     decision = REVIEWS.get(read["reviewDecision"], "none")
     if decision == "approved" and any(commit != read["headRefOid"] for commit in read["approvals"]):
         return "stale"
@@ -474,7 +474,7 @@ def graphql(text: str, what: str, max_age: str = "0s") -> dict:
 
 
 def below(key: str) -> list[str]:
-    """The open PRs stack-enqueue queues under key, bottom first: those below it in its native GitHub stack and those under the lowest of them, or, at the bottom of a native stack or in none, on a base that is no branch its repository lands PRs on, by landing_base(), the one open PR whose head is that base and those under it."""
+    """The open PRs the repository's merge queue queues under key, bottom first: those below it in its native GitHub stack and those under the lowest of them, or, at the bottom of a native stack or in none, on a base that is no branch its repository lands PRs on, by landing_base(), the one open PR whose head is that base and those under it."""
     owner, name, number = split(key)
     text = (
         f"query {{ repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ defaultBranchRef {{ name }} {LANDING} pullRequest(number: {number}) {{ baseRefName "
@@ -788,7 +788,7 @@ def fetched(clone: str, branch: str) -> str:
 
 
 def carrier(clone: str) -> Callable[[str, str, int], bool]:
-    """Whether a build carries a squash merge of PR number, read from the clone's own history at its HEAD, its default branch's head, by go/ci's rule: the build sits at or after the merge on the first-parent line, or it is a hotfix whose fork from that line sits at or after it or whose own commits hold one whose subject ends `(#<number>)`, the subject a cherry-pick of it carries. A merge commit may be abbreviated, matched to the line's commit it starts. One rev-list orders the line; each build off it costs one merge-base and one log, a build the clone lacks fetched by its sha, by fetch_commit."""
+    """Whether a build carries a squash merge of PR number, read from the clone's own history at its HEAD, its default branch's head, by the release tool's rule: the build sits at or after the merge on the first-parent line, or it is a hotfix whose fork from that line sits at or after it or whose own commits hold one whose subject ends `(#<number>)`, the subject a cherry-pick of it carries. A merge commit may be abbreviated, matched to the line's commit it starts. One rev-list orders the line; each build off it costs one merge-base and one log, a build the clone lacks fetched by its sha, by fetch_commit."""
     git = ["git", "-C", clone]
     order = {sha: at for at, sha in enumerate(reversed(run([*git, "rev-list", "--first-parent", "HEAD"]).split()))}
 
