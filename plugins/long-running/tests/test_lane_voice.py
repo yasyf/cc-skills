@@ -52,6 +52,7 @@ PRS = [{"repo": "Forge-AI/monorepo", "number": 53430, "words": "reads old journa
         ("{pr:yasyf/cc-skills#53305|the hook}", "<https://github.com/yasyf/cc-skills/pull/53305|#53305 the hook>"),
         ("{pr:53305} is two PRs", "{pr:53305} is two PRs"),
         ("{pr:999} is none of the lane's", "{pr:999} is none of the lane's"),
+        ("{pr:Forge-AI/monorepo#56399|two new tasks columns}", "<https://github.com/Forge-AI/monorepo/pull/56399|#56399 two new tasks columns>"),
         ("Merged <https://github.com/Forge-AI/monorepo/pull/53430|#53430>.", "Merged <https://github.com/Forge-AI/monorepo/pull/53430|#53430 reads old journals>."),
         ("Merged #53430, not #999.", "Merged <https://github.com/Forge-AI/monorepo/pull/53430|#53430 reads old journals>, not #999."),
         ("<https://x.example/a|see #53430>", "<https://x.example/a|see #53430>"),

@@ -83,11 +83,11 @@ def short(title: str) -> str:
 
 
 def linked(text: str, prs: list[dict]) -> str:
-    """The text with each {pr:N} or {pr:owner/repo#N|words} the lane's prs rows hold drawn as `<url|#N words>`, the row's own words when the post gives none; one the lane does not hold stays as typed, which the sender drops as a dead link."""
+    """The text with each {pr:N} or {pr:owner/repo#N|words} the lane's prs rows hold drawn as `<url|#N words>`, the row's own words when the post gives none; one named by owner/repo#N links to it whether a lane holds it or not, and a bare number no lane holds stays as typed, which the sender drops as a dead link."""
 
     def drawn(match: re.Match[str]) -> str:
         repo, number = match[1], int(match[2])
-        held = [row for row in prs if row["number"] == number and (repo is None or row["repo"].casefold() == repo.casefold())]
+        held = [row for row in prs if row["number"] == number and (repo is None or row["repo"].casefold() == repo.casefold())] or ([{"repo": repo, "number": number}] if repo else [])
         if len(held) != 1:
             return match[0]
         words = (match[3] or held[0].get("words") or "").strip()
