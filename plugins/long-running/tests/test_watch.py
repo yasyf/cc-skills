@@ -773,7 +773,8 @@ def test_a_wait_on_another_builders_pr_closed_unmerged_moves_to_that_builder_and
     assert cli.main(["pr", "add", state.pr_url(rebuilt), "--job", "j2", "--drive", demo, *LEAD]) == 0
     serve(monkeypatch, {})
     said = watch.run_pass(watching, T0 + timedelta(seconds=122))
-    assert [line for line in said if line.startswith("FREE ")] == [f"FREE j3 o1: j2 registered {rebuilt}, nothing else holds it, stacked on land-it ({rebuilt})"]
+    freed = state.load(demo)["jobs"]["j3"]
+    assert ([line for line in said if line.startswith("FREE ")], "j2" in freed["waits"], freed["stacks_on"]) == ([], False, [rebuilt])
 
 
 def test_a_release_wait_on_a_pr_closed_unmerged_frees_the_job_that_opened_it_and_moves_every_other_waiter_to_that_jobs_change(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -797,8 +798,9 @@ def test_a_release_wait_on_a_pr_closed_unmerged_frees_the_job_that_opened_it_and
     assert cli.main(["pr", "add", state.pr_url(rebuilt), "--job", "j2", "--drive", demo, *LEAD]) == 0
     serve(monkeypatch, {})
     said = watch.run_pass(watching, T0 + timedelta(seconds=122))
-    assert [line for line in said if line.startswith("FREE ")] == [f"FREE j3 o1: j2 registered {rebuilt}, nothing else holds it, stacked on land-it ({rebuilt})"]
-    assert state.load(demo)["prs"][KEY]["waits"] == ["j2"]
+    data = state.load(demo)
+    assert ([line for line in said if line.startswith("FREE ")], "j2" in data["jobs"]["j3"]["waits"], data["jobs"]["j3"]["stacks_on"]) == ([], False, [rebuilt])
+    assert data["prs"][KEY]["waits"] == ["j2"]
 
 
 def test_a_wait_on_a_staging_testers_pr_closed_unmerged_ends_and_never_moves_onto_the_tester_whose_test_holds_no_such_pr(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -816,7 +818,7 @@ def test_a_wait_on_a_staging_testers_pr_closed_unmerged_ends_and_never_moves_ont
     watch.run_pass(watching, T0)
     watch.run_pass(watching, T0 + timedelta(seconds=61))
     data = state.load(demo)
-    assert (data["jobs"]["j3"]["waits"], data["prs"][KEY]["waits"]) == ([], [])
+    assert (data["jobs"]["j3"]["waits"], data["jobs"]["j3"]["claim"]["worker"], data["prs"][KEY]["waits"]) == (["j4"], "j4", [])
     assert not state.waits_on_job(data, data["prs"][KEY], "j2", data["jobs"]["j2"])
 
 
@@ -1801,11 +1803,12 @@ def test_a_teammates_first_message_after_the_drives_question_frees_the_job_waiti
     ]
     histories = asked_teammate(demo, monkeypatch, top)
     watching = watcher(demo)
-    assert watch.waits_lines(watching, T0 + timedelta(minutes=13)) == [f"FREE j1 o1: Dana replied {answer['permalink']}, nothing else holds it"]
+    assert watch.waits_lines(watching, T0 + timedelta(minutes=13)) == []
     words = f'Dana replied {answer["permalink"]} to the question the drive asked them for j1 at {ASKED_TEAMMATE}: "yes, run it tonight"'
     assert calls == []
-    job = state.load(demo)["jobs"]["j1"]
-    assert (job["waits"], job["said"], [held["words"] for held in job["undelivered"]]) == ([], None, [words])
+    data = state.load(demo)
+    job = data["jobs"]["j1"]
+    assert (job["waits"], job["said"], [held["words"] for held in job["undelivered"]], work.item_of(data, job)) == ([], None, [words], work.KIND[work.BUILD])
     assert (histories, slack_thread.reads) == ([("history", "--channel", "C0TEAM0001", "--limit", "100", "--json")], [])
     assert watch.waits_lines(watching, T0 + timedelta(minutes=14)) == []
     assert (calls, len(histories)) == ([], 1)
@@ -1831,7 +1834,9 @@ def test_a_reply_wait_ends_on_a_teammates_reply_in_the_questions_thread_never_on
     slack_thread.messages.append({"ts": reply_ts, "thread_ts": ASKED_TS, "user": "U0DANA", "user_name": "Dana", "text": "after 9 works"})
     top[1]["latest_reply"] = reply_ts
     reply_link = f"https://acme.slack.com/archives/C0TEAM0001/p{reply_ts.replace('.', '')}?thread_ts={ASKED_TS}&cid=C0TEAM0001"
-    assert watch.waits_lines(watching, T0 + timedelta(minutes=7)) == [f"FREE j1 o1: Dana replied {reply_link}, nothing else holds it"]
+    assert watch.waits_lines(watching, T0 + timedelta(minutes=7)) == []
+    data = state.load(demo)
+    assert (data["jobs"]["j1"]["waits"], [held["words"].split(" to the question")[0] for held in data["jobs"]["j1"]["undelivered"]], work.item_of(data, data["jobs"]["j1"])) == ([], [f"Dana replied {reply_link}"], work.KIND[work.BUILD])
     assert (calls, len(histories)) == ([], 2)
     assert slack_thread.reads == [("--channel", "C0TEAM0001", "--thread", ASKED_TS, "--since-ts", ASKED_TS, "--limit", "1000")] * 2
 
@@ -1881,10 +1886,14 @@ def test_another_drives_first_record_after_the_one_a_job_waits_after_on_its_topi
         data["jobs"]["j1"].update(state="waiting", waits=["reply:cci:722599"])
         data["jobs"]["j2"] = job(state="waiting", waits=["reply:cci:722650"])
     watching = watcher(demo)
-    assert watch.waits_lines(watching, T0 + timedelta(minutes=1)) == [f"FREE j1 o1: root@durable-agents posted 722660 on {STAGING_TOPIC}, nothing else holds it"]
+    assert watch.waits_lines(watching, T0 + timedelta(minutes=1)) == []
     words = f"note record 722660 from root@durable-agents, the first on topic {STAGING_TOPIC} after 722599 that j1 waited on: FREE staging is yours: build 17137 left it, start your window now"
     data = state.load(demo)
-    assert (data["jobs"]["j1"]["waits"], [(held["words"], held["seq"], held["sender"]) for held in data["jobs"]["j1"]["undelivered"]]) == ([], [(words, "722660", state.WATCH_SENDER)])
+    assert (data["jobs"]["j1"]["waits"], [(held["words"], held["seq"], held["sender"]) for held in data["jobs"]["j1"]["undelivered"]], work.item_of(data, data["jobs"]["j1"])) == (
+        [],
+        [(words, "722660", state.WATCH_SENDER)],
+        work.KIND[work.BUILD],
+    )
     assert (data["jobs"]["j2"]["waits"], data["jobs"]["j2"]["undelivered"]) == (["reply:cci:722650"], [])
     assert reads_made == [["cci", "show", "--json", "722599", "722650"], grep_of("durable-agents", 722599, STAGING_TOPIC, "o2046-claims")]
     records.append(cci_record(722680, topic="o2046-claims", text="staging is free"))
@@ -1907,7 +1916,9 @@ def test_725715_a_record_on_the_other_drive_whose_lane_names_the_waiting_drive_i
     assert watch.waits_lines(watching, T0 + timedelta(minutes=1)) == []
     assert state.load(demo)["jobs"]["j1"]["waits"] == ["reply:cci:725268"]
     records.append(cci_record(725720, text="FREE staging is yours"))
-    assert watch.waits_lines(watching, T0 + timedelta(minutes=2)) == [f"FREE j1 o1: root@durable-agents posted 725720 on {STAGING_TOPIC}, nothing else holds it"]
+    assert watch.waits_lines(watching, T0 + timedelta(minutes=2)) == []
+    data = state.load(demo)
+    assert (data["jobs"]["j1"]["waits"], [held["seq"] for held in data["jobs"]["j1"]["undelivered"]], work.item_of(data, data["jobs"]["j1"])) == ([], ["725720"], work.KIND[work.BUILD])
 
 
 @pytest.mark.parametrize("waiting", [1, 100])
@@ -2761,7 +2772,7 @@ def test_a_stranded_jobs_orphans_name_once_the_pr_its_line_names_moved_to_anothe
     stranded = f'j2 waits on "{said}" and no open PR, card or due time can wake it; of what its line names, {moved} moved to j3, j4 done'
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == [f'ORPHAN o2 "{part}": {stranded}' for part in parts]
-    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == ["WORK j5 records a build worker on a Sprite, its first group claimed"]
 
 
 def test_each_change_a_design_lists_with_no_job_is_an_orphan_whatever_earlier_change_it_waits_on_but_while_he_picks_an_option(
@@ -3093,7 +3104,7 @@ def test_a_tester_whose_return_names_a_built_job_gets_no_stack_on_line_and_a_bui
     assert [data["jobs"][job_id]["undelivered"] for job_id in ("j3", "j4")] == [[], []]
 
 
-def test_his_tap_on_a_lane_questions_card_leads_its_orphan_line_until_his_undo_reopens_the_question_his_card_asks_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_his_tap_on_a_lane_questions_card_goes_into_its_build_items_brief_for_the_queues_worker_and_his_undo_reopens_the_question_his_card_asks_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
     asked = "Which fixture keeps the hold test deterministic?"
@@ -3106,18 +3117,15 @@ def test_his_tap_on_a_lane_questions_card_leads_its_orphan_line_until_his_undo_r
         clock.setattr(state, "now", lambda: tapped)
         card.question_answered({"waits": "demo:j1-7", "label": "Ring", "url": CARD})
     watching = watcher(demo)
-    tap = (
-        f'"{render.cut(f"His answer on card {CARD}, verbatim: \"Ring\"", 80)}", held at {render.when(state.stamp(tapped))}, has not reached j1; the watch sends it'
-        " to a worker that takes messages, hands it to the next worker of one that returned and launches a builder never started with it; drive job launch j1 on its FREE line,"
-        " which carries each answer of his it has not heard to its first worker"
-    )
-    assert watch.run_pass(watching, T0 + timedelta(minutes=15)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [f'ORPHAN o1 "ship the watch": {tap}, answering its lane\'s question "{asked}" 30 minutes ago']
+    assert watch.run_pass(watching, T0 + timedelta(minutes=15)) == ["WORK j2 records a build worker on a Sprite, its first group claimed"]
+    item = state.load(demo)["jobs"]["j1"]
+    assert (item["claim"]["worker"], item["undelivered"], "Ring" in Path(item["brief"]).read_text()) == ("j2", [], True)
+    assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=30)) if line.startswith("ORPHAN ")]
     with monkeypatch.context() as clock:
         clock.setattr(state, "now", lambda: T0 + timedelta(minutes=31))
         card.question_answered({"waits": "demo:j1-7", "label": "Ring", "url": CARD, "undone": True})
     assert view.open_cards(state.load(demo)["jobs"]["j1"]) == [CARD]
-    assert [line.split(":")[0] for line in watch.run_pass(watching, T0 + timedelta(minutes=60))] == ["DUE o1 owed w1"]
+    assert [line.split(":")[0] for line in watch.run_pass(watching, T0 + timedelta(minutes=60)) if line.startswith("DUE ")] == ["DUE o1 owed w1"]
 
 
 def test_a_part_staffed_within_five_minutes_of_its_order_moving_is_never_an_orphan(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -4340,8 +4348,9 @@ def test_j135_his_card_a_once_only_pass_ends_on_unstarted_change_builders_frees_
         data["jobs"]["j4"] = job(goal="build j2's change: the writes", state="waiting", said=f"waits on {waits}, j3", waits=[waits, "j3"])
         del data["change_builders_unwaited"]
     watching = watcher(demo)
-    assert watch.waits_lines(watching, T0) == [f"FREE j3 o1: {waits} holds only the PR its Holds: line names, never a change builder's start, nothing else holds it"]
+    assert watch.waits_lines(watching, T0) == []
     drive = state.load(demo)
+    assert work.item_of(drive, drive["jobs"]["j3"]) is work.KIND[work.BUILD]
     assert {job_id: (drive["jobs"][job_id]["state"], drive["jobs"][job_id]["waits"], drive["jobs"][job_id]["said"]) for job_id in ("j3", "j4")} == {
         "j3": ("waiting", [], state.NOT_STARTED),
         "j4": ("waiting", ["j3"], state.NOT_STARTED),
@@ -4919,6 +4928,7 @@ def test_a_freed_codex_job_is_launched_by_the_watch_or_its_queue_with_no_free_li
     monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or 0)
     monkeypatch.setattr(place, "admission", lambda data, job_id, where, moment: None)
     monkeypatch.setattr(place, "admitted_room", lambda where, moment, priority=False: 1)
+    monkeypatch.setattr(state, "now", lambda: T0 + timedelta(seconds=60))
     with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j2"] = job(goal="release the service")
@@ -5002,10 +5012,9 @@ def test_a_job_waiting_on_a_codex_job_holds_through_its_handoff_a_pointer_report
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=8)) if line.startswith("FREE ")]
     with edit(demo) as data:
         state.deliver_proven(data, "j5", "j5 live: repro/j5.sh exits 0 on no plugin of this Mac")
-    assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=10)) if line.startswith("FREE ")] == [
-        "FREE j1 o1: j3 answered or done, nothing else holds it",
-        "FREE j4 o1: j2 answered or done, nothing else holds it",
-    ]
+    freed = [line for line in watch.run_pass(watching, T0 + timedelta(minutes=10)) if line.startswith("FREE ")]
+    data = state.load(demo)
+    assert (freed, "j2" in data["jobs"]["j4"]["waits"], work.item_of(data, data["jobs"]["j4"])) == (["FREE j1 o1: j3 answered or done, nothing else holds it"], False, work.KIND[work.BUILD])
 
 
 def test_the_queue_ranks_first_the_workstream_he_moved_last_ahead_of_the_one_he_touched_longest_ago(demo: str) -> None:
@@ -5085,15 +5094,16 @@ def test_a_release_wait_frees_once_every_cluster_of_its_service_serves_its_pr_ne
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
     serving[1]["commit"] = "abc123"
-    assert watch.run_pass(watching, T0 + watch.LIVE_EVERY) == [f"FREE j2 o1: the release live read finds api on plat-usw2-staging serving {KEY}, nothing else holds it"]
+    assert watch.run_pass(watching, T0 + watch.LIVE_EVERY) == []
+    assert [state.load(demo)["jobs"][job_id]["waits"] for job_id in ("j1", "j2")] == [[wait], []]
     assert watch.release_line(watching, state.load(demo), wait) == f"{wait}: api on plat-usw2-prod, tnt-usw2-0ddq7rb is behind {KEY}'s merge commit abc123, running an older build"
     serving[0]["commit"] = "abc123"
-    assert watch.run_pass(watching, T0 + 2 * watch.LIVE_EVERY) == []
+    assert [line for line in watch.run_pass(watching, T0 + 2 * watch.LIVE_EVERY) if not line.startswith("WORK ")] == []
+    assert wait in state.load(demo)["jobs"]["j1"]["waits"]
     serving[2]["commit"] = "abc123"
-    assert watch.run_pass(watching, T0 + 3 * watch.LIVE_EVERY) == [
-        f"FREE j1 o1: the release live read finds api on plat-usw2-prod, plat-usw2-staging, tnt-usw2-0ddq7rb serving {KEY}, nothing else holds it"
-    ]
-    assert (calls, [state.load(demo)["jobs"][job_id]["waits"] for job_id in ("j1", "j2")]) == ([["release", "live", "--json"]] * 4, [[], []])
+    assert [line for line in watch.run_pass(watching, T0 + 3 * watch.LIVE_EVERY) if not line.startswith("WORK ")] == []
+    data = state.load(demo)
+    assert (calls, [wait in data["jobs"]["j1"]["waits"], staged in data["jobs"]["j2"]["waits"]]) == ([["release", "live", "--json"]] * 4, [False, False])
 
 
 def test_a_release_wait_frees_once_every_cluster_running_its_service_production_or_not_serves_its_pr_and_at_once_while_no_cluster_or_env_runs_it(
@@ -5402,8 +5412,9 @@ def test_a_buildkite_build_wait_is_read_once_as_first_held_then_only_on_a_delive
         data["jobs"]["j1"].update(state="waiting", said=f"WAITING {RELEASE_BUILD} stops at its approve step", waits=[RELEASE_BUILD], prs=[], updated=state.stamp(T0 - timedelta(minutes=10)))
         data["jobs"]["j2"] = job(state="waiting", said=f"WAITING {NO_BUILD}", waits=[NO_BUILD], updated=state.stamp(T0 - timedelta(minutes=10)))
     watching = watcher(demo)
-    assert [watch.run_pass(watching, T0 + timedelta(minutes=minute)) for minute in range(3)] == [[f"FREE j2 o1: Buildkite answers no build at {NO_BUILD}, nothing else holds it"], [], []]
-    assert stall.chains(state.load(demo), NO_CARDS, False, T0) == {"j1": [("j1", f"j1 waiting on {RELEASE_BUILD}", False), (RELEASE_BUILD, f"Buildkite build 14769 of forge/release {RELEASE_BUILD}", True)]}
+    assert [watch.run_pass(watching, T0 + timedelta(minutes=minute)) for minute in range(3)] == [[], ["WORK j3 records a build worker on a Sprite, its first group claimed"], []]
+    assert state.load(demo)["jobs"]["j2"]["claim"]["worker"] == "j3"
+    assert stall.chains(state.load(demo), NO_CARDS, False, T0)["j1"] == [("j1", f"j1 waiting on {RELEASE_BUILD}", False), (RELEASE_BUILD, f"Buildkite build 14769 of forge/release {RELEASE_BUILD}", True)]
     answers["forge/release/14769"] = {
         "state": "BLOCKED",
         "blocks": {"edges": [{"node": {"label": APPROVE_STEP}}]},
@@ -5411,9 +5422,8 @@ def test_a_buildkite_build_wait_is_read_once_as_first_held_then_only_on_a_delive
     }
     receiver.home().mkdir(parents=True, exist_ok=True)
     receiver.took_builds("build.finished", [RELEASE_BUILD])
-    assert watch.run_pass(watching, T0 + timedelta(minutes=3)) == [f'FREE j1 o1: {RELEASE_BUILD} reads BLOCKED at its approve step "{APPROVE_STEP}", its steps that did not pass ":docker: Image", nothing else holds it']
-    assert watch.run_pass(watching, T0 + timedelta(minutes=4)) == []
-    assert (calls, state.load(demo)["jobs"]["j1"]["waits"], watching.builds) == ([["forge/release/14769", "forge/release/99999999"], ["forge/release/14769"]], [], {})
+    assert [line for minute in (3, 4) for line in watch.run_pass(watching, T0 + timedelta(minutes=minute)) if not line.startswith("WORK ")] == []
+    assert (calls, RELEASE_BUILD in state.load(demo)["jobs"]["j1"]["waits"], watching.builds) == ([["forge/release/14769", "forge/release/99999999"], ["forge/release/14769"]], False, {})
 
 
 def test_a_built_job_is_told_once_under_each_card_it_waits_on_and_freed_once_when_he_answers_the_last(
@@ -10499,9 +10509,9 @@ def test_replayed_56856_a_pr_on_j94s_built_branch_reads_behind_j94_owed_by_him_t
     said = staged_lines(watching, REPLAYED_56856, (94, 125, 150))
     data = state.load(demo)
     kept = data["prs"][REPLAYED_56856]["stage"]
-    assert ((kept["name"], kept["owner"], kept["why"]), said, len(woken), draws.keys) == (("behind", "j94", f"{ON_J94}is built and has opened no PR there yet; it lands with that PR once it opens"), [], 1, [])
+    assert ((kept["name"], kept["owner"], kept["why"]), said, len(woken), draws.keys) == (("behind", "j94", f"{ON_J94}waits on j188 and has opened no PR there yet; it lands with that PR once it opens"), [], 1, [])
     chained = stall.chains(data, NO_CARDS, False, T0 + timedelta(minutes=150))[REPLAYED_56856]
-    assert ([link for link, _, _ in chained], state.tap_refused(data, data["prs"][REPLAYED_56856])) == ([REPLAYED_56856, "j94"], NO_PR_ON_J94)
+    assert ([link for link, _, _ in chained], state.tap_refused(data, data["prs"][REPLAYED_56856])) == ([REPLAYED_56856, "j94", "j188"], NO_PR_ON_J94)
     with edit(demo) as data:
         data["jobs"]["j94"].update(state="waiting", prs=[state.pr_url(OPENED_J94)])
         data["prs"][OPENED_J94] = state.new_pr(state.pr_url(OPENED_J94), "j94", "o1") | {"head": "fc4544b027", "base": "dev", "wants_tap": True, "checked": CHECKED | {"head": "fc4544b027"}}

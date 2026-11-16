@@ -16,6 +16,7 @@ DESIGN = "design"
 CODEX = "codex"
 TOLD = ("ASK", "BLOCKED")
 WORKER = "worker"
+PROOF_HOLDS = "the proof the watch runs on it"
 WORKER_ITEMS = 18
 WORKERS_PER_PASS = 4
 POOLS = ("local", "remote")
@@ -459,9 +460,10 @@ class Build(Kind):
         )
 
     def blocking(self, data: dict, job_id: str) -> list[str]:
-        """The waits holding a build item's start but its waits on its own PRs, which a text it holds, such as the STAGE line drive pr wake holds on it, outranks."""
+        """The waits holding a build item's start but its waits on its own PRs, which a text it holds, such as the STAGE line drive pr wake holds on it, outranks, and, for a job the watch proves, by watch_proves, such as a repair waiting on the proof it marked, that proof, which waits_lines never frees either, so no worker rebuilds it or rewrites the said line its proof keys on."""
         own = {state.pr_key(url) for url in data["jobs"][job_id]["prs"]}
-        return [wait for wait in super().blocking(data, job_id) if wait not in own]
+        proof = [PROOF_HOLDS] if watch.watch_proves(data, job_id) else []
+        return [*proof, *(wait for wait in super().blocking(data, job_id) if wait not in own)]
 
     def stack(self, data: dict, job: dict) -> tuple:
         """The stack an item builds on: its repo and branch, or its order while it names no branch."""
