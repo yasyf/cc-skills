@@ -360,6 +360,8 @@ def holds(drive: dict, wait: str, found: dict | None) -> bool:
         return drive["prs"][release["pr"]]["state"] != "closed"
     if state.PID_WAIT.fullmatch(wait):
         return state.pid_runs(wait)
+    if state.RESERVED_WAIT.fullmatch(wait):
+        return state.reserved_runs(drive, wait)
     if boxed := state.BOX_PID_WAIT.fullmatch(wait):
         try:
             return providers.of(drive).mac_box.runs(boxed["box"], int(boxed["pid"]))
@@ -1079,6 +1081,8 @@ def wait_entry(drive: dict, wait: str, found: dict) -> dict:
         return {"title": "a Sprite lane under this Mac's cap", "url": None}
     if process := state.PID_WAIT.fullmatch(wait):
         return {"title": f"process {process['pid']} on this Mac ending", "url": None}
+    if reserved := state.RESERVED_WAIT.fullmatch(wait):
+        return {"title": f"{reserved['job']}'s release start on this Mac ending", "url": None}
     if card := asked_card(found, wait):
         return {"title": card["question"], "url": card["url"]}
     return {"title": "his question card", "url": wait if wait.startswith("https://") else None}

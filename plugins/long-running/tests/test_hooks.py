@@ -19,7 +19,7 @@ import quiet_turn
 import role_rules
 import scratch_folder
 import session_start
-from conftest import QUEUE_REASON, EnvsRelease, HomeRepo, provide, ACME_CUT, ANSWERED_CUT, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess, own_time
+from conftest import QUEUE_REASON, EnvsRelease, HomeRepo, provide, ACME_CUT, ANSWERED_CUT, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess, own_time, unreserved
 from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, slack, state, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -1246,7 +1246,7 @@ def release_starts(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
     """Each drive job release a --release add starts, kept for the test to run in its own process, whose pid the add's job waits on."""
     starts: list[list[str]] = []
     detach = state.detach
-    monkeypatch.setattr(state, "detach", lambda name, args, log: starts.append(args) or os.getpid() if args[:2] == ["job", "release"] else detach(name, args, log))
+    monkeypatch.setattr(state, "detach", lambda name, args, log: starts.append(unreserved(args)) or os.getpid() if args[:2] == ["job", "release"] else detach(name, args, log))
     return starts
 
 
@@ -1318,7 +1318,8 @@ def test_drive_job_add_release_starts_it_on_his_answer_in_a_process_of_its_own_t
     jev.picks("5419ffd")
     code, out = run(*add, "--release", J2666_START)
     assert (code, out.splitlines()[:2]) == (0, ["j2", starting(demo, "j2", J2666_START)])
-    assert (release_starts, state.load(demo)["jobs"]["j2"]["waits"], started.exists()) == ([["job", "release", "j2", "--session", os.environ["CLAUDE_CODE_SESSION_ID"]]], state.pid_waits(f"pid:{os.getpid()}"), False)
+    j2 = state.load(demo)["jobs"]["j2"]
+    assert (release_starts, j2["waits"], started.exists()) == ([["job", "release", "j2", "--session", os.environ["CLAUDE_CODE_SESSION_ID"]]], [state.reserved_wait("j2", j2["release_start"]["token"])], False)
     assert jev.asked[-1]["state"] == {
         "action": f"start this release on {settled.PRODUCTION}: `{J2666_START}`",
         "answer": {"asked": CLOCK_PICK["title"], "said": CLOCK_PICK["body"]},
@@ -1343,7 +1344,7 @@ def test_drive_job_add_release_starts_it_on_his_answer_in_a_process_of_its_own_t
     assert cli.main(["job", "release", "j4"]) == 2
     assert capsys.readouterr().err.strip() == "drive: j4: its release did not start: a freeze holds platform"
     after = state.load(demo)
-    assert after["dropped_waits"]["j4"] == dict.fromkeys(state.pid_waits(f"pid:{os.getpid()}"), "its release did not start: a freeze holds platform; drive job set j4 --state stopped ends it")
+    assert after["dropped_waits"]["j4"] == dict.fromkeys([state.reserved_wait("j4", after["jobs"]["j4"]["release_start"]["token"])], "its release did not start: a freeze holds platform; drive job set j4 --state stopped ends it")
     assert (after["jobs"]["j3"]["state"], after["jobs"]["j4"]["release_build"], (state.drive_dir(demo) / "jobs" / "j4.brief.md").exists()) == ("waiting", None, False)
     [post] = release_posts
     assert (posted_to(post), post[post.index("--kind") + 1], release_sleeps) == (["root@demo"], "handoff", [])

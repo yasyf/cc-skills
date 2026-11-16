@@ -189,6 +189,7 @@ PID_WAIT = re.compile(r"pid:(?P<pid>\d+)(?:@(?P<started>\d+))?")
 NAMED_PIDS = re.compile(r"\bpid:(?P<pids>\d+(?:,\d+)*)(?:@(?P<box>[A-Za-z][\w.-]*))?(?!\w)")
 BOX_PID_WAIT = re.compile(r"pid:(?P<pid>\d+)@(?P<box>[A-Za-z][\w.-]*)")
 HIS_WORD_WAIT = re.compile(r"his-word@(?P<after>\d+)")
+RESERVED_WAIT = re.compile(r"reserved:(?P<job>[^@\s]+)@(?P<token>[0-9a-f]{32})")
 HIS_WORD = re.compile(r"\b(?:his-word|his (?:next )?word)\b", re.IGNORECASE)
 SLOT_TURN_WAIT = re.compile(r"staging-slot:(?P<job>j\d+)")
 MAC_BOX_WAIT = re.compile(r"mac-box:(?P<box>[\w.-]+?)(?P<handed>@handed)?(?=[\s,;.)]|$)")
@@ -2808,6 +2809,18 @@ def mac_box_handed(data: dict, job_id: str, box: str) -> list[str]:
     marked = [wait for wait in job["waits"] if (found := MAC_BOX_WAIT.fullmatch(wait)) and not found["handed"] and found["box"] in (box, "any")]
     job["waits"] = [f"mac-box:{box}@handed" if wait in marked else wait for wait in job["waits"]]
     return marked
+
+
+def reserved_wait(job_id: str, token: str) -> str:
+    """The wait of a job on the process its release start reserved, by the reservation's token, as RESERVED_WAIT reads it."""
+    return f"reserved:{job_id}@{token}"
+
+
+def reserved_runs(data: dict, wait: str) -> bool:
+    """Whether the process a wait from reserved_wait names still runs: the job's release_start still holds the wait's token and its holder runs, or, until the child adopts it, the child its starter settled, within ADOPT_SECONDS, so the drive job add that started it ending right after its launch ends no wait the child holds."""
+    found = RESERVED_WAIT.fullmatch(wait)
+    record = data["jobs"][found["job"]].get("release_start")
+    return isinstance(record, dict) and record.get("token") == found["token"] and (holder(record) is not None or record["state"] == "reserved" and not lapsed(record) and lives(record["child"]))
 
 
 def pid_runs(wait: str) -> bool:
@@ -6796,7 +6809,7 @@ def followed_builds(orders: dict[str, dict]) -> set[str]:
 
 def card_wait(data: dict, wait: str) -> bool:
     """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a job's next report, a PR, tracked or not, an order or a part of one, a release of the drive, a staging test's soak commit, a process on this Mac, a Buildkite build, a teammate's reply to a question the drive asked them, another drive's next record on a topic, a teammate's review of a PR's head, a builder slot on this Mac or a Sprite lane under this Mac's cap."""
-    return wait not in data["jobs"] and wait not in data["prs"] and wait not in data["orders"] and not part_wait(data, wait) and not RELEASE_WAIT.fullmatch(wait) and not STAGING_WAIT.fullmatch(wait) and not PID_WAIT.fullmatch(wait) and not MAC_BOX_WAIT.fullmatch(wait) and not HIS_WORD_WAIT.fullmatch(wait) and not BOX_PID_WAIT.fullmatch(wait) and not SLOT_TURN_WAIT.fullmatch(wait) and not provided(data).build.fullmatch(wait) and not REPLY_WAIT.fullmatch(wait) and not REVIEW_WAIT.fullmatch(wait) and not RETURN_WAIT.fullmatch(wait) and not untracked_wait(data, wait) and wait not in TURN_WAITS
+    return wait not in data["jobs"] and wait not in data["prs"] and wait not in data["orders"] and not part_wait(data, wait) and not RELEASE_WAIT.fullmatch(wait) and not STAGING_WAIT.fullmatch(wait) and not PID_WAIT.fullmatch(wait) and not RESERVED_WAIT.fullmatch(wait) and not MAC_BOX_WAIT.fullmatch(wait) and not HIS_WORD_WAIT.fullmatch(wait) and not BOX_PID_WAIT.fullmatch(wait) and not SLOT_TURN_WAIT.fullmatch(wait) and not provided(data).build.fullmatch(wait) and not REPLY_WAIT.fullmatch(wait) and not REVIEW_WAIT.fullmatch(wait) and not RETURN_WAIT.fullmatch(wait) and not untracked_wait(data, wait) and wait not in TURN_WAITS
 
 
 def job_wait_refusal(data: dict, waits: list[str]) -> str | None:

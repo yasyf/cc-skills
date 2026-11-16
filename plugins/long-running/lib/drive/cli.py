@@ -1838,31 +1838,28 @@ GITHUB_5XX = re.compile(r"\b(?:GET|HEAD|POST|PUT|PATCH|DELETE) /\S+ failed: 5\d\
 
 
 def started_release(name: str, job_id: str, command: str) -> list[str]:
-    """Start the release a job's --release names in a process of its own, drive job release, which outlives the call that added the job, so a call that times out or fails once it started keeps the job, and that process its build and brief, its start naming the session that added the job to the release tool as the call's own would; the job waits on this call until that process starts and then on it, so the watch frees the job once it ends."""
+    """Start the release a job's --release names in a process of its own, drive job release, which outlives the call that added the job, so a call that times out or fails once it started keeps the job, and that process its build and brief, its start naming the session that added the job to the release tool as the call's own would; the job waits on the release start it reserves, by its token, held by this call until that process adopts it and then by that process, so the watch frees the job once it ends."""
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    claim = state.pid_waits(f"pid:{os.getpid()}")
 
-    def claimed(data: dict) -> None:
-        data["jobs"][job_id]["waits"] += claim
+    def claimed(data: dict) -> state.Reservation:
+        held = state.reserve(data, (("jobs", job_id, "release_start"),))
+        data["jobs"][job_id]["waits"].append(state.reserved_wait(job_id, held.token))
+        return held
 
-    state.write(name, claimed)
-    waits: list[str] = []
-
-    def own(data: dict) -> None:
-        job = data["jobs"][job_id]
-        job["waits"] = [kept for wait in job["waits"] for kept in (waits if wait in claim else [wait])]
-
+    held = state.write(name, claimed)
     try:
-        pid = state.detach(name, ["job", "release", job_id, *(["--session", session] if session else [])], RELEASES_LOG)
-        waits = state.pid_waits(f"pid:{pid}")
-    finally:
-        state.write(name, own)
+        pid = state.detach(name, ["job", "release", job_id, *(["--session", session] if session else []), "--reserved", held.token], RELEASES_LOG)
+    except BaseException:
+        state.cancel(name, held)
+        raise
+    state.settle(name, held, pid)
     return [f"{job_id} starts `{command}` in process {pid}, which keeps the build it starts as {job_id}'s Release build: line and writes its brief, its lines in {state.drive_dir(name) / RELEASES_LOG}: start no agent for it until the watch's FREE line on {job_id} names that brief"]
 
 
 def job_release(args: argparse.Namespace) -> int:
-    """Start the release a job's --release names, in the process drive job add starts for it, by release_start, once more RELEASE_RETRY_SECONDS on when the first start failed on a GitHub 5xx, by GITHUB_5XX; `ci release` names the build it started, by release_answer, which the job keeps as its release_build in a save holding nothing else, so a later step that fails leaves it kept, before the designs it carries and each failed job it replaces end and its brief is written, and then kicks off the prebuild of a staging or sandbox start's commit, by prebuild; a start naming none leaves the job with no build, its wait on this process ending on what it said, which the watch's FREE line names, that wait taking the place of the starting call's own wait on itself in the same write when started_release has not swapped it yet, so the watch never ends the job's wait on that call first and loses why, and tells the coordinator and the session holding its order at once, by release_start_failed."""
+    """Start the release a job's --release names, in the process drive job add starts for it, by release_start, once more RELEASE_RETRY_SECONDS on when the first start failed on a GitHub 5xx, by GITHUB_5XX; `ci release` names the build it started, by release_answer, which the job keeps as its release_build in a save holding nothing else, so a later step that fails leaves it kept, before the designs it carries and each failed job it replaces end and its brief is written, and then kicks off the prebuild of a staging or sandbox start's commit, by prebuild; a start naming none leaves the job with no build, its wait on the release start it adopted ending on what it said, which the watch's FREE line names, so the watch never ends that wait first and loses why, and tells the coordinator and the session holding its order at once, by release_start_failed."""
     name = state.resolve(args.drive)
+    state.adopt_reserved(name, ("jobs", args.id, "release_start"), args.reserved)
     command = state.load(name)["jobs"][args.id]["brief_flags"]["release"]
     [words] = simple_commands(command)
     manual = "manual" in providers.of(state.load(name)).release.start(words)
@@ -1873,11 +1870,9 @@ def job_release(args: argparse.Namespace) -> int:
         answer, failure = release_start(name, words, manual, args.session)
     if failure:
         why = f"its release did not start: {failure}"
-        mine, starter = state.pid_waits(f"pid:{os.getpid()}"), state.pid_waits(f"pid:{os.getppid()}")
         def job_release_write3(data: dict):
-            job = data["jobs"][args.id]
-            job["waits"] = [kept for wait in job["waits"] for kept in (mine if wait in starter else [wait])]
-            state.drop_waits(data, args.id, dict.fromkeys(mine, f"{why}; drive job set {args.id} --state stopped ends it"))
+            started = [wait for wait in data["jobs"][args.id]["waits"] if (reserved := state.RESERVED_WAIT.fullmatch(wait)) and reserved["job"] == args.id]
+            state.drop_waits(data, args.id, dict.fromkeys(started, f"{why}; drive job set {args.id} --state stopped ends it"))
 
         state.write(name, job_release_write3)
         release_start_failed(name, args.id, command, failure)
@@ -8484,6 +8479,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("id")
     verb.add_argument("--session", help="the session that added the job, which the release tool records as the release's starter")
+    verb.add_argument("--reserved", metavar="TOKEN", help="the token of the release start drive job add reserved on the job for this run, adopted before anything else; the run ends doing nothing once that reservation is gone, cancelled, lapsed or another run's")
     verb.set_defaults(run=job_release)
     verb = job.add_parser("check", parents=both, help="what drive job report starts after it keeps a Sprite lane's return: read on GitHub the PRs its READY names and wake the lane with a refusal")
     verb.add_argument("id")
