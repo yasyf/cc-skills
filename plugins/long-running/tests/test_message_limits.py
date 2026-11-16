@@ -3133,8 +3133,8 @@ def test_an_edit_of_his_question_card_is_refused_naming_the_redraw(run: Run, tal
     with edit("demo") as data:
         question = state.new_question(str(ask), "Which store?", state.stamp(), card=card)
         data["jobs"]["j1"]["questions"].append(question | {"waits": "demo:j1-661229"})
-    for edit in (call("slack_edit", transcript, text="Reworded.", url=card), call("slack_edit", transcript, text="Reworded.", channel_id=DM, ts="1794288799.976279")):
-        reason = message_limits.deny_reason(edit)
+    for edited in (call("slack_edit", transcript, text="Reworded.", url=card), call("slack_edit", transcript, text="Reworded.", channel_id=DM, ts="1794288799.976279")):
+        reason = message_limits.deny_reason(edited)
         assert reason.startswith("Refused on purpose: that message is his question card")
         assert f"`drive job card {ask} --waits demo:j1-661229`" in reason
     assert say(transcript, edit=card, text="Reworded.").startswith("Refused on purpose: that message is his question card")
@@ -3217,9 +3217,9 @@ def test_a_say_post_to_a_channels_members_gets_a_readers_checks_in_place_of_a_li
     line = say(transcript, text=done + " " + said(20), channel_id="C0STAGING1", thread_ts="1794288799.000003")
     assert "this post is 65 words, and a line to a channel's members is at most 60 words" in line
     slack_thread.messages = [{"ts": "1794288799.000003", "from_bot": True, "text": said(130)}]
-    edit = "https://acme.slack.com/archives/C0STAGING1/p1794288799000003"
-    assert say(transcript, edit=edit, text=said(140)) is None
-    assert "or 10 past the 130 words of the post it edits" in say(transcript, edit=edit, text=said(141))
+    edited = "https://acme.slack.com/archives/C0STAGING1/p1794288799000003"
+    assert say(transcript, edit=edited, text=said(140)) is None
+    assert "or 10 past the 130 words of the post it edits" in say(transcript, edit=edited, text=said(141))
 
 
 def test_a_root_post_to_a_group_dm_carries_his_message_asking_for_code_so_his_words_can_lift_the_rule_against_naming_it(
