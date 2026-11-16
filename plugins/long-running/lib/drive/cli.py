@@ -1424,7 +1424,7 @@ def owed_add(args: argparse.Namespace) -> int:
         item_id = owing.add(data, order_id, owing.CARD, args.what, state.parse_time(args.due), {"card": args.card}, args.source, state.now(), args.card)
         return f"{item_id} on {order_id}: card \"{args.what}\" from {args.card}, due {render.when(args.due)}"
 
-    return emit(args, state.write(name, add_write))
+    return emit(args, state.write(name, add_write), {"card": args.card})
 
 
 def owed_revert(args: argparse.Namespace) -> int:
@@ -1437,7 +1437,7 @@ def owed_revert(args: argparse.Namespace) -> int:
         opened = owing.reverted(data, args.answer, args.link, state.parse_time(args.due), state.now(), [])
         return f"{args.answer} undone: " + (", ".join(opened) + " owed" if opened else "no job acted on it, so nothing is owed")
 
-    return emit(args, state.write(name, revert_write))
+    return emit(args, state.write(name, revert_write), {"answer": args.answer})
 
 
 def owed_done(args: argparse.Namespace) -> int:
