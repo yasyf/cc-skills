@@ -416,6 +416,17 @@ def test_a_write_of_its_rows_is_refused_keeping_nothing_once_another_write_chang
     assert "refused: another write changed terminal while it ran" in (state.drive_dir("demo") / "locks.log").read_text()
 
 
+def elsewhere(fields: dict) -> None:
+    """Save fields on the demo drive from a thread of its own, as a concurrent writer does, outside the write whose change calls this, which a write of the same drive inside it would refuse."""
+
+    def other() -> None:
+        with state.edit("demo") as data:
+            data.update(fields)
+
+    with ThreadPoolExecutor(1) as pool:
+        pool.submit(other).result()
+
+
 def test_an_update_another_write_raced_runs_again_on_the_drive_as_it_then_stands(state_root: Path) -> None:
     make("demo")
     runs: list[str | None] = []
@@ -423,9 +434,7 @@ def test_an_update_another_write_raced_runs_again_on_the_drive_as_it_then_stands
     def keep(data: dict) -> str:
         runs.append(data["binder"])
         if len(runs) == 1:
-            with state.edit("demo") as other:
-                other["terminal"] = "theirs"
-                other["binder"] = "theirs too"
+            elsewhere({"terminal": "theirs", "binder": "theirs too"})
         data["terminal"] = f"mine over {data['terminal']}"
         return data["terminal"]
 
@@ -442,8 +451,7 @@ def test_an_update_raced_on_every_run_runs_on_as_a_write_naming_no_rows(state_ro
     def keep(data: dict) -> None:
         runs.append(data["terminal"] or "")
         if len(runs) <= 2:
-            with state.edit("demo") as other:
-                other["terminal"] = f"theirs {len(runs)}"
+            elsewhere({"terminal": f"theirs {len(runs)}"})
         data["terminal"] = "mine"
 
     state.update("demo", (("", "terminal"),), keep)
