@@ -2854,7 +2854,7 @@ def test_projection_partitions_design_builders_without_repeated_job_scans() -> N
 
 def train_drive(*job_ids: str, **extra: dict) -> dict:
     job = {"state": "waiting", "order": "o1", "carries": [], "goal": "", "priority": None, "waits": [], "said": None, "release_build": None, "train": None, "created": "2026-11-16T01:00:00+00:00"}
-    return {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: job | extra.get(job_id, {}) for job_id in job_ids}}
+    return {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open", "class": "process"}}, "jobs": {job_id: job | extra.get(job_id, {}) for job_id in job_ids}}
 
 
 def test_a_release_takes_a_free_staging_env_at_once_and_waits_for_a_cut_to_end_then_starts_before_any_new_cut_his_incidents_first(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2862,7 +2862,7 @@ def test_a_release_takes_a_free_staging_env_at_once_and_waits_for_a_cut_to_end_t
     moment = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
     env = "plat-usw2-staging"
     data = train_drive("j1", "j2", "j3", "j4", j3={"created": "2026-11-16T00:00:00+00:00"}, j4={"order": "o2"})
-    data["orders"]["o2"] = {"incident": True, "priority": None, "state": "open"}
+    data["orders"]["o2"] = {"incident": True, "priority": None, "state": "open", "class": None}
     assert state.train_lease(data, env, "j1", moment) is True
     assert (data["slots"][env]["holder"]["job"], data["slots"][env]["holder"]["starts"], data["jobs"]["j1"]["train"], state.unlaunched(data, "j1", env)) == ("j1", True, env, True)
     assert [state.train_lease(data, env, job_id, moment) for job_id in ("j2", "j3", "j4")] == [False, False, False]
@@ -2892,7 +2892,7 @@ def test_an_incidents_release_takes_the_env_from_a_running_cut_whose_items_wait_
     moment = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
     env = "plat-usw2-staging"
     data = train_drive("j1", "j2", "j3", "j4", "j9", j1={"state": "running"}, j2={"state": "running"}, j4={"order": "o2"})
-    data["orders"]["o2"] = {"incident": True, "priority": None, "state": "open"}
+    data["orders"]["o2"] = {"incident": True, "priority": None, "state": "open", "class": None}
     first, riders = state.packed([{"job": job_id, "prs": [], "minutes": 30, "cases": None, "at": state.stamp(moment), "paths": [job_id], "stacks": [job_id], "starts": False} for job_id in ("j1", "j2")], 6)
     data["slots"][env] = {"holder": state.leased(first, moment, riders) | {"work": "j9"}}
     assert state.train_lease(data, env, "j3", moment) is False

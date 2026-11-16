@@ -7379,27 +7379,27 @@ def slot_release(data: dict, env: str, job_id: str) -> str:
 
 
 def train_waiting(data: dict, env: str) -> list[str]:
-    """The releases waiting for an env a cut holds, the release train, which goes before any new cut: each unfinished job drive job add --release marked for the env whose release has not started and that holds no lease on it and no cut its lease set aside, an open incident's first, then his priority's, by jumps_queue, then the oldest."""
+    """The releases waiting for an env a cut holds, the release train, which goes before any new cut: each unfinished job drive job add --release marked for the env whose release has not started and that holds no lease on it and no cut its lease set aside, by class, an incident's then one he asked for, by class_rank, then his priority's, by jumps_queue, then the oldest."""
     slot = data["slots"].get(env) or {"holder": None}
     held = {*slot_members(slot), *slot_members({"holder": (slot["holder"] or {}).get("preempted")})}
     waiting = [job_id for job_id, job in data["jobs"].items() if job.get("train") == env and job["state"] not in FINISHED_JOB_STATES and not job.get("release_build") and job_id not in held]
-    return sorted(waiting, key=lambda job_id: (not open_incidents(data, [data["jobs"][job_id]["order"], *data["jobs"][job_id]["carries"]]), not jumps_queue(data, job_id), parse_time(data["jobs"][job_id]["created"])))
+    return sorted(waiting, key=lambda job_id: (class_rank(data, data["jobs"][job_id]), not jumps_queue(data, job_id), parse_time(data["jobs"][job_id]["created"])))
 
 
 def train_lease(data: dict, env: str, job_id: str, moment: datetime) -> bool:
-    """Give a release starting on an env its lease now when no cut or release holds the env and no release waits ahead of it, else mark it waiting there, so the watch starts it once the env frees, ahead of the work queue's next cut, by his ruling that the train goes first between cuts; whether it holds the env now. His priority's or an open incident's release, by jumps_queue, takes the env from a running cut at once, by his ruling that incidents go above everything: the cut's unfinished items wait on that release, their cases counting for nothing, and the cut gets the env back when the release's lease ends, so a fresh worker reruns them from the start."""
+    """Give a release starting on an env its lease now when no cut or release holds the env and no release waits ahead of it, else mark it waiting there, so the watch starts it once the env frees, ahead of the work queue's next cut, by his ruling that the train goes first between cuts; whether it holds the env now. A release of an incident's or asked order, by order_class, takes the env from a running cut at once, since a cut is process work, by his ruling that incidents go above everything: the cut's unfinished items wait on that release, their cases counting for nothing, and the cut gets the env back when the release's lease ends, so a fresh worker reruns them from the start."""
     from drive import work
 
     slot = data["slots"].setdefault(env, {"holder": None})
     data["jobs"][job_id]["train"] = env
     cut = slot["holder"]
     first = train_waiting(data, env)[:1] in ([], [job_id])
-    if not first or cut and not (cut.get("work") and jumps_queue(data, job_id)):
+    if not first or cut and not (cut.get("work") and order_class(data["orders"][data["jobs"][job_id]["order"]]) in CLASSES[:2]):
         return False
     for member in slot_members(slot) if cut else []:
         if data["jobs"][member]["state"] not in FINISHED_JOB_STATES:
             data["jobs"][member]["waits"] = list(dict.fromkeys([*data["jobs"][member]["waits"], job_id]))
-            hold_text(data["jobs"][member], f"{env} went to {job_id}'s release, his priority's or an incident's, which goes above every test: your cases on {env} count for nothing; once that release ends the queue's cut gets {env} back and a fresh worker reruns every case from the start", WATCH_SENDER)
+            hold_text(data["jobs"][member], f"{env} went to {job_id}'s release, an incident's or one he asked for, which goes above every process test: your cases on {env} count for nothing; once that release ends the queue's cut gets {env} back and a fresh worker reruns every case from the start", WATCH_SENDER)
     slot["holder"] = leased({"job": job_id, "prs": [], "minutes": work.cut_shape(data)["train_minutes"], "cases": None, "at": stamp(moment), "paths": None, "stacks": None, "starts": True}, moment, []) | {"preempted": cut}
     return True
 
