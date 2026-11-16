@@ -554,16 +554,23 @@ def lead_problems(lead: dict) -> list[str]:
         if not line:
             problems.append(f"{flag} is missing")
             continue
-        if "\n" in line:
-            problems.append(f"{flag} spreads over several lines; say it in one")
         if key == "headline" and len(line) > HEADLINE_CHARS:
             problems.append(f"{flag} is {len(line)} characters; say it in at most {HEADLINE_CHARS}")
-        if key != "headline" and (count := words(line)) > LEAD_WORDS:
-            problems.append(f"{flag} is {count} words; say it in at most {LEAD_WORDS}")
-        if named := code_names(line):
-            problems.append(f"{flag} names {', '.join(named)}; say what it does for him in plain words, since the PR's Summary names the code")
+        problems += [f"{flag} {problem}" for problem in line_problems(line, counted=key != "headline")]
     if problems:
         problems.append(f"{LEAD_RULING}: write each as he would say it to a teammate deciding whether to merge it")
+    return problems
+
+
+def line_problems(line: str, counted: bool = True) -> list[str]:
+    """Why a line his PR card draws does not read as one plain line: it spreads over several, runs past 40 words when counted, or names a function or file in backticks, a call or a code name such as card.py or add_pr; a lead line of drive pr add and each words an agent wrote that card.plain_row pastes into a row the card fills from the drive's state alike."""
+    problems = []
+    if "\n" in line.strip():
+        problems.append("spreads over several lines; say it in one")
+    if counted and (count := words(line)) > LEAD_WORDS:
+        problems.append(f"is {count} words; say it in at most {LEAD_WORDS}")
+    if named := code_names(line):
+        problems.append(f"names {', '.join(named)}; say what it does for him in plain words, since the PR's Summary names the code")
     return problems
 
 

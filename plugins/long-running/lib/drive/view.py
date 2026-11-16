@@ -51,7 +51,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from drive import artifacts, github, limits, slack, state
-from drive.card import PARENTHETICAL, RECORD_ID, kind_and_title, without_records
+from drive.card import PARENTHETICAL, RECORD_ID, Pasted, kind_and_title, without_records
 from drive.render import cut, when
 
 STATES = ("blocked", "running", "built", "waiting", "merged", "live", "not started")
@@ -411,20 +411,25 @@ def coming(drive: dict, job_id: str) -> bool:
 
 
 def staging(drive: dict, key: str) -> str:
-    """What a PR's cards say of its staging test, read from the `staging test of #N before it lands` part an order holds for it, the soak its tester last waited on for this PR and its testers, by state.part_testers, else from the run a job waiting on the PR returned DONE on under a part of its own, by waited_run, as a tester his words name the part of does: tested on staging with its env, commit and result, a pass with when its tester returned it and each case it did not exercise with why, which his Approve lands it without, testing while a worker its tester started is at work, or not on staging and why, each CASE line of the run it holds that did not pass, a tester's DONE that ran none of its cases, a tester no worker started yet, by its worker_started, and the why of its builder's `STAGING: none` among them."""
+    """What a PR's lines say of its staging test, its staging_row whole."""
+    return "".join(staging_row(drive, key))
+
+
+def staging_row(drive: dict, key: str) -> tuple[str, ...]:
+    """What a PR's cards say of its staging test, in parts, each its tester's or builder's own words Pasted, which his card draws only as card.plain_row lets it, read from the `staging test of #N before it lands` part an order holds for it, the soak its tester last waited on for this PR and its testers, by state.part_testers, else from the run a job waiting on the PR returned DONE on under a part of its own, by waited_run, as a tester his words name the part of does: tested on staging with its env, commit and result, a pass with when its tester returned it and each case it did not exercise with why, which his Approve lands it without, testing while a worker its tester started is at work, or not on staging and why, each CASE line of the run it holds that did not pass, a tester's DONE that ran none of its cases, a tester no worker started yet, by its worker_started, and the why of its builder's `STAGING: none` among them."""
     repo, _, number = key.rpartition("#")
     if repo.lower() != state.MONOREPO.lower():
-        return f"Not on staging: {repo} has no staging env"
+        return (f"Not on staging: {repo} has no staging env",)
     part = state.STAGING_TEST.format(number=number)
     held = [order_id for order_id, order in drive["orders"].items() if part in order["parts"]]
     if not held:
         if run := waited_run(drive, key):
-            return tested(run, "") if run["posted"] else f"Tested on staging: no pass: {cut(state.unpassed(run), NOW_CHARS)}"
+            return tested(run, "") if run["posted"] else ("Tested on staging: no pass", Pasted(f": {cut(state.unpassed(run), NOW_CHARS)}"))
         if not (lifted := drive["prs"][key]["unstaged"]):
-            return "Not on staging: no staging test is set for it"
+            return ("Not on staging: no staging test is set for it",)
         if lifted["merges_first"]:
-            return f"Not on staging before it merges: {cut(lifted['why'], NOW_CHARS)}, so it is tested on staging after its merge"
-        return f"Not on staging: its builder says AGENTS.md's dangerous rule misses it: {cut(lifted['why'], NOW_CHARS)}"
+            return ("Not on staging before it merges", Pasted(f": {cut(lifted['why'], NOW_CHARS)}"), ", so it is tested on staging after its merge")
+        return ("Not on staging: its builder says AGENTS.md's dangerous rule misses it", Pasted(f": {cut(lifted['why'], NOW_CHARS)}"))
     parts = [drive["orders"][order_id]["parts"][part] for order_id in held]
     soak = next((state.STAGING_WAIT.fullmatch(each["soak"]) for each in parts if each["soak"]), None)
     where = f"{soak['env']} at {soak['commit'][:7]}, " if soak else ""
@@ -432,28 +437,29 @@ def staging(drive: dict, key: str) -> str:
         return tested(passed, where)
     jobs = sorted(((job_id, job) for order_id in held for job_id, job in state.part_testers(drive, order_id, part)), key=lambda pair: pair[1]["created"])
     if not jobs:
-        return "Not on staging: its staging test has not started"
+        return ("Not on staging: its staging test has not started",)
     ran = next((each for each in parts if each["posted_by"]), None)
     job_id, job = next(((job_id, job) for job_id, job in reversed(jobs) if job["state"] != "done" or ran and job_id == ran["posted_by"]), jobs[-1])
     if job["state"] not in state.FINISHED_JOB_STATES:
         if soak and soak[0] in job["waits"]:
-            return f"Not on staging yet: waiting for {soak['env']} to run {soak['commit'][:7]}"
-        return f"Testing on staging: {where}running" if job["worker_started"] else "Not on staging: its staging test has not started"
+            return (f"Not on staging yet: waiting for {soak['env']} to run {soak['commit'][:7]}",)
+        return (f"Testing on staging: {where}running" if job["worker_started"] else "Not on staging: its staging test has not started",)
     if job["state"] == "stopped":
-        result = "stopped with no result"
+        result: tuple[str, ...] = ("stopped with no result",)
     elif ran and job_id == ran["posted_by"]:
-        result = f"no pass: {cut(state.unpassed(ran), NOW_CHARS)}"
+        result = ("no pass", Pasted(f": {cut(state.unpassed(ran), NOW_CHARS)}"))
     else:
-        result = f"no pass: {job_id}'s DONE ran none of its cases" if job["state"] == "done" else f"no pass: {cut(without_records(job['said'] or '') or job['state'], NOW_CHARS)}"
-    return f"Tested on staging: {where}{result}" if soak else f"Not on staging: its test ended, {result}"
+        result = (f"no pass: {job_id}'s DONE ran none of its cases",) if job["state"] == "done" else ("no pass", Pasted(f": {cut(without_records(job['said'] or '') or job['state'], NOW_CHARS)}"))
+    return (f"Tested on staging: {where}", *result) if soak else ("Not on staging: its test ended, ", *result)
 
 
-def tested(passed: dict, where: str) -> str:
+def tested(passed: dict, where: str) -> tuple[str, ...]:
     """A staging run's full pass as his card says it, from the run a part holds or waited_run reads: where it ran, when its tester returned it, its proof and each case it did not exercise, which his Approve lands it without."""
     at = f" at {when(passed['passed_at'])}" if passed["passed_at"] else ""
     untested = "; ".join(f"{case} ({cut(why, TITLE_CHARS)})" if why else case for case, why in state.unexercised(passed))
     proof = link("proof", passed["posted"]) if passed["posted"].startswith("https://") else "its proof a file on the Mac"
-    return f"Tested on staging: {where}passed{at}, {proof}" + (f". Land it without what staging did not exercise? {untested}. Approve lands it without them; Hold keeps it from landing" if untested else "")
+    opening = f"Tested on staging: {where}passed{at}, {proof}"
+    return (opening, ". Land it without what staging did not exercise", Pasted(f"? {untested}"), ". Approve lands it without them; Hold keeps it from landing") if untested else (opening,)
 
 
 def waited_run(drive: dict, key: str) -> dict | None:
