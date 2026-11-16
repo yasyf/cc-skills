@@ -209,7 +209,7 @@ def report_line(name: str, seq: str) -> str:
     place = {"channel_id": channel} if channel else {}
     if (made.get("place") == "thread" or incident) and (under :=(channel, thread) if thread else corrected and state.link_thread(corrected)):
         place = {"thread_ts": under[1]} | ({"channel_id": under[0]} if under[0] else {})
-    owes = {key: attrs[key] for key in (("outcome",) if stale else ("due", "owes", "outcome")) if attrs.get(key)}
+    owes = {key: attrs[key] for key in (("outcome",) if stale else ("due", "owes", "outcome", "moves")) if attrs.get(key)}
     line = spoken(name, shown | {"record": seq} | place | owes, known, recorded_first=bool(state.closed_orders(attrs)))
     carried_earlier(name, seq, [held for held, _ in earlier])
     if stale:
@@ -344,7 +344,8 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
         due = post.get("due") and state.parse_time(post["due"])
 
         def owed_write(data: dict) -> str | None:
-            return owing.posted(data, order, link, due, post.get("owes"), [each.strip() for each in str(post.get("outcome") or "").split(",") if each.strip()], state.now())
+            named = {field: [each.strip() for each in str(post.get(field) or "").split(",") if each.strip()] for field in ("outcome", "moves")}
+            return owing.posted(data, order, link, due, post.get("owes"), named["outcome"], state.now(), named["moves"])
 
         if item_id := state.write(name, owed_write, patient=True):
             line += f"; owes {item_id} by {render.when(state.stamp(due))}"

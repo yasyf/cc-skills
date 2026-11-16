@@ -11382,6 +11382,9 @@ def test_a_step_owed_by_6_30_wakes_the_orders_holder_once_then_the_coordinator_t
         assert [item["id"] for item in owing.still_open(data["orders"]["o1"])] == ["w1"]
         assert owing.posted(data, "o1", "https://example.slack.com/archives/C1/p1794817920000000", by + timedelta(hours=4), "a reworded status", [], by + timedelta(hours=3)) == "w2"
         assert [item["id"] for item in owing.still_open(data["orders"]["o1"])] == ["w1", "w2"]
+        misses = data["orders"]["o1"]["owed"][0]["misses"]
+        assert owing.posted(data, "o1", "https://example.slack.com/archives/C1/p1794817930000000", by + timedelta(hours=5), None, [], by + timedelta(hours=3), ["w1"]) is None
+        assert (data["orders"]["o1"]["owed"][0]["due"], data["orders"]["o1"]["owed"][0]["misses"], len(data["orders"]["o1"]["owed"])) == (state.stamp(by + timedelta(hours=5)), misses, 2)
         assert owing.posted(data, "o1", "https://example.slack.com/archives/C1/p1794817950000000", None, None, ["w1"], by + timedelta(hours=3)) is None
         assert (owing.still_open(data["orders"]["o1"]), data["orders"]["o1"]["owed"][0]["closed"]["by"]) == ([], "delivered")
 

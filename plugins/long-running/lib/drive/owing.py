@@ -147,12 +147,14 @@ def close(item: dict, by: str, moment: datetime, why: str | None = None) -> None
     item["closed"] = {"at": state.stamp(moment), "by": by, "why": why}
 
 
-def posted(data: dict, order_id: str, link: str, due: datetime | None, owes: str | None, outcome: list[str], moment: datetime) -> str | None:
-    """A post on the order ends each item it names as its outcome, a revert's or a card's as well as a step's, and with a due owes its own next step beside every step the order still owes, the writer naming what and by when, his words "any time you tell him a next step, give it a due"; a step closes only on a post naming it as its outcome, by his ruling, so a reworded status with a new time never buries a promise, and moving a step's time is drive owed due, which keeps its misses. The new item's id."""
+def posted(data: dict, order_id: str, link: str, due: datetime | None, owes: str | None, outcome: list[str], moment: datetime, moves: list[str] = ()) -> str | None:
+    """A post on the order ends each item it names as its outcome, and moves each step it names in moves to its due, keeping its misses, by his pick 2d61c36 that a promised step closes only on its outcome or a new due; a post naming no step and carrying a due owes its own new step beside the rest and closes nothing, so a reworded status never buries a promise, the writer naming what and by when, his words "any time you tell him a next step, give it a due". The new item's id."""
     for item in still_open(data["orders"][order_id]):
         if item["id"] in outcome:
             close(item, "delivered", moment, link)
-    if not due:
+        elif item["id"] in moves and due:
+            item["due"] = state.stamp(due)
+    if not due or moves:
         return None
     return add(data, order_id, STEP, owes or "its next step", due, {"post_on": order_id}, link, moment)
 
