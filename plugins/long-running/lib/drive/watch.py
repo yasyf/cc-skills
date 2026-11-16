@@ -6168,8 +6168,8 @@ def keep_posted(name: str, lane: str, moment: datetime) -> None:
 
 
 def quiet(line: str) -> bool:
-    """Whether a line is one whose row of the coordinator's manual says Nothing, so no lane hears it: a card settled or withdrawn in place, a built answer paused on his pick, a standing part's next pass, a compaction, a status page redraw, or a receiver the watch replaced."""
-    return line.startswith(QUIET_LINES) or line.startswith("WATCH the receiver") and "could not replace it" not in line
+    """Whether a line is one whose row of the coordinator's manual says Nothing, so no lane hears it: a card settled or withdrawn in place, a built answer paused on his pick, a standing part's next pass, a compaction, a status page redraw, a receiver the watch replaced, or a tester the watch queued in its env's slot itself."""
+    return line.startswith(QUIET_LINES) or line.startswith("WATCH the receiver") and "could not replace it" not in line or line.startswith("SLOT ") and " queued " in line.split(",", 1)[0]
 
 
 def said_key(lane: str, line: str) -> str:
