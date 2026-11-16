@@ -330,10 +330,9 @@ check's verdict, or from the order when none ran.
     several is no news, nor a PR's stage relabelled with none of those changed, such as red to behind once a PR below it goes red. The watch keeps those facts on each incident at its first pass after each line and once each
     report reaches a handler, so news a handler did not post goes out once, and the report names what
     moved and which jobs are at work. An incident whose every job waits, on his
-    card, a release or a PR, gets no line until one of them moves. Every open order with a thread
-    shares this rule and its five-minute clock, but a job of an order at work owes no line, in a
-    thread an incident shares too, and a job at work owes the incident's line only when it is a job
-    of that incident's own orders, by [When it goes out](messages.md#when-it-goes-out).
+    card, a release or a PR, gets no line until one of them moves. Every open order
+    shares this rule and its five-minute clock, and a job at work owes a head's line only when it is
+    a job of that head's own orders, by [When it goes out](messages.md#when-it-goes-out).
   - It runs while he is away too. It restarts once a handler has the report, which keeps the facts
     it tells as told, so a handler that cannot post loses that line and the next move, or a job of
     the incident at work, brings the next.

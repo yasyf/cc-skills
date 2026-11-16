@@ -393,12 +393,11 @@ Posting it:
   his card draws only while those four are the ones his card shows, as cc-slack stores it, else as
   its message in Slack shows it. A block no job kept meets every rule a new block meets before it
   draws.
-- cc-slack posts a card that names its drive and waits on him at his DM root, and posts the card's
-  permalink under its question in the thread of the job's order when that thread is in his DM and
-  the job is on no open incident. A card on an open incident draws at his DM root alone, and the
-  incident's thread, in his DM or outside it such as an alert's, gets the card's line instead, as
-  does an order's thread outside his DM, through a report record `drive job ask` sends the
-  communicator, whose handler posts it with `say`, since only a `say` call carries the ticket
+- A card draws in the thread of his DM the lines of the job's order go in, an open incident's
+  thread first, so the card and every line about it stay in one thread, by his words "in the future
+  let's not create split threads like this"; with no such thread it draws at his DM root. A thread
+  outside his DM, such as an alert's, gets the card's line instead, the card drawing at his DM
+  root alone, through a report record `drive job ask` sends the communicator, whose handler posts it with `say`, since only a `say` call carries the ticket
   cc-slack spends on a write outside his DM, so the line is the card's one message in that thread.
   `say` keeps each post it makes in a thread as the line that thread holds about each card of his it
   links, on the card's question. A card asked again sends that thread a line only on news, by his
@@ -629,14 +628,17 @@ restating it.
 - Each later step of an order with a thread is the watch's to say there, by his pick "A handler
   posts each step, started by the watch on news": a job returning its finding, a PR going up with his
   card, its state or checks settling, Trunk ejecting it from the merge queue or taking his tap, a card
-  of his opening or closing, and a `handoff` the communicator's side sent five minutes before with no
-  job of the order made, nor the job it names started, since. A PR's stage relabelled with none of those changed, such as
+  of his opening or closing, a job of its own at work, by his words "Status? It's been 10 mins
+  unacceptable to wait that long and to have to prompt you fix your tooling", and a `handoff` the
+  communicator's side sent five minutes before with no job of the order made, nor the job it names started, since. A PR's stage relabelled with none of those changed, such as
   red to behind once a PR below it in its stack goes red, is no step, nor is a new commit whose checks
   fail as before, nor a release or answer ending one wait of a job that still waits on another. Once
   five minutes have passed since the thread's last line or the watch's last report on it, the watch
   sends one `report` carrying `quiet=true` and the thread,
   naming every step that moved in that time and each order and incident that owes the line, never an
-  order with nothing moved, and starts one handler, which posts what changed in that thread, so no
+  order with nothing moved and no job at work unless he asked a line of it every so many minutes, filed with
+  `--every`, which owes one that long after the thread's last line, or called it top priority, marked with `drive order set <o> --priority`, by his words
+  "And for future when I say something is top priority it’s not acceptable that it's been an hour and there's no motion or updates on it", and starts one handler, which posts what changed in that thread, so no
   session writes a progress line of its own and a thread lined minutes before gets none. The report
   keeps the steps it names as told, so a handler whose thread's last line already tells them returns
   `NOTHING` and posts no line saying nothing moved. None goes out while he is away, since his catch-up

@@ -34,6 +34,7 @@ def order(text: str, jobs: list[str], **overrides: object) -> dict:
         "withdrawn": None,
         "jobs": jobs,
         "incident": False,
+        "every": 0,
         "recovered": None,
         "reporters": [],
         "kind": "build",

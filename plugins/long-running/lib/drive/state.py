@@ -979,6 +979,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order.setdefault("complex", False)
         order.setdefault("options_only", False)
         order.setdefault("once", False)
+        order.setdefault("every", 0)
         order.pop("releases", None)
         order.pop("shipped", None)
         order.setdefault("proof", None)
@@ -3511,6 +3512,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "options_only": False,
         "once": False,
         "priority": None,
+        "every": 0,
         "owner": None,
         "project": None,
         "workstream": None,
@@ -4774,7 +4776,7 @@ def open_orders(data: dict) -> dict[str, dict]:
 
 
 def clocks(data: dict) -> list[dict]:
-    """Each open order he waits on a line from, by its due: the time a line was promised him, else five quiet minutes after its thread's last line while a job of the order runs, by his picks "Owe a line only on news: while a job works or something it names changed; silent while all waits." and "a line every five quiet minutes"; with when that thread last got a line, the session of the role holding it and of each handler holding a message in its thread, and the agent of each job of it running. The orders are those the watch's news_groups owes a line, an incident or one with a thread that no recovery, close report, close or proof finished, each on its own line, and a thread's last line the newest of its orders', else when the first was opened, as the watch's quiet_lines reads it, but never when the watch's own report reached a handler, which is no line to him. Each edit and batch saves it as one row, which hooks/role_rules.py reads alone with no lock, so a session's call learns how long he has waited from a read that stays one row however many orders and jobs the drive keeps."""
+    """Each open order he waits on a line from, by its due: the time a line was promised him, else five quiet minutes after its thread's last line while a job of the order runs or it is top priority, else the minutes he asked a line every after it, by his words "And give me updates, every 15 mins, concise, on all 3 of these, in this thread, until all done" and "And for future when I say something is top priority it’s not acceptable that it's been an hour and there's no motion or updates on it" and his picks "Owe a line only on news: while a job works or something it names changed; silent while all waits." and "a line every five quiet minutes"; with when that thread last got a line, the session of the role holding it and of each handler holding a message in its thread, and the agent of each job of it running. A job runs only while `at_work` reads it so. The orders are those the watch's news_groups owes a line, an incident or one with a thread that no recovery, close report, close or proof finished, each on its own line, and a thread's last line the newest of its orders', else when the first was opened, as the watch's quiet_lines reads it, but never when the watch's own report reached a handler, which is no line to him. Each edit and batch saves it as one row, which hooks/role_rules.py reads alone with no lock, so a session's call learns how long he has waited from a read that stays one row however many orders and jobs the drive keeps."""
     from drive import view
 
     waited = {
@@ -4794,8 +4796,8 @@ def clocks(data: dict) -> list[dict]:
     entries = []
     for order_id, order in waited.items():
         since = heard[keyed[order_id]]
-        running = [job for job in orders_jobs(data, [order_id]).values() if job["state"] == "running"]
-        if not (dues := [*([parse_time(owed_at(order))] if owed(order) else []), *([since + QUIET_THREAD] if running else [])]):
+        running = [job for job in orders_jobs(data, [order_id]).values() if at_work(job)]
+        if not (dues := [*([parse_time(owed_at(order))] if owed(order) else []), *([since + QUIET_THREAD] if running or order["priority"] else []), *([since + timedelta(minutes=order["every"])] if order["every"] else [])]):
             continue
         where = own_thread(order)
         sessions = [holding_role(data, order)[1].get("session"), *(handled.get(where[1], []) if where else [])]
@@ -4811,6 +4813,11 @@ def clocks(data: dict) -> list[dict]:
             }
         )
     return entries
+
+
+def at_work(job: dict) -> bool:
+    """Whether a job runs with a live worker: running, and no watch read since its last live one found its agent or lane gone."""
+    return job["state"] == "running" and not job.get("lost_since")
 
 
 def held_clocks(name: str, session: str, agent: str | None) -> dict:

@@ -3114,7 +3114,7 @@ def test_j4258_a_reader_whose_card_another_jobs_redraws_took_draws_nothing_for_i
     ]
     assert [(question["file"], question["title"], question["card"], question["replaced"], question["closed"]) for question in jobs["j2"]["questions"]] == [(took, taken, slack_card(2), None, None)]
 
-def test_job_ask_on_an_open_incident_draws_his_card_at_his_dm_root_alone_and_sends_the_line_saying_what_it_blocks_to_the_communicator(
+def test_job_ask_on_an_open_incident_whose_thread_is_in_his_dm_draws_his_card_in_that_thread_and_sends_no_line(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slack_calls: list[tuple[str, ...]]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL fork copies fail on plat", "--incident", "--thread", "1794200000.000100", "--parts", "fix", "first check")
@@ -3122,13 +3122,9 @@ def test_job_ask_on_an_open_incident_draws_his_card_at_his_dm_root_alone_and_sen
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: sent.append((lane, posts)) or ["672400"])
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK + "Interim fix: j2 checks the fork copies first\n")
-    kept, said = run("job", "ask", "j1", str(block))[1].split("\n", 1)
-    assert said == f"his card {slack_card(1)} asks it under demo:j1-7; its line in thread 1794200000.000100 of channel D123 goes out from the communicator once for each change to what the card blocks or whether a job builds its recommended option"
-    assert [argv for argv in slack_calls if argv[0] == "dm-status" and "--thread" in argv] == []
-    [(lane, [report])] = sent
-    assert (lane, report["kind"], report["to"], report["attr"]) == ("root", "report", ["communicator@demo"], {"job": "j1", "waits": "demo:j1-7", "thread": "1794200000.000100"})
-    title = SHORT_ASK.splitlines()[0].removeprefix("ASK ")
-    assert report["text"].startswith(f'POST his card {slack_card(1)} asks him "{title}" for j1, on incident o1: j1 builds its recommended option meanwhile, One snapshot file per finished run')
+    assert run("job", "ask", "j1", str(block))[1].split("\n", 1)[1] == f"his card {slack_card(1)} asks it under demo:j1-7"
+    assert [argv[argv.index("--thread") + 1] for argv in slack_calls if argv[0] == "dm-status"] == ["1794200000.000100"]
+    assert sent == []
 
 
 @pytest.mark.parametrize(
@@ -3145,6 +3141,7 @@ def test_job_ask_by_a_finished_reader_on_an_open_incident_names_in_its_line_only
     run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "copy forks from the snapshot")
     run("job", "add", "reader", "--order", "o1", "--part", "fix", "--goal", "research: the fork copy path")
     with state.edit("demo") as data:
+        data["orders"]["o1"]["thread"] = ["C0ALERT1", "1794200000.000100"]
         data["jobs"]["j3"]["researched"] = ["j4"]
         data["jobs"]["j4"]["state"] = "done"
     sent: list[tuple[str, list[dict]]] = []
