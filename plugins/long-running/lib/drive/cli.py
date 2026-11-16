@@ -4181,8 +4181,7 @@ def held_link(data: dict, kept: dict) -> str | None:
 
 
 def deliver_held(name: str, job_id: str, job: dict, lane: str, held: list[dict]) -> tuple[str, str] | None:
-    """Post these held texts to the job's agent on this Mac in one record by starter_post, his first, each of his re-sent with its own time, and take them off the job; when the agent is a subagent only the session that started it reaches, that session gets a second record at once carrying the owed SendMessage line, so his words never wait for a `drive job resume`; the record's seq and the line, None for no texts."""
-    from drive import tools
+    """Post these held texts to the job's agent on this Mac in one record by starter_post, his first, each of his re-sent with its own time, and take them off the job; that one record is addressed to the session that started a subagent too, its sendmessage attr naming the agent, so that session points the agent at it at once with no second record; the record's seq and the line, None for no texts."""
 
     left = {kept["request"] for kept in state.load(name)["jobs"][job_id]["undelivered"]}
     held = sorted((kept for kept in held if kept["request"] in left), key=lambda kept: kept["sender"] != state.HIM)
@@ -4196,9 +4195,6 @@ def deliver_held(name: str, job_id: str, job: dict, lane: str, held: list[dict])
         return data
 
     state.write(name, deliver_held_write, patient=True)
-    if OWED in line and state.session_lane(state.load(name), os.environ.get("CLAUDE_CODE_SESSION_ID")) != lane:
-        his = any(kept["sender"] == state.HIM for kept in held)
-        tools.sent(name, state.WATCH_SENDER, [{"kind": "handoff", "to": [f"{lane}@{name}"], "attr": {"order": job["order"], "job": job_id, "urgent": "true"}, "text": f"{job_id}: {'his words: ' if his else ''}{line[line.index(OWED):]}"}])
     return seq, line
 
 

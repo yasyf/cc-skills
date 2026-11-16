@@ -1544,7 +1544,6 @@ def test_a_resume_with_no_text_from_another_session_posts_the_held_text_to_the_a
     )
     assert [(lane, post["to"], post.get("body", post["text"])) for lane, post in posted] == [
         ("root", ["peer:talker/a3c1d2e4f5a6b7c8d", f"communicator@{demo}"], cli.resent(state.load(demo), held)),
-        ("watch", [f"communicator@{demo}"], f"j1: his words: {pointer.removeprefix('j1: ')}"),
     ]
     assert state.load(demo)["jobs"]["j1"]["undelivered"] == []
 
