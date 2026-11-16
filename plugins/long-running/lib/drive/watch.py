@@ -2180,10 +2180,10 @@ def respond_pass(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """Take each ended codex-ask run, by codex_takes, then start the handler on each POST report that needs one, by post_lines, so no main pass stands between either and its next step; the lanes' reads are the responder's, by respond_pass."""
+    """Take each ended codex-ask run, by codex_takes, start the disk check once DISKS_EVERY is due, by check_disks, hand on each staging slot whose lease ended or whose turn came, by slot_lines, then start the handler on each POST report that needs one, by post_lines, so none of these clocks waits on a main pass that runs minutes; the lanes' reads are respond_pass's."""
     clocks_drawn(watcher)
     codex_takes(watcher)
-    return post_lines(watcher, moment)
+    return check_disks(watcher, moment) + slot_lines(watcher, moment) + post_lines(watcher, moment)
 
 
 CLOCKS_DRAWN: dict[str, int] = {}
@@ -5105,11 +5105,9 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
                     lane_lines,
                     release_lanes,
                     rest_sessions,
-                    check_disks,
                     agent_lines,
                     stall_lines,
                     budget_lines,
-                    slot_lines,
                     carry_held,
                     compact_lines,
                     waiting_post_lines,
