@@ -2976,7 +2976,7 @@ def test_bash_posts_no_ask_carrying_his_cards_ask_block_since_drive_job_ask_post
 
 def test_a_bash_report_naming_an_attr_a_separator_or_one_letter_from_one_the_drive_reads_is_refused_naming_it(demo: str, no_calls: list[list[str]]) -> None:
     session = os.environ["CLAUDE_CODE_SESSION_ID"]
-    progressed = "cci post --drive demo --kind report --lane root --to communicator@demo --attr progres=true 'POST j1 merged'"
+    progressed = "cci post --drive demo --kind report --lane root --to posts@demo --attr progres=true 'POST j1 merged'"
     reason = landing_guard.deny_reason(asked_from_bash(progressed, session))
     assert "no `progres` attr on a report" in reason and "`--attr progress=true`" in reason
     closes = "zsh -c \"cci post --kind=REPORT --lane root --attr closes=o1 'FYI j1 merged'\""
@@ -2991,7 +2991,7 @@ def test_a_bash_post_report_typing_when_past_work_happened_is_refused_and_a_reco
     session = os.environ["CLAUDE_CODE_SESSION_ID"]
     monkeypatch.setattr(limits, "now", lambda: WRITTEN_AT.replace(hour=22, minute=35))
     typed = (
-        "cci post --kind report --lane root --to communicator@demo --attr progress=true"
+        "cci post --kind report --lane root --to posts@demo --attr progress=true"
         " 'POST A fix job with apply authority and a diagnosis job started at 10:33 PM; next line by 10:38 PM.'"
     )
     assert landing_guard.deny_reason(asked_from_bash(typed, session)).startswith('refused: "10:33 PM" is a time typed for work already done')
