@@ -8,7 +8,7 @@ import re
 import sys
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -121,6 +121,8 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
         raise
     link = reply["permalink"]
     line = f"{'EDITED' if post.get('edit') else 'POSTED'} {link}"
+    if dropped := reply.get("dropped"):
+        line += f"; dropped {', '.join(dropped)}, already shown in this thread or its root"
     if card := reply.get("card_permalink"):
         line += f" CARD {card}"
     if job_id := post.get("job"):
@@ -490,6 +492,7 @@ def posted(name: str, post: dict, order: str | None = None, receipt: dict | None
     drawn = bool(card or stack)
     first, *rest = places(data, post, stack)
     first = homed(name, data, post, stack, order, first)
+    pictures, dropped = unshown(name, first, pictures)
     operators = slack.homes(data)
     reply = slack.cc_slack(
         *(
@@ -504,6 +507,9 @@ def posted(name: str, post: dict, order: str | None = None, receipt: dict | None
     )
     if standing:
         reply |= {"card_permalink": standing}
+    shown_pictures(name, (first[0], first[1] or state.link_thread(reply["permalink"])[1]), pictures)
+    if dropped:
+        reply |= {"dropped": dropped}
     if receipt is not None:
         reply |= {"recorder": recording(name, receipt | {"order": order, "link": reply["permalink"], "sent": sent, "channel": post.get("channel_id")})}
     if card:
@@ -542,6 +548,41 @@ def posted(name: str, post: dict, order: str | None = None, receipt: dict | None
     for place in [place for place in rest if place[0] not in operators]:
         reply |= {"permalink": carried(name, reply, place, post, refs.slack(words, found, place[1]), label, kept, stack)}
     return reply
+
+
+SHOWN_PICTURES = "pictures-shown.json"
+SHOWN_FOR = timedelta(days=2)
+
+
+def picture_hash(path: str) -> str:
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def shown_hashes(name: str) -> dict[str, dict[str, str]]:
+    """Each thread's picture content hashes, by channel/thread, with when each was shown, kept SHOWN_FOR."""
+    path = state.drive_dir(name) / SHOWN_PICTURES
+    kept = json.loads(path.read_text()) if path.exists() else {}
+    cutoff = (datetime.now(UTC) - SHOWN_FOR).isoformat()
+    return {thread: fresh for thread, hashes in kept.items() if (fresh := {each: at for each, at in hashes.items() if at >= cutoff})}
+
+
+def unshown(name: str, where: tuple[str, str | None], pictures: list[str]) -> tuple[list[str], list[str]]:
+    """The pictures a post keeps and the names of those it drops: one whose content hash already shows in the thread it goes in or that thread's root, by his words "re-posted the same image in the thread, it was good in the main post but no reason to re-post the same image"; a post at a root drops none."""
+    if not where[1] or not pictures:
+        return pictures, []
+    seen = shown_hashes(name).get(f"{where[0]}/{where[1]}", {})
+    kept = [path for path in pictures if picture_hash(path) not in seen]
+    return kept, [Path(path).name for path in pictures if path not in kept]
+
+
+def shown_pictures(name: str, where: tuple[str, str | None], pictures: list[str]) -> None:
+    """Keep each picture a post showed under its thread, a root post's under the thread it opens."""
+    if not where[1] or not pictures:
+        return
+    kept = shown_hashes(name)
+    at = datetime.now(UTC).isoformat()
+    kept.setdefault(f"{where[0]}/{where[1]}", {}).update({picture_hash(path): at for path in pictures})
+    (state.drive_dir(name) / SHOWN_PICTURES).write_text(json.dumps(kept))
 
 
 def asked_already(name: str, data: dict, stack: list[str]) -> str | None:

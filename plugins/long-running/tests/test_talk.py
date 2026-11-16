@@ -1650,3 +1650,15 @@ def test_an_answer_to_his_message_stays_in_his_dm_thread_while_a_drive_post_boun
     with state.edit(demo) as data:
         data["slack"]["channels"] = {}
     assert talk.homed(demo, state.load(demo), {"text": "x"}, [], None, ("D123", None)) == ("D123", None)
+
+
+def test_a_picture_already_shown_in_a_thread_or_its_root_is_dropped_from_a_post_there(demo: str, tmp_path: Path) -> None:
+    chart, other = tmp_path / "chart.png", tmp_path / "other.png"
+    chart.write_bytes(b"stages")
+    other.write_bytes(b"other")
+    copy = tmp_path / "copy.png"
+    copy.write_bytes(b"stages")
+    assert talk.unshown(demo, ("C1", None), [str(chart)]) == ([str(chart)], [])
+    talk.shown_pictures(demo, ("C1", "1.2"), [str(chart)])
+    assert talk.unshown(demo, ("C1", "1.2"), [str(copy), str(other)]) == ([str(other)], ["copy.png"])
+    assert talk.unshown(demo, ("C1", "9.9"), [str(copy)]) == ([str(copy)], [])
