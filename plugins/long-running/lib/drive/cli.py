@@ -4599,6 +4599,22 @@ def slot_hand(args: argparse.Namespace) -> int:
     return emit(args, f"{line}{told}; drive {' '.join(command[:3])} runs now", {"env": args.env, "job": args.to, "line": line, "stopped": stopped})
 
 
+def slot_hold(args: argparse.Namespace) -> int:
+    """Hold a staging env's slot for a job or an order until a time, from the top coordinator's session, so the watch gives it to no other job and hands a lease that ends to the one it names; --until with a past time is refused, and --clear drops the hold."""
+    name = state.resolve(args.drive)
+    if not state.top_coordinator(state.load(name), os.environ.get("CLAUDE_CODE_SESSION_ID")):
+        raise DriveError(f"refused: only the top coordinator holds the {args.env} slot")
+    with state.edit(name) as data:
+        if args.clear:
+            (data["slots"].get(args.env) or {})["hold"] = None
+            line = f"{args.env} holds for no one now"
+        else:
+            if args.held not in data["jobs"] and args.held not in data["orders"]:
+                raise DriveError(f"{args.held}: refused, no job or order of this drive")
+            line = state.slot_hold(data, args.env, args.held, state.parse_time(args.until), args.reason, state.now())
+    return emit(args, line, {"env": args.env, "line": line})
+
+
 def slot_release(args: argparse.Namespace) -> int:
     """Give a staging env's slot back, or leave its queue, so the watch's next pass hands it to the job first in line."""
     name = state.resolve(args.drive)
@@ -4620,7 +4636,8 @@ def slot_queue(args: argparse.Namespace) -> int:
         held = slot["holder"]
         riding = "".join(", " + rider["job"] + " riding its cut" for rider in held["riders"]) if held else ""
         said = (f"GO {held['job']} until {held['until']}{riding}" if state.cut_started(data, held, env) else f"held for {held['job']} until {held['until']}{riding}, waiting for its START") if held else "free"
-        lines.append(f"{env}: {said}")
+        hold = f"; held for {slot['hold']['for']} until {slot['hold']['until']}: {slot['hold']['reason']}" if slot.get("hold") else ""
+        lines.append(f"{env}: {said}{hold}")
         lines += [f"  {place}. {each['job']} for {each['minutes']} minutes, queued {each['at']}" for place, each in enumerate(slot["queue"], 1)]
     return emit(args, "\n".join(lines) or "no staging slot is held or queued", {"slots": shown})
 
@@ -7257,6 +7274,13 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("env", help="the staging env")
     verb.add_argument("--job", required=True, help="the job giving it back")
     verb.set_defaults(run=slot_release)
+    verb = slot.add_parser("hold", parents=both, help="hold a staging env's slot for a job or order until a time, from the top coordinator")
+    verb.add_argument("env", help="the staging env")
+    verb.add_argument("--for", dest="held", help="the job or order the slot is held for")
+    verb.add_argument("--until", help="when the hold ends, an RFC 3339 time with its offset")
+    verb.add_argument("--reason", help="why, in plain words, naming the record that set it")
+    verb.add_argument("--clear", action="store_true", help="drop the slot's hold")
+    verb.set_defaults(run=slot_hold)
     verb = slot.add_parser("hand", parents=both, help="hand a staging env's slot to a job in its queue now, from its holder or the top coordinator")
     verb.add_argument("env", help="the staging env")
     verb.add_argument("--to", required=True, help="the queued job taking the slot")

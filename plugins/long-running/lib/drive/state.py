@@ -1314,6 +1314,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data.setdefault("stalls", {})
     data.setdefault("slots", {})
     for slot in data["slots"].values():
+        slot.setdefault("hold", None)
         for each in slot["queue"]:
             each.setdefault("paths", None)
             each.setdefault("stacks", None)
@@ -6764,12 +6765,13 @@ def slot_claim(data: dict, env: str, job_id: str, minutes: int, prs: list[str], 
     if job_id in slot_members(slot) or any(each["job"] == job_id for each in slot["queue"]):
         raise DriveError(f"{job_id}: refused, it already holds or waits for the {env} slot: drive slot queue {env} names its place")
     asked = {"job": job_id, "prs": prs, "minutes": minutes, "cases": cases, "at": stamp(moment), "paths": paths, "stacks": stacks, "starts": starts}
-    if slot["holder"] is None:
+    if slot["holder"] is None and held_for(data, slot, job_id, moment):
         slot["holder"] = leased(asked, moment, [])
         return f"GO {job_id} holds the {env} slot until {slot['holder']['until']}: {SLOT_GO_STEPS.format(env=env, job=job_id)}{holding(release, data, [job_id])}"
     place = sum(1 for each in slot["queue"] if jumps_queue(data, each["job"])) if jumps_queue(data, job_id) else len(slot["queue"])
     slot["queue"].insert(place, asked)
-    return f"QUEUED {job_id} for the {env} slot, place {place + 1}, behind {slot['holder']['job']}, whose lease ends {slot['holder']['until']}"
+    behind = f"behind {slot['holder']['job']}, whose lease ends {slot['holder']['until']}" if slot["holder"] else f"held for {slot['hold']['for']} until {slot['hold']['until']}: {slot['hold']['reason']}"
+    return f"QUEUED {job_id} for the {env} slot, place {place + 1}, {behind}"
 
 
 def jumps_queue(data: dict, job_id: str) -> bool:
@@ -6825,6 +6827,24 @@ def slot_hand(data: dict, env: str, to: str, moment: datetime) -> tuple[dict, st
 def leased(asked: dict, moment: datetime, riders: list[dict]) -> dict:
     minutes = max(each["minutes"] for each in [asked, *riders])
     return asked | {"minutes": minutes, "since": stamp(moment), "until": stamp(moment + CLAIM_WAIT + timedelta(minutes=minutes)), "extended": False, "riders": riders, "released": False}
+
+
+def held_for(data: dict, slot: dict, job_id: str, moment: datetime) -> bool:
+    """Whether a staging slot's hold, the one drive slot hold wrote, lets this job take the slot now: no hold stands, its end passed, or it names the job or an order the job serves or carries."""
+    hold = slot.get("hold")
+    if not hold or parse_time(hold["until"]) <= moment:
+        return True
+    job = data["jobs"][job_id]
+    return hold["for"] in (job_id, job["order"], *job["carries"])
+
+
+def slot_hold(data: dict, env: str, held: str, until: datetime, reason: str, moment: datetime) -> str:
+    """Hold a staging env's slot for a job or an order until a time, by drive slot hold, so the watch gives it to no other job and hands a lease that ends to the job it names, or to a job of the order it names, first in its queue; the line saying so."""
+    if until <= moment:
+        raise DriveError(f"refused: --until {stamp(until)} has passed")
+    slot = data["slots"].setdefault(env, {"holder": None, "queue": []})
+    slot["hold"] = {"for": held, "until": stamp(until), "reason": reason, "at": stamp(moment)}
+    return f"{env} held for {held} until {stamp(until)}: {reason}"
 
 
 def slot_members(slot: dict) -> list[str]:
@@ -6901,8 +6921,15 @@ def slot_turns(data: dict, moment: datetime, release: dict | None = None) -> lis
             slot["holder"] = None
             moved.append((env, held["job"], "freed", f"SLOT {env} freed by {held['job']}'s cut"))
         slot["queue"] = sorted((each for each in slot["queue"] if data["jobs"][each["job"]]["state"] not in FINISHED_JOB_STATES), key=lambda each: not jumps_queue(data, each["job"]))
-        if slot["holder"] is None and slot["queue"]:
+        if (hold := slot.get("hold")) and parse_time(hold["until"]) <= moment:
+            slot["hold"] = None
+            moved.append((env, hold["for"], "unheld", f"SLOT {env} hold for {hold['for']} ended at {hold['until']}"))
+        if slot["holder"] is None and slot.get("hold"):
+            slot["queue"].sort(key=lambda each: not held_for(data, slot, each["job"], moment))
+        if slot["holder"] is None and slot["queue"] and held_for(data, slot, slot["queue"][0]["job"], moment):
             head, riders = packed(slot["queue"])
+            slot["queue"][:0] = [rider for rider in riders if not held_for(data, slot, rider["job"], moment)]
+            riders = [rider for rider in riders if held_for(data, slot, rider["job"], moment)]
             slot["holder"] = leased(head, moment, riders)
             until = slot["holder"]["until"]
             carried = f" Your cut carries {', '.join(pr for rider in riders for pr in rider['prs'])} too, packed with yours since no two change one file: start it from a branch with each of their heads and yours cherry-picked onto what staging serves, under one freeze and one claim naming them all." if riders else ""

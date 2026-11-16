@@ -2889,3 +2889,18 @@ def test_changed_since_names_each_row_committed_after_a_revision_and_none_once_t
     with state.edit("demo") as data:
         data["binder"] = "term-3"
     assert state.changed_since("demo", rev)[1] is None
+
+
+def test_a_slot_held_for_an_order_goes_to_none_of_the_other_jobs_and_frees_when_the_hold_ends() -> None:
+    moment = datetime(2026, 11, 16, 2, 0, tzinfo=UTC)
+    orders = {order_id: {"incident": False, "priority": None, "state": "open"} for order_id in ("o1", "o1339")}
+    data = {"slots": {}, "orders": orders, "jobs": {"j1": {"state": "waiting", "order": "o1", "carries": [], "goal": "", "priority": None}, "j2": {"state": "waiting", "order": "o1339", "carries": [], "goal": "", "priority": None}}}
+    assert state.slot_hold(data, "plat-usw2-sandbox", "o1339", moment + timedelta(hours=2), "release 3 rehearsal (730930)", moment) == "plat-usw2-sandbox held for o1339 until 2026-11-16T04:00:00+00:00: release 3 rehearsal (730930)"
+    assert state.slot_claim(data, "plat-usw2-sandbox", "j1", 20, [], None, moment).startswith("QUEUED j1 for the plat-usw2-sandbox slot, place 1, held for o1339")
+    assert state.slot_turns(data, moment + timedelta(minutes=1)) == []
+    assert state.slot_claim(data, "plat-usw2-sandbox", "j2", 30, [], None, moment).startswith("GO j2 holds the plat-usw2-sandbox slot")
+    data["jobs"]["j2"]["state"] = "done"
+    moved = state.slot_turns(data, moment + timedelta(minutes=40))
+    assert ([kind for _, _, kind, _ in moved], data["slots"]["plat-usw2-sandbox"]["holder"]) == (["freed"], None)
+    moved = state.slot_turns(data, moment + timedelta(hours=2))
+    assert [(job_id, kind) for _, job_id, kind, _ in moved] == [("o1339", "unheld"), ("j1", "go")]
