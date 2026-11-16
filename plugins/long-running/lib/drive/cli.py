@@ -1882,11 +1882,12 @@ def job_release(args: argparse.Namespace) -> int:
     command = state.load(name)["jobs"][args.id]["brief_flags"]["release"]
     [words] = simple_commands(command)
     manual = "manual" in providers.of(state.load(name)).release.start(words)
-    answer, failure = release_start(name, words, manual, args.session)
+    cwd = release_checkout(name, command, Path(args.checkout)) if args.checkout else None
+    answer, failure = release_start(name, words, manual, args.session, cwd)
     if failure and GITHUB_5XX.search(failure):
         print(f"{args.id}: its release did not start, failing on GitHub: {failure}; starting it once more in {RELEASE_RETRY_SECONDS} s", file=sys.stderr, flush=True)
         time.sleep(RELEASE_RETRY_SECONDS)
-        answer, failure = release_start(name, words, manual, args.session)
+        answer, failure = release_start(name, words, manual, args.session, cwd)
     if failure:
         why = f"its release did not start: {failure}"
         def job_release_write3(data: dict):
@@ -1914,14 +1915,31 @@ def job_release(args: argparse.Namespace) -> int:
     return 0
 
 
-def release_start(name: str, words: list[str], manual: bool, session: str | None) -> tuple[dict, str | None]:
+def release_checkout(name: str, command: str, checkout: Path) -> Path:
+    """The checkout a release starts from instead of the drive's, for a start whose target exists only at the commit it ships: allowed only when every place it names is staging or sandbox, by settled.off_production, and the checkout's HEAD is the one commit its --from or --commit names, so a production release always starts from the drive's checkout at its default branch's head."""
+    data = state.load(name)
+    starts = brief.started(command, data)
+    places = str(orca.checkout(name, data["roles"]["coordinator"]["cwd"]))
+    if not starts or not all(settled.off_production(flags, places) for flags in starts):
+        raise DriveError(f"--checkout {checkout}: refused, nothing started: only a release on staging or sandbox alone starts from another checkout, and `{command}` names a production place or no place")
+    commits = {commit for flags in starts for commit in flags.get("from", ())}
+    try:
+        head = reads.run(["git", "-C", str(checkout), "rev-parse", "HEAD"], Path.cwd()).strip()
+    except reads.ReadError as error:
+        raise DriveError(f"--checkout {checkout}: refused, nothing started: its HEAD could not be read: {error}") from None
+    if len(commits) != 1 or len(commit := next(iter(commits))) < 7 or not head.startswith(commit):
+        raise DriveError(f"--checkout {checkout}: refused, nothing started: its HEAD {head[:12]} is not the one commit `{command}` ships by --from or --commit ({', '.join(sorted(commits)) or 'none named'})")
+    return checkout
+
+
+def release_start(name: str, words: list[str], manual: bool, session: str | None, cwd: Path | None = None) -> tuple[dict, str | None]:
     """Run a release start from the drive's checkout at the head of its default branch, `--json` added unless it starts `--manual`, which takes none, left running once `ci release` names the build it started, by release_answer: that answer, and None, or, for a start naming no build, what it refused or printed, else its exit status."""
     said: list[str] = []
     answer: dict = {}
     build_url = providers.of(state.load(name)).build.build_url
     with subprocess.Popen(
         words if manual else [*words, "--json"],
-        cwd=orca.checkout(name, state.load(name)["roles"]["coordinator"]["cwd"]),
+        cwd=cwd or orca.checkout(name, state.load(name)["roles"]["coordinator"]["cwd"]),
         env=os.environ | {"CLAUDE_CODE_SESSION_ID": session} if session else None,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -8614,6 +8632,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id")
     verb.add_argument("--session", help="the session that added the job, which the release tool records as the release's starter")
     verb.add_argument("--reserved", metavar="TOKEN", help="the token of the release start drive job add reserved on the job for this run, adopted before anything else; the run ends doing nothing once that reservation is gone, cancelled, lapsed or another run's")
+    verb.add_argument("--checkout", help="start the release from this checkout instead of the drive's, for a staging or sandbox start whose target exists only at the commit it ships; refused unless every place it names is staging or sandbox and the checkout's HEAD is that commit")
     verb.set_defaults(run=job_release)
     verb = job.add_parser("check", parents=both, help="what drive job report starts after it keeps a Sprite lane's return: read on GitHub the PRs its READY names and wake the lane with a refusal")
     verb.add_argument("id")
