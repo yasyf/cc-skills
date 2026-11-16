@@ -2152,10 +2152,11 @@ def staging_refusal(data: dict, job_id: str, line: str, report: str) -> str | No
     stagings = STAGING_LINE.findall(report)
     if wrong := [staging for staging in stagings if not UNSTAGED.match(staging) and not ((found := STAGED.fullmatch(staging)) and found["number"] in named)]:
         return f"its STAGING line `{wrong[0]}` neither stages a {MONOREPO} PR its first line names, as `#N <cases>`, nor reads `none: <why AGENTS.md's dangerous rule misses it>`"
-    staged = {STAGED.fullmatch(staging)["number"] for staging in stagings if not UNSTAGED.match(staging)}
+    said = {found["number"]: found["cases"] for staging in stagings if (found := STAGED.fullmatch(staging))}
+    staged = {number for number, cases in said.items() if not UNSTAGED.match(cases)}
     if untested := sorted({number for number in named if (pr := data["prs"].get(f"{MONOREPO}#{number}")) and pr["reached"]} - staged):
         return f"{', '.join(f'{MONOREPO}#{number}' for number in untested)} waits on its staging test before it lands, since its paths reach a component staging runs, so no `STAGING: none` line stands for it: end your report with {STAGING_CASES}"
-    if any(UNSTAGED.match(staging) for staging in stagings) or not (unstaged := set(named) - staged):
+    if any(UNSTAGED.match(staging) for staging in stagings) or not (unstaged := set(named) - set(said)):
         return None
     return f"it names {', '.join(f'{MONOREPO}#{number}' for number in sorted(unstaged))}, so {STAGING_RULE}"
 
@@ -2463,7 +2464,7 @@ def renamed_change(name: str, data: dict, order_id: str, named: list[str], desig
 
 
 def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
-    """Stage each PR the drive tracks that a builder's READY or PUSHED names on a `STAGING: #N <cases>` line, never one reading `#N none: <why>`, by stage_pr, those cases its tester's goal, or held on the unended tester already on it, so a tester the drive gave a PR from its changed files hears them, and lift by unstage each Forge-AI/monorepo PR its first line names that no such line stages once a `STAGING: none: <why>` line says AGENTS.md's dangerous rule misses it, either line leaving alone a PR drive order set --drop-part or his answer let merge before its staging test, by merges_first_lift, since a builder's word never undoes his answer 2eb7e76; the testers added."""
+    """Stage each PR the drive tracks that a builder's READY or PUSHED names on a `STAGING: #N <cases>` line, by stage_pr, lifting by unstage one reading `#N none: <why>`, those cases its tester's goal, or held on the unended tester already on it, so a tester the drive gave a PR from its changed files hears them, and lift by unstage each Forge-AI/monorepo PR its first line names that no such line stages once a `STAGING: none: <why>` line says AGENTS.md's dangerous rule misses it, either line leaving alone a PR drive order set --drop-part or his answer let merge before its staging test, by merges_first_lift, since a builder's word never undoes his answer 2eb7e76; the testers added."""
     job = data["jobs"][job_id]
     if not REPORTED_LINE.match(report.lstrip()):
         return []
@@ -2471,10 +2472,14 @@ def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
     keys = {key.casefold(): key for key in data["prs"]}
     stagings = STAGING_LINE.findall(report)
     for staging in stagings:
-        if not (found := STAGED.fullmatch(staging)) or UNSTAGED.match(found["cases"]) or not (key := keys.get(f"{MONOREPO}#{found['number']}".casefold())):
+        if not (found := STAGED.fullmatch(staging)) or not (key := keys.get(f"{MONOREPO}#{found['number']}".casefold())):
             continue
         staged.add(key)
-        if not merges_first_lift(data["prs"][key]) and (tester_id := stage_pr(data, key, found["cases"], job.get("session"))):
+        if merges_first_lift(data["prs"][key]):
+            continue
+        if UNSTAGED.match(found["cases"]):
+            unstage(data, key, found["cases"].partition(":")[2].strip(), job_id)
+        elif tester_id := stage_pr(data, key, found["cases"], job.get("session")):
             added.append(tester_id)
     if why := next((staging.partition(":")[2].strip() for staging in stagings if UNSTAGED.match(staging)), None):
         named = (keys.get(f"{found[1]}/{found[2]}#{found[3]}".casefold()) for found in PR_URL.finditer(report.lstrip().partition("\n")[0]) if f"{found[1]}/{found[2]}".casefold() == MONOREPO.casefold())
@@ -2499,12 +2504,12 @@ def stage_pr(data: dict, key: str, goal: str, session: str | None) -> str | None
 
 
 def unstage(data: dict, key: str, why: str, job_id: str) -> None:
-    """Lift a Forge-AI/monorepo PR off its staging test once its builder's `STAGING: none: <why>` says AGENTS.md's dangerous rule misses it, keeping why for his card with the head it spoke of, the one whose files were read last, so that head's changed files mark it no more, by markable, while a new head's are read again: the part leaves each order on which no job took it up, by drop_part, with the PR's wait on it, while a test a job took up stays to finish, by his ruling 0048b14."""
+    """Lift a Forge-AI/monorepo PR off its staging test once its builder's `STAGING: none: <why>` or `#N none: <why>` says AGENTS.md's dangerous rule misses it, keeping why for his card with the head it spoke of, the one whose files were read last, so that head's changed files mark it no more, by markable, while a new head's are read again: the part leaves each order on which it is not delivered and no job runs it now, every job on it untaken or finished, by drop_part, with the PR's wait on it, while a test a job runs stays to its end, by his ruling 0048b14, and one that ended with no pass waits on no rerun once the lift says why."""
     pr = data["prs"][key]
     pr["unstaged"] = {"why": why, "head": pr["paths_at"] or pr["head"], "merges_first": False}
     part = STAGING_TEST.format(number=key.split("#")[1])
     for order_id in [order_id for order_id, order in data["orders"].items() if part in order["parts"]]:
-        if all(untaken(job) for _, job in part_jobs(data, order_id, part)):
+        if not delivered(data, order_id, part) and all(untaken(job) or job["state"] in FINISHED_JOB_STATES for _, job in part_jobs(data, order_id, part)):
             drop_part(data, order_id, part, f"{job_id} says {key} needs no staging test: {why}")
             pr["waits"] = [wait for wait in pr["waits"] if wait != f"{order_id}:{part}"]
 

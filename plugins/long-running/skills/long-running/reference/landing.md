@@ -491,7 +491,8 @@ puts the PR on his card, or his tap comes after the try started, the PR reads hi
 `landing` while Trunk holds it and nothing stops its landing, else what stops it, such as `waiting` on a wait of its own,
 out of the queue once Trunk's `trunk-cancelled` label on its queue entry is newer than the try, which the watch records
 as the try's outcome `dequeued: Trunk cancelled its merge queue entry`, as after a `stack-enqueue --dequeue`, `merged`,
-owed by nobody, once its try merged it with `gh pr merge`, even before the watch's next GitHub read says so, and
+owed by nobody, once its try merged it with `gh pr merge` and read it back merged from GitHub onto its row, before the
+watch's next read, a merge GitHub does not read merged ending the try `not landed` with nothing installed, and
 `unlanded`, a lander's try that ended without queueing it, or dequeued once none of its waits holds, with
 `UNLANDED_SILENT` when its process ended before saying, which wakes the session holding its order
 every 30 minutes for a builder that fixes the cause and pushes; the lander tries the new head on its own.
@@ -647,8 +648,9 @@ PR checks that everyone hits".
   that brought this reads the reach of each open PR an older reach put on its test and takes each that
   now gets none off it, the part, its wait and each tester left with nothing else, whoever took it up,
   since 0048b14 binds a high-risk change's started test, so his Approve on it stands. A builder's later
-  `STAGING: #N` line reaches that tester as a held text, and its `STAGING: none: <why>` lifts a test no
-  job took up and the release reach did not give, its why shown on his card, while a test a job took up runs to its end, by 0048b14. It is never a wait
+  `STAGING: #N` line reaches that tester as a held text, and its `STAGING: none: <why>` or `STAGING: #N
+  none: <why>` lifts a test no job runs now, one that ended with no pass included, that the release reach did not
+  give, its why shown on his card, while a test a job runs now goes to its end, by 0048b14. It is never a wait
   on the testing job: the lander lands it once that tester's `DONE` keeps the test's proof as its first
   `CHECK:` line, by [the jobs page](jobs.md). That pass keeps each
   Approve he gave before it, on every open PR waiting on the part, so his one Approve lands the PR once
