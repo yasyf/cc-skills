@@ -12988,11 +12988,11 @@ def test_the_watch_counts_as_stalled_past_two_minutes_on_a_rest_and_past_the_pas
     assert watch.stalled(stage, 1001.0 + (watch.PASS_FOR + watch.SLOW_STAGE).total_seconds())
 
 
-def test_a_stall_whose_cause_the_drives_rows_name_reads_its_why_who_and_next_from_them_and_starts_no_watchdog_agent(demo: str) -> None:
+def test_a_stall_whose_cause_the_drives_rows_name_reads_its_why_who_and_next_from_them_and_starts_no_watchdog_agent_but_a_staging_env_or_release_starts_one(demo: str) -> None:
     data = state.load(demo)
     data["jobs"]["j1"] = state.new_job("o1", "builder", "build it", [], state.stamp()) | {"where": "remote", "dispatch": "ctx_1", "deaths": [{"dispatch": "ctx_1"}]}
-    assert stall.cause(data, "staging:plat-usw2", {"members": ["staging:svc/plat-usw2@abcdef1"]})["WHY"] == "staging:svc/plat-usw2@abcdef1 waits for its slot on staging env plat-usw2"
-    assert stall.cause(data, "release:Forge-AI/monorepo#9@prod", {"members": []})["WHY"] == "waits on Forge-AI/monorepo#9's release to prod"
+    assert stall.cause(data, "staging:plat-usw2", {"members": ["staging:svc/plat-usw2@abcdef1"]}) is None
+    assert stall.cause(data, "release:Forge-AI/monorepo#9@prod", {"members": []}) is None
     assert stall.cause(data, "builder-slot", {"members": ["builder-slot"]})["NEXT"] == "nothing to run: its FREE line starts it"
     assert stall.cause(data, "j1", {"members": ["j1"]})["NEXT"] == "drive job resume j1 restarts it on a fresh Sprite"
     data["jobs"]["j1"]["deaths"] = []
@@ -13000,7 +13000,7 @@ def test_a_stall_whose_cause_the_drives_rows_name_reads_its_why_who_and_next_fro
     data["jobs"]["j1"]["waits"] = ["durable-agents:j1-1794673711565"]
     assert stall.cause(data, "j1", {"members": ["j1"]})["WHY"] == "waits on his card durable-agents:j1-1794673711565"
     data["jobs"]["j1"]["waits"] = ["release:api:Forge-AI/monorepo#9"]
-    assert stall.cause(data, "j1", {"members": ["j1"]})["WHY"] == "waits on release:api:Forge-AI/monorepo#9"
+    assert stall.cause(data, "j1", {"members": ["j1"]}) is None
     held = {"agent": {"pid": None, "out": "/x.md", "at": state.stamp()}, "said": None, "told": None}
     assert (stall.searching(held, state.now()), stall.starts({"t": held}, state.now())) == (False, (0, 0))
 

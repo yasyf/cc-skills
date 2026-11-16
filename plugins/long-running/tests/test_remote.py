@@ -4869,7 +4869,7 @@ def test_a_watch_restarted_while_the_wake_its_last_process_started_holds_the_job
 
     monkeypatch.setattr(state, "detach", detach)
     first = watch.Watcher(remote, offset=state.events_end(remote))
-    assert [line.split(" ")[0] for s in (0, 5, 10) for line in watch.run_pass(first, T0 + timedelta(seconds=s))] == ["LANE"]
+    assert [line.split(" ")[0] for s in (0, 5, 10) for line in watch.run_pass(first, T0 + timedelta(seconds=s))] == []
     restarted = watch.Watcher(remote, offset=state.events_end(remote))
     said = [line for s in (200, 205, 210, 215) for line in watch.run_pass(restarted, T0 + timedelta(seconds=s))]
     assert (resumes, said, restarted.failures.get("lane of j1")) == ([["job", "resume", "j1", state.UNREACHED]], [], None)
