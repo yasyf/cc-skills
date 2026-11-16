@@ -5543,18 +5543,20 @@ def repeats_of_closed(data: dict) -> list[str]:
     ]
 
 
-def unasked_reader_refusal(data: dict, order_id: str, kind: str, moment: str) -> str | None:
-    """Why no reader starts on a drive tooling order a session opened once UNASKED_READERS_A_DAY readers started on such orders this day, by his words of Nov 15 "drive-tooling orders costing so much means we have a lot of cruft and waste to cut down there": the order stays open with no job, so a repeat of it joins it, until a later day, or `drive order set <o> --priority` when it holds back work he waits on; None for any other add."""
+def unasked_reader_refusal(data: dict, order_id: str, kind: str, moment: str, priority: bool) -> str | None:
+    """Why no reader starts on a drive tooling order a session opened, by his words of Nov 15 "drive-tooling orders costing so much means we have a lot of cruft and waste to cut down there": a defect is a tally on its order, which starts its reader only once a repeat joins it, or marked priority on the job when it blocks his answers, a handler, a post, his DM path or this Mac's load, and never past UNASKED_READERS_A_DAY such readers this day; the order stays open with no job meanwhile, so the next repeat joins it; None for any other add."""
     order = data["orders"][order_id]
-    if kind != "reader" or order["incident"] or order["priority"] or not unasked_tooling(order):
+    if kind != "reader" or order["incident"] or not unasked_tooling(order):
         return None
+    if not priority and not order["joins"] and not any(other["joins"] == order_id for other in data["orders"].values()):
+        return f"{order_id} is drive tooling no message of his asked for and no repeat joined yet, so it stays open with no job as a tally; its reader starts once a repeat joins it, or with priority on the job when it blocks his answers, a handler, a post, his DM path or this Mac's load"
     day = moment[:10]
     started = sum(1 for job in data["jobs"].values() if job["kind"] == "reader" and job["created"][:10] == day and unasked_tooling(data["orders"][job["order"]]))
     if started < UNASKED_READERS_A_DAY:
         return None
     return (
         f"{started} readers started today on drive tooling orders no message of his asked for, the most a day takes, so {order_id} stays open with no job"
-        f" for a repeat to join and a later day to start; drive order set {order_id} --priority lifts the cap when it holds back work he waits on"
+        f" for a repeat to join and a later day to start"
     )
 
 

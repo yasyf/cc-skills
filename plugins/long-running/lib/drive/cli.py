@@ -1006,6 +1006,8 @@ def order_set(args: argparse.Namespace) -> int:
         if args.complex is not None:
             order["complex"] = args.complex
         if args.priority is not None:
+            if args.priority and state.unasked_tooling(order):
+                raise DriveError(f"{args.id} is drive tooling no message of his asked for, so it takes no priority seat; drive job set <j> --priority starts one of its jobs past the caps when it blocks his answers, a handler, a post, his DM path or this Mac's load")
             order["priority"] = state.priority_seat(args.id) if args.priority else None
         if args.fresh is False:
             order["fresh"] = None
@@ -1544,7 +1546,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             or next((removing[part] for part in parts if part in removing), None)
             or (args.model == "astra" and not re.search(r"\bastra\b", order["text"], re.IGNORECASE) and f"--model astra runs only on an order whose words name astra, which {args.order}'s do not")
             or proven_again(data, args.order, args.kind, args.goal)
-            or state.unasked_reader_refusal(data, args.order, args.kind, created)
+            or state.unasked_reader_refusal(data, args.order, args.kind, created, bool(args.priority))
             or unlandable(data, lands)
             or state.job_wait_refusal(data, args.waits)
             or brief.job_refusal(data, args.order, args.kind, parts, bool(lands or args.release or args.builds_nothing or args.kind == "builder" and args.branch), args.waits)

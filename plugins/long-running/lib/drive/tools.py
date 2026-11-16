@@ -521,7 +521,7 @@ def op_ran(name: str, group: str, ops: list[dict], index: int, said: list[str], 
         if (joined := data["orders"][order_id])["joins"] and (joined["jobs"] or state.hurts_now(data, joined)):
             said.append(f"{index} job add: none, since {order_id} joins {joined['joins']}")
             return None
-        if capped := state.unasked_reader_refusal(data, order_id, given.get("kind"), state.stamp()):
+        if capped := state.unasked_reader_refusal(data, order_id, given.get("kind"), state.stamp(), bool(given.get("priority"))):
             said.append(f"{index} job add: none, since {capped}")
             return None
         given = given | {"order": order_id}

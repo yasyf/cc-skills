@@ -5734,7 +5734,7 @@ def watched(name: str, project: str | None) -> Watcher:
 
 
 def watching(watcher: Watcher) -> None:
-    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, each open priority order's seat first, by seated_first, then the drive's pass, then each other project's, by joined, each project the watch claims the pid file of, so a project an older install's watch still runs waits for it to end; and end once a newer long-running is installed, before a pass or between two of a pass's stages, saying so in its log, so its launch agent starts the watch on that install within RESTART_SECONDS of the stage running then, however long a pass runs, and the watch there runs the stages this one had not, though a watch reads no install until it has run one whole pass, so installs landing minutes apart never end each watch they start before its first pass ends. A pass that runs past PASS_FOR ends before its next stage the same way, that stage kept as its resume, so one slow project holds the others' passes up no longer than that. A crash wakes the session the crashing pass posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
+    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, each open priority order's seat first, by seated_first, then the drive's pass, then each other project's, by joined, each project the watch claims the pid file of, so a project an older install's watch still runs waits for it to end; and end once a newer long-running is installed, only at a pass boundary, never between two of a pass's stages, saying so in its log, so its launch agent starts the watch on that install within RESTART_SECONDS, and a watch reads no install until it has run one whole pass, so installs landing minutes apart never cut a pass short. A pass that runs past PASS_FOR ends before its next stage the same way, that stage kept as its resume, so one slow project holds the others' passes up no longer than that. A crash wakes the session the crashing pass posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     one = watcher
     passes = 0
@@ -5753,7 +5753,7 @@ def watching(watcher: Watcher) -> None:
                     relays.add(project)
                 for one in seated_first(watcher):
                     read_from, moment = one.offset, state.now()
-                    for said in [handed(one, one.made, moment)] if one.made else passed(one, moment, lambda moment=moment: (passes and upgraded()) or state.now() - moment > PASS_FOR):
+                    for said in [handed(one, one.made, moment)] if one.made else passed(one, moment, lambda moment=moment: state.now() - moment > PASS_FOR):
                         for line in sent(one, one.lane, said, moment):
                             print(line, flush=True)
                     if one.offset != read_from:
