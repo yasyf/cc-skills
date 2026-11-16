@@ -832,6 +832,8 @@ TOLD = {
     "headline": "Raise the limit?",
     "beats": [{"label": "What happened", "text": "Writes hit the bucket's cap."}],
     "ask": "",
+    "needs_him": "money",
+    "waits": "New uploads fail until you answer; about 30 an hour.",
     "options": [
         {"label": "Raise it", "title": "Raise it", "consequence": "One setting changes.", "priority": "", "metrics": []},
         {"label": "Shard it", "title": "Shard it", "consequence": "Each journal writes under 16 prefixes.", "priority": "", "metrics": []},
@@ -1999,7 +2001,7 @@ const rows = [...rail.querySelectorAll('.held')].map((row) => ({
   finished: row.querySelector('small').textContent,
 }));
 const words = [...rail.querySelectorAll('.said-list q')].map((said) => said.textContent);
-done({ rows, words, why: rail.querySelector('.rank-why').textContent, links: rail.querySelectorAll('.held a').length });
+done({ rows, words, why: rail.querySelector('.rank-why').textContent, said: [...rail.querySelectorAll('.rail-block')].slice(1, 3).map((block) => block.querySelector('.eyebrow').textContent + ': ' + block.querySelector('.rank-why').textContent), links: rail.querySelectorAll('.held a').length });
 """, board(queue=[item], status=[{"state": "running", "features": [shipping, stuck]}]))
     assert seen == {
         "rows": [
@@ -2008,8 +2010,22 @@ done({ rows, words, why: rail.querySelector('.rank-why').textContent, links: rai
         ],
         "words": ["newer words", "older words"],
         "why": "Oldest first. Nothing else waits on it, so it ranks by how long it has waited.",
+        "said": ["Why it needs you: Spends money.", "What waits on your answer: New uploads fail until you answer; about 30 an hour."],
         "links": 2,
     }
+
+
+def test_the_decisions_queue_groups_each_card_under_why_it_needs_him_most_dangerous_first(tmp_path: Path) -> None:
+    cards = [
+        QUESTION | {"answer": f"https://x.slack.com/archives/D1/p179438245385930{n}", "title": title, "needs": needs, "priority": QUESTION["priority"] | {"rank": n + 1}, "card": QUESTION["card"] | {"title": title}}
+        for n, (title, needs) in enumerate([("Spend it?", "money"), ("Drop the table?", "dangerous act"), ("Which name?", "his own words"), ("Pay more?", "money")])
+    ]
+    seen = browse(tmp_path, """
+location.hash = '#/queue/question';
+await wait(150);
+done([...document.querySelectorAll('#main .queue-list > li')].map((row) => row.classList.contains('qgroup') ? `# ${row.textContent}` : row.querySelector('.qrow-title').textContent));
+""", board(queue=cards))
+    assert seen == ["# A risky step only you can let run 1", "Drop the table?", "# Spends money 2", "Spend it?", "Pay more?", "# Needs a ruling in your words 1", "Which name?"]
 
 
 LONG_BODY = "\n\n".join(f"Reason {n}: the shard map keeps every journal on one node, so a restart replays all of them before the first read answers." for n in range(14))

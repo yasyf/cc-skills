@@ -1,4 +1,5 @@
 import functools
+import hashlib
 import json
 import os
 import posixpath
@@ -9,6 +10,7 @@ import time
 import tomllib
 from collections import Counter
 from collections.abc import Callable
+from contextlib import closing
 from datetime import datetime
 from fnmatch import fnmatchcase
 from itertools import groupby, takewhile
@@ -49,7 +51,7 @@ FAILED_TEST = re.compile(r"^\S+ (?:FAILED|ERROR) (?P<pytest>\S+\.py(?:::[^\r\n]+
 PRS_PER_QUERY = 25
 MERGEABILITY = "state headRefOid mergeable"
 MERGEABILITY_PER_QUERY = 100
-PATHS = "headRefOid changedFiles files(first: 100) { nodes { path } }"
+PATHS = "headRefOid baseRefOid changedFiles files(first: 100) { nodes { path } pageInfo { hasNextPage endCursor } }"
 STACKS_AGE = "60s"
 STACK = "stack { baseRefName entries(first: 100) { nodes { position pullRequest { number state } } } }"
 UNDER = "baseRef { associatedPullRequests(states: OPEN, first: 2) { nodes { number } } }"
@@ -130,9 +132,10 @@ def author_login(author: dict | None) -> str:
 
 
 def files(key: str) -> list[str]:
-    """The path of each file a PR changes, as GitHub lists them."""
-    owner, name, number = split(key)
-    return run(["gh", "api", "--paginate", f"repos/{owner}/{name}/pulls/{number}/files", "--jq", ".[].filename"]).splitlines()
+    """Every changed path from a fresh PR snapshot, reusing complete large lists at matching base and head commits."""
+    if key not in (read := paths([key])):
+        raise GithubError(f"could not read the changed files of {key} from GitHub")
+    return read[key][1]
 
 
 def default_branch(repo: str) -> str:
@@ -570,13 +573,41 @@ def mergeability(keys: list[str]) -> tuple[dict[str, dict], GithubError | None]:
 
 
 def paths(keys: list[str]) -> dict[str, tuple[str, list[str]]]:
-    """Each PR's head and the path of each file it changes, PRS_PER_QUERY PRs of one repository to a `gh api graphql` call, the files of one changing more than the 100 a query lists read over REST, by files(); a PR GitHub answered none for left out."""
+    """Each PR's fresh head and complete changed paths, batched by repository, with large lists retained by base and head commits."""
     found = {}
     for chunk in by_repository(keys, PRS_PER_QUERY):
         for key, node in nodes(graphql(query(chunk, PATHS), f"the changed files of {len(chunk)} PRs of {repo_of(chunk[0])}"), chunk).items():
-            listed = [changed["path"] for changed in node["files"]["nodes"]]
-            found[key] = (node["headRefOid"], listed if node["changedFiles"] <= len(listed) else files(key))
+            found[key] = (node["headRefOid"], complete_paths(key, node))
     return found
+
+
+def complete_paths(key: str, node: dict) -> list[str]:
+    """Complete one changed-file snapshot, sharing large-list pagination across callers without caching partial or moving snapshots."""
+    from drive import state
+
+    listed = [changed["path"] for changed in node["files"]["nodes"]]
+    if node["changedFiles"] == len(listed):
+        return listed
+    folder = state.root()
+    lock = folder / "pr-path-locks" / hashlib.sha256(key.casefold().encode()).hexdigest()
+    base, head = node["baseRefOid"], node["headRefOid"]
+    with state.flocked(lock), closing(state.connect(folder / "pr-paths.sqlite3")) as db:
+        db.execute("CREATE TABLE IF NOT EXISTS paths (key TEXT PRIMARY KEY, base TEXT NOT NULL, head TEXT NOT NULL, paths TEXT NOT NULL) WITHOUT ROWID")
+        was = db.execute("SELECT paths FROM paths WHERE key = ? AND base = ? AND head = ?", (key.casefold(), base, head)).fetchone()
+        if was:
+            return json.loads(was[0])
+        page = node
+        while page["files"]["pageInfo"]["hasNextPage"]:
+            cursor = json.dumps(page["files"]["pageInfo"]["endCursor"])
+            fields = PATHS.replace("files(first: 100)", f"files(first: 100, after: {cursor})")
+            page = nodes(graphql(query([key], fields), f"the changed files of {key}"), [key]).get(key)
+            if page is None or (page["baseRefOid"], page["headRefOid"]) != (base, head):
+                raise GithubError(f"{key}'s changed-file snapshot changed while reading its pages")
+            listed.extend(changed["path"] for changed in page["files"]["nodes"])
+        if len(listed) != node["changedFiles"]:
+            raise GithubError(f"{key}'s changed-file snapshot is incomplete")
+        db.execute("INSERT OR REPLACE INTO paths VALUES (?, ?, ?, ?)", (key.casefold(), base, head, json.dumps(listed)))
+    return listed
 
 
 def unheaded(read: dict) -> bool:

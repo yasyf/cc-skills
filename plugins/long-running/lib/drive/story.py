@@ -37,7 +37,9 @@ Then tell its story:
 - headline: the decision itself, a plain question or statement of at most 90 characters.
 - beats: two to four beats he reads in order, each `label` a few words, such as "What happened", "What's at stake" or "Why now", and each `text` one or two sentences: where things stand, what goes wrong or is gained, and what turns on his pick; where the card shows evidence, say what it shows.
 - options: one for each option of the card, in its order: `title` at most six words naming the path; `consequence` one or two sentences on what is true once he picks it; `metrics` its lab values, each `label` the same across the options and each `value` a few words from the card, none outside a lab; `priority` the words of the priority it serves in an interview, empty outside one.
-- ask: an interview's question on his priority, empty outside an interview."""
+- ask: an interview's question on his priority, empty outside an interview.
+- needs_him: why this is his to decide and not the drive's, the one that fits best: "dangerous act" when the answer lets a step run that can break customers' work or lose their data, "customer data" when it touches what customers stored, "money" when it spends money, "his hands" when he must do something himself, such as sign in, tap or hand over a secret, "his own words" when the drive needs a ruling only his words give, "only he knows" when it turns on a fact only he holds.
+- waits: what waits on his answer, in actions a user of the product or the drive would see and for how long, such as "New chats stop being searchable until you answer; about 40 a day queue up", never code paths, by his words on a card about a lock: "is this all row writes? if so do 2. if its only creation of dbs etc then do 1. this was not clear at all"; one sentence, empty when nothing waits."""
 CHANGE_RULES = f"""You write the story of one pull request card for the dashboard's decision view, where he decides whether to approve it to land. His words on a card that failed him: "has a lot of facts but is compeltely useless for me figuring ut if I want to meg eit or not, I have no idea why were doing this change, what it does, or what the downstream impacts of it are", and on another that never said where it was tested: "IS THIS FUCKING TRSTED ON STSGIGN WHY DO I HAVE TI KEEO ASKING". {EFFORT}
 
 <order> holds his words the change serves; <change> its title, the lead its builder wrote, its state and its description.
@@ -45,6 +47,8 @@ CHANGE_RULES = f"""You write the story of one pull request card for the dashboar
 Tell its story:
 - headline: what the change does for him, a plain statement of at most 90 characters.
 - beats: three to five beats he reads in order, each `label` a few words and each `text` one or two sentences, together saying why it exists, what it changes, what it does downstream and to whom, and where it was tested, on staging, elsewhere or not at all, as its description and state say, saying so when they do not; order them as this change's story needs."""
+NEEDS_HIM = ("dangerous act", "customer data", "money", "his hands", "his own words", "only he knows")
+QUESTION_VERSION = 2
 QUESTION = {
     "type": "object",
     "properties": {
@@ -52,6 +56,8 @@ QUESTION = {
         "headline": {"type": "string"},
         "beats": pairs("label", "text"),
         "ask": {"type": "string"},
+        "needs_him": {"enum": list(NEEDS_HIM)},
+        "waits": {"type": "string"},
         "options": {
             "type": "array",
             "items": {
@@ -66,14 +72,14 @@ QUESTION = {
             },
         },
     },
-    "required": ["format", "headline", "beats", "ask", "options"],
+    "required": ["format", "headline", "beats", "ask", "needs_him", "waits", "options"],
 }
 CHANGE = {"type": "object", "properties": {"headline": {"type": "string"}, "beats": pairs("label", "text")}, "required": ["headline", "beats"]}
 ASKED = ("title", "body", "options", "recommended", "hints")
 
 
 def question_key(asked: dict) -> str:
-    return digest({field: asked.get(field) for field in ASKED})
+    return digest({field: asked.get(field) for field in ASKED} | {"version": QUESTION_VERSION})
 
 
 def change_key(entry: dict) -> str:

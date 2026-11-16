@@ -209,7 +209,7 @@ CACHE_WRITE = added("go/sand/cache/AGENTS.md", b"- Ruled Nov 11: Key the cache o
 CACHE_GUIDE = "# Agents\n\n- Ruled Nov 11: Key the cache on the run id\n"
 
 
-def test_a_pr_bound_to_a_ruling_on_a_directory_has_the_judge_read_that_directory_whole_at_its_head_so_code_there_its_diff_never_touches_refuses_it(
+def test_a_pr_bound_to_a_ruling_on_a_directory_is_judged_on_the_lines_its_diff_changes_there_so_code_there_its_diff_never_touches_never_refuses_it(
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, judge: Judge, recorded: Answers
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "key the cache on the run")
@@ -228,16 +228,18 @@ def test_a_pr_bound_to_a_ruling_on_a_directory_has_the_judge_read_that_directory
         monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: key the cache", "body": "", "base": "dev", "head": f"head{n}", "diff": CACHE_CODE})
         return served.verdict(demo, KEY)
 
-    judge.against = [{"order": "c0de123", "words": "Key the cache on the run id", "file": "go/sand/cache/lookup.go", "change": "go/sand/cache/lookup.go:12 at head1 still keys on the session id"}]
+    judge.against = [{"order": "c0de123", "words": "Key the cache on the run id", "file": "go/sand/cache/key.go", "change": "go/sand/cache/key.go:1 at head1 keys on the run's session"}]
     refused = judged_at(1)
-    whole = "each of these answers of his rules how all the code under its directory works, so the directory is judged as it stands at the head against it, never only the lines the diff touches: c0de123 on go/sand/cache"
-    assert (refused.startswith(served.NOT_READY), "lookup.go:12 at head1 still keys on the session id" in refused, whole in judge.asked[-1][0]) == (True, True, True)
+    assert (refused.startswith(served.NOT_READY), "key.go:1 at head1 keys on the run's session" in refused) == (True, True)
+    judge.against = [{"order": "c0de123", "words": "Key the cache on the run id", "file": "go/sand/cache/lookup.go", "change": "go/sand/cache/lookup.go:12 at head2 still keys on the session id"}]
+    scoped = "each of these answers of his is labelled with a directory of code a PR here changes a file under, and is judged against the lines the diff changes there, never the directory as it stands at the head: c0de123 on go/sand/cache"
+    assert (judged_at(2).startswith(served.CHECKED), scoped in judge.asked[-1][0]) == (True, True)
     home[0] = "yasyf/cc-skills"
     judge.against = []
-    assert judged_at(2).startswith(served.CHECKED) and "rules how all the code under its directory works" not in judge.asked[-1][0]
+    assert judged_at(3).startswith(served.CHECKED) and "is labelled with a directory of code" not in judge.asked[-1][0]
 
 
-def test_a_stack_none_of_whose_prs_changes_a_file_under_a_ruled_directory_is_never_judged_against_that_ruling_and_one_pr_changing_a_file_there_has_the_judge_read_it_for_the_whole_stack(
+def test_a_stack_none_of_whose_prs_changes_a_file_under_a_ruled_directory_is_never_judged_against_that_ruling_and_one_pr_changing_a_file_there_has_the_stack_judged_on_its_lines(
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, judge: Judge, recorded: Answers
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "serve the duck tables")
@@ -257,8 +259,8 @@ def test_a_stack_none_of_whose_prs_changes_a_file_under_a_ruled_directory_is_nev
         data["prs"][keys[1]]["head"] = "head43b"
     judge.against = [{"order": "c0de123", "words": "Key the cache on the run id", "file": "go/sand/cache/lookup.go", "change": "go/sand/cache/lookup.go:1 at head43b keys on the session id"}]
     refused = served.verdict(demo, keys[0])
-    whole = "rules how all the code under its directory works, so the directory is judged as it stands at the head against it, never only the lines the diff touches: c0de123 on go/sand/cache"
-    assert (refused.startswith(f"{served.NOT_READY}: {keys[1]} go against his words"), whole in judge.asked[-1][0]) == (True, True)
+    scoped = "each of these answers of his is labelled with a directory of code a PR here changes a file under, and is judged against the lines the diff changes there, never the directory as it stands at the head: c0de123 on go/sand/cache"
+    assert (refused.startswith(f"{served.NOT_READY}: {keys[1]} go against his words"), scoped in judge.asked[-1][0]) == (True, True)
 
 
 def open_rows(demo: str, rows: dict[int, tuple[str, str, str]]) -> dict:
@@ -603,15 +605,12 @@ def test_opus_reads_every_question_on_one_whole_state_in_one_request_answering_e
         OPUS(told, {"orders.a1": orders})
 
 
-def test_his_answer_labelled_with_the_repository_root_is_judged_against_the_lines_the_diff_changes_and_one_below_it_on_its_whole_directory(run: Callable[..., tuple[int, str]], demo: str) -> None:
+def test_his_answers_labelled_with_the_repository_root_or_a_directory_below_it_are_each_judged_against_the_lines_the_diff_changes(run: Callable[..., tuple[int, str]], demo: str) -> None:
     clocks(run)
     run("pr", "add", URL, "--job", "j1", "--part", CLOCKS[0], *LEAD)
     data = state.load(demo)
     said = served.words(data, [data["prs"][KEY]], ["o1"], [], [], [], [], [("c0de123", "Name every flag", "."), ("beef456", "One store per env", "go/sand/store")])
-    assert said.endswith(
-        "each of these answers of his rules how all the code under its directory works, so the directory is judged as it stands at the head against it, never only the lines the diff touches: beef456 on go/sand/store\n"
-        "each of these answers of his is labelled with the repository's root, so it is judged against the lines the diff changes, never the repository as it stands at the head: c0de123"
-    )
+    assert said.endswith("each of these answers of his is labelled with a directory of code a PR here changes a file under, and is judged against the lines the diff changes there, never the directory as it stands at the head: c0de123 on .; beef456 on go/sand/store")
 
 
 STORED_TAPS = {

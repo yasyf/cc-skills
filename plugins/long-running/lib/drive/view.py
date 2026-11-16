@@ -369,8 +369,8 @@ def holds(drive: dict, wait: str, found: dict | None) -> bool:
 
 def withdrawn(drive: dict, commit: str) -> bool:
     """Whether every staging cut the drive started from this commit was withdrawn, its release job stopped, so a wait on staging serving it never frees and ends now; False for a commit no release job of the drive names with --from."""
-    cuts = [job for job in drive["jobs"].values() if (release := (job.get("brief_flags") or {}).get("release")) and (named := re.search(r"--from[ =]([0-9a-f]{7,40})\b", release)) and (named[1].startswith(commit) or commit.startswith(named[1]))]
-    return bool(cuts) and all(job["state"] == "stopped" for job in cuts)
+    cuts = [held for named, held in state.release_cuts(drive) if named.startswith(commit) or commit.startswith(named)]
+    return bool(cuts) and all(held == "stopped" for held in cuts)
 
 
 def shared(drive: dict, wait: str) -> bool:
@@ -1574,7 +1574,11 @@ def outline(entry: dict) -> dict:
 
 
 def headline(told: dict | None) -> str | None:
-    return ((told or {}).get("story") or {}).get("headline")
+    return told_field(told, "headline")
+
+
+def told_field(told: dict | None, field: str) -> str | None:
+    return ((told or {}).get("story") or {}).get(field)
 
 
 def summary(model: dict) -> dict:
@@ -1584,7 +1588,7 @@ def summary(model: dict) -> dict:
     return rest | {
         "queue": [
             {key: value for key, value in item.items() if key not in ("rail", "told")}
-            | {"headline": headline(item.get("told")) or (heads.get(state.pr_key(item["pr"])) if item["kind"] == "tap" and len(item["prs"]) == 1 else None)}
+            | {"headline": headline(item.get("told")) or (heads.get(state.pr_key(item["pr"])) if item["kind"] == "tap" and len(item["prs"]) == 1 else None), "needs": told_field(item.get("told"), "needs_him")}
             | ({"card": glance(item["card"])} if item.get("card") else {})
             for item in model["queue"]
         ],

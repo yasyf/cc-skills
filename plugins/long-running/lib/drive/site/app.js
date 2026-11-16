@@ -459,7 +459,8 @@ function filterOf(id) {
 function shownQueue(filter, project = route().query.get('project'), stream = route().query.get('stream')) {
   const [, , keep] = QUEUE_FILTERS.find(([id]) => id === filter);
   const inScope = (item) => (project === null || sameChannel(fileKey(item.project)) === sameChannel(project)) && (stream === null || fileKey(item.workstream) === stream);
-  return model.queue.filter((item) => keep(item) && inScope(item) && !(answers.has(answerKey(item)) && !answers.get(answerKey(item)).error));
+  const shown = model.queue.filter((item) => keep(item) && inScope(item) && !(answers.has(answerKey(item)) && !answers.get(answerKey(item)).error));
+  return filter === 'question' ? byNeeds(shown) : shown;
 }
 
 function scopeQuery(project = route().query.get('project'), stream = route().query.get('stream')) {
@@ -535,6 +536,25 @@ function earlierWords(answer) {
   return `<li tabindex="0" data-tip="${esc(`“${answer.words}” ${read}`)}"><q>${esc(answer.words)}</q><span class="meta">${clock(answer.at)}</span></li>`;
 }
 
+const NEEDS = [
+  ['dangerous act', 'A risky step only you can let run'],
+  ['customer data', 'Touches customer data'],
+  ['money', 'Spends money'],
+  ['his hands', 'Needs you to do something'],
+  ['his own words', 'Needs a ruling in your words'],
+  ['only he knows', 'Only you know the answer'],
+];
+const NEEDS_LABEL = new Map(NEEDS);
+const NEEDS_ORDER = new Map(NEEDS.map(([key], i) => [key, i]));
+
+function byNeeds(list) {
+  return list.map((item, i) => [item, i]).sort(([a, i], [b, j]) => (NEEDS_ORDER.get(a.needs) ?? NEEDS.length) - (NEEDS_ORDER.get(b.needs) ?? NEEDS.length) || i - j).map(([item]) => item);
+}
+
+function needsChip(item) {
+  return item.kind === 'question' && item.needs ? `<span class="needs-chip">${esc(NEEDS_LABEL.get(item.needs))}</span>` : '';
+}
+
 function priorityChips(item) {
   const { priority, reason } = item;
   return `<span class="priority-chips"><span class="rank-chip" aria-label="Rank ${priority.rank}">${priority.rank}</span><span class="reason-chip ${esc(reason.tone)}" data-tip="${esc(reason.text)}">${esc(reason.label)}</span>${item.since ? `<span class="age">${esc(ago(item.since))}</span>` : ''}</span>`;
@@ -578,7 +598,8 @@ function decisionRail(item) {
   const links = [...(card.links ?? []), ...(card.refs ?? [])].filter((each) => !SLACK.test(each.url)).map((each) => `<li>${link(each.label, each.url)}</li>`).join('');
   return `<aside class="context-rail decision-sidebar" aria-label="About this decision">
     <div class="rail-block"><div class="eyebrow">Why it is #${item.priority.rank}</div><p class="rank-why"><b class="${esc(item.reason.tone)}">${esc(item.reason.label)}.</b> ${esc(item.reason.text)}${item.since ? `. Asked ${esc(ago(item.since))} ago.` : '.'}</p></div>
-    ${tasks.length ? `<div class="rail-block"><div class="eyebrow">What waits on your answer</div><ul class="held-list">${tasks.map((entry) => heldRow(item, entry, rail.held)).join('')}</ul></div>` : ''}
+    ${item.told?.story?.needs_him ? `<div class="rail-block"><div class="eyebrow">Why it needs you</div><p class="rank-why">${esc(NEEDS_LABEL.get(item.told.story.needs_him))}.</p></div>` : ''}
+    ${item.told?.story?.waits || tasks.length ? `<div class="rail-block"><div class="eyebrow">What waits on your answer</div>${item.told?.story?.waits ? `<p class="rank-why">${esc(item.told.story.waits)}</p>` : ''}${tasks.length ? `<ul class="held-list">${tasks.map((entry) => heldRow(item, entry, rail.held)).join('')}</ul>` : ''}</div>` : ''}
     <div class="rail-block"><div class="eyebrow">Not sure yet?</div>${sayBox(`q:${item.answer}`, item.answer, 'Ask a question, or answer in your own words', '', item.thread ?? '')}</div>
     ${item.thread ? `<details class="story-disclosure"><summary>Conversation so far</summary>${talkPane(item.thread, cardTs(item.answer))}</details>` : ''}
     <details class="story-disclosure" data-story-evidence><summary>The card as the drive wrote it</summary>${prose(card.body)}${links ? `<ul class="rail-list">${links}</ul>` : ''}${pictures(card.pictures)}${card.options.map((label) => card.hints?.[label] ? `<details><summary>${esc(decisionPlain(optionParts(label)[0]))}</summary>${prose(card.hints[label])}</details>` : '').join('')}</details>
@@ -820,7 +841,7 @@ function queueScreen(id) {
       <div><div class="eyebrow">Your attention</div><h1 class="h1">Priority queue <span class="total-chip">${list.length}</span></h1></div>
       <div class="queue-tools">${queueScope(filter)}<nav class="subtabs" aria-label="Show">${filters}</nav></div>
     </div>
-    <p class="queue-order">Most urgent first: fixes for live incidents, then finished work waiting on your answer, then what frees the most work, then the oldest. What the drive is answering you on sits last.</p>
+    <p class="queue-order">${filter === 'question' ? 'Grouped by why each decision needs you, riskiest first; inside a group, ' : ''}${filter === 'question' ? 'most' : 'Most'} urgent first: fixes for live incidents, then finished work waiting on your answer, then what frees the most work, then the oldest. What the drive is answering you on sits last.</p>
     ${unread}
     ${list.length === 1 ? `<div class="queue-current">${priorityChips(item)}</div>` : ''}
     <div class="queue-shell${list.length > 1 ? '' : ' alone'}">${list.length > 1 ? `<details class="queue-picker"${narrow.matches ? '' : ' open'}><summary>Browse ranked queue <span>${list.length}</span></summary>${queueList(list, at, filter)}</details>` : ''}${shown}</div>
@@ -828,10 +849,12 @@ function queueScreen(id) {
 }
 
 function queueList(list, at, filter) {
-  return `<ol class="queue-list" aria-label="Everything here, most urgent first">${list.map((item, i) => {
+  const grouped = filter === 'question';
+  return `<ol class="queue-list" aria-label="${grouped ? 'Your decisions, by why each needs you' : 'Everything here, most urgent first'}">${list.map((item, i) => {
+    const head = grouped && (i === 0 || list[i - 1].needs !== item.needs) ? `<li class="qgroup" aria-hidden="true">${esc(NEEDS_LABEL.get(item.needs) ?? 'Still being written up')} <span>${list.filter((each) => each.needs === item.needs).length}</span></li>` : '';
     const why = item.reason.tone === 'bad' ? `<span class="qrow-why">${esc(item.reason.text)}</span>` : '';
-    return `<li class="qrow${i === at ? ' on' : ''} ${esc(item.reason.tone)}" data-rank="${item.priority.rank}">
-      <a class="qrow-main" href="${esc(queueHref(filter, item))}" data-queue="${esc(noticeKey(item))}"${i === at ? ' aria-current="true"' : ''}>${priorityChips(item)}<span class="qrow-kind">${LABEL[item.kind]} · ${esc(fileName(fileKey(item.project)))}</span><span class="qrow-title">${esc(item.headline ?? bare(item.title))}</span>${why}${itemStatus(item)}</a>
+    return `${head}<li class="qrow${i === at ? ' on' : ''} ${esc(item.reason.tone)}" data-rank="${item.priority.rank}">
+      <a class="qrow-main" href="${esc(queueHref(filter, item))}" data-queue="${esc(noticeKey(item))}"${i === at ? ' aria-current="true"' : ''}>${priorityChips(item)}<span class="qrow-kind">${LABEL[item.kind]} · ${esc(fileName(fileKey(item.project)))}</span><span class="qrow-title">${esc(item.headline ?? bare(item.title))}</span>${why}${grouped ? '' : needsChip(item)}${itemStatus(item)}</a>
       ${item.kind === 'question' ? '' : `<span class="qrow-acts">${rowActions(item)}</span>`}
     </li>`;
   }).join('')}</ol>`;

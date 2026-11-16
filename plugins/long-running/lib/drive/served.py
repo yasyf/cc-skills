@@ -75,11 +75,11 @@ Leave out:
 - what his newer words on the same point overrule, an answer's included, since his newest words win;
 - what his words leave to a later change or to the parts other changes deliver, unless this change builds, in the shape of one of them, what those later changes must share, so each would branch around it or undo it; or what one PR here leaves and another PR here, or another PR of its job that <his_words> names, merged or open, does;
 - style, naming and tests, and new code the outcome his words name needs;
-- any line the diff does not show, unless you read it at the head.
+- any code the diff does not change: it is out of scope, however his words rule on it, and you read code at the head only to see what a changed line relies on, never to object to it.
 
 The code at each change's head, the PRs it is stacked on included, is the tree its `###` line in <change> names, its repository's files at that head: read them there with the Read, Grep and Glob tools. Before you state an `after` that depends on code the diff does not show, or object, read that code at the head, and name in `change` the path:line at the head that shows the after, the path from the tree's root as its `diff --git a/` line would name it.
 
-An answer of his labelled with the repository's root, `.`, rules how code anywhere in it is written: judge it as any other answer, against the lines the diff changes, never the repository as it stands at the head. An answer of his labelled with a directory below the root, which <his_words> names with that directory only when a PR here changes a file under it, rules how all the code under that directory works, never only the lines the diff touches. For each, before you judge, find every place under that directory at the head that its words speak to with Grep in that directory of the tree, read each with Read, and judge the directory as it stands at the head against that answer: list in `against` each place there that still goes against it, whether or not the diff shows it, its `file` that path and its `change` naming the path:line at the head.
+An answer of his labelled with a directory of code, the repository's root `.` or one below it, which <his_words> names only when a PR here changes a file under it, is judged as any other answer, against the lines the diff changes, never the directory as it stands at the head: code there the diff does not change is out of scope, so an objection's `file` is always a file the diff changes.
 
 An empty `against` says the change meets his words."""
 
@@ -115,7 +115,7 @@ class Uncited(DriveError):
 
 
 def check(name: str, unit: tuple[str, ...], bound: list[str]) -> dict[str, dict]:
-    """Judge the change of one stack's PRs together, the unit his card draws and his Approve lands, or of one PR in none, each read whole from GitHub at its head, title and diff and never the body, against the words of the orders they serve, for the parts they carry, and against each answer of his kept on them for the design they make and each bound names, read by answers with the options of each card of the drive's it answers, and his durable answers cc-notes ranks near that card's words, which the judge binds only where one speaks to what the change builds, a flake fix against his ruling FLAKE_RULING in place of any order, and each ruling write each PR owes, by owed, read beside his rulings WRITES_RULING and DEEPEST_RULING as his words, one its diff lacks refused with no judge run while it is open, and DEEPEST_RULING beside any AGENTS.md a diff writes, by placing(), and the code under the directory each of those rulings is labelled with, one a PR of the stack changes a file under, by coded(), read once for owed and the judge, which reads a directory below the root whole at the head and judges it as it stands there, and the root's against the lines the diff changes, and return for each PR the head it checked beside the heads of the others, or the stamp its head already holds, for verdict to keep; every other PR their jobs carry, and each job they were handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses them, and a part a PR above another in the stack delivers is delivered by the change judged. The judge first lists each change the diffs make to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond and faulting each PR whose diff changes the file an objection names, every PR for one naming a file none of them changes or none, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines in every PR changing it are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
+    """Judge the change of one stack's PRs together, the unit his card draws and his Approve lands, or of one PR in none, each read whole from GitHub at its head, title and diff and never the body, against the words of the orders they serve, for the parts they carry, and against each answer of his kept on them for the design they make and each bound names, read by answers with the options of each card of the drive's it answers, and his durable answers cc-notes ranks near that card's words, which the judge binds only where one speaks to what the change builds, a flake fix against his ruling FLAKE_RULING in place of any order, and each ruling write each PR owes, by owed, read beside his rulings WRITES_RULING and DEEPEST_RULING as his words, one its diff lacks refused with no judge run while it is open, and DEEPEST_RULING beside any AGENTS.md a diff writes, by placing(), and each ruling labelled with a directory of code a PR of the stack changes a file under, by coded(), read once for owed and the judge, which judges it against the lines the diff changes, never the code as it stands at the head, and return for each PR the head it checked beside the heads of the others, or the stamp its head already holds, for verdict to keep; every other PR their jobs carry, and each job they were handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses them, and a part a PR above another in the stack delivers is delivered by the change judged. The judge first lists each change the diffs make to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond and faulting each PR whose diff changes the file an objection names, every PR for one naming no file against an order's words, and dropping one naming a file none of them changes, or naming no file against an answer's words, since code the diff does not change is out of scope, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines in every PR changing it are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
     data = state.load(name)
     prs = {key: data["prs"][key] for key in unit}
     if all(stands(data, key, unit) for key in unit):
@@ -142,8 +142,8 @@ def check(name: str, unit: tuple[str, ...], bound: list[str]) -> dict[str, dict]
         raise Against(list(lacking), "; ".join(lacking.values()), cited, [*binding["cited"], *near])
     carried = (state.pr_key(url) for job in data["jobs"].values() if any(pr["url"] in job["prs"] for pr in prs.values()) for url in job["prs"])
     others = [other for other in dict.fromkeys(carried) if other in data["prs"] and other not in prs and data["prs"][other]["state"] != "closed"]
-    found = judged(name, words(data, list(prs.values()), orders, answered, near, others, [each for key in unit for each in owes[key]], ruled), reads, [ruled_dir for _, _, ruled_dir in ruled])
-    if against := [(item, changing) for item in found["against"] if not (changing := [key for key in unit if item["file"] in lines[key]]) or any(passed[key].get(item["file"]) != lines[key][item["file"]] for key in changing)]:
+    found = judged(name, words(data, list(prs.values()), orders, answered, near, others, [each for key in unit for each in owes[key]], ruled), reads)
+    if against := [(item, changing) for item in found["against"] if (changing := [key for key in unit if item["file"] in lines[key]]) and any(passed[key].get(item["file"]) != lines[key][item["file"]] for key in changing) or not item["file"] and item["order"] in orders]:
         faulted = [key for key in unit if any(not changing or key in changing for _, changing in against)]
         raise Against(faulted, "; ".join(f'{item["order"]} "{item["words"]}": {item["change"]}' for item, _ in against), cited, [*binding["cited"], *near])
     heads = {key: read["head"] for key, read in reads.items()}
@@ -389,7 +389,7 @@ def files(diff: bytes) -> list[tuple[str, str]]:
 
 
 def words(data: dict, prs: list[dict], orders: list[str], answered: list[str], near: list[str], others: list[str], owes: list[dict], ruled: list[tuple[str, str, str]]) -> str:
-    """Each order's words, oldest first, with the parts of it the change carries, those each of its PRs names, else every part of it that PR's job delivers, shared with the jobs' other PRs when they have any, and the order's other parts left to other changes, so a change is never judged on a part it does not carry; a carried part whose delivery record, as drive order posted keeps it, names a merged PR outside the jobs' PRs, such as a teammate's, is left to other changes with that PR named; an order the change carries no part of is read whole. Then the jobs' merged PRs, which already deliver their share, and their other open PRs, each judged on its own; then each answer of his binding the PRs or that they cite, as answers reads them, and apart from them each one cc-notes ranked near the words of a card they answer, which binds only where it speaks to what the change builds; then each ruling write the PRs owe, by owed, as his rulings WRITES_RULING and DEEPEST_RULING name it, so the judge reads that AGENTS.md hunk as his words; then each answer of his binding them labelled with a directory of code a PR here changes a file under, by coded(), whose directory the judge reads whole at the head and judges as it stands there against that answer, since his answer rules on all of that code and never only the lines the diff touches, but one labelled with the repository's root, code:., which the judge reads against the lines the diff changes, never the whole repository at the head."""
+    """Each order's words, oldest first, with the parts of it the change carries, those each of its PRs names, else every part of it that PR's job delivers, shared with the jobs' other PRs when they have any, and the order's other parts left to other changes, so a change is never judged on a part it does not carry; a carried part whose delivery record, as drive order posted keeps it, names a merged PR outside the jobs' PRs, such as a teammate's, is left to other changes with that PR named; an order the change carries no part of is read whole. Then the jobs' merged PRs, which already deliver their share, and their other open PRs, each judged on its own; then each answer of his binding the PRs or that they cite, as answers reads them, and apart from them each one cc-notes ranked near the words of a card they answer, which binds only where it speaks to what the change builds; then each ruling write the PRs owe, by owed, as his rulings WRITES_RULING and DEEPEST_RULING name it, so the judge reads that AGENTS.md hunk as his words; then each answer of his binding them labelled with a directory of code a PR here changes a file under, by coded(), which the judge reads against the lines the diff changes, never the directory as it stands at the head."""
     lines: list[str] = []
     named = any(pr["parts"] for pr in prs)
     ours = {state.pr_key(url) for pr in prs for url in data["jobs"][pr["job"]]["prs"]}
@@ -418,13 +418,11 @@ def words(data: dict, prs: list[dict], orders: list[str], answered: list[str], n
             " since it changes that code and that AGENTS.md holds them neither at the tip of its base branch nor at the head of an open PR numbered below it, so that write is his words: "
             + "; ".join(f'{each["id"]} on {each["dir"]}, "{each["words"]}"' for each in owes)
         )
-    if below := [(answer_id, directory) for answer_id, _, directory in ruled if directory != "."]:
+    if ruled:
         lines.append(
-            "each of these answers of his rules how all the code under its directory works, so the directory is judged as it stands at the head against it, never only the lines the diff touches: "
-            + "; ".join(f"{answer_id} on {directory}" for answer_id, directory in below)
+            "each of these answers of his is labelled with a directory of code a PR here changes a file under, and is judged against the lines the diff changes there, never the directory as it stands at the head: "
+            + "; ".join(f"{answer_id} on {directory}" for answer_id, _, directory in ruled)
         )
-    if rooted := [answer_id for answer_id, _, directory in ruled if directory == "."]:
-        lines.append(f"each of these answers of his is labelled with the repository's root, so it is judged against the lines the diff changes, never the repository as it stands at the head: {', '.join(rooted)}")
     return "\n".join(lines)
 
 
@@ -675,25 +673,25 @@ def shown(changes: dict[str, dict], trees: dict[str, str]) -> str:
     return "\n".join([*out, *([f"{len(omitted)} files left out for length: {cut(', '.join(omitted), LEFT_OUT_CHARS)}"] if omitted else [])])
 
 
-def judged(name: str, said: str, changes: dict[str, dict], ruled: list[str]) -> dict:
-    """Where a Claude session given only Read, Grep and Glob over each change's tree, its repository's files at its head under each directory its diff changes a file in and each ruled directory, by read_paths, kept for the PRs at those heads by judge_trees, which is the session's cwd and only --add-dir, judges of the change, by RULES, once it has listed each change to what already exists, before and after, reading at the head the code a hunk relies on that its diff does not show, such as a parent PR's lines under a stacked child: `against`, each place it goes against his words, empty when it meets them."""
+def judged(name: str, said: str, changes: dict[str, dict]) -> dict:
+    """Where a Claude session given only Read, Grep and Glob over each change's tree, its repository's files at its head under each directory its diff changes a file in, by read_paths, kept for the PRs at those heads by judge_trees, which is the session's cwd and only --add-dir, judges of the change, by RULES, once it has listed each change to what already exists, before and after, reading at the head the code a hunk relies on that its diff does not show, such as a parent PR's lines under a stacked child: `against`, each place it goes against his words, empty when it meets them."""
     clone = state.load(name)["roles"]["coordinator"]["cwd"]
-    root = judge_trees(clone, changes, ruled)
+    root = judge_trees(clone, changes)
     trees = {key: str(root / tree_name(key)) for key in changes}
     prompt = f"<his_words>\n{said}\n</his_words>\n\n<change>\n{shown(changes, trees)}\n</change>"
     return structured(root, RULES, prompt, VERDICT, JUDGE_SECONDS, f"judging {', '.join(changes)} against his words", reads=True)
 
 
-def judge_trees(clone: str, changes: dict[str, dict], ruled: list[str]) -> Path:
+def judge_trees(clone: str, changes: dict[str, dict]) -> Path:
     """The folder holding each PR's files at its head, extracted once for those PRs at those heads and kept under the state root's judge-trees, so every check of the same heads, a retry or a check after his answers changed, reads it again with no extraction; built aside and renamed into place, so a second check building it meanwhile keeps the first, and the oldest beyond JUDGE_TREES kept that no check used for twice JUDGE_SECONDS deleted."""
     trees = state.root() / "judge-trees"
-    kept = trees / hashlib.sha256(json.dumps([sorted((key, read["head"]) for key, read in changes.items()), sorted(ruled)]).encode()).hexdigest()[:20]
+    kept = trees / hashlib.sha256(json.dumps(sorted((key, read["head"]) for key, read in changes.items())).encode()).hexdigest()[:20]
     if not kept.is_dir():
         trees.mkdir(parents=True, exist_ok=True)
         building = Path(tempfile.mkdtemp(prefix="drive-judge-", dir=trees))
         try:
             for key, read in changes.items():
-                tree(clone, key, read["head"], str(building), read_paths(read["diff"], ruled))
+                tree(clone, key, read["head"], str(building), read_paths(read["diff"]))
             building.rename(kept)
         except OSError:
             if not kept.is_dir():
@@ -720,9 +718,9 @@ def tree_name(key: str) -> str:
     return key.replace("/", "-").replace("#", "-")
 
 
-def read_paths(diff: bytes, ruled: list[str]) -> list[str]:
-    """The paths of the repository the judge reads at a head: the directory of each file the diff changes, a file at the root alone, and each ruled directory but the root, whose ruling the judge reads against the diff's lines."""
-    return sorted({*(str(Path(path).parent) if Path(path).parent != Path(".") else path for path, _ in files(diff)), *(ruled_dir for ruled_dir in ruled if ruled_dir != ".")})
+def read_paths(diff: bytes) -> list[str]:
+    """The paths of the repository the judge reads at a head: the directory of each file the diff changes, a file at the root alone, so it reads what a changed line relies on and judges only the lines the diff changes."""
+    return sorted({str(Path(path).parent) if Path(path).parent != Path(".") else path for path, _ in files(diff)})
 
 
 def tree(clone: str, key: str, head: str, root: str, paths: list[str]) -> str:

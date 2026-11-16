@@ -74,6 +74,11 @@ QUIET_LINES = ("CARD ", "WAITING-ON-HIM ", "STANDING ", "WATCH compacted", "WATC
 SAID_FILE = "said.json"
 SAID_FOR = timedelta(hours=24)
 EVERY_TIME = ("DOWN ",)
+STALE_FOR = timedelta(hours=1)
+STALE_TEXT = settled.Noul(
+    "Does `answer.said`, his answer, remove a premise `texts.{slot}` rests on, so a worker acting on that text would go against his answer?",
+    no="The text still holds beside his answer, or speaks to something else.",
+)
 COALESCE = timedelta(minutes=10)
 URGENT = ("TAP ", "DUE ", "MOVED ", "WATCH stopped", "DOWN ")
 TAP_EVENT = re.compile(rf"TAP (?P<label>\S+) (?P<key>\S+)(?P<stalled> {NOT_LANDED})?")
@@ -2411,14 +2416,14 @@ def answer_read(name: str, job_id: str, message_id: str, moment: datetime) -> tu
         said = reads.answer(question, checkout, name, job_id)
     except reads.ReadError as error:
         return keep_answer(name, job_id, message_id, f"{question}: {error}", f"{question}: {error}")
-    return keep_answer(name, job_id, message_id, *sprite_answered(job, message_id, question, said))
+    return keep_answer(name, job_id, message_id, *sprite_answered(name, job, message_id, question, said))
 
 
-def sprite_answered(job: dict, message_id: str, question: str, said: str) -> tuple[str, str | None]:
+def sprite_answered(name: str, job: dict, message_id: str, question: str, said: str) -> tuple[str, str | None]:
     """The answer a lane's question gets for what its read printed, with why it is no answer when the Sprite could not take one past one Orca relay message, by orca.sprite_answer."""
     try:
-        return orca.sprite_answer(said, job, message_id), None
-    except orca.OrcaError as error:
+        return orca.sprite_answer(name, said, job, message_id), None
+    except state.DriveError as error:
         why = f"{question.partition("\n")[0]}: its {len(said.encode())}-byte answer, past one Orca relay message, could not go to its Sprite: {error}"
         return orca.exit_line(said) + why, why
 
@@ -3071,6 +3076,28 @@ def noted_lines(watcher: Watcher, moment: datetime) -> list[str]:
     except state.DriveError as error:
         return failed(watcher, "cc-notes", "backfill of his older card answers into cc-notes", error, moment)
     watcher.failures.pop("cc-notes", None)
+    return []
+
+
+def stale_texts(watcher: Watcher, moment: datetime) -> list[str]:
+    """Once for each answer of his given within STALE_FOR, take off each job it touches each text held for that job's next worker whose premise Jev reads it removing, in one request holding only those texts, so his answer, which that job is held whole, never reaches it beside a text it overruled; his own words and his held answers stay, and a request with no reading leaves the texts held for the next pass to read again."""
+    if watcher.project:
+        return []
+    data = state.load(watcher.name)
+    fresh = [(answer_id, kept) for answer_id, kept in data["answers"].items() if not kept.get("texts_read") and moment - state.parse_time(kept["at"]) < STALE_FOR]
+    for answer_id, kept in fresh:
+        held = [entry for job_id in kept["jobs"] if job_id in data["jobs"] for entry in data["jobs"][job_id]["undelivered"] if entry["sender"] != state.HIM and not entry["words"].startswith("His answer ")]
+        slots = {f"t{number}": entry for number, entry in enumerate(held, 1)}
+        try:
+            read = settled.jev({"answer": {"said": kept["words"]}, "texts": {slot: entry["words"] for slot, entry in slots.items()}}, {slot: settled.asking(STALE_TEXT, slot=slot) for slot in slots}) if slots else {}
+        except settled.Unheard:
+            continue
+        stale = {slots[slot]["request"] for slot, sure in read.items() if isinstance(sure, float) and sure >= settled.YES}
+        with state.edit(watcher.name) as data:
+            data["answers"][answer_id]["texts_read"] = state.stamp(moment)
+            for job_id in kept["jobs"]:
+                if job_id in data["jobs"]:
+                    data["jobs"][job_id]["undelivered"] = [entry for entry in data["jobs"][job_id]["undelivered"] if entry["request"] not in stale]
     return []
 
 
@@ -5206,6 +5233,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
                     owner_page_lines,
                     close_report_lines,
                     waiting_lines,
+                    stale_texts,
                     answer_lines,
                     noted_lines,
                     lane_lines,

@@ -62,6 +62,12 @@ Every staging start holds the slot, the top coordinator's included. `drive job a
 
 When a slot frees, the head of its queue takes it together with up to five later passes whose PRs change none of the cut's files and restart none of its stacks, read from `tools/ci release select --pr`, since passes restarting one stack take turns, as AGENTS.md packs dangerous changes into one staging cut. The head's `GO` names the packed PRs and starts one cut carrying them all; each packed pass's `RIDE` line says to start no cut. One lease, its longest pass's minutes, covers the cut, and it frees once every pass in it finished or gave the slot back. Only the head may run `ci release start` on that env.
 
+## Riders of another job's cut
+
+A tester whose WAITING says another job starts its cut never takes a `GO`. Such a tester waits on another drive job beside staging serving a commit, waits on the top coordinator's `START` or `APPLIED`, or waits on staging serving a commit that heads none of its tested PRs. It keeps its queue place, and no lease ever starts on it. Once the cut of the job its waits name starts (that job kept a release build or waits on staging serving its cut), the watch adds it to that cut and sends it a `RIDE` line. A rider of the top coordinator's cut, or of a commit, gets its `RIDE` from the top coordinator's `START`. The watch never auto-queues a rider.
+
+A hold from `drive slot hold` names one job, never an order. Another job of the held order may ride a cut, and an order hold would give it a `GO`.
+
 ## The queue
 
 Claims queue first in, first out. A pass serving a priority order or an open incident goes ahead of every pass that does not, behind only the passes that jump too, as their builders jump the builder-slot line. A holder is never cut short.

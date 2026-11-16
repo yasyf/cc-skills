@@ -1642,6 +1642,9 @@ def test_an_answer_to_his_message_stays_in_his_dm_thread_while_a_drive_post_boun
     data = state.load(demo)
     assert talk.homed(demo, data, {"text": "x", "thread_ts": his, "asked": [his]}, [], None, ("D123", his)) == ("D123", his)
     assert talk.homed(demo, data, {"text": "x", "thread_ts": his}, [], None, ("D123", his)) == ("C100", None)
+    assert talk.homed(demo, data, {"text": "x", "asked": [his]}, [], None, ("D123", None)) == ("D123", his)
+    reply = "https://acme.slack.com/archives/D123/p1794200000000300?thread_ts=1794200000.000200&cid=D123"
+    assert talk.homed(demo, data, {"text": "x", "asked": reply}, [], None, ("D123", None)) == ("D123", "1794200000.000200")
     assert talk.homed(demo, data, {"text": "x"}, [], None, ("D123", None)) == ("C100", None)
     assert talk.homed(demo, data, {"edit": "https://acme.slack.com/archives/D123/p1794200000000100"}, [], None, ("D123", his)) == ("D123", his)
     with state.edit(demo) as data:

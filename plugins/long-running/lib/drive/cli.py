@@ -2297,22 +2297,18 @@ def answered_drop(name: str, job_id: str, file: Path, answer_id: str) -> list[st
 
 
 def decision(name: str, job_id: str, question: dict, words: str) -> str:
-    """Record the drive's decision on the job's question, drawn on his card, as an answer of its own in cc-notes, labelled settled.DECISION_LABEL and under:<his ruling state.UNWAITED_RULING>, and in the drive at its card as `drive answer` records his, listing what it could change, its card marked settled, so `drive answer <its id> --dropped` takes off what its pick rules out and his answer to the same question supersedes it; refused while cc-notes holds another standing answer to that question, which it would supersede. Its id."""
-    from drive import superseded, view
-
+    """Record the drive's decision on the job's question, drawn on his card, as an answer of its own in cc-notes, labelled settled.DECISION_LABEL and under:<his ruling state.UNWAITED_RULING>, and in the drive at its card in the shape `drive answer` keeps his, its card marked settled and nothing else listed, so no job is sent it as his words and the watch owes no mark on it, while `drive answer <its id> --dropped` takes off what its pick rules out and his answer to the same question supersedes it; refused while cc-notes holds another standing answer to that question, which it would supersede. Its id."""
     data = state.load(name)
     cwd = data["roles"]["coordinator"]["cwd"]
-    found = view.live_cards(name)
-    if found is None:
-        raise DriveError("refused, nothing ended: his cards could not be read, so nothing can say what the drive's decision leaves asking him; the watch rereads them every minute, run this again then")
     asked = settled.titled(question["title"])
     if other := next((answer["id"] for answer in settled.listed(f"drive:{name}", cwd) if state.same_question(answer["title"], asked) and settled.plain(settled.his(answer["body"])) != settled.plain(words)), None):
         raise DriveError(f'refused, nothing ended: cc-notes holds answer {other[:7]} to "{render.cut(asked, 120)}", which a decision of the drive would supersede: drive job ask {job_id} --drop {question["file"]} --answer {other[:7]} ends it on that answer')
     decided = settled.recorded(name, question["title"], words, [settled.DECISION_LABEL, f"under:{state.UNWAITED_RULING}"], question["card"], cwd)
 
     def decision_write(data: dict):
-        kept = superseded.record(data, decided, words, question["card"], superseded.asking(data, found, question["card"]), {}, state.stamp(), False)
-        kept["cards"][question["waits"]] = {"mark": "settled", "job": job_id, "card": question["card"]}
+        moment = state.stamp()
+        cards = {question["waits"]: {"mark": "settled", "job": job_id, "card": question["card"]}}
+        data["answers"][decided] = {"words": words, "link": question["card"], "at": moment, "said": moment, "cards": cards, "jobs": {}, "approves": None}
         return data
 
     state.update(name, None, decision_write)
@@ -3769,7 +3765,7 @@ def job_start(args: argparse.Namespace) -> int:
             raise DriveError(f"{args.id}: refused, not started: drive job start starts only a briefed builder, reader or design job on this Mac, and this is a {job['kind']}{' on a Sprite' if job.get('where') == 'remote' else ''}{'' if job.get('brief') else ' with no brief'}")
         if (bg := job.get("bg")) and not agents.gone(bg):
             raise DriveError(f"{args.id}: refused, not started: its start at {bg['started']}, session {bg['session'] or 'not named yet'}, is in flight or at work")
-        if job["agent"] and job["state"] == "running" and state.session_role(data, job.get("session")):
+        if job["agent"] and job["agent"] != (bg or {}).get("agent") and job["state"] == "running" and state.session_role(data, job.get("session")):
             raise DriveError(f"{args.id}: refused, not started: agent {job['agent']} of session {job['session']} runs it")
         _, held = state.holding_role(data, data["orders"][job["order"]])
         if not held.get("session"):
@@ -3800,6 +3796,7 @@ def job_start(args: argparse.Namespace) -> int:
             raise DriveError(f"{args.id}: refused, not started: claude --bg started no agent: {error}") from None
         def job_start_write2(data: dict):
             data["jobs"][args.id]["bg"]["session"] = session
+            data["jobs"][args.id].update(agent=agent, launching=None)
 
         state.update(name, None, job_start_write2)
     return emit(args, f"{args.id} started as agent {agent}, its own claude --bg session {session}: start no agent for it", {"id": args.id, "agent": agent, "session": session})
@@ -4462,14 +4459,14 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
         return restart(args, name, dispatch, orca.LaneEnd(f"{end.why}, and {stale}", end.branch, None, unfit=True), text)
     death = state.lane_death(job, "dispatch") or {}
     left = death.get("unsaved")
-    if (death.get("restored") or end.ended and death.get("ended", {}).get("kept")) and not here and "unresumed" not in death and orca.holds_sprite(job) and (session := orca.session_of(args.id, job["workspace"], dispatch)):
+    if (death.get("restored") or end.ended and death.get("ended", {}).get("kept")) and not here and "unresumed" not in death and orca.holds_sprite(job) and (session := orca.session_of(name, args.id, job["workspace"], dispatch)):
         yield_to_launch(name, args.id)
         try:
             return resume_session(args, name, dispatch, end, message, text, session, root, cause)
         except orca.Unstarted as error:
             unresumed = end._replace(why=f"{end.why}, and its Claude session {session} did not resume on the Sprite kept for it: {error}")
             return restart(args, name, dispatch, orca.died(name, args.id, dispatch, unresumed, unresumed=str(error)), text)
-    if finished and not same and "unresumed" not in death and (session := orca.session_of(args.id, job["workspace"], dispatch)):
+    if finished and not same and "unresumed" not in death and (session := orca.session_of(name, args.id, job["workspace"], dispatch)):
         yield_to_launch(name, args.id)
         try:
             return resume_session(args, name, dispatch, end, message, text, session, root, cause)
@@ -4479,7 +4476,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
             return restart(args, name, dispatch, orca.died(name, args.id, dispatch, unresumed, unresumed=str(error)), text)
     if not (end.worktree or end.live or end.ended or state.on_mac(job)):
         yield_to_launch(name, args.id)
-        if not (here or end.unfit or "unresumed" in death or first and not orca.rebooted(name, args.id, job, dispatch)) and (session := orca.session_of(args.id, job["workspace"], dispatch)):
+        if not (here or end.unfit or "unresumed" in death or first and not orca.rebooted(name, args.id, job, dispatch)) and (session := orca.session_of(name, args.id, job["workspace"], dispatch)):
             yield_to_launch(name, args.id)
             try:
                 return resume_session(args, name, dispatch, end, message, text, session, root, cause)
@@ -4657,7 +4654,7 @@ def slot_hand(args: argparse.Namespace) -> int:
 
 
 def slot_hold(args: argparse.Namespace) -> int:
-    """Hold a staging env's slot for a job or an order until a time, from the top coordinator's session, so the watch gives it to no other job and hands a lease that ends to the one it names; --until with a past time is refused, and --clear drops the hold."""
+    """Hold a staging env's slot for one job until a time, from the top coordinator's session, so the watch gives it to no other job and hands a lease that ends to the one it names; --until with a past time is refused, and --clear drops the hold."""
     name = state.resolve(args.drive)
     if not state.top_coordinator(state.load(name), os.environ.get("CLAUDE_CODE_SESSION_ID")):
         raise DriveError(f"refused: only the top coordinator holds the {args.env} slot")
@@ -4666,8 +4663,8 @@ def slot_hold(args: argparse.Namespace) -> int:
             (data["slots"].get(args.env) or {})["hold"] = None
             line = f"{args.env} holds for no one now"
         else:
-            if args.held not in data["jobs"] and args.held not in data["orders"]:
-                raise DriveError(f"{args.held}: refused, no job or order of this drive")
+            if args.held not in data["jobs"]:
+                raise DriveError(f"{args.held}: refused, no job of this drive: a hold names one job, never an order")
             line = state.slot_hold(data, args.env, args.held, state.parse_time(args.until), args.reason, state.now())
     return emit(args, line, {"env": args.env, "line": line})
 
@@ -6326,7 +6323,7 @@ def status(args: argparse.Namespace) -> int:
     from drive import view
 
     name = state.resolve(args.drive)
-    if args.ids and not (args.full or args.json or args.prs) and all(reads.DRIVE_RECORD.fullmatch(each) and each.startswith("o") for each in args.ids):
+    if args.ids and not (getattr(args, "full", False) or getattr(args, "json", False) or getattr(args, "prs", False)) and all(reads.DRIVE_RECORD.fullmatch(each) and each.startswith("o") for each in args.ids):
         return emit(args, "\n\n".join(order_summary(name, order_id) for order_id in args.ids), {})
     view.refresh_cards(name)
     data = state.load(name)
@@ -7316,9 +7313,9 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("env", help="the staging env")
     verb.add_argument("--job", required=True, help="the job giving it back")
     verb.set_defaults(run=slot_release)
-    verb = slot.add_parser("hold", parents=both, help="hold a staging env's slot for a job or order until a time, from the top coordinator")
+    verb = slot.add_parser("hold", parents=both, help="hold a staging env's slot for one job until a time, from the top coordinator")
     verb.add_argument("env", help="the staging env")
-    verb.add_argument("--for", dest="held", help="the job or order the slot is held for")
+    verb.add_argument("--for", dest="held", help="the job the slot is held for, never an order")
     verb.add_argument("--until", help="when the hold ends, an RFC 3339 time with its offset")
     verb.add_argument("--reason", help="why, in plain words, naming the record that set it")
     verb.add_argument("--clear", action="store_true", help="drop the slot's hold")

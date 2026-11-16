@@ -677,7 +677,16 @@ class Judge:
 @pytest.fixture(autouse=True)
 def judge(monkeypatch: pytest.MonkeyPatch) -> Judge:
     judging = Judge()
-    monkeypatch.setattr(served, "change", lambda key: {"title": f"Fix: {key}", "body": "", "head": card.drive_prs().get(key, ("", {"head": None}))[1]["head"], "diff": b""})
+    monkeypatch.setattr(
+        served,
+        "change",
+        lambda key: {
+            "title": f"Fix: {key}",
+            "body": "",
+            "head": card.drive_prs().get(key, ("", {"head": None}))[1]["head"],
+            "diff": b"".join(b"diff --git a/%s b/%s\n+changed\n" % (item["file"].encode(), item["file"].encode()) for item in judging.against if item["file"]),
+        },
+    )
     monkeypatch.setattr(
         served,
         "judged",
@@ -974,7 +983,7 @@ def kept_logs(monkeypatch: pytest.MonkeyPatch, causes: dict[str, str]) -> list[t
 def runtimes_listening(monkeypatch: pytest.MonkeyPatch) -> dict[str, bool]:
     """Whether anything listens where Orca's runtime serves on each workspace's Sprite, as that Sprite answers over ssh, by workspace; else why ssh got no answer, as from a Sprite whose sshd sends no banner, unless a test puts one."""
     answers: dict[str, bool] = {}
-    monkeypatch.setattr(orca, "runtime_listening", lambda workspace: answers.get(workspace, SILENT_SPRITE))
+    monkeypatch.setattr(orca, "runtime_listening", lambda drive, workspace: answers.get(workspace, SILENT_SPRITE))
     return answers
 
 
@@ -982,7 +991,7 @@ def runtimes_listening(monkeypatch: pytest.MonkeyPatch) -> dict[str, bool]:
 def sessions(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """The Claude session each Sprite answers with for a dead lane's dispatch, by workspace, which a resume of that lane resumes there; none unless a test puts one."""
     held: dict[str, str] = {}
-    monkeypatch.setattr(orca, "session_of", lambda job_id, workspace, dispatch: held.get(workspace))
+    monkeypatch.setattr(orca, "session_of", lambda drive, job_id, workspace, dispatch: held.get(workspace))
     return held
 
 

@@ -2339,12 +2339,12 @@ def test_a_dead_sprites_logs_are_copied_once_and_give_one_cause_line_and_an_unre
     (state.drive_dir(remote) / "jobs").mkdir(exist_ok=True)
     read = []
     nbd = sprite_read(NBD_KERNEL, "2643.94 10230.11\n   2643\n")
-    monkeypatch.setattr(orca, "on_sprite", lambda workspace, command, given, seconds: read.append(workspace) or subprocess.CompletedProcess([], 0, nbd, b""))
+    monkeypatch.setattr(orca, "on_sprite", lambda drive, workspace, command, given, seconds: read.append(workspace) or subprocess.CompletedProcess([], 0, nbd, b""))
     assert REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-nbd"}, DISPATCH) == (NBD_CAUSE, True, True, True)
     assert REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-gone"}, DISPATCH) == (NBD_CAUSE, True, True, True)
     assert (read, orca.death_logs(remote, "j1", DISPATCH).read_text()) == (["pool-nbd"], nbd.decode())
     refused = b"ssh: connect to host pool-asleep port 22: Connection refused\n"
-    monkeypatch.setattr(orca, "on_sprite", lambda workspace, command, given, seconds: subprocess.CompletedProcess([], 255, b"", refused))
+    monkeypatch.setattr(orca, "on_sprite", lambda drive, workspace, command, given, seconds: subprocess.CompletedProcess([], 255, b"", refused))
     assert REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-asleep"}, "ctx_lane0002") == (REFUSED_CAUSE, False, False, False)
     assert orca.death_logs(remote, "j1", "ctx_lane0002").read_text() == "ssh exited 255: ssh: connect to host pool-asleep port 22: Connection refused\n"
 
@@ -2420,14 +2420,14 @@ def test_a_dead_lanes_session_is_the_transcript_on_its_sprite_that_holds_its_dis
     (projects / f"{J2504_SESSION}.jsonl").write_text(f'{{"content":"orca orchestration send --dispatch-id {J2504_DISPATCH}"}}\n')
     (projects / "5d576546-4c87-4a78-94b4-945eb9e49c86.jsonl").write_text('{"content":"orca orchestration send --dispatch-id ctx_other"}\n')
     sprite = {**os.environ, "HOME": str(tmp_path)}
-    monkeypatch.setattr(orca, "on_sprite", lambda workspace, command, given, seconds: subprocess.run(["sh", "-c", command], input=given, capture_output=True, env=sprite, check=False))
-    assert (REAL_SESSION_OF("j1", J2504_SPRITES[1], J2504_DISPATCH), REAL_SESSION_OF("j1", J2504_SPRITES[1], "ctx_never")) == (J2504_SESSION, None)
+    monkeypatch.setattr(orca, "on_sprite", lambda drive, workspace, command, given, seconds: subprocess.run(["sh", "-c", command], input=given, capture_output=True, env=sprite, check=False))
+    assert (REAL_SESSION_OF("demo", "j1", J2504_SPRITES[1], J2504_DISPATCH), REAL_SESSION_OF("demo", "j1", J2504_SPRITES[1], "ctx_never")) == (J2504_SESSION, None)
 
-    def asleep(workspace: str, command: str, given: bytes, seconds: float) -> subprocess.CompletedProcess[bytes]:
+    def asleep(drive: str, workspace: str, command: str, given: bytes, seconds: float) -> subprocess.CompletedProcess[bytes]:
         raise subprocess.TimeoutExpired(command, seconds)
 
     monkeypatch.setattr(orca, "on_sprite", asleep)
-    assert REAL_SESSION_OF("j1", J2504_SPRITES[1], J2504_DISPATCH) is None
+    assert REAL_SESSION_OF("demo", "j1", J2504_SPRITES[1], J2504_DISPATCH) is None
 
 
 def restarted_lane(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sessions: dict[str, str], workspace: str, refusal: orca.OrcaError | None = None) -> list[tuple]:
@@ -2687,7 +2687,7 @@ def test_end_keeps_the_lanes_whole_transcript_through_the_sprites_file_api_befor
     session.write_text(written)
     os.utime(session, (T0.timestamp(), T0.timestamp()))
     monkeypatch.setattr(orca, "keep_transcripts", REAL_KEEP_TRANSCRIPTS)
-    monkeypatch.setattr(orca, "on_sprite", lambda *args: pytest.fail(f"a lane's transcripts are read through the Sprites file API, never over ssh: {args[1]}"))
+    monkeypatch.setattr(orca, "on_sprite", lambda *args: pytest.fail(f"a lane's transcripts are read through the Sprites file API, never over ssh: {args[2]}"))
     monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
     monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: shutil.rmtree(home) or f"destroyed pool-one dispatch {dispatch}")
     with state.edit(remote) as data:
@@ -5954,7 +5954,7 @@ def test_resume_or_launch_after_end_reads_the_end_never_orca_or_the_destroyed_sp
     end_kept = (list(kept_logs), list(kept_transcripts))
     monkeypatch.setattr(orca, "save", lambda *args: pytest.fail("the end already saved this lane's Sprite and recorded what it found"))
     monkeypatch.setattr(orca, "worker", lambda dispatch: pytest.fail("a lane drive job end ended is read from its end, never from Orca"))
-    monkeypatch.setattr(orca, "session_of", lambda job_id, workspace, dispatch: pytest.fail("nothing resumes on the Sprite drive job end destroyed"))
+    monkeypatch.setattr(orca, "session_of", lambda drive, job_id, workspace, dispatch: pytest.fail("nothing resumes on the Sprite drive job end destroyed"))
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a lane whose Sprite is gone: {args}"))
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: FRESH_RUN)
     launched = {}
@@ -6542,8 +6542,8 @@ def test_an_answer_goes_whole_while_its_relay_message_counted_as_orca_counts_it_
     assert len(answer.encode()) == size
     assert orca.relay_bytes("relay_4ee9b39cd0c6", answer) == relayed
     placed = []
-    monkeypatch.setattr(orca, "put_on_sprite", lambda workspace, folder, name, text: placed.append(name) or f"/home/sprite/{folder}/{name}")
-    said = orca.sprite_answer(answer, {"route": None, "workspace": "pool-one"}, "relay_4ee9b39cd0c6")
+    monkeypatch.setattr(orca, "put_on_sprite", lambda drive, workspace, folder, name, text: placed.append(name) or f"/home/sprite/{folder}/{name}")
+    said = orca.sprite_answer("demo", answer, {"route": None, "workspace": "pool-one"}, "relay_4ee9b39cd0c6")
     assert (said, placed) == ((kept_on_sprite("relay_4ee9b39cd0c6", answer), ["relay_4ee9b39cd0c6.txt"]) if filed else (answer, []))
 
 
@@ -6557,7 +6557,7 @@ def test_an_answer_past_one_relay_message_its_lanes_sprite_cannot_take_tells_its
     refused = "writing .local/state/long-running/answers/relay_long.txt onto pool-one exited 255: ssh: connect to host pool-one port 22: Connection refused"
     calls = []
 
-    def put(workspace: str, folder: str, name: str, text: bytes) -> str:
+    def put(drive: str, workspace: str, folder: str, name: str, text: bytes) -> str:
         calls.append(("put", name))
         raise orca.Unfit(refused)
 
@@ -6587,7 +6587,7 @@ def test_a_slack_read_a_sprite_lane_asks_runs_this_macs_cc_slack_and_reaches_its
     printed = '{"blocks": "' + "b" * (size - 14) + '"}'
     ran, placed, replies = [], [], []
     monkeypatch.setattr(reads, "run", lambda argv, checkout: ran.append(argv) or f"{printed}\n")
-    monkeypatch.setattr(orca, "put_on_sprite", lambda workspace, folder, name, text: placed.append((workspace, text)) or f"/home/sprite/{folder}/{name}")
+    monkeypatch.setattr(orca, "put_on_sprite", lambda drive, workspace, folder, name, text: placed.append((workspace, text)) or f"/home/sprite/{folder}/{name}")
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(workspace="pool-one")
@@ -8398,24 +8398,33 @@ def test_placing_tools_on_a_sprite_runs_the_orca_step_on_its_cc_remote_task_with
 
 
 def test_a_sprite_says_whether_anything_listens_on_the_port_its_cc_remote_task_runs_orcas_runtime_on_and_why_when_it_does_not_answer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     workspace, dispatch, port = J982_10
     monkeypatch.setattr(orca, "CC_REMOTE_TASKS", tmp_path)
-    (tmp_path / f"{workspace}.json").write_text(json.dumps({"port": port, "forward": {"host": workspace, "config": "/ssh/j982-10.ssh"}}))
-    answers = [(0, b"", b""), (0, f"LISTEN 0 4096 127.0.0.1:{port} 0.0.0.0:*\n".encode(), b""), (255, b"", b"Connection timed out during banner exchange\r\n"), None]
+    (tmp_path / f"{workspace}.json").write_text(json.dumps({"port": port, "machine": workspace, "forward": {"host": workspace, "config": "/ssh/j982-10.ssh"}}))
+    root = tmp_path / "drive-demo"
+    root.mkdir()
+    (root / ".orca.json").write_text(json.dumps({"ccRemote": "cc-remote", "ccRemoteConfig": "config.yaml"}))
+    monkeypatch.setattr(orca, "checkout", lambda drive, clone: root)
+    monkeypatch.delenv("WORKER_CC_REMOTE", raising=False)
+    listening = f"LISTEN 0 4096 127.0.0.1:{port} 0.0.0.0:*\n".encode()
+    banner = (255, b"", b"Connection timed out during banner exchange\r\n")
+    answers = [(0, b"", b""), (0, listening, b""), banner, (0, listening, b""), banner, (255, b"", b"Error: sprite exec: connection refused\n"), None]
     ran = []
 
-    def ssh(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
-        ran.append((argv[:3], argv[-2:]))
+    def run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        ran.append(argv[:3])
         if not (answer := answers[len(ran) - 1]):
             raise subprocess.TimeoutExpired(argv, orca.CALL_SECONDS)
         return subprocess.CompletedProcess(argv, answer[0], stdout=answer[1], stderr=answer[2])
 
-    monkeypatch.setattr(orca.subprocess, "run", ssh)
-    assert [RUNTIME_LISTENING(workspace) for _ in answers] == [False, True, SILENT_SPRITE, f"ssh to it ran past {orca.CALL_SECONDS} s"]
-    assert ran == [(["ssh", "-F", "/ssh/j982-10.ssh"], [workspace, f"ss -Hltn 'sport = :{port}'"])] * 4
-    assert RUNTIME_LISTENING("pool-unrecorded") == "cc-remote records no task for it"
+    monkeypatch.setattr(orca.subprocess, "run", run)
+    said = [RUNTIME_LISTENING(remote, workspace) for _ in range(5)]
+    assert said == [False, True, True, "ssh exited 255: Error: sprite exec: connection refused", f"ssh to it ran past {orca.CALL_SECONDS} s"]
+    ssh, step = ["ssh", "-F", "/ssh/j982-10.ssh"], ["cc-remote", "step", workspace]
+    assert ran == [ssh, ssh, ssh, step, ssh, step, ssh]
+    assert RUNTIME_LISTENING(remote, "pool-unrecorded") == "cc-remote records no task for it"
 
 
 def test_putting_a_file_on_a_sprite_sends_it_through_ssh_stdin_and_returns_the_path_only_when_the_sprite_kept_those_bytes(
@@ -8433,10 +8442,39 @@ def test_putting_a_file_on_a_sprite_sends_it_through_ssh_stdin_and_returns_the_p
         return subprocess.CompletedProcess(argv, 0, stdout=f"{kept[len(ran) - 1]}  {path}\n".encode(), stderr=b"")
 
     monkeypatch.setattr(orca.subprocess, "run", ssh)
-    assert orca.put_on_sprite("pool-one", orca.SPRITE_ANSWERS, "msg_1.txt", text) == path
+    assert orca.put_on_sprite("demo", "pool-one", orca.SPRITE_ANSWERS, "msg_1.txt", text) == path
     assert ran == [(["ssh", "-F", "/ssh/pool-one.ssh"], "pool-one", text)]
     with pytest.raises(orca.Unfit, match="^writing .local/state/long-running/answers/msg_1.txt onto pool-one exited 0: "):
-        orca.put_on_sprite("pool-one", orca.SPRITE_ANSWERS, "msg_1.txt", text)
+        orca.put_on_sprite("demo", "pool-one", orca.SPRITE_ANSWERS, "msg_1.txt", text)
+
+
+def test_a_file_whose_ssh_forward_reads_unknown_port_65535_goes_on_its_sprite_through_cc_remote_step_from_the_drives_checkout(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(orca, "CC_REMOTE_TASKS", tmp_path)
+    (tmp_path / "pool-one.json").write_text(json.dumps({"machine": "pool-one", "forward": {"host": "pool-one", "config": "/ssh/pool-one.ssh"}}))
+    root = tmp_path / "drive-demo"
+    root.mkdir()
+    (root / ".orca.json").write_text(json.dumps({"ccRemote": "tools/cc-remote/bin/cc-remote", "ccRemoteConfig": "tools/cc-remote/config.yaml"}))
+    monkeypatch.setattr(orca, "checkout", lambda drive, clone: root)
+    monkeypatch.delenv("WORKER_CC_REMOTE", raising=False)
+    monkeypatch.delenv("CC_REMOTE_CONFIG", raising=False)
+    text = b"j6316's fde-scan report\n" * 4096
+    path = "/home/sprite/.local/state/long-running/answers/msg_1.txt"
+    ran = []
+
+    def run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        ran.append((argv[:3], argv[-1].partition("\n")[0], kwargs.get("cwd"), (kwargs.get("env") or {}).get("CC_REMOTE_CONFIG"), kwargs["input"]))
+        if argv[0] == "ssh":
+            return subprocess.CompletedProcess(argv, 255, stdout=b"", stderr=b"Connection to UNKNOWN port 65535 timed out\r\n")
+        return subprocess.CompletedProcess(argv, 0, stdout=f"{hashlib.sha256(text).hexdigest()}  {path}\n".encode(), stderr=b"")
+
+    monkeypatch.setattr(orca.subprocess, "run", run)
+    assert orca.put_on_sprite(remote, "pool-one", orca.SPRITE_ANSWERS, "msg_1.txt", text) == path
+    assert ran == [
+        (["ssh", "-F", "/ssh/pool-one.ssh"], 'mkdir -p "$HOME/.local/state/long-running/answers" && cat >"$HOME/.local/state/long-running/answers/msg_1.txt" && sha256sum "$HOME/.local/state/long-running/answers/msg_1.txt"', None, None, text),
+        (["tools/cc-remote/bin/cc-remote", "step", "pool-one"], "exec 2>/dev/null", root, str(root / "tools/cc-remote/config.yaml"), text),
+    ]
 
 
 def test_an_answer_past_one_relay_message_goes_as_the_file_it_was_kept_in_on_the_lanes_sprite_after_its_exit_line_and_a_mac_one_goes_whole(
@@ -8444,7 +8482,7 @@ def test_an_answer_past_one_relay_message_goes_as_the_file_it_was_kept_in_on_the
 ) -> None:
     placed = []
 
-    def put(workspace: str, folder: str, name: str, text: bytes) -> str:
+    def put(drive: str, workspace: str, folder: str, name: str, text: bytes) -> str:
         placed.append((workspace, folder, name, text))
         if workspace == "pool-gone":
             raise orca.Unfit("no Sprite")
@@ -8456,18 +8494,18 @@ def test_an_answer_past_one_relay_message_goes_as_the_file_it_was_kept_in_on_the
     sprite = {"route": None, "workspace": "pool-one"}
     long = "drive exited 3\n" + "x" * orca.RELAY_BYTES
     digest = hashlib.sha256(long.encode()).hexdigest()
-    assert orca.sprite_answer(long, sprite, "msg_1") == (
+    assert orca.sprite_answer("demo", long, sprite, "msg_1") == (
         "drive exited 3\ndrive answer kept on this Sprite: /home/sprite/.local/state/long-running/answers/msg_1.txt"
         f" ({len(long)} bytes, SHA-256 {digest}); read it in full\n"
     )
     assert placed == [("pool-one", ".local/state/long-running/answers", "msg_1.txt", long.encode())]
-    assert orca.sprite_answer("LOG x: " + "y" * orca.RELAY_BYTES, sprite, "msg_2").startswith("drive answer kept on this Sprite: ")
-    assert orca.sprite_answer("drive exited 0\nshort", sprite, "msg_3") == "drive exited 0\nshort"
-    assert orca.sprite_answer(long, {"route": state.LOCAL_ROUTE, "workspace": None}, "msg_4") == long
+    assert orca.sprite_answer("demo", "LOG x: " + "y" * orca.RELAY_BYTES, sprite, "msg_2").startswith("drive answer kept on this Sprite: ")
+    assert orca.sprite_answer("demo", "drive exited 0\nshort", sprite, "msg_3") == "drive exited 0\nshort"
+    assert orca.sprite_answer("demo", long, {"route": state.LOCAL_ROUTE, "workspace": None}, "msg_4") == long
     with pytest.raises(orca.Unfit, match="^no Sprite$"):
-        orca.sprite_answer(long, {"route": None, "workspace": "pool-gone"}, "msg_5")
+        orca.sprite_answer("demo", long, {"route": None, "workspace": "pool-gone"}, "msg_5")
     with pytest.raises(orca.OrcaError, match="^writing .local/state/long-running/answers/msg_6.txt onto pool-unrecorded: "):
-        orca.sprite_answer(long, {"route": None, "workspace": "pool-unrecorded"}, "msg_6")
+        orca.sprite_answer("demo", long, {"route": None, "workspace": "pool-unrecorded"}, "msg_6")
     assert len(placed) == 4
 
 
