@@ -274,6 +274,29 @@ def test_a_question_about_another_job_or_another_resumes_words_is_not_about_the_
     assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command='drive job resume j1 "Rebase it on dev"; drive job resume j1 "Are you stuck?"')).startswith("A message that tells j1 ")
 
 
+def test_his_words_quoted_about_another_session_stopping_are_no_claim_about_the_job(demo: str, builder: Callable[..., None], tmp_path: Path) -> None:
+    builder(where="remote", dispatch="ctx_434f19eaec28", agent=None, state="running")
+    with state.edit(demo) as data:
+        data["jobs"]["j296"] = dict(data["jobs"]["j1"])
+    sent = (
+        "Read cci record 725088 whole (meta@durable-agents, 7:53 PM) and fold it into your Researched: block: the stuck mechanism is Claude Code's"
+        " /rate-limit-options menu, which no record, SendMessage or /mcp reconnect gets past and Esc plus a typed resume prompt in its tmux pane did;"
+        " agents whose last output is the limit line stay listed running; a promised line needs a non-Claude path while Claude is limited; Sprite lanes"
+        " share the account's limit; a mass resume should stagger. His words on durable-agents' o2210 (7:52 PM, thread 1794800133.165159), which o107"
+        ' carries: "Fix the tooling that caused this to get stuck and caused you to stop responding"; earlier, 7:36 PM: "You said next line by 5:50'
+        ' it\'s 7pm what happened? Not acceptable that you stopped" and "Hello? Why no rewponse?". j297\'s PR and proof name durable-agents\' o2210,'
+        " which closes on o107's installed fix."
+    )
+    escaped = sent.replace('"', '\\"')
+    for relayed in (f'drive job resume j296 "{escaped}"', f"drive job resume j296 - <<'EOF'\n{sent}\nEOF", f"drive job resume j296 '{sent.replace(chr(39), '')}'"):
+        assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=relayed)) is None, relayed
+    for own in ('drive job resume j296 "you stopped"', "drive job resume j296 - <<'EOF'\nyou stopped\nEOF", 'drive job resume j296 "His words: \\"fix it\\". You stopped."'):
+        assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=own)).startswith("A message that tells j296 it stopped"), own
+    builder(where="local", dispatch=None, agent="a-7")
+    assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message=sent)) is None
+    assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="you stopped")).startswith("A message that tells j1 it stopped")
+
+
 def test_the_coordinators_message_quoting_when_past_work_happened_goes_out_since_it_never_reaches_him(
     demo: str, builder: Callable[..., None], tmp_path: Path
 ) -> None:
