@@ -839,10 +839,10 @@ def reclaim(run: str, dispatch: str, checkout: Path) -> str:
     return reclaimer(checkout, "--run", run, "--done", dispatch, seconds=RECLAIM_SECONDS)
 
 
-def release(drive: str, job_id: str, job: dict, checkout: Path) -> str:
-    """Destroy the Sprite at the job's workspace, with its Orca environment and forward, once the reclaimer's --destroy has saved what it holds on no remote to GitHub as save does, never one whose checkout ssh cannot read, which is kept: what it saved and destroyed; OrcaError naming why its checkout could not be read, the save failed, what it still holds, or cc-remote's refusal, which keeps it, or that cc-remote records no such Sprite, so nothing was destroyed."""
-    state.said(job_id, f"it destroys Sprite {job['workspace']} with {RECLAIMER} --destroy, for at most {RECLAIM_SECONDS} s")
-    return reclaimer(checkout, "--destroy", job["workspace"], lane_of(drive, job_id, job), seconds=RECLAIM_SECONDS)
+def release(drive: str, job_id: str, job: dict, checkout: Path, unverified: bool = False) -> str:
+    """Destroy the Sprite at the job's workspace, with its Orca environment and forward, once the reclaimer's --destroy has saved what it holds on no remote to GitHub as save does, never one whose checkout ssh cannot read, which is kept: what it saved and destroyed; OrcaError naming why its checkout could not be read, the save failed, what it still holds, or cc-remote's refusal, which keeps it, or that cc-remote records no such Sprite, so nothing was destroyed. Unverified, the reclaimer destroys it unread, which only cli.last_reclaim asks, once a restore did not make it answer and GitHub holds what its lane pushed."""
+    state.said(job_id, f"it destroys Sprite {job['workspace']} with {RECLAIMER} --destroy{' --unverified' if unverified else ''}, for at most {RECLAIM_SECONDS} s")
+    return reclaimer(checkout, "--destroy", job["workspace"], lane_of(drive, job_id, job), *(("--unverified",) if unverified else ()), seconds=RECLAIM_SECONDS)
 
 
 def disk_read(root: Path, workspace: str) -> tuple[int, dict[str, list[str]]]:

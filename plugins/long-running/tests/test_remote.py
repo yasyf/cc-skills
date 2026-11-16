@@ -5739,13 +5739,47 @@ def test_reclaim_never_destroys_a_sprite_whose_work_it_cannot_read_and_marks_it_
         data["jobs"]["j1"].update(state="waiting", workspace="pool-new", deaths=left)
     monkeypatch.setattr(orca, "KEPT_SPRITES", tmp_path / "kept")
 
-    def unread(drive: str, job_id: str, job: dict, root: Path) -> str:
+    def unread(drive: str, job_id: str, job: dict, root: Path, unverified: bool = False) -> str:
         raise orca.OrcaError("orca-reclaim.py exited 1: ssh gave no answer, even after a revive")
 
     monkeypatch.setattr(orca, "release", unread)
+    monkeypatch.setattr(orca, "revive", lambda root, workspace: pytest.fail("a first failed reclaim restores nothing"))
     assert run("job", "reclaim", "j1", "pool-old")[0] != 0
     assert (tmp_path / "kept" / "pool-old").exists()
     assert state.death_on(state.load(remote)["jobs"]["j1"], "pool-old")["kept"]
+
+
+@pytest.mark.parametrize(("answers", "pushed", "report", "outcome"), [(True, False, "", "saved"), (False, True, "DONE all pushed", "unverified"), (False, False, "DONE all pushed", "kept"), (False, True, "BLOCKED: 2 commits unpushed", "kept")], ids=["restore-answers", "pushed-and-clean", "branch-missing", "report-names-unpushed"])
+def test_a_second_failed_reclaim_restores_the_sprite_once_and_destroys_it_unread_only_when_github_holds_the_jobs_branch_and_its_report_names_nothing_unpushed(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answers: bool, pushed: bool, report: str, outcome: str
+) -> None:
+    cloned(tmp_path, remote)
+    left = [{"dispatch": None, "workspace": "pool-old", "why": "its worker exited", "at": state.stamp(T0), "kept": state.stamp(T0)}]
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="waiting", workspace="pool-new", deaths=left, branch="durable-agents-j1/fix")
+    monkeypatch.setattr(orca, "KEPT_SPRITES", tmp_path / "kept")
+    restored, destroyed = [], []
+
+    def release(drive: str, job_id: str, job: dict, root: Path, unverified: bool = False) -> str:
+        if unverified:
+            destroyed.append(job["workspace"])
+            return f"destroyed {job['workspace']} unverified"
+        if answers and restored:
+            return f"destroyed {job['workspace']}"
+        raise orca.OrcaError("orca-reclaim.py exited 1: cc-remote step on pool-old gave no answer in 240 s")
+
+    monkeypatch.setattr(orca, "release", release)
+    monkeypatch.setattr(orca, "revive", lambda root, workspace: restored.append(workspace) or f"revived {workspace}")
+    monkeypatch.setattr(github, "branch_heads", lambda heads: dict.fromkeys(heads, "4d5e6f7081" if pushed else None))
+    monkeypatch.setattr(state, "report_text", lambda name, job_id, every=True: report)
+    code, out = run("job", "reclaim", "j1", "pool-old")
+    death = state.death_on(state.load(remote)["jobs"]["j1"], "pool-old")
+    assert restored == ["pool-old"]
+    assert (code == 0, destroyed, death.get("reclaim_fails")) == {
+        "saved": (True, [], None),
+        "unverified": (True, ["pool-old"], None),
+        "kept": (False, [], 2),
+    }[outcome]
 
 
 def test_a_running_job_on_this_mac_has_each_lane_a_relaunch_left_reclaimed_once_quiet_never_its_current_one(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
