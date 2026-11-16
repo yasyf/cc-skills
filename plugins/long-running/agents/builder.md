@@ -4,7 +4,7 @@ description: Use when a long-running drive's coordinator, or its meta session fo
 model: opus
 effort: high
 background: true
-autoCompactWindow: 300000
+autoCompactWindow: 350000
 disallowedTools: Agent, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_long-running_drive__say, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_delete, mcp__plugin_cc-slack_cc-slack__slack_stream, mcp__plugin_cc-slack_cc-slack__slack_pickup
 ---
 
