@@ -659,7 +659,17 @@ function decisionCard(item, at, total, embedded = '') {
   const action = given?.done ? `<p class="answered">✓ ${esc(given.label)}</p>` : `<div class="story-action"><button class="btn" data-story-review="${esc(key)}"${given && !given.error ? ' disabled' : ''}>Review this choice <kbd>↵</kbd></button><small>Choose first. Review before sending.</small>${given?.error ? `<p role="alert">${esc(given.error)}</p>` : ''}</div>`;
   const lab = `<div class="story-lab">${options}${action}${outcome}<button class="linkish" data-story-compare="${esc(key)}" aria-expanded="${state.compare}">${state.compare ? 'Close comparison' : 'Compare every path'}</button>${state.compare ? table([['Path', 'What changes', ...story.options[0].metrics.map((metric) => metric.label)], ...story.options.map((choice) => [choice.title, choice.consequence, ...choice.metrics.map((metric) => metric.value)])]) : ''}</div>`;
   const interview = `<div class="story-interview"><div class="story-steps" aria-label="Step ${state.step + 1} of 2"><span class="on">1 · Your priority</span><span class="${state.step ? 'on' : ''}">2 · Your path</span></div>${state.step ? `<button class="linkish" data-story-back="${esc(key)}">← Change my priority</button>${outcome}${action}` : `<h3>${esc(story.ask)}</h3><div class="story-options">${story.options.map((choice, i) => `<button class="story-option" data-story-priority="${i}" data-story-card="${esc(key)}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.priority)}</strong><small>${esc(choice.title)}</small></span><span aria-hidden="true">→</span></button>`).join('')}</div>`}</div>`;
+  const call = story.format === 'lab' ? lab : story.format === 'interview' ? interview : `<div class="story-cockpit">${options}<div>${outcome}${action}</div></div>`;
+  if (story.lead) return `<div class="queue-layout story-layout told-first"><article class="focus-card decision-story ${story.format}" aria-labelledby="item-title" tabindex="-1" data-story="${esc(key)}" data-format="${story.format}"><div class="card-content"><div class="card-top"><span class="type-label">Decision</span>${cardTop(item.tasks, at, total, embedded)}</div><h2 class="card-title" id="item-title">${esc(story.headline)}</h2>${story.needs_him ? `<p class="card-glance"><b>${esc(NEEDS_LABEL.get(story.needs_him))}</b>${story.waits ? ` · ${esc(story.waits)}` : ''}</p>` : ''}${toldSections(story.lead, [['What it does today', story.now.text, story.now.sketch]], story.matters)}${restored.has(key) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : ''}<h3 class="eyebrow ch-call">Your call</h3>${call}<details class="told-more"><summary>What happened, step by step, and the evidence</summary>${decisionChapters(item, key, story, state, cause)}</details><details class="told-more"><summary>Why it ranks here, ask a question first, or read the card as written</summary>${decisionRail(item)}</details></div></article></div>`;
   return `<div class="queue-layout story-layout"><article class="focus-card decision-story ${story.format}" aria-labelledby="item-title" tabindex="-1" data-story="${esc(key)}" data-format="${story.format}"><div class="card-content"><div class="card-top"><span class="type-label">${{ cockpit: 'Decision', lab: 'Decision: compare the paths', interview: 'Decision: what matters most' }[story.format]}</span>${cardTop(item.tasks, at, total, embedded)}</div><h2 class="card-title" id="item-title">${esc(story.headline)}</h2>${story.needs_him || story.waits ? `<p class="card-glance">${story.needs_him ? `<b>${esc(NEEDS_LABEL.get(story.needs_him))}</b>` : ''}${story.needs_him && story.waits ? ' · ' : ''}${story.waits ? esc(story.waits) : ''}</p>` : ''}${decisionChapters(item, key, story, state, cause)}${restored.has(key) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : ''}<h3 class="eyebrow ch-call">Your call</h3>${story.format === 'lab' ? lab : story.format === 'interview' ? interview : `<div class="story-cockpit">${options}<div>${outcome}${action}</div></div>`}</div></article>${decisionRail(item)}</div>`;
+}
+
+function toldSections(lead, sections, matters, closing = []) {
+  const sketch = (code) => (code ? `<pre class="told-sketch"><code>${esc(code)}</code></pre>` : '');
+  const parts = sections.filter(([, text]) => text).map(([label, text, code]) => `<p><b>${esc(label)}:</b> ${esc(text)}</p>${sketch(code)}`);
+  const why = matters?.mechanism ? `<p><b>Why it matters:</b> ${esc(matters.mechanism)}</p>${matters.consequences.length ? `<ul>${matters.consequences.map((each) => `<li>${esc(each)}</li>`).join('')}</ul>` : ''}` : '';
+  const last = closing[1] ? `<p><b>${esc(closing[0])}:</b> ${esc(closing[1])}</p>` : '';
+  return `<p class="card-lead">${esc(lead)}</p><section class="told">${parts.join('')}${why}${last}</section>`;
 }
 
 function reviewDecision(key) {
@@ -873,6 +883,20 @@ function prCard(item, at, total, embedded = '') {
   const stack = rows.length > 1 ? `<p class="spot-head stack-head">Approve lands these ${rows.length} together, bottom first</p><ol class="stack" aria-label="The PRs on this card, in the order they land">${rows.map((each, i) => stackRow(each, i, i === chosen, key)).join('')}</ol>` : '';
   const tabs = PR_TABS.map(([id, label]) => `<button role="tab" class="${id === tab ? 'on' : ''}" aria-selected="${id === tab}" data-prtab="${id}" data-item="${esc(key)}">${label}</button>`).join('');
   const panes = PR_TABS.map(([id]) => `<div class="pr-pane ${id}" role="tabpanel"${id === tab ? '' : ' hidden'}>${prPane(id, row, pr, head, read, embedded)}</div>`).join('');
+  const written = told?.story;
+  if (written?.lead) return `<div class="pr-layout told-first" data-read="${esc(pr)}" data-head="${esc(head)}">
+    <article class="focus-card pr-card" aria-labelledby="item-title" tabindex="-1">
+      <div class="card-content">
+        <div class="card-top"><span class="type-label">Pull request <a href="${esc(row.url)}" target="_blank" rel="noopener" data-github data-tip="Open it on GitHub"${embedded ? '' : ' data-key="o"'}>${esc(pr)}</a></span>${cardTop(entry ? [entry.feature] : [], at, total, embedded)}</div>
+        <h2 class="card-title" id="item-title">${esc(title)}</h2>
+        ${cardGlance(entry, row)}
+        ${toldSections(written.lead, [['What it does', written.does.text, written.does.sketch], ["What's decided", written.decided]], written.matters, ['Before you approve', written.check])}
+      </div>
+      <div class="pr-actions">${choices(item, !embedded)}${rows.filter((each) => each.state === 'open').length > 1 ? `<span class="meta">Approve lands all ${rows.filter((each) => each.state === 'open').length} open PRs, bottom first</span>` : ''}</div>
+      <details class="told-more"><summary>The change file by file, its tests and history</summary><div class="card-content">${walk}${stack}</div><div class="pr-tabs" role="tablist" aria-label="About this change">${tabs}</div>${panes}</details>
+      <details class="told-more"><summary>Comment on a line, or tell the drive what to change</summary>${prRail(item, key, rows, row, pr, head, read, embedded)}</details>
+    </article>
+  </div>`;
   return `<div class="pr-layout" data-read="${esc(pr)}" data-head="${esc(head)}">
     <article class="focus-card pr-card" aria-labelledby="item-title" tabindex="-1">
       <div class="card-content">

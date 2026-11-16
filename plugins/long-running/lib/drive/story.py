@@ -24,7 +24,35 @@ EFFORT = (
     ' understand, by his words "this context is still not sufficient but is the closest thing, and i had to navigte to context and then'
     ' uncollapse the whole description just to even see it". Use the card\'s own facts, numbers, systems and PRs, and never add one it does not hold.'
 )
+EXEMPLAR = """Yasyf asked me to walk through his point about agent inboxes, using your PR as the example.
+
+*What your task-tracker PR does:* when someone answers a task, the api sends a message to the agent that filed it:
+
+```
+// api, at the end of answering a task
+mailAnswer(task):
+  if task.author is a cloud agent:
+    sendToCloudAgent(task.author, kind: "task", "PER-12 answered by Dana")
+```
+
+*What we want instead:* the agent waits for its own answer, with the call it uses to wait for any change. The api knows nothing about agents.
+
+*Why it matters:* an agent waits in only three ways: suspend, sleep and watch. Mailing the filer adds a fourth, private path, and it shows in the PR:
+- a new message kind, `task` rows
+- a send-route rule refusing `task` rows from anyone else
+- answering a task now waits on that send
+
+*A test for next time:* before adding a new way to reach an agent, ask which of send, suspend, sleep or watch already does it."""
+TASTE = f"""He holds every card to this post of his, which reads well because it opens on one line saying who it is for and why, says what the code does in one plain sentence with a sketch of a few lines, then what we want instead or what is decided, then why it matters as the mechanism with three concrete consequences, and ends on one test or takeaway; every section leads with a few bold words, it names no id, sha, job or internal state, and a reader new to the work follows it:
+
+<his_post>
+{EXEMPLAR}
+</his_post>
+
+Write the card's first fields the way that post is written. They are what he sees; everything else on the card folds behind a disclosure he opens only to check a detail."""
 QUESTION_RULES = f"""You write the story of one decision card for the dashboard's decision view, where he, the owner, decides it, and which he wants to feel "almost like a mini applet focused on helping you make the clearest and easiest possible decisoin, with no distractions amd things gradually revealed as you need them / request them". {EFFORT}
+
+{TASTE}
 
 <card> holds the card as its job asked it: its question, its body, its options in order, the recommended one, and each option's description where it has one.
 
@@ -35,6 +63,9 @@ Pick the format deciding it takes, never by how many options it has, by his word
 
 Then tell its story:
 - headline: the decision itself, a plain question or statement of at most 90 characters.
+- lead: two or three plain sentences he reads first, the post's opening line and first section in one: who this decision is for and why it is his, what happens now, and what his pick changes.
+- now: what it does today, as the post's first section: `text` one plain sentence on what the code or system does now that this decision turns on; `sketch` at most eight lines of code or pseudo-code showing it, as the post sketches, or empty when no code is involved.
+- matters: why it matters, as the post's section: `mechanism` one or two sentences on the mechanism; `consequences` exactly three short concrete consequences of it, each a few words to one sentence.
 - beats: what happened, as two to four short steps in the order they happened, never paragraphs: each `label` a few words naming the step, such as "Staging test failed" or "Your pick waits"; `text` one short sentence on that step, where the card shows evidence saying what it shows; `when` the time or day the card gives for that step, as it writes it, such as "Nov 15, 9 PM" or "this morning", empty when it gives none; `picture` the path of the image in the card's body that shows that step, exactly as the body writes it, empty when none does. The last step says what turns on his pick.
 - options: one for each option of the card, in its order: `title` at most six words naming the path; `consequence` one or two sentences on what is true once he picks it; `after` one sharp sentence on what happens right after he picks it: what the drive does next and when he will hear, from the card's own facts, such as "The builder merges it tonight; you hear when it is live on staging, about an hour later"; `metrics` its lab values, each `label` the same across the options and each `value` a few words from the card, none outside a lab; `priority` the words of the priority it serves in an interview, empty outside one.
 - ask: an interview's question on his priority, empty outside an interview.
@@ -44,22 +75,34 @@ Then tell its story:
 - waits: what waits on his answer, in actions a user of the product or the drive would see and for how long, such as "New chats stop being searchable until you answer; about 40 a day queue up", never code paths, by his words on a card about a lock: "is this all row writes? if so do 2. if its only creation of dbs etc then do 1. this was not clear at all"; one sentence, empty when nothing waits."""
 CHANGE_RULES = f"""You write the interactive story of one pull request card for the dashboard, which he walks chapter by chapter to decide whether to approve it to land: the problem, the change file by file, what it does at runtime, the evidence, then his choice. His words on the cards: "these also need to tell an interactive story, as do the decision cards, to help make decisions and review the changes", and on a card that failed him: "has a lot of facts but is compeltely useless for me figuring ut if I want to meg eit or not, I have no idea why were doing this change, what it does, or what the downstream impacts of it are", and on another that never said where it was tested: "IS THIS FUCKING TRSTED ON STSGIGN WHY DO I HAVE TI KEEO ASKING". {EFFORT}
 
+{TASTE}
+
 <order> holds his words the change serves; <change> its title, the lead its builder wrote, its state and its description; <diff> its changed files, each hunk numbered as [hunk N] within its file, from 0.
 
 Tell its story:
 - headline: what the change does for him, a plain statement of at most 90 characters.
+- lead: two or three plain sentences he reads first, the post's opening line and first section in one: who the change is for and why, what it does, and what his Approve decides.
+- does: what it does, as the post's first section: `text` one plain sentence; `sketch` at most eight lines of code or pseudo-code showing the change, as the post sketches, or empty when a sketch adds nothing.
+- decided: one or two sentences on what we want instead of today's behavior, or what the change decides, as the post's second section.
+- matters: why it matters: `mechanism` one or two sentences on the mechanism; `consequences` exactly three short concrete consequences of it.
+- check: one sentence, the post's closing test: where it was tested and what that proved, or the one thing he should check before approving.
 - problem: `who` names in a few words who feels the problem, such as "customers whose chats fail to load" or "you, approving PRs"; `text` says in one or two sentences what goes wrong today without this change.
 - hunks: the why of each hunk that matters, in the diff's order: `file` its path exactly as <diff> names it, `hunk` its number, `why` one sentence on why this hunk changes what it does and what that buys, in plain words, never a restatement of the code; leave out lockfiles, generated files, renames and formatting; at most 30.
 - runtime: what it does when it runs: `before` and `after` one or two concrete sentences each on what a user, a service or the drive sees before and after; `diagram` a Mermaid flowchart of the path after the change when a picture makes it clearer, its node labels plain words, never an id, else empty.
 - tested: one or two sentences on where it was tested, on staging, elsewhere or not at all, and what that proved, as its description and state say, saying so when they do not.
 - approve: one or two sentences on what happens once he taps Approve: when it lands and ships and who sees the change.
 - hold: one or two sentences on what stays true while he holds it."""
+SKETCHED = {"type": "object", "properties": {"text": {"type": "string"}, "sketch": {"type": "string"}}, "required": ["text", "sketch"]}
+MATTERS = {"type": "object", "properties": {"mechanism": {"type": "string"}, "consequences": {"type": "array", "items": {"type": "string"}}}, "required": ["mechanism", "consequences"]}
 NEEDS_HIM = ("dangerous act", "customer data", "money", "his hands", "his own words", "only he knows")
-QUESTION_VERSION = 5
+QUESTION_VERSION = 6
 QUESTION = {
     "type": "object",
     "properties": {
         "format": {"enum": ["cockpit", "lab", "interview"]},
+        "lead": {"type": "string"},
+        "now": SKETCHED,
+        "matters": MATTERS,
         "headline": {"type": "string"},
         "beats": {"type": "array", "items": {"type": "object", "properties": {"label": {"type": "string"}, "text": {"type": "string"}, "when": {"type": "string"}, "picture": {"type": "string"}}, "required": ["label", "text", "when", "picture"]}},
         "ask": {"type": "string"},
@@ -82,13 +125,18 @@ QUESTION = {
             },
         },
     },
-    "required": ["format", "headline", "beats", "ask", "needs_him", "waits", "today", "diagram", "options"],
+    "required": ["format", "headline", "lead", "now", "matters", "beats", "ask", "needs_him", "waits", "today", "diagram", "options"],
 }
-CHANGE_VERSION = 2
+CHANGE_VERSION = 3
 CHANGE = {
     "type": "object",
     "properties": {
         "headline": {"type": "string"},
+        "lead": {"type": "string"},
+        "does": SKETCHED,
+        "decided": {"type": "string"},
+        "matters": MATTERS,
+        "check": {"type": "string"},
         "problem": {"type": "object", "properties": {"who": {"type": "string"}, "text": {"type": "string"}}, "required": ["who", "text"]},
         "hunks": {"type": "array", "items": {"type": "object", "properties": {"file": {"type": "string"}, "hunk": {"type": "integer"}, "why": {"type": "string"}}, "required": ["file", "hunk", "why"]}},
         "runtime": {"type": "object", "properties": {"before": {"type": "string"}, "after": {"type": "string"}, "diagram": {"type": "string"}}, "required": ["before", "after", "diagram"]},
@@ -96,7 +144,7 @@ CHANGE = {
         "approve": {"type": "string"},
         "hold": {"type": "string"},
     },
-    "required": ["headline", "problem", "hunks", "runtime", "tested", "approve", "hold"],
+    "required": ["headline", "lead", "does", "decided", "matters", "check", "problem", "hunks", "runtime", "tested", "approve", "hold"],
 }
 DIFF_CHARS = 60_000
 HUNK_LINES = 60

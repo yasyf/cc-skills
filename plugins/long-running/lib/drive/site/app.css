@@ -1367,3 +1367,4 @@ button.task-row { cursor: pointer; }
 .ap-card-list button.qrow-main { width: 100%; border: 0; background: none; font: inherit; text-align: left; cursor: pointer; }
 .story-after { display: grid; gap: 2px; margin: 10px 0 0; padding: 10px 12px; border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; background: var(--soft); color: var(--ink); font-size: 14px; line-height: 1.5; }
 .story-after b { font: var(--caps); letter-spacing: 1px; color: var(--accent); }
+.told-more .context-rail, .told-more .pr-rail { max-height: none; padding-top: 4px; }
