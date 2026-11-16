@@ -97,6 +97,7 @@ DATADOG_PLUGIN = "datadog@claude-plugins-official"
 SESSION_SETTINGS = {
     "bashOutputMaxChars": 6000,
     "outputStyle": "default",
+    "disabledMcpjsonServers": ["slack"],
     "env": {"CLAUDE_CODE_SILENT_TURN_REMINDER": "0"},
     "permissions": {"deny": ["AskUserQuestion"]},
     "enabledPlugins": {DATADOG_PLUGIN: True},
@@ -1147,7 +1148,8 @@ def session_settings(env: dict[str, str]) -> dict:
     settings = lane["settings"] | json.loads(os.environ.get("CLAUDE_LANE_SETTINGS") or "{}")
     denied = list(dict.fromkeys([*lane["deniedTools"], *SESSION_SETTINGS["permissions"]["deny"]]))
     plugins = settings.get("enabledPlugins", {}) | SESSION_SETTINGS["enabledPlugins"]
-    return settings | SESSION_SETTINGS | {"env": lane["env"] | SESSION_SETTINGS["env"] | env, "permissions": {"deny": denied}, "enabledPlugins": plugins}
+    disabled = list(dict.fromkeys([*settings.get("disabledMcpjsonServers", []), *SESSION_SETTINGS["disabledMcpjsonServers"]]))
+    return settings | SESSION_SETTINGS | {"env": lane["env"] | SESSION_SETTINGS["env"] | env, "permissions": {"deny": denied}, "enabledPlugins": plugins, "disabledMcpjsonServers": disabled}
 
 
 def lane_spec() -> dict:
