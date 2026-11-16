@@ -1302,6 +1302,22 @@ def test_a_refused_post_to_one_place_goes_through_with_a_warning_when_the_sessio
     assert message_limits.refused_once(payload, unsendable) is unsendable and message_limits.refused_once(payload, unsendable) is unsendable
 
 
+def test_a_post_too_large_for_jev_held_for_an_unmatched_claim_is_refused_once_and_its_repeat_goes_out_with_the_note(transcript: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    held = "held: the claim 'it merged' names a read none of your calls made"
+    monkeypatch.setattr(message_limits, "checked", lambda payload: (None, {"text": "It merged."}))
+    monkeypatch.setattr(message_limits, "read_evidence", lambda payload, claims: [{"read": "gh pr view 1", "id": "read:1"}])
+    monkeypatch.setattr(message_limits, "work_thread", lambda payload: None)
+    monkeypatch.setattr(message_limits, "his_words", lambda payload: [])
+    monkeypatch.setattr(settled, "unfit", lambda judged: (12000, [("gh pr view 1", 12000)]))
+    monkeypatch.setattr(message_limits, "unroomed", lambda post, parts: "no Jev request holds the read")
+    monkeypatch.setattr(settled, "unheard_post", lambda output, failure: {"verdict": "hold", "note": held})
+    payload = call("slack_reply", transcript, "poster", channel_id="C1", thread_ts="1.2", text="It merged.")
+    refused = message_limits.hook_output(payload)["hookSpecificOutput"]
+    assert (refused["permissionDecision"], held in refused["permissionDecisionReason"]) == ("deny", True)
+    again = message_limits.hook_output(payload)["hookSpecificOutput"]
+    assert "permissionDecision" not in again and "repeat of one refused once" in again["additionalContext"] and held in again["additionalContext"]
+
+
 def test_a_post_calling_an_event_unexplained_is_weighed_against_the_records_beside_it_and_blocks_once(talker: str, transcript: Path, checked: Checked, jev: Jev, monkeypatch: pytest.MonkeyPatch) -> None:
     deleted = {"seq": 735744, "at": "10:58 AM", "lane": "root", "kind": "report", "attrs": {"case": "S2-DELETE", "order": "o1339"}, "text": "S2: deleted the sandsql writer pod on staging"}
     windows: list[list[datetime]] = []

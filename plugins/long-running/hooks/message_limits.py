@@ -1289,8 +1289,9 @@ def hook_output(payload: dict) -> dict:
         if judged and (unfit := settled.unfit(judged))[1]:
             verdict = settled.unheard_post(judged | (denial(reason) | agents.ruled(reason) if reason else {}), unroomed(*unfit))
             prior = (heard.get("hookSpecificOutput") or {}).get("additionalContext")
-            reason, judged = agents.Unjudged(verdict["note"]) if verdict["verdict"] == "hold" else "", {}
-            heard = {} if reason else {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "\n".join(filter(None, [prior, verdict["note"]]))}}
+            held = (verdict["note"] if reason else refused_once(payload, verdict["note"])) if verdict["verdict"] == "hold" else None
+            reason, judged = agents.Unjudged(held) if held and not isinstance(held, Warned) else "", {}
+            heard = {} if reason else {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "\n".join(filter(None, [prior, held or verdict["note"]]))}}
     except Exception as error:
         reason, judged = "", {}
         heard = {
