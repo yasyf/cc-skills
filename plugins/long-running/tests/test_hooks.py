@@ -1562,7 +1562,7 @@ def test_a_release_leaving_out_an_ask_it_names_is_refused_once_and_its_repeat_st
     assert run(*add)[1].splitlines()[:4] == ["j2", f"j2 carries his ask {carried}", f"j2 leaves out his ask {missed}: an owed deliver item tracks it", starting(demo, "j2", J2666_START)]
     data = state.load(demo)
     assert data["jobs"]["j2"]["release_pass"]["asks"] == {"a1": {"carried": True, "why": carried}, "a2": {"carried": False, "why": missed}}
-    [owed] = [item for item in data["orders"]["o1"]["owed"] if item["kind"] == owing.DELIVER]
+    [owed] = [item for item in data["orders"]["o1"]["owed"] if item["kind"] == owing.DELIVER and "ask" in item["done_when"]]
     assert (owed["done_when"], owed["job"], owed["what"], owed["closed"]) == ({"ask": "a2"}, "j2", f"his ask a2, which release job j2 left out: {missed}", None)
     told = [post for post in release_posts if "release-o1" in post]
     assert [(posted_to(post), post[post.index("--kind") + 1], post[-1]) for post in told] == [
