@@ -3232,7 +3232,7 @@ def test_each_ask_owes_one_voiced_staging_start_step_carrying_its_earliest_start
     monkeypatch.setattr(work.STAGE, "queued", lambda data, job: True)
     work.scheduled(data, moment)
     [step] = data["orders"]["o2"]["owed"]
-    assert (step["done_when"], step["voice"], data["orders"]["o2"]["start_said"], data["orders"]["o1"]["owed"], data["jobs"]["q2"]["starts_at"]) == (
+    assert (step["done_when"], step["voice"], data["orders"]["o2"]["start_said"], data["orders"]["o1"].get("owed", []), data["jobs"]["q2"]["starts_at"]) == (
         {"start": "o2"},
         True,
         [state.stamp(moment), state.stamp(moment + timedelta(minutes=60))],
