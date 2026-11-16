@@ -29,6 +29,7 @@ DEFAULTS = {
     "restarts_before_backoff": 3,
 }
 LOG_KEEP = 200
+PRESENCE = "presence.json"
 NOT_LANES = ("rank", "config", "supervisor", "staging-env", "presence")
 
 
@@ -197,6 +198,19 @@ def write_lane(drive: str, lane: dict) -> None:
             token.write_text(owner["token"] + "\n")
     else:
         token.unlink(missing_ok=True)
+
+
+def heard(drive: str, asks: list[dict]) -> None:
+    """Keep when he was last present: the newest Slack ts among his own messages and taps reaching a lane, only ever moving forward, so a dangerous land reads his 15 minutes from his words alone. take_messages is its one caller."""
+    if not (stamped := [ask for ask in asks if ask.get("ts")]):
+        return
+    newest = max(stamped, key=lambda ask: float(ask["ts"]))
+    path = drive_dir(drive) / PRESENCE
+    if path.is_file() and float(json.loads(path.read_text())["ts"]) >= float(newest["ts"]):
+        return
+    fresh = path.with_name(f".presence.{os.getpid()}.tmp")
+    fresh.write_text(json.dumps({"at": stamp(datetime.fromtimestamp(float(newest["ts"]), UTC)), "ts": newest["ts"], "link": newest.get("link")}) + "\n")
+    fresh.replace(path)
 
 
 def event(drive: str, row: dict) -> None:

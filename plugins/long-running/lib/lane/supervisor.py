@@ -62,7 +62,7 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
             except store.Refused as failed:
                 errors.append(str(failed))
         if heard:
-            store.transact(drive, lambda lanes: [verbs.take_messages(lanes, lane_id, asks, shape["active"]) for lane_id, asks in heard.items()])
+            store.transact(drive, lambda lanes: [verbs.take_messages(drive, lanes, lane_id, asks, shape["active"]) for lane_id, asks in heard.items()])
         keys = {facts.pr_key(event) for lane in chosen.values() if lane["state"] == store.WAITING for event in (lane["wait"] or {}).get("on", []) if event["kind"] == "pr"}
         try:
             prs = facts.read_prs(keys)

@@ -7,11 +7,11 @@ from pathlib import Path
 
 from lane import landing, stager, store
 
-PRESENCE = "presence.json"
+
 
 
 def heard(drive: str) -> datetime | None:
-    path = stager.lanes_dir(drive) / PRESENCE
+    path = store.drive_dir(drive) / store.PRESENCE
     return store.parse(json.loads(path.read_text())["at"]) if path.exists() else None
 
 

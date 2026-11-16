@@ -65,14 +65,15 @@ def unpark(drive: str, lane_id: str) -> None:
     store.kick(drive)
 
 
-def take_messages(lanes: dict[str, dict], lane_id: str, asks: list[dict], cap: int) -> int:
-    """Append his messages to a lane by ts, once each; a parked lane unparks on his word while the cap has room. The count appended."""
+def take_messages(drive: str, lanes: dict[str, dict], lane_id: str, asks: list[dict], cap: int) -> int:
+    """Append his messages and taps to a lane by ts, once each, and keep his presence from their Slack ts by store.heard, the one inbound path for his words; a parked lane unparks on his word while the cap has room. The count appended."""
     lane = lanes[lane_id]
     known = {ask.get("ts") for ask in lane.get("asks", []) if ask.get("ts")}
     fresh = [ask for ask in asks if not ask.get("ts") or ask["ts"] not in known]
     if not fresh:
         return 0
     lane["asks"] = [*lane.get("asks", []), *fresh]
+    store.heard(drive, fresh)
     if lane.get("parked") and len(store.active(lanes)) < cap:
         lane["parked"] = None
         if lane["state"] == store.WAITING:
@@ -84,7 +85,7 @@ def take_messages(lanes: dict[str, dict], lane_id: str, asks: list[dict], cap: i
 def message(drive: str, lane_id: str, words: str, link: str | None = None, ts: str | None = None) -> int:
     """His message in a lane's channel: appended to its file, and that write is the owner's wake."""
     cap = store.config(drive)["active"]
-    taken = store.transact(drive, lambda lanes: take_messages(lanes, lane_id, [{"at": store.stamp(), "words": words, "link": link, "ts": ts, "seen": False}], cap))
+    taken = store.transact(drive, lambda lanes: take_messages(drive, lanes, lane_id, [{"at": store.stamp(), "words": words, "link": link, "ts": ts, "seen": False}], cap))
     if taken:
         from lane import supervisor
 
