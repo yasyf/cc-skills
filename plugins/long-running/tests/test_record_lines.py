@@ -243,6 +243,16 @@ def test_a_post_goes_out_as_its_sessions_lane_and_an_agents_post_to_that_lane_al
     assert record_lines.decision(by("long-running:handler", session="talker", kind="note", text="j12 merged", to=["root@demo"]))["updatedInput"]["lane"] == "communicator"
 
 
+def test_725715_a_post_naming_another_drive_goes_out_on_the_sessions_own_drive_and_lane_to_that_drives_lanes_as_cci_refuses_a_foreign_drive(demo: str) -> None:
+    asked = {"kind": "ask", "text": "may o78 hold staging past your FREE line?", "re": "722599", "topic": "o78-staging-collision"}
+    answered = {"kind": "answer", "text": "o78 holds staging until 3 PM", "to": ["root@durable-agents"], "re": "725268", "topic": "o78-staging-collision"}
+    assert record_lines.decision(post(lane="meta@demo", drive="durable-agents", to=["root"], **asked)) == {"updatedInput": {"lane": "root", "to": ["root@durable-agents"]} | asked}
+    assert record_lines.decision(post(lane="meta@demo", drive="durable-agents", **answered)) == {"updatedInput": {"lane": "root"} | answered}
+    batch = record_lines.decision(post(drive="durable-agents", records=[asked | {"to": ["meta"]}, answered]))
+    assert batch == {"updatedInput": {"lane": "root", "records": [asked | {"to": ["meta@durable-agents"]}, answered]}}
+    assert record_lines.decision(post(drive=demo, kind="note", text="j12 merged", to=["root"])) is None
+
+
 def test_a_report_attaching_a_file_with_no_text_is_checked_by_the_files_first_line(demo: str, tmp_path: Path) -> None:
     facts = tmp_path / "j702.md"
     facts.write_text("POST j702 merged\nproof: https://github.com/yasyf/cc-skills/pull/4093\n")

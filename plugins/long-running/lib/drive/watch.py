@@ -1393,7 +1393,7 @@ def replies(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, s
 
 
 def posted_after(watcher: Watcher, data: dict, followed: dict[str, list[str]], moment: datetime) -> tuple[dict[str, str], list[str]]:
-    """Each reply:cci:<seq> wait among followed, which names the jobs waiting on it, that another drive's record ended, with who posted it and its seq: the first record after the one at its seq on that record's topic in the drive holding it, read in one cci show of every such seq, by state.anchors, and one cci grep per drive they name, whatever the number of waits. Its words, whole from the body file cci attaches to a record longer than its line, go onto each waiting job's held texts in one save, under the record's seq so no second read holds them again, which the watch carries it once nothing holds it, with no report to the communicator, since another drive's coordination line asks nothing of him; a failed read is said as a failed read is and tried again next read."""
+    """Each reply:cci:<seq> wait among followed, which names the jobs waiting on it, that another drive's record ended, with who posted it and its seq: the first record after the one at its seq on that record's topic in the drive holding it, but for one whose lane names this drive, which is this drive's own line and no word of the other's, read in one cci show of every such seq, by state.anchors, and one cci grep per drive they name, whatever the number of waits. Its words, whole from the body file cci attaches to a record longer than its line, go onto each waiting job's held texts in one save, under the record's seq so no second read holds them again, which the watch carries it once nothing holds it, with no report to the communicator, since another drive's coordination line asks nothing of him; a failed read is said as a failed read is and tried again next read."""
     if not followed:
         return {}, []
     source = "reply:cci"
@@ -1418,7 +1418,7 @@ def posted_after(watcher: Watcher, data: dict, followed: dict[str, list[str]], m
     firsts = {}
     for wait in followed:
         anchor = anchors[state.REPLY_WAIT.fullmatch(wait)["seq"]]
-        if after := [record for record in posted[anchor["drive"]] if record.get("topic") == anchor["topic"] and record["seq"] > anchor["seq"]]:
+        if after := [record for record in posted[anchor["drive"]] if record.get("topic") == anchor["topic"] and record["seq"] > anchor["seq"] and not record["lane"].endswith(f"@{data['name']}")]:
             firsts[wait] = (anchor, min(after, key=lambda record: record["seq"]))
     if not firsts:
         return {}, []

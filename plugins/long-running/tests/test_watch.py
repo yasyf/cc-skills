@@ -2246,6 +2246,22 @@ def test_another_drives_first_record_after_the_one_a_job_waits_after_on_its_topi
     assert (calls, len(reads_made)) == ([], 4)
 
 
+def test_725715_a_record_on_the_other_drive_whose_lane_names_the_waiting_drive_is_its_own_line_and_frees_nothing_while_the_other_drives_next_one_does(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    catching_up(monkeypatch, demo)
+    records = [
+        cci_record(725268, kind="defect", text="o78 and o2046 both claim staging"),
+        cci_record(725697, kind="answer", lane=f"meta@{demo}", text="o78 holds staging until 3 PM"),
+    ]
+    cci_store(monkeypatch, records)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", waits=["reply:cci:725268"])
+    watching = watcher(demo)
+    assert watch.waits_lines(watching, T0 + timedelta(minutes=1)) == []
+    assert state.load(demo)["jobs"]["j1"]["waits"] == ["reply:cci:725268"]
+    records.append(cci_record(725720, text="FREE staging is yours"))
+    assert watch.waits_lines(watching, T0 + timedelta(minutes=2)) == [f"FREE j1 o1: root@durable-agents posted 725720 on {STAGING_TOPIC}, nothing else holds it"]
+
+
 @pytest.mark.parametrize("waiting", [1, 100])
 def test_the_watch_reads_every_job_waiting_on_another_drives_record_in_one_cci_show_and_one_cci_grep_a_drive_whatever_their_number(demo: str, monkeypatch: pytest.MonkeyPatch, waiting: int) -> None:
     catching_up(monkeypatch, demo)
