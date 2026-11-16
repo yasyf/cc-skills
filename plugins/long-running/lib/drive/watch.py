@@ -3492,6 +3492,33 @@ def clock_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return state.write(watcher.name, ran_out_lines, budget=state.WATCH_WRITE_SECONDS)
 
 
+def promise_due(order: dict, moment: datetime) -> bool:
+    owed = order.get("owed_line") or {}
+    return bool(owed.get("by")) and not owed["woken"] and state.parse_time(owed["by"]) <= moment
+
+
+def promised_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Once for each order whose last post to him promised a next step by a time that passed, by talk.read_owed, a line waking the session holding the order to post where it stands, since any later post on the order would have replaced that promise."""
+    data = state.load(watcher.name)
+    if not any(promise_due(order, moment) for order in heard_orders(watcher, data).values()):
+        return []
+
+    def owed_said(data: dict) -> list[str]:
+        lines = []
+        for order_id, order in heard_orders(watcher, data).items():
+            if not promise_due(order, moment):
+                continue
+            owed = order["owed_line"]
+            owed["woken"] = True
+            lines.append(
+                f"DUE {order_id} line: {owed['post']} told him {owed['what']} by {when(owed['by'])}, and nothing has gone to him on {order_id} since:"
+                " post where it stands now in that post's thread, what happened or what it waits on and when he hears next"
+            )
+        return lines
+
+    return state.write(watcher.name, owed_said, budget=state.WATCH_WRITE_SECONDS)
+
+
 def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Each text a job an agent or lane started holds, his answers among them, ten minutes after it came and every ten minutes until the watch, a resume or a SendMessage carries it, as its agent's transcript shows each SendMessage by hear_sent."""
     if not (owed := owed_answers(watcher, state.load(watcher.name), moment)):
@@ -6223,7 +6250,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
         functools.partial(train_lines, watcher, moment),
         functools.partial(event_lines, watcher),
         *(owed_reads(watcher, moment) if lands else []),
-        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, clock_lines, case_lines, held_lines, undelivered_lines, close_answered, close_joined_repeats, tell_lines, standing_lines, retired_seats, communicators_idle, env_alert_lines, orphan_lines)),
+        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, clock_lines, promised_lines, case_lines, held_lines, undelivered_lines, close_answered, close_joined_repeats, tell_lines, standing_lines, retired_seats, communicators_idle, env_alert_lines, orphan_lines)),
     ]
     names = [stage.func.__name__ for stage in later]
     resume, watcher.resume = watcher.resume, None

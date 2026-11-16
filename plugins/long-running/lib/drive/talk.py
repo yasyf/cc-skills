@@ -33,6 +33,49 @@ def say(name: str, post: dict) -> str:
     return line
 
 
+OWED_LOG = "owed.log"
+OWED_RULES = """You read one Slack post a software drive sent its owner, and the time it went out. Reply with one JSON object and nothing else.
+
+{"by": "<RFC 3339 time with its offset>", "what": "<the next step it told him of, in a few words>"} when the post tells him a next step happens, or that he hears next, by a time or in a window: "next line here by 5:40 AM", "its staging test runs in the window that opens at 6:30 AM", "I'll post the result in about 20 minutes". by is when he should have heard that step's outcome: the time it names, or a window's opening plus the time the post says the step takes, else the opening alone; a clock time with no day is the first such time after the post went out, in Pacific.
+{"by": null} when it tells him of no next step at a time: a step waiting on him, such as his tap or Approve with no time, or a time that is already past, promises nothing."""
+
+
+def owe_line(name: str, order: str, link: str, text: str) -> None:
+    """Keep the post just sent on its order as the one line it owes him next, its time unread, so any later post on the order replaces what an earlier one promised, then detach drive order owed to read its words for a promised time, by OWED_RULES, his words "read from the post's own words by the model, not by regex"."""
+    def owed_write(data: dict) -> None:
+        data["orders"][order]["owed_line"] = {"post": link, "at": state.stamp(), "text": text, "by": None, "what": None, "woken": False}
+
+    state.write(name, owed_write, patient=True)
+    state.detach(name, ["order", "owed", order, "--post", link], OWED_LOG)
+
+
+def read_owed(name: str, order: str, link: str) -> str:
+    """drive order owed: one model call reads the post an order last sent him for the next step it promised him by a time, by OWED_RULES, and keeps that time on the order while that post is still its last, so the watch wakes its holder once if the time passes with nothing posted after; a read that fails keeps nothing."""
+    from drive import answer
+
+    owed = state.load(name)["orders"][order].get("owed_line") or {}
+    if owed.get("post") != link:
+        return f"{order}: {link} is no longer its last post; nothing read"
+    said, _ = answer.ask(f"sent: {render.when(owed['at'])} ({owed['at']})", owed["text"], OWED_RULES, "post")
+    try:
+        read = json.loads(said[said.index("{"): said.rindex("}") + 1])
+        by = read["by"] and state.stamp(state.parse_time(read["by"]))
+    except (ValueError, KeyError, TypeError):
+        return f"{order}: the read of {link} gave no time: {said[:200]}"
+
+    def read_write(data: dict) -> bool:
+        kept = data["orders"][order].get("owed_line") or {}
+        if kept.get("post") != link:
+            return False
+        kept.update(by=by, what=by and str(read.get("what") or "its next step"))
+        kept.pop("text", None)
+        return True
+
+    if not state.write(name, read_write, patient=True):
+        return f"{order}: {link} is no longer its last post; nothing kept"
+    return f"{order}: {link} promises {read.get('what')} by {by}" if by else f"{order}: {link} promises nothing by a time"
+
+
 ASKED_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})(?:\?thread_ts=(\d+\.\d+))?")
 
 
@@ -240,6 +283,8 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
     if job_id := post.get("job"):
         line += "; " + awaiting(name, job_id, link)
     place = None if post.get("edit") else state.link_thread(link)
+    if order and not post.get("edit") or post.get("edit") and order and (state.load(name)["orders"][order].get("owed_line") or {}).get("post") == link:
+        owe_line(name, order, link, post.get("text") or "")
     if seq or place:
         def spoken_write(data: dict):
             if seq:

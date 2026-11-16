@@ -11369,6 +11369,26 @@ def test_his_open_card_that_left_a_show_me_picture_off_redraws_in_place_once_git
     assert redraws.asked == [state.pr_url(KEY)]
 
 
+def test_a_post_promising_a_step_by_6_30_wakes_the_orders_holder_once_after_6_30_when_nothing_is_posted_after_it_and_a_later_post_replaces_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    post = "https://example.slack.com/archives/C1/p1794817827631909"
+    by = state.parse_time("2026-11-09T06:30:00-08:00")
+    asked = []
+    monkeypatch.setattr(watch.answer, "ask", lambda rows, words, system, tag: asked.append(words) or (json.dumps({"by": state.stamp(by), "what": "its staging test result"}), {}))
+    with edit(demo) as data:
+        data["orders"]["o1"]["owed_line"] = {"post": post, "at": "2026-11-09T05:07:00-08:00", "text": "Green, waiting on your Approve; its staging test runs in the window that opens at 6:30 AM", "by": None, "what": None, "woken": False}
+    assert talk.read_owed(demo, "o1", post).startswith(f"o1: {post} promises its staging test result by ")
+    watching = watcher(demo)
+    assert watch.promised_lines(watching, by - timedelta(minutes=1)) == []
+    [line] = watch.promised_lines(watching, by + timedelta(minutes=1))
+    assert line.startswith(f"DUE o1 line: {post} told him its staging test result by ")
+    assert watch.promised_lines(watching, by + timedelta(minutes=30)) == []
+    later = "https://example.slack.com/archives/C1/p1794817900000000"
+    with edit(demo) as data:
+        data["orders"]["o1"]["owed_line"] = {"post": later, "at": "2026-11-09T06:00:00-08:00", "text": "It passed", "by": None, "what": None, "woken": False}
+    assert talk.read_owed(demo, "o1", post) == f"o1: {post} is no longer its last post; nothing read"
+    assert watch.promised_lines(watching, by + timedelta(hours=1)) == []
+
+
 def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_ends_unsaid_for_one_that_returned(demo: str) -> None:
     due = T0 + timedelta(minutes=10)
     with edit(demo) as data:

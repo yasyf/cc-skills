@@ -215,7 +215,7 @@ class StageTest(Kind):
         """Why no new cut of queued work takes the env now, None when one may: a cut holds the slot, or a hold drive slot hold made by name until a time stands, which only its end, root's hand or its release ends; a claim waiting its turn on the old line never stops the queue."""
         slot = self.slot(data)
         if slot["holder"]:
-            return f"waits on {env(data)}, held by {slot['holder']['job']}'s cut until {when(slot['holder']['until'])}" + (f", then held for {slot['hold']['for']} until {when(slot['hold']['until'])}" if slot.get("hold") and parse_live(slot["hold"], moment) else "") + "; the queue takes it next"
+            return f"waits on {env(data)}, held by {slot['holder']['job']}'s cut until {when(slot['holder']['until'])}" + (f", then held for {slot['hold']['for']} until {when(slot['hold']['until'])}" if slot.get("hold") and state.parse_time(slot["hold"]["until"]) > state.parse_time(slot["holder"]["until"]) else "") + "; the queue takes it next"
         if not (items := self.line(data)):
             return f"no {self.name} item is ready"
         if slot.get("hold") and parse_live(slot["hold"], moment):
