@@ -93,6 +93,7 @@ STAGING_OWN_HEAD = (
 )
 STAGING_UNREAD = "; the drive could not read that commit ({error}), so read it from `tools/ci release status --manual sand-next --env core-usw2-auto` first"
 LIVE_SAND_NEXT = re.compile(r"^#\d+\s+passed\s+(?:manual )?(?:release|hotfix|rollback)\s.*?\s(?P<commit>[0-9a-f]{7,40})\s+(?:not )?started\b", re.MULTILINE)
+RELEASES_LOG = "releases.log"
 MANUAL_STARTED = re.compile(rf"\S+ #\d+: (?P<build>{github.BUILD.pattern}) — follow it from anywhere: (?P<follow>.+)")
 PROMISED_TIME = re.compile(
     r"\b(?:(?P<next>next (?:line|update|post|summary))(?:\s+(?:by|before|at))?|by|before)\s+(?:about\s+|around\s+)?(?P<hour>[01]?\d|2[0-3]):(?P<minute>[0-5]\d)(?![:\d])(?:\s*(?P<half>[AP])\.?M\b)?",
@@ -1453,6 +1454,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     if args.release and not unreleased:
         for line in brief.release_notes([args.release], state.load(name)):
             print(f"drive job add: {line}", file=sys.stderr)
+    running = args.release and not unreleased and release_running(name, args.release)
     unworded = brief.unworded_return(args.kind, {"--goal": args.goal})
     given = {
         "kind": args.kind,
@@ -1477,6 +1479,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         if refused := (
             state.held_elsewhere(data, args.order, session, bool(args.release))
             or unreleased
+            or running
             or unworded
             or (args.model == "astra" and not re.search(r"\bastra\b", order["text"], re.IGNORECASE) and f"--model astra runs only on an order whose words name astra, which {args.order}'s do not")
             or proven_again(data, args.order, args.kind, args.goal)
@@ -1530,37 +1533,74 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
 
 
 def started_release(name: str, job_id: str, command: str) -> list[str]:
-    """Start the release a job's --release names from the drive's checkout at the head of its default branch, `--json` added unless it starts `--manual`, which takes none, leave it running once `ci release` names the build it started, by release_answer, print that build before any save, so a call that dies after the start still names it, and keep and brief the job on it by release_briefed; a start naming none keeps no job and refuses with what it said."""
+    """Start the release a job's --release names in a process of its own, drive job release, which outlives the call that added the job, so a call that times out or fails once it started keeps the job, and that process its build and brief, its start naming the session that added the job to go/ci as the call's own would; the job waits on it under the same save, so the watch frees the job once it ends."""
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    with state.edit(name) as data:
+        pid = state.detach(name, ["job", "release", job_id, *(["--session", session] if session else [])], RELEASES_LOG)
+        data["jobs"][job_id]["waits"] += state.pid_waits(f"pid:{pid}")
+    return [f"{job_id} starts `{command}` in process {pid}, which keeps the build it starts as {job_id}'s Release build: line and writes its brief, its lines in {state.drive_dir(name) / RELEASES_LOG}: start no agent for it until the watch's FREE line on {job_id} names that brief"]
+
+
+def job_release(args: argparse.Namespace) -> int:
+    """Start the release a job's --release names, in the process drive job add starts for it: from the drive's checkout at the head of its default branch, `--json` added unless it starts `--manual`, which takes none, left running once `ci release` names the build it started, by release_answer, which the job keeps as its release_build in a save holding nothing else, so a later step that fails leaves it kept, before the designs it carries and each failed job it replaces end and its brief is written; a start naming none leaves the job with no build, its wait on this process ending on what it said, which the watch's FREE line names."""
+    name = state.resolve(args.drive)
+    command = state.load(name)["jobs"][args.id]["brief_flags"]["release"]
     said: list[str] = []
     answer: dict = {}
     [words] = simple_commands(command)
     manual = "manual" in brief.release_flags(words)
-    with subprocess.Popen(words if manual else [*words, "--json"], cwd=orca.checkout(name, state.load(name)["roles"]["coordinator"]["cwd"]), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as release:
+    with subprocess.Popen(
+        words if manual else [*words, "--json"],
+        cwd=orca.checkout(name, state.load(name)["roles"]["coordinator"]["cwd"]),
+        env=os.environ | {"CLAUDE_CODE_SESSION_ID": args.session} if args.session else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    ) as release:
         for line in release.stdout:
             said.append(line)
             if answer := release_answer(said, manual):
                 break
         release.terminate()
     if not (build := answer.get("build", {}).get("url")):
-        why = answer.get("refused") or render.cut("".join(said).strip(), 600) or f"exit {release.returncode}"
+        why = f"its release did not start: {answer.get('refused') or render.cut(''.join(said).strip(), 600) or f'exit {release.returncode}'}"
         with state.edit(name) as data:
-            data["orders"][data["jobs"].pop(job_id)["order"]]["jobs"].remove(job_id)
-        raise DriveError(f"no job added: its release did not start: {why}")
-    print(f"drive job add: {job_id} started `{command}` as {build}; a call that ends before briefing {job_id} leaves it running, and drive job brief {job_id} --release-build {build} keeps it and writes the brief", file=sys.stderr, flush=True)
-    replaced, line, _ = release_briefed(name, job_id, build, {})
-    return [*replaced, f"{job_id} started `{command}` as {build} and left it running: its agent follows it with `{answer['follow']}` and reads its approve hold", line]
-
-
-def release_briefed(name: str, job_id: str, build: str, named: dict) -> tuple[list[str], str, dict]:
-    """Keep the build a --release job's release started as its release_build in a save holding nothing else, so a later step that fails leaves it kept, then end the designs the job carries and each failed job it replaces, and write its brief with the lines named; the lines for each job it replaced, then write_brief's line and payload."""
+            state.drop_waits(data, args.id, dict.fromkeys(state.pid_waits(f"pid:{os.getpid()}"), f"{why}; drive job set {args.id} --state stopped ends it"))
+        raise DriveError(f"{args.id}: {why}")
     with state.edit(name) as data:
-        data["jobs"][job_id]["release_build"] = build
+        data["jobs"][args.id]["release_build"] = build
     with state.edit(name) as data:
-        job = data["jobs"][job_id]
+        job = data["jobs"][args.id]
         state.end_carried_designs(data, job["order"], job["created"])
         replaced = state.end_replaced(data, [job["order"]], job["created"])
-    line, payload = write_brief(name, job_id, named)
-    return replaced, line, payload
+    line, _ = write_brief(name, args.id, {})
+    print("\n".join([*replaced, f"{args.id} started `{command}` as {build} and left it running: its agent follows it with `{answer['follow']}` and reads its approve hold", line]))
+    return 0
+
+
+def release_running(name: str, command: str) -> str | None:
+    """Why a release may not start while a start of the same release runs, the same by settled.shipped past the --order approving it: a job of the drive holding it unfinished with no build, its start still running or never having named one, or one whose build Buildkite reads as unfinished, an approve hold included, read in one `tools/ci bk graphql` call, so a call that failed once its release started never starts it twice."""
+    data, ships = state.load(name), shipped_release(command)
+    same = {job_id: job for job_id, job in data["jobs"].items() if state.starts_cut(job) and shipped_release(job["brief_flags"]["release"]) == ships}
+    if unbuilt := next((job_id for job_id, job in same.items() if not job["release_build"] and job["state"] not in state.FINISHED_JOB_STATES), None):
+        return (
+            f"{unbuilt} holds the same release and has kept no build: its start's lines are in {state.drive_dir(name) / RELEASES_LOG}, the watch's FREE line on {unbuilt} names its brief once that start ends,"
+            f" and drive job set {unbuilt} --state stopped ends a job whose release did not start"
+        )
+    if not (builds := {job["release_build"]: job_id for job_id, job in same.items() if job["release_build"]}):
+        return None
+    try:
+        read = watch.read_builds(Path(data["roles"]["coordinator"]["cwd"]), list(builds))
+    except (DriveError, reads.ReadError) as error:
+        return f"Buildkite did not say whether {', '.join(builds)}, started for the same release, still runs: {error}; send it again once Buildkite answers"
+    return next(
+        (f"{builds[link]} started the same release as {link}, which Buildkite reads {found['state']}: its job follows it, and this one starts once it ends" for link, found in read.items() if found and found["state"] not in watch.FOLLOW_ENDS),
+        None,
+    )
+
+
+def shipped_release(command: str) -> list[dict[str, tuple[str, ...]]]:
+    return [{flag: values for flag, values in settled.shipped(flags).items() if flag != "order"} for flags in brief.started(command)]
 
 
 def release_answer(said: list[str], manual: bool) -> dict:
@@ -3040,22 +3080,9 @@ def answer_first(name: str, order: dict, order_id: str, job_id: str) -> str:
 
 def job_brief(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
-    named = {flag: getattr(args, flag, None) for flag in state.BRIEF_FLAGS}
-    replaced, line, payload = briefed(name, args.id, held_job(state.load(name), args.id), args.release_build, named)
-    return emit(args, "\n".join([*replaced, line]), payload)
-
-
-def briefed(name: str, job_id: str, job: dict, build: str | None, named: dict) -> tuple[list[str], str, dict]:
-    """Write a job's brief with the lines named, by write_brief, first keeping --release-build's build as the release a drive job add --release started and kept none for, by release_briefed, for drive job brief and drive job launch alike; the lines for each job that replaced, then write_brief's line and payload."""
-    if not build:
-        return [], *write_brief(name, job_id, named)
-    if not github.BUILD.fullmatch(build):
-        raise DriveError(f"--release-build {build} is no Buildkite build link, https://buildkite.com/<org>/<pipeline>/builds/<n>")
-    if not state.starts_cut(job):
-        raise DriveError(f"{job_id}: --release-build keeps the build of the release a drive job add --release started, and {job_id} was added with no --release")
-    if job["release_build"] not in (None, build):
-        raise DriveError(f"{job_id}: its add kept its release's build, {job['release_build']}: drive job brief {job_id} briefs it on that one")
-    return release_briefed(name, job_id, build, named)
+    held_job(state.load(name), args.id)
+    line, payload = write_brief(name, args.id, {flag: getattr(args, flag, None) for flag in state.BRIEF_FLAGS})
+    return emit(args, line, payload)
 
 
 def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
@@ -3087,8 +3114,8 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
         raise DriveError(f"{job_id}'s result is something he uses, by --native: {unstoried}")
     if state.starts_cut(job) and not job["release_build"]:
         raise DriveError(
-            f"{job_id}: its brief names the release it started, so `drive job add --release` writes it once that release starts;"
-            f" a release that add started and kept no build for is briefed with drive job brief {job_id} --release-build <its build link>"
+            f"{job_id}: its brief names the build of the release its add started, which that add's drive job release writes once the release names it:"
+            f" its lines are in {state.drive_dir(name) / RELEASES_LOG}, and drive job set {job_id} --state stopped ends a job whose release did not start"
         )
     if not (written := rewrite_brief(name, job_id, flags, job.get("brief_flags"))):
         return write_brief(name, job_id, named)
@@ -3232,15 +3259,15 @@ def transcript_line(job_id: str, job: dict) -> str | None:
 
 @orca.rides_restarts()
 def job_launch(args: argparse.Namespace) -> int:
-    """Start a job's next worker by the one relaunch launch and resume share, with no message: its first Orca lane, on a Sprite or with --local on this Mac, where a brief declaring a step only this Mac runs on its Mac: or Release: line starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; the next lane of a job whose worker ended or returned its line, with --local moved from its Sprite to this Mac; a lane taking over from an agent on this Mac that stopped or whose session ended; or the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps; never a finished pass of a standing part, which unrun refuses. Given drive job brief's flags, it first writes the job's brief from them by briefed, as drive job brief does, so briefing and starting a job is one command and a flag argparse or write_brief refuses starts nothing; refused beside a brief file, which is the brief whole."""
+    """Start a job's next worker by the one relaunch launch and resume share, with no message: its first Orca lane, on a Sprite or with --local on this Mac, where a brief declaring a step only this Mac runs on its Mac: or Release: line starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; the next lane of a job whose worker ended or returned its line, with --local moved from its Sprite to this Mac; a lane taking over from an agent on this Mac that stopped or whose session ended; or the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps; never a finished pass of a standing part, which unrun refuses. Given drive job brief's flags, it first writes the job's brief from them by write_brief, so briefing and starting a job is one command and a flag argparse or write_brief refuses starts nothing; refused beside a brief file, which is the brief whole."""
     name = state.resolve(args.drive)
-    if named := {flag: value for flag in (*state.BRIEF_FLAGS, "release_build") if (value := getattr(args, flag, None)) not in (None, [])}:
-        job = unrun(state.load(name), args.id)
+    if named := {flag: value for flag in state.BRIEF_FLAGS if (value := getattr(args, flag, None)) not in (None, [])}:
+        unrun(state.load(name), args.id)
         if args.brief:
             flags = ", ".join(f"--{flag.replace('_', '-')}" for flag in named)
             raise DriveError(f"{args.id}: refused, nothing written or started: {args.brief} is its brief whole, which {flags} cannot add a line to: drop the file or the flags")
-        replaced, line, payload = briefed(name, args.id, job, named.pop("release_build", None), named)
-        emit(args, "\n".join([*replaced, f"{args.id}'s brief written at {payload['brief']}: {line.partition("\n")[2]}"]), payload)
+        line, payload = write_brief(name, args.id, named)
+        emit(args, f"{args.id}'s brief written at {payload['brief']}: {line.partition("\n")[2]}", payload)
     if unrun(state.load(name), args.id)["kind"] == "codex":
         folder = codex_launch(name, args.id, args.brief)
         return emit(args, f"{args.id} started its codex-ask run in {folder}; the watch takes its result once it ends", {"id": args.id, "codex_run": str(folder)})
@@ -5808,11 +5835,6 @@ def parser() -> argparse.ArgumentParser:
     brief_opt.add_argument("--plan", help="the plan section this implements, quoted; a builder the drive added for a design's change holds its design's from that add")
     brief_opt.add_argument("--incident", help="an incident job's line, by reference/jobs.md")
     brief_opt.add_argument("--scratch", help="its scratch folder; default one in the drive")
-    brief_opt.add_argument(
-        "--release-build",
-        metavar="LINK",
-        help="the Buildkite build link a drive job add --release printed for a release it started and kept no build for: kept as the job's Release build: line, ending the designs it carries and each failed job it replaces as that add does, then the brief written",
-    )
 
     root = argparse.ArgumentParser(prog="drive", description="State and events of a long-running drive.")
     root.add_argument("--version", action="version", version=f"drive {state.VERSION}")
@@ -6474,6 +6496,14 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id")
     verb.add_argument("message", help="the question's Orca message id")
     verb.set_defaults(run=job_read)
+    verb = job.add_parser(
+        "release",
+        parents=[drive_opt],
+        help="what drive job add --release starts in a process of its own: start the job's release, keep the build it names as the job's Release build: line and write its brief, its lines in the drive's releases.log",
+    )
+    verb.add_argument("id")
+    verb.add_argument("--session", help="the session that added the job, which go/ci records as the release's starter")
+    verb.set_defaults(run=job_release)
     verb = job.add_parser(
         "replies", parents=both, help="every result and question a remote lane sent, and every return drive job report kept, oldest first, with when each came"
     )

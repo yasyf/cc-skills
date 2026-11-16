@@ -784,9 +784,9 @@ the patch.
   `--order` of his answer, or else asking the top to put it to him. The top starts the cut in one call on the
   record's order, such as `drive job add builder --order o1094 --goal "release the merged SandSQL
   changes" --release "go/ci/.build/ci.dev release start sandsql --from a6f826f01131fb9774a1410f95b3480996409aeb --order b9668c9"`,
-  which starts it from the top's checkout, prints its build link and writes the job's brief, whose
-  `Release:` and `Release build:` lines name the command and its build, then starts the job's agent
-  on that brief. A job
+  which starts it from the top's checkout in a process of its own that keeps its build and writes the
+  job's brief, whose `Release:` and `Release build:` lines name the command and its build, then starts
+  the job's agent on that brief once the watch's FREE line on the job names it. A job
   with a `Release:` line is the top's on any order, so its watch lines and agent are the top's, and a
   sub-coordinator is refused adding, briefing or starting one, naming the top.
 - His order or his pick on a card to release, or the coordinator's record of either, approves starting
