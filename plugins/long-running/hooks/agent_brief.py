@@ -128,8 +128,7 @@ def crowded(name: str, data: dict, text: str) -> str | None:
         why = f"{job_id} waits its turn for a builder slot on this Mac, {places[job_id]}"
     elif not (why := place.crowded(data, job_id, moment)):
         if job_id:
-            with state.edit(name) as data:
-                data["jobs"][job_id]["launching"] = state.stamp(moment)
+            state.update(name, (("jobs", job_id, "launching"),), lambda data: data["jobs"][job_id].update(launching=state.stamp(moment)))
         place.counted_again()
         return None
     if job_id and not place.mac_step(text):
@@ -138,8 +137,12 @@ def crowded(name: str, data: dict, text: str) -> str | None:
         return agents.Unjudged(f"refused: {why}{line(data)}")
     if job_id is None or not place.queueable(data, job_id):
         return agents.Unjudged(f"refused: {why}, so this one waits: start it once a slot opens here with no builder waiting its turn{line(data)}")
-    with state.edit(name) as data:
+
+    def queued(data: dict) -> dict:
         place.queue(data["jobs"][job_id], moment)
+        return data
+
+    data = state.update(name, (("jobs", job_id),), queued)
     return agents.Unjudged(f"refused: {why}, so {job_id} waits its turn for a builder slot on this Mac, {place.positions(data)[job_id]}{line(data)}")
 
 
@@ -152,8 +155,7 @@ def unadmitted(name: str, data: dict, text: str) -> str | None:
         if why := place.admission(data, job_id, "local", moment):
             return agents.Unjudged(f"refused: {why}, so {job_id or 'it'} starts on a Sprite: write this brief to a file and run drive job launch {job_id or '<j>'} <file>")
         if job_id:
-            with state.edit(name) as data:
-                data["jobs"][job_id]["launching"] = state.stamp(moment)
+            state.update(name, (("jobs", job_id, "launching"),), lambda data: data["jobs"][job_id].update(launching=state.stamp(moment)))
         place.counted_again()
     return None
 
