@@ -7870,7 +7870,7 @@ def test_a_test_main_fails_has_one_fixer_the_first_job_to_claim_it_and_every_oth
     with state.edit(demo) as data:
         data["orders"]["o3"] = order(jobs=["j3", "j4", "j5"])
         for job_id in ("j3", "j4", "j5"):
-            data["jobs"][job_id] = job(order="o3", state="waiting")
+            data["jobs"][job_id] = job(order="o3", state="done")
         data["prs"][fix] = state.new_pr(state.pr_url(fix), "j3", "o3") | {"exempt": state.MAIN_FIX}
         data["prs"][rival] = state.new_pr(state.pr_url(rival), "j4", "o3") | {"exempt": state.MAIN_FIX}
         data["prs"][merged] = state.new_pr(state.pr_url(merged), "j5", "o3") | {"state": "merged", "head": "bbbbbbb222", "merged_sha": "ccc333ddd444", "checks": "fail"}
@@ -7886,11 +7886,11 @@ def test_a_test_main_fails_has_one_fixer_the_first_job_to_claim_it_and_every_oth
     monkeypatch.setattr(install, "head_failures", lambda repo, head: failing)
     monkeypatch.setattr(install, "merged_at", lambda repo, sha: "2026-11-09T14:50:00Z")
     monkeypatch.setattr(install, "main_failures", lambda repo, workflow, created: [] if created.startswith("<") else [test])
-    serve(monkeypatch, {})
     watching = watcher(demo)
     for minutes in (0, 31, 62):
-        watch.run_pass(watching, T0 + timedelta(minutes=minutes))
-    assert [wake for wake in woken if test in wake[1]] == []
+        watch.main_lines(watching, T0 + timedelta(minutes=minutes))
+    assert woken == []
+    assert state.load(demo)["prs"][merged]["graded"] is True
     assert state.load(demo)["mains"][repo][test]["owner"] == fix
     with state.edit(demo) as data:
         data["jobs"]["j3"]["state"] = "stopped"
