@@ -415,6 +415,28 @@ def reach_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return lines
 
 
+def release_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Land at once each open PR the release reach alone holds from a production release, green, approved and changing nothing dangerous, by state.release_held, land.dangerous and the repository's [[dangerous]] classes, read in one github.paths call: its staging test part taken off and merged first, by state.land_for_release, so the lander queues it through stack-enqueue on this same pass's stage_lines and the cut waits minutes on its landing rather than a skip-or-hold card, by his words state.RELEASE_HOLD_WORDS; a dangerous one stays on its test and his card asks to merge it; each landing and each job it stopped said."""
+    data = state.load(watcher.name)
+    keys = [key for key, pr in data["prs"].items() if pr["reached"] and key not in watcher.stale and state.release_held(data, key) and hears(watcher, data, pr["order"])]
+    if not keys:
+        return []
+    try:
+        read = github.paths(keys)
+    except github.GithubError as error:
+        return read_failed(watcher, "release holds", error, moment)
+    watcher.failures.pop("release holds", None)
+    lines = []
+    with state.edit(watcher.name) as data:
+        for key, (_, paths) in read.items():
+            if not data["prs"][key]["reached"] or not (orders := state.release_held(data, key)) or land.dangerous(paths) or state.dangerous(data, paths):
+                continue
+            stopped = state.land_for_release(data, key, orders)
+            ended = f", and {', '.join(stopped)} stopped" if stopped else ""
+            lines.append(f"PR {key}: {state.RELEASE_LANDS.format(key=key, order=', '.join(orders))}{ended} {ids(data['prs'][key])}")
+    return lines
+
+
 def main_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Keep the tests each yasyf/* repository's main fails since a drive PR merged over a check main failed too, which the lander reads per check, never per test, each owned by the merge that broke it: once a heard merged PR's own run failed, each test its log names that main's last finished run before the merge passed, and no finished main run since has passed, is that PR's. A test another job already holds, by state.main_holder, as the first main fix claiming it or an earlier merge owns it, stays that job's, so no second builder is woken on it. Wake its builder to fix them forward, at once and again every 30 minutes while main fails one, and a main fix's builder only once its fix merged, 30 minutes after that merge, while main still fails the test. A test clears once the newest finished main run created since its merge passes it, read again each time the receiver hears a run complete on main."""
     data = state.load(watcher.name)
@@ -5186,7 +5208,7 @@ def landing_stages(watcher: Watcher, moment: datetime) -> list[functools.partial
     watcher.cards, watcher.redrawn_whole = view.live_cards(watcher.name), set()
     return [
         functools.partial(github_lines, watcher, moment, polled=True),
-        *(functools.partial(stage, watcher, moment) for stage in (pushed_lines, main_lines, dangerous_lines, reach_lines, carried_lines, checks, stage_lines, unscheduled_questions, draw_questions, landed, receiver_lines, redraw_lines)),
+        *(functools.partial(stage, watcher, moment) for stage in (pushed_lines, main_lines, dangerous_lines, reach_lines, release_lines, carried_lines, checks, stage_lines, unscheduled_questions, draw_questions, landed, receiver_lines, redraw_lines)),
     ]
 
 

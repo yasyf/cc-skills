@@ -301,6 +301,23 @@ def test_the_watch_reads_the_reach_once_and_takes_each_pr_an_older_reach_staged_
     assert (watch.reach_lines(watcher(demo), T0), asked) == ([], [[KEY, OTHER]])
 
 
+def test_a_green_approved_pr_only_its_staging_test_holds_from_a_production_release_lands_now_unless_it_is_dangerous(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    held, kept = state.STAGING_TEST.format(number=42), state.STAGING_TEST.format(number=43)
+    with state.edit(demo) as data:
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "ccccccc333"}
+        for key in (KEY, OTHER):
+            state.reach_staging(data, key, [])
+            data["prs"][key] |= {"checks": "pass", "review": "approved", "tap": state.new_tap("Approve", data["prs"][key]["head"] or "aaaaaaa111", "slack", at=state.stamp(T0), card=[key])}
+        data["jobs"]["j20"] = state.new_job("o1", "builder", "cut the release", [], state.stamp(T0)) | {"brief_flags": {"release": "tools/ci release start --targets api --from fff000111222 --order abc1234"}}
+        data["orders"]["o1"]["jobs"].append("j20")
+    monkeypatch.setattr(github, "paths", lambda keys: {KEY: ("aaaaaaa111", ["go/memory/routes.go"]), OTHER: ("ccccccc333", ["go/sand/next/internal/runtime-api/memory/routes.go"])})
+    [line] = watch.release_lines(watcher(demo), T0)
+    data = state.load(demo)
+    assert line.startswith(f"PR {KEY}: {state.RELEASE_LANDS.format(key=KEY, order='o1')}")
+    assert (held in data["orders"]["o1"]["parts"], data["prs"][KEY]["waits"], state.merges_first_lift(data["prs"][KEY])) == (False, [], True)
+    assert (kept in data["orders"]["o1"]["parts"], data["prs"][OTHER]["waits"]) == (True, [f"o1:{kept}"])
+
+
 @pytest.mark.parametrize("wants_tap", [False, True])
 @pytest.mark.parametrize("job_state", ["running", "waiting"])
 def test_a_prs_moves_are_said_whatever_its_jobs_state_and_wake_no_one_while_the_watch_draws_his_card_on_one_waiting_on_his_tap(

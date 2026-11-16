@@ -733,6 +733,19 @@ the patch.
   hotfix` of the fix his order names; the cut `--without` each stack holding a migration, storage or
   write-path change no staging test passed; the whole cut. Once his words withdraw a card, the next
   card offers every option they did not rule out.
+- A release never skips a component or waits a night for a PR that is green and approved, by his
+  words on Nov 15, 2026: "its saying it will wait all night or skip the mac release for 1 PR which
+  is already green and approved, I just merged it to unblock but whatever in the tooling that did
+  not just merge it then include mac in the release needs to be fixed". When only its staging test
+  holds such a PR on an order a production cut serves, the watch's `release_lines` takes the test
+  off and lets it merge first, unless it changes a dangerous path, so the lander queues it through
+  `stack-enqueue` within minutes. The cut waits on that landing, carries the component, and its
+  staging retest reruns only the cases of what that PR touches, never the whole platform. A
+  dangerous PR still waits for his word, and his card asks to merge it, with an option naming
+  merge and its `#N`; his pick is recorded with `drive answer <his answer> --dropped
+  <order>:staging test of #N before it lands`, and the lander lands it while he is present. `drive
+  job ask` refuses a card on a release order that asks about a non-dangerous PR of this kind, or
+  that asks about a dangerous one with no option to merge it.
 - A release he ordered never waits on drive tooling, by the same answer: "stop blocking the release
   on random tooling fixes that are necessary but not blocking." A release-path PR whose staging cases
   passed while the drive refused or never kept their `DONE` lands by `drive order set --drop-part` on

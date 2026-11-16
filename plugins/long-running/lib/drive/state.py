@@ -204,6 +204,8 @@ SLOT_WAIT = "builder-slot"
 USAGE_LIMIT_LOG = "claude-usage-limits.jsonl"
 SPRITE_WAIT = "sprite-slot"
 CUT_WAIT = "release-cut"
+RELEASE_HOLD_WORDS = '"its saying it will wait all night or skip the mac release for 1 PR which is already green and approved, I just merged it to unblock but whatever in the tooling that did not just merge it then include mac in the release needs to be fixed"'
+RELEASE_LANDS = "{key} is green and approved, changes nothing dangerous and holds {order}'s release, so it lands now through the merge queue and the cut's staging retest reruns only what it touches"
 TURN_WAITS = (SLOT_WAIT, SPRITE_WAIT, CUT_WAIT)
 USAGE_LIMIT = re.compile(r"You've hit your (?P<limit>\w+) limit · resets (?P<resets>.+?) \((?P<zone>[^)]+)\)")
 LIMIT_RESET = re.compile(r"(?:(?P<day>[A-Z][a-z]{2} \d{1,2}) at )?(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?P<half>am|pm)")
@@ -2960,6 +2962,33 @@ def unreach(data: dict, key: str) -> list[str]:
     for order_id in [order_id for order_id, order in data["orders"].items() if part in order["parts"]]:
         stopped += drop_part(data, order_id, part, f"{key} changes only tools/ci and go/ci, code its caller runs from a checkout, so it needs no staging test")[1]
         pr["waits"] = [wait for wait in pr["waits"] if wait != f"{order_id}:{part}"]
+    return stopped
+
+
+def releasing(data: dict, order_id: str) -> bool:
+    """Whether an order covers a production release: a job of it starts a cut reaching past staging and sandbox, by starts_cut and brief.rehearsal."""
+    from drive import brief
+
+    return any(starts_cut(job) and not brief.rehearsal(job["brief_flags"]["release"]) for job_id in data["orders"][order_id]["jobs"] if (job := data["jobs"].get(job_id)))
+
+
+def release_held(data: dict, key: str) -> list[str]:
+    """The orders covering a production release, by releasing, whose `staging test of #N before it lands` part alone holds the open Forge-AI/monorepo PR at key: green, his Approve on it and its GitHub review approved, every wait of it on that part of those orders, so the release waits on nothing of it but its landing, by his words RELEASE_HOLD_WORDS; none otherwise."""
+    pr, part = data["prs"][key], STAGING_TEST.format(number=key.rpartition("#")[2])
+    if pr["state"] != "open" or github.repo_of(key).casefold() != MONOREPO.casefold() or pr["checks"] != "pass" or pr["review"] != "approved" or not cleared(pr):
+        return []
+    held = [found[0] for wait in pr["waits"] if (found := part_wait(data, wait)) and found[1] == part]
+    return held if held and len(held) == len(pr["waits"]) and all(releasing(data, order_id) for order_id in held) else []
+
+
+def land_for_release(data: dict, key: str, orders: list[str]) -> list[str]:
+    """Take the staging test part off each release order that alone held the PR on it, by drop_part, and let it merge first, by merge_first, so the lander queues it through stack-enqueue on its next pass, the cut waits minutes on its landing and its after-merge staging pass reruns only what it touches, by his words RELEASE_HOLD_WORDS; each job drop_part stopped."""
+    part = STAGING_TEST.format(number=key.rpartition("#")[2])
+    stopped = []
+    for order_id in orders:
+        why = RELEASE_LANDS.format(key=key, order=order_id)
+        stopped += drop_part(data, order_id, part, why)[1]
+        merge_first(data, order_id, part, why)
     return stopped
 
 

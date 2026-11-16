@@ -2179,6 +2179,7 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
                 f"{job_id} has {', '.join(unlinked)} open, which its ASK's summary does not link, so his card would describe its work as if no PR"
                 " were up: link each in the summary by what it does, as <url|what it does>"
             )
+    problems += release_holds(data, job, asked, text)
     if typed := limits.typed_time("\n".join([asked.title, *asked.summary, asked.cause, asked.interim, *asked.show_me, *asked.options, *asked.hints.values()]), data):
         problems.append(f"his card draws these words, and {typed}")
     said = "\n".join([asked.title, *asked.summary]).casefold()
@@ -2262,6 +2263,28 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
         return asked, holds, unsettled, ordering, approval
     leave = settled.leaving(data, job)
     return asked, holds, unsettled, ordering, leave.ruling if leave and settled.detail(case, words, leave) else None
+
+
+def release_holds(data: dict, job: dict, asked: limits.Question, text: str) -> list[str]:
+    """Why a card on a production release's order may not ask about a PR the ASK names that only its staging test holds, green and approved, by state.release_held: one changing nothing dangerous, by land.dangerous, the watch lands now and the cut waits on, so no option skips a component or holds the release for it; a dangerous one his card asks to merge, an option naming merge and the PR, never one leaving a component out or holding the release on its test; by his words state.RELEASE_HOLD_WORDS."""
+    if not any(state.releasing(data, order_id) for order_id in [job["order"], *job["carries"]]):
+        return []
+    named = {state.pr_key(found[0]) for found in state.PR_URL.finditer(text)} | {f"{state.MONOREPO}#{number}" for number in re.findall(r"(?<![\w/])#(\d+)\b", text)}
+    problems = []
+    for key in sorted(key for key in named if key in data["prs"] and state.release_held(data, key)):
+        number = key.rpartition("#")[2]
+        if not (found := land.dangerous(github.files(key))):
+            problems.append(
+                f"{key} is green and approved and changes nothing dangerous, so the watch lands it now through the merge queue and the cut waits minutes on its landing,"
+                f" its staging retest rerunning only what {key} touches: ask nothing about it, and offer no option leaving a component out or holding the release for it ({state.RELEASE_HOLD_WORDS})"
+            )
+        elif not any(re.search(r"\bmerge", option, re.IGNORECASE) and re.search(rf"#{number}\b|/pull/{number}\b", f"{option}\n{asked.hints.get(option, '')}") for option in asked.options):
+            problems.append(
+                f"{key} is green and approved, and only its staging test holds it, since it changes {', '.join(found[:3])}: his card asks to merge it, an option naming merge and #{number},"
+                f" his pick recorded with drive answer <his answer> --dropped <order>:{state.STAGING_TEST.format(number=number)} so the lander lands it while he is present and the cut's staging retest"
+                f" reruns only what it touches; offer no option leaving a component out or holding the release on its test ({state.RELEASE_HOLD_WORDS})"
+            )
+    return problems
 
 
 def judging_words(name: str, data: dict, job: dict, asked: limits.Question, text: str) -> list[dict]:
