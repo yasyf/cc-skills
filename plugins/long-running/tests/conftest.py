@@ -587,18 +587,39 @@ def provers(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 @pytest.fixture(autouse=True)
 def base_providers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every drive's providers the base classes, which do nothing, unless a test names its own by provide()."""
-    monkeypatch.setattr(providers, "of", lambda data: providers.Providers(None))
+    """Every drive's providers, and every hook's, the HOME fakes for the roles HOME names and the base classes, which do nothing, for the rest, unless a test names its own by provide()."""
+    provide(monkeypatch, Path())
 
 
 def provide(monkeypatch: pytest.MonkeyPatch, checkout: Path, **roles: type[providers.Provider]) -> None:
-    """Give every drive the providers roles names, each running its commands in checkout, the base class for each role left out."""
-    built = {role: made(checkout, checkout, {}) for role, made in roles.items()}
+    """Give every drive and every hook the providers roles names over HOME, each running its commands in checkout, the base class for each role neither names."""
+    built = {role: made(checkout, checkout, {}) for role, made in (HOME | roles).items()}
     monkeypatch.setattr(providers, "of", lambda data: providers.Providers(None, {}, **built))
+    monkeypatch.setattr(providers, "at", lambda clone, checkout=None: providers.Providers(None, {}, **built))
 
 
 class HomeRepo(providers.RepoProvider):
     name = "Forge-AI/monorepo"
+    guarded_owner = "forge-ai"
+    review_ask = "@forge-pr-reviewer review"
+
+
+class HomeStaging(providers.StagingProvider):
+    env = "plat-usw2-staging"
+
+
+class HomeMacBox(providers.MacBoxProvider):
+    builds = frozenset({"iris-desktop", "sand-next"})
+    signed_in_step = "mac-box-approve"
+
+
+class HomeBuild(providers.BuildProvider):
+    build_url = re.compile(r"https://buildkite\.com/(?P<pipeline>[\w-]+/[\w-]+)/builds/(?P<number>\d+)")
+    receiver_path = "/buildkite"
+    graders = "Buildkite and forge-pr-reviewer"
+
+
+HOME: dict[str, type[providers.Provider]] = {"repo": HomeRepo, "staging": HomeStaging, "mac_box": HomeMacBox, "build": HomeBuild}
 
 
 class SelectRelease(providers.ReleaseProvider):

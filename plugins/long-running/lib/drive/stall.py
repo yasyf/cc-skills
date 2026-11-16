@@ -2,7 +2,7 @@ import re
 import shlex
 from datetime import datetime, timedelta
 
-from drive import land, stage, state, view
+from drive import land, providers, stage, state, view
 
 STILL_FOR = timedelta(minutes=60)
 SEARCH_FOR = timedelta(minutes=10)
@@ -128,7 +128,7 @@ def things(data: dict, links: dict[str, list[tuple[str, str, bool]]], claims: li
                 continue
             into = fold(end)
             named = folds[into] if into else members[units[end]] if end in units else [end]
-            held = found.setdefault(into or named[0], {"members": named, "subjects": [], "chain": {}, "joins": bool(into), "behind": behind(end, claims)})
+            held = found.setdefault(into or named[0], {"members": named, "subjects": [], "chain": {}, "joins": bool(into), "behind": behind(end, claims, providers.of(data).staging.env)})
             if subject not in held["subjects"]:
                 held["subjects"].append(subject)
                 held["chain"] |= {link: words for link, words, _ in chained}
@@ -144,10 +144,10 @@ def fold(wait: str) -> str | None:
     return None
 
 
-def behind(wait: str, claims: list[dict]) -> dict | None:
-    """The claim of another drive on this Mac a staging wait, or a release wait naming an env, stands behind, by the order's words "when staging is frozen by another drive's claim": of claims, state.others_claims() latest end first, the first, while the wait awaits state.STAGING_ENV, the env every staging claim and the freeze it announces hold, by the repository's staging-claim rule; None for any other wait or env, or with no such claim standing."""
+def behind(wait: str, claims: list[dict], env: str | None) -> dict | None:
+    """The claim of another drive on this Mac a staging wait, or a release wait naming an env, stands behind, by the order's words "when staging is frozen by another drive's claim": of claims, state.others_claims() latest end first, the first, while the wait awaits env, the staging provider's env, the env every staging claim and the freeze it announces hold, by the repository's staging-claim rule; None for any other wait or env, or with no such claim standing."""
     found = state.STAGING_WAIT.fullmatch(wait) or state.RELEASE_WAIT.fullmatch(wait)
-    return claims[0] if claims and found and found["env"] == state.STAGING_ENV else None
+    return claims[0] if claims and found and found["env"] == env else None
 
 
 def words(data: dict, cards: dict, held: dict) -> str:

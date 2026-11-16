@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from drive import agents, github, install, served, state, train, view
+from drive import agents, github, install, providers, served, state, train, view
 from drive.render import cut
 
 ENQUEUE = Path(".agents/skills/submit-pr/scripts/stack-enqueue")
@@ -52,7 +52,6 @@ UNREAD = "not landed: a GitHub read failed before it queued or merged anything, 
 RUNNING = "not landed: its checks still run"
 RETRIED = (NEWER_INSTALL, OWN_FAILURE, HELD, WAITED, AWAY, UNREAD, RUNNING)
 OWN_RED = "not landed: its own change fails"
-REVIEW_ASK = "@forge-pr-reviewer review"
 DEQUEUED_LINE = re.compile(r"^#\d+ DEQUEUED ", re.MULTILINE)
 BLOCKED_LINE = re.compile(r"^#(?P<number>\d+) BLOCKED (?P<head>\w+) (?P<gaps>.+)$", re.MULTILINE)
 OLDER_HEAD = re.compile(r"awaiting approval on head from \S+ \(approved [^,]+, (?:on an older head|dismissed by a push)\)")
@@ -138,7 +137,7 @@ def danger(data: dict, key: str) -> str:
 
 def unattended(data: dict, key: str, moment: datetime) -> str | None:
     """Why a Forge-AI PR waits for his next word to land: he is not present, by state.absence, and danger() reads it dangerous, by his words state.PRESENCE_WORDS; None otherwise, reading GitHub only while he is not present."""
-    if not state.guarded(key) or not (away := state.absence(data, moment)) or not (why := danger(data, key)):
+    if not state.guarded(providers.of(data).repo.guarded_owner, key) or not (away := state.absence(data, moment)) or not (why := danger(data, key)):
         return None
     return (
         f"{away}, and {why}, which can break FDE or customer runs or lose their data,"
@@ -712,7 +711,7 @@ def enqueued(name: str, coordinator: Path, keys: list[str], prs: dict, asked: di
                 key = f"{repo}#{line['number']}"
                 if not OLDER_HEAD.search(line["gaps"]) or prs[key]["review_asked"] == line["head"]:
                     continue
-                if refused := ask_review(repo, line["number"], line["head"]):
+                if refused := ask_review(providers.at(coordinator).repo.review_ask, repo, line["number"], line["head"]):
                     return refused
                 asked[key] = line["head"]
             try:
@@ -759,14 +758,16 @@ def fresh(name: str, coordinator: Path, repo: str, branch: str) -> Iterator[tupl
         subprocess.run([*git, "worktree", "remove", "--force", str(checkout)])
 
 
-def ask_review(repo: str, number: str, head: str) -> str | None:
-    """Post the comment ai-review names for a head it will not review on its own on the PR, whose caller records that head as its review_asked so none is asked twice; why not, when GitHub refused it."""
-    done = subprocess.run(["gh", "pr", "comment", number, "-R", repo, "--body", REVIEW_ASK], capture_output=True, text=True)
+def ask_review(ask: str | None, repo: str, number: str, head: str) -> str | None:
+    """Post ask, the comment the repository provider names to ask its reviewer for a head it will not review on its own, on the PR, whose caller records that head as its review_asked so none is asked twice; why not, when GitHub refused it. Nothing to post when the provider names no ask."""
+    if ask is None:
+        return None
+    done = subprocess.run(["gh", "pr", "comment", number, "-R", repo, "--body", ask], capture_output=True, text=True)
     if done.returncode:
-        return unanswered(f"{repo}#{number}", f"gh pr comment {REVIEW_ASK!r}", done.stderr) or (
-            f"not landed: #{number} waits on a review of head {head}, and gh pr comment refused {REVIEW_ASK!r}: {cut(' '.join(done.stderr.split()), SAID_CHARS)}"
+        return unanswered(f"{repo}#{number}", f"gh pr comment {ask!r}", done.stderr) or (
+            f"not landed: #{number} waits on a review of head {head}, and gh pr comment refused {ask!r}: {cut(' '.join(done.stderr.split()), SAID_CHARS)}"
         )
-    print(f"#{number} asked forge-pr-reviewer to review head {head}: {done.stdout.strip()}", flush=True)
+    print(f"#{number} asked {ask!r} for a review of head {head}: {done.stdout.strip()}", flush=True)
     return None
 
 

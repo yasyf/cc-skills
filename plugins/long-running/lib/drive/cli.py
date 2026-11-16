@@ -100,7 +100,6 @@ STAGING_MAC_BOX = (
     " `tools/ci mac-box record <box>` for each case, by the test-mac skill's Prove a desktop change"
 )
 STAGING_APPROVED = ", which waits behind this test: a full pass keeps it, so it lands the PR once the test passes (e5e4f7b), while the lander holds a dangerous change until he is present, his word or tap within 15 minutes (27ea387)"
-MAC_BOX_BUILDS = {"iris-desktop", "sand-next"}
 STAGING_OWN_HEAD = (
     "; {tested} changes iris-desktop or sand-next too, the two components `tools/ci mac-box prove` builds from the commit it names, so run them again after"
     " `tools/ci mac-box prove <box> --commit <its head's full sha>`"
@@ -4953,7 +4952,7 @@ def pr_add(args: argparse.Namespace) -> int:
         raise DriveError(f"{key}: refused, nothing added: {state.unshipped(data, args.job)}")
     if args.no_tap and not args.why:
         raise DriveError("--no-tap needs --why <reason>: every PR waits on his tap unless it is a port, exempt or drive tooling outside Forge-AI")
-    if args.no_tap and state.guarded(key):
+    if args.no_tap and state.guarded(providers.of(data).repo.guarded_owner, key):
         raise DriveError(UNLANDABLE.format(key=key, done="added"))
     if others := [wait for wait in args.waits if not state.REVIEW_WAIT.fullmatch(wait)]:
         raise DriveError(
@@ -5201,7 +5200,7 @@ def pr_set(args: argparse.Namespace) -> int:
         args.tap = flake_tap(key, state.waits_his_tap(known, key, before["order"]))
     after = dict(before)
     set_pr(after, args)
-    if state.guarded(key) and (before["wants_tap"] or before.get("exempt")) and not (after["wants_tap"] or after.get("exempt")):
+    if state.guarded(providers.of(state.load(name)).repo.guarded_owner, key) and (before["wants_tap"] or before.get("exempt")) and not (after["wants_tap"] or after.get("exempt")):
         raise DriveError(UNLANDABLE.format(key=key, done="set"))
     dropped = known["prs"][key]["tap"]
     if args.no_tapped:
@@ -5425,7 +5424,7 @@ def staging_mac_box(name: str, data: dict, job: dict) -> str:
         live, unread = live_sand_next(orca.checkout(name, data["roles"]["coordinator"]["cwd"])), ""
     except (DriveError, github.GithubError) as error:
         live, unread = "<that commit>", STAGING_UNREAD.format(error=error)
-    own = [key for key in dashboard if MAC_BOX_BUILDS & set(reach[key]["touched"])]
+    own = [key for key in dashboard if providers.of(data).mac_box.builds & set(reach[key]["touched"])]
     return STAGING_MAC_BOX.format(tested=", ".join(dashboard), live=live) + unread + (STAGING_OWN_HEAD.format(tested=", ".join(own)) if own else "")
 
 
@@ -5455,7 +5454,7 @@ def staging_reach(name: str, data: dict, keys: list[str]) -> dict[str, list[str]
     except github.GithubError as error:
         raise DriveError(f"could not read which components the paths {', '.join(keys)} changes reach, so whether it waits on a staging test is unknown: {error}; run this again") from None
     return {
-        key: [] if answer["staged"] or MAC_BOX_BUILDS & set(answer["releases"]) else answer["releases"]
+        key: [] if answer["staged"] or providers.of(data).mac_box.builds & set(answer["releases"]) else answer["releases"]
         for key in keys
         if (answer := reach.get(key)) and answer["releases"]
     }

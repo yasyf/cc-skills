@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from drive import github, land, state, view
+from drive import github, land, providers, state, view
 
 NOBODY = "nobody"
 WATCH = "the watch"
@@ -11,7 +11,6 @@ ORDER = "the session holding its order"
 HIM = "him"
 OUTSIDE = "someone outside the drive"
 BUILDER = "its builder"
-GRADERS = "Buildkite and forge-pr-reviewer"
 ACCEPT_RULING = '2bb0472, "you have to accept the risk stop just pretendinf urblocked"'
 UNLANDED_SILENT = "no outcome: its process ended before it said whether it queued anything"
 WAKES_LOG = "wakes.log"
@@ -99,7 +98,7 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
     if holds := held(data, pr):
         return Stage("held", HIM, holds)
     if pending := grading(pr):
-        return Stage("grading", GRADERS, pending)
+        return Stage("grading", providers.of(data).build.graders, pending)
     if state.upstream(pr):
         return Stage("upstream", NOBODY, f"waits on {state.upstream_owner(pr)}'s maintainers to merge it")
     if reviewers := state.awaited_reviewers(pr):

@@ -1308,7 +1308,7 @@ def live_rows(watcher: Watcher, data: dict) -> tuple[Path, list[dict]]:
     checkout = orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"], wait=0)
     live = live_copy(watcher.name, checkout)
     watcher.live = live
-    watcher.staged = {row["target"] for row in live if row["env"] == state.STAGING_ENV}
+    watcher.staged = {row["target"] for row in live if row["env"] == providers.of(data).staging.env}
     return checkout, live
 
 
@@ -6138,7 +6138,7 @@ def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str
         repo, number = key.split("#")
         if pr["review_asked"] == pr["head"]:
             stage.wake(watcher.name, key, line, marks=[f"stage:{key}@{pr['head']}"], at=state.stamp(moment))
-        elif refused := land.ask_review(repo, number, pr["head"]):
+        elif refused := land.ask_review(providers.of(state.load(watcher.name)).repo.review_ask, repo, number, pr["head"]):
             said.append(f"STAGE {refused} {ids(pr)}")
         else:
             def acted_write3(data: dict):

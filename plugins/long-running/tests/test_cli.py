@@ -18,7 +18,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import HomeRepo, SelectRelease, provide, ACME_CUT, CARD_BODY, card_reads, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, Redraws, SessionLaunches, Thread, WatchProcess, Withdrawals
+from conftest import HomeBuild, HomeRepo, SelectRelease, provide, ACME_CUT, CARD_BODY, card_reads, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, Redraws, SessionLaunches, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -7779,7 +7779,7 @@ def test_a_yasyf_pr_reads_ready_for_the_lander_once_its_builders_ready_is_taken_
     kept_proof(tmp_path, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO(f"READY {url}\n"))
     assert (run("job", "report", "j1", "-")[0], run("pr", "add", url, "--job", "j1", *LEAD), landers) == (0, (0, key), [])
-    assert stage.of(state.load("demo"), key, view.NO_CARDS) == stage.Stage("grading", stage.GRADERS, "its checks run at abc1234")
+    assert stage.of(state.load("demo"), key, view.NO_CARDS) == stage.Stage("grading", HomeBuild.graders, "its checks run at abc1234")
     with state.edit("demo") as data:
         data["prs"][key]["checks"] = "pass"
     ready = stage.Stage("ready", stage.LANDER, "its builder reported it and every check at abc1234 finished, so the lander merges it with --admin unless one fails on its own change")

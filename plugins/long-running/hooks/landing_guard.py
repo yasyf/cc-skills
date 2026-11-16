@@ -17,6 +17,7 @@ from drive import (
     github,
     land,
     limits,
+    providers,
     public_check,
     render,
     reports,
@@ -459,7 +460,7 @@ def landing_reason(landing: Landing, refs: list[str], options: dict[str, list[st
         return None
     named = refs if landing.every_pr else refs[:1] or [None]
     repo = target_repo(landing, next(iter(named), None), options, shell)
-    if not state.guarded(repo):
+    if not state.guarded(providers.at(Path(shell.cwd)).repo.guarded_owner, repo):
         return None
     if switched_on(options, "admin"):
         return ADMIN_REASON

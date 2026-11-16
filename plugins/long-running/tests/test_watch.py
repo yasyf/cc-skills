@@ -17,7 +17,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import HomeRepo, provide, DRIVE_TERMINAL, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged
+from conftest import HomeBuild, HomeRepo, provide, DRIVE_TERMINAL, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged
 from drive import agents, card, cli, codex, dashboard, github, install, land, launchd, limits, orca, place, providers, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, train, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -10099,7 +10099,7 @@ def test_reported_yasyf_prs_start_no_lander_while_a_check_runs_as_4755_did_and_o
     assert stage.of(data, "yasyf/cc-skills#4745", NO_CARDS) == stage.Stage(
         "red", stage.BUILDER, "its own change fails test at aa8d008, which the default branch does not fail on the same tests where the PR's run of it merged its head"
     )
-    assert stage.of(data, "yasyf/cc-skills#4755", NO_CARDS) == stage.Stage("grading", stage.GRADERS, "its checks run at 1120acd")
+    assert stage.of(data, "yasyf/cc-skills#4755", NO_CARDS) == stage.Stage("grading", HomeBuild.graders, "its checks run at 1120acd")
     reads["yasyf/cc-skills#4755"]["checks"] = [long_running_test("SUCCESS"), SOCKET]
     watch.run_pass(watching, T0 + timedelta(minutes=10))
     assert landers[1:] == [("yasyf/cc-skills#4755",)]

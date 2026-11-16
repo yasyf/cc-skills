@@ -423,15 +423,15 @@ def harmless(release: str, data: dict) -> bool:
 
 def cluster_job_refusal(job: dict, data: dict, moment: datetime, top: bool = False) -> str | None:
     """Why a Job may not start now from a suspended CronJob, by `tools/ci cluster-job`, a `ci bk api` write creating the forge/release build it starts or writing to it, such as unblocking its gate, or a rerun of that build, each its cluster, CronJob and reason as the build's CLUSTER_JOB keeps them: claimed_job_refusal() inside another drive's staging claim, job_hold_refusal() while he holds every release, a reading in its reason counting only in the top coordinator's session, top, else away_job_refusal() while he is not present; DriveError when his hold could not be read."""
-    if claimed := claimed_job_refusal(job, data["name"], moment):
+    if claimed := claimed_job_refusal(job, data, moment):
         return claimed
     hold = settled.hold(data["roles"]["coordinator"]["cwd"])
     return hold and job_hold_refusal(job, data, hold, moment, top) or away_job_refusal(job["cluster"], data, moment)
 
 
-def claimed_job_refusal(job: dict, name: str, moment: datetime) -> str | None:
-    """Why a Job may not start on state.STAGING_ENV now: another drive on this Mac holds staging by a claim whose end is still to come, the first of state.others_claims(), latest end first, as stall.behind() reads every claim as staging's and the freeze its repository's staging-claim rule posts beside it."""
-    if job["cluster"] != state.STAGING_ENV or not (claims := state.others_claims(name, moment)):
+def claimed_job_refusal(job: dict, data: dict, moment: datetime) -> str | None:
+    """Why a Job may not start on the staging provider's env now: another drive on this Mac holds staging by a claim whose end is still to come, the first of state.others_claims(), latest end first, as stall.behind() reads every claim as staging's and the freeze its repository's staging-claim rule posts beside it."""
+    if job["cluster"] != providers.of(data).staging.env or not (claims := state.others_claims(data["name"], moment)):
         return None
     claim = claims[0]
     return CLAIMED_JOB.format(drive=claim["drive"], order=claim["order"], until=claim["until"], link=claim["link"], cronjob=job["cronJob"], cluster=job["cluster"])

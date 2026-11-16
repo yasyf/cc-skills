@@ -5,7 +5,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from conftest import SHORT_ASK
+from conftest import SHORT_ASK, HomeBuild
 from drive import card, dashboard, land, limits, page, pages, pr_graph, render, slack, stage, state, view, watch
 from drive.render import when
 
@@ -1451,7 +1451,7 @@ def test_a_pages_slice_gives_each_pr_the_staging_line_its_cards_say() -> None:
 def test_his_prs_rows_each_open_pr_he_approved_or_whose_stage_he_owes_oldest_stage_first_as_drive_status_prs_prints_them() -> None:
     approved = state.new_tap("Approve", "aaaaaaa111", "pressed the button", at=at(-400))
     waits = {"name": "waiting", "owner": "j2", "why": "it waits on j2, and the watch frees it once each ends", "since": at(-300), "woke": None}
-    grading = {"name": "grading", "owner": stage.GRADERS, "why": "its checks run at aaaaaaa", "since": at(-10), "woke": None}
+    grading = {"name": "grading", "owner": HomeBuild.graders, "why": "its checks run at aaaaaaa", "since": at(-10), "woke": None}
     prs = [pr(5, "o1", wants_tap=True), pr(6, "o1", tap=approved, stage=waits), pr(7, "o1", stage=grading), pr(8, "o1", state="merged", tap=approved, stage=waits)]
     data = drive_of({"o1": order("ship", ["j1"])}, {"j1": job("o1", "waiting")}, prs)
     rows = view.his_prs(data)

@@ -16,7 +16,7 @@ from contextlib import closing, contextmanager
 from functools import cache, partial
 from pathlib import Path, PurePosixPath
 
-from drive import github, state, train
+from drive import github, providers, state, train
 
 POLL_SECONDS = 20
 READ_EVERY_SECONDS = 60
@@ -1127,7 +1127,7 @@ def add_prover(name: str, data: dict, job_id: str, reach: dict[str, dict], parts
     keys = [key for key in merges if not prover_of(data, key)]
     merged = ", ".join(f"{key} at {sha[:12]}" for key, sha in merges.items())
     stagings = [
-        f"staging:{target}/{state.STAGING_ENV}@{merges[key]}"
+        f"staging:{target}/{providers.of(data).staging.env}@{merges[key]}"
         for key in keys
         if not state.staging_tested(data, key)
         for target in reach.get(key, {}).get("releases", [])

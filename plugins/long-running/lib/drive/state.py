@@ -140,7 +140,6 @@ WAITS_ON_HIM = "WAITING-ON-HIM"
 ABOUT_DRIVE = "drive"
 ABOUT_HIS_WORK = "his work"
 ABOUTS = (ABOUT_DRIVE, ABOUT_HIS_WORK)
-GUARDED_OWNER = "forge-ai"
 HIS_LOGIN = "yasyf"
 UPSTREAM_PERMISSIONS = ("READ", "TRIAGE")
 NO_TAP_OWNER = HIS_LOGIN
@@ -189,7 +188,6 @@ AFTER_MERGE_PASS = "after-merge staging pass"
 PID_WAIT = re.compile(r"pid:(?P<pid>\d+)(?:@(?P<started>\d+))?")
 STAGING_GOAL = re.compile(r"\bstaging\b", re.IGNORECASE)
 APPLY_STEP = re.compile(r"apply-(?P<target>.+?)--(?P<env>.+)")
-MAC_BOX_SIGNED_IN = "mac-box-approve"
 MAC_BOX = "a Mac box signed in to staging"
 CASE_LINE = re.compile(r"^CASE[ \t]+(?P<case>.+?):(?:[ \t]+|$)(?P<rest>.*?)[ \t]*$", re.MULTILINE)
 PASSED_CASE = re.compile(r"pass(?:ed)?\b", re.IGNORECASE)
@@ -3693,15 +3691,16 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
     named = {key: part_run(data, job_id, report, tested[key.casefold()])[1] if key.casefold() in tested else every for key in freed}
     runs = {key: [found[0] for proof in proofs if (found := github.BUILD.match(proof))] for key, proofs in named.items()}
     deployed, said, lacking = {}, [], {}
+    signed_in = provided(data).mac_box.signed_in_step
     try:
         for build in dict.fromkeys(build for builds in runs.values() for build in builds):
             ran_build = github.BUILD.match(build)
             read = github.build(ran_build["pipeline"], ran_build["number"])
             passed = {ran.get("step_key") or "" for ran in read.get("jobs", []) if ran.get("state") == "passed"}
-            if envs := sorted({step["env"] for key in passed if (step := APPLY_STEP.fullmatch(key)) and settled.stage(step["env"], clone) == settled.STAGING}) + [MAC_BOX] * (MAC_BOX_SIGNED_IN in passed):
+            if envs := sorted({step["env"] for key in passed if (step := APPLY_STEP.fullmatch(key)) and settled.stage(step["env"], clone) == settled.STAGING}) + [MAC_BOX] * (signed_in in passed):
                 deployed[build] = (read["commit"], envs)
             else:
-                said.append(f"{build} deployed nothing to staging, passing no apply step on an env its infra/envs file marks stage: staging and no {MAC_BOX_SIGNED_IN} step of a Mac box proof")
+                said.append(f"{build} deployed nothing to staging, passing no apply step on an env its infra/envs file marks stage: staging and no {signed_in} step of a Mac box proof")
         for key in freed:
             misses = []
             for build in (build for build in runs[key] if build in deployed):
@@ -3764,7 +3763,7 @@ def job_waits(data: dict, pr: dict) -> list[str]:
     """A PR's waits, its own staging test parts among them, never one another PR of its job waits on, each staging run of the PR itself by staging_runs, and, for a yasyf/* PR, each open Forge-AI PR of its job that does not wait on it, which only his tap or an exempt class lands, so tooling that lands with no tap never ships ahead of the code it calls, as a drive reader shipped hours before the go/ci verb it runs."""
     key = pr_key(pr["url"])
     mates = index.opened.get(pr["job"], []) if (index := index_of(data)) else [other for other in data["prs"].values() if other["job"] == pr["job"] and other["state"] == "open"]
-    tapped = [mate for other in mates if guarded(mate := pr_key(other["url"])) and key not in other["waits"]] if merges_untapped(key) else []
+    tapped = [mate for other in mates if guarded(provided(data).repo.guarded_owner, mate := pr_key(other["url"])) and key not in other["waits"]] if merges_untapped(key) else []
     return list(dict.fromkeys([*pr["waits"], *tapped, *staging_runs(data, pr)]))
 
 
@@ -5260,6 +5259,13 @@ def repo_config(data: dict) -> dict:
 DRIVE_CHECKOUTS: dict[tuple[str, str], Path] = {}
 
 
+def provided(data: dict) -> Any:
+    """The providers of the repository the drive works in, by providers.of, which imports this module."""
+    from drive import providers
+
+    return providers.of(data)
+
+
 def drive_checkout(name: str, clone: str) -> Path:
     """The drive's own checkout, the worktree of clone's repository orca.checkout keeps at its default branch's head, found once a process, else the session's clone while no drive checkout exists yet or git cannot list its worktrees; a session's own clone can sit days behind, missing the repository's settings."""
     from drive import github, orca
@@ -6405,14 +6411,14 @@ def grading(key: str, pr: dict) -> bool:
     return pr["state"] == "merged" and merges_untapped(key) and not pr["graded"]
 
 
-def guarded(key: str) -> bool:
-    """Whether only his tap or an exempt class lands a PR of this repository, a Forge-AI one, whoever opened it."""
-    return key.split("/")[0].lower() == GUARDED_OWNER
+def guarded(owner: str | None, key: str) -> bool:
+    """Whether only his tap or an exempt class lands a PR of this repository, whoever opened it: one of owner, the account the repository provider guards, none when it guards none."""
+    return owner is not None and key.split("/")[0].casefold() == owner.casefold()
 
 
 def waits_his_tap(data: dict, key: str, order_id: str) -> bool:
     """Whether a PR registered on this order waits on his tap: one only his tap lands, by guarded, or one of any order but a Drive tooling one, whose PRs outside Forge-AI land on a taken READY or PUSHED."""
-    return guarded(key) or not tooling(data["orders"][order_id])
+    return guarded(provided(data).repo.guarded_owner, key) or not tooling(data["orders"][order_id])
 
 
 def queued_by_lander(key: str) -> bool:
