@@ -5,11 +5,11 @@ import pytest
 
 from drive import served, story
 
-ASKED = {"title": "Raise the limit?", "body": "Writes hit the bucket's cap.", "options": ["Raise it", "Shard it"], "recommended": "Raise it"}
+ASKED = {"title": "Raise the limit?", "body": "Writes hit the bucket's cap.\n\n![The cap](/pics/cap.png)", "options": ["Raise it", "Shard it"], "recommended": "Raise it"}
 TOLD = {
     "format": "cockpit",
     "headline": "Raise the limit?",
-    "beats": [{"label": "What happened", "text": "Writes hit the bucket's cap."}],
+    "beats": [{"label": "Writes hit the cap", "text": "Writes hit the bucket's cap.", "when": "Nov 15, 9 PM", "picture": "/pics/cap.png"}, {"label": "Your pick waits", "text": "Shards wait on you.", "when": "", "picture": "/pics/made-up.png"}],
     "ask": "",
     "options": [{"title": "Raise it", "consequence": "One setting changes.", "priority": "", "metrics": []}, {"title": "Shard it", "consequence": "Each journal writes under 16 prefixes.", "priority": "", "metrics": []}],
 }
@@ -36,7 +36,7 @@ def test_a_question_cards_story_is_written_once_kept_for_a_restarted_dashboard_a
     writer.write(*writer.writing.get())
     restarted = asking(ASKED, ASKED | {"options": [*ASKED["options"], "Wait a week"]})
     story.Writer("demo").tell(restarted)
-    labelled = TOLD | {"options": [option | {"label": label} for option, label in zip(TOLD["options"], ASKED["options"], strict=True)]}
+    labelled = TOLD | {"beats": [TOLD["beats"][0], TOLD["beats"][1] | {"picture": ""}], "options": [option | {"label": label} for option, label in zip(TOLD["options"], ASKED["options"], strict=True)]}
     assert [item["told"] for item in restarted["queue"]] == [{"story": labelled}, {"writing": True}]
     assert len(prompts) == 1
     assert '"Shard it"' in prompts[0]

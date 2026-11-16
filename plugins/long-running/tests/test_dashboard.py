@@ -1541,7 +1541,7 @@ document.querySelector('[data-story-priority="1"]').click();
 await wait(50);
 done({ ...asked, outcome: document.querySelector('.story-outcome h3').textContent, beats: [...document.querySelectorAll('.story-beats p')].map((beat) => beat.textContent) });
 """, board(queue=[QUESTION | {"told": {"story": told}}]))
-    assert seen == {"label": "Decision: what matters most", "ask": "What matters more this week?", "priorities": ["No new code", "Room to grow"], "outcome": "Shard it", "beats": ["What happened Writes hit the bucket's cap."]}
+    assert seen == {"label": "Decision: what matters most", "ask": "What matters more this week?", "priorities": ["No new code", "Room to grow"], "outcome": "Shard it", "beats": ["Writes hit the bucket's cap."]}
 
 
 def test_a_question_whose_story_is_still_being_written_says_so_and_still_takes_his_answer(tmp_path: Path) -> None:

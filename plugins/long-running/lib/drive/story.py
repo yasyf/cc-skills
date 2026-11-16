@@ -5,7 +5,7 @@ import threading
 import time
 from collections.abc import Callable
 
-from drive import card, diff, served, state
+from drive import card, diff, picture, served, state
 from drive.render import cut
 from drive.state import DriveError
 
@@ -35,7 +35,7 @@ Pick the format deciding it takes, never by how many options it has, by his word
 
 Then tell its story:
 - headline: the decision itself, a plain question or statement of at most 90 characters.
-- beats: two to four beats he reads in order, each `label` a few words, such as "What happened", "What's at stake" or "Why now", and each `text` one or two sentences: where things stand, what goes wrong or is gained, and what turns on his pick; where the card shows evidence, say what it shows.
+- beats: what happened, as two to four short steps in the order they happened, never paragraphs: each `label` a few words naming the step, such as "Staging test failed" or "Your pick waits"; `text` one short sentence on that step, where the card shows evidence saying what it shows; `when` the time or day the card gives for that step, as it writes it, such as "Nov 15, 9 PM" or "this morning", empty when it gives none; `picture` the path of the image in the card's body that shows that step, exactly as the body writes it, empty when none does. The last step says what turns on his pick.
 - options: one for each option of the card, in its order: `title` at most six words naming the path; `consequence` one or two sentences on what is true once he picks it; `metrics` its lab values, each `label` the same across the options and each `value` a few words from the card, none outside a lab; `priority` the words of the priority it serves in an interview, empty outside one.
 - ask: an interview's question on his priority, empty outside an interview.
 - needs_him: why this is his to decide and not the drive's, the one that fits best: "dangerous act" when the answer lets a step run that can break customers' work or lose their data, "customer data" when it touches what customers stored, "money" when it spends money, "his hands" when he must do something himself, such as sign in, tap or hand over a secret, "his own words" when the drive needs a ruling only his words give, "only he knows" when it turns on a fact only he holds.
@@ -55,13 +55,13 @@ Tell its story:
 - approve: one or two sentences on what happens once he taps Approve: when it lands and ships and who sees the change.
 - hold: one or two sentences on what stays true while he holds it."""
 NEEDS_HIM = ("dangerous act", "customer data", "money", "his hands", "his own words", "only he knows")
-QUESTION_VERSION = 3
+QUESTION_VERSION = 4
 QUESTION = {
     "type": "object",
     "properties": {
         "format": {"enum": ["cockpit", "lab", "interview"]},
         "headline": {"type": "string"},
-        "beats": pairs("label", "text"),
+        "beats": {"type": "array", "items": {"type": "object", "properties": {"label": {"type": "string"}, "text": {"type": "string"}, "when": {"type": "string"}, "picture": {"type": "string"}}, "required": ["label", "text", "when", "picture"]}},
         "ask": {"type": "string"},
         "needs_him": {"enum": list(NEEDS_HIM)},
         "waits": {"type": "string"},
@@ -115,11 +115,13 @@ def digest(told: dict) -> str:
 
 
 def question(name: str, asked: dict) -> dict:
-    """The story of his question card, its options carrying the card's own labels, in its order; refused when the story names another count of options."""
+    """The story of his question card, its options carrying the card's own labels, in its order, each step's picture kept only when the card's body shows that image; refused when the story names another count of options."""
     told = served.structured(state.drive_dir(name), QUESTION_RULES, f"<card>\n{json.dumps({field: asked.get(field) for field in ASKED}, indent=1)}\n</card>", QUESTION, STORY_SECONDS, "writing the story of his card")
     if len(told["options"]) != len(asked["options"]):
         raise DriveError(f"the story written for his card drew {len(told['options'])} options for its {len(asked['options'])}")
-    return told | {"options": [option | {"label": label} for option, label in zip(told["options"], asked["options"], strict=True)]}
+    shown = {found[1] for found in picture.IMAGE.finditer(asked.get("body") or "") if found[1]}
+    beats = [beat | {"picture": beat["picture"] if beat["picture"] in shown else ""} for beat in told["beats"]]
+    return told | {"beats": beats, "options": [option | {"label": label} for option, label in zip(told["options"], asked["options"], strict=True)]}
 
 
 def change(name: str, entry: dict) -> dict:

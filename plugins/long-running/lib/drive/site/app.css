@@ -433,7 +433,13 @@ html:has(dialog[open]) { overflow: hidden; }
 .tablewrap :is(th, td) { min-width: 120px; overflow-wrap: normal; word-break: normal; }
 .story-layout { grid-template-columns: minmax(0, 1fr) 264px; gap: 18px; }
 .decision-story .card-title { font-size: clamp(25px, 2.4vw, 36px); overflow-wrap: normal; text-wrap: balance; }
-.story-beats { display: grid; gap: 8px; margin: 16px 0 24px; max-width: 60ch; color: var(--ink-2); font-size: 15px; line-height: 1.5; }
+.story-beats { display: grid; gap: 14px; margin: 16px 0 24px; padding: 0; max-width: 64ch; list-style: none; counter-reset: beat; color: var(--ink-2); font-size: 15px; line-height: 1.5; }
+.story-beats > li { position: relative; display: grid; gap: 4px; padding-left: 34px; counter-increment: beat; }
+.story-beats > li::before { content: counter(beat); position: absolute; left: 0; top: 1px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--soft); color: var(--accent); font-size: 12px; font-weight: 650; }
+.story-beats > li:not(:last-child)::after { content: ""; position: absolute; left: 10.5px; top: 27px; bottom: -11px; width: 1px; background: var(--line); }
+.story-beats .beat-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.story-beats time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.story-beats p { margin: 0; }
 .story-beats strong { color: var(--ink); }
 .story-cause { margin: -12px 0 24px; max-width: 60ch; color: var(--ink); font-size: 15px; }
 .story-cockpit { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: start; }

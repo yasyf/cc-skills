@@ -624,7 +624,7 @@ function decisionChapters(item, key, story, state, cause) {
   const card = item.card;
   const links = [...(card.links ?? []), ...(card.refs ?? [])].filter((each) => !SLACK.test(each.url));
   const parts = [
-    ['happened', 'What happened', `<div class="story-beats">${story.beats.map((beat) => `<p><strong>${esc(beat.label)}</strong> ${esc(beat.text)}</p>`).join('')}</div>${cause ? `<p class="story-cause"><b>Root cause:</b> ${esc(cause)}</p>` : ''}`],
+    ['happened', 'What happened', `<ol class="story-beats">${story.beats.map((beat) => `<li><div class="beat-head"><strong>${esc(beat.label)}</strong>${beat.when ? `<time>${esc(beat.when)}</time>` : ''}</div><p>${esc(beat.text)}</p>${beat.picture ? shown(beat.picture, beat.label) : ''}</li>`).join('')}</ol>${cause ? `<p class="story-cause"><b>Root cause:</b> ${esc(cause)}</p>` : ''}`],
     ['today', 'If you wait', story.today || story.diagram || story.waits ? `${story.today ? `<p class="ch-lead">${esc(story.today)}</p>` : ''}${story.waits ? `<p><b>What waits on you:</b> ${esc(story.waits)}</p>` : ''}${story.diagram ? visual('mermaid', story.diagram, 'How the paths part') : ''}` : ''],
     ['evidence', 'The evidence', card.body || card.pictures?.length || links.length ? `${prose(card.body)}${pictures(card.pictures)}${links.length ? `<ul class="rail-list">${links.map((each) => `<li>${link(each.label, each.url)}</li>`).join('')}</ul>` : ''}` : ''],
   ].filter(([, , body]) => body);
