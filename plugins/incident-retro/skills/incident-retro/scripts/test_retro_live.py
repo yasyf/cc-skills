@@ -214,6 +214,7 @@ class CleanedTimeline(unittest.TestCase):
 
     def test_the_page_that_opened_the_incident_is_not_before_it(self):
         self.assertNotIn("phase", self.R["timeline"][0])
+        self.assertEqual(self.R["timeline"][0]["ts"], self.R["timestamps"]["onset"])
 
     def test_slack_mentions_are_dropped_and_channels_named(self):
         self.assertEqual(self.R["timeline"][1]["text"], "Suspected: the release in #inc-browsers broke pools")

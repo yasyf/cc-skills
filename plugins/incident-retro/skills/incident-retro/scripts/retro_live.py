@@ -282,10 +282,12 @@ def timeline_of(state: dict, messages: list, retro, onset) -> list:
             continue
         merged.append(row)
     rows = merged
-    onset = onset.replace(microsecond=0) if onset else None
+    start = retro.try_ts(onset)
     flagged = 0
     for row in rows:
-        if onset and retro.parse_ts(row["ts"]) < onset:
+        if start and start.replace(microsecond=0) <= retro.parse_ts(row["ts"]) < start:
+            row["ts"] = onset
+        if start and retro.parse_ts(row["ts"]) < start:
             row["phase"] = "before"
         elif all_clear and retro.parse_ts(row["ts"]) > all_clear:
             row["phase"] = "after"
@@ -412,11 +414,10 @@ def live_summary(state: dict, phase: str, retro) -> dict:
 
 def rebuild(state: dict, messages: list, R: dict, retro, now: datetime.datetime, source) -> dict:
     shell(state, R, retro, now, source)
-    onset = retro.try_ts((R.get("timestamps") or {}).get("onset"))
     before_causes = {c["id"]: c for c in retro.entries(R, "causes") if c.get("id")}
     before_actions = {a["id"]: a for a in retro.entries(R, "actions") if a.get("id")}
     R["windows"] = windows_of(state, retro, now)
-    R["timeline"] = timeline_of(state, messages, retro, onset)
+    R["timeline"] = timeline_of(state, messages, retro, R["timestamps"].get("onset"))
     R["causes"] = causes_of(state, retro, before_causes, now)
     R["actions"] = actions_of(state, retro, before_actions, {c["id"] for c in R["causes"]}, now)
     notebook = state.get("notebook") or {}
