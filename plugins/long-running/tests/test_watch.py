@@ -8717,6 +8717,27 @@ def test_a_merged_ready_job_waits_for_its_lander_before_its_proof_starts(demo: s
     assert (watch.run_pass(watcher(demo), T0), provers) == ([], [])
 
 
+def test_a_merged_ready_job_beside_a_product_merge_hands_it_and_the_parts_it_carries_to_a_prover_before_its_own_proof_proves_the_yasyf_merge_alone(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path
+) -> None:
+    serve(monkeypatch, {})
+    live_reads(monkeypatch)
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"]}})
+    merged_ready(demo, YASYF, proof_file(tmp_path))
+    with state.edit(demo) as data:
+        parts = data["jobs"]["j1"]["parts"]
+        data["prs"][KEY] |= {"merged_sha": "fff666aaa777bbb", "checker": carrying(data["prs"][KEY]["head"], {"o1": parts})}
+        data["jobs"]["j1"].update(said=f"READY {state.pr_url(YASYF)} {state.pr_url(KEY)}", prs=[state.pr_url(YASYF), state.pr_url(KEY)])
+    watching = watcher(demo)
+    lines = watch.run_pass(watching, T0)
+    data = state.load(demo)
+    assert [line.partition(":")[0] for line in lines if line.startswith("JOB ")] == [f"JOB j2 o1 added, proves {KEY}, waits on no release"]
+    assert (data["jobs"]["j2"]["parts"], provers) == (parts, [])
+    assert [state.tester_of(data, "o1", part) for part in parts] == ["j2"] * len(parts)
+    watch.run_pass(watching, T0 + timedelta(minutes=1))
+    assert (provers, install.proved_prs(state.load(demo), "j1")) == (["j1"], [YASYF])
+
+
 SUPERSEDED = "yasyf/cc-skills#8"
 
 

@@ -1785,7 +1785,7 @@ def test_a_proof_of_a_merge_whose_plugin_holds_it_but_whose_bare_homebrew_binary
     assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on cc-context@skills 1.0.3"
 
 
-def test_a_proof_of_a_yasyf_merge_beside_a_product_merge_installs_the_yasyf_one_alone_and_runs_the_proof_file(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
+def test_a_proof_of_a_yasyf_merge_beside_a_product_merge_installs_and_proves_the_yasyf_one_alone_leaving_the_product_one_to_its_release(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
     git = fake([BUILD], {BUILD})
     script = proving(config, tmp_path, git, 0)
     product = "https://github.com/Forge-AI/monorepo/pull/9"
@@ -1796,8 +1796,9 @@ def test_a_proof_of_a_yasyf_merge_beside_a_product_merge_installs_the_yasyf_one_
     assert install.prove("demo", "j1", 900).startswith(f"j1: {install.PROVEN} on long-running@skills 1.0.3: {script} exits 0")
     assert ["claude", "plugin", "update", "long-running@skills", "--scope", "user"] in git.calls
     data = state.load("demo")
-    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"]) == ("done", f"DONE {URL} {product} live: {script} exits 0 on long-running@skills 1.0.3")
-    assert [key for key, _ in proof_events()] == ["yasyf/cc-skills#7", "Forge-AI/monorepo#9"]
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"]) == ("done", f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3")
+    assert [key for key, _ in proof_events()] == ["yasyf/cc-skills#7"]
+    assert install.prover_of(data, "Forge-AI/monorepo#9") is None
 
 
 def test_a_product_merge_on_a_build_order_of_several_parts_with_no_reader_takes_done_and_adds_one_builder_starting_at_the_merge_on_no_release(

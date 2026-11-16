@@ -205,7 +205,7 @@ no failing test, such as a lint step, is the PR's own.
    starts the lander again on the head the lander or its builder pushes once its stage reads `ready` there, free of
    conflicts and failing checks, so nobody registers a rebased PR again. Once every PR the job's `READY` or `PUSHED` names merged and no lander still
    runs on one, the watch starts `drive job prove <j>`, which installs each plugin a `yasyf/*` merge
-   changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, and runs the job's proof file right after the install, since no install reads a CI run, with those plugins' `bin/` first on
+   changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, each other merge left to the prover the watch hands it to first, which proves it on its release, and runs the job's proof file right after the install, since no install reads a CI run, with those plugins' `bin/` first on
    `PATH` and its bare `python3` the drive's own interpreter wherever it runs, since `drive job set --repro` pins that interpreter's folder first on the kept file's `PATH`; only when the file fails while a `yasyf/*` merge's CI on the default branch still runs does it follow that run to its end, with no deadline, and run the file once more.
    It keeps its output beside the job's report, then runs each drive command the brief's `After install:` line names, takes `DONE` on exit 0 with output and each of those exiting 0, or `BLOCKED` otherwise,
    an exit 0 printing nothing among them, quoting the run's last `FAIL` line, else saying it printed none, and a
