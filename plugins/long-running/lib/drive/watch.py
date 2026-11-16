@@ -4352,12 +4352,12 @@ def rest_sessions(watcher: Watcher, moment: datetime) -> list[str]:
         return []
     data = state.load(watcher.name)
     records = agents.session_records()
-    resting = [job_id for job_id, job in data["jobs"].items() if heard_job(watcher, data, job) and job["state"] != "running" and (session := state.own_session(job)) and agents.alive(session, records) and agents.gone(job["bg"])]
-    for job_id in resting:
+    resting = [(job_id, session) for job_id, job in data["jobs"].items() if heard_job(watcher, data, job) and job["state"] != "running" and (session := state.background_session(job)) and agents.alive(session, records) and agents.gone(job["bg"])]
+    for job_id, session in resting:
         try:
             with state.job_locked(watcher.name, job_id, 0):
                 job = state.load(watcher.name)["jobs"][job_id]
-                if job["state"] != "running" and (session := state.own_session(job)) and agents.alive(session, agents.session_records()) and agents.gone(job["bg"]):
+                if job["state"] != "running" and state.background_session(job) == session and agents.alive(session, agents.session_records()) and agents.gone(job["bg"]):
                     agents.end_bg(session, Path(job["bg"]["cwd"]), removed=job["state"] in state.FINISHED_JOB_STATES)
         except state.DriveError:
             continue
