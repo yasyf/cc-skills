@@ -99,7 +99,7 @@ for name in sys.argv[1:]:
             print(f"try-watch: {name} {passing.__name__} stopped at {PASS_SECONDS}s", flush=True)
         except Exception as error:
             if not expected(error):
-                crashes.append(f"{name}: {passing.__name__} raised {type(error).__name__}: {error}")
+                crashes.append(f"{name}: {passing.__name__} raised {type(error).__name__}: {error}\n" + "".join(traceback.format_tb(error.__traceback__, limit=-8)))
         finally:
             signal.alarm(0)
         print(f"try-watch: {name} {passing.__name__} ran in {time.monotonic() - started:.1f}s", flush=True)
