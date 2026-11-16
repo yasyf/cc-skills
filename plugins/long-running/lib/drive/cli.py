@@ -5804,7 +5804,9 @@ def answer(args: argparse.Namespace) -> int:
                 done.append(f"his pick {pick}, which bound {order_id}, is superseded by {args.id} in cc-notes, so ccn answer match no longer reads it as standing")
             def dropped_order(data: dict) -> tuple[dict, list[str]]:
                 data["answers"][args.id]["cards"].update({key: {"mark": "dropped", "job": None, "card": None} for key in keys})
-                return data, superseded.drop_order(data, args.id, order_id)
+                if order_id in superseded.whole(data, asked, keys):
+                    return data, superseded.drop_order(data, args.id, order_id)
+                return data, [line for key in keys for line in superseded.drop(data, args.id, order_id, asked[key]["title"])]
 
             data, lines = state.update(name, None, dropped_order)
             done += lines
