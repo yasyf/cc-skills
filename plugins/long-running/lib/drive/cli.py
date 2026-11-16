@@ -483,10 +483,10 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
     title = titled(args.title)
     if not (args.joins or args.incident or args.options_only or unfiled or args.kind == "answer"):
         args.joins = settled.repeats(state.load(name), args.words, tooling)
-    project, workstream = (None, None) if unfiled or args.joins else filing(state.load(name), args.words, args.project, args.workstream, "refused, no order added")
+    filed = (None, None) if unfiled or args.joins else filing(state.load(name), args.words, args.project, args.workstream, "refused, no order added")
     paged = not (tooling or args.incident or args.joins) and settled.asks_page(args.words)
     minutes = 0 if args.every or args.incident else settled.cadence(args.words)
-    with state.edit(name) as data:
+    def order_added(data: dict):
         role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
         if tooling and args.owner not in (None, "meta"):
             raise DriveError(
@@ -509,10 +509,12 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
             why = state.tally(head, args.source, state.parse_time(created))
             if args.promote and not head["promoted"]:
                 why = state.promote(head, args.promote, state.parse_time(created))
-            return head_id, head, [backlog_line(head_id, head, why)], []
+            return (head_id, head, [backlog_line(head_id, head, why)], []), None
         if joined:
             head = data["orders"][joined["joins"] or args.joins]
             project, workstream = head["project"], head["workstream"]
+        else:
+            project, workstream = filed
         incidents = [render.incident_line(other_id, other) for other_id, other in state.open_orders(data).items() if args.incident and not joined and other["incident"]]
         order_id = state.next_id(data["orders"], "o")
         paced = next((each for each, other in state.open_orders(data).items() if not other["incident"] and thread and state.promise_thread(data, other) == tuple(thread)), order_id) if minutes else None
@@ -555,6 +557,12 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
         for job_id in carriers:
             state.carry(data, job_id, order_id, list(order["parts"]))
             state.hold_text(data["jobs"][job_id], state.joined_words(order_id, order["joins"], args.words), state.HIM)
+        return None, (data, order_id, order, joined, incidents, backlogged, started, page_job, repeats, group, carriers)
+
+    tallied, added = state.update(name, None, order_added)
+    if tallied:
+        return tallied
+    data, order_id, order, joined, incidents, backlogged, started, page_job, repeats, group, carriers = added
     if page_job:
         started.append(page_brief(name, page_job))
     if joined:
