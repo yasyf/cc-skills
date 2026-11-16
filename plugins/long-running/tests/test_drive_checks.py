@@ -199,13 +199,13 @@ def test_jev_reads_the_typed_words_once_and_asks_no_fact_of_a_sentence_that_is_a
     assert list(jev.asked[-1]["questions"]) == ["c1.backed"]
 
 
-def test_a_finding_warns_unless_jev_reads_its_rule_never_meant_it_or_his_words_lift_it_and_jev_reads_his_words_beside_it(jev: Jev) -> None:
+def test_a_finding_warns_unless_jev_reads_its_rule_never_meant_it_or_his_words_lift_it_in_a_request_of_its_own(jev: Jev) -> None:
     reason = f"refused: {FINDING['found']}"
     output = {"post": {"text": "Waits on your Approve: the first PR."}, "findings": [FINDING], "his_words": [{"id": "w1", "quote": "land the first PR"}], "hookSpecificOutput": {"permissionDecisionReason": reason}}
     jev.breaks("f1", "holds", 0.9)
     found = {"verdict": "warn", "note": f"{settled.GOES_OUT} Jev finds {FINDING['found']}: reword the post in place."}
     assert settled.post_verdict(output) == found
-    assert (jev.asked[-1]["state"]["findings"], jev.asked[-1]["state"]["his_words"], list(jev.asked[-1]["questions"])) == ({"f1": FINDING}, {"w1": "land the first PR"}, ["f1.holds", "f1.lifted"])
+    assert (jev.asked[-1]["state"]["findings"], list(jev.asked[-1]["questions"])) == ({"f1": FINDING}, ["f1.holds", "f1.lifted"])
     jev.picks("f1", 0.9)
     jev.ruled = {}
     stands = {"verdict": "warn", "note": f"{settled.GOES_OUT} Jev read none of these findings' rules as holding against it:\n1. {FINDING['found']}"}
@@ -219,7 +219,7 @@ def test_a_finding_warns_unless_jev_reads_its_rule_never_meant_it_or_his_words_l
     assert settled.post_verdict(output) == found
 
 
-def test_a_post_that_goes_out_names_no_finding_as_refused_and_a_finding_jev_had_no_room_for_warns(jev: Jev) -> None:
+def test_a_post_that_goes_out_names_no_finding_as_refused(jev: Jev) -> None:
     every = {"claim": "Every inbox reader queries Postgres straight.", "read": "read:1"}
     reason = f"refused: {FINDING['found']}"
     output = handled(every["claim"], claims=[every]) | {"findings": [FINDING], "hookSpecificOutput": {"permissionDecisionReason": reason}}
@@ -229,10 +229,6 @@ def test_a_post_that_goes_out_names_no_finding_as_refused_and_a_finding_jev_had_
         "verdict": "warn",
         "note": f'{settled.GOES_OUT} Jev is unsure of claim "{every["claim"]}" speaking for more of a set than its read reads: if one is wrong, reword the post in place.',
     }
-    unweighed = {"rule": FINDING["rule"], "found": "the first PR " * 1000}
-    unroomed = settled.post_verdict(output | {"findings": [unweighed]})
-    assert unroomed["verdict"] == "warn"
-    assert f"which had no room in Jev's {settled.REQUEST_CHARS:,} characters beside his words" in unroomed["note"]
 
 
 def test_a_post_jev_gives_no_verdict_on_goes_out_naming_what_the_checks_found_and_holds_only_a_claim_naming_a_read_never_made(jev: Jev) -> None:

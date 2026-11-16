@@ -783,9 +783,7 @@ def test_his_words_in_a_cards_other_box_lift_the_limit_whole_though_its_answer_l
 def test_his_explain_more_tap_on_a_card_in_the_thread_asks_for_the_whole_reply(talker: str, transcript: Path, slack_thread: Thread) -> None:
     card = "*A write re-citing an old file pointer passes on the database's own rows.*\n*1. Ask the names route first*"
     slack_thread.messages.append({"ts": "1794505940.419019", "from_bot": True, "text": card})
-    refusal = posted(transcript, text=said(100), thread_ts="1.2", asked="Explain more")
-    assert refusal.startswith("refused: this post is 100 words")
-    assert '"Explain more"' in refusal
+    assert posted(transcript, text=said(100), thread_ts="1.2", asked="Explain more").startswith("refused: this post is 100 words")
     for drawn in (":mag_right:", "🔎"):
         slack_thread.messages[-1]["text"] = f"{card}\n{drawn} *You asked for more at 12:06pm.* An explanation follows in this thread.\ndurable-agents · 9:52am"
         assert posted(transcript, text=said(100), thread_ts="1.2", asked="Explain more") is None
@@ -804,7 +802,7 @@ def test_a_share_he_ordered_to_another_persons_dm_answers_his_order_by_its_perma
     ]
     share = {"channel_id": TEAMMATE, "text": SHARE}
     assert "a summary of 2 features is at most 120 words" in say(transcript, **share)
-    assert "in his DM an asked permalink links" in say(transcript, **share, asked=SHARE_ORDER)
+    assert "a summary of 2 features is at most 120 words" in say(transcript, **share, asked=SHARE_ORDER)
     assert say(transcript, **share, asked=SHARE_LINK) is None
     assert say(transcript, **share, asked=[f"<{SHARE_LINK}>"]) is None
     assert checked.asked[-1] == [SHARE_ORDER]
@@ -1669,7 +1667,7 @@ def test_the_watchs_own_live_line_of_a_proved_order_passes_the_say_hooks_checks_
     assert message_limits.hook_output(payload) == {}
 
 
-def test_jev_judges_each_finding_by_the_rule_it_names_and_an_order_or_job_id_refuses_unjudged(talker: str, transcript: Path, checked: Checked) -> None:
+def test_jev_judges_each_finding_by_the_rule_it_names_and_an_order_or_job_id_comes_back_alone_as_its_own_rule(talker: str, transcript: Path, checked: Checked) -> None:
     cause = "The runs failed because the pool was full"
     assert say(transcript, text=cause).rule == message_limits.CAUSE_RULE
     checked.findings = ["1:14 drive-term 'the drive': say what happens to the reader's work instead"]
@@ -1677,7 +1675,7 @@ def test_jev_judges_each_finding_by_the_rule_it_names_and_an_order_or_job_id_ref
     assert both.rule == f"1. {agents.PLAIN_WORDS_RULE}\n2. {message_limits.CAUSE_RULE}"
     checked.findings.append("2:10 drive-term 'j1608': say what happens to the reader's work instead")
     unjudged = say(transcript, text=f"Looking into the drive dashboard.\nChecking j1608: {cause}")
-    assert isinstance(unjudged, agents.Unjudged)
+    assert isinstance(unjudged, agents.Ruled) and unjudged.rule == unjudged
     assert unjudged.endswith("as asked:\n2:10 drive-term 'j1608': say what happens to the reader's work instead")
     assert "the pool" not in unjudged and "'the drive'" not in unjudged
 

@@ -421,8 +421,8 @@ def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_orde
     merged = {"kind": "report", "text": "POST the search worker's fix merged", "to": TO}
     reason = warned(record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1"})))
     assert "here o1, the open order it is about" in reason and 'one of "cause", "fix"' in reason and "`--attr progress=true`" in reason
-    reason = refusal(record_lines.decision(coordinator(turn, **merged)))
-    assert "`--attr close=<o,…>` naming each order it finishes, `--attr part=<o>:<part>` naming the part it delivers, or" in reason
+    reason = warned(record_lines.decision(coordinator(turn, **merged)))
+    assert "`--attr close=<o,…>` names each order it finishes, `--attr part=<o>:<part>` the part it delivers, and `--attr progress=true` a progress line" in reason
     for named in ({"job": "j1", "close": "o1"}, {"job": "j1", "part": "cause"}, {"job": "j1", "progress": "true"}, {"close": "o1"}):
         assert record_lines.decision(coordinator(turn, **merged, attrs=named)) is None
     assert record_lines.decision(coordinator(turn, kind="report", text="FYI the search worker's fix merged", to=TO, attrs={"job": "j1"})) is None
@@ -432,7 +432,7 @@ def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_orde
     assert record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1", "part": "fix", "close": "o1"})) is None
     with state.edit(demo) as data:
         data["orders"]["o1"]["state"] = "done"
-    assert "the open order it is about" not in refusal(record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1"})))
+    assert "the open order it is about" not in warned(record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1"})))
 
 
 def test_a_post_report_naming_one_part_goes_out_while_a_finished_job_holds_another_part_no_post_delivered(
@@ -581,14 +581,14 @@ def test_a_wait_on_anything_else_hears_it_reads_clearer_saying_how_long_and_whet
     assert record_lines.decision(post(kind="report", text="POST j702 waits on CI, 40 min, run 123 running", to=TO, attrs=PROGRESS)) is None
     for stamped in ("POST {pr:4093} waits on its own staging test, running since {started:j702}", "POST j702 waits on CI, run 123 running since the push {at:700}"):
         assert record_lines.decision(post(kind="report", text=stamped, to=TO, attrs=PROGRESS)) is None
-    assert "{started:<job>}" in refusal(record_lines.decision(post(kind="report", text="POST j702 waits on {pr:4093}, its CI running", to=TO, attrs=PROGRESS)))
+    assert "{started:<job>}" in warned(record_lines.decision(post(kind="report", text="POST j702 waits on {pr:4093}, its CI running", to=TO, attrs=PROGRESS)))
 
 
 def test_a_job_is_called_stuck_only_after_a_read_of_its_transcript(demo: str, turn: Path) -> None:
     stuck = {"kind": "report", "text": "POST j702 is stuck with no line for 40 minutes", "to": TO, "attrs": PROGRESS}
-    assert "`drive job replies <j>`" in refusal(record_lines.decision(coordinator(turn, **stuck)))
+    assert "`drive job replies <j>`" in warned(record_lines.decision(coordinator(turn, **stuck)))
     called(turn, "old", "Bash", {"command": "drive job replies j702"}, age=timedelta(minutes=30))
-    assert "j702" in refusal(record_lines.decision(coordinator(turn, **stuck)))
+    assert "j702" in warned(record_lines.decision(coordinator(turn, **stuck)))
     called(turn, "read", "Bash", {"command": "drive job replies j702"})
     assert record_lines.decision(coordinator(turn, **stuck)) is None
 

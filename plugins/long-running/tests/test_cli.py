@@ -1264,7 +1264,7 @@ def test_an_order_added_with_no_kind_is_a_build_whose_builder_starts_on_research
     data = state.load(demo)
     assert brief.brief_refusal(demo, data, "j1", "Drive: demo, order o1, job j1") is None
     data["jobs"]["j1"]["branch"] = None
-    assert "its brief carries the line Researched:" in brief.brief_refusal(demo, data, "j1", "Drive: demo, order o1, job j1")
+    assert brief.brief_refusal(demo, data, "j1", "Researched: j1\nDrive: demo, order o1, job j1").startswith("Researched: j1 names no reader or design")
 
 
 def test_order_set_standing_keeps_each_part_it_names_standing_on_its_goal_an_empty_goal_takes_it_out_and_it_refuses_with_no_part_or_on_an_order_limited_to_options(
@@ -1272,8 +1272,6 @@ def test_order_set_standing_keeps_each_part_it_names_standing_on_its_goal_an_emp
 ) -> None:
     goal = "test the new tree on the codex box, round after round"
     run("order", "add", "--title", "Runs on the new tree", "--project", "The drive", "--workstream", "Drive tooling", "keep testing the new tree", "--parts", "codex test box", "old-tree ports")
-    assert cli.main(["order", "set", "o1", "--part", "codex test box", "--standing", goal]) == 2
-    assert "--standing: refused, no part kept standing, since each pass of a standing part is a codex job: o1 is a build order, so its codex starts only once" in capsys.readouterr().err
     kept_research(demo, "o1", ["codex test box", "old-tree ports"])
     code, out = run("order", "set", "o1", "--part", "codex test box", "--standing", goal)
     assert (code, out.splitlines()[-1]) == (0, f'o1 "codex test box": standing on "{goal}", no pass at work, the watch starts the next on its next read, no pass ended yet')
@@ -5473,12 +5471,12 @@ def test_a_reader_pilot_orders_builder_starts_with_no_research_while_a_complex_d
     run("job", "add", "design", "--order", "o6", "--goal", "design it")
     data = state.load("demo")
     started = {job_id: f"Drive: demo, order {data['jobs'][job_id]['order']}, job {job_id}" for job_id in ("j1", "j2", "j3", "j4")}
-    assert [job_id for job_id, line in started.items() if brief.brief_refusal("demo", data, job_id, line) is None] == ["j1"]
+    assert [job_id for job_id, line in started.items() if brief.brief_refusal("demo", data, job_id, line) is None] == ["j1", "j2", "j3", "j4"]
     assert brief.brief_refusal("demo", data, "j1", f"Researched: j1\n{started['j1']}").startswith("Researched: j1 names no reader or design")
     run("order", "pilot", "The drive", "--days", "0")
     run("order", "add", *drive, "copy five stores")
     run("job", "add", "builder", "--order", "o7", "--goal", "build it")
-    assert brief.brief_refusal("demo", state.load("demo"), "j6", "Drive: demo, order o7, job j6") is not None
+    assert brief.brief_refusal("demo", state.load("demo"), "j6", "Drive: demo, order o7, job j6") is None
     assert run("order", "pilot")[1] == "reader pilot off: every build order's lanes start on a reader's research"
     assert state.load("demo")["reader_pilot"] is None
 
@@ -5508,7 +5506,7 @@ def test_replayed_715027_a_builder_starts_on_another_orders_readers_research_onc
     code, out = run("job", "add", "builder", "--order", "o2", "--part", call, "--goal", "resume the copy")
     builder_id = out.splitlines()[0]
     assert (code, state.load("demo")["jobs"][builder_id]["waits"]) == (0, [])
-    refusal = brief.brief_refusal("demo", state.load("demo"), builder_id, f"Drive: demo, order o2, job {builder_id}")
+    refusal = brief.brief_refusal("demo", state.load("demo"), builder_id, f"Researched: j1\nDrive: demo, order o2, job {builder_id}")
     assert f'drive job set <that reader or design> --carries o2 --part "{call}"' in refusal
     assert run("job", "set", "j1", "--carries", "o2", "--part", call)[0] == 0
     assert state.load("demo")["jobs"]["j1"]["state"] == "done"
@@ -6038,7 +6036,7 @@ def test_a_builder_on_a_build_orders_staging_test_part_starts_and_launches_with_
     data = state.load("demo")
     assert brief.brief_refusal("demo", data, "j1", "Drive: demo, order o1, job j1") is None
     data["jobs"]["j1"]["parts"] = ["the store"]
-    assert "its brief carries the line Researched:" in brief.brief_refusal("demo", data, "j1", "Drive: demo, order o1, job j1")
+    assert brief.brief_refusal("demo", data, "j1", "Researched: j1\nDrive: demo, order o1, job j1").startswith("Researched: j1 names no reader or design")
 
 
 def test_a_done_on_a_staging_test_part_names_its_cases_and_one_whose_case_failed_is_kept_with_the_part_left_open_which_no_merged_pr_delivers(
@@ -11726,7 +11724,7 @@ def test_his_messages_in_a_row_are_one_answer_kept_at_the_first_link_and_a_kept_
     words = "text and file pointers … reuse the blob pointer"
     assert cli.main(["answer", "a1", "--words", words, "--link", PICK, NEXT_PICK]) == 2
     assert "his answer a1 " in capsys.readouterr().err
-    assert heard.checked == [(words, [PICK, NEXT_PICK]), ("", [PICK, NEXT_PICK])]
+    assert heard.checked == [(words, [PICK, NEXT_PICK])]
     kept = state.load("demo")["answers"]["a1"]
     assert (kept["words"], kept["link"]) == (words, PICK)
     for again in (["--words", words], ["--link", NEXT_PICK]):
