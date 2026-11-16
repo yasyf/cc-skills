@@ -2138,7 +2138,7 @@ def test_a_staging_tests_done_frees_a_pr_changing_only_tools_ci_and_go_ci_by_a_c
         return f"https://github.com/{repo}/commit/{sha}"
 
     assert [done(commit(head)), done(str(tmp_path / "staging-test-56826.txt"), commit(head[:12]))] == [None, None]
-    lacking = f"{key} changes only tools/ci and go/ci, code its caller runs from a checkout, and no CHECK: line heading its cases links a commit carrying its head {head[:12]}"
+    lacking = f"{key} reaches no component a release deploys, only code its caller runs from a checkout, and no CHECK: line heading its cases links a commit carrying its head {head[:12]}"
     for refused in (done(commit(older)), done(commit(head, "Forge-AI/other")), done(str(tmp_path / "staging-test-56826.txt"))):
         assert refused.startswith(f"j2's DONE frees {key} from waiting on its staging test, and no build the CHECK: lines heading its cases name deployed")
         assert lacking in refused

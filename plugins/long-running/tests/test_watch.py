@@ -18,7 +18,7 @@ from types import SimpleNamespace
 
 import pytest
 from conftest import HomeRepo, provide, DRIVE_TERMINAL, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged
-from drive import agents, card, cli, codex, dashboard, github, install, land, launchd, limits, orca, place, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, train, view, watch
+from drive import agents, card, cli, codex, dashboard, github, install, land, launchd, limits, orca, place, providers, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, train, view, watch
 
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
@@ -290,7 +290,7 @@ def test_the_watch_reads_the_reach_once_and_takes_each_pr_an_older_reach_staged_
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {KEY: {"touched": ["platy"], "releases": [], "staged": []}, OTHER: {"touched": ["api"], "releases": ["api"], "staged": ["api"]}})
     [line] = watch.reach_lines(watcher(demo), T0)
     data = state.load(demo)
-    assert line == f"PR {KEY}: changes only tools/ci and go/ci, code its caller runs from a checkout, so it waits on no staging test, and j2 stopped {watch.ids(data['prs'][KEY])}"
+    assert line == f"PR {KEY}: reaches no component a release deploys, only code its caller runs from a checkout, so it waits on no staging test, and j2 stopped {watch.ids(data['prs'][KEY])}"
     assert (lifted in data["orders"]["o1"]["parts"], data["prs"][KEY]["waits"], data["prs"][KEY]["reached"], data["prs"][KEY]["tap"], data["jobs"]["j2"]["state"]) == (False, [], False, approve, "stopped")
     assert (kept in data["orders"]["o1"]["parts"], data["prs"][OTHER]["waits"], data["prs"][OTHER]["reached"]) == (True, [f"o1:{kept}"], True)
     assert (watch.reach_lines(watcher(demo), T0), asked) == ([], [[KEY, OTHER]])
@@ -4708,13 +4708,13 @@ def test_a_release_wait_frees_once_every_cluster_of_its_service_serves_its_pr_ne
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
     serving[1]["commit"] = "abc123"
-    assert watch.run_pass(watching, T0 + watch.LIVE_EVERY) == [f"FREE j2 o1: tools/ci release live reads api on plat-usw2-staging serving {KEY}, nothing else holds it"]
+    assert watch.run_pass(watching, T0 + watch.LIVE_EVERY) == [f"FREE j2 o1: the release live read finds api on plat-usw2-staging serving {KEY}, nothing else holds it"]
     assert watch.release_line(watching, state.load(demo), wait) == f"{wait}: api on plat-usw2-prod, tnt-usw2-0ddq7rb is behind {KEY}'s merge commit abc123, running an older build"
     serving[0]["commit"] = "abc123"
     assert watch.run_pass(watching, T0 + 2 * watch.LIVE_EVERY) == []
     serving[2]["commit"] = "abc123"
     assert watch.run_pass(watching, T0 + 3 * watch.LIVE_EVERY) == [
-        f"FREE j1 o1: tools/ci release live reads api on plat-usw2-prod, plat-usw2-staging, tnt-usw2-0ddq7rb serving {KEY}, nothing else holds it"
+        f"FREE j1 o1: the release live read finds api on plat-usw2-prod, plat-usw2-staging, tnt-usw2-0ddq7rb serving {KEY}, nothing else holds it"
     ]
     assert (calls, [state.load(demo)["jobs"][job_id]["waits"] for job_id in ("j1", "j2")]) == ([["release", "live", "--json"]] * 4, [[], []])
 
@@ -4742,15 +4742,15 @@ def test_a_release_wait_frees_once_every_cluster_running_its_service_production_
     assert data["jobs"]["j1"]["waits"] == [computer]
     assert [watch.release_line(watching, data, wait) for wait in (computer, api, smoke, nowhere)] == [
         f"{computer}: iris-computer on plat-usw2-staging is behind {merged}'s merge commit ade22e0af2fd, running an older build",
-        f"{api}: tools/ci release live reads api on plat-usw2-prod, plat-usw2-staging serving {merged}",
-        f"{smoke}: {merged} merged, and tools/ci release live reads staging-smoke on no cluster, so nothing follows its release",
-        f"{nowhere}: {merged} merged, and tools/ci release live reads api on no env core-usw2-auto, so nothing follows its release there",
+        f"{api}: the release live read finds api on plat-usw2-prod, plat-usw2-staging serving {merged}",
+        f"{smoke}: {merged} merged, and the release live read finds staging-smoke on no cluster, so nothing follows its release",
+        f"{nowhere}: {merged} merged, and the release live read finds api on no env core-usw2-auto, so nothing follows its release there",
     ]
     serving[0]["commit"] = "8f0e1d2c3b4a"
     holding.add("8f0e1d2c3b4a")
     assert watch.run_pass(watching, T0 + timedelta(minutes=4)) == []
     assert state.load(demo)["jobs"]["j1"]["waits"] == [computer]
-    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == [f"FREE j1 o1: tools/ci release live reads iris-computer on plat-usw2-staging serving {merged}, nothing else holds it"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == [f"FREE j1 o1: the release live read finds iris-computer on plat-usw2-staging serving {merged}, nothing else holds it"]
 
 
 def test_a_staging_wait_frees_once_release_live_reads_its_env_running_its_target_at_its_soak_commit_and_never_on_another_envs_row(
@@ -4768,7 +4768,7 @@ def test_a_staging_wait_frees_once_release_live_reads_its_env_running_its_target
     assert watch.run_pass(watching, T0 + timedelta(minutes=4)) == []
     assert state.load(demo)["jobs"]["j1"]["waits"] == [wait]
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == [
-        "FREE j1 o1: tools/ci release live reads plat-usw2-staging's sandsql serving 044e8552b694 or a build carrying it, nothing else holds it"
+        "FREE j1 o1: the release live read finds plat-usw2-staging's sandsql serving 044e8552b694 or a build carrying it, nothing else holds it"
     ]
     assert state.load(demo)["jobs"]["j1"]["waits"] == []
 
@@ -4787,7 +4787,7 @@ def test_a_staging_wait_on_a_merge_commit_frees_once_its_env_serves_a_later_buil
     assert state.load(demo)["jobs"]["j1"]["waits"] == [wait]
     carried.add("4f2c41333799")
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == [
-        "FREE j1 o1: tools/ci release live reads plat-usw2-staging's api serving 8c186ae8e2dd or a build carrying it, nothing else holds it"
+        "FREE j1 o1: the release live read finds plat-usw2-staging's api serving 8c186ae8e2dd or a build carrying it, nothing else holds it"
     ]
 
 
@@ -4803,7 +4803,7 @@ def test_a_release_wait_on_a_pr_outside_the_monorepo_is_never_read_and_frees_at_
     unmerged = state.load(demo)
     unmerged["prs"][waited]["merged_sha"] = None
     assert watch.out_because(watching, unmerged, wait) is None
-    assert watch.run_pass(watching, T0) == [f"FREE j1 o1: {waited} merged, and tools/ci release live reads only Forge-AI/monorepo, so nothing follows its release, nothing else holds it"]
+    assert watch.run_pass(watching, T0) == [f"FREE j1 o1: {waited} merged, and the release live read finds only Forge-AI/monorepo, so nothing follows its release, nothing else holds it"]
     assert (calls, state.load(demo)["jobs"]["j1"]["waits"]) == ([], [])
 
 
@@ -10287,7 +10287,15 @@ def test_o761s_incident_on_a_surface_he_uses_holds_its_live_line_with_one_prove_
 
 def test_an_incident_opened_while_he_is_away_pages_his_datadog_user_once_and_one_he_heard_of_or_one_while_he_is_here_pages_nobody(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
-    monkeypatch.setattr(watch.reads, "run", lambda argv, checkout: calls.append(argv) or "Paged Datadog user u-ym at high urgency: page p-1\n")
+
+    class PagingRepo(providers.RepoProvider):
+        page_owner = "tools/ci oncall page me"
+
+        def run(self, template: str, stdin: str | None = None, timeout: int = 0, **fields: str) -> str:
+            calls.append(shlex.split(template.format_map({key: shlex.quote(value) for key, value in fields.items()})))
+            return "Paged Datadog user u-ym at high urgency: page p-1\n"
+
+    provide(monkeypatch, DRIVE_CHECKOUT, repo=PagingRepo)
     monkeypatch.setattr(watch.orca, "checkout", lambda name, data, wait=0: DRIVE_CHECKOUT)
     with state.edit(demo) as data:
         data["owner"]["heard"] = state.stamp(T0)
@@ -11044,7 +11052,7 @@ def test_23_staging_waits_of_4_jobs_on_one_env_make_one_stall_one_watchdog_and_o
         "j3": [staged_on(target, "5f986a0") for target in STAGING_TARGETS],
         "j4": [staged_on("api", "c5dca80ed9be"), staged_on("dashboard", "2c18705b7744")],
     }
-    thing, serving = f"staging:{state.STAGING_ENV}", "the watch's last tools/ci release live read finds it serving"
+    thing, serving = f"staging:{state.STAGING_ENV}", "the watch's last release live read finds it serving"
     with state.edit(demo) as data:
         data["orders"]["o1"]["jobs"] = list(waits)
         data["jobs"]["j1"] |= {"state": "waiting", "waits": waits["j1"]}

@@ -8,8 +8,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from drive import agents, card, cli, limits, mcp, reads, render, settled, slack, state, superseded, tools, view, watch
-from conftest import LEAD, LOCK_STALL, LOCK_STALL_AGAIN, RESEARCH, STANDING_FREEZE, Answers, Cci, Heard, Jev, Thread, Withdrawals
+from drive import agents, card, cli, limits, mcp, providers, reads, render, settled, slack, state, superseded, tools, view, watch
+from conftest import provide, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, RESEARCH, STANDING_FREEZE, Answers, Cci, Heard, Jev, Thread, Withdrawals
 from drive.state import DriveError
 
 THREAD = "1794200000.000100"
@@ -481,6 +481,11 @@ def test_a_sprite_lanes_fde_scan_runs_tools_ci_fde_scan_in_the_drives_checkout_n
     monkeypatch.setenv(reads.SPRITE_LANE, "1")
     monkeypatch.setenv(state.OWN_JOB_ENV, "j7")
     monkeypatch.setenv(state.DRIVE_ENV, "demo")
+
+    class ScanRepo(providers.RepoProvider):
+        fde_scan = "tools/ci fde-scan"
+
+    provide(monkeypatch, checkout, repo=ScanRepo)
     assert run("fde-scan", "--", "--symbol", "raw_sql", "--pr", "42")[0] == 3
     assert (tmp_path / "scans").read_text().splitlines() == [f"{checkout.resolve()} fde-scan --symbol raw_sql --pr 42"]
 
