@@ -1554,7 +1554,7 @@ def one_change_job(data: dict, order_id: str, kind: str, parts: list[str], held:
         return f'{carries}, so a second {kind} would race it on one change: send it the event with drive job resume {held_id} "<the event>", or stop it with drive job set {held_id} --state stopped before adding the job that replaces it'
     if not adds:
         return f"{carries}, and a part has one change job: drive job add {kind} --order {order_id} on that part takes its place, or stop it first with drive job set {held_id} --state stopped"
-    second = state.change_job(data, order_id, parts, waits, held_id, state.builds_nothing(other))
+    second = state.change_job(data, order_id, parts, waits, held_id)
     return f"{carries}, and {second[0]} {second[1]['kind']} {second[1]['state']} carries {second[2]}: a part has one change job, so name the parts of one of them" if second else None
 
 
@@ -6012,7 +6012,7 @@ def parser() -> argparse.ArgumentParser:
         "--builds-nothing",
         action="store_true",
         default=None,
-        help="a builder whose whole work holds no checkout or compiler, such as a read, as a builder whose goal reads prove <PRs> live is marked or not: it holds no slot of this Mac's builder cap and starts here at once",
+        help="a builder whose whole work holds no checkout or compiler, such as a read, as a builder whose goal reads prove <PRs> live is marked or not: it holds no slot of this Mac's builder cap, starts here at once and starts beside any builder carrying its part, since it changes no code",
     )
     verb.add_argument("kind", type=job_kind, choices=state.JOB_KINDS, help="what the job is; designer, its agent type's name, is design")
     verb.add_argument("--order", required=True, help="the order whose parts it delivers")

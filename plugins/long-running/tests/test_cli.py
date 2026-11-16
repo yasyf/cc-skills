@@ -5300,6 +5300,30 @@ def test_a_build_added_on_a_part_a_prover_carries_starts_beside_it_and_leaves_th
     assert (state.load("demo")["jobs"]["j1"]["state"], state.load("demo")["jobs"]["j1"]["parts"]) == ("waiting", ["the copy"])
 
 
+def test_a_tester_added_on_a_part_any_builder_carries_starts_beside_it_while_a_second_build_on_that_part_is_still_refused_as_j6648_needed(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    part = "thorough test again at that commit of anything that can go wrong"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test the release", "--parts", part)
+    run("job", "add", "builder", "--order", "o1", "--part", part, "--goal", "release staging test, the list and group 1", "--builds-nothing")
+    run("job", "set", "j1", "--agent", "a1")
+    assert run("job", "add", "builder", "--order", "o1", "--part", part, "--goal", "release staging test, group 2", "--builds-nothing")[1].splitlines()[0] == "j2"
+    assert run("job", "add", "builder", "--order", "o1", "--part", part, "--goal", "fix what group 1 found")[1].splitlines()[0] == "j3"
+    run("job", "set", "j3", "--agent", "a3")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(state="waiting", said="WAITING its staging window")
+    assert run("job", "add", "builder", "--order", "o1", "--part", part, "--goal", "release staging test, group 3", "--builds-nothing")[1].splitlines()[0] == "j4"
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--part", part, "--goal", "fix it again"]) == 2
+    assert f'refused, no job added: j3 builder running carries "{part}" already, so a second builder would race it on one change' in capsys.readouterr().err
+    jobs = state.load("demo")["jobs"]
+    assert [(jobs[job_id]["goal"], jobs[job_id]["parts"], jobs[job_id]["state"]) for job_id in ("j1", "j2", "j3", "j4")] == [
+        ("release staging test, the list and group 1", [part], "waiting"),
+        ("release staging test, group 2", [part], "waiting"),
+        ("fix what group 1 found", [part], "running"),
+        ("release staging test, group 3", [part], "waiting"),
+    ]
+
+
 def test_a_reader_carrying_another_orders_part_is_that_parts_reader_so_its_builder_starts_on_its_research(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -9302,24 +9326,23 @@ def test_a_change_job_added_on_a_part_another_unfinished_one_carries_folds_into_
 
 
 def test_a_change_job_added_on_one_part_of_a_returned_job_takes_that_part_and_its_pr_and_stops_the_job_only_once_it_is_left_no_part(run: Run, demo: str) -> None:
-    staging = "staging test of #55 before it lands"
     url, key = "https://github.com/acme/app/pull/56", "acme/app#56"
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "watch the search worker", "--parts", "search watch", staging)
-    run("job", "add", "builder", "--order", "o1", "--goal", "test #55 on staging", "--part", "search watch", "--part", staging)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "watch the search worker", "--parts", "search watch", "search alerts")
+    run("job", "add", "builder", "--order", "o1", "--goal", "watch and alert on the search worker", "--part", "search watch", "--part", "search alerts")
     run("job", "set", "j1", "--agent", "a1")
     with state.edit("demo") as data:
         data["prs"][key] = state.new_pr(url, "j1", "o1") | {"parts": ["search watch"]}
-        data["jobs"]["j1"].update(state="waiting", said="WAITING its staging window", prs=[url])
+        data["jobs"]["j1"].update(state="waiting", said="WAITING the alerts PR", prs=[url])
     assert run("job", "add", "builder", "--order", "o1", "--goal", "rework the watch", "--part", "search watch") == (
         0,
-        f'j2\nj2 takes "search watch" and {key} from j1, which returned, a part having one change job; j1 keeps "{staging}" and stays waiting',
+        f'j2\nj2 takes "search watch" and {key} from j1, which returned, a part having one change job; j1 keeps "search alerts" and stays waiting',
     )
     data = state.load("demo")
-    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"], data["jobs"]["j1"]["parts"], data["jobs"]["j1"]["prs"]) == ("waiting", "WAITING its staging window", [staging], [])
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"], data["jobs"]["j1"]["parts"], data["jobs"]["j1"]["prs"]) == ("waiting", "WAITING the alerts PR", ["search alerts"], [])
     assert (data["jobs"]["j2"]["parts"], data["jobs"]["j2"]["prs"], data["prs"][key]["job"]) == (["search watch"], [url], "j2")
-    assert run("job", "add", "builder", "--order", "o1", "--goal", "test #55 again", "--part", staging) == (
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "rework the alerts", "--part", "search alerts") == (
         0,
-        f'j3\nj3 replaces j1, which carried "{staging}" and returned, a part having one change job: it takes j1\'s parts and no PR, and j1 stopped, handed to j3',
+        'j3\nj3 replaces j1, which carried "search alerts" and returned, a part having one change job: it takes j1\'s parts and no PR, and j1 stopped, handed to j3',
     )
     assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
 
