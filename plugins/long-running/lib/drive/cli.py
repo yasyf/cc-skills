@@ -2292,14 +2292,12 @@ def job_ask(args: argparse.Namespace) -> int:
 def drop_ask(name: str, job_id: str, file: Path) -> tuple[str | None, bool]:
     """Throw away a question the job kept with no card drawn for it, such as one refused for an answer of his that settles it: it leaves the job's questions, so nothing counts it open, and its file is deleted unless another of the job's questions keeps it; a question on a card is refused, since only his answer to that card closes it. A file of the job's whose question a later ask of the job replaced, as drive job ask printed its path, is deleted alone. A question a `Replaces:` line folded into the dropped one asks on its own again. Its title, and whether a later ask had replaced it."""
     asks = state.drive_dir(name) / "asks"
-    with state.edit(name) as data:
+    def dropped(data: dict) -> tuple[dict, dict | None]:
         job = find(data["jobs"], job_id, "job")
         if (question := state.kept_in(job, file)) is None:
             if file.parent.resolve() != asks.resolve() or not file.name.startswith(f"{job_id}-") or not file.exists():
                 raise DriveError(f"{file} keeps no question of {job_id}; drive status {job_id} names the file each of its questions is kept in")
-            title = limits.ask_block(file.read_text()).splitlines()[0].removeprefix("ASK ").strip()
-            file.unlink()
-            return title, True
+            return job, None
         if question["card"]:
             ended = (
                 f'ended {closed["how"]} there, so nothing counts it open'
@@ -2316,6 +2314,13 @@ def drop_ask(name: str, job_id: str, file: Path) -> tuple[str | None, bool]:
         if job["said"] == question["title"] and job["questions"]:
             job["said"] = job["questions"][-1]["title"]
         job["updated"] = state.stamp()
+        return job, question
+
+    job, question = state.update(name, None, dropped)
+    if question is None:
+        title = limits.ask_block(file.read_text()).splitlines()[0].removeprefix("ASK ").strip()
+        file.unlink()
+        return title, True
     if state.kept_in(job, file) is None:
         file.unlink(missing_ok=True)
     return question["title"], False
