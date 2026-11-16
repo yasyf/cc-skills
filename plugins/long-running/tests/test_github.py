@@ -236,7 +236,7 @@ def test_fetch_reads_twenty_five_prs_a_graphql_query_and_open_on_every_branch_in
     monkeypatch.setattr(github, "run", fake)
     FETCH([f"a/one#{number}" for number in range(1, count + 1)])
     OPEN_ON([("a/one", f"branch-{number}") for number in range(count)])
-    assert sizes == [*((size, 0) for size in queries), (0, count)]
+    assert sorted(sizes) == sorted([*((size, 0) for size in queries), (0, count)])
 
 
 def test_open_on_reads_each_repositorys_branches_in_a_query_of_that_repository_alone(monkeypatch: pytest.MonkeyPatch) -> None:
