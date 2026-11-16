@@ -1512,34 +1512,42 @@ def check_owed(name: str, key: str, pr: dict, data: dict, unit: tuple[str, ...],
 
 
 def waiting_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Tell him once, in one reply in the card's own thread naming no card, the minute a card of his starts holding a job built on its recommended option, once per job and card whether the job's waits or what it was told name the card by its Slack link or its waits id. Each job's card is claimed under the lock before its post with the pid and start time of the watch claiming it, so no other watch posts it too, and is said once the post goes through; a post that fails gives its claims back and goes again next read, and a claim whose watch died before saying it is taken again, its pid running another process since or none, so a watch dying between its post and saying it is the one way he is told twice."""
+    """Tell him once, in one reply in the card's own thread naming no card, the minute a card of his starts holding a job built on its recommended option, once per job and card whether the job's waits or what it was told name the card by its Slack link or its waits id. Each job's card is claimed before its post, by a write refused when another watch's claim commits first, with the pid and start time of the watch claiming it, so no other watch posts it too, and is said once the post goes through; a post that fails gives its claims back and goes again next read, and a claim whose watch died before saying it is taken again, its pid running another process since or none, so a watch dying between its post and saying it is the one way he is told twice."""
     if watcher.cards is None:
         return []
     from drive import talk
 
     if not unsaid_waits(watcher, state.load(watcher.name)):
         return []
-    cards: dict[str, list[dict]] = {}
     claimer = {"pid": os.getpid(), "started": started(os.getpid())}
-    with state.edit(watcher.name) as data:
+
+    def waiting_claimed(data: dict) -> dict[str, list[dict]]:
+        cards: dict[str, list[dict]] = {}
         for entry in unsaid_waits(watcher, data):
             data["jobs"][entry["job"]]["waiting_claims"][entry["wait"]] = claimer
             cards.setdefault(entry["card"]["url"], []).append(entry)
+        return cards
+
     lines = []
-    for url, entries in cards.items():
+    for url, entries in state.update(watcher.name, None, waiting_claimed).items():
         try:
             reply = talk.posted(watcher.name, {"text": PAUSED, "thread_ts": view.card_thread(url)})
         except (state.DriveError, slack.SlackError) as error:
-            with state.edit(watcher.name) as data:
+            def waiting_given_back(data: dict) -> None:
                 for entry in entries:
                     data["jobs"][entry["job"]]["waiting_claims"].pop(entry["wait"])
+
+            state.update(watcher.name, None, waiting_given_back)
             lines += failed(watcher, "waiting post", "built-and-paused reply", error, moment)
             continue
-        with state.edit(watcher.name) as data:
+
+        def waiting_said(data: dict) -> None:
             for entry in entries:
                 job = data["jobs"][entry["job"]]
                 job["waiting_claims"].pop(entry["wait"])
                 job["waiting_said"].append(entry["wait"])
+
+        state.update(watcher.name, None, waiting_said)
         watcher.failures.pop("waiting post", None)
         lines += [
             f"WAITING-ON-HIM {entry['wait']} blocks {entry['job']}, built on {entry['branch']}, since {when(entry['card']['asked'])}, posted {reply['permalink']}"
