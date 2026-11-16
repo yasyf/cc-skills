@@ -293,6 +293,7 @@ INDEX: ContextVar["Index | None"] = ContextVar("index", default=None)
 WAITS_OUT_LOCK: ContextVar[bool] = ContextVar("waits_out_lock", default=False)
 NAMED: ContextVar[frozenset[str]] = ContextVar("named", default=frozenset())
 LOADED_VERSION: ContextVar[int | None] = ContextVar("loaded_version", default=None)
+LOADED_REV: ContextVar[int | None] = ContextVar("loaded_rev", default=None)
 EDITING: ContextVar[str | None] = ContextVar("editing", default=None)
 TAKEN_IDS: ContextVar[list[tuple[str, str, int]] | None] = ContextVar("taken_ids", default=None)
 PTHREADS = ctypes.CDLL(None, use_errno=True)
@@ -941,6 +942,7 @@ def whole(path: Path, shape: Callable[[dict], tuple[dict, bool]], fields: tuple[
             copy = WHOLE_READS[key] = Copy(path)
         if (now := copy.watcher.execute("PRAGMA data_version").fetchone()[0]) == copy.version and copy.shaped:
             LOADED_VERSION.set(now)
+            LOADED_REV.set(copy.shaped_rev)
             return {field: marshal.loads(copy.shaped[field]) for field in (copy.shaped if fields is None else fields)}
         if now != copy.version:
             caught_up(copy)
@@ -950,8 +952,9 @@ def whole(path: Path, shape: Callable[[dict], tuple[dict, bool]], fields: tuple[
     if keep:
         with READING:
             if (copy.rev, copy.version) == (rev, now):
-                copy.shaped = {field: marshal.dumps(value) for field, value in data.items()}
+                copy.shaped, copy.shaped_rev = {field: marshal.dumps(value) for field, value in data.items()}, rev
     LOADED_VERSION.set(now)
+    LOADED_REV.set(rev)
     return data if fields is None else {field: data[field] for field in fields}
 
 
@@ -974,6 +977,7 @@ class Copy:
         self.rev: int | None = None
         self.rows: dict[str, dict[str, tuple[int, bytes | None]]] = {}
         self.shaped: dict[str, bytes] = {}
+        self.shaped_rev: int | None = None
 
     def built_back(self) -> dict:
         """The drive the rows hold, as rows_read builds it back."""
@@ -4613,12 +4617,12 @@ def edit(name: str, rows: tuple[Row, ...] | None = None) -> Iterator[dict]:
                 tell_moved(name, data, before)
             return
         data, held = loaded_rows(name, rows)
-        base, before = marshal.dumps(data), holding_lanes(data)
+        base = marshal.dumps(data)
         yield data
-        if outside := outside_rows(marshal.loads(base), data, rows):
+        if outside := outside_rows(was := marshal.loads(base), data, rows):
             raise DriveError(f"refused, nothing kept: a write of {', '.join('.'.join(filter(None, row)) for row in rows)} changed {', '.join('.'.join(filter(None, row)) for row in outside)} too")
         try:
-            rows_saved(name, held, data, before, rows)
+            rows_saved(name, held, was, data, rows)
         except Raced as raced:
             with open(drive_dir(name) / "locks.log", "a") as log:
                 log.write(f"{stamp()} pid {os.getpid()} refused: another write changed {'.'.join(raced.args[0])} while it ran: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
@@ -4626,24 +4630,32 @@ def edit(name: str, rows: tuple[Row, ...] | None = None) -> Iterator[dict]:
 
 
 def loaded_rows(name: str, rows: tuple[Row, ...]) -> tuple[dict, dict[Row, object]]:
-    """The drive as load reads it, with each record the rows name as the database held it for that load, unshaped, ABSENT where it held none, which rows_saved compares the database's with, all read from this process's one copy at one version."""
+    """The drive as load reads it, with each record the rows name as the database held it for that load, unshaped, ABSENT where it held none, which rows_saved compares the database's with, all read from this process's one copy at the one version and revision that load read, loading again while another thread's load or save moved the copy past them."""
     path = database_path(name)
     while True:
         data = load(name)
         with READING:
             copy = WHOLE_READS[(path, path.stat().st_ino)]
-            if copy.version != LOADED_VERSION.get():
+            if (copy.version, copy.rev) != (LOADED_VERSION.get(), LOADED_REV.get()):
                 continue
             held = {row[:2]: ABSENT if (found := copy.rows.get(row[0], {}).get(row[1])) is None else {} if found[1] is None else marshal.loads(found[1]) for row in rows}
         return data, held
 
 
-def rows_saved(name: str, held: dict[Row, object], mine: dict, before: dict[str, str], rows: tuple[Row, ...]) -> None:
-    """Save a write of rows alone in one short transaction of the drive's database, writing only the records the rows name: each as mine holds it, a row naming one field of a record that field alone on the record as the database holds it, while every record reads as held, the database's when the write loaded the drive; Raced at the first another write changed since, even to the value mine holds, since a write that read it may have counted on what it held. A job the save moves into done or stopped drops the texts it holds, as rewrite drops them, and each it moves into done, failed or stopped takes down its Mac boxes. The drive's lock is held for that transaction alone, while writes of no rows and older installs still save the whole drive under it."""
-    records = sorted(held)
+def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows: tuple[Row, ...]) -> None:
+    """Save a write of rows alone in one short transaction of the drive's database, writing only the records the rows name: each as mine holds it, a row naming one field of a record that field alone on the record as the database holds it, while every record reads as held, the database's when the write loaded the drive as base; Raced at the first another write changed since, even to the value mine holds, since a write that read it may have counted on what it held. New records take places after the collection's last in the order mine holds them. A job the save moves into done or stopped drops the texts it holds, as rewrite drops them, and each it moves into done, failed or stopped takes down its Mac boxes; once saved, each order the save moved to another lane tells the lane losing it, and the drive's clocks are drawn again, by redrawn. The drive's lock is held for that transaction alone, while writes of no rows and older installs still save the whole drive under it."""
     jobs = mine.get("jobs", {})
-    ended = {key: then["state"] for collection, key in records if collection == "jobs" and isinstance(then := held[(collection, key)], dict) and key in jobs and jobs[key]["state"] in FINISHED_JOB_STATES and then.get("state") != jobs[key]["state"]}
-    drop_ended_texts(mine, ended)
+    ended = {key: then["state"] for collection, key in held if collection == "jobs" and isinstance(then := held[(collection, key)], dict) and key in jobs and jobs[key]["state"] in FINISHED_JOB_STATES and then.get("state") != jobs[key]["state"]}
+    dropped = set(drop_ended_texts(mine, ended))
+    fields: dict[Row, set[str]] = {}
+    for row in rows:
+        if len(row) == 3:
+            fields.setdefault(row[:2], set()).add(row[2])
+    for job_id in dropped:
+        if ("jobs", job_id) in fields:
+            fields[("jobs", job_id)].add("undelivered")
+    order = {collection: {key: index for index, key in enumerate(records)} for collection, records in mine.items() if collection in COLLECTIONS}
+    records = sorted(held, key=lambda record: (record[0], order.get(record[0], {}).get(record[1], -1), record[1]))
     with handled_lock(name), closing(connect(database_path(name))) as db:
         db.execute("BEGIN IMMEDIATE")
         try:
@@ -4654,7 +4666,7 @@ def rows_saved(name: str, held: dict[Row, object], mine: dict, before: dict[str,
                 now = ABSENT if found is None else {} if found[0] is None else json.loads(found[0])
                 if now != held[(collection, key)]:
                     raise Raced(tuple(filter(None, (collection, key))))
-                wrote = {row[2] for row in rows if row[:2] == (collection, key) and len(row) == 3}
+                wrote = fields.get((collection, key))
                 value = row_of(mine, (collection, key)) if not wrote or now is ABSENT else fields_set(now, row_of(mine, (collection, key)), wrote)
                 if value is ABSENT:
                     db.execute("DELETE FROM rows WHERE collection = ? AND key = ?", (collection, key))
@@ -4670,8 +4682,28 @@ def rows_saved(name: str, held: dict[Row, object], mine: dict, before: dict[str,
         db.execute("COMMIT")
         with suppress(sqlite3.OperationalError):
             db.execute("PRAGMA wal_checkpoint(PASSIVE)")
-    tell_moved(name, mine, before)
     down_mac_boxes(name, mine, [job_id for job_id, then in ended.items() if then not in FINISHED_JOB_STATES])
+    if any(collection in ("orders", "jobs", "handlers") for collection, _ in held):
+        redrawn(name, {key: base["orders"][key] for collection, key in held if collection == "orders" and key in base.get("orders", {})})
+
+
+def redrawn(name: str, orders: dict[str, dict]) -> None:
+    """After a write of rows, read the drive as it stands: tell each lane that held one of orders, as the write loaded them, and holds it no more, as tell_moved does, by the drive's bindings now; then save the drive's clocks as clocks draws them from it, in one transaction that keeps them only while no other write committed since that read, reading again up to UPDATE_TRIES times, and leaving them to the next write that saves them once each try raced."""
+    for attempt in range(UPDATE_TRIES):
+        data = load(name)
+        rev = LOADED_REV.get()
+        if attempt == 0:
+            tell_moved(name, data, {order_id: holding_lane(data, order) for order_id, order in orders.items()})
+        if (drawn := clocks(data)) == data.get(CLOCKS):
+            return
+        with closing(connect(database_path(name))) as db:
+            db.execute("BEGIN IMMEDIATE")
+            if db.execute("SELECT COALESCE(MAX(rev), 0) FROM changed").fetchone()[0] != rev:
+                db.execute("ROLLBACK")
+                continue
+            db.execute("INSERT INTO rows VALUES ('', ?, (SELECT COALESCE(MAX(place), -1) + 1 FROM rows WHERE collection = ''), ?) ON CONFLICT (collection, key) DO UPDATE SET body = excluded.body", (CLOCKS, json.dumps(drawn)))
+            db.execute("COMMIT")
+            return
 
 
 def fields_set(record: dict, mine: object, fields: set[str]) -> dict:
@@ -4698,14 +4730,14 @@ def update[T](name: str, rows: tuple[Row, ...] | None, change: Callable[[dict], 
     for _ in range(UPDATE_TRIES):
         with editing(name) as taken:
             data, held = loaded_rows(name, rows)
-            base, before = marshal.dumps(data), holding_lanes(data)
+            base = marshal.dumps(data)
             done = change(data)
-            if outside := outside_rows(marshal.loads(base), data, rows):
+            if outside := outside_rows(was := marshal.loads(base), data, rows):
                 why = f"it changed {', '.join('.'.join(filter(None, row)) for row in outside)} too"
                 released(taken)
                 break
             try:
-                rows_saved(name, held, data, before, rows)
+                rows_saved(name, held, was, data, rows)
                 return done
             except Raced as raced:
                 why = f"another write changed {'.'.join(raced.args[0])} each time it ran"
