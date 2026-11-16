@@ -214,7 +214,7 @@ def test_drive_start_registers_the_session_it_binds_by_its_line_in_start_or_resu
         REAL_REGISTER("demo", "coordinator", "Iris", "/w/demo", "iris-1")
 
 
-ROOT_COMMAND = ["claude", "-n", "demo-meta", "--model", "claude-opus-5-5", "--advisor", "fable", "--effort", "xhigh", "--resume", "meta-1", "resume prompt"]
+ROOT_COMMAND = ["claude", "-n", "demo-meta", "--model", "claude-opus-5-5", "--advisor", "fable", "--effort", "high", "--resume", "meta-1", "resume prompt"]
 
 
 class Execed(Exception):

@@ -177,7 +177,7 @@ def test_drive_job_launch_starts_a_codex_jobs_codex_ask_run_on_its_brief_with_it
     folder = launched(demo, run, tmp_path)
     scratch = state.drive_dir(demo) / "scratch" / "j1"
     assert folder == scratch / "codex"
-    assert (folder / "argv").read_text().splitlines() == ["--dispatch", "-s", str(folder), "--schema", str(scratch / codex.SCHEMA_FILE), "-"]
+    assert (folder / "argv").read_text().splitlines() == ["--dispatch", "-s", str(folder), "--schema", str(scratch / codex.SCHEMA_FILE), "--effort", codex.EFFORT, "-"]
     assert (folder / "question").read_text() == (tmp_path / "j1.brief.md").read_text()
     schema = json.loads((scratch / codex.SCHEMA_FILE).read_text())
     assert (schema["required"], schema["properties"]["state"]["enum"]) == (["state", "line", "report"], [*(word for word in state.RESULT_STATES if word != "DESIGN"), "BUILT"])
@@ -319,7 +319,7 @@ def test_a_codex_job_runs_the_model_its_order_names_and_astra_only_on_an_order_w
     brief.write_text(f"Order (his words): design the handoff from scratch with Fable and Astra\nGoal: design\nResearched: j0\nDrive: {demo}, order o1, job j1\n")
     assert run("job", "launch", "j1", str(brief))[0] == 0
     folder = Path(state.load(demo)["jobs"]["j1"]["codex_run"])
-    assert (folder / "argv").read_text().splitlines() == ["--dispatch", "-s", str(folder), "--schema", str(folder.parent / codex.SCHEMA_FILE), "-m", "astra", "-"]
+    assert (folder / "argv").read_text().splitlines() == ["--dispatch", "-s", str(folder), "--schema", str(folder.parent / codex.SCHEMA_FILE), "--effort", codex.EFFORT, "-m", "astra", "-"]
     assert cli.main(["job", "add", "codex", "--order", "o2", "--goal", "review", "--model", "astra"]) == 2
     assert "refused, no job added: --model astra runs only on an order whose words name astra, which o2's do not" in capsys.readouterr().err
     assert cli.main(["job", "add", "reader", "--order", "o2", "--goal", "read", "--model", "sol"]) == 2
