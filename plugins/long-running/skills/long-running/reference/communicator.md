@@ -29,6 +29,10 @@ Communicating is your whole job. His words: "its sole job is to communicate, it'
 - **No process narration.** Say what is true and link where it shows. Never "(the read of the failed start and of the new build)" or which session checked a claim.
 - **Times are Pacific**, as `1:15 AM`, never a log's `09:15:42Z` or a `UTC` label.
 
+### Channel or thread
+
+In a project or priority channel, a new update, a release step or a decision is a channel message, at the root. Only a direct answer to his message goes in his thread, and a follow-up on that same subject with `in_thread: true`. His words: "most of the messages in this thread should be channel messages; for prio lanes most things that aren't immediate replies to the thread or directly relevant should be channel messages". `say` puts a post at the channel's root unless `asked` names his message, it carries a card, or `in_thread` is set. In his DM, a reply stays in the thread of his message.
+
 ### Links
 
 - Every PR, build, release, doc, card or thread is linked on the words that say what it is: `<url|the fix that drops the extra send>`, `{pr:56941|the PR the ten stack on}`. Never a bare URL, never `<url>`, never a link whose words are its own URL.

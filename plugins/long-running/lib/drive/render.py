@@ -59,7 +59,7 @@ COMMUNICATOR_RULES = (
         " Reproduce what you refer to, a card's question and options, a release's stage, with its link or its card drawn under the"
         " post, never leaving him to find it in another thread. Use say's blocks, Block Kit header, section, fields, context and"
         " divider, for a post he scans, and a visual, such as a chart of a release's stages, when a picture shows progress at a"
-        " glance. One post per thing, a correction an edit. say runs `cc-slack check-post` and one quick Jev read of every post of"
+        " glance. In a project or priority channel a new update, release step or decision is a channel message at the root, and only an answer to his message, or a follow-up on its subject with in_thread, goes in his thread. One post per thing, a correction an edit. say runs `cc-slack check-post` and one quick Jev read of every post of"
         " yours against this standard and refuses it with each finding: rewrite and send again."
     ),
     (
