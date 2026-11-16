@@ -1,8 +1,9 @@
+import json
 from pathlib import Path
 
 import pytest
 
-from drive import gate
+from drive import gate, state
 
 
 def test_a_gate_refuses_a_sessions_first_try_naming_every_finding_and_lets_its_repeat_through_with_a_warning(capsys: pytest.CaptureFixture[str]) -> None:
@@ -20,3 +21,12 @@ def test_a_gate_whose_store_cannot_be_read_lets_the_try_through_with_a_warning(c
     Path(path).write_text("{not json")
     assert gate.gate(None, "page", ["no --users record"], "s1") is None
     assert "could not be read or written" in capsys.readouterr().err
+
+
+def test_a_refusal_on_an_asked_or_incident_order_appends_a_blocked_event_and_a_process_order_none() -> None:
+    state.drive_dir("demo").mkdir(parents=True, exist_ok=True)
+    asked = state.new_order("ship it", "terminal", None, {}, state.stamp())
+    assert gate.gate("demo", "drop o1", ["a PR is queued to land"], "s1", ("o1", asked)) is not None
+    assert gate.gate("demo", "drop o2", ["a PR is queued to land"], "s1", ("o2", asked | {"class": "process"})) is not None
+    lines = [json.loads(line) for line in state.events_path("demo").read_text().splitlines()]
+    assert [(line["kind"], line["order"], line["action"], line["repeat"]) for line in lines] == [(gate.BLOCKED, "o1", "drop o1", False)]

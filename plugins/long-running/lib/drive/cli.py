@@ -1059,7 +1059,7 @@ def order_set(args: argparse.Namespace) -> int:
     dropping = args.state == "dropped" and order["state"] not in state.CLOSED_ORDER_STATES
     closing = state.order_open_prs(data, args.id) if dropping else []
     landing = [key for key in closing if (data["prs"][key]["stage"] or {}).get("name") == "landing"]
-    if landing and (refused := gate.gate(name, f"drop {args.id}", [f"{', '.join(landing)} {'is' if len(landing) == 1 else 'are'} queued to land, so dropping {args.id} closes a PR mid-merge: let it land or dequeue it first"])):
+    if landing and (refused := gate.gate(name, f"drop {args.id}", [f"{', '.join(landing)} {'is' if len(landing) == 1 else 'are'} queued to land, so dropping {args.id} closes a PR mid-merge: let it land or dequeue it first"], order=(args.id, order))):
         raise DriveError(f"{args.id}: nothing changed, {refused}")
     if not dropping and args.state in state.CLOSED_ORDER_STATES and order["state"] not in state.CLOSED_ORDER_STATES and (untested := state.dangerous_staged(data, args.id)):
         raise DriveError(
@@ -1858,7 +1858,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     refuse_a_mark_off_a_builder(args.kind, args.builds_nothing)
     lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
     found = check_waits(name, args.waits)
-    unreleased = args.release and (brief.release_refusal(args.release, known := state.load(name), args.reading, args.order) or brief.approval_refusal(args.release, known, args.reading, args.order) or brief.away_refusal("start", args.release, known, state.now()) or gate.gate(name, f"release {args.release}", brief.incident_scope(args.release, known)))
+    unreleased = args.release and (brief.release_refusal(args.release, known := state.load(name), args.reading, args.order) or brief.approval_refusal(args.release, known, args.reading, args.order) or brief.away_refusal("start", args.release, known, state.now()) or gate.gate(name, f"release {args.release}", brief.incident_scope(args.release, known), order=(args.order, known["orders"][args.order]) if args.order in known["orders"] else None))
     if args.asks and not args.release:
         raise DriveError("--asks names the asks of his the release --release starts is made for, so it needs --release")
     carried, missed = brief.release_asks(args.release, known, args.asks) if args.release and args.asks and not unreleased else ([], [])
@@ -3693,7 +3693,7 @@ def take_report(name: str, job_id: str, whole: str, read_prs: bool = True, tell:
         or state.result_refusal(data, job_id, line, whole)
         or (built and (held := state.change_job(data, job["order"], [], job["waits"], job_id, built["branch"], job["repo"], proving=state.builds_nothing(job))) and one_change_job(data, job["order"], job["kind"], [], held, job["waits"], branch=built["branch"], repo=job["repo"], job_id=job_id))
     )
-    if refused and not (refused.startswith(state.WAITING_UNFREED) and not gate.gate(name, f"waiting {job_id} {line}", [refused], job["session"])):
+    if refused and not (refused.startswith(state.WAITING_UNFREED) and not gate.gate(name, f"waiting {job_id} {line}", [refused], job["session"], (job["order"], data["orders"][job["order"]]))):
         raise DriveError(f"{job_id}: refused, nothing kept: {refused}{f". {gate.REPEAT}" if refused.startswith(state.WAITING_UNFREED) else ""}")
     unreached(name, data, state.result_waits(data, job_id, line))
     if job["kind"] == "builder" and state.REPORTED_LINE.match(line) and any(not served.named(cited) for cited in served.deciding(whole)):
@@ -6800,7 +6800,7 @@ def page_owner(args: argparse.Namespace) -> int:
     data = state.load(name)
     order = find(data["orders"], args.order, "order")
     users = args.users or order["users"]
-    if not users and (refused := gate.gate(name, f"page {args.order}", [f"{state.PAGE_RULE}, and no --users record shows real users failing: post that read as a cci record and pass its seq with --users <seq>"])):
+    if not users and (refused := gate.gate(name, f"page {args.order}", [f"{state.PAGE_RULE}, and no --users record shows real users failing: post that read as a cci record and pass its seq with --users <seq>"], order=(args.order, order))):
         raise DriveError(f"nobody paged: {refused}")
     try:
         paged, starts = watch.page_with_line(name, data, args.order, users, args.why)
