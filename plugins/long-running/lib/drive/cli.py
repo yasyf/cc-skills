@@ -5466,12 +5466,33 @@ def handler(args: argparse.Namespace) -> int:
         )
     if re.search(rf"^{re.escape(agents.HIS_WORDS)}:", args.brief, re.MULTILINE):
         watch.hear(name, state.now(), args.away)
+        if (link := agents.LINK.search(args.brief)) and (answered := answer_first(name, link[1], agents.his_words(args.brief)))["answered"]:
+            return emit(args, f"ANSWERED {answered['answered']}: the drive answered his message from its rows, so no handler started", answered)
     briefs = briefing(name, args.brief, args.answer) is not None
     owed = bool((named := agents.RECORD.search(args.brief)) and agents.posting(name, agents.shown(named[1])))
     handler_id, handed = agents.handle(name, args.brief, detached=True, answer=args.answer, briefs=briefs, owed=owed)
     if handed:
         return emit(args, f"handed to {handler_id}", {"handler": handler_id, "handed": True})
     return emit(args, f"started {handler_id}", {"handler": handler_id})
+
+
+def answer_first(name: str, link: str, words: str) -> dict:
+    """The drive's own answer of his message from its rows, by answer.answer, or why it posted none, a refused post or failed Slack call included, so a handler takes the message."""
+    from drive import answer
+
+    try:
+        return answer.answer(name, link, words)
+    except (DriveError, reads.ReadError, slack.SlackError) as error:
+        return {"answered": None, "why": str(error)}
+
+
+def answer_message(args: argparse.Namespace) -> int:
+    from drive import answer
+
+    name = state.resolve(args.drive)
+    found = answer.answer(name, args.link, args.words, args.dry_run)
+    line = f"ANSWERED {found['answered']}" if found["answered"] else f"{'DRY ' if args.dry_run else ''}{'WOULD ANSWER: ' + found['text'] if found.get('text') else 'ESCALATE ' + found['why']}"
+    return emit(args, line, found)
 
 
 def say_record(args: argparse.Namespace) -> int:
@@ -7268,6 +7289,18 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.set_defaults(run=handler)
+    verb = verbs.add_parser(
+        "answer-now",
+        parents=both,
+        help=(
+            "answer his message from the drive's rows for its thread in seconds: eyes on it, one tool-less model call over those rows,"
+            " and the answer posted in his thread, or ESCALATE and why, for a handler to take it; the handler verb runs it first on every brief carrying his words"
+        ),
+    )
+    verb.add_argument("link", help="his message's permalink")
+    verb.add_argument("words", help="his words")
+    verb.add_argument("--dry-run", action="store_true", help="print the answer it would post, posting nothing and adding no eyes")
+    verb.set_defaults(run=answer_message)
     verb = verbs.add_parser(
         "handler-start", parents=both, help="start the handler drive handler kept, as its own claude --bg session; the handler verb runs it detached once it returns"
     )

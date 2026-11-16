@@ -730,9 +730,11 @@ def carried(name: str, reply: dict, place: tuple[str, str], post: dict, sent: st
 
 
 def status(name: str, data: dict, post: dict, stack: list[str], pictures: list[str], sent: str) -> list[str]:
-    """The `cc-slack dm-status` call making a new post in his DM, or in the operator channel channel_id names, as the session holding it from every session but a handler's, so his replies under a post a coordinator, the meta session or the watch made reach the communicator, and a handler's stay with that handler while it lives, each PR its card taps linked from data, the drive read before the post. A post made as the holder answers none of his messages above it in cc-slack, so each stays owed until the handler answering it posts in its thread."""
+    """The `cc-slack dm-status` call making a new post in his DM, or in the operator channel channel_id names, as the session holding it from every session but a handler's, so his replies under a post a coordinator, the meta session or the watch made reach the communicator, and a handler's stay with that handler while it lives, while the drive's own answer of his message, by answering, posts as the holder's session without --as-holder, so it answers his message there, each PR its card taps linked from data, the drive read before the post. A post made as the holder answers none of his messages above it in cc-slack, so each stays owed until the handler answering it posts in its thread."""
     argv = ["dm-status", "--agent", "claude", "--drive", name]
-    if not state.handler_id(data, os.environ.get("CLAUDE_CODE_SESSION_ID")):
+    if holder := post.get("answering"):
+        argv += ["--session", holder]
+    elif not state.handler_id(data, os.environ.get("CLAUDE_CODE_SESSION_ID")):
         argv.append("--as-holder")
     if (channel := post.get("channel_id")) and channel != slack.dm():
         argv += ["--channel", channel]
