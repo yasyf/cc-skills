@@ -17,7 +17,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import DRIVE_TERMINAL, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged
+from conftest import DRIVE_TERMINAL, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged
 from drive import agents, card, cli, codex, dashboard, github, install, land, launchd, limits, orca, place, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, train, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -11867,3 +11867,19 @@ def test_a_coordinator_hears_the_watch_at_most_once_every_ten_minutes_in_one_rec
     assert [argv[argv.index("--text") + 1] for argv in sent[1:]] == ["3 lines: 2 ORPHAN, 1 TAP"]
     assert watch.sent(watching, "meta", [first], T0 + timedelta(minutes=3)) == []
     assert posted(sent)[-1] == ("handoff", f"meta@{demo}", first)
+
+
+def test_a_held_text_his_answer_removes_a_premise_of_is_taken_off_the_jobs_it_touches_in_one_jev_request_and_his_words_stay(demo: str, jev: Jev) -> None:
+    stale = {"seq": None, "words": "The staging test of Forge-AI/monorepo#42 also runs: the rollback on sandsql", "at": state.stamp(T0), "said": None, "request": "req-stale", "sender": None}
+    kept = {"seq": None, "words": "From the coordinator: PR #7 merged", "at": state.stamp(T0), "said": None, "request": "req-kept", "sender": "coordinator"}
+    his = {"seq": None, "words": 'His answer a1, verbatim: "ship everything except ssql"', "at": state.stamp(T0), "said": None, "request": "req-his", "sender": state.WATCH_SENDER}
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["undelivered"] = [stale, kept, his]
+        data["answers"]["a1"] = {"words": "ship everything except ssql", "link": f"{CARD}9", "at": state.stamp(T0), "said": state.stamp(T0), "cards": {}, "jobs": {"j1": {"mark": "sent"}}}
+    jev.chosen = ("t1", 0.95)
+    watching = watcher(demo)
+    assert watch.stale_texts(watching, T0 + timedelta(minutes=1)) == []
+    assert [held["request"] for held in state.load(demo)["jobs"]["j1"]["undelivered"]] == ["req-kept", "req-his"]
+    assert [list(asked["questions"]) for asked in jev.asked] == [["t1", "t2"]]
+    assert watch.stale_texts(watching, T0 + timedelta(minutes=2)) == []
+    assert len(jev.asked) == 1
