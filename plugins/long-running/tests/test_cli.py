@@ -12672,7 +12672,7 @@ def test_an_incident_order_an_older_install_saved_without_its_page_mark_shows_it
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "chats fail")
     with edit(demo) as data:
         data["orders"]["o1"]["incident"] = True
-        for field in state.ORDER_FIELDS:
+        for field in ("paged", "paged_by", "page_post", "users", "users_by"):
             data["orders"]["o1"].pop(field)
     code, out = run("order", "show", "o1")
     assert (code, out.splitlines()[-1]) == (0, "page: not marked as hitting real users; he was not paged")

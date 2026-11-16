@@ -162,7 +162,7 @@ WATCHDOG_ENV = "LONG_RUNNING_WATCHDOG"
 DETACHED_ENV = "LONG_RUNNING_DETACHED"
 RETRIED_ONCE = ("report-post",)
 HIM = "him"
-ORDER_FIELDS = {"class": None, "go": None, "paged": None, "paged_by": None, "page_post": None, "users": None, "users_by": None}
+UNDEFAULTED_ORDER_FIELDS = frozenset({"text", "from", "created", "updated", "parts", "reporters", "kind", "thread", "threads", "joins", "tally"})
 WATCH_SENDER = "watch"
 WATCH_SAID_KEPT = 500
 SENDER_NAMES = {"coordinator": "the coordinator", "communicator": "the communicator", "meta": "the meta session", WATCH_SENDER: "the watch"}
@@ -1007,14 +1007,14 @@ def saved(name: str) -> dict:
 
 
 def saved_row(name: str, collection: str, key: str) -> dict | None:
-    """One job or order as the drive saved it, its row alone read from the database, so a hook asking after one job reads none of the rest, an order carrying each of ORDER_FIELDS an older install never wrote at its default; None for no such row."""
+    """One job or order as the drive saved it, its row alone read from the database, so a hook asking after one job reads none of the rest, an order carrying each field of order_defaults an older install never wrote at its default; None for no such row."""
     if not (path := database_path(name)).exists():
         row = stored_json(name)[collection].get(key)
     else:
         with closing(connect(path)) as db:
             found = db.execute("SELECT body FROM rows WHERE collection = ? AND key = ?", (collection, key)).fetchone()
         row = found and json.loads(found[0])
-    return ORDER_FIELDS | row if row and collection == "orders" else row
+    return order_defaults() | row if row and collection == "orders" else row
 
 
 def stored(name: str, fields: tuple[str, ...] | None = None) -> dict:
@@ -1197,7 +1197,7 @@ def bare_seq(seq: str | None) -> str | None:
 
 def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     """The drive as saved brought up to the fields this install reads, and whether shaping it read only the database: true once every once-only pass over files on this Mac had run before this shaping, the cards closed included."""
-    data = bound(saved)
+    data, order_fields = bound(saved), order_defaults().keys()
     for order_id, order in data["orders"].items():
         order["priority"] = priority_seat(order_id) if order.get("priority") is True else order.get("priority") or None
         if "parts" not in order:
@@ -1205,37 +1205,18 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             order["parts"] = {whole: new_part()}
             for job_id in order["jobs"]:
                 data["jobs"][job_id].setdefault("parts", [whole])
-        order.setdefault("incident", False)
+        if missing := order_fields - order.keys():
+            blank = order_defaults()
+            order.update({field: blank[field] for field in missing})
         order.pop("milestone", None)
-        order.setdefault("project", None)
-        order.setdefault("workstream", None)
-        order.setdefault("title", None)
-        order.setdefault("terms", {})
-        order.setdefault("complex", False)
-        order.setdefault("urgent", [])
-        order.setdefault("options_only", False)
-        order.setdefault("fresh", None)
-        order.setdefault("once", False)
-        order.setdefault("every", 0)
         order.pop("releases", None)
         order.pop("shipped", None)
-        order.setdefault("proof", None)
-        order.setdefault("proof_by", None)
-        order.setdefault("close_report", None)
-        order.setdefault("closed_on", None)
-        order.setdefault("alerts", [])
-        order.setdefault("recovered", None)
-        order.setdefault("prove_said", None)
-        order.setdefault("handoffs", [])
         for handoff in order["handoffs"]:
             if "jobs" not in handoff:
                 job_id = handoff.pop("job", None)
                 handoff["jobs"] = [job_id] if job_id else []
-        for field, default in ORDER_FIELDS.items():
-            order.setdefault(field, default)
         if order.pop("fixed", None) and order["recovered"] and order["state"] not in CLOSED_ORDER_STATES:
             order.update(recovered=None, proof=None)
-        order.setdefault("quiet", None)
         if order["quiet"] and "news" not in order["quiet"]:
             order["quiet"] = {"record": order["quiet"]["record"], "at": order["quiet"]["at"], "handler": order["quiet"]["handler"], "heard": None, "news": {}}
         if order["quiet"]:
@@ -1250,8 +1231,6 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         if "reporters" not in order:
             held = order.pop("reporter", None)
             order["reporters"] = [held] if held else []
-        order.setdefault("watch", None)
-        order.setdefault("claims", {})
         for held in order["claims"].values():
             held.setdefault("replies_read", stamp())
         order["closed_on"] = bare_seq(order["closed_on"])
@@ -1263,7 +1242,6 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         for field in ("promises", "withdrawn", *OLDER_INSTALL_PROMISE):
             order.pop(field, None)
         order.pop("owed_line", None)
-        order.setdefault("owed", [])
         order["parts"] = {part.strip(): held for part, held in order["parts"].items()}
         for part in order["parts"].values():
             part.pop("kind", None)
@@ -1334,7 +1312,6 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     for order_id, order in data["orders"].items():
         if "tally" not in order:
             order["tally"] = sorted(({"at": each["created"], "from": each["from"]} for each in [order, *(data["orders"][other] for other in untallied.get(order_id, []))] if "created" in each), key=lambda each: each["at"])
-        order.setdefault("promoted", None)
     for pr in data["prs"].values():
         waits = pr.get("waits")
         pr["waits"] = [wait for wait in (waits if isinstance(waits, list) else [waits] if waits else []) if not card_wait(data, wait)]
@@ -4319,6 +4296,10 @@ def new_slot() -> dict:
 def new_answer(words: str, link: str | None, moment: str, cards: dict, jobs: dict) -> dict:
     """His answer to the cards it settles, told to each job in jobs once it reads it."""
     return {"words": words, "link": link, "at": moment, "said": moment, "cards": cards, "jobs": jobs, "approves": None}
+
+
+def order_defaults() -> dict:
+    return {field: held for field, held in new_order("", "", None, {}, "").items() if field not in UNDEFAULTED_ORDER_FIELDS}
 
 
 def new_part() -> dict:
