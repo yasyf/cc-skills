@@ -809,8 +809,15 @@ def carrier(clone: str) -> Callable[[str, str, int], bool]:
 
 
 def contains(clone: str) -> Callable[[str, str, str, str | None], bool]:
-    """Whether a build's tree holds a PR's change by its net content: the merge sits in the build's history, else, for a build off the line such as a hotfix, every hunk of the PR's change since its fork from base reads in what the build serves, by net_held, so a copy on other context counts and a copy later reverted does not; with no base to read the fork from, or a base branch origin no longer holds, only the merge counts."""
+    """Whether a build's tree holds a PR's change by its net content: the merge sits in the build's history, else, for a build off the line such as a hotfix, every hunk of the PR's change since its fork from base reads in what the build serves, by net_held, so a copy on other context counts and a copy later reverted does not; each base branch is resolved once for this comparison sweep, including an absent branch, and a new sweep resolves it afresh; with no base to read the fork from, or a base branch origin no longer holds, only the merge counts."""
     git = ["git", "-C", clone]
+
+    @functools.cache
+    def base_tip(branch: str) -> str | None:
+        try:
+            return fetched(clone, branch)
+        except MissingBranch:
+            return None
 
     @functools.cache
     def holds(build: str, merge: str, head: str, base: str | None) -> bool:
@@ -818,19 +825,16 @@ def contains(clone: str) -> Callable[[str, str, str, str | None], bool]:
             fetch_commit(clone, sha)
         if not subprocess.run([*git, "merge-base", "--is-ancestor", merge, build], capture_output=True, check=False).returncode:
             return True
-        try:
-            return bool(base) and net_held(clone, build, head, base)
-        except MissingBranch:
-            return False
+        return bool(base) and (tip := base_tip(base)) is not None and net_held(clone, build, head, tip)
 
     return holds
 
 
-def net_held(clone: str, build: str, head: str, base: str) -> bool:
+def net_held(clone: str, build: str, head: str, base_tip: str) -> bool:
     """Whether each hunk a PR at head changes since its fork from base reads in a build's files: its added lines stand there together, and its removed lines, unless head keeps them too, do not, whatever lines sit around them."""
     fetch_commit(clone, head)
     git = ["git", "-C", clone, "--literal-pathspecs", "-c", "core.quotePath=false"]
-    fork = fork_point(clone, git, head, fetched(clone, base))
+    fork = fork_point(clone, git, head, base_tip)
     hunks: dict[str, list[tuple[list[str], list[str]]]] = {}
     path = was = None
     for line in run([*git, "diff", *DIFF, fork, head]).splitlines():
