@@ -738,9 +738,9 @@ def datadog_servers() -> dict:
 
 
 def sprite_servers() -> dict:
-    """The `--mcp-config` a builder on a Sprite starts with: cc-slack's channel server under the name the cc-slack plugin's server has on this Mac, so a Sprite lane reads Slack through the same `mcp__plugin_cc-slack_cc-slack__*` tools with no relay through this Mac, by his Nov 16 words "fuckng give it cc-slack then and ddog". Its `claude` starts at prepare, before orca-sprite-tools.sh installs cc-slack and logs it in, so the server's command waits up to SPRITE_LOGIN_WAIT seconds for that login's marker, under the MCP_TIMEOUT the orca plugin's spriteEnv raises past it."""
+    """The `--mcp-config` a builder on a Sprite starts with: datadog_servers' Datadog server, whose headers fill from the ai-oncall keys cc-remote's `orca.keys.env` exports before the Sprite's `claude` starts, and cc-slack's channel server under the name the cc-slack plugin's server has on this Mac, so a Sprite lane reads Datadog and Slack through the same `mcp__plugin_datadog_mcp__*` and `mcp__plugin_cc-slack_cc-slack__*` tools with no relay through this Mac, by his Nov 16 words "fuckng give it cc-slack then and ddog". Its `claude` starts at prepare, before orca-sprite-tools.sh installs cc-slack and logs it in, so the server's command waits up to SPRITE_LOGIN_WAIT seconds for that login's marker, under the MCP_TIMEOUT the orca plugin's spriteEnv raises past it."""
     wait = f"for _ in $(seq {SPRITE_LOGIN_WAIT}); do [ -e {SPRITE_CC_SLACK_LOGIN} ] && break; sleep 1; done; exec {SPRITE_CC_SLACK} channel"
-    return {"mcpServers": {"plugin:cc-slack:cc-slack": {"command": "sh", "args": ["-c", wait]}}}
+    return {"mcpServers": datadog_servers()["mcpServers"] | {"plugin:cc-slack:cc-slack": {"command": "sh", "args": ["-c", wait]}}}
 
 
 def env_words(settings: dict) -> list[str]:
