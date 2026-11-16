@@ -144,6 +144,11 @@ ANSWERED = (
     " which redraws his card with his words there as its Already answered tap, so one tap settles it, by his pick 692284 \"Your"
     ' cited answer as a tap on the card: one tap settles it, nothing skipped unseen", and build on his words meanwhile.'
 )
+REPEATED = (
+    'drive job ask: Jev reads this card as asking again what {job}\'s card {card} asks for {order}, on {prs}: "{title}". It shares'
+    " no card, since only your `Replaces:` line or --redraws shares one: when one answer of his settles both, ask it again with the line"
+    " `Replaces: {waits}` under its Findings:, which takes that card and folds its question into this one; otherwise it draws a card of its own."
+)
 CARRIED = (
     'drive job ask: Jev reads this card as bringing what his answer {id}, {asked}, waited for, "{said}", so the card carries'
     " those words out and is kept unsettled on none of them."

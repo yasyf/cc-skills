@@ -249,6 +249,8 @@ APPROVALS_LABELLED = ".approvals-labelled-by-question"
 LANE_WORKTREES = ".lane-worktrees-recorded"
 READ_MARK = hashlib.sha256(f"{github.READ} {github.RULES}".encode()).hexdigest()[:12]
 UNSTARTED_WAITING = ".unstarted-jobs-waiting"
+JEV_FOLD_REOPENED = ".jev-fold-reopened"
+JEV_FOLD = ("durable-agents", "j5389", "j5389-ec812baf.md")
 CARDS_NOTED = "card_answers_noted"
 INDEX: ContextVar["Index | None"] = ContextVar("index", default=None)
 WAITS_OUT_LOCK: ContextVar[bool] = ContextVar("waits_out_lock", default=False)
@@ -1731,6 +1733,8 @@ def migrate(name: str) -> None:
             wait_unstarted(name, data)
         if not (drive_dir(name) / LANE_WORKTREES).exists():
             record_lane_worktrees(name, data)
+        if not (drive_dir(name) / JEV_FOLD_REOPENED).exists():
+            reopen_jev_fold(name, data)
 
 
 def wait_unstarted(name: str, data: dict) -> None:
@@ -1740,6 +1744,24 @@ def wait_unstarted(name: str, data: dict) -> None:
             for job_id in stale:
                 data["jobs"][job_id].update(state="waiting", said=NOT_STARTED)
     (drive_dir(name) / UNSTARTED_WAITING).touch()
+
+
+def reopen_jev_fold(name: str, data: dict) -> None:
+    """Reopen the question an older install's asked-again read by Jev folded into another pull request's hotfix question, which his tap there then closed too: open again with no card under a fresh waits id, so the watch draws it on a card of its own, his answer held for its job taken off it, and the cc-notes record of that answer titled by the question his tap answered; marked so this runs once."""
+    from drive import settled
+
+    drive, job_id, file = JEV_FOLD
+    if name == drive and (held := data["jobs"].get(job_id)) and (folded := next((question for question in held["questions"] if Path(question["file"] or "").name == file and question["replaced"] and question["closed"]), None)):
+        closed = folded["closed"]
+        if closed["noted"]:
+            into = next(question for job in data["jobs"].values() for question in job["questions"] if question["file"] == folded["replaced"])
+            cwd = data["roles"]["coordinator"]["cwd"]
+            settled.retitled(settled.shown(closed["noted"], cwd), into["title"], cwd)
+        with edit(name) as data:
+            job = data["jobs"][job_id]
+            question_in(job, folded).update(closed=None, replaced=None, card=None, waits=new_waits(name, job_id))
+            job["undelivered"] = [kept for kept in job["undelivered"] if kept["seq"] != closed["seq"]]
+    (drive_dir(name) / JEV_FOLD_REOPENED).touch()
 
 
 def record_lane_worktrees(name: str, data: dict) -> None:
@@ -3868,7 +3890,7 @@ def pointed(name: str, data: dict) -> None:
 def clone(name: str, folder: Path) -> None:
     """Copy the drive's saved state into folder, as the drive of its name there, read in one transaction, with the mark of each once-only pass `migrate` already made on it, so a load or migrate of the copy reads it as one of the drive would."""
     (folder / name).mkdir(parents=True)
-    for mark in (APPROVALS_LABELLED, UNSTARTED_WAITING, f"asks/{REBUILT_ASKS}", f"pictures/{picture.SOURCED}"):
+    for mark in (APPROVALS_LABELLED, UNSTARTED_WAITING, JEV_FOLD_REOPENED, f"asks/{REBUILT_ASKS}", f"pictures/{picture.SOURCED}"):
         if (drive_dir(name) / mark).exists():
             (folder / name / mark).parent.mkdir(exist_ok=True)
             (folder / name / mark).touch()

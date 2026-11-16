@@ -964,8 +964,8 @@ def answered_at(data: dict, drawn: list[tuple[str, dict]], url: str) -> list[tup
 
 
 def card_question(drawn: list[tuple[str, dict]], waits: str) -> dict:
-    """The question a card asks under its waits id among those drawn on it, else the first, the title his answer there is recorded under."""
-    return next((question for _, question in drawn if question["waits"] == waits), drawn[0][1])
+    """The question a card asks among those drawn on it, one under its waits id first and, among those, one no other question replaced, the title his answer there is recorded under."""
+    return min((question for _, question in drawn), key=lambda question: (question["waits"] != waits, bool(question["replaced"])))
 
 
 def hear_tap(name: str) -> None:

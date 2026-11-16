@@ -3042,8 +3042,8 @@ def test_a_design_job_redraws_a_card_another_orders_job_asked_about_its_order_an
     )
 
 
-def test_j4258_an_ask_jev_reads_as_asking_again_what_its_jobs_open_cards_ask_takes_the_newest_and_folds_the_other_while_another_jobs_card_it_asks_again_stays_that_jobs(
-    run: Run, asking: str, tmp_path: Path, jev: Jev, monkeypatch: pytest.MonkeyPatch, slack_calls: list[tuple[str, ...]]
+def test_j6887_an_ask_jev_reads_as_asking_again_what_its_jobs_open_cards_ask_draws_a_card_of_its_own_and_names_each_card_with_the_replaces_line_that_would_fold_it(
+    run: Run, asking: str, tmp_path: Path, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], slack_calls: list[tuple[str, ...]]
 ) -> None:
     for _ in range(2):
         run("job", "add", "reader", "--order", "o1", "--goal", "research the run page")
@@ -3057,21 +3057,23 @@ def test_j4258_an_ask_jev_reads_as_asking_again_what_its_jobs_open_cards_ask_tak
     jev.again = set(titles)
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
     kept = state.drive_dir("demo") / "asks" / f"j3-{state.ask_hash(SHORT_ASK)}.md"
-    assert run("job", "ask", "j3", "-") == (
-        0,
-        f"{kept}\nhis card {slack_card(1)} asks it under demo:j3-2; demo:j3-1: his card {cards[0]} now shows his words with no buttons, its question superseded",
+    assert cli.main(["job", "ask", "j3", "-"]) == 0
+    out, err = capsys.readouterr()
+    assert out.strip() == f"{kept}\nhis card {slack_card(1)} asks it under demo:j3-7"
+    assert sorted(line for line in err.splitlines() if line.startswith("drive job ask: Jev reads this card")) == sorted(
+        settled.REPEATED.format(job="j3", card=card, order="o1", prs="no PR", title=title, waits=wait) for title, card, wait in zip(titles[:2], cards, waits)
     )
     [request] = [request for request in jev.asked if "again1" in request["questions"]]
     assert sorted(key for key in request["questions"] if key.startswith("again")) == ["again1", "again2"]
-    assert drawn_waits(slack_calls) == ["demo:j3-2"]
-    assert [argv for argv in slack_calls if argv[0] == "card-answer"] == [("card-answer", "--card", cards[0], "--label", cli.ASKED_AGAIN, "--withdrawn", "--via", slack_card(1))]
+    assert drawn_waits(slack_calls) == ["demo:j3-7"]
+    assert [argv for argv in slack_calls if argv[0] == "card-answer"] == []
     data = state.load("demo")
     assert [(job_id, question["waits"], question["card"], question["replaced"]) for job_id in ("j2", "j3") for question in data["jobs"][job_id]["questions"]] == [
         ("j2", "demo:j2-3", cards[2], None),
-        ("j3", "demo:j3-2", slack_card(1), str(kept)),
-        ("j3", "demo:j3-2", slack_card(1), None),
+        ("j3", "demo:j3-1", cards[0], None),
+        ("j3", "demo:j3-2", cards[1], None),
+        ("j3", "demo:j3-7", slack_card(1), None),
     ]
-    assert data["jobs"]["j2"]["waits"] == ["demo:j2-3"]
 
 
 def test_j4050_a_replaces_line_naming_two_cards_redraws_the_first_shows_the_second_asked_again_linking_it_and_his_one_answer_ends_both(
@@ -3107,7 +3109,7 @@ def test_j4050_a_replaces_line_naming_two_cards_redraws_the_first_shows_the_seco
         ended = superseded.end(data, "j4", data["jobs"]["j4"]["questions"][-1], closed)
     assert sorted(job_id for job_id, _ in ended) == ["j1", "j2", "j4"]
 
-def test_j4258_a_reader_whose_card_another_jobs_redraws_took_draws_nothing_for_it_on_a_later_design_return_in_its_old_words_or_new_ones(
+def test_j4258_a_reader_whose_card_another_jobs_redraws_took_draws_nothing_for_it_in_its_old_words_and_a_card_of_its_own_in_new_ones_naming_the_card_taken(
     run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], slack_calls: list[tuple[str, ...]]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
@@ -3119,15 +3121,19 @@ def test_j4258_a_reader_whose_card_another_jobs_redraws_took_draws_nothing_for_i
     took = run("job", "ask", "j2", "-", "--redraws", "demo:j1-7")[1].splitlines()[0]
     assert keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH)[0] == 0
     jev.again = {taken}
-    assert keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH.replace(DESIGN_TITLE, "Should each store be copied on the primary or on a worker?"))[0] == 0
-    assert drawn_waits(slack_calls) == ["demo:j1-7", "demo:j1-7"]
+    reworded = "Should each store be copied on the primary or on a worker?"
+    code, err = keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH.replace(DESIGN_TITLE, reworded))
+    assert code == 0
+    assert settled.REPEATED.format(job="j2", card=slack_card(2), order="o1", prs="no PR", title=taken, waits="demo:j1-7") in err.splitlines()
+    assert drawn_waits(slack_calls) == ["demo:j1-7", "demo:j1-7", "demo:j1-8"]
     assert [argv for argv in slack_calls if argv[0] == "card-answer"] == []
     jobs = state.load("demo")["jobs"]
     assert [(question["title"], question["waits"], question["card"], question["replaced"]) for question in jobs["j1"]["questions"]] == [
         (DESIGN_TITLE, "demo:j1-7", slack_card(2), took),
-        ("Should each store be copied on the primary or on a worker?", "demo:j1-7", slack_card(2), took),
+        (reworded, "demo:j1-8", slack_card(3), None),
     ]
     assert [(question["file"], question["title"], question["card"], question["replaced"], question["closed"]) for question in jobs["j2"]["questions"]] == [(took, taken, slack_card(2), None, None)]
+
 
 def test_job_ask_on_an_open_incident_whose_thread_is_in_his_dm_draws_his_card_in_that_thread_and_sends_no_line(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slack_calls: list[tuple[str, ...]]
