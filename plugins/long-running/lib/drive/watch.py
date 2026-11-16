@@ -53,6 +53,7 @@ HANDOFF_FACT = "handoff"
 WAITED_FACT = "card waiting"
 DIGEST_AGE = timedelta(hours=24)
 FREED_AGAIN = timedelta(minutes=30)
+ELAPSED = re.compile(r"\b\d+(?: minutes?| hours?| seconds?|s\b)|\b\d{1,2}:\d{2}(?::\d{2})?(?: [AP]M)?")
 BUILT_BASE = "{built}, the change yours builds on, its PR held on his answer: cut your branch from that head, so your PR stacks on it"
 LIVE_EVERY = timedelta(minutes=5)
 TELL_AFTER = timedelta(minutes=10)
@@ -612,7 +613,7 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished, a job's wait on another job's change once that job registers a PR, by state.change_pr, its FREE line and its brief's Where: then naming the branch to cut its own from, by state.stacked_on, the release out by the watch's release live read or its PR closed unmerged, the Buildkite build finished or stopped at an approve step by the watch's Buildkite read, a process on this Mac ended, a teammate's reply come, a job a job waits on returned BUILT, by built_bases, a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, or a once-only pass of state.shaped ended it, each by the reason that pass handed by state.drop_waits, forgotten as this edit saves, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite, or taking over here from its agent on this Mac, keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it; a job holding texts that carry_held launches, by carrier's drive job launch, names no brief and says the watch launches it and to start no agent for it, so no session starts a second worker beside that launch, while one whose worker carry_held resumes says it carries them. A release wait is a wake the job set, freed by out_because once every cluster of its service, or the one env it names, serves the PR's merge, and never comes back. A job waiting its turn for a Sprite lane on sprite-slot is freed, earliest due first after a priority order's, by place.sprite_turns, one for each lane under this Mac's Sprite cap no drive here runs, its turn stamped so that lane counts as held while its launch starts it."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished, a job's wait on another job's change once that job registers a PR, by state.change_pr, its FREE line and its brief's Where: then naming the branch to cut its own from, by state.stacked_on, the release out by the watch's release live read or its PR closed unmerged, the Buildkite build finished or stopped at an approve step by the watch's Buildkite read, a process on this Mac ended, a teammate's reply come, a job a job waits on returned BUILT, by built_bases, a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, or a once-only pass of state.shaped ended it, each by the reason that pass handed by state.drop_waits, forgotten as this edit saves, and say once, as its last wait ends, that nothing holds it, saying nothing of a job the watch starts itself: one start_jobs starts, and a codex job or a Sprite job no worker took, which the watch launches by drive job launch once busy lets it, or holds waiting its turn on sprite-slot while place.admission refuses it a Sprite lane, so no session is woken to run the launch; holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite, or taking over here from its agent on this Mac, keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it; a job holding texts that carry_held launches, by carrier's drive job launch, names no brief and says the watch launches it and to start no agent for it, so no session starts a second worker beside that launch, while one whose worker carry_held resumes says it carries them. A release wait is a wake the job set, freed by out_because once every cluster of its service, or the one env it names, serves the PR's merge, and never comes back. A job waiting its turn for a Sprite lane on sprite-slot is freed, earliest due first after a priority order's, by place.sprite_turns, one for each lane under this Mac's Sprite cap no drive here runs, its turn stamped so that lane counts as held while its launch starts it."""
     data = state.load(watcher.name)
     out, lines = replies(watcher, data, moment)
     out |= shipped(watcher, data)
@@ -631,7 +632,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
     changed = {wait: f"{wait} registered {key}" for wait, key in opened.items()} | out
     slot = {state.SLOT_WAIT: f"its turn came as a builder slot opened on this Mac, {held} of its {place.LOCAL_BUILDERS} held"}
     sprite = {state.SPRITE_WAIT: f"its turn came as a Sprite lane opened under this Mac's cap, {running} of its {place.caps()['sprite']} running"}
-    moves, rebriefs = [], []
+    moves, rebriefs, launches = [], [], []
     with state.edit(watcher.name) as data:
         for job_id, job in data["jobs"].items():
             if not heard_job(watcher, data, job):
@@ -680,13 +681,24 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     his = ", his answers among them" if any(held["sender"] == state.HIM for held in job["undelivered"]) else ""
                     carried = f", and the watch now launches it with the texts it holds{his}: start no agent for it" if command[1] == "launch" else f", and the watch now carries it the texts it holds{his}"
                     unlaunched, unstarted = ", and the watch now starts its next codex-ask run carrying its last report" if exited else carried, ""
+                elif unlaunched and not busy(watcher, job_id, moment):
+                    if job["kind"] != "codex" and place.admission(data, job_id, "sprite", moment):
+                        place.queue_sprite(job, moment)
+                    else:
+                        launches.append(job_id)
+                    continue
+                elif starts_itself(job):
+                    continue
                 lines.append(f"FREE {job_id} {job['order']}: {ended}, nothing else holds it{built}{stacked}{unlaunched}{unstarted}")
         for key, pr in data["prs"].items():
             if hears(watcher, data, pr["order"]) and (ended := released(data, pr, pr["job"], watcher.cards, out)) and pr["state"] == "open":
                 lines.append(f"FREE {key} {pr['job']} {pr['order']}: {ended}, nothing else holds it")
     for job_id in moves:
         start_verb(watcher, job_id, ["job", "launch", job_id, "--local"], moment)
-    return lines + [refused for job_id in rebriefs if (refused := stack_brief(watcher.name, job_id))]
+    lines += [refused for job_id in rebriefs if (refused := stack_brief(watcher.name, job_id))]
+    for job_id in launches:
+        start_verb(watcher, job_id, ["job", "launch", job_id], moment)
+    return lines
 
 
 def stack_brief(name: str, job_id: str) -> str | None:
@@ -4616,9 +4628,11 @@ class NotStarted(str):
 
 
 def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
-    """Why the job leaves the order's part with no one, None when it carries it or is a design its builder carries, or SETTLING while a change in the last two minutes is still being handed over; a builder that took DONE at its merge carries it only through the builder proving it live; a done tester leaves a staging test part whose PR it ran no full pass of waiting on a rerun; a DONE of a job's own carries work only while drive job prove's run of its proof file is to come; a job drive job add recorded not started that waits on nothing settles one minute, or while its launch takes, a drive job launch only while it holds the job's lock, read against state.now() since the pass may have started long before, then names the minutes since drive job add and the brief its agent reads first; a waiting job nothing can wake also names what its line names that ended or moved; a builder stopped before any agent took it carries the part by the PRs the drive does not track that it holds, by untracked_gap."""
+    """Why the job leaves the order's part with no one, None when it carries it or is a design its builder carries, or SETTLING while a change in the last two minutes is still being handed over; a builder that took DONE at its merge carries it only through the builder proving it live; a done tester leaves a staging test part whose PR it ran no full pass of waiting on a rerun; a DONE of a job's own carries work only while drive job prove's run of its proof file is to come; a job drive job add recorded not started that waits on nothing settles one minute, or while its launch takes, a drive job launch only while it holds the job's lock, read against state.now() since the pass may have started long before, or while this Mac's admission holds its Claude lane by place.admission, its cap, load gate or daily budget, since work that waits its turn is no orphan, then names the minutes since drive job add and the brief its agent reads first; a waiting job nothing can wake also names what its line names that ended or moved; a builder stopped before any agent took it carries the part by the PRs the drive does not track that it holds, by untracked_gap."""
     if state.unstarted(job) and not job["waits"]:
         if (now := state.now()) - state.parse_time(job["updated"]) < UNSTARTED_FOR or launching(job, now) and (job["where"] != "remote" or state.launch_in_flight(watcher.name, job_id, job)):
+            return SETTLING
+        if job["kind"] in state.STARTS_ITSELF and place.admission(data, job_id, "sprite" if job["where"] == "remote" else "local", now):
             return SETTLING
         return NotStarted(f"{job_id} not started {minutes(now - state.parse_time(job['created']))} minutes after drive job add{brief_first(job)}")
     if moment - state.parse_time(job["updated"]) < HANDOFF:
@@ -5147,8 +5161,12 @@ def part_gaps(watcher: Watcher, data: dict, moment: datetime) -> dict[tuple[str,
     }
 
 
+def gap_shape(gap: str) -> str:
+    return ELAPSED.sub("N", gap)
+
+
 def orphan_change(data: dict, key: tuple[str, str], gap: str | None, moment: datetime) -> str | None:
-    """Whether the part's gap is said or healed, never a standing part's Restart, which standing_lines answers with its next pass: said once as it appears, by his pick "Said once, then listed in drive status: no repeats and a standing gap stays readable", and again only once a job on the part changes, by state.orphan_stands, or 30 minutes after a FREE line said its job's last wait ended, since drive status lists the gap it said until it heals or a job on the part moves."""
+    """Whether the part's gap is said, healed or kept, never a standing part's Restart, which standing_lines answers with its next pass: said once as it appears, by his pick "Said once, then listed in drive status: no repeats and a standing gap stays readable", or 30 minutes after a FREE line said its job's last wait ended; once a job on the part moves, by state.orphan_stands, said again only when the gap itself changed beyond the minutes and clock times it counts, else kept as it stands, restamped with no line, so drive status keeps listing it and a job the watch touches each pass, such as one whose agent stopped, is said once per state."""
     part = data["orders"][key[0]]["parts"][key[1]]
     if gap is None:
         return "heal" if part["orphan_said"] else None
@@ -5158,7 +5176,9 @@ def orphan_change(data: dict, key: tuple[str, str], gap: str | None, moment: dat
         return "say"
     if part["orphan_gap"] == state.FREED and moment - state.parse_time(part["orphan_said"]) >= FREED_AGAIN:
         return "say"
-    return None if state.orphan_stands(data, *key) else "say"
+    if state.orphan_stands(data, *key):
+        return None
+    return "keep" if gap_shape(gap) == gap_shape(part["orphan_gap"]) else "say"
 
 
 def orphan_lines(watcher: Watcher, moment: datetime, said: type | tuple[type, ...] = object) -> list[str]:
@@ -5172,8 +5192,9 @@ def orphan_lines(watcher: Watcher, moment: datetime, said: type | tuple[type, ..
             part = data["orders"][key[0]]["parts"][key[1]]
             if change == "heal":
                 part.update(orphan_said=None, orphan_gap=None)
-            if change == "say":
+            if change in ("say", "keep"):
                 part.update(orphan_said=state.stamp(moment), orphan_gap=gap)
+            if change == "say":
                 lines.append(f'ORPHAN {key[0]} "{cut(key[1], 80)}": {gap}')
     return lines
 

@@ -1132,7 +1132,7 @@ def test_a_launch_briefs_a_builder_none_briefed_and_carries_each_answer_it_holds
     assert ("\nServes: his order\n" in brief, f"\nHis answers since:\n- {words}\n" in brief, state.load(demo)["jobs"]["j1"]["undelivered"]) == (True, True, [])
 
 
-def test_a_readers_return_briefs_the_builder_waiting_on_it_so_its_free_line_launches_it_with_no_hand_brief(
+def test_a_readers_return_briefs_the_builder_waiting_on_it_so_the_watch_starts_it_with_no_hand_brief_and_no_free_line(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cloned(tmp_path, demo)
@@ -1146,7 +1146,7 @@ def test_a_readers_return_briefs_the_builder_waiting_on_it_so_its_free_line_laun
     assert (code, out.splitlines()[1], jobs["j4"].get("brief")) == (0, f"j2: Read your brief first: {jobs['j2']['brief']}", None)
     brief = Path(jobs["j2"]["brief"]).read_text()
     assert ("Serves: his order\n" in brief, "Researched: j1\n" in brief, "Done when:" in brief) == (True, True, False)
-    assert watch.waits_lines(watch.Watcher(demo, offset=state.events_end(demo)), T0) == [f"FREE j2 o1: j1 answered or done, nothing else holds it; the watch starts its agent on its brief {jobs['j2']['brief']}, so start no agent for it; drive job resume reaches it"]
+    assert watch.waits_lines(watch.Watcher(demo, offset=state.events_end(demo)), T0) == []
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
     fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
     monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
@@ -8567,7 +8567,7 @@ def test_a_job_reads_launching_only_while_its_launch_holds_its_lock_so_one_whose
     assert ("launching since" in launching, "launching since" in died, state.NOT_STARTED in died) == (True, False, True)
 
 
-def test_a_job_added_or_set_waiting_on_a_pr_or_a_release_waits_unlaunched_until_free_names_its_launch(
+def test_a_job_added_or_set_waiting_on_a_pr_or_a_release_waits_unlaunched_until_its_last_wait_ends_and_the_watch_launches_it_with_no_free_line(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     key = "Forge-AI/monorepo#7"
@@ -8587,16 +8587,14 @@ def test_a_job_added_or_set_waiting_on_a_pr_or_a_release_waits_unlaunched_until_
         ("waiting", state.NOT_STARTED, [key]),
     ]
     assert cli.main(["job", "launch", "j2"]) == 2
-    assert f"j2 waits on {key}, {shipping}: launch it on the watch's FREE line" in capsys.readouterr().err
+    assert f"j2 waits on {key}, {shipping}: start nothing for it now: once the last wait ends the watch starts it" in capsys.readouterr().err
     watching = watch.Watcher(demo, offset=state.events_end(demo))
     with state.edit(demo) as data:
         data["prs"][key].update(state="merged", merged_sha="abc123")
-    shipped = f"tools/ci release live reads api on plat-usw2-prod serving {key}"
     watching.serving = {shipping: {"plat-usw2-prod": True}}
-    assert watch.waits_lines(watching, T0) == [
-        f"FREE j2 o1: {key} answered or done, {shipped}, nothing else holds it, not started yet: drive job launch j2 starts it",
-        f"FREE j3 o1: {key} answered or done, nothing else holds it, not started yet: drive job launch j3 starts it",
-    ]
+    detached = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or 0)
+    assert (watch.waits_lines(watching, T0), detached) == ([], [["job", "launch", "j2"], ["job", "launch", "j3"]])
 
 
 @pytest.mark.parametrize(

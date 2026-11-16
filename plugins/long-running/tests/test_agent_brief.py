@@ -237,7 +237,7 @@ def test_a_builder_whose_wait_still_holds_starts_here_only_on_its_free_line_by_t
     run("job", "add", "builder", "--order", "o1", "--part", "the interface", "--goal", "build the interface")
     run("job", "add", "builder", "--order", "o1", "--part", "the reads", "--goal", "build the reads", "--waits", "j1")
     brief = "Order (his words): copy one store\nServes: his order\nGoal: build it\nDrive: demo, order o1, job "
-    refused = "j2 waits on j1: launch it on the watch's FREE line, which comes once the last wait ends"
+    refused = "j2 waits on j1: start nothing for it now: once the last wait ends the watch starts it, or its FREE line names who does"
     assert view.start_refusal(state.load(demo), "j2", True) == refused
     assert agent_brief.deny_reason(briefed("long-running:builder", f"{brief}j2")) == f"refused: {refused}"
     assert agent_brief.deny_reason(briefed("long-running:builder", f"{brief}j1")) is None
@@ -460,10 +460,10 @@ def test_a_first_lane_at_the_sprite_cap_waits_its_turn_on_sprite_slot_until_the_
     assert cli.admission_refusal(demo, data, "j1", False, None, True) is None
     refused = cli.admission_refusal(demo, data, "j1", False, None, False)
     assert refused.startswith(f"30 Sprite lanes run across this Mac's drives, at its cap of 30 set by {state.root() / place.CAPS_FILE} (x0 builder on o9")
-    assert refused.endswith("so j1 waits its turn for a Sprite lane, 1 of 1 in line, and the watch's FREE line names it as one frees: launch it then")
+    assert refused.endswith("so j1 waits its turn for a Sprite lane, 1 of 1 in line, and the watch launches it as one frees")
     data = state.load(demo)
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["waits"]) == ("waiting", [state.SPRITE_WAIT])
-    assert view.start_refusal(data, "j1", False) == "j1 waits on sprite-slot: launch it on the watch's FREE line, which comes once the last wait ends"
+    assert view.start_refusal(data, "j1", False) == "j1 waits on sprite-slot: start nothing for it now: once the last wait ends the watch starts it, or its FREE line names who does"
     assert place.sprite_turns(data, state.now()) == ([], 30)
     monkeypatch.setattr(place, "lanes", lambda moment: {"local": {}, "sprite": {}})
     assert place.sprite_turns(data, state.now()) == (["j1"], 0)

@@ -335,7 +335,7 @@ def start_refusal(drive: dict, job_id: str, slot: bool) -> str | None:
     if job.get("agent") or job.get("dispatch"):
         return None
     waits = [wait for wait in start_waits(drive, job, None) if slot or wait != state.SLOT_WAIT]
-    return f"{job_id} waits on {', '.join(waits)}: launch it on the watch's FREE line, which comes once the last wait ends" if waits else None
+    return f"{job_id} waits on {', '.join(waits)}: start nothing for it now: once the last wait ends the watch starts it, or its FREE line names who does" if waits else None
 
 
 def start_waits(drive: dict, job: dict, found: dict | None) -> list[str]:

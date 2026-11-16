@@ -547,7 +547,7 @@ def test_a_pr_merged_into_another_open_prs_branch_reads_folded_holding_its_wait_
     assert data["jobs"]["j1"]["said"] == f"DONE {state.pr_url(KEY)} merged: {KEY} at ddd444"
 
 
-def test_a_job_waiting_on_a_builders_change_is_free_once_that_builder_registers_its_pr_never_at_its_merge_its_line_and_brief_naming_the_branch_to_stack_on(
+def test_a_job_waiting_on_a_builders_change_is_free_once_that_builder_registers_its_pr_never_at_its_merge_its_brief_naming_the_branch_to_stack_on_with_no_free_line_since_the_watch_starts_it(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     built = "Forge-AI/monorepo#43"
@@ -563,7 +563,7 @@ def test_a_job_waiting_on_a_builders_change_is_free_once_that_builder_registers_
     assert cli.main(["pr", "add", state.pr_url(built), "--job", "j2", "--drive", demo, *LEAD]) == 0
     assert state.load(demo)["jobs"]["j3"]["waits"] == ["j2"]
     said = watch.run_pass(watching, T0 + timedelta(seconds=61))
-    assert [line for line in said if line.startswith("FREE ")] == [f"FREE j3 o1: j2 registered {built}, nothing else holds it, stacked on land-it ({built}); the watch starts its agent on its brief {briefed}, so start no agent for it; drive job resume reaches it"]
+    assert not [line for line in said if line.startswith("FREE ")]
     waiting = state.load(demo)["jobs"]["j3"]
     assert (waiting["waits"], waiting["stacks_on"], state.load(demo)["prs"][built]["state"]) == ([], [built], "open")
     assert f"Where: Cut your branch on land-it ({built}), so your PR stacks on the changes it waited on.\n" in Path(briefed).read_text()
@@ -5909,15 +5909,13 @@ def test_a_staging_parts_gap_names_only_its_testers_never_a_job_running_its_rele
     ]
 
 
-@pytest.mark.parametrize(
-    ("ran", "start"),
-    [(None, "not started yet: drive job launch j1 starts it"), ("/drive/scratch/j1/codex", "its codex-ask run ended: drive job launch j1 starts its next")],
-    ids=["never-launched", "run-ended"],
-)
-def test_a_freed_codex_job_reads_not_started_only_when_no_codex_ask_run_ended_since_its_launch_as_j3122_did_not(
-    demo: str, monkeypatch: pytest.MonkeyPatch, ran: str | None, start: str
+@pytest.mark.parametrize("ran", [None, "/drive/scratch/j1/codex"], ids=["never-launched", "run-ended"])
+def test_a_freed_codex_job_is_launched_by_the_watch_itself_with_no_free_line_to_wake_a_session_whether_or_not_a_codex_ask_run_ended_since_its_launch(
+    demo: str, monkeypatch: pytest.MonkeyPatch, ran: str | None
 ) -> None:
     serve(monkeypatch, {})
+    detached = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or 0)
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j2"] = job(goal="release the service")
@@ -5927,7 +5925,7 @@ def test_a_freed_codex_job_reads_not_started_only_when_no_codex_ask_run_ended_si
     with state.edit(demo) as data:
         data["jobs"]["j2"]["state"] = "done"
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
-    assert watch.run_pass(watching, T0 + timedelta(seconds=60)) == [f"FREE j1 o1: j2 answered or done, nothing else holds it, {start}"]
+    assert (watch.run_pass(watching, T0 + timedelta(seconds=60)), detached) == ([], [["job", "launch", "j1"]])
 
 
 def test_a_job_whose_wait_ends_is_freed_before_any_orphan_and_said_to_be_stranded_once_a_change_to_it_settles(
