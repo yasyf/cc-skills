@@ -13,7 +13,7 @@ import one_line_result
 import pytest
 import quiet_turn
 from conftest import LEAD, RESEARCH, CodexAsk, codex_reply, provide, started
-from drive import brief, cli, codex, providers, render, state, watch
+from drive import brief, cli, codex, providers, render, slack, state, watch
 
 Run = Callable[..., tuple[int, str]]
 POST = "https://acme.slack.com/archives/D1/p1"
@@ -506,6 +506,16 @@ def test_a_communicator_turn_writes_no_text_between_its_tool_calls(communicator:
         tmp_path / "quiet.jsonl", asked("his earlier message"), said("Old narration."), asked("his message"), called("Agent", prompt="x"), TOOL_RESULT, said("Sent.")
     )
     assert quiet_turn.block_reason(stop | {"transcript_path": quiet}) is None
+
+
+def test_a_communicator_turn_ends_only_once_dm_owed_holds_no_message_of_his_it_owes(communicator: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    session = os.environ["CLAUDE_CODE_SESSION_ID"]
+    stop = {"session_id": session, "hook_event_name": "Stop", "stop_hook_active": False, "last_assistant_message": "Sent."}
+    owed = {"holder_session": "dm-holder", "replies": [{"ts": "1.1", "thread_ts": "1.0", "channel_id": "C1", "holder_session": session}, {"ts": "2.1", "channel_id": "C2", "holder_session": "another"}]}
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: owed)
+    assert quiet_turn.block_reason(stop).startswith("Refused on purpose: his message in thread 1.0 has no post of yours")
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"holder_session": session, "replies": []})
+    assert quiet_turn.block_reason(stop) is None
 
 
 def bash_call(command: str, **fields: object) -> dict:
