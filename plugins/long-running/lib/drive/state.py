@@ -4398,7 +4398,8 @@ def locked(name: str) -> Iterator[None]:
                 yield
         finally:
             stuck.cancel()
-            if (held := time.monotonic() - got) >= SLOW_HOLD_SECONDS or got - asked >= SLOW_HOLD_SECONDS:
+            kept_write(name, got - asked, held := time.monotonic() - got, "drive")
+            if held >= SLOW_HOLD_SECONDS or got - asked >= SLOW_HOLD_SECONDS:
                 kept_hold(name, held, got - asked)
 
 
@@ -4449,6 +4450,13 @@ def kept_hold(name: str, held: float, waited: float, lock: str = "") -> None:
     holder = next(frame for frame in reversed(traceback.extract_stack()[:-1]) if Path(frame.filename).name not in ("state.py", "contextlib.py"))
     with open(drive_dir(name) / "locks.log", "a") as log:
         log.write(f"{stamp()} pid {os.getpid()} held {lock + ' ' if lock else ''}{held:.1f}s after waiting {waited:.1f}s in {holder.name} ({Path(holder.filename).name}:{holder.lineno}): drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
+
+
+def kept_write(name: str, waited: float, held: float, how: str) -> None:
+    """Log each hold of the drive's lock to writes.log, one tab-separated line: when, the drive code that held it, whether it saved the whole drive or a write's rows alone, how long it waited and how long it held, so each verb's write latency reads from every write, not only the slow ones locks.log names."""
+    holder = next(frame for frame in reversed(traceback.extract_stack()[:-1]) if Path(frame.filename).name not in ("state.py", "contextlib.py"))
+    with open(drive_dir(name) / "writes.log", "a") as log:
+        log.write(f"{stamp()}\t{holder.name}\t{how}\t{waited:.3f}\t{held:.3f}\n")
 
 
 def kept_stack(name: str, thread: int) -> None:
@@ -4729,10 +4737,15 @@ def fields_set(record: dict, mine: object, fields: set[str]) -> dict:
 def handled_lock(name: str) -> Iterator[None]:
     """Hold the drive's lock exclusive for one short transaction, without its waits' logging or the reports moved on a first hold, while writes of no rows and older installs still load, change and save the whole drive under it, so no such save of what it loaded before this one writes over it."""
     path = drive_dir(name) / ".lock"
+    asked = time.monotonic()
     with open(path, "a") as handle:
         if not taken(handle, math.inf if WAITS_OUT_LOCK.get() else DRIVE_LOCK_SECONDS):
             raise DriveError(f"{name}'s drive lock is still held after {DRIVE_LOCK_SECONDS}s, so this changed nothing: {holders(path)}")
-        yield
+        got = time.monotonic()
+        try:
+            yield
+        finally:
+            kept_write(name, got - asked, time.monotonic() - got, "rows")
 
 
 def update[T](name: str, rows: tuple[Row, ...] | None, change: Callable[[dict], T]) -> T:
