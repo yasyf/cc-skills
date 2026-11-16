@@ -63,11 +63,13 @@ echo "smoke: bin/drive --help runs"
 
 "${python[@]}" - "$plugin" "$scratch" <<'EOF'
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 plugin, scratch = Path(sys.argv[1]), Path(sys.argv[2])
+(scratch / "transcript.jsonl").write_text("")
 events = json.loads((plugin / "hooks" / "hooks.json").read_text())["hooks"]
 failed, ran = [], 0
 for event, groups in events.items():
@@ -85,7 +87,8 @@ for event, groups in events.items():
                 "tool_input": {"command": "echo smoke"},
                 "permission_mode": "default",
             }
-            done = subprocess.run(["python3", "-I", str(plugin / "hooks" / "installed.py"), hook], input=json.dumps(payload), capture_output=True, text=True, timeout=120)
+            job = {"LONG_RUNNING_JOB": "smoke/j1"} if "LONG_RUNNING_JOB" in command["command"] else {}
+            done = subprocess.run(["python3", "-I", str(plugin / "hooks" / "installed.py"), hook], input=json.dumps(payload), capture_output=True, text=True, timeout=120, env=os.environ | job)
             ran += 1
             if done.returncode not in (0, 2) or "Traceback" in done.stderr:
                 failed.append(f"{event} {hook} exited {done.returncode}: {done.stderr.strip()[-600:]}")
