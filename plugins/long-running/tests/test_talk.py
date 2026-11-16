@@ -119,7 +119,7 @@ def test_one_post_links_each_reference_the_way_slack_and_the_dashboard_each_show
     monkeypatch.setattr(state, "load", selected)
     assert talk.say(demo, {"text": "{pr:7} waits on {card:demo:j1-7}", "thread_ts": "1794200000.000100"}) == f"POSTED {POSTED}"
     assert posts == [
-        ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--thread", "1794200000.000100", "--", f"<{PR_URL}|the run page shows its history> waits on <{CARD_URL}|{QUESTION}>")
+        ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--thread", "1794200000.000100", "--", f"<{PR_URL}|#7> waits on <{CARD_URL}|{QUESTION}>")
     ]
     assert ("name", "roles", "subcoordinators", "communicators") in loaded
     [kept] = said(demo)
@@ -263,7 +263,7 @@ def test_a_card_named_in_its_own_thread_reads_this_card_with_no_link(demo: str, 
 def test_an_edit_links_each_reference_as_a_post_does_and_the_dashboard_shows_its_new_words_in_place(demo: str, posts: list[tuple[str, ...]]) -> None:
     talk.say(demo, {"text": "{pr:7} is up", "thread_ts": "1794200000.000100"})
     edit = {"edit": POSTED, "text": "{pr:7} waits on {card:demo:j1-7}"}
-    sent = f"<{PR_URL}|the run page shows its history> waits on <{CARD_URL}|{QUESTION}>"
+    sent = f"<{PR_URL}|#7> waits on <{CARD_URL}|{QUESTION}>"
     assert talk.say(demo, edit | {"dry_run": True}) == f"DRY edit of {POSTED}, 0 pictures: {sent}"
     assert talk.say(demo, edit) == f"EDITED {POSTED}"
     assert posts[1] == ("edit", "--url", POSTED, "--text", sent)
@@ -1144,9 +1144,9 @@ def test_a_pr_card_goes_under_its_first_line_in_his_dm_and_each_other_open_order
     talk.say(demo, team | TICKET)
     assert posts == [
         ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--thread", "1794200000.000100", "--tap-pr", PR_URL, "--", "land these"),
-        ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--thread", "1794300000.000100", "--", f"land these\n<{POSTED}|the run page shows its history>"),
+        ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--thread", "1794300000.000100", "--", f"land these\n<{POSTED}|#7>"),
         (
-            "reply", "--agent", "claude", "--channel", "C9TEAM", "--thread", "1794500000.000100", "--text", f"land these\n<{POSTED}|the run page shows its history>",
+            "reply", "--agent", "claude", "--channel", "C9TEAM", "--thread", "1794500000.000100", "--text", f"land these\n<{POSTED}|#7>",
             "--ticket", "t1", "--ticket-tree", "tree1", "--ticket-agent", "agent1", "--ticket-call", "call1", "--ticket-fingerprint", "print1",
         ),
     ]
@@ -1709,10 +1709,10 @@ def test_a_post_goes_out_in_exactly_the_words_it_was_given_while_built_work_wait
     assert [argv[-1] for argv in posts] == ["Shipped.", "Catch-up", "The fix is live."]
 
 
-def test_a_pr_is_linked_under_the_words_the_post_gives_it_whether_the_drive_holds_it_or_not(demo: str, posts: list[tuple[str, ...]]) -> None:
+def test_a_pr_is_linked_as_its_number_and_the_words_the_post_gives_it_whether_the_drive_holds_it_or_not(demo: str, posts: list[tuple[str, ...]]) -> None:
     talk.say(demo, {"text": "{pr:7|the run page fix} and {pr:yasyf/cc-skills#4250|the card that draws charts} are live."})
-    assert posts[0][-1] == f"<{PR_URL}|the run page fix> and <https://github.com/yasyf/cc-skills/pull/4250|the card that draws charts> are live."
-    assert said(demo)[0]["text"] == f"[the run page fix]({PR_URL}) and [the card that draws charts](https://github.com/yasyf/cc-skills/pull/4250) are live."
+    assert posts[0][-1] == f"<{PR_URL}|#7 the run page fix> and <https://github.com/yasyf/cc-skills/pull/4250|#4250 the card that draws charts> are live."
+    assert said(demo)[0]["text"] == f"[#7 the run page fix]({PR_URL}) and [#4250 the card that draws charts](https://github.com/yasyf/cc-skills/pull/4250) are live."
     with pytest.raises(DriveError, match=r"\{pr:yasyf/cc-skills#4250\} names no PR of the drive's"):
         talk.say(demo, {"text": "{pr:yasyf/cc-skills#4250} is live."})
 
@@ -1722,8 +1722,8 @@ def test_a_pr_in_a_table_cell_is_linked_under_its_words_whether_the_bar_before_t
 ) -> None:
     rows = "| PR | what |\n|---|---|\n| {first} | lands |\n| {second} | lands |"
     talk.say(demo, {"text": rows.format(first="{pr:7\\|the run page fix}", second="{pr:yasyf/cc-skills#4250|the card that draws charts}")})
-    assert posts[0][-1] == rows.format(first=f"<{PR_URL}|the run page fix>", second="<https://github.com/yasyf/cc-skills/pull/4250|the card that draws charts>")
-    assert said(demo)[0]["text"] == rows.format(first=f"[the run page fix]({PR_URL})", second="[the card that draws charts](https://github.com/yasyf/cc-skills/pull/4250)")
+    assert posts[0][-1] == rows.format(first=f"<{PR_URL}|#7 the run page fix>", second="<https://github.com/yasyf/cc-skills/pull/4250|#4250 the card that draws charts>")
+    assert said(demo)[0]["text"] == rows.format(first=f"[#7 the run page fix]({PR_URL})", second="[#4250 the card that draws charts](https://github.com/yasyf/cc-skills/pull/4250)")
 
 
 ALERT = "1794436805.002349"
@@ -1781,7 +1781,7 @@ def test_an_edit_of_a_line_in_an_alerts_thread_goes_out_with_the_ticket_its_hook
     claims = [{"claim": "The release failed on the migration", "read": "tools/ci release status"}]
     assert talk.say(demo, {"edit": POSTED, "text": "The release failed on the migration {pr:7} fixes.", "claims": claims} | TICKET) == f"EDITED {POSTED}"
     assert posts[1] == (
-        "edit", "--url", POSTED, "--text", f"The release failed on the migration <{PR_URL}|the run page shows its history> fixes.",
+        "edit", "--url", POSTED, "--text", f"The release failed on the migration <{PR_URL}|#7> fixes.",
         "--ticket", "t1", "--ticket-tree", "tree1", "--ticket-agent", "agent1", "--ticket-call", "call1", "--ticket-fingerprint", "print1",
     )
     history = view.history(state.load(demo), (event for event, _ in state.read_events(demo)), "https://acme.slack.com/")
@@ -1819,7 +1819,7 @@ def test_a_card_on_an_order_in_an_alerts_thread_goes_up_in_his_dm_and_its_line_g
         ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--card", json.dumps({"title": QUESTION}), "--", "Your pick holds the fix."),
         ("reply", "--agent", "claude", "--channel", "C0ALERT1", "--thread", ALERT, "--text", f"Your pick holds the fix.\n<{POSTED}|{QUESTION}>", *tickets),
         ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--tap-pr", PR_URL, "--", "Ready to land."),
-        ("reply", "--agent", "claude", "--channel", "C0ALERT1", "--thread", ALERT, "--text", f"Ready to land.\n<{POSTED}|the run page shows its history>", *tickets),
+        ("reply", "--agent", "claude", "--channel", "C0ALERT1", "--thread", ALERT, "--text", f"Ready to land.\n<{POSTED}|#7>", *tickets),
     ]
     assert [(event["channel"], event["card"]) for event in said(demo)] == [(None, POSTED), ("C0ALERT1", POSTED), (None, None), ("C0ALERT1", POSTED)]
 
@@ -2138,7 +2138,7 @@ def test_every_line_naming_a_carded_pr_links_its_card_whether_or_not_it_asks_his
     card = {"url": "https://acme.slack.com/archives/D1/p1794300000000200", "prs": [pr["url"]], "card": {"prs": [{"url": pr["url"], "head": "abc1234"}]}}
     prs = {"yasyf/cc-skills#7": pr}
     found = {"{pr:7}": refs.pr(prs, "7", "", [card])}
-    assert refs.slack("Tap Approve on {pr:7}\nAlso merged: {pr:7}", found, None) == f"Tap Approve on <{card['url']}|the run page shows its history>\nAlso merged: <{card['url']}|the run page shows its history>"
+    assert refs.slack("Tap Approve on {pr:7}\nAlso merged: {pr:7}", found, None) == f"Tap Approve on <{card['url']}|#7>\nAlso merged: <{card['url']}|#7>"
     assert refs.pr(prs, "7", "", [card | {"card": {"prs": [{"url": pr["url"], "head": "old0000"}]}}])["card"] is None
 
 

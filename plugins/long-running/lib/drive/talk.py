@@ -960,7 +960,7 @@ def posted(name: str, post: dict, order: str | None = None, receipt: dict | None
             if post.get("edit")
             else replied(post, pictures, sent)
             if first[0] not in operators
-            else status(name, data, post | {"channel_id": first[0], "thread_ts": first[1]}, [], pictures, card_link({"permalink": standing}, sent, "; ".join(view.pr_title(data["prs"][key]) for key in stack))[1])
+            else status(name, data, post | {"channel_id": first[0], "thread_ts": first[1]}, [], pictures, card_link({"permalink": standing}, sent, ", ".join(f"#{key.partition('#')[2]}" for key in stack))[1])
             if standing
             else status(name, data, post | {"channel_id": first[0], "thread_ts": first[1]}, stack, pictures, sent)
         )
@@ -997,7 +997,7 @@ def posted(name: str, post: dict, order: str | None = None, receipt: dict | None
         reply |= {"sent": sent}
         if first[1] and view.drawn_on(data, *view.SLACK_TS.findall(sent)):
             keep_line(name, first[1], reply["permalink"], sent)
-    label = card["title"] if card else "; ".join(view.pr_title(data["prs"][key]) for key in stack)
+    label = card["title"] if card else ", ".join(f"#{key.partition('#')[2]}" for key in stack)
     for place in [place for place in rest if place[0] in operators]:
         linked(name, data, reply, place, stack, refs.slack(words, found, place[1]), label, kept, post.get("request_key"))
     if stack:

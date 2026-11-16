@@ -90,8 +90,10 @@ def resolved(name: str, text: str) -> dict[str, dict]:
                 found[match[0]] = posted_at(name, match[2])
             case "release":
                 found[match[0]] = release(data, match[2])
-        if label:
+        if label and match[1] != "pr":
             found[match[0]] |= {"own": found[match[0]]["title"], "title": label}
+        elif label:
+            found[match[0]] |= {"own": found[match[0]]["title"]}
     return found
 
 
@@ -248,7 +250,7 @@ def card(cards: dict, data: dict, waits: str) -> dict:
 
 
 def pr(prs: dict, ref: str, label: str, pr_cards: list[dict]) -> dict:
-    """A PR the drive holds, named by what it does, beside his open card at its head when it has one, which a line asking his tap links in its place, or any other PR named by its owner/repo#number or URL, which has no title of its own here, under the words the post gives it."""
+    """A PR named as #number and the few words its writer gave after the |, never its title, by his ruling that a PR is `#53430` plus a few words: a PR the drive holds beside his open card at its head when it has one, which a line asking his tap links in its place, or any other PR named by its owner/repo#number or URL."""
     try:
         key = state.tracked_pr(prs, ref, untracked=True)
     except DriveError as error:
@@ -256,14 +258,18 @@ def pr(prs: dict, ref: str, label: str, pr_cards: list[dict]) -> dict:
     if key in prs:
         found = prs[key]
         shown = view.head_card(found, pr_cards)
-        return {"kind": "pr", "title": view.pr_title(found) if found["title"] else key, "url": found["url"], "board": found["url"], "card": shown["url"] if shown else None}
+        return {"kind": "pr", "title": pr_words(key, label), "url": found["url"], "board": found["url"], "card": shown["url"] if shown else None}
     if label:
         url = state.pr_url(key)
-        return {"kind": "pr", "title": "", "url": url, "board": url}
+        return {"kind": "pr", "title": pr_words(key, label), "url": url, "board": url}
     raise DriveError(
         f"{{pr:{ref}}} names no PR of the drive's, which drive status lists; name any other PR as"
         " {pr:<owner/repo#number>|<words saying what it does>}"
     )
+
+
+def pr_words(key: str, label: str) -> str:
+    return " ".join(filter(None, [f"#{key.partition('#')[2]}", label]))
 
 
 def order(name: str, data: dict, order_id: str) -> dict:
