@@ -1019,6 +1019,30 @@ def testing_on(data: dict, env: str) -> list[str]:
     return [job_id for job_id in dict.fromkeys([*named, *running]) if data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES]
 
 
+def cycle_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Say once each cycle of waits already in the rows, by state.wait_cycle, to the session holding the order of its first PR or job, kept as cycle_said on that row so the same cycle is never said twice, since nothing on it can ever move until a session drops the wait that is wrong; drive pr set and drive job set refuse a wait that would close a new one."""
+    data = state.load(watcher.name)
+    live = [(key, row) for key, row in data["prs"].items() if row["waits"] and row["state"] in github.UNLANDED]
+    live += [(key, row) for key, row in data["jobs"].items() if row["waits"] and row["state"] not in state.FINISHED_JOB_STATES]
+    cycles = {" ".join(sorted(chain)): chain for key, row in live if (chain := state.wait_cycle(data, key, row["waits"])) and key == min(chain)}
+    fresh = {said: chain for said, chain in cycles.items() if (data["prs"].get(chain[0]) or data["jobs"][chain[0]]).get("cycle_said") != said}
+    if not fresh:
+        return []
+
+    def cycle_said(data: dict) -> list[str]:
+        lines = []
+        for said, chain in fresh.items():
+            row = data["prs"].get(chain[0]) or data["jobs"][chain[0]]
+            row["cycle_said"] = said
+            lines.append(
+                f"CYCLE {row['order']}: {', which waits on '.join(chain)}, so none of them can ever move: drop the wait that is wrong"
+                " with drive pr set <PR> --no-waits --waits <the waits it keeps>, or drive job set <job> --no-waits --waits <the waits it keeps>"
+            )
+        return lines
+
+    return state.write(watcher.name, cycle_said, budget=state.WATCH_WRITE_SECONDS)
+
+
 def env_alert_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Hand each new alert in a staging env's alert channel, as drive channels --env-alerts names it, to each job testing on what that env serves now, by testing_on, as one handoff record with the alert's link and words, keyed by env, alert and job so none is handed twice, by his words "if a lane is doing staging tests it should automatically get the things posted in alerts-staging channel sent to it": the slot decides who gets it, never a judgment. Each env's channel is read at most once every ENV_ALERT_EVERY, from the newest alert it read; a read or post that fails goes again next read, said from its third failure in a row."""
     if watcher.project:
@@ -6280,7 +6304,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
         functools.partial(train_lines, watcher, moment),
         functools.partial(event_lines, watcher),
         *(owed_reads(watcher, moment) if lands else []),
-        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, clock_lines, owing_lines, case_lines, held_lines, undelivered_lines, close_answered, close_joined_repeats, standing_lines, retired_seats, communicators_idle, env_alert_lines, orphan_lines)),
+        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, clock_lines, owing_lines, case_lines, held_lines, undelivered_lines, close_answered, close_joined_repeats, standing_lines, retired_seats, communicators_idle, env_alert_lines, cycle_lines, orphan_lines)),
     ]
     names = [stage.func.__name__ for stage in later]
     resume, watcher.resume = watcher.resume, None

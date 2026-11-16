@@ -7032,6 +7032,37 @@ def job_wait_refusal(data: dict, waits: list[str]) -> str | None:
     return None
 
 
+def wait_cycle(data: dict, start: str, waits: list[str]) -> list[str] | None:
+    """The chain of waits that giving start, a PR or job the drive tracks, these waits closes back on start, start first and last, so nothing on it can ever move: each step a wait still holding, by view.holds, on a tracked PR, a release of one or a job, leaving out a wait on a job's next report, which that report frees whatever the job waits on; None when no wait closes one."""
+    from drive import view
+
+    def onward(given: list[str]) -> list[str]:
+        return [target for wait in given if not RETURN_WAIT.fullmatch(wait) and ((target := waited_pr(wait)) in data["prs"] or target in data["jobs"]) and view.holds(data, wait, None)]
+
+    parents: dict[str, str] = {}
+    stack = [(target, start) for target in onward(waits)]
+    while stack:
+        node, parent = stack.pop()
+        if node in parents:
+            continue
+        parents[node] = parent
+        if node == start:
+            chain, at = [start], parent
+            while at != start:
+                chain.append(at)
+                at = parents[at]
+            return [start, *reversed(chain)]
+        stack += [(target, node) for target in onward((data["prs"].get(node) or data["jobs"][node])["waits"])]
+    return None
+
+
+def cycle_refusal(data: dict, start: str, waits: list[str]) -> str | None:
+    """Why start may not take these waits: they close a cycle, by wait_cycle, which can never clear, since each thing on it waits on the next to move."""
+    if not (chain := wait_cycle(data, start, waits)):
+        return None
+    return f"its waits would close a cycle, {', which waits on '.join(chain)}, which can never clear, since each waits on the next to move: drop the wait on it that is wrong"
+
+
 def waited_pr(wait: str) -> str:
     """The PR a wait names: the PR of a release wait, else the wait itself."""
     return release["pr"] if (release := RELEASE_WAIT.fullmatch(wait)) else wait

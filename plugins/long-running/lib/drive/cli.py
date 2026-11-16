@@ -1967,6 +1967,8 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             job_id, job, shared = held
             job.update({field: value for field, value in given.items() if value is not None}, updated=created)
             job["waits"] = list(dict.fromkeys([*job["waits"], *waits]))
+            if cycle := state.cycle_refusal(data, job_id, job["waits"]):
+                raise DriveError(f"refused, no job added: {job_id}, which this add folds into: {cycle}")
             state.deliver(data, job_id, args.order, parts)
             took.append(f"{job_id} carried {shared} and no worker took it, so this add folded into it, a part or branch having one change job: its goal is this add's and its waits gained this add's")
         else:
@@ -2380,6 +2382,8 @@ def job_set(args: argparse.Namespace) -> int:
             state.join_card(data, args.id, args.card)
         waits = merged_waits(data, job, [state.job_wait(data, wait, args.id, job) for wait in args.waits], args.no_waits, found)
         job["waits"] = [wait for wait in waits if not (state.builds_nothing(job) and wait == state.SLOT_WAIT)]
+        if cycle := state.cycle_refusal(data, args.id, job["waits"]):
+            raise DriveError(f"{args.id}: refused, nothing set: {cycle}")
         if args.said:
             state.keep_waited(data, args.id, args.said)
         if args.carries:
@@ -5844,7 +5848,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
             raise DriveError(f"refused, {job['order']} is a repair he asked to run once: run it, and put up no PR for it")
         pr = registered(data["prs"].setdefault(key, state.new_pr(url, job_id, job["order"]) | {"wants_tap": wants_tap}), job["order"])
         state.take_pr(data, job_id, key)
-        if refused := state.claim_mains(data, github.repo_of(key), job_id, failing, key, state.stamp(state.now())):
+        if refused := state.claim_mains(data, github.repo_of(key), job_id, failing, key, state.stamp(state.now())) or state.cycle_refusal(data, key, pr["waits"]):
             raise DriveError(f"{key}: refused, nothing added: {refused}")
         if parts:
             refuse_a_part_its_job_lacks(data, key, parts, False, "added")
@@ -5974,6 +5978,8 @@ def pr_set(args: argparse.Namespace) -> int:
         if args.tapped == "Hold":
             state.end_approvals(data, key, before["tap"])
         pr["waits"] = merged_waits(data, pr, args.waits, args.no_waits, found)
+        if cycle := state.cycle_refusal(data, key, pr["waits"]):
+            raise DriveError(f"{key}: refused, nothing set: {cycle}")
         testers = [tester_id for tester_id in [args.staging and state.stage_pr(data, key, args.staging, data["jobs"][pr["job"]].get("session"))] if tester_id]
         delivering = f"\ndelivers {'; '.join(pr['parts'])}" if args.part else ""
         if args.part and delivers:

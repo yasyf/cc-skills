@@ -939,6 +939,33 @@ def test_job_set_waits_on_a_part_of_an_order_named_word_for_word_until_a_passing
     assert f"--waits {wait}: name a part of o2 still to be delivered, word for word, as o2:<part>: none is left" in capsys.readouterr().err
 
 
+def test_a_wait_closing_a_cycle_is_refused_naming_it_and_the_watch_says_a_cycle_already_in_the_rows_once(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it", "--parts", "the fix", "the follow-on")
+    run("job", "add", "builder", "--order", "o1", "--part", "the fix", "--goal", "ship")
+    run("job", "add", "builder", "--order", "o1", "--part", "the follow-on", "--goal", "ship more")
+    first, second = (f"https://github.com/Forge-AI/monorepo/pull/{number}" for number in (7, 8))
+    for url, job_id in ((first, "j1"), (second, "j2")):
+        run("pr", "add", url, "--job", job_id, *LEAD)
+    assert run("pr", "set", first, "--waits", "Forge-AI/monorepo#8")[0] == 0
+    capsys.readouterr()
+    assert cli.main(["pr", "set", second, "--waits", "Forge-AI/monorepo#7"]) == 2
+    cycle = "Forge-AI/monorepo#8, which waits on Forge-AI/monorepo#7, which waits on Forge-AI/monorepo#8"
+    assert cycle in capsys.readouterr().err
+    assert state.load(demo)["prs"]["Forge-AI/monorepo#8"]["waits"] == []
+
+    def planted(data: dict) -> None:
+        data["prs"]["Forge-AI/monorepo#8"]["waits"] = ["Forge-AI/monorepo#7"]
+
+    state.write(demo, planted)
+    watching = watch.Watcher(demo, offset=state.events_end(demo))
+    said = watch.cycle_lines(watching, state.now())
+    assert len(said) == 1
+    assert said[0].startswith("CYCLE o1: Forge-AI/monorepo#7, which waits on Forge-AI/monorepo#8, which waits on Forge-AI/monorepo#7")
+    assert watch.cycle_lines(watching, state.now()) == []
+
+
 def test_a_part_wait_open_prs_of_another_job_outside_its_stack_share_is_refused_on_pr_set_and_on_a_waiting_return_naming_a_part_of_its_own(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
