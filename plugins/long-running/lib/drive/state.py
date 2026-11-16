@@ -883,6 +883,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "answers": {},
         "stalls": {},
         "slots": {},
+        "work": {"kinds": []},
         "stand_ins": {},
         "owed_replies": {},
         "carried": {},
@@ -1333,6 +1334,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data.setdefault("answers", {})
     data.setdefault("stalls", {})
     data.setdefault("slots", {})
+    data.setdefault("work", {"kinds": []})
     for slot in data["slots"].values():
         slot.setdefault("hold", None)
         for each in slot["queue"]:

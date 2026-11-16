@@ -19,7 +19,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import agents, artifacts, brief, children, codex, github, install, land, limits, orca, page_check, pages, picture, place, providers, published, reads, receiver, refs, render, served, settled, slack, state, superseded, watch
+from drive import agents, artifacts, brief, children, codex, github, install, land, limits, orca, page_check, pages, picture, place, providers, published, reads, receiver, refs, render, served, settled, slack, state, superseded, watch, work
 from drive.shell import simple_commands
 from drive.state import DriveError
 
@@ -4833,6 +4833,48 @@ def slot_release(args: argparse.Namespace) -> int:
     return emit(args, line, {"env": args.env, "job": args.job, "line": line})
 
 
+def work_enable(args: argparse.Namespace) -> int:
+    """Turn a kind of work over to the queue on this drive, or with --off back to its own jobs: its items no agent took start no job of their own, and the watch's spawner starts a worker that pulls them in groups."""
+    name = state.resolve(args.drive)
+
+    def work_enable_write(data: dict) -> list[str]:
+        kinds = data.setdefault("work", {"kinds": []})["kinds"]
+        data["work"]["kinds"] = [kind for kind in kinds if kind != args.kind] if args.off else list(dict.fromkeys([*kinds, args.kind]))
+        return data["work"]["kinds"]
+
+    kinds = state.update(name, None, work_enable_write)
+    return emit(args, f"{name}: the queue runs {', '.join(kinds) or 'no kind of work'}", {"kinds": kinds})
+
+
+def work_pull(args: argparse.Namespace) -> int:
+    """Claim a worker's next group of items, printing them with the steps their cut takes, or NONE or HOLD when it has none."""
+    line = work.pulled(state.resolve(args.drive), args.worker)
+    return emit(args, line, {"worker": args.worker, "line": line})
+
+
+def work_done(args: argparse.Namespace) -> int:
+    """Take one item's whole return from stdin, as drive job report takes a job's, for the worker holding its claim."""
+    whole = sys.stdin.read()
+    if not whole.strip():
+        raise DriveError(f"stdin held no return for {args.item}; pipe its whole return in: printf '%s\\n' '<line>' ... | drive work done {args.worker} {args.item} -")
+    return emit(args, *work.done(state.resolve(args.drive), args.worker, args.item, whole))
+
+
+def work_start(args: argparse.Namespace) -> int:
+    """Start a worker's agent on this Mac, as the watch's spawner does once it records one."""
+    session = work.start(state.resolve(args.drive), args.worker)
+    return emit(args, f"{args.worker} started as its own claude --bg session {session}", {"worker": args.worker, "session": session})
+
+
+def work_show(args: argparse.Namespace) -> int:
+    """The queue on this drive: the kinds it runs, its live worker, its ready items in order and why no new cut starts."""
+    data = state.load(state.resolve(args.drive))
+    ready = work.line(data)
+    why = work.why_not(data, state.now()) if work.enabled(data, work.STAGE_TEST) else None
+    shown = [f"kinds: {', '.join(data['work']['kinds']) or 'none'}", f"worker: {work.live_worker(data) or 'none'}", f"ready: {', '.join(ready) or 'none'}", f"no new cut: {why}" if why else "a new cut may start"]
+    return emit(args, "\n".join(shown), {"kinds": data["work"]["kinds"], "worker": work.live_worker(data), "ready": ready, "why": why})
+
+
 def slot_queue(args: argparse.Namespace) -> int:
     """Each staging slot, or the one env named: its holder, GO with when its lease ends once its cut has its START, by state.cut_started, else held for it and waiting for that START, so no job reads a lease it has not started as leave to run, then each job waiting, in order."""
     data = state.load(state.resolve(args.drive))
@@ -7674,6 +7716,25 @@ def parser() -> argparse.ArgumentParser:
     verb = slot.add_parser("queue", parents=both, help="each staging slot's holder, its lease's end and the jobs waiting, in order")
     verb.add_argument("env", nargs="?", help="the staging env; default every one")
     verb.set_defaults(run=slot_queue)
+
+    queue = verbs.add_parser("work", help="the work queue: items workers pull in groups").add_subparsers(dest="action", required=True)
+    verb = queue.add_parser("enable", parents=both, help="turn a kind of work over to the queue, or back with --off")
+    verb.add_argument("kind", choices=work.KINDS)
+    verb.add_argument("--off", action="store_true", help="give the kind back to its own jobs")
+    verb.set_defaults(run=work_enable)
+    verb = queue.add_parser("pull", parents=both, help="claim a worker's next group of items")
+    verb.add_argument("--worker", required=True, help="the worker's job id")
+    verb.set_defaults(run=work_pull)
+    verb = queue.add_parser("done", parents=both, help="take one item's whole return from stdin for the worker holding it")
+    verb.add_argument("worker", help="the worker's job id")
+    verb.add_argument("item", help="the item's job id")
+    verb.add_argument("stdin", choices=["-"], help="read the return from stdin")
+    verb.set_defaults(run=work_done)
+    verb = queue.add_parser("start", parents=both, help="start a worker's agent on this Mac")
+    verb.add_argument("worker", help="the worker's job id")
+    verb.set_defaults(run=work_start)
+    verb = queue.add_parser("show", parents=both, help="the queue's kinds, worker and ready items")
+    verb.set_defaults(run=work_show)
 
     job = verbs.add_parser("job", help="background agents").add_subparsers(dest="action", required=True)
     verb = job.add_parser(

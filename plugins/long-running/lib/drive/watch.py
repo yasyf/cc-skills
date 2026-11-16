@@ -26,7 +26,7 @@ from pathlib import Path
 from time import monotonic
 from typing import NamedTuple, Self
 
-from drive import agents, answer, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, page, place, procs, providers, reads, receiver, refs, render, restack, served, settled, slack, stage, stall, state, superseded, superseded_procs, train, view
+from drive import agents, answer, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, page, place, procs, providers, reads, receiver, refs, render, restack, served, settled, slack, stage, stall, state, superseded, superseded_procs, train, view, work
 from drive.install import PROOF_FAILED, add_prover, config_dir, handed_on, open_cut, done_before_proofs, done_unproven, merged_done, merged_ready, merges_of, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, released_prs, reported_prs, watch_upgraded as upgraded, watch_proves, widen
 from drive.render import cut, when
 
@@ -2566,7 +2566,7 @@ def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
     """Take each ended codex-ask run, by codex_takes, start the disk check once DISKS_EVERY is due, by check_disks, hand on each staging slot whose lease ended or whose turn came, by slot_lines, tell him once of each Claude usage limit this Mac hit, by limit_lines, then start the handler on each POST report that needs one, by post_lines, so none of these clocks waits on a main pass that runs minutes; the lanes' reads are respond_pass's."""
     clocks_drawn(watcher)
     codex_takes(watcher)
-    return limit_lines(watcher, moment) + applet_lines(watcher, moment) + check_disks(watcher, moment) + slot_lines(watcher, moment) + post_lines(watcher, moment)
+    return limit_lines(watcher, moment) + applet_lines(watcher, moment) + check_disks(watcher, moment) + slot_lines(watcher, moment) + work_lines(watcher, moment) + post_lines(watcher, moment)
 
 
 CLOCKS_DRAWN: dict[str, int] = {}
@@ -5064,7 +5064,7 @@ def start_jobs(watcher: Watcher, moment: datetime, first: bool = False) -> None:
             continue
         if room <= 0 and not first:
             break
-        if not starts_itself(job) or job["state"] in (*state.FINISHED_JOB_STATES, "running") or state.SLOT_WAIT in job["waits"] or state.SPRITE_WAIT in job["waits"] or moment - watcher.started.get(job_id, moment - RELAUNCH) < RELAUNCH or not heard_job(watcher, data, job) or view.open_cards(job) or launching(job, moment):
+        if not starts_itself(job) or work.queued(data, job) or job["state"] in (*state.FINISHED_JOB_STATES, "running") or state.SLOT_WAIT in job["waits"] or state.SPRITE_WAIT in job["waits"] or moment - watcher.started.get(job_id, moment - RELAUNCH) < RELAUNCH or not heard_job(watcher, data, job) or view.open_cards(job) or launching(job, moment):
             continue
         if state.holding_lane(data, data["orders"][job["order"]]) == "communicator" or view.start_refusal(data, job_id, False) or busy(watcher, job_id, moment):
             continue
@@ -5153,12 +5153,35 @@ def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return lines
 
 
+def work_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Run the work queue's spawner on a drive whose stage-test work the queue runs: read the files and stacks of ready items it has not read, so packing pairs only passes it can see, take each queued item off the staging slot's old line, and record and start a worker when ready items have none and this Mac admits one, by work.wanted and work.admitted, an urgent head past the cap; its lines go as evidence and wake nobody."""
+    data = state.load(watcher.name)
+    if watcher.project or not work.enabled(data, work.STAGE_TEST):
+        return []
+    read = {job_id: pass_reads(watcher.name, data, state.tested_prs(data, data["jobs"][job_id])) for job_id in work.unread(data)}
+
+    def work_lines_write(data: dict) -> tuple[list[str], str | None]:
+        for job_id, (paths, stacks) in read.items():
+            if paths is not None and stacks is not None:
+                data["jobs"][job_id]["work_reads"] = {"paths": paths, "stacks": stacks}
+        lines = work.drop_legacy(data)
+        if not work.wanted(data, moment) or work.admitted(data, moment):
+            return lines, None
+        worker_id = work.add_worker(data, watcher.name, moment)
+        return [*lines, f"WORK {worker_id} records a stage-test worker for {work.ENV}, its first group claimed"], worker_id
+
+    lines, worker_id = state.update(watcher.name, None, work_lines_write)
+    if worker_id:
+        start_verb(watcher, worker_id, ["work", "start", worker_id], moment)
+    return lines
+
+
 def carry_held(watcher: Watcher, moment: datetime) -> None:
     """Carry the texts each heard job holds, his answers among them, with no session's turn, once his cards ask nothing of the job: `drive job resume` for a lane on a Sprite or this Mac whose job returned, its worker ended or not, which sends them to a worker that takes messages and hands them to the next worker of one that finished, and `drive job launch` for an agent on this Mac that returned and that no session reaches by state.agent_lane, whose job it hands to a lane on a Sprite, and for a job no agent or lane started once its waits end, which it briefs and launches with them under His answers since:, on this Mac when its brief declares a step only this Mac runs. Each runs by start_verb once busy lets it, for each new text and again every ten minutes while one stays held."""
     data = state.load(watcher.name)
     for job_id, job in data["jobs"].items():
         held = {kept["request"] for kept in job["undelivered"]}
-        if not held or job["state"] in state.FINISHED_JOB_STATES or not heard_job(watcher, data, job) or view.open_cards(job) or launching(job, moment):
+        if not held or work.queued(data, job) or job["state"] in state.FINISHED_JOB_STATES or not heard_job(watcher, data, job) or view.open_cards(job) or launching(job, moment):
             continue
         if busy(watcher, job_id, moment) or (tried := watcher.carried.get(job_id)) and held <= tried[0] and moment - tried[1] < DUE_EVERY:
             continue
