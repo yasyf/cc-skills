@@ -959,6 +959,18 @@ def test_launch_refuses_a_brief_naming_a_drive_file_the_drive_keeps_no_text_of_a
     assert state.load(demo)["jobs"]["j1"] == before
 
 
+def test_a_brief_naming_its_own_jobs_proof_output_and_report_is_carried_since_the_drive_writes_both_after_launch_as_the_j7024_prover_was_not(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    folder = state.drive_dir(demo)
+    brief = f"Done when: drive job prove j1 keeps its output in {folder}/reports/j1.proof.txt and reports/j1.md opens on DONE\nDrive: demo, order o1, job j1\n"
+    assert orca.uncarried(demo, "j1", brief) is None
+    assert orca.uncarried(demo, "j1", brief.replace("j1.proof", "j2.proof")) == (
+        "its brief names Drive file reports/j2.proof.txt, which the drive keeps no text of, so its lane would stop to ask for each;"
+        " launch it on a brief file that leaves each out: drive job launch j1 <file>"
+    )
+
+
 def test_the_prover_add_prover_gives_a_product_merge_launches_on_this_mac_on_the_brief_the_drive_writes_for_it(run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     cloned(tmp_path, demo)
     product = "https://github.com/Forge-AI/monorepo/pull/9"
