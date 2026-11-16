@@ -1522,7 +1522,7 @@ def test_a_handlers_post_links_each_thing_it_names_where_it_names_it(talker: str
     assert "says only a number" in posted(transcript, text="<https://github.com/Forge-AI/monorepo/pull/53618|#53618> landed.")
     assert "is a number he cannot open" in posted(transcript, text="Juniper's change, #53618, landed.")
     assert posted(transcript, text=TEAMMATES_PR, tap_prs=["https://github.com/Forge-AI/monorepo/pull/53618"]) is None
-    ack = call("slack_dm_status", transcript, text=TEAMMATES_PR.replace("landed", "opened"))
+    ack = call("slack_dm_status", transcript, text="A teammate's PR opened: every locked chat shows Update sand.")
     del ack["agent_id"]
     assert message_limits.deny_reason(ack) is None
 
