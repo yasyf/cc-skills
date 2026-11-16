@@ -159,7 +159,7 @@ PREVIOUS_RELEASE_SAVE = """
 import sys
 sys.path.insert(0, sys.argv[1])
 from drive import state
-with edit("demo") as data:
+with state.edit("demo") as data:
     data["slack"]["page_stale"] = "the previous release's save"
 """
 
@@ -189,9 +189,14 @@ OTHER_PROCESS_SAVE = """
 import sys
 sys.path.insert(0, sys.argv[1])
 from drive import state
-with edit("demo") as data:
+
+
+def saved(data):
     data["terminal"] = "the other process's terminal"
     data["orders"].pop("o2")
+
+
+state.write("demo", saved)
 """
 
 
