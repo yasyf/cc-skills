@@ -778,7 +778,7 @@ def test_a_sub_coordinator_posts_from_its_lane_his_answer_to_its_card_or_an_owne
         ("iris", [("owner", ["communicator@demo"])]),
     ]
     assert state.load(demo)["orders"].keys() == {"o1"}
-    with pytest.raises(DriveError, match="to platform: no session of drive demo reads that lane; name one of root, communicator, meta, iris"):
+    with pytest.raises(DriveError, match="to platform: no session of drive demo reads that lane; name one of root, communicator, posts, meta, iris"):
         tools.run("record", demo, {"records": [{"kind": "owner", "text": "fix the alert", "to": "platform", "about": "his work"}]})
 
 

@@ -547,7 +547,7 @@ def test_his_words_at_his_message_on_his_open_question_posted_with_cci_post_are_
 def test_a_cci_post_in_bash_to_a_lane_nobody_reads_is_refused_naming_the_lanes_someone_reads(demo: str, no_calls: None) -> None:
     for to in ("coordinator@demo", "coordinator --drive demo", "coordinator"):
         reason = landing_guard.deny_reason(bash(f"cci post --kind handoff --lane root --to {to} 'j1 may start'"))
-        assert reason == "refused, nothing posted: to coordinator: no session of drive demo reads that lane; name one of root, communicator, meta, owner, or an unfinished job's id on the drive's `record` tool", to
+        assert reason == "refused, nothing posted: to coordinator: no session of drive demo reads that lane; name one of root, communicator, posts, meta, owner, or an unfinished job's id on the drive's `record` tool", to
     assert landing_guard.deny_reason(bash("cci post --kind handoff --lane root --to meta@demo 'j1 may start'")) is None
 
 
