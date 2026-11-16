@@ -159,8 +159,17 @@ PREVIOUS_RELEASE_SAVE = """
 import sys
 sys.path.insert(0, sys.argv[1])
 from drive import state
-with state.edit("demo") as data:
+
+
+def staled(data):
     data["slack"]["page_stale"] = "the previous release's save"
+
+
+if hasattr(state, "write"):
+    state.write("demo", staled)
+else:
+    with state.edit("demo") as data:
+        staled(data)
 """
 
 
