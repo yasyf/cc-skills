@@ -822,13 +822,29 @@ def uncarried(clone: str, build: str, head: str, base: str) -> list[str]:
     for sha in (build, head):
         fetch_commit(clone, sha)
     git = ["git", "-C", clone, "--literal-pathspecs", "-c", "core.quotePath=false"]
-    fork = run([*git, "merge-base", head, fetched(clone, base)]).strip()
+    fork = fork_point(clone, git, head, fetched(clone, base))
     if not (wanted := changed_lines(run([*git, "diff", *DIFF, fork, head]))):
         return []
     built = changed_lines(run([*git, "log", "-p", "--no-merges", "--format=", *DIFF, build, f"^{fork}", "--", *wanted]))
     build_tree, head_tree = ({path: entry for entry, path in (row.split("\t", 1) for row in run([*git, "ls-tree", "-r", "-z", commit, "--", *wanted]).split("\0") if row)} for commit in (build, head))
     missing = [path for path, lines in wanted.items() if build_tree.get(path) != head_tree.get(path) and not (lines and Counter(lines) <= Counter(built.get(path, [])))]
     return shipped(clone, build, missing)
+
+
+def fork_point(clone: str, git: list[str], head: str, tip: str) -> str:
+    """The commit head forked from tip, by merge-base; in a shallow clone whose history stops short of it, the fork GitHub's compare names is fetched by its exact sha, never by depth, and merge-base read once more, a second failure naming the shallow clone and that commit."""
+    try:
+        return run([*git, "merge-base", head, tip]).strip()
+    except GithubError:
+        if run(["git", "-C", clone, "rev-parse", "--is-shallow-repository"]).strip() != "true":
+            raise
+    repo = checkout_repo(clone)
+    fork = read(f"the fork of {head[:12]} from {tip[:12]}", ["gh", "api", f"repos/{repo}/compare/{tip}...{head}", "--jq", ".merge_base_commit.sha"]).strip()
+    fetch_commit(clone, fork)
+    try:
+        return run([*git, "merge-base", head, tip]).strip()
+    except GithubError as error:
+        raise GithubError(f"{clone} is a shallow clone, and git merge-base of {head[:12]} and {tip[:12]} failed again after fetching their fork {fork} by its sha: it cannot reach {fork[:12]} ({error})") from None
 
 
 def changed_lines(diff: str) -> dict[str, list[str]]:

@@ -849,3 +849,53 @@ def test_fetch_reads_a_fold_whose_base_no_pr_was_open_on_merged_at_its_own_commi
 
 def test_open_at_reads_a_pr_closed_at_the_moment_a_pr_merged_into_its_branch_as_no_longer_open() -> None:
     assert (github.open_at(owner(9, "MERGED", MERGED_AT), MERGED_AT), github.open_at(owner(9, "MERGED", "2026-11-14T21:15:48Z"), MERGED_AT)) == (False, True)
+
+
+@pytest.mark.parametrize("reached", [True, False])
+def test_a_merge_base_a_shallow_clone_cannot_read_fetches_the_fork_githubs_compare_names_by_its_sha_and_reads_again_or_names_the_shallow_clone_and_that_commit(
+    monkeypatch: pytest.MonkeyPatch, reached: bool
+) -> None:
+    fork, head, tip = "f0" * 20, "ab" * 20, "cd" * 20
+    calls: list[list[str]] = []
+    bases = iter([github.GithubError("git exited 1"), fork if reached else github.GithubError("git exited 1")])
+
+    def run(cmd: list[str], **kwargs: object) -> str:
+        calls.append(cmd)
+        if "merge-base" in cmd:
+            answer = next(bases)
+            if isinstance(answer, Exception):
+                raise answer
+            return f"{answer}\n"
+        if "--is-shallow-repository" in cmd:
+            return "true\n"
+        if cmd[-3:] == ["remote", "get-url", "origin"]:
+            return "git@github.com:Forge-AI/monorepo.git\n"
+        raise AssertionError(cmd)
+
+    monkeypatch.setattr(github, "run", run)
+    monkeypatch.setattr(github, "read", lambda what, cmd, **kwargs: calls.append(cmd) or f"{fork}\n")
+    fetched: list[str] = []
+    monkeypatch.setattr(github, "fetch_commit", lambda clone, sha: fetched.append(sha))
+    git = ["git", "-C", "/clone"]
+    if reached:
+        assert github.fork_point("/clone", git, head, tip) == fork
+    else:
+        with pytest.raises(github.GithubError, match=rf"^/clone is a shallow clone, and git merge-base of {head[:12]} and {tip[:12]} failed again after fetching their fork {fork} by its sha: it cannot reach {fork[:12]}"):
+            github.fork_point("/clone", git, head, tip)
+    assert fetched == [fork]
+    assert ["gh", "api", f"repos/Forge-AI/monorepo/compare/{tip}...{head}", "--jq", ".merge_base_commit.sha"] in calls
+    assert not any("--depth" in word or "--deepen" in word or "--unshallow" in word for cmd in calls for word in cmd)
+
+
+def test_a_merge_base_that_fails_in_a_full_clone_raises_as_it_did(monkeypatch: pytest.MonkeyPatch) -> None:
+    def run(cmd: list[str], **kwargs: object) -> str:
+        if "merge-base" in cmd:
+            raise github.GithubError("git exited 1")
+        if "--is-shallow-repository" in cmd:
+            return "false\n"
+        raise AssertionError(cmd)
+
+    monkeypatch.setattr(github, "run", run)
+    monkeypatch.setattr(github, "fetch_commit", lambda clone, sha: pytest.fail("fetched in a full clone"))
+    with pytest.raises(github.GithubError, match="^git exited 1$"):
+        github.fork_point("/clone", ["git", "-C", "/clone"], "ab" * 20, "cd" * 20)
