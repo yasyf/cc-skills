@@ -6241,7 +6241,7 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     stage.stamp(pr, now, moment)
                     if pr["state"] == "open" and not (now.name == "waiting" and state.staging_owed(data, key)):
                         acts.append((key, now, True, stage.line(key, pr, now) + f" {ids(pr)}"))
-                elif stage.overdue(pr, now, moment) and not (now.name == "waiting" and state.staging_owed(data, key)) and not stage.parked(data, key):
+                elif stage.overdue(pr, now, moment) and not (now.name == "waiting" and state.staging_owed(data, key)) and not stage.parked(data, key, watcher.cards):
                     stage.kept(pr, now)
                     pr["stage"]["waking"] = state.stamp(moment)
                     acts.append((key, now, False, stage.line(key, pr, now) + f" {ids(pr)}"))

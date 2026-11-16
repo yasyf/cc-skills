@@ -531,9 +531,13 @@ def proof_words(proof: str) -> str:
 
 
 def tester_line(drive: dict, tester: str) -> str:
-    """What a staging tester says of itself to each PR it tests: its WAITING line while it waits, else its state."""
+    """What a staging tester says of itself to each PR it tests: its WAITING line while it waits on what that line names, else the waits drive job set --waits pointed it at once one is not in that line, else its state."""
     job = drive["jobs"][tester]
-    return job["said"] if job["state"] == "waiting" and job["said"] else job["state"]
+    if job["state"] != "waiting" or not job["said"]:
+        return job["state"]
+    if any(wait not in job["said"] and not state.HIS_WORD_WAIT.fullmatch(wait) for wait in job["waits"]):
+        return f"waiting on {', '.join(job['waits'])}"
+    return job["said"]
 
 
 def tap_card(data: dict, pr: dict, found: dict | None) -> str | None:

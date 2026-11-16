@@ -9088,6 +9088,26 @@ def test_a_red_pr_whose_builder_waits_on_an_unended_job_reads_blocked_on_it_and_
     assert (stage.of(data, with_pr, cards).name, stage.parked(data, with_pr)) == ("red", False)
 
 
+def test_a_pr_waiting_on_a_tester_that_waits_on_a_running_builder_is_parked_until_that_builder_ends_and_the_tester_reads_its_re_pointed_wait(run: Run, with_pr: str) -> None:
+    assert run("order", "set", "o1", "--add-part", "the tip", "--add-part", "the cases")[0] == 0
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "build the tip", "--part", "the tip")[0] == 0
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "run the cases", "--part", "the cases")[0] == 0
+    with state.edit("demo") as data:
+        data["prs"][with_pr]["waits"] = ["j3"]
+        data["jobs"]["j2"].update(state="running", agent="a2")
+        data["jobs"]["j3"].update(state="waiting", waits=["j2"], said="WAITING j2: its tip is what my cases run on", agent="a3")
+    data = state.load("demo")
+    assert stage.parked(data, with_pr)
+    assert view.tester_line(data, "j3") == "WAITING j2: its tip is what my cases run on"
+    with state.edit("demo") as data:
+        data["jobs"]["j3"]["waits"] = ["j9"]
+    assert view.tester_line(state.load("demo"), "j3") == "waiting on j9"
+    with state.edit("demo") as data:
+        data["jobs"]["j3"]["waits"] = ["j2"]
+        data["jobs"]["j2"]["state"] = "done"
+    assert not stage.parked(state.load("demo"), with_pr)
+
+
 def test_status_reads_the_prs_from_the_drive_and_never_from_github(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
     def refused(*_: object, **__: object) -> str:
         raise AssertionError("drive status read GitHub")

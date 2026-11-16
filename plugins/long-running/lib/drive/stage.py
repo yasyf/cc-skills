@@ -407,10 +407,13 @@ def fixer(data: dict, key: str) -> str | None:
     return next((wait for wait in data["prs"][key]["waits"] if wait in data["prs"] and data["prs"][wait]["state"] == "open"), None)
 
 
-def parked(data: dict, key: str) -> bool:
-    """Whether the job answering for a PR stands on a kept WAITING or ASK whose waits beyond its own PRs have not ended, by onward(), so the PR's stage wakes it again only when one ends or its stage changes, never on the clock: each repeat costs its session a turn for nothing it can do."""
+def parked(data: dict, key: str, cards: dict | None = None) -> bool:
+    """Whether every job a wake of the PR would reach stands on waits that have not ended, so its stage wakes it again only when one ends, the job it waits on reports, or its stage changes, never on the clock, since each repeat costs a session a turn for nothing it can do: the job answering for the PR on a kept WAITING or ASK whose waits beyond its own PRs hold, by onward(), or the job the walk to the PR's waits passes first, by ends(), as a tester waiting on a builder's running tip, or on a job that waits on one, is."""
     owner = owner_job(data, key)
-    return bool(owner) and data["jobs"][owner]["state"] == "waiting" and bool(data["jobs"][owner]["waited"]) and bool(beyond_own(data, owner, None))
+    if owner and data["jobs"][owner]["state"] == "waiting" and data["jobs"][owner]["waited"] and beyond_own(data, owner, cards):
+        return True
+    holders = {holder for _, holder in ends(data, pr_waits(data, data["prs"][key]), cards, {key}) if holder}
+    return bool(holders) and all(data["jobs"][holder]["state"] == "waiting" and beyond_own(data, holder, cards) for holder in holders)
 
 
 def beyond_own(data: dict, job_id: str, cards: dict | None) -> list[str]:
