@@ -1143,8 +1143,35 @@ def crafted(text: str, pictures: int) -> list[str]:
     return [f"{key.partition('.')[2]}: {CRAFT_FIXES[key]}" for key, chance in answers.items() if chance >= settled.YES]
 
 
+REFUSED_ONCE = "refused-once.json"
+REFUSED_FOR = timedelta(minutes=15)
+
+
+def warned(text: str) -> dict:
+    return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": text}}
+
+
+def refused_before(payload: dict) -> bool:
+    """Whether check-post already refused this session's post to the same place in the last REFUSED_FOR, recording this refusal when it did not, so a post is refused at most once and its second try goes out, since a check that holds his answer is worse than a post short of the standard."""
+    tool_input = payload["tool_input"]
+    key = "|".join([payload["session_id"], tool_input.get("channel_id") or "", tool_input.get("thread_ts") or "", tool_input.get("edit") or tool_input.get("ts") or tool_input.get("url") or ""])
+    path = state.root() / REFUSED_ONCE
+    kept = json.loads(path.read_text()) if path.exists() else {}
+    now = datetime.now(UTC)
+    kept = {each: at for each, at in kept.items() if now - datetime.fromisoformat(at) < REFUSED_FOR}
+    before = key in kept
+    if before:
+        del kept[key]
+    else:
+        kept[key] = now.isoformat()
+    path.write_text(json.dumps(kept))
+    return before
+
+
 def mechanical(payload: dict) -> dict:
-    """What the say hook prints for the communicator's own post on every write tool, say, slack_edit, slack_reply, slack_send and slack_dm_status alike: only the quick checks, by his words "it needs to be just as fast and fluid asking me things and making the right judgement calls as you would", so no full Jev pass, record or read gate holds his answer: a placeholder text, each `cc-slack check-post` finding in the words it types and its blocks show, refused with the list to fix and post again, by his words "this message is terrible. don't follow our standards at all; the URL is not even a hyperlink on text, it's just pasted in", then one quick Jev read against his standard, by crafted; a check that cannot run lets the post out with a warning."""
+    """What the say hook prints for the communicator's own post on say, slack_edit, slack_reply and slack_send, by his words "it needs to be just as fast and fluid asking me things and making the right judgement calls as you would", so nothing holds his answer long: a placeholder text refuses; each `cc-slack check-post` finding in the words it types and its blocks show refuses once, by his words "this message is terrible. don't follow our standards at all; the URL is not even a hyperlink on text, it's just pasted in", and the next try at the same place goes out with the findings as a warning; one quick Jev read against his standard, by crafted, only warns. slack_dm_status, a status line, gets no check; a check that cannot run lets the post out with a warning."""
+    if payload["tool_name"].endswith("slack_dm_status"):
+        return {}
     tool_input = payload["tool_input"]
     text = (tool_input.get("text") or "").strip()
     if PLACEHOLDER.fullmatch(text):
@@ -1158,20 +1185,17 @@ def mechanical(payload: dict) -> dict:
         typed = refs.typed(shown, found, None) if found else shown
         findings = refs.answer_ids(slack.post_findings(typed, bool(tool_input.get("card") or tool_input.get("tap_prs")), tool_input.get("asked") or ""), drive)
     except (DriveError, slack.SlackError) as error:
-        return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": f"message_limits: this post goes out as written, unchecked: `cc-slack check-post` could not check its words: {error}."}}
-    if findings:
+        return warned(f"message_limits: this post goes out as written, unchecked: `cc-slack check-post` could not check its words: {error}.")
+    if findings and not refused_before(payload):
         return denial(
-            "refused: `cc-slack check-post` finds this in the post's words; rewrite it to the standard in your role block, fix each, then post the fixed words:\n" + "\n".join(findings)
+            "refused once: `cc-slack check-post` finds this in the post's words; fix each and send it again, and the next try goes out whatever it finds:\n" + "\n".join(findings)
         )
+    notes = [f"`cc-slack check-post` still finds, and the post went out: {' | '.join(findings)}"] if findings else []
     try:
-        broken = crafted(typed, len(tool_input.get("visuals") or []) + len(tool_input.get("files") or []))
+        notes += [f"a quick read against his standard finds, and the post went out: {' | '.join(broken)}"] if (broken := crafted(typed, len(tool_input.get("visuals") or []) + len(tool_input.get("files") or []))) else []
     except settled.Unheard as error:
-        return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": f"message_limits: this post goes out without the quick read against his standard: {error}."}}
-    if not broken:
-        return {}
-    return denial(
-        "refused: a quick read against his standard, \"How every answer to him reads\" in your role block, finds this post breaks it; fix each, then post again:\n" + "\n".join(broken)
-    )
+        notes.append(f"the quick read against his standard gave no answer: {error}")
+    return warned("message_limits: " + "; ".join(notes) + ". Fix it next time.") if notes else {}
 
 
 def hook_output(payload: dict) -> dict:

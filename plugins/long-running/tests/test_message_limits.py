@@ -1226,7 +1226,7 @@ def test_no_cc_slack_plugin_goes_out_unchecked_saying_his_thread_could_not_be_re
     )
 
 
-def test_the_communicators_own_post_is_refused_with_each_check_post_finding_and_goes_out_when_check_post_cannot_run(
+def test_the_communicators_own_post_is_refused_once_per_place_with_each_check_post_finding_its_status_line_never_and_goes_out_when_check_post_cannot_run(
     talker: str, transcript: Path, checked: Checked, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     payload = call("slack_dm_status", transcript, text=HISTORY_POST, thread_ts="1.2", asked="why did it reset?")
@@ -1239,6 +1239,11 @@ def test_the_communicators_own_post_is_refused_with_each_check_post_finding_and_
     assert refused["permissionDecisionReason"].endswith("\n" + "\n".join(checked.findings))
     assert checked.texts[-1] == HISTORY_POST.strip()
     assert checked.asked[-1] == ["why did it reset?"]
+    again = message_limits.hook_output(payload)["hookSpecificOutput"]
+    assert "permissionDecision" not in again
+    assert "still finds, and the post went out" in again["additionalContext"]
+    assert message_limits.hook_output(payload)["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert message_limits.hook_output(payload | {"tool_name": "mcp__plugin_cc-slack_cc-slack__slack_dm_status"}) == {}
 
     def broken(text: str, asked: list[str]) -> list[str]:
         raise slack.SlackError("the cc-slack@cc-slack plugin is not installed")
@@ -1247,7 +1252,7 @@ def test_the_communicators_own_post_is_refused_with_each_check_post_finding_and_
     assert "unchecked" in message_limits.hook_output(payload)["hookSpecificOutput"]["additionalContext"]
 
 
-def test_the_communicators_own_post_gets_one_quick_jev_read_against_his_standard_over_its_words_and_blocks_failing_open_when_jev_is_silent(
+def test_the_communicators_own_post_gets_one_quick_jev_read_against_his_standard_over_its_words_and_blocks_that_only_warns(
     talker: str, transcript: Path, checked: Checked, jev: Jev
 ) -> None:
     blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "*What happens next:* staging waits on your card"}}, {"type": "context", "elements": [{"type": "mrkdwn", "text": "sandbox first"}]}]
@@ -1257,11 +1262,11 @@ def test_the_communicators_own_post_gets_one_quick_jev_read_against_his_standard
     assert checked.texts[-1] == "Release 3 is on sandbox.\n\n*What happens next:* staging waits on your card\n\nsandbox first"
     assert jev.asked[-1]["state"] == {"guidelines": message_limits.CRAFT_GUIDE, "post": {"text": checked.texts[-1], "pictures": 0}}
     jev.ruled = {"craft": ("elsewhere", 0.9)}
-    refused = message_limits.hook_output(payload)["hookSpecificOutput"]
-    assert refused["permissionDecision"] == "deny"
-    assert refused["permissionDecisionReason"].endswith("\nelsewhere: " + message_limits.CRAFT_FIXES["craft.elsewhere"])
+    warned = message_limits.hook_output(payload)["hookSpecificOutput"]
+    assert "permissionDecision" not in warned
+    assert "elsewhere: " + message_limits.CRAFT_FIXES["craft.elsewhere"] in warned["additionalContext"]
     jev.answer = None
-    assert "without the quick read" in message_limits.hook_output(payload)["hookSpecificOutput"]["additionalContext"]
+    assert "gave no answer" in message_limits.hook_output(payload)["hookSpecificOutput"]["additionalContext"]
 
 
 def test_the_communicators_own_post_has_no_brief_to_quote(talker: str, transcript: Path) -> None:
