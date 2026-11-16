@@ -61,6 +61,8 @@ EOF
 "${python[@]}" "$plugin/bin/drive" --help > /dev/null
 echo "smoke: bin/drive --help runs"
 
+"${python[@]}" "$plugin/tools/demo-drive" "$LONG_RUNNING_STATE"
+
 "${python[@]}" - "$plugin" "$scratch" <<'EOF'
 import json
 import os
@@ -87,7 +89,7 @@ for event, groups in events.items():
                 "tool_input": {"command": "echo smoke"},
                 "permission_mode": "default",
             }
-            job = {"LONG_RUNNING_JOB": "smoke/j1"} if "LONG_RUNNING_JOB" in command["command"] else {}
+            job = {"LONG_RUNNING_JOB": "demo/j1/builder/smoke", "CLAUDE_LONG_RUNNING_DRIVE": "demo"} if "LONG_RUNNING_JOB" in command["command"] else {}
             done = subprocess.run(["python3", "-I", str(plugin / "hooks" / "installed.py"), hook], input=json.dumps(payload), capture_output=True, text=True, timeout=120, env=os.environ | job)
             ran += 1
             if done.returncode not in (0, 2) or "Traceback" in done.stderr:
