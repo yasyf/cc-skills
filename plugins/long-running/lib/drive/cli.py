@@ -72,10 +72,10 @@ ANSWER_FIRST = (
     " away too; then keep your full report and return as usual"
 )
 STAGING_MAC = (
-    "ask the top coordinator for the staging cut of the PR each `staging test of #N before it lands` part of yours names, from this Mac, since a Sprite has no cci:"
-    " one `ask` on cci's `post` tool to `root@{drive}` on topic `staging-slots`, naming your job, the PR, its branch and head, each target its paths reach by"
-    " `tools/ci release select --pr <N>`, your cases and how long they run, then return `WAITING staging:<target>/plat-usw2-staging@<head>`, one per target;"
-    " the top sequences every staging cut, packing PRs that change different files into one, and resumes you in its window, so start no release yourself"
+    "claim the staging slot for the PR each `staging test of #N before it lands` part of yours names, from this Mac, since a Sprite has no cci:"
+    " `drive slot claim plat-usw2-staging --job <your job> --minutes <how long your cut and cases run> --pr <the PR> --cases \"<your cases>\"`, which prints GO and its steps"
+    " when the slot is free, else QUEUED and your place, a priority or incident tester ahead of the rest; while queued, return `WAITING staging:<target>/plat-usw2-staging@<head>`,"
+    " one per target its paths reach by `tools/ci release select --pr <N>`, and the watch resumes you with GO and its steps once the slot is yours"
 )
 EXCEPTION_MAC = (
     "start the release dry run of each component the `staging test of #N before it lands` part of yours names that staging has no copy of, from this Mac, since go/ci's sprite door refuses a release start from a Sprite:"
@@ -4324,6 +4324,35 @@ def job_replies(args: argparse.Namespace) -> int:
     return emit(args, "\n\n".join(said) or f"{args.id} has sent nothing yet", kept)
 
 
+def slot_claim(args: argparse.Namespace) -> int:
+    """Claim a staging env's slot for a job: it holds the slot now when none does, its lease ending its minutes past the staging-claim rule's wait, else it queues last, first in first out, and the watch hands it the slot with a GO once the holder gives it back, finishes or outlives its lease, by state.slot_turns."""
+    name = state.resolve(args.drive)
+    with state.edit(name) as data:
+        find(data["jobs"], args.job, "job")
+        line = state.slot_claim(data, args.env, args.job, args.minutes, [state.pr_key(pr) for pr in args.pr], args.cases, state.now())
+    return emit(args, line, {"env": args.env, "job": args.job, "line": line})
+
+
+def slot_release(args: argparse.Namespace) -> int:
+    """Give a staging env's slot back, or leave its queue, so the watch's next pass hands it to the job first in line."""
+    name = state.resolve(args.drive)
+    with state.edit(name) as data:
+        line = state.slot_release(data, args.env, args.job)
+    return emit(args, line, {"env": args.env, "job": args.job, "line": line})
+
+
+def slot_queue(args: argparse.Namespace) -> int:
+    """Each staging slot, or the one env named: its holder and when its lease ends, then each job waiting, in order."""
+    slots = state.load(state.resolve(args.drive))["slots"]
+    shown = {env: slot for env, slot in slots.items() if not args.env or env == args.env}
+    lines = []
+    for env, slot in shown.items():
+        held = slot["holder"]
+        lines.append(f"{env}: {held['job'] + ' until ' + held['until'] if held else 'free'}")
+        lines += [f"  {place}. {each['job']} for {each['minutes']} minutes, queued {each['at']}" for place, each in enumerate(slot["queue"], 1)]
+    return emit(args, "\n".join(lines) or "no staging slot is held or queued", {"slots": shown})
+
+
 def job_held(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     job_id = args.id or os.environ.get(state.OWN_JOB_ENV)
@@ -6751,6 +6780,22 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id", help="the open incident order")
     verb.add_argument("components", nargs="+", metavar="COMPONENT", help="the broken service's release component, such as sandsql, covering every stack it deploys")
     verb.set_defaults(run=incident_freeze)
+
+    slot = verbs.add_parser("slot", help="staging slots, a first-in first-out lease on each staging env").add_subparsers(dest="action", required=True)
+    verb = slot.add_parser("claim", parents=both, help="hold a staging env's slot now, or queue for it", description="Hold the env's slot now when no job holds it, its lease ending the minutes given past the staging-claim rule's five-minute wait, else queue last; the watch hands a queued job the slot with a GO once the holder gives it back, finishes or outlives its lease.")
+    verb.add_argument("env", help="the staging env, such as plat-usw2-staging")
+    verb.add_argument("--job", required=True, help="the job claiming it")
+    verb.add_argument("--minutes", type=int, required=True, help="how long its pass runs")
+    verb.add_argument("--pr", action="append", default=[], help="a PR its cut carries")
+    verb.add_argument("--cases", help="the cases its pass runs")
+    verb.set_defaults(run=slot_claim)
+    verb = slot.add_parser("release", parents=both, help="give a staging env's slot back, or leave its queue")
+    verb.add_argument("env", help="the staging env")
+    verb.add_argument("--job", required=True, help="the job giving it back")
+    verb.set_defaults(run=slot_release)
+    verb = slot.add_parser("queue", parents=both, help="each staging slot's holder, its lease's end and the jobs waiting, in order")
+    verb.add_argument("env", nargs="?", help="the staging env; default every one")
+    verb.set_defaults(run=slot_queue)
 
     job = verbs.add_parser("job", help="background agents").add_subparsers(dest="action", required=True)
     verb = job.add_parser(

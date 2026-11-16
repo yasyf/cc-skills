@@ -4392,6 +4392,21 @@ def seated_first(watcher: Watcher) -> list[Watcher]:
     return sorted([watcher, *watcher.others.values()], key=lambda one: one.project not in seats)
 
 
+def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Hand on each staging slot, by state.slot_turns: end a lease whose job finished, extend once a lease that ran past its end and end it at its second, and give a free slot to the first job in its queue with a GO, sent to it by `drive job resume`, so no session sequences staging by hand; packing PRs into one cut stays the top coordinator's, by his picks. Its lines go as evidence and wake nobody; a GO's resume that is refused reaches the session holding the job as its relaunch_refused event."""
+    if watcher.project or not state.load(watcher.name)["slots"]:
+        return []
+    with state.edit(watcher.name) as data:
+        moved = state.slot_turns(data, moment)
+    lines = []
+    for env, job_id, kind, line in moved:
+        if kind == "go":
+            start_verb(watcher, job_id, ["job", "resume", job_id, line], moment)
+            line = f"SLOT {env} to {job_id}: {line}"
+        lines.append(line)
+    return lines
+
+
 def carry_held(watcher: Watcher, moment: datetime) -> None:
     """Carry the texts each heard job holds, his answers among them, with no session's turn, once his cards ask nothing of the job: `drive job resume` for a lane on a Sprite or this Mac whose job returned, its worker ended or not, which sends them to a worker that takes messages and hands them to the next worker of one that finished, and `drive job launch` for an agent on this Mac that returned and that no session reaches by state.agent_lane, whose job it hands to a lane on a Sprite, and for a job no agent or lane started once its waits end, which it briefs and launches with them under His answers since:, on this Mac when its brief declares a step only this Mac runs. Each runs by start_verb once busy lets it, for each new text and again every ten minutes while one stays held."""
     data = state.load(watcher.name)
@@ -5220,6 +5235,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
                     agent_lines,
                     stall_lines,
                     budget_lines,
+                    slot_lines,
                     carry_held,
                     compact_lines,
                     waiting_post_lines,

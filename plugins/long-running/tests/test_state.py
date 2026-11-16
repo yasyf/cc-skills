@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable
 from contextlib import closing
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -2762,3 +2762,32 @@ def test_projection_partitions_design_builders_without_repeated_job_scans() -> N
     with state.indexed(data):
         assert state.design_builders(data, "j1") == ["j3"]
     assert state.INDEX.get() is None
+
+
+def test_a_staging_slot_goes_to_its_first_claimer_and_then_to_each_queued_job_in_order_as_each_lease_ends() -> None:
+    moment = datetime(2026, 11, 15, 22, 5, tzinfo=UTC)
+    data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": []} for job_id in ("j1", "j2", "j3")}}
+    assert state.slot_claim(data, "plat-usw2-staging", "j1", 30, [], None, moment).startswith("GO j1 holds the plat-usw2-staging slot until")
+    assert state.slot_claim(data, "plat-usw2-staging", "j2", 25, [], None, moment).startswith("QUEUED j2 for the plat-usw2-staging slot, place 1, behind j1")
+    state.slot_claim(data, "plat-usw2-staging", "j3", 10, [], None, moment)
+    with pytest.raises(state.DriveError, match="already holds or waits"):
+        state.slot_claim(data, "plat-usw2-staging", "j2", 25, [], None, moment)
+    assert state.slot_turns(data, moment + timedelta(minutes=10)) == []
+    data["jobs"]["j1"]["state"] = "done"
+    data["jobs"]["j2"]["state"] = "stopped"
+    [(env, freed, kind, _), (_, given, go, line)] = state.slot_turns(data, moment + timedelta(minutes=20))
+    assert (env, freed, kind, given, go, line.startswith("GO staging plat-usw2-staging until")) == ("plat-usw2-staging", "j1", "freed", "j3", "go", True)
+    assert state.slot_release(data, "plat-usw2-staging", "j3") == "j3 gave back the plat-usw2-staging slot"
+
+
+def test_a_staging_lease_that_runs_past_its_end_extends_once_and_an_incident_tester_jumps_the_queue() -> None:
+    moment = datetime(2026, 11, 15, 22, 5, tzinfo=UTC)
+    orders = {"o1": {"incident": False, "priority": None, "state": "open"}, "o2": {"incident": True, "priority": None, "state": "open"}}
+    data = {"slots": {}, "orders": orders, "jobs": {"j1": {"state": "running", "order": "o1", "carries": []}, "j2": {"state": "waiting", "order": "o1", "carries": []}, "j3": {"state": "waiting", "order": "o2", "carries": []}}}
+    state.slot_claim(data, "plat-usw2-staging", "j1", 30, [], None, moment)
+    state.slot_claim(data, "plat-usw2-staging", "j2", 25, [], None, moment)
+    assert state.slot_claim(data, "plat-usw2-staging", "j3", 10, [], None, moment).startswith("QUEUED j3 for the plat-usw2-staging slot, place 1, behind j1")
+    [(_, held, kind, _)] = state.slot_turns(data, moment + timedelta(minutes=36))
+    assert (held, kind, data["slots"]["plat-usw2-staging"]["holder"]["until"]) == ("j1", "extended", state.stamp(moment + timedelta(minutes=65)))
+    [(_, freed, kind, _), (_, given, go, _)] = state.slot_turns(data, moment + timedelta(minutes=66))
+    assert (freed, kind, given, go, [each["job"] for each in data["slots"]["plat-usw2-staging"]["queue"]]) == ("j1", "freed", "j3", "go", ["j2"])
