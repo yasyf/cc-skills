@@ -3,14 +3,13 @@
 import uuid
 from datetime import datetime, timedelta
 
-from drive import agents, orca, place, reads, state, view
+from drive import agents, orca, place, providers, reads, state, view
 
 STAGE_TEST = "stage-test"
 PROVE = "prove"
 BUILD = "build"
 TOLD = ("ASK", "BLOCKED", "DONE")
 WORKER = "worker"
-ENV = state.STAGING_ENV
 WORKER_ITEMS = 18
 READS_PER_PASS = 12
 CUT_MINUTES = 45
@@ -24,6 +23,11 @@ def untaken(job: dict) -> bool:
 
 def worker(job: dict) -> bool:
     return job.get("work") == WORKER
+
+
+def env(data: dict) -> str | None:
+    """The staging env whose slot the queue's cuts hold, the repository's staging provider's."""
+    return providers.of(data).staging.env
 
 
 def enabled(data: dict, kind: str) -> bool:
@@ -160,7 +164,7 @@ class StageTest(Kind):
 
     name = STAGE_TEST
     group = state.PACKED_CUT
-    goal = f"pull and run stage-test items on {ENV}, one cut a group"
+    goal = "pull and run stage-test items on {env}, one cut a group"
     loop = (
         "You are {worker}, the drive's stage-test worker for {env}: you run groups of staging tests, each group on one cut, report every test as its own item, then pull the next group, holding the {env} slot only while a group of yours runs."
         " 1) Run `drive work pull --worker {worker}`: it prints your group, each item's job id, its brief, the PRs it tests and, for an item that ran before, the `drive job report <item>` that prints its last return, then the GO steps of the cut they share; on `NONE` or `HOLD` go to 5."
@@ -180,7 +184,7 @@ class StageTest(Kind):
         return bool(job.get("work_adopted"))
 
     def slot(self, data: dict) -> dict:
-        return data["slots"].setdefault(ENV, {"holder": None, "queue": [], "hold": None})
+        return data["slots"].setdefault(env(data), {"holder": None, "queue": [], "hold": None})
 
     def ours(self, data: dict) -> bool:
         return bool((self.slot(data).get("holder") or {}).get("work"))
@@ -192,7 +196,7 @@ class StageTest(Kind):
     def held(self, data: dict, worker_id: str) -> str | None:
         slot = self.slot(data)
         if self.ours(data) and (waiting := [member for member in state.slot_members(slot) if data["jobs"][member]["state"] not in state.FINISHED_JOB_STATES]):
-            return f"the queue's {ENV} cut still holds {', '.join(waiting)}, waiting on what each returned; a fresh worker runs them there once their waits end"
+            return f"the queue's {env(data)} cut still holds {', '.join(waiting)}, waiting on what each returned; a fresh worker runs them there once their waits end"
         return None
 
     def legacy_ahead(self, data: dict, first: str) -> str | None:
@@ -205,13 +209,13 @@ class StageTest(Kind):
         """Why no new cut of queued work takes the env now, None when one may: the slot is held, held for another job, or the old line's turn comes first."""
         slot = self.slot(data)
         if slot["holder"]:
-            return f"the {ENV} slot is held by {slot['holder']['job']}'s cut until {slot['holder']['until']}"
+            return f"the {env(data)} slot is held by {slot['holder']['job']}'s cut until {slot['holder']['until']}"
         if not (items := self.line(data)):
             return f"no {self.name} item is ready"
         if not state.held_for(data, slot, items[0], moment):
-            return f"the {ENV} slot is held for {slot['hold']['for']} until {slot['hold']['until']}"
+            return f"the {env(data)} slot is held for {slot['hold']['for']} until {slot['hold']['until']}"
         if ahead := self.legacy_ahead(data, items[0]):
-            return f"{ahead} of the {ENV} slot's old line comes first"
+            return f"{ahead} of the {env(data)} slot's old line comes first"
         return None
 
     def entry(self, data: dict, job_id: str, moment: datetime) -> dict:
@@ -225,9 +229,9 @@ class StageTest(Kind):
         first, riders = state.packed([self.entry(data, job_id, moment) for job_id in items])
         group = [first["job"], *(rider["job"] for rider in riders)]
         slot["holder"] = state.leased(first, moment, riders) | {"work": True}
-        steps = state.SLOT_GO_STEPS.format(env=ENV, job=first["job"])
+        steps = state.SLOT_GO_STEPS.format(env=env(data), job=first["job"])
         prs = ", ".join(pr for job_id in group for pr in state.tested_prs(data, data["jobs"][job_id]))
-        return group, f"GO staging {ENV} until {slot['holder']['until']} for {', '.join(group)}, one cut carrying {prs}: {steps}"
+        return group, f"GO staging {env(data)} until {slot['holder']['until']} for {', '.join(group)}, one cut carrying {prs}: {steps}"
 
     def row(self, data: dict, job_id: str) -> str:
         return f"{super().row(data, job_id)}; tests {', '.join(state.tested_prs(data, data['jobs'][job_id]))}"
@@ -236,11 +240,11 @@ class StageTest(Kind):
         """Give an item's place in the queue's cut back once its line is DONE."""
         slot = self.slot(data)
         if line.startswith("DONE") and slot["holder"] and job_id in state.slot_members(slot):
-            state.slot_release(data, ENV, job_id)
+            state.slot_release(data, env(data), job_id)
 
     def absorb(self, data: dict) -> list[str]:
         """Take each staging pass off the env's old first-in-first-out line into the queue, so the queue's cuts pack them: an item the queue runs already, and a tester waiting its turn there with no release of its own to start, which the queue adopts, its waits for that turn dropped, staging serving a commit of the cut it never got and its staging-slot token, so a worker runs its cases from its brief and last return; a running pass stays on the old line."""
-        slot = data["slots"].get(ENV)
+        slot = data["slots"].get(env(data))
         if not slot or not enabled(data, self.name):
             return []
         for each in slot["queue"]:
@@ -250,7 +254,7 @@ class StageTest(Kind):
         if not (ours := [each["job"] for each in slot["queue"] if self.queued(data, data["jobs"][each["job"]])]):
             return []
         slot["queue"] = [each for each in slot["queue"] if each["job"] not in ours]
-        return [f"WORK took {len(ours)} passes off the {ENV} slot's old line into the queue: {', '.join(ours)}"]
+        return [f"WORK took {len(ours)} passes off the {env(data)} slot's old line into the queue: {', '.join(ours)}"]
 
 
 class Prove(Kind):
@@ -383,7 +387,7 @@ def add_worker(data: dict, kind: Kind, moment: datetime) -> str:
     first = data["jobs"][kind.head(data)[0]]
     worker_id = state.next_id(data["jobs"], "j")
     _, held = state.holding_role(data, data["orders"][first["order"]])
-    data["jobs"][worker_id] = state.new_job(first["order"], "builder", kind.goal, [], state.stamp(moment)) | {
+    data["jobs"][worker_id] = state.new_job(first["order"], "builder", kind.goal.format(env=env(data)), [], state.stamp(moment)) | {
         "work": WORKER,
         "work_kind": kind.name,
         "builds_nothing": True,
@@ -399,7 +403,7 @@ def add_worker(data: dict, kind: Kind, moment: datetime) -> str:
 def brief_flags(data: dict, worker_id: str) -> dict:
     """The brief lines drive work start gives a worker: its kind's loop as its handoff and when it is done."""
     kind = KIND[data["jobs"][worker_id].get("work_kind", STAGE_TEST)]
-    return {"handoff": kind.loop.format(worker=worker_id, env=ENV), "done_when": DONE_WHEN.format(worker=worker_id)}
+    return {"handoff": kind.loop.format(worker=worker_id, env=env(data)), "done_when": DONE_WHEN.format(worker=worker_id)}
 
 
 def start(name: str, worker_id: str) -> str:
