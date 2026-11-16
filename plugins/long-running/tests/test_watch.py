@@ -11380,6 +11380,8 @@ def test_a_step_owed_by_6_30_wakes_the_orders_holder_once_then_the_coordinator_t
     with edit(demo) as data:
         assert owing.posted(data, "o1", "https://example.slack.com/archives/C1/p1794817900000000", None, None, [], by + timedelta(hours=3)) is None
         assert [item["id"] for item in owing.still_open(data["orders"]["o1"])] == ["w1"]
+        assert owing.posted(data, "o1", "https://example.slack.com/archives/C1/p1794817920000000", by + timedelta(hours=4), "a reworded status", [], by + timedelta(hours=3)) == "w2"
+        assert [item["id"] for item in owing.still_open(data["orders"]["o1"])] == ["w1", "w2"]
         assert owing.posted(data, "o1", "https://example.slack.com/archives/C1/p1794817950000000", None, None, ["w1"], by + timedelta(hours=3)) is None
         assert (owing.still_open(data["orders"]["o1"]), data["orders"]["o1"]["owed"][0]["closed"]["by"]) == ([], "delivered")
 
@@ -12742,3 +12744,15 @@ def test_drive_job_prove_runs_on_a_prover_the_prove_queue_handed_out_its_wait_on
     with edit(demo) as data:
         data["jobs"]["j9"]["waits"] = ["j11"]
     assert install.handed_prs(state.load(demo), "j9") == []
+
+
+def test_his_undo_tap_owes_a_revert_on_the_job_whose_card_it_answered_and_each_job_carrying_the_answer_due_a_span_on_and_none_when_no_job_acted(demo: str) -> None:
+    moment = state.parse_time("2026-11-09T05:07:00-08:00")
+    card = "https://acme.slack.com/archives/D123/p1794800000000100"
+    with edit(demo) as data:
+        data["answers"]["a1"] = state.new_answer("roll it out", None, state.stamp(moment), {}, {})
+        data["jobs"]["j2"] = job(answers=["a1"])
+        opened = owing.reverted(data, "a1", card, moment + owing.SPAN_FLOOR, moment, ["j1"])
+        reverts = [item for order in data["orders"].values() for item in order["owed"] if item["kind"] == owing.REVERT]
+        assert ([item["id"] for item in reverts], [item["job"] for item in reverts], reverts[0]["due"], data["answers"]["a1"]["undone"]["link"]) == (opened, ["j1", "j2"], state.stamp(moment + owing.SPAN_FLOOR), card)
+        assert owing.reverted(data, "demo:j9-1", card, moment + owing.SPAN_FLOOR, moment, []) == []

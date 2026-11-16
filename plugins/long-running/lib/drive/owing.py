@@ -100,6 +100,17 @@ def asked(data: dict, order_id: str, moment: datetime) -> None:
         add(data, order_id, DELIVER, order["title"] or cut(order["text"], 120), None, {"order_closed": order_id}, "his ask", moment)
 
 
+def reverted(data: dict, answer_id: str, link: str, due: datetime, moment: datetime, acted: list[str]) -> list[str]:
+    """His undo of an answer, by his Undo tap or in words: mark it undone and owe a revert, due when the caller says, on each job that acted on it, those it reached directly and each carrying it through a hand-off, so everyone who acted hears it without anyone remembering to; none when no job acted. The new items' ids."""
+    if answer_id in data["answers"]:
+        data["answers"][answer_id]["undone"] = {"at": state.stamp(moment), "link": link}
+    jobs = dict.fromkeys([*acted, *(job_id for job_id, job in data["jobs"].items() if answer_id in job["answers"])])
+    return [
+        add(data, data["jobs"][job_id]["order"], REVERT, f"undo what {job_id} did on his answer {answer_id}, which he undid in {link}", due, {"outcome": answer_id}, link, moment, job_id)
+        for job_id in jobs
+    ]
+
+
 def met(data: dict, order_id: str, item: dict) -> bool:
     """Whether an item's condition holds on the drive's rows: a fix-live note once no reporter is owed it, a claim once its thread closed it, a card once the job it names draws one of his cards or ends, an ask once its order closes; a step or revert closes only on a post naming it or by hand."""
     from drive import view
@@ -137,12 +148,10 @@ def close(item: dict, by: str, moment: datetime, why: str | None = None) -> None
 
 
 def posted(data: dict, order_id: str, link: str, due: datetime | None, owes: str | None, outcome: list[str], moment: datetime) -> str | None:
-    """A post on the order ends each item it names as its outcome, a revert's or a card's as well as a step's, and with a due owes its own next step, replacing every step the order still owed, the writer naming what and by when, his words "any time you tell him a next step, give it a due"; a post naming neither leaves each step open, by his ruling that a promised step closes only on its outcome or a new due. The new item's id."""
+    """A post on the order ends each item it names as its outcome, a revert's or a card's as well as a step's, and with a due owes its own next step beside every step the order still owes, the writer naming what and by when, his words "any time you tell him a next step, give it a due"; a step closes only on a post naming it as its outcome, by his ruling, so a reworded status with a new time never buries a promise, and moving a step's time is drive owed due, which keeps its misses. The new item's id."""
     for item in still_open(data["orders"][order_id]):
         if item["id"] in outcome:
             close(item, "delivered", moment, link)
-        elif item["kind"] == STEP and due:
-            close(item, "replaced", moment, link)
     if not due:
         return None
     return add(data, order_id, STEP, owes or "its next step", due, {"post_on": order_id}, link, moment)

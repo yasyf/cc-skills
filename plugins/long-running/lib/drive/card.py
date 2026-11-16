@@ -9,7 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TextIO
 
-from drive import github, limits, picture, providers, state
+from drive import github, limits, owing, picture, providers, state
 from drive.github import GithubError, run
 from drive.pr_graph import chains
 from drive.render import cut, raised, when
@@ -1017,7 +1017,9 @@ def answer_question(name: str, ask: dict) -> dict:
             given = {question["closed"]["seq"] for _, question in fresh}
             for job in data["jobs"].values():
                 job["undelivered"] = [held for held in job["undelivered"] if held["seq"] not in given]
+            moment = state.now()
             for job_id, question in fresh:
+                owing.reverted(data, question["closed"]["answer"] or ask["waits"], ask["url"], moment + owing.SPAN_FLOOR, moment, [job_id])
                 question["closed"] = None
                 data["jobs"][job_id]["updated"] = state.stamp()
         else:

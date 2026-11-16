@@ -1434,15 +1434,8 @@ def owed_revert(args: argparse.Namespace) -> int:
     def revert_write(data: dict) -> str:
         if args.answer not in data["answers"]:
             raise DriveError(f"{args.answer}: no answer of his has that id")
-        acted = [job_id for job_id, job in data["jobs"].items() if args.answer in job["answers"]]
-        if not acted:
-            raise DriveError(f"{args.answer}: refused, no job acted on it, so nothing is owed a revert")
-        data["answers"][args.answer]["undone"] = {"at": state.stamp(), "link": args.link}
-        opened = [
-            owing.add(data, data["jobs"][job_id]["order"], owing.REVERT, f"undo what {job_id} did on his answer {args.answer}, which he undid in {args.link}", state.parse_time(args.due), {"outcome": args.answer}, args.link, state.now(), job_id)
-            for job_id in acted
-        ]
-        return f"{args.answer} undone: " + ", ".join(f"{item_id} revert on {job_id}" for item_id, job_id in zip(opened, acted, strict=True))
+        opened = owing.reverted(data, args.answer, args.link, state.parse_time(args.due), state.now(), [])
+        return f"{args.answer} undone: " + (", ".join(opened) + " owed" if opened else "no job acted on it, so nothing is owed")
 
     return emit(args, state.write(name, revert_write))
 
