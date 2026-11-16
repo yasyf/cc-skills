@@ -211,7 +211,7 @@ def refused(pr: dict) -> bool:
 
 
 def conflicted(pr: dict) -> bool:
-    """Whether GitHub refused the lander's merge at the PR's head for a conflict with its base, which only its builder's rebase settles, whatever the watch's last read of its mergeability said."""
+    """Whether GitHub refused the lander's merge at the PR's head for a conflict with its base, which noted() writes onto its conflict flag, so the PR reads red until GitHub reads that head mergeable again and lands again then."""
     lander = pr["lander"] or {}
     return lander.get("head") == pr["head"] and any(conflict in (lander.get("outcome") or "") for conflict in CONFLICTS)
 
@@ -625,6 +625,7 @@ def noted(name: str, data: dict, keys: list[str], outcome: str, below: list[str]
         if outcome == QUEUED and requeues(data, pr):
             pr["flaky"]["requeued"] = state.stamp()
         pr["lander"] = (pr["lander"] or {"head": pr["head"], "base": pr["base"], "pid": os.getpid(), "at": state.stamp()}) | {"outcome": outcome, "below": below, "entry": keys[-1]}
+        pr["conflict"] |= conflicted(pr)
         was = pr["lander"].get("was")
         if was == outcome or outcome.startswith(OWN_FAILURE) and (was or "").partition(": ")[0] == outcome.partition(": ")[0] or outcome.startswith(UNREAD) and (was or "").startswith(UNREAD):
             continue
