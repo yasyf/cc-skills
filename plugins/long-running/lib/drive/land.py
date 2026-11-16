@@ -402,23 +402,52 @@ def answer_picks(name: str, keys: list[str]) -> list[str]:
 
 
 def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
-    """Stop each landing of a Forge-AI/monorepo unit with a PR among keys that stopping() stops, or that unattended() holds while he is not present, read before the drive's lock is taken since it reads GitHub, so a unit queued before he went quiet leaves the queue: a lander still running on it by ending its process group, which dequeues what it queued, recording that on each PR of its unit, and a unit Trunk's merge queue holds after its lander ended by unqueue(), a process of its own that takes it out of the queue and records it; each PR reads that hold until he answers, waiting until the wait ends or away until his next word, and lands then; the PRs stopped."""
+    """Stop each landing of a Forge-AI/monorepo unit with a PR among keys that stopping() stops, or that unattended() holds while he is not present, read before the write since it reads GitHub, so a unit queued before he went quiet leaves the queue: a lander still running on it by ending its process group, which dequeues what it queued, recording that on each PR of its unit, and a unit Trunk's merge queue holds after its lander ended by unqueue(), a process of its own that takes it out of the queue and records it; each PR reads that hold until he answers, waiting until the wait ends or away until his next word, and lands then; the PRs stopped."""
     data = state.load(name)
     away = {key: f"{AWAY}: {why}" for key in keys if landing(pr := data["prs"][key]) and not dequeuing(pr) and not stopping(data, key, cards) and (why := unattended(data, key, state.now()))}
     if not held_landings(data, keys, cards, away):
         return []
-    with state.edit(name) as data:
+    claim = {"pid": os.getpid(), "at": state.stamp()}
+
+    def stop_landings(data: dict) -> tuple[dict[tuple[int, str], list[str]], list[int], dict[tuple[str, ...], tuple[str, list]]]:
         stopped = held_landings(data, keys, cards, away)
         under = unders(data)
         units = {tried: sorted((key for key, pr in data["prs"].items() if landing(pr) and (pr["lander"]["pid"], pr["lander"]["at"]) == tried), key=lambda key: len(chain(under, key))) for tried in stopped}
+        kills, dequeues = [], {}
         for (pid, at), unit in units.items():
             if running(data["prs"][unit[0]]):
-                os.killpg(pid, signal.SIGTERM)
+                kills.append(pid)
                 noted(name, data, unit, stopped[pid, at], [])
                 continue
-            dequeuer = {"pid": unqueue(name, unit, stopped[pid, at]), "at": state.stamp()}
+            dequeues[tuple(unit)] = (stopped[pid, at], [data["prs"][key]["lander"].get("dequeue") for key in unit])
             for key in unit:
-                data["prs"][key]["lander"]["dequeue"] = dequeuer
+                data["prs"][key]["lander"]["dequeue"] = dict(claim)
+        return units, kills, dequeues
+
+    units, kills, dequeues = state.update(name, None, stop_landings)
+    spawned: dict[tuple[str, ...], int] = {}
+
+    def own(data: dict) -> None:
+        for unit, (_, replaced) in dequeues.items():
+            for key, before in zip(unit, replaced, strict=True):
+                lander = data["prs"][key]["lander"]
+                if lander.get("dequeue") != claim:
+                    continue
+                if unit in spawned:
+                    lander["dequeue"] = claim | {"pid": spawned[unit]}
+                elif before is None:
+                    lander.pop("dequeue")
+                else:
+                    lander["dequeue"] = before
+
+    try:
+        for pid in kills:
+            os.killpg(pid, signal.SIGTERM)
+        for unit, (why, _) in dequeues.items():
+            spawned[unit] = unqueue(name, list(unit), why)
+    finally:
+        if dequeues:
+            state.update(name, tuple(("prs", key, "lander") for unit in dequeues for key in unit), own)
     return [key for unit in units.values() for key in unit]
 
 
