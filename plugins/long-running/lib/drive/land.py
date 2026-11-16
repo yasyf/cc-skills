@@ -658,14 +658,14 @@ def base_failures(repo: str, run: str) -> list[str]:
 
 
 def mark(data: dict, keys: tuple[str, ...]) -> state.Reservation | None:
-    """Reserve the PRs a lander starts on under one token, by state.reserve, for the lander that adopts them all, marked at the head and base it tries, each keeping what the try before it on the same head came to, so record() says an outcome the same head already said only once, and none ejected, since an ejection is Trunk's label set after the try began; the reservation, or None, marking nothing, while a process still holds the try on any of them, by state.holder, whatever outcome the try recorded: a halted lander's child still takes what it queued out of the merge queue after halt records the hold, so a fresh Approve starts the next lander only once that child ended, or, for a reservation no child adopted, once its starter died or its launch lapsed, and no cleanup of an earlier try dequeues a landing started after it."""
-    was = {key: before.get("outcome") if (before := data["prs"][key]["lander"] or {}).get("head") == data["prs"][key]["head"] else None for key in keys}
+    """Reserve the PRs a lander starts on under one token, by state.reserve, for the lander that adopts them all, marked at the head and base it tries, each keeping what the try before it on the same head came to, and the network blip noted() already raised on it, so record() says an outcome the same head already said only once, and none ejected, since an ejection is Trunk's label set after the try began; the reservation, or None, marking nothing, while a process still holds the try on any of them, by state.holder, whatever outcome the try recorded: a halted lander's child still takes what it queued out of the merge queue after halt records the hold, so a fresh Approve starts the next lander only once that child ended, or, for a reservation no child adopted, once its starter died or its launch lapsed, and no cleanup of an earlier try dequeues a landing started after it."""
+    same = {key: before if (before := data["prs"][key]["lander"] or {}).get("head") == data["prs"][key]["head"] else {} for key in keys}
     if not (held := state.reserve(data, tuple(("prs", key, "lander") for key in keys))):
         return None
     at = state.stamp()
     for key in keys:
         pr = data["prs"][key]
-        pr["lander"] |= {"head": pr["head"], "base": pr["base"], "at": at, "outcome": None, "was": was[key]}
+        pr["lander"] |= {"head": pr["head"], "base": pr["base"], "at": at, "outcome": None, "was": same[key].get("outcome"), "raised": same[key].get("raised")}
         pr["ejected"] = False
     return held
 
