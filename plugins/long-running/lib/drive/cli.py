@@ -5338,6 +5338,17 @@ def wake_pr(args: argparse.Namespace) -> int:
     if job_id and state.adopted_pr_job(data, job):
         state.detach(name, ["job", "launch", job_id, "--handoff", f"{pr['url']} at {pr['head']}: {text}"], watch.RELAUNCHES_LOG)
         return emit(args, f"{key}: ran drive job launch {job_id} with this line as its handoff, its output in the drive's {watch.RELAUNCHES_LOG}", {"key": key, "job": job_id, "how": "launch"})
+    if job_id and (turn := slot_turn(data, job_id)):
+        def turned(held: dict) -> bool:
+            heads = held["jobs"][job_id].setdefault("stage_heads", {})
+            if heads.get(key) == held["prs"][key]["head"]:
+                return False
+            heads[key] = held["prs"][key]["head"]
+            state.hold_text(held["jobs"][job_id], f"STAGE {text}", state.held_sender(held))
+            return True
+
+        kept = state.update(name, None, turned)
+        return emit(args, f"{key}: {'held on' if kept else 'not sent again to'} {job_id}, which {turn}, so no wake goes out: its worker reads it when its turn starts it", {"key": key, "job": job_id, "how": "held" if kept else None})
     if job_id:
         queued = superseded.in_line(data, job_id, job)
         fresh = superseded.fresh_builder(data, job_id, job, text, "this line")
@@ -5364,6 +5375,18 @@ def wake_pr(args: argparse.Namespace) -> int:
     topic = f"wake-{key}-{pr['head'][:10]}"
     tools.sent(name, "watch", [{"kind": "handoff", "to": [f"{lane}@{name}"], "topic": topic, "text": said}])
     return emit(args, f"{key}: sent to {lane}@{name} for {target}", {"key": key, "job": job_id, "how": f"handoff to {lane}"})
+
+
+def slot_turn(data: dict, job_id: str) -> str | None:
+    """What a staging tester waits its turn on, so a PR's STAGE line is held for it once per head and never sent as a wake: a place in a staging slot's queue, an item the work queue holds, or a staging-slot:<job> wait on a cut only the top coordinator starts; None for any other job."""
+    job = data["jobs"][job_id]
+    if env := next((env for env, slot in data["slots"].items() if any(each["job"] == job_id for each in slot["queue"])), None):
+        return f"holds a place in the {env} slot's queue"
+    if work.queued(data, job):
+        return "waits in the work queue for its stage-test cut"
+    if any(state.SLOT_TURN_WAIT.fullmatch(wait) for wait in job["waits"]):
+        return "waits on a staging window only the top coordinator starts"
+    return None
 
 
 def unsent_wake(args: argparse.Namespace, key: str, head: str, data: dict) -> int:

@@ -8901,3 +8901,19 @@ def test_one_mailbox_read_serves_each_watcher_of_the_process_within_the_shared_w
     assert len(reads) == 1
     orca.mail(150)
     assert len(reads) == 3
+
+
+def test_a_stage_line_for_a_tester_holding_a_slot_queue_place_is_held_once_per_head_and_never_sent_as_a_wake(run: Run, remote: str) -> None:
+    url = "https://github.com/Forge-AI/monorepo/pull/7"
+    key = state.pr_key(url)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(prs=[url], dispatch=None, where="local", state="waiting")
+        data["prs"][key] = state.new_pr(url, "j1", "o1") | {"head": "aaaaaaa111"}
+        data["slots"]["plat-usw2-staging"] = {"holder": None, "hold": None, "queue": [{"job": "j1", "prs": [key], "minutes": 30, "cases": None, "at": state.stamp(), "paths": None, "stacks": None, "starts": False}]}
+    turn = "holds a place in the plat-usw2-staging slot's queue, so no wake goes out: its worker reads it when its turn starts it"
+    assert run("pr", "wake", url, "--text", "PR #7 waits on its staging run") == (0, f"{key}: held on j1, which {turn}")
+    assert run("pr", "wake", url, "--text", "PR #7 waits on its staging run") == (0, f"{key}: not sent again to j1, which {turn}")
+    with state.edit(remote) as data:
+        data["prs"][key]["head"] = "bbbbbbb222"
+    assert run("pr", "wake", url, "--text", "PR #7 waits on its staging run at its new head") == (0, f"{key}: held on j1, which {turn}")
+    assert [held["words"] for held in state.load(remote)["jobs"]["j1"]["undelivered"]] == ["STAGE PR #7 waits on its staging run", "STAGE PR #7 waits on its staging run at its new head"]
