@@ -7153,7 +7153,7 @@ def test_a_built_job_relaunched_on_his_answer_runs_none_of_the_mail_its_finished
     job = state.load(remote)["jobs"]["j1"]
     assert (job["state"], job["where"], job["dispatch"], job["bg"]["session"], job["turn_open"], [death["dispatch"] for death in job["deaths"]]) == ("running", "local", None, "bg-1", False, [J2914_WORKER])
     history = state.replies(remote, "j1")
-    assert [reply["id"] for reply in history if not reply["id"].startswith(state.REPORT_REPLY)] == [kept["id"], *(sent["id"] for sent in unread)]
+    assert [reply["id"] for reply in history if not reply["id"].startswith(state.REPORT_REPLY)] == [kept["id"]]
     assert [reply["body"] for reply in history if reply["id"].startswith(state.REPORT_REPLY)] == [J2914_REPORT]
 
 
