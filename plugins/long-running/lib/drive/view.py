@@ -362,7 +362,15 @@ def holds(drive: dict, wait: str, found: dict | None) -> bool:
         return state.pid_runs(wait)
     if drawn := drawn_on(drive, wait):
         return any(question["closed"] is None for _, question in drawn)
-    return wait in state.TURN_WAITS or bool(state.STAGING_WAIT.fullmatch(wait) or github.BUILD.fullmatch(wait) or state.REPLY_WAIT.fullmatch(wait) or state.REVIEW_WAIT.fullmatch(wait) or state.untracked_wait(drive, wait)) or card_open(wait, found)
+    if staged := state.STAGING_WAIT.fullmatch(wait):
+        return not withdrawn(drive, staged["commit"])
+    return wait in state.TURN_WAITS or bool( github.BUILD.fullmatch(wait) or state.REPLY_WAIT.fullmatch(wait) or state.REVIEW_WAIT.fullmatch(wait) or state.untracked_wait(drive, wait)) or card_open(wait, found)
+
+
+def withdrawn(drive: dict, commit: str) -> bool:
+    """Whether every staging cut the drive started from this commit was withdrawn, its release job stopped, so a wait on staging serving it never frees and ends now; False for a commit no release job of the drive names with --from."""
+    cuts = [job for job in drive["jobs"].values() if (release := (job.get("brief_flags") or {}).get("release")) and (named := re.search(r"--from[ =]([0-9a-f]{7,40})\b", release)) and (named[1].startswith(commit) or commit.startswith(named[1]))]
+    return bool(cuts) and all(job["state"] == "stopped" for job in cuts)
 
 
 def shared(drive: dict, wait: str) -> bool:

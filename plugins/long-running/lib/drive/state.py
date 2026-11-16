@@ -2693,6 +2693,8 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
         hold_done(job, held)
     if built := BUILT_LINE.match(line):
         job.update(branch=built["branch"], waits=view.stored_waits(data, [*job["waits"], *BUILT_CARD.findall(built["cards"]), *part_cards(data, job_id)]))
+    if re.match(r"WAITING\b", line):
+        job["waits"] = [wait for wait in job["waits"] if not STAGING_WAIT.fullmatch(wait)]
     if waits := result_waits(data, job_id, line):
         job["waits"] = list(dict.fromkeys([*job["waits"], *waits]))
     keep_waited(data, job_id, line)

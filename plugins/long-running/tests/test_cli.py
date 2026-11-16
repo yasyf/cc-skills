@@ -12923,3 +12923,18 @@ def test_dropping_an_order_whose_staging_test_holds_a_dangerous_pr_is_refused_na
     code, out = run("order", "set", "o1", "--state", "dropped", "--note", "backlog cut")
     assert (code, f"o1: refused, {key} waits on o1's staging test, staged because its head changes a dangerous class of file" in out) == (2, True)
     assert state.load("demo")["orders"]["o1"]["state"] not in state.CLOSED_ORDER_STATES
+
+
+def test_a_new_waiting_replaces_a_jobs_staging_waits_and_a_withdrawn_cut_frees_a_wait_on_its_commit(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    old, new = "staging:cloudrunner-next/plat-usw2-staging@0b7811b4a3a0", "staging:cloudrunner-next/plat-usw2-staging@f668ee496614"
+    assert keep(monkeypatch, capsys, "j1", f"WAITING {old}\n")[0] == 0
+    assert keep(monkeypatch, capsys, "j1", f"WAITING {new}\n")[0] == 0
+    assert state.load("demo")["jobs"]["j1"]["waits"] == [new]
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["brief_flags"] = (data["jobs"]["j1"].get("brief_flags") or {}) | {"release": "tools/ci release start cloudrunner-next --from f668ee4966145471 --emergency --env plat-usw2-staging --order 23eefb9"}
+        data["jobs"]["j1"]["state"] = "stopped"
+    assert (view.holds(state.load("demo"), new, None), view.holds(state.load("demo"), old, None)) == (False, True)
