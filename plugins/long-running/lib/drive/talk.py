@@ -101,10 +101,11 @@ def report_words(report: dict) -> str:
 
 REPORT_RULES = """You write the one Slack post the owner of a software drive reads for a report a session of the drive sent, and decide where it goes. You get the report's words, its attrs, the thread and channel it names, and, for a correction, the post it corrects. Reply with one JSON object and nothing else:
 
-{"skip": "<why>"} when it holds no news for him, or asks the poster to decide or do something besides posting, such as answer a teammate; else
+{"skip": "<why>"} when it holds no news for him, or asks the poster to decide or do something besides posting, such as answer a teammate, or is a progress line that neither answers a message of his, nor is on an incident, nor is on a cadence order he set, which goes as FYI; the why goes back to its writer, so name the rule it broke; else
 {"text": "<the post>", "place": "thread" | "root" | "edit", "blocks": [<Block Kit blocks>], "visuals": [<visuals>]}, blocks and visuals optional.
 
 Where it goes:
+- A reply to his message goes in his message's thread. News nobody asked for goes at the root of its project's channel. A line on an order's own subject goes in the thread its record's thread attr names. A PR card for an incident's fix also goes in the incident's thread.
 - "thread": in the thread the report names, a direct follow-up on its subject. "root": a new update, a release step or a decision at the channel's root. "edit": a correction rewords the post it corrects, in that post's own place, keeping its subject; a correction that adds news rather than fixing words goes "thread", under the post it corrects.
 
 """ + render.POST_CRAFT + """
