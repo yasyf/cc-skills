@@ -130,6 +130,7 @@ BOX_LIST_SECONDS = 120
 LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
 OWED_HAND = timedelta(minutes=10)
+COMMUNICATOR_IDLE = timedelta(hours=2)
 REPLY_READ = 100
 SETTLING = ""
 PR_LINE = re.compile(r"\s*(?:READY|PUSHED|PR:)")
@@ -2531,8 +2532,10 @@ def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
     data = state.load(watcher.name)
     if not data["slack"]["channels"]:
         return []
-    lines = []
-    for seat, (title, markdown) in page.canvases(watcher.name, data, view.read(watcher.name, moment), dashboard.link(watcher.name)).items():
+    link = dashboard.link(watcher.name)
+    lines = named_lines(watcher, data, link, moment)
+    data = state.load(watcher.name)
+    for seat, (title, markdown) in page.canvases(watcher.name, data, view.read(watcher.name, moment), link).items():
         if data["slack"]["channels"][seat].get("canvas_digest") == page.digest(markdown):
             continue
         try:
@@ -2543,6 +2546,33 @@ def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
         watcher.failures.pop(f"canvas {seat}", None)
         if drawn.new:
             lines.append(f"WATCH canvas of #{data['slack']['channels'][seat]['name']} drawn: {drawn.url}")
+    return lines
+
+
+def named_lines(watcher: Watcher, data: dict, link: str, moment: datetime) -> list[str]:
+    """Rename each channel the drive keeps whose name slack.seat_channel_name no longer gives, so no channel goes by an order's id, and set its description to the one line slack.seat_purpose gives, by his order to name each channel plainly and describe it in one line plus its dashboard link, through `cc-slack operator-channel --rename --purpose` as him; a rename that fails goes again on the next pass and is said from its third failure in a row."""
+    lines = []
+    for seat, made in data["slack"]["channels"].items():
+        wanted = slack.seat_channel_name(watcher.name, data, seat or None)
+        purpose = slack.seat_purpose(watcher.name, data, seat, page.seat_query(link, seat) if seat else link)
+        if (made["name"], made.get("purpose")) == (wanted, purpose):
+            continue
+        try:
+            renamed = slack.cc_slack("operator-channel", wanted, "--rename", made["id"], "--purpose", purpose)
+        except slack.SlackError as error:
+            lines += failed(watcher, f"name {seat}", f"rename of #{made['name']} to #{wanted}", error, moment)
+            continue
+        watcher.failures.pop(f"name {seat}", None)
+
+        def named_write(saved: dict, seat=seat, renamed=renamed, purpose=purpose):
+            saved["slack"]["channels"][seat] |= {"name": renamed["name"], "purpose": purpose}
+            for held in [saved["roles"].get("communicator"), saved["communicators"].get(seat)]:
+                if held:
+                    held.pop("rules", None)
+
+        state.update(watcher.name, None, named_write)
+        if renamed["name"] != made["name"]:
+            lines.append(f"WATCH #{made['name']} is now #{renamed['name']}")
     return lines
 
 
@@ -2829,7 +2859,8 @@ def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
             return data
 
         data = state.update(watcher.name, None, owed_lines_write)
-    lines = []
+    lines = communicators_wanted(watcher, data, replies, moment)
+    data = state.load(watcher.name)
     for reply in replies:
         channel, ts, thread = state.slack_message(reply["permalink"])
         owed_for = moment - slack.sent_at(reply)
@@ -2837,8 +2868,10 @@ def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
         if owed_for < OWED_HAND or state.started_order(data, channel, ts) in state.open_orders(data):
             continue
         source = f"owed {ts}"
+        seat = state.channel_seat(data, channel)
+        lane = state.communicator_lane(seat) if seat in data["communicators"] else "communicator"
         try:
-            if not mark["handed"] and not agents.handle(watcher.name, owed_brief(watcher.name, reply, channel, thread))[1]:
+            if not mark["handed"] and not agents.handle(watcher.name, owed_brief(watcher.name, reply, channel, thread), lane)[1]:
                 def owed_lines_write2(saved: dict):
                     saved["owed_replies"][ts]["handed"] = True
 
@@ -2848,6 +2881,52 @@ def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         watcher.failures.pop(source, None)
     return lines
+
+
+def communicators_wanted(watcher: Watcher, data: dict, replies: list[dict], moment: datetime) -> list[str]:
+    """Start the communicator of each seat whose channel holds a message of his cc-slack owes while none is bound for it, and keep when each bound one last had one, by his order that each project and priority channel gets its own communicator, started when the channel first gets a message of his and retired once idle, by communicators_idle; the line of each start."""
+    from drive import cli
+
+    owing = {seat for reply in replies if (seat := state.channel_seat(data, state.slack_message(reply["permalink"])[0]))}
+    lines = [said for seat in sorted(owing - set(data["communicators"])) if (said := cli.communicator_started(watcher.name, seat)).startswith("started")]
+    if heard := owing & set(data["communicators"]):
+
+        def communicators_wanted_write(saved: dict):
+            for seat in heard & set(saved["communicators"]):
+                saved["communicators"][seat]["heard"] = state.stamp(moment)
+
+        state.update(watcher.name, None, communicators_wanted_write)
+    return lines
+
+
+def communicators_idle(watcher: Watcher, moment: datetime) -> list[str]:
+    """Retire each seat's communicator that has held its channel COMMUNICATOR_IDLE with no message of his owed there, since its start or the last one, its seat's priority order closed included, by retire_communicator, so the drive's communicator holds that channel again until his next message there starts one anew; the line of each."""
+    if watcher.project:
+        return []
+    data = state.load(watcher.name)
+    held = {order["priority"] for order in state.open_orders(data).values() if order["priority"]}
+    return [
+        retire_communicator(watcher.name, seat)
+        for seat, bound in data["communicators"].items()
+        if seat.startswith(state.priority_seat("")) and seat not in held or moment - state.parse_time(bound.get("heard") or bound["started"]) > COMMUNICATOR_IDLE
+    ]
+
+
+def retire_communicator(name: str, seat: str) -> str:
+    """Take a seat's communicator down: its cci alias and session, by seat_ended, its binding and launched terminal on the drive, and the drive's communicator's rules, so its next call holds the channel again; the line saying so."""
+    data = state.load(name)
+    session = data["communicators"][seat]["session"]
+    alias = state.alias(name, "communicator", seat)
+    seat_ended(alias, session)
+
+    def retire_communicator_write(saved: dict):
+        saved["communicators"].pop(seat)
+        saved["launched"].pop(f"communicator {seat}", None)
+        if root := saved["roles"].get("communicator"):
+            root.pop("rules", None)
+
+    state.update(name, None, retire_communicator_write)
+    return f"retired the communicator for {seat}, session {session}: its channel #{data['slack']['channels'][seat]['name']} had no message of his owed for {minutes(COMMUNICATOR_IDLE)} minutes, so the drive's communicator holds it again until his next message there starts one"
 
 
 def owed_brief(name: str, reply: dict, channel: str, thread: str) -> str:
@@ -5261,7 +5340,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
         functools.partial(train_lines, watcher, moment),
         functools.partial(event_lines, watcher),
         *(owed_reads(watcher, moment) if lands else []),
-        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, clock_lines, case_lines, undelivered_lines, close_answered, close_joined_repeats, tell_lines, standing_lines, retired_seats, orphan_lines)),
+        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, clock_lines, case_lines, undelivered_lines, close_answered, close_joined_repeats, tell_lines, standing_lines, retired_seats, communicators_idle, orphan_lines)),
     ]
     names = [stage.func.__name__ for stage in later]
     resume, watcher.resume = watcher.resume, None

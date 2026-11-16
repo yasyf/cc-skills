@@ -157,6 +157,8 @@ const restored = new Set();
 let outdated = false;
 let placeAfterLoad = null;
 const prTabs = new Map();
+const prChapters = new Map();
+const PR_CHAPTERS = [['problem', 'The problem'], ['change', 'The change'], ['runtime', 'At runtime'], ['evidence', 'The evidence'], ['choice', 'Your call']];
 const prRows = new Map();
 const prReads = new Map();
 const reviews = new Map();
@@ -609,11 +611,24 @@ function decisionRail(item) {
   </aside>`;
 }
 
+function decisionChapters(item, key, story, state, cause) {
+  const card = item.card;
+  const links = [...(card.links ?? []), ...(card.refs ?? [])].filter((each) => !SLACK.test(each.url));
+  const parts = [
+    ['happened', 'What happened', `<div class="story-beats">${story.beats.map((beat) => `<p><strong>${esc(beat.label)}</strong> ${esc(beat.text)}</p>`).join('')}</div>${cause ? `<p class="story-cause"><b>Root cause:</b> ${esc(cause)}</p>` : ''}`],
+    ['today', 'If you wait', story.today || story.diagram || story.waits ? `${story.today ? `<p class="ch-lead">${esc(story.today)}</p>` : ''}${story.waits ? `<p><b>What waits on you:</b> ${esc(story.waits)}</p>` : ''}${story.diagram ? visual('mermaid', story.diagram, 'How the paths part') : ''}` : ''],
+    ['evidence', 'The evidence', card.body || card.pictures?.length || links.length ? `${prose(card.body)}${pictures(card.pictures)}${links.length ? `<ul class="rail-list">${links.map((each) => `<li>${link(each.label, each.url)}</li>`).join('')}</ul>` : ''}` : ''],
+  ].filter(([, , body]) => body);
+  const at = Math.min(state.chapter ?? 0, parts.length - 1);
+  const nav = parts.length > 1 ? `<nav class="ch-nav" aria-label="Its story, step by step"><ol>${parts.map(([, label], i) => `<li><button class="${i === at ? 'on' : ''}${i < at ? ' seen' : ''}" data-dchapter="${i}" data-dchapter-of="${esc(key)}" aria-current="${i === at}"><span class="n">${i + 1}</span>${label}</button></li>`).join('')}<li><span class="ch-then">then your call below</span></li></ol></nav>` : '';
+  return `${nav}<section class="ch-body ch-${parts[at][0]}">${parts[at][2]}</section>`;
+}
+
 function decisionCard(item, at, total) {
   const key = item.answer;
   const story = item.told?.story;
   if (!story) return `<div class="queue-layout story-layout"><article class="focus-card decision-story" aria-labelledby="item-title" tabindex="-1"><div class="card-content"><div class="card-top"><span class="type-label">Decision</span>${counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(decisionPlain(item.card.title))}</h2>${item.told ? `${untold(item.told)}${choices(item, true)}` : notRead(slice(`/api/card?${new URLSearchParams({ answer: key })}`))}</div></article>${decisionRail(item)}</div>`;
-  if (!decisionStates.has(key)) decisionStates.set(key, { selected: Math.max(0, item.card.options.indexOf(item.card.recommended)), step: 0, compare: false });
+  if (!decisionStates.has(key)) decisionStates.set(key, { selected: Math.max(0, item.card.options.indexOf(item.card.recommended)), step: 0, compare: false, chapter: 0 });
   const state = decisionStates.get(key);
   const showing = picked?.card === key ? picked.index : state.selected;
   const option = story.options[showing];
@@ -628,7 +643,7 @@ function decisionCard(item, at, total) {
   const action = given?.done ? `<p class="answered">✓ ${esc(given.label)}</p>` : `<div class="story-action"><button class="btn" data-story-review="${esc(key)}"${given && !given.error ? ' disabled' : ''}>Review this choice <kbd>↵</kbd></button><small>Choose first. Review before sending.</small>${given?.error ? `<p role="alert">${esc(given.error)}</p>` : ''}</div>`;
   const lab = `<div class="story-lab">${options}${action}${outcome}<button class="linkish" data-story-compare="${esc(key)}" aria-expanded="${state.compare}">${state.compare ? 'Close comparison' : 'Compare every path'}</button>${state.compare ? table([['Path', 'What changes', ...story.options[0].metrics.map((metric) => metric.label)], ...story.options.map((choice) => [choice.title, choice.consequence, ...choice.metrics.map((metric) => metric.value)])]) : ''}</div>`;
   const interview = `<div class="story-interview"><div class="story-steps" aria-label="Step ${state.step + 1} of 2"><span class="on">1 · Your priority</span><span class="${state.step ? 'on' : ''}">2 · Your path</span></div>${state.step ? `<button class="linkish" data-story-back="${esc(key)}">← Change my priority</button>${outcome}${action}` : `<h3>${esc(story.ask)}</h3><div class="story-options">${story.options.map((choice, i) => `<button class="story-option" data-story-priority="${i}" data-story-card="${esc(key)}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.priority)}</strong><small>${esc(choice.title)}</small></span><span aria-hidden="true">→</span></button>`).join('')}</div>`}</div>`;
-  return `<div class="queue-layout story-layout"><article class="focus-card decision-story ${story.format}" aria-labelledby="item-title" tabindex="-1" data-story="${esc(key)}" data-format="${story.format}"><div class="card-content"><div class="card-top"><span class="type-label">${{ cockpit: 'Decision', lab: 'Decision: compare the paths', interview: 'Decision: what matters most' }[story.format]}</span>${counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(story.headline)}</h2><div class="story-beats">${story.beats.map((beat) => `<p><strong>${esc(beat.label)}</strong> ${esc(beat.text)}</p>`).join('')}</div>${cause ? `<p class="story-cause"><b>Root cause:</b> ${esc(cause)}</p>` : ''}${restored.has(key) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : ''}${story.format === 'lab' ? lab : story.format === 'interview' ? interview : `<div class="story-cockpit">${options}<div>${outcome}${action}</div></div>`}</div></article>${decisionRail(item)}</div>`;
+  return `<div class="queue-layout story-layout"><article class="focus-card decision-story ${story.format}" aria-labelledby="item-title" tabindex="-1" data-story="${esc(key)}" data-format="${story.format}"><div class="card-content"><div class="card-top"><span class="type-label">${{ cockpit: 'Decision', lab: 'Decision: compare the paths', interview: 'Decision: what matters most' }[story.format]}</span>${counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(story.headline)}</h2>${decisionChapters(item, key, story, state, cause)}${restored.has(key) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : ''}<h3 class="eyebrow ch-call">Your call</h3>${story.format === 'lab' ? lab : story.format === 'interview' ? interview : `<div class="story-cockpit">${options}<div>${outcome}${action}</div></div>`}</div></article>${decisionRail(item)}</div>`;
 }
 
 function reviewDecision(key) {
@@ -774,10 +789,39 @@ function serves(entry) {
   return `<div class="rail-block"><div class="eyebrow">Part of</div><p class="serves">${task ? `<a href="#/feature/${esc(task.id)}">${esc(bare(task.title))}</a>` : esc(bare(entry.feature_title))}</p></div>`;
 }
 
+function chapterBody(id, { item, key, row, pr, head, read, entry, lead, told, beats, pictured }) {
+  const story = told?.story;
+  if (id === 'problem') {
+    const text = story ? `<p class="ch-who"><span>Who feels it</span><b>${esc(story.problem.who)}</b></p><p class="ch-lead">${esc(story.problem.text)}</p>` : `<div class="pr-story">${beats}</div>`;
+    return pictured ? `<div class="pr-lede"><div>${text}</div>${pictured}</div>` : text;
+  }
+  if (id === 'change') return `${story ? '' : '<p class="meta">The why of each part is still being written; the change itself is below.</p>'}${diffBlock(pr, head, story?.hunks ?? [])}`;
+  if (id === 'runtime') {
+    if (!story) return `<p>${lead?.what ? inline(unjobbed(lead.what), pr) : esc(row.summary ?? 'Its runtime story is still being written.')}</p>${lead?.downstream ? `<p><b>Downstream:</b> ${inline(unjobbed(lead.downstream), pr)}</p>` : ''}`;
+    return `<div class="ap-ba"><div><span>Before</span><p>${esc(story.runtime.before)}</p></div><i aria-hidden="true">→</i><div class="after"><span>After</span><p>${esc(story.runtime.after)}</p></div></div>${story.runtime.diagram ? visual('mermaid', story.runtime.diagram, 'What happens after the change') : ''}`;
+  }
+  if (id === 'evidence') {
+    const status = prWord(entry, row);
+    const staged = entry?.staging_plain;
+    const tiles = `<div class="ch-tiles"><div class="ap-stage ${esc(status.tone)}"><span>Now</span><b>${esc(status.word)}</b></div>${staged ? `<div class="ap-stage ${esc(staged.tone)}"><span>Staging</span><b>${esc(staged.word)}</b></div>` : ''}<div class="ap-stage ${esc({ pass: 'good', fail: 'bad', pending: 'warn' }[entry?.checks ?? row.checks] ?? '')}"><span>Tests</span><b>${esc({ pass: 'Pass', fail: 'Failing', pending: 'Running' }[entry?.checks ?? row.checks] ?? 'None ran')}</b></div></div>`;
+    return `${tiles}${story?.tested ? `<p class="ch-lead">${esc(story.tested)}</p>` : entry?.staging ? `<p>${inline(unjobbed(entry.staging), pr)}</p>` : ''}${risks(entry, row, pr, read)}`;
+  }
+  const sides = story ? `<div class="ap-compare"><div class="ap-choice recommended"><b>If you approve</b><p>${esc(story.approve)}</p></div><div class="ap-choice"><b>If you hold</b><p>${esc(story.hold)}</p></div></div>` : '';
+  return `${item.untapped ? `<p class="approve-says">${esc(item.untapped)}</p>` : approvePath(entry, row)}${sides}`;
+}
+
+function chapters(key, pr, parts) {
+  const at = prChapters.get(pr) ?? 0;
+  const nav = PR_CHAPTERS.map(([id, label], i) => `<li><button class="${i === at ? 'on' : ''}${i < at ? ' seen' : ''}" data-chapter="${i}" data-chapter-of="${esc(pr)}" aria-current="${i === at}"><span class="n">${i + 1}</span>${label}</button></li>`).join('');
+  const [id, label] = PR_CHAPTERS[at];
+  const next = PR_CHAPTERS[at + 1];
+  const foot = `<div class="ch-foot">${at ? `<button class="btn ghost" data-chapter="${at - 1}" data-chapter-of="${esc(pr)}" data-chapter-step="-1">‹ ${PR_CHAPTERS[at - 1][1]}</button>` : '<span></span>'}${next ? `<button class="btn" data-chapter="${at + 1}" data-chapter-of="${esc(pr)}" data-chapter-step="1">Next: ${next[1]} ›</button>` : ''}</div>`;
+  return `<nav class="ch-nav" aria-label="Its story, step by step"><ol>${nav}</ol></nav><section class="ch-body ch-${id}" aria-label="${label}">${chapterBody(id, parts)}${foot}</section>`;
+}
+
 function prRail(item, key, rows, row, pr, head, read, inline) {
   const entry = entryOf(pr);
   return `<aside class="context-rail pr-rail" aria-label="About this change">
-    ${risks(entry, row, pr, read)}
     ${entry ? serves(entry) : ''}
     <details class="story-disclosure"><summary>Pictures, lines and files</summary>${jumps(key, row, pr, read)}</details>
     <div class="rail-block"><div class="eyebrow">Question or line comment</div>${noteBox(key, pr)}</div>
@@ -801,9 +845,9 @@ function prCard(item, at, total, embedded = false) {
   const told = slice(`/api/told?${new URLSearchParams({ pr })}`)?.told;
   const title = told?.story?.headline ?? lead?.headline ?? decisionPlain(read?.pr?.title ?? row.title).replace(/^./, (c) => c.toUpperCase());
   const context = read?.pr?.body?.match(/^## Context\s*\n([\s\S]*?)(?=^## |$(?![\s\S]))/m)?.[1]?.trim();
-  const beats = told?.story?.beats.map((beat) => [beat.label, beat.text]) ?? [['Why this exists', lead?.why ?? context ?? row.refresher], ['What changes', lead?.what ?? row.summary], ['Downstream', lead?.downstream ?? row.hate_most]].map(([label, text]) => [label, text && unjobbed(text)]);
+  const beats = [['Why this exists', lead?.why ?? context ?? row.refresher], ['What changes', lead?.what ?? row.summary], ['Downstream', lead?.downstream ?? row.hate_most]].map(([label, text]) => [label, text && unjobbed(text)]);
   const story = beats.map(([label, text]) => `<div><strong>${esc(label)}</strong><p>${text ? inline(text, pr) : 'The author has not supplied this explanation yet.'}</p></div>`).join('');
-  const pictured = firstPicture(key, row, pr, read);
+  const walk = chapters(key, pr, { item, key, row, pr, head, read, entry, lead, told, beats: story, pictured: firstPicture(key, row, pr, read) });
   const stack = rows.length > 1 ? `<p class="spot-head stack-head">Approve lands these ${rows.length} together, bottom first</p><ol class="stack" aria-label="The PRs on this card, in the order they land">${rows.map((each, i) => stackRow(each, i, i === chosen, key)).join('')}</ol>` : '';
   const tabs = PR_TABS.map(([id, label]) => `<button role="tab" class="${id === tab ? 'on' : ''}" aria-selected="${id === tab}" data-prtab="${id}" data-item="${esc(key)}">${label}</button>`).join('');
   const panes = PR_TABS.map(([id]) => `<div class="pr-pane ${id}" role="tabpanel"${id === tab ? '' : ' hidden'}>${prPane(id, row, pr, head, read, embedded)}</div>`).join('');
@@ -812,8 +856,7 @@ function prCard(item, at, total, embedded = false) {
       <div class="card-content">
         <div class="card-top"><span class="type-label">Pull request <a href="${esc(row.url)}" target="_blank" rel="noopener" data-github data-tip="Open it on GitHub"${embedded ? '' : ' data-key="o"'}>${esc(pr)}</a></span>${embedded ? '' : counter(at, total)}</div>
         <h2 class="card-title" id="item-title">${esc(title)}</h2>
-        ${item.untapped ? `<p class="approve-says">${esc(item.untapped)}</p>` : approvePath(entry, row)}
-        ${pictured ? `<div class="pr-lede"><div class="pr-story">${story}</div>${pictured}</div>` : `<div class="pr-story">${story}</div>`}
+        ${walk}
         ${told && !told.story ? untold(told) : ''}
         ${stack}
       </div>
@@ -3017,6 +3060,17 @@ document.addEventListener('click', (event) => {
   }
   const moved = event.target.closest('[data-move]');
   if (moved) return move(Number(moved.dataset.move));
+  const dchapter = event.target.closest('[data-dchapter]');
+  if (dchapter) {
+    decisionStates.get(dchapter.dataset.dchapterOf).chapter = Number(dchapter.dataset.dchapter);
+    return render();
+  }
+  const chapter = event.target.closest('[data-chapter]');
+  if (chapter) {
+    prChapters.set(chapter.dataset.chapterOf, Number(chapter.dataset.chapter));
+    render();
+    return $('#main .ch-nav')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
   const prtab = event.target.closest('[data-prtab]');
   if (prtab) {
     prTabs.set(prtab.dataset.item, prtab.dataset.prtab);
@@ -3262,6 +3316,8 @@ document.addEventListener('keydown', (event) => {
       o: $('#main .focus-card [data-github]'),
       e: $('#main .focus-card [data-more]'),
       v: $('#main .focus-card .pr-example :is([data-shot], [data-enlarge])'),
+      n: $('#main .focus-card [data-chapter-step="1"]'),
+      p: $('#main .focus-card [data-chapter-step="-1"]'),
     }[event.key];
     if (target) {
       event.preventDefault();

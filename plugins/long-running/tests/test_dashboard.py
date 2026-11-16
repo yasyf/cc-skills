@@ -1771,16 +1771,43 @@ done(measured);
     assert [(each["tab"], each["shown"], each["frame"]) for each in seen] == [("show", True, False), ("change", True, True), ("context", True, False)]
 
 
-def test_a_pr_cards_written_story_titles_it_and_tells_its_beats_in_place_of_its_lead(tmp_path: Path) -> None:
+def test_a_pr_cards_written_story_walks_its_problem_runtime_evidence_and_choice_chapter_by_chapter_with_n(tmp_path: Path) -> None:
     lead = {"headline": "Held locks let go after 30 seconds", "why": "A held lock never lets go.", "what": "A held lock lets go after 30 s.", "downstream": "A slow writer can lose its lock."}
-    told = {"headline": "A stuck lock frees itself in 30 seconds", "beats": [{"label": "Why", "text": "A held lock never lets go."}, {"label": "Tested", "text": "Not yet on staging."}]}
+    told = {
+        "headline": "A stuck lock frees itself in 30 seconds",
+        "problem": {"who": "teammates whose runs hang", "text": "A held lock never lets go."},
+        "hunks": [{"file": "lib/lock.py", "hunk": 0, "why": "The lock now expires."}],
+        "runtime": {"before": "A crashed writer holds the lock forever.", "after": "The lock frees itself after 30 s.", "diagram": ""},
+        "tested": "Not yet on staging.",
+        "approve": "It lands and ships with the next release.",
+        "hold": "Runs keep hanging on a stuck lock.",
+    }
     led = browse(tmp_path, """
 location.hash = '#/queue/all';
-await until(() => document.querySelector('#main .pr-story strong')?.textContent === 'Why');
-const card = document.querySelector('#main .pr-card');
-done({ title: card.querySelector('.card-title').textContent, story: [...card.querySelector('.pr-story').children].map((part) => part.innerText.split('\\n').filter(Boolean)) });
+await until(() => document.querySelector('#main .ch-who b'));
+const card = () => document.querySelector('#main .pr-card');
+const press = (key) => document.body.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+const read = () => [card().querySelector('.ch-nav button.on').textContent, card().querySelector('.ch-body').innerText.split('\\n').filter(Boolean)];
+const problem = read();
+document.querySelector('#main [data-chapter="2"]').click();
+await wait(100);
+const runtime = read();
+press('n');
+await wait(100);
+const evidence = card().querySelector('.ch-body .ch-lead').textContent;
+press('n');
+await wait(100);
+const choice = [...card().querySelectorAll('.ch-body .ap-choice')].map((side) => side.innerText.split('\\n').filter(Boolean));
+done({ title: card().querySelector('.card-title').textContent, problem, runtime, evidence, choice, last: !card().querySelector('[data-chapter-step="1"]') });
 """, board(queue=[STACK], review=[entry | ({"lead": lead, "told": {"story": told}} if entry["key"].endswith("#41") else {"lead": None}) for entry in OPEN]), "1440,900", before=STAND_IN)
-    assert led == {"title": "A stuck lock frees itself in 30 seconds", "story": [["Why", "A held lock never lets go."], ["Tested", "Not yet on staging."]]}
+    assert led == {
+        "title": "A stuck lock frees itself in 30 seconds",
+        "problem": ["1The problem", ["Who feels it", "teammates whose runs hang", "A held lock never lets go.", "Next: The change ›"]],
+        "runtime": ["3At runtime", ["Before", "A crashed writer holds the lock forever.", "→", "After", "The lock frees itself after 30 s.", "‹ The change", "Next: The evidence ›"]],
+        "evidence": "Not yet on staging.",
+        "choice": [["If you approve", "It lands and ships with the next release."], ["If you hold", "Runs keep hanging on a stuck lock."]],
+        "last": True,
+    }
 
 
 def test_a_pr_cards_main_panel_draws_the_first_picture_of_its_show_me_beside_its_story_and_v_enlarges_it(tmp_path: Path) -> None:
@@ -1877,7 +1904,9 @@ const rail = document.querySelector('#main .pr-rail');
 for (const details of rail.querySelectorAll('details')) details.open = true;
 const texts = (selector) => [...rail.querySelectorAll(selector)].map((el) => el.textContent.trim());
 const tab = () => document.querySelector('#main [data-prtab][aria-selected="true"]').dataset.prtab;
-const drawn = { heads: texts('.eyebrow'), risks: texts('.checklist b').filter((said) => /^[A-Z]/.test(said)), spots: texts('[data-spot]'), cites: texts('[data-point][data-line]'), files: texts('[data-point]:not([data-line])') };
+document.querySelector('#main [data-chapter="3"]').click();
+await wait(100);
+const drawn = { heads: texts('.eyebrow'), risks: [...document.querySelectorAll('#main .ch-body .checklist b')].map((el) => el.textContent.trim()).filter((said) => /^[A-Z]/.test(said)), spots: texts('[data-spot]'), cites: texts('[data-point][data-line]'), files: texts('[data-point]:not([data-line])') };
 rail.querySelectorAll('[data-spot]')[1].click();
 await wait(800);
 const pane = document.querySelector('#main .pr-pane.show');
@@ -1906,7 +1935,7 @@ done({ drawn, jumped, pointed, commented, refused, asked, heard: HEARD.map(({ id
     shown = {"pr": 41, "embed": "1"}
     assert seen == {
         "drawn": {
-            "heads": ["Before you approve", "Question or line comment", "Tell the drive what to change"],
+            "heads": ["Question or line comment", "Tell the drive what to change"],
             "risks": ["What you'll hate most."],
             "spots": ["Before", "After"],
             "cites": ["lib/lock.py:12", "lib/queue.py:90"],
@@ -2126,6 +2155,8 @@ const scoped = { hash: location.hash, title: document.querySelector('#item-title
 const sent = [];
 const real = window.fetch;
 window.fetch = (url, options) => (url === '/api/tap' ? (sent.push(JSON.parse(options.body)), new Promise(() => {})) : real(url, options));
+document.querySelector('#main [data-chapter="4"]').click();
+await wait(50);
 const waits = document.querySelector('#main .approve-says').textContent;
 press('a');
 await wait(50);

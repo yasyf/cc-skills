@@ -81,14 +81,37 @@ def handle() -> str:
     return whoami()["handle"]
 
 
+PRIORITY_WORDS = 4
+PURPOSE_CHARS = 250
+
+
 def channel_name(name: str, project: str | None = None, priority: str | None = None) -> str:
     """The name of a drive's private channel: his handle, drive and the drive's name, as ada-drive-launch, then for a priority seat prio and the words naming what it holds, as ada-drive-launch-prio-releases, by his words "it should probably be called something like yasyf-drive-durable-agents-prio-XXX", and for a project's own channel the project's words but a leading article and a leading drive, which the name carries already, lowercased and joined by hyphens, as ada-drive-launch-search and ada-drive-launch-tooling, so no project channel reads as the drive's own in a sidebar that cuts names short; cut to Slack's 80 characters."""
     if priority:
-        words = ["prio", *re.findall(r"[a-z0-9]+", priority.casefold())]
+        words = ["prio", *re.findall(r"[a-z0-9]+", priority.casefold())[:PRIORITY_WORDS]]
     else:
         words = re.findall(r"[a-z0-9]+", re.sub(r"^(the|an?)\s+", "", project.casefold())) if project else []
         words = words[1:] if words[:1] == ["drive"] and len(words) > 1 else words
     return "-".join([handle(), "drive", name, *words])[:80].rstrip("-")
+
+
+def seat_channel_name(name: str, data: dict, seat: str | None) -> str:
+    """The name the channel of a seat of the drive's slack row goes by, the drive's own for no seat: a priority seat's by the workstream its order is filed under, else its title, never its id, by his order to rename -priority-o1339 to a plain -prio-<topic> name."""
+    order = state.seat_order(data, seat)
+    return channel_name(name, seat, (order["workstream"] or order["title"] or state.whole_order(order["text"])) if order else None)
+
+
+def seat_purpose(name: str, data: dict, seat: str, dashboard: str) -> str:
+    """The one line his sidebar shows as a seat's channel description, ending in its dashboard link, by his order to set each channel's description to one line plus its dashboard link; cut to Slack's 250 characters, the link kept whole."""
+    order = state.seat_order(data, seat)
+    if order:
+        line = f"Priority: {order['title'] or state.whole_order(order['text'])}."
+    elif seat:
+        line = f"{seat}: its orders, what waits on you, and answers about it."
+    else:
+        line = f"The {name} drive: what spans its projects, and a link to each project's channel."
+    link = f" Dashboard: {dashboard}"
+    return line[: PURPOSE_CHARS - len(link)].rstrip() + link
 
 
 def channel_project(project: str | None) -> str | None:

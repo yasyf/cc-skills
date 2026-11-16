@@ -76,3 +76,16 @@ def test_a_prs_story_is_written_anew_once_its_staging_line_moves(writer: story.W
     tested = {"queue": [], "review": [waiting | {"staging": "Tested on staging: plat-usw2-staging at f3a6f23, passed, its proof a file on the Mac"}]}
     writer.tell(tested)
     assert tested["review"][0]["told"] == {"writing": True}
+
+
+def test_a_pr_cards_stories_queue_at_its_place_in_the_queue_before_other_prs_waiting_on_his_tap(writer: story.Writer, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(story, "change", lambda name, entry: {"headline": entry["key"], "beats": []})
+    monkeypatch.setattr(story, "question", lambda name, asked: TOLD)
+    review = [{"key": f"demo-org/demo-app#{n}", "head": "h1", "lead": None, "staging": UNSTAGED, "group": "you"} for n in (41, 42)]
+    tap = {"kind": "tap", "prs": [{"url": "https://github.com/demo-org/demo-app/pull/42"}]}
+    writer.tell({"queue": [tap, {"kind": "question", "card": ASKED}], "review": review})
+    written = []
+    while not writer.writing.empty():
+        key, write = writer.writing.get()
+        written.append(write().get("headline"))
+    assert written == ["demo-org/demo-app#42", "Raise the limit?", "demo-org/demo-app#41"]

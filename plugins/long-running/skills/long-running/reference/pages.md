@@ -15,6 +15,7 @@ The dashboard reads the page's live slice and has a Claude session compose it fr
 | `approve` | PRs he approves together or one by one, each with its plain status and what Approve does |
 | `stack` | a stack bottom first, each change with what it does and where it stands |
 | `staging` | where each PR was tested: passed, running, queued, failed or no test |
+| `diff` | each PR's change file by file, each file folding open, with the reviewer bot's comments and his own under the lines they name |
 | `path` | the steps to the goal as a track, each step's orders done of all |
 | `timeline` | the newest moments of its scope, live |
 | `compare` | options side by side, each with its consequence, one recommended |
@@ -22,6 +23,8 @@ The dashboard reads the page's live slice and has a Claude session compose it fr
 | `diagram` | a Mermaid diagram labelled in plain words |
 | `metrics` | live counts: PRs ready to land, PRs waiting, decisions, orders done |
 | `callout` | one line he must not miss |
+
+Every PR card in the queue walks the same blocks as a five-step story. It opens on the problem and who feels it, then the change as a `diff` with the why of each hunk, and what it does at run time as `before_after` and a `diagram`. Then come the evidence from staging, tests and its risks, and last his call, with what Approve and Hold each do side by side above the Approve bar. The story is written once for each head the PR reaches.
 
 A layout is kept under `applets/<slug>/<digest>.json` by the digest of the page's goal and the PRs, decisions and orders its slice holds, so state changes redraw live with no new compose, and new work in scope composes it again. Until a compose lands the page draws its last layout, else the dashboard's own: the counts, the decisions, the PRs to approve, the path and the timeline.
 
