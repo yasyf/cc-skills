@@ -366,7 +366,7 @@ class Refused(DriveError):
     """A write of its rows another write changed one of meanwhile, which kept nothing."""
 
 
-class Busy(DriveError):
+class Busy(Refused):
     """The drive's lock or its database stayed held by another write for all the time a write had left to wait, so it changed nothing."""
 
 
@@ -742,7 +742,7 @@ def keep_return(name: str, job_id: str, whole: str, at: datetime) -> None:
 
 
 def keep_reply(name: str, job_id: str, message: dict) -> None:
-    """Keep one message a remote lane sent, with Orca's payload when it carries one, or one return a job on this Mac kept, in its job's history once, by its id, under a lock of that history alone, so a delivery after a write's commit and a replay of it, or two replays, keep it once; in created_at order, after every row kept at its second or before, so a message replayed after a newer return still reads before that return, appended when it is the newest, else the history written again whole, by a sibling file moved into place; a later result never replaces an earlier one."""
+    """Keep one message a remote lane sent, with Orca's payload when it carries one, or one return a job on this Mac kept, in its job's history once, by its id, under a lock of that history alone, so a delivery after a write's commit and a replay of it, or two replays, keep it once; in the order the drive took it: a message an outbox owed, which carries the second the drive took it as kept_at, goes after every row kept at that second or before, so one replayed after a newer return still reads before that return, by reply_place, and every other row is appended, as is a row newest by that order, else the history is written again whole, by a sibling file moved into place; a later result never replaces an earlier one."""
     path = replies_path(name, job_id)
     row = reply_row(message)
     with flocked(path.with_name(f".{path.name}.lock")):
@@ -750,7 +750,7 @@ def keep_reply(name: str, job_id: str, message: dict) -> None:
         rows = [json.loads(line) for line in lines]
         if any(kept["id"] == row["id"] for kept in rows):
             return
-        if (place := reply_place(rows, row)) == len(rows):
+        if (place := reply_place(rows, message)) == len(rows):
             with open(path, "a") as handle:
                 handle.write(json.dumps(row) + "\n")
             return
@@ -760,8 +760,10 @@ def keep_reply(name: str, job_id: str, message: dict) -> None:
 
 
 def reply_place(rows: list[dict], row: dict) -> int:
-    """Where row goes in a job's history, rows: after the last row kept at its created_at or before, scanning back from the newest, so a history an older install appended out of order keeps its order and rows of one second keep theirs."""
-    at, place = parse_time(row["created_at"]), len(rows)
+    """Where row goes in a job's history, rows: last for a row with no kept_at, else after the last row created at its kept_at or before, scanning back from the newest, so a history an older install appended out of order keeps its order and rows of one second keep theirs; kept_at is this Mac's clock, so the order never rests on how Orca's clock and this Mac's agree."""
+    if "kept_at" not in row:
+        return len(rows)
+    at, place = parse_time(row["kept_at"]), len(rows)
     while place and parse_time(rows[place - 1]["created_at"]) > at:
         place -= 1
     return place
@@ -785,22 +787,33 @@ class Keeping(NamedTuple):
         return []
 
 
+class Owed(NamedTuple):
+    """The effect a write owing messages on a job's outbox leaves once per job, by owe_reply: deliver everything the outbox holds as committed, by deliver_owed, those a dead process left included, so one delivery and one ack serve every message the job owes."""
+
+    name: str
+    job_id: str
+
+    def __call__(self) -> list[str]:
+        return deliver_owed(self.name, self.job_id, owed(self.name, self.job_id))
+
+
 def keep_reply_saved(name: str, job_id: str, message: dict) -> None:
     """Keep a message a remote lane sent in its job's history once the write it runs in commits: inside a write's change of the drive durably, by owe_reply, else by after_save, at once outside a write or once a batch saves, each read of that history by replies before then finding it, so a refused run of a lock-free write keeps nothing and its next run reads the history as it stands; each call inside a write moves to owe_reply."""
     if (attempt := ATTEMPT.get()) is not None and attempt.name == name:
         owe_reply(name, attempt.data, job_id, message)
         return
-    after_save(name, Keeping(name, job_id, reply_row(message)))
+    after_save(name, Keeping(name, job_id, reply_row(message) | {"kept_at": stamp()}))
 
 
 def owe_reply(name: str, data: dict, job_id: str, message: dict) -> None:
-    """Keep a message a remote lane sent in its job's history durably, inside a write's change of the drive: on the job's outbox in that write's own commit, once by its id, and in the history once the commit lands, by an effect delivering it, by deliver_owed; a process dying between the two leaves it on the outbox, which every read of the history reads as kept, by replies, and which replay delivers."""
-    row = reply_row(message)
+    """Keep a message a remote lane sent in its job's history durably, inside a write's change of the drive: on the job's outbox in that write's own commit, once by its id, and in the history once the commit lands, by the one Owed effect the write leaves for the job; a process dying between the two leaves it on the outbox, which every read of the history reads as kept, by replies, and which replay delivers."""
+    row = reply_row(message) | {"kept_at": stamp()}
     job = data["jobs"][job_id]
     if any(owed["id"] == row["id"] for owed in job.get("outbox", [])):
         return
     job["outbox"] = [*job.get("outbox", []), row]
-    after(lambda: deliver_owed(name, job_id, [row]))
+    if (delivery := Owed(name, job_id)) not in ATTEMPT.get().effects:
+        after(delivery)
 
 
 def deliver_owed(name: str, job_id: str, rows: list[dict]) -> list[str]:
@@ -850,14 +863,14 @@ def owed(name: str, job_id: str) -> list[dict]:
 
 
 def replies(name: str, job_id: str) -> list[dict]:
-    """The job's kept messages and returns, oldest first, each once: its history, then each message its outbox still owes, by owed, and each the batch or write running now keeps once it saves, by keep_reply_saved, each placed by its created_at as keep_reply will keep it, so a reader before the delivery reads what it will; a watch stopped between keeping a message and saving its cursor keeps it again."""
+    """The job's kept messages and returns, oldest first, each once: its history, then each message its outbox still owes, by owed, and each the batch or write running now keeps once it saves, by keep_reply_saved, each placed as keep_reply will keep it, by reply_place, so a reader before the delivery reads what it will; a watch stopped between keeping a message and saving its cursor keeps it again."""
     path = replies_path(name, job_id)
     kept = list({reply["id"]: reply for reply in (json.loads(line) for line in path.read_text().splitlines())}.values()) if path.exists() else []
     running = AFTER_SAVE[name] if name in AFTER_SAVE else attempt.effects if (attempt := ATTEMPT.get()) is not None else []
     ids = {reply["id"] for reply in kept}
     for reply in [*owed(name, job_id), *(effect.message for effect in running if isinstance(effect, Keeping) and (effect.name, effect.job_id) == (name, job_id))]:
         if reply["id"] not in ids:
-            kept.insert(reply_place(kept, reply), reply)
+            kept.insert(reply_place(kept, reply), {field: value for field, value in reply.items() if field != "kept_at"})
             ids.add(reply["id"])
     return kept
 
