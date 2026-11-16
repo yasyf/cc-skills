@@ -25,11 +25,12 @@ def block_reason(payload: dict) -> str | None:
     names = state.session_drives(session)
     if not names:
         return None
-    data = state.load(names[0])
+    agent = payload.get("agent_id")
+    data = state.load(names[0], ("name", "roles", "subcoordinators", "communicators", "jobs", "orders")) if agent else state.saved(names[0])
     role = state.session_role(data, session)
     message = (payload.get("last_assistant_message") or "").strip()
     lines = message.splitlines()
-    job_id = state.agent_job(data, payload.get("agent_id"))
+    job_id = state.agent_job(data, agent) if agent else None
     if len(lines) <= 1 and len(message) <= RESULT_CHARS:
         if skipped := unread(payload, data, job_id, message):
             print(skipped, file=sys.stderr)
