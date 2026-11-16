@@ -496,12 +496,12 @@ def read(key: str, entry: dict | None = None) -> dict | None:
 
 
 def github_reads(entries: dict[str, dict | None]) -> dict[str, dict]:
-    """Each PR's card fields, PRS_PER_QUERY PRs of one repository to one GraphQL read through ccx's GitHub cache, which answers the same read made within READ_AGE, but fresh for a read holding a PR whose card left a picture off, since the body edit that fixes it can be newer than the read cached, each read kept on disk, so a read GitHub refuses, as under its rate-limit floor, draws from the copy kept at the last read with the state and head the drive's entry holds; a PR GitHub reads merged that the entry holds folded reads FOLDED, by github.landing; a PR never read is left out. Its checks come from the drive's entry, its first 100 changed files and its newest 100 comments come in the same read, which asks for no comment's viewerDidAuthor, the field that sends a read to his own GraphQL budget instead of the GitHub App's."""
+    """Read card fields in repository batches, reusing each PR for READ_AGE regardless of batch composition. Undrawn pictures force fresh reads; refused reads retain the last saved card with the drive's state and head."""
     found = {}
     for chunk in github.by_repository(list(entries), github.PRS_PER_QUERY):
         fresh = any((entries[key] or {}).get("undrawn") for key in chunk)
         try:
-            answered = github.nodes(json.loads(run(["gh", "api", "graphql", "-f", f"query={github.query(chunk, FIELDS)}"], max_age="0s" if fresh else READ_AGE)), chunk)
+            answered = github.cached_nodes(chunk, FIELDS, 0 if fresh else int(READ_AGE.removesuffix("s")), lambda unread: github.nodes(json.loads(run(["gh", "api", "graphql", "-f", f"query={github.query(unread, FIELDS)}"], max_age="0s")), unread))
             prs = {key: card_fields(node) for key, node in answered.items()}
         except (GithubError, json.JSONDecodeError) as error:
             print(f"drive card: {', '.join(chunk)}: {error}", file=sys.stderr)
@@ -510,10 +510,12 @@ def github_reads(entries: dict[str, dict | None]) -> dict[str, dict]:
             repo, number = key.split("#")
             kept, entry = state.root() / KEPT_READS / repo / f"{number}.json", entries[key]
             if pr := prs.get(key):
-                kept.parent.mkdir(parents=True, exist_ok=True)
-                written = kept.with_name(f"{kept.name}.{os.getpid()}")
-                written.write_text(json.dumps(pr))
-                os.replace(written, kept)
+                body = json.dumps(pr)
+                if not kept.is_file() or kept.read_text() != body:
+                    kept.parent.mkdir(parents=True, exist_ok=True)
+                    written = kept.with_name(f"{kept.name}.{os.getpid()}")
+                    written.write_text(body)
+                    os.replace(written, kept)
                 found[key] = pr | {"state": "FOLDED"} if entry and pr["state"] == "MERGED" and entry["state"] == github.FOLDED else pr
             elif kept.is_file():
                 # TODO: drop the default once every read kept before files joined FIELDS is read again.

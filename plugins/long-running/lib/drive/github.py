@@ -10,7 +10,7 @@ import time
 import tomllib
 from collections import Counter
 from collections.abc import Callable
-from contextlib import closing
+from contextlib import ExitStack, closing
 from datetime import datetime
 from fnmatch import fnmatchcase
 from itertools import groupby, takewhile
@@ -393,6 +393,38 @@ def nodes(payload: dict, keys: list[str]) -> dict[str, dict]:
     return {key: node for key in keys if (node := found.get(f"p{split(key)[2]}"))}
 
 
+def cached_nodes(keys: list[str], fields: str, max_age: int, read: Callable[[list[str]], dict[str, dict]]) -> dict[str, dict]:
+    """Reuse each PR's fields within max_age seconds across overlapping batches, coalescing concurrent misses without caching absent or refused reads."""
+    from drive import state
+
+    if not keys:
+        return {}
+    folder = state.root()
+    folder.mkdir(parents=True, exist_ok=True)
+    with closing(state.connect(folder / "pr-nodes.sqlite3")) as db, ExitStack() as locks:
+        db.execute("CREATE TABLE IF NOT EXISTS nodes (fields TEXT NOT NULL, key TEXT NOT NULL, read_at REAL NOT NULL, body TEXT NOT NULL, PRIMARY KEY (fields, key)) WITHOUT ROWID")
+        found = {}
+        for key in keys:
+            row = db.execute("SELECT read_at, body FROM nodes WHERE fields = ? AND key = ?", (fields, key.casefold())).fetchone()
+            if row and max_age and time.time() - row[0] < max_age:
+                found[key] = json.loads(row[1])
+        missing = [key for key in keys if key not in found]
+        for key in sorted({key.casefold() for key in missing}):
+            locks.enter_context(state.flocked(folder / "pr-node-locks" / hashlib.sha256((fields + key).encode()).hexdigest()))
+        for key in missing:
+            row = db.execute("SELECT read_at, body FROM nodes WHERE fields = ? AND key = ?", (fields, key.casefold())).fetchone()
+            if row and max_age and time.time() - row[0] < max_age:
+                found[key] = json.loads(row[1])
+        if unread := [key for key in missing if key not in found]:
+            started = time.time()
+            answered = read(unread)
+            with db:
+                db.execute("BEGIN")
+                db.executemany("INSERT OR REPLACE INTO nodes VALUES (?, ?, ?, ?)", [(fields, key.casefold(), started, json.dumps(node)) for key, node in answered.items()])
+            found |= answered
+    return found
+
+
 def parse(payload: dict, keys: list[str]) -> dict[str, dict]:
     repository = answered(payload)
     return {
@@ -463,10 +495,10 @@ def entries(repo: str, stack: dict) -> list[tuple[str, str]]:
 
 
 def stacks(keys: list[str]) -> dict[str, list[tuple[str, str]]]:
-    """Each PR's native GitHub stack, the one stack-enqueue lands, as entries() gives it, PRS_PER_QUERY PRs of one repository to a `gh api graphql` call read through ccx's cache up to STACKS_AGE old, since a card asks again for the same PRs within a post; a PR in no native stack is left out."""
+    """Each PR's native GitHub stack, reusing its own snapshot up to STACKS_AGE old across card batches; a PR in no native stack is left out."""
     found = {}
     for chunk in by_repository(keys, PRS_PER_QUERY):
-        for key, node in nodes(graphql(query(chunk, STACK), f"the native stacks of {', '.join(chunk)}", STACKS_AGE), chunk).items():
+        for key, node in cached_nodes(chunk, STACK, int(STACKS_AGE.removesuffix("s")), lambda unread: nodes(graphql(query(unread, STACK), f"the native stacks of {', '.join(unread)}"), unread)).items():
             if node["stack"]:
                 found[key] = entries(repo_of(key), node["stack"])
     return found
