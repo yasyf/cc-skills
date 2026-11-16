@@ -5705,7 +5705,7 @@ def answer(args: argparse.Namespace) -> int:
         raise DriveError(f"{', '.join(stray)}: no open order, nor a card, part or PR of one, so his answer {args.id} approves nothing there: name an open order or a key drive answer lists\n{superseded.listing(args.id, kept, open_keys, asked, data)}")
     if args.approves and (held := (kept["approves"] or {}).get("held")):
         raise DriveError(f"refused, nothing approved: his Hold on {held['pr']} at {held['at']} ended his approval {args.id}, so only a newer answer of his approves again")
-    with state.edit(name) as data:
+    def marked(data: dict) -> dict:
         data["answers"][args.id]["cards"].update({key: {"mark": "stands"} for key in args.stands})
         if args.approves:
             approves = data["answers"][args.id]["approves"] or {"orders": [], "keys": [], "on": [], "asked": cited["title"], "said": cited["body"], "held": None}
@@ -5715,6 +5715,9 @@ def answer(args: argparse.Namespace) -> int:
             data["answers"][args.id]["approves"] = approves
         for job_id in told:
             superseded.heard(data, job_id, data["answers"][args.id], "untouched")
+        return data
+
+    data = state.update(name, None, marked)
     cleared: set[str] = set()
     try:
         done += [settle_card(name, args.id, kept, key, asked[key], file) for key, file in args.settled]
@@ -5726,28 +5729,37 @@ def answer(args: argparse.Namespace) -> int:
             for pick in bound.get(order_id, []):
                 settled.supersede(pick, args.id, cwd)
                 done.append(f"his pick {pick}, which bound {order_id}, is superseded by {args.id} in cc-notes, so ccn answer match no longer reads it as standing")
-            with state.edit(name) as data:
+            def dropped_order(data: dict) -> tuple[dict, list[str]]:
                 data["answers"][args.id]["cards"].update({key: {"mark": "dropped", "job": None, "card": None} for key in keys})
-                done += superseded.drop_order(data, args.id, order_id)
+                return data, superseded.drop_order(data, args.id, order_id)
+
+            data, lines = state.update(name, None, dropped_order)
+            done += lines
         for key in args.dropped:
             entry = asked[key]
             if entry["kind"] in ("order", "part") and entry["order"] in dropping:
                 continue
             if entry["kind"] == "part":
-                with state.edit(name) as data:
+                def dropped_part(data: dict) -> tuple[dict, list[str]]:
                     data["answers"][args.id]["cards"][key] = {"mark": "dropped", "job": None, "card": None}
-                    done += superseded.drop(data, args.id, entry["order"], entry["title"])
+                    return data, superseded.drop(data, args.id, entry["order"], entry["title"])
+
+                data, lines = state.update(name, None, dropped_part)
+                done += lines
                 continue
             if (card := entry["card"]) and card not in cleared or entry["kind"] == "question" and not card:
                 ended_on(name, state.new_close("withdrawn", kept["words"], kept["link"], answer=args.id), key, card)
                 cleared.add(card)
             if superseded.stops_open_pr(data, key, None):
                 superseded.close(key)
-            with state.edit(name) as data:
+            def dropped_card(data: dict) -> tuple[dict, list[str]]:
                 data["answers"][args.id]["cards"][key] = {"mark": "dropped", "job": entry["job"], "card": card}
                 if entry["job"] and data["jobs"][entry["job"]]["state"] not in state.FINISHED_JOB_STATES:
                     superseded.owe(data, args.id, entry["job"])
-                done += [*([f"{key}: its card {card} now shows his words and a link to them, with no buttons, its question withdrawn"] if card else []), *superseded.unasked(data, key, entry)]
+                return data, [*([f"{key}: its card {card} now shows his words and a link to them, with no buttons, its question withdrawn"] if card else []), *superseded.unasked(data, key, entry)]
+
+            data, lines = state.update(name, None, dropped_card)
+            done += lines
         for mark, key, job_id in [*(("superseded", *pair) for pair in args.superseded), *(("reopened", *pair) for pair in args.reopened)]:
             card = asked[key]["card"]
             if mark == "reopened":
@@ -5763,11 +5775,12 @@ def answer(args: argparse.Namespace) -> int:
                 cleared.add(card)
             if superseded.stops_open_pr(data, key, job_id):
                 superseded.close(key)
-            with state.edit(name) as data:
-                if card:
-                    done.append(f"{key}: its card {card} now shows his words and a link to them, with no buttons")
+            def superseded_card(data: dict) -> tuple[dict, list[str]]:
                 data["answers"][args.id]["cards"][key] = {"mark": mark, "job": asked[key]["job"], "into": job_id, "card": card}
-                done += [*([] if card else [f"{key}: no card was drawn for it"]), *superseded.supersede(data, args.id, key, asked[key], job_id)]
+                return data, [*([f"{key}: its card {card} now shows his words and a link to them, with no buttons"] if card else [f"{key}: no card was drawn for it"]), *superseded.supersede(data, args.id, key, asked[key], job_id)]
+
+            data, lines = state.update(name, None, superseded_card)
+            done += lines
     finally:
         if args.approves or args.settled or args.dropped or args.superseded or args.reopened:
             view.refresh_cards(name)
