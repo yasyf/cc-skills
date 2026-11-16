@@ -609,8 +609,10 @@ def incident_open(args: argparse.Namespace) -> int:
     with state.batch(name):
         order_id, order, started, incidents = added_order(args)
         record = evidence_record(name, order["title"], args.words, args.source, "drive incident open")
-        with state.edit(name) as data:
+        def record_noted(data: dict) -> None:
             data["orders"][order_id]["note"] = order["note"] = f"record {record}"
+
+        state.update(name, None, record_noted)
     return emit(args, "\n".join([f"{order_id} record {record}", *started, *incidents]), {"id": order_id, **order, "incidents": incidents})
 
 
