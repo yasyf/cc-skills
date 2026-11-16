@@ -50,6 +50,7 @@ LANE_VERBS = (
     ("manual",),
     ("page-owner",),
     ("status",),
+    ("wait",),
 )
 LANE_WRITES = (("job", "ask"), ("job", "set"), ("pr", "add"), ("pr", "set"))
 LANE_FLAGS = {("job", "set"): "repro", ("pr", "set"): "flaky"}

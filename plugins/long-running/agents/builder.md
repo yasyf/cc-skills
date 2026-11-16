@@ -526,8 +526,9 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   picture those show by its path on your Sprite, and for `pr add` and each PR a `job report` registers,
   each picture the PR's Show me shows by its path on your Sprite, then
   prints all it printed there and exits with its status. While it waits it prints a line to stderr
-  every 30 s naming the question, and at 9 minutes it gives up and exits 1, inside the Bash call's
-  600000 ms; the Mac may still run it, so read what it would change before you type it again.
+  every 30 s naming the question, and at 270 s it gives up and exits 1, inside a Bash call of
+  `timeout: 280000`, so your prompt cache outlives the wait; the Mac may still run it, so read what it
+  changed before you type it again.
   `drive job report <your job> -` is the one verb answered before it runs: it prints that the report
   is kept for the drive to take, and the Mac then takes it with every check a report on this Mac
   meets. A take that refuses keeps nothing and wakes you with a message naming the refusal; fix what
@@ -540,8 +541,8 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   stopped mid-run answers that it stopped and never runs twice: read what it changed before you type
   it again. A read answers in seconds, but a write such as a `job ask` can take minutes:
   never wrap a `drive` verb or a `READ` in `timeout` or any other kill, which ends the wait and
-  prints nothing while the watch still runs it, and give its Bash call the 600000 ms timeout the
-  Bash tool allows at most.
+  prints nothing while the watch still runs it, and give its Bash call `timeout: 280000`, past the
+  270 s it waits.
 - No Sprite lane runs `drive break-glass`, whose command would run on this Mac as its user, by his
   pick "No Sprite lane runs break-glass: a step needing a grant moves to a lane on this Mac": a step that needs a grant returns `BLOCKED` naming the step and its command, and
   the coordinator moves it to a lane on this Mac.
@@ -566,8 +567,9 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   transcript included, which the drive keeps whole under `jobs/<job>.<dispatch>.transcripts/` once
   that lane ends, yours included. A lane on this Mac opens each path itself. Read through the
   coordinator's Mac with one blocking question, as a `drive` verb asks it,
-  `orca orchestration ask --question "<read>" --wait --timeout-ms 600000`, and keep working: it is a
-  read, not a report. Open the question with its read, which runs its first line alone.
+  `orca orchestration ask --question "<read>" --wait --timeout-ms 270000`, with Bash `timeout: 280000`,
+  and while it answers `timedOut`, `orca orchestration ask --resume <its messageId> --wait --timeout-ms 270000`
+  again; keep working: it is a read, not a report. Open the question with its read, which runs its first line alone.
 
 | Read | What it returns |
 | --- | --- |
@@ -592,22 +594,28 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 
 ## Waits and reads
 
-- Once the PR is registered, return `PUSHED` rather than watch it: no `gh pr checks`, `gh run watch`
-  or repeated `gh pr view`, no sleep. The watch sees each change, which a fresh builder handles; you
-  hear from `SendMessage` only his answer to your `ASK`, while you build its recommended option or
-  after an `ASK` ended your run: build his pick where it differs. A wait past 5 minutes also expires your prompt cache, so it costs a full re-read of your
-  context on top of the polling.
+- Once the PR is registered, return `PUSHED` rather than watch it. The watch sees each change, which
+  a fresh builder handles; you hear from `SendMessage` only his answer to your `ASK`, while you build
+  its recommended option or after an `ASK` ended your run: build his pick where it differs.
+- Never poll GitHub: no `gh pr checks`, `gh pr view`, `gh run view`, `gh run list` or `gh run watch`
+  run again to see whether something moved, no `sleep`, `pgrep` or `until` loop. A step that must
+  wait on a PR or a GitHub Actions run, such as a proof waiting on a merge's CI, reads it once and,
+  while it is still pending, runs `drive wait <its link>`, which blocks on GitHub's webhook to this
+  Mac and returns within a second of the next delivery for it, then reads it once more. Its default
+  110 s fits Bash's 120-second call; `--timeout 270` with Bash `timeout: 280000` is the longest.
+- Block in one call for at most 270 s, then call again: a wait past 5 minutes expires your prompt
+  cache, and the next turn re-reads your whole context at full price, a median 158k tokens.
 - Wait on a step of your own with the wait your run has, never a loop or a `sleep` you write, which
   holds a call open polling and which the hooks flag. A `Remote lane:` builder runs a step longer
   than one Bash call, such as a build or a remote's deploy, with `run_in_background: true` and ends
   its turn, sending Orca nothing, until that step's notice wakes it, as his answer to an `ASK` does.
   A builder on this Mac has no idle turn, since its final message returns it, so it runs each step
-  in the foreground with the Bash `timeout` the step needs, up to 600000 ms. It waits on a remote
-  through the remote's own blocking wait, its deadline of 540 s inside that 600-second call, and
-  runs it again while the remote still builds:
-  `tools/ci devbox ssh <box> -- tilt wait --for=condition=Ready --timeout=540s uiresource/<name>`
-  for a devbox's Tilt resource, `kubectl wait --timeout=540s` for a cluster object,
-  `tools/ci release watch <n> --timeout 540000` for a release, and `tools/ci devbox claim --wait`
+  in the foreground, each blocking call at most 270 s with Bash `timeout: 280000`. It waits on a
+  remote through the remote's own blocking wait, its deadline 270 s, and runs it again while the
+  remote still builds:
+  `tools/ci devbox ssh <box> -- tilt wait --for=condition=Ready --timeout=270s uiresource/<name>`
+  for a devbox's Tilt resource, `kubectl wait --timeout=270s` for a cluster object,
+  `tools/ci release watch <n> --timeout 270000` for a release, and `tools/ci devbox claim --wait`
   for a devbox's stack.
 - Nobody watches the starting session's terminal, so the `bash_guard` hook refuses each permission
   prompt Claude Code shows it on any of your calls. Claude Code's own dangerous-rm safety check reaches

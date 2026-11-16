@@ -408,7 +408,7 @@ lane reads those, and Slack, through this Mac with a blocking question.
   on any the relay had not taken. A question its worker asked again with the same first line before
   either took it runs once, on the later question. The reader claims its question by creating the question's
   file in the drive's `answers/` folder, so a second reader started on it exits, and runs nothing on a
-  question asked over 540 s ago, past which its lane's `drive` gave up, or whose lane ended. It runs
+  question asked over 540 s ago, which its lane's `drive` gave up on at 270 s, or whose lane ended. It runs
   `cci`, `ccn` or the drive's own cc-slack launcher in
   the directory the coordinator started the drive from, or reads the drive files, and replies with
   the output the moment it ends, a command's cut to 12,000 characters but for a `cc-slack thread`
