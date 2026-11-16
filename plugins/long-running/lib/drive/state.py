@@ -1315,8 +1315,12 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     for slot in data["slots"].values():
         for each in slot["queue"]:
             each.setdefault("paths", None)
+            each.setdefault("stacks", None)
+            each.setdefault("starts", False)
         if slot["holder"]:
             slot["holder"].setdefault("paths", None)
+            slot["holder"].setdefault("stacks", None)
+            slot["holder"].setdefault("starts", False)
             slot["holder"].setdefault("riders", [])
             slot["holder"].setdefault("released", False)
     data.setdefault("reader_pilot", None)
@@ -6699,12 +6703,12 @@ SLOT_GO_STEPS = (
 )
 
 
-def slot_claim(data: dict, env: str, job_id: str, minutes: int, prs: list[str], cases: str | None, moment: datetime, paths: list[str] | None = None) -> str:
-    """Give a staging env's slot to the job when no job holds it, its lease ending minutes past the staging-claim rule's CLAIM_WAIT, else queue the job, first in first out but for a job jumps_queue reads as serving a priority order or an open incident, which goes behind only the jobs that jump too, by his ruling that they jump the line as their builders jump the builder-slot line; paths, the files its PRs change, let slot_turns pack it into another pass's cut; the line saying which, refused for a job already holding, riding or queued on it."""
+def slot_claim(data: dict, env: str, job_id: str, minutes: int, prs: list[str], cases: str | None, moment: datetime, paths: list[str] | None = None, stacks: list[str] | None = None, starts: bool = False) -> str:
+    """Give a staging env's slot to the job when no job holds it, its lease ending minutes past the staging-claim rule's CLAIM_WAIT, else queue the job, first in first out but for a job jumps_queue reads as serving a priority order or an open incident, which goes behind only the jobs that jump too, by his ruling that they jump the line as their builders jump the builder-slot line; paths, the files its PRs change, and stacks, the components they reach, let slot_turns pack it into another pass's cut, while a start, the top coordinator's drive job add --release, whose release names its own branch, holds a cut of its own and is started by the watch's turn; the line saying which, refused for a job already holding, riding or queued on it."""
     slot = data["slots"].setdefault(env, {"holder": None, "queue": []})
     if job_id in slot_members(slot) or any(each["job"] == job_id for each in slot["queue"]):
         raise DriveError(f"{job_id}: refused, it already holds or waits for the {env} slot: drive slot queue {env} names its place")
-    asked = {"job": job_id, "prs": prs, "minutes": minutes, "cases": cases, "at": stamp(moment), "paths": paths}
+    asked = {"job": job_id, "prs": prs, "minutes": minutes, "cases": cases, "at": stamp(moment), "paths": paths, "stacks": stacks, "starts": starts}
     if slot["holder"] is None:
         slot["holder"] = leased(asked, moment, [])
         return f"GO {job_id} holds the {env} slot until {slot['holder']['until']}: {SLOT_GO_STEPS.format(env=env, job=job_id)}"
@@ -6730,17 +6734,22 @@ def slot_members(slot: dict) -> list[str]:
 
 
 def packed(queue: list[dict]) -> tuple[dict, list[dict]]:
-    """Take the head of a slot's queue and up to PACKED_CUT - 1 later passes whose PRs change no file the cut's passes already change, by his rule that dangerous changes whose changed files never overlap share one staging cut, up to six; a pass whose files are unread rides with none."""
+    """Take the head of a slot's queue and up to PACKED_CUT - 1 later passes whose PRs change no file and reach no stack the cut's passes already do, by his rule that dangerous changes whose changed files never overlap share one staging cut, up to six, and changes that restart the same stack take turns; a pass whose files or stacks are unread, or a start whose release names its own branch, rides with none."""
     head, riders = queue.pop(0), []
-    touched = set(head["paths"] or ())
-    for each in list(queue) if head["paths"] is not None else []:
+    touched, restarted = set(head["paths"] or ()), set(head["stacks"] or ())
+    for each in list(queue) if packable(head) else []:
         if len(riders) == PACKED_CUT - 1:
             break
-        if each["paths"] is not None and not touched & set(each["paths"]):
+        if packable(each) and not touched & set(each["paths"]) and not restarted & set(each["stacks"]):
             riders.append(each)
             queue.remove(each)
             touched |= set(each["paths"])
+            restarted |= set(each["stacks"])
     return head, riders
+
+
+def packable(asked: dict) -> bool:
+    return asked["paths"] is not None and asked["stacks"] is not None and not asked["starts"]
 
 
 PACKED_CUT = 6
@@ -6766,7 +6775,7 @@ def slot_release(data: dict, env: str, job_id: str) -> str:
 
 
 def slot_turns(data: dict, moment: datetime) -> list[tuple[str, str, str, str]]:
-    """End each staging slot's lease once every pass of its cut finished, stopped, failed or gave the slot back, extend once by its minutes a lease whose end passed while a pass still runs, by his ruling that an overrunning lease extends once, and end it at its second end, then give each free slot to the first job in its queue that still runs or waits, dropping finished ones, packed with the later passes whose files never overlap, by packed, under one lease: the head starts the cut and each packed pass rides it; each (env, job, kind, line) of a slot that changed, kind freed, extended or go, a go's line the GO its job is resumed with."""
+    """End each staging slot's lease once every pass of its cut finished, stopped, failed or gave the slot back, extend once by its minutes a lease whose end passed while a pass still runs, by his ruling that an overrunning lease extends once, and end it at its second end, then give each free slot to the first job in its queue that still runs or waits, dropping finished ones, packed with the later passes whose files never overlap, by packed, under one lease: the head starts the cut and each packed pass rides it; each (env, job, kind, line) of a slot that changed, kind freed, extended, go, its line the GO its job is resumed with, or start, for a start whose release the watch now starts."""
     moved = []
     for env, slot in data["slots"].items():
         held = slot["holder"]
@@ -6783,7 +6792,7 @@ def slot_turns(data: dict, moment: datetime) -> list[tuple[str, str, str, str]]:
             slot["holder"] = leased(head, moment, riders)
             until = slot["holder"]["until"]
             carried = f" Your cut carries {', '.join(pr for rider in riders for pr in rider['prs'])} too, packed with yours since no two change one file: start it from a branch with each of their heads and yours cherry-picked onto what staging serves, under one freeze and one claim naming them all." if riders else ""
-            moved.append((env, head["job"], "go", f"GO staging {env} until {until}: {SLOT_GO_STEPS.format(env=env, job=head['job'])}.{carried}"))
+            moved.append((env, head["job"], "start", f"SLOT {env} to {head['job']} until {until}: the watch starts its release") if head["starts"] else (env, head["job"], "go", f"GO staging {env} until {until}: {SLOT_GO_STEPS.format(env=env, job=head['job'])}.{carried}"))
             moved += [(env, rider["job"], "go", RIDE_STEPS.format(env=env, until=until, starter=head["job"], prs=", ".join(rider["prs"]) or "your PR", job=rider["job"])) for rider in riders]
     return moved
 

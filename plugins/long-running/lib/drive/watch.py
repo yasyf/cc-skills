@@ -4091,33 +4091,45 @@ def seated_first(watcher: Watcher) -> list[Watcher]:
     return sorted([watcher, *watcher.others.values()], key=lambda one: one.project not in seats)
 
 
-def pass_paths(prs: list[str]) -> list[str] | None:
-    """Every file a staging pass's PRs change, by github.paths, which slot_turns packs passes by; None for a pass naming no PR or whose PRs GitHub could not read, which then rides no other pass's cut."""
+def pass_reads(name: str, data: dict, prs: list[str]) -> tuple[list[str] | None, list[str] | None]:
+    """Every file a staging pass's PRs change, by github.paths, and every component they reach, by cli.release_reach, go/ci's own `tools/ci release select --pr`, which slot_turns packs passes by; None for each that a pass naming no PR, or whose PRs GitHub or go/ci could not read, leaves unread, so it rides no other pass's cut."""
+    from drive import cli
+
     if not prs:
-        return None
+        return None, None
     try:
         read = github.paths(prs)
     except github.GithubError:
-        return None
-    return sorted({path for key in prs if key in read for path in read[key][1]}) if all(key in read for key in prs) else None
+        return None, None
+    paths = sorted({path for key in prs if key in read for path in read[key][1]}) if all(key in read for key in prs) else None
+    try:
+        reach = cli.release_reach(name, data, prs)
+    except (github.GithubError, reads.ReadError, state.DriveError, json.JSONDecodeError):
+        return paths, None
+    return paths, sorted({component for key in prs if key in reach for component in reach[key]["components"]}) if all(key in reach for key in prs) else None
 
 
 def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Hand on each staging slot, by state.slot_turns: end a lease whose job finished, extend once a lease that ran past its end and end it at its second, and give a free slot to the first job in its queue with a GO, packed with each later pass whose PRs change none of its files, up to six, each of those resumed with its RIDE line, every resume by `drive job resume`, so no session sequences or packs staging by hand; it reads the files of each queued pass whose files it has not read while the slot is held, so a pass is packed the moment the slot frees. Its lines go as evidence and wake nobody; a GO's resume that is refused reaches the session holding the job as its relaunch_refused event."""
     if watcher.project or not (slots := state.load(watcher.name)["slots"]):
         return []
-    unread = {each["job"]: pass_paths(each["prs"]) for slot in slots.values() for each in slot["queue"] if each["paths"] is None and each["prs"]}
+    known = state.load(watcher.name)
+    unread = {each["job"]: pass_reads(watcher.name, known, each["prs"]) for slot in slots.values() for each in slot["queue"] if (each["paths"] is None or each["stacks"] is None) and each["prs"]}
     with state.edit(watcher.name) as data:
         for slot in data["slots"].values():
             for each in slot["queue"]:
-                if each["paths"] is None and unread.get(each["job"]) is not None:
-                    each["paths"] = unread[each["job"]]
+                if each["job"] in unread:
+                    paths, stacks = unread[each["job"]]
+                    each["paths"] = each["paths"] if paths is None else paths
+                    each["stacks"] = each["stacks"] if stacks is None else stacks
         moved = state.slot_turns(data, moment)
     lines = []
     for env, job_id, kind, line in moved:
         if kind == "go":
             start_verb(watcher, job_id, ["job", "resume", job_id, line], moment)
             line = f"SLOT {env} to {job_id}: {line}"
+        elif kind == "start":
+            start_verb(watcher, job_id, ["job", "release", job_id], moment)
         lines.append(line)
     return lines
 

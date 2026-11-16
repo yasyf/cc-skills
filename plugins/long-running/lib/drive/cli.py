@@ -1544,7 +1544,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     if args.release and not unreleased:
         for line in brief.release_notes([args.release], state.load(name)):
             print(f"drive job add: {line}", file=sys.stderr)
-    running = args.release and not unreleased and (release_running(name, args.release) or slot_refusal(name, args.release))
+    running = args.release and not unreleased and release_running(name, args.release)
     unworded = brief.unworded_return(args.kind, {"--goal": args.goal})
     before = state.load(name)
     named = args.part or (list(filed) if len(filed := find(before["orders"], args.order, "order")["parts"]) == 1 else [])
@@ -1604,7 +1604,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             job["brief_flags"] = (job.get("brief_flags") or {}) | {"release": args.release}
             job["release_pass"] = {"release": args.release, "at": created, "reading": args.reading}
             if env := brief.leased_env(shlex.split(args.release)):
-                state.slot_claim(data, env, job_id, CUT_LEASE_MINUTES, [], None, state.parse_time(created))
+                slotted = state.slot_claim(data, env, job_id, CUT_LEASE_MINUTES, [], None, state.parse_time(created), starts=True)
         if args.agent:
             job["session"] = session
             state.start(job)
@@ -1623,7 +1623,8 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         waiting.append(
             f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
         )
-    started = state.after_save(name, lambda: started_release(name, job_id, args.release)) if args.release else []
+    queued = args.release and brief.leased_env(shlex.split(args.release)) and slotted.startswith("QUEUED")
+    started = [f"{job_id} {slotted}: the watch starts `{args.release}` by drive job release {job_id} once the slot is its, so start nothing for it"] if queued else state.after_save(name, lambda: started_release(name, job_id, args.release)) if args.release else []
     also = list(dict.fromkeys(order_id for orders in history.values() for order_id in orders))
     names = [f"{job_id} names {', '.join(named)}" + (f", also on {', '.join(also)}" if also else "") + ": drive status <id>"] if named else []
     names += state.asked_lines(data, args.goal)
@@ -1631,13 +1632,6 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
 
 
 CUT_LEASE_MINUTES = 60
-
-
-def slot_refusal(name: str, command: str) -> str | None:
-    """Why a staging-only release may not start now: another job holds that env's staging slot, by drive slot claim or its own staging start, so every staging start, the top coordinator's included, holds the slot, which the job added for this start then takes, its lease ending with the job or CUT_LEASE_MINUTES on, extended once."""
-    if not (env := brief.leased_env(shlex.split(command))) or not (held := (state.load(name)["slots"].get(env) or {}).get("holder")):
-        return None
-    return f"{held['job']} holds the {env} staging slot until {held['until']}: start this cut once drive slot queue {env} reads it free, or drive slot release {env} --job {held['job']} gives it back"
 
 
 def started_release(name: str, job_id: str, command: str) -> list[str]:
@@ -4376,10 +4370,10 @@ def slot_claim(args: argparse.Namespace) -> int:
     """Claim a staging env's slot for a job: it holds the slot now when none does, its lease ending its minutes past the staging-claim rule's wait, else it queues last, first in first out, and the watch hands it the slot with a GO once the holder gives it back, finishes or outlives its lease, by state.slot_turns."""
     name = state.resolve(args.drive)
     prs = [state.pr_key(pr) for pr in args.pr]
-    paths = watch.pass_paths(prs)
+    paths, stacks = watch.pass_reads(name, state.load(name), prs)
     with state.edit(name) as data:
         find(data["jobs"], args.job, "job")
-        line = state.slot_claim(data, args.env, args.job, args.minutes, prs, args.cases, state.now(), paths)
+        line = state.slot_claim(data, args.env, args.job, args.minutes, prs, args.cases, state.now(), paths, stacks)
     return emit(args, line, {"env": args.env, "job": args.job, "line": line})
 
 

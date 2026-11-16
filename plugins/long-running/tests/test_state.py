@@ -2779,7 +2779,7 @@ def test_a_free_staging_slot_packs_up_to_six_passes_whose_files_never_overlap_in
     state.slot_claim(data, "plat-usw2-staging", "j0", 20, [], None, moment)
     files = {"j1": ["a"], "j2": ["a", "b"], "j3": ["c"], "j4": None, "j5": ["d"], "j6": ["e"], "j7": ["f"], "j8": ["g"], "j9": ["h"]}
     for job_id in names:
-        state.slot_claim(data, "plat-usw2-staging", job_id, 15 if job_id != "j3" else 40, [f"Forge-AI/monorepo#{job_id[1:]}"], None, moment, files[job_id])
+        state.slot_claim(data, "plat-usw2-staging", job_id, 15 if job_id != "j3" else 40, [f"Forge-AI/monorepo#{job_id[1:]}"], None, moment, files[job_id], [f"stack-{job_id}"])
     data["jobs"]["j0"]["state"] = "done"
     moved = state.slot_turns(data, moment + timedelta(minutes=30))
     held = data["slots"]["plat-usw2-staging"]["holder"]
@@ -2792,3 +2792,24 @@ def test_a_free_staging_slot_packs_up_to_six_passes_whose_files_never_overlap_in
     assert state.slot_turns(data, moment + timedelta(minutes=40)) == []
     assert state.slot_release(data, "plat-usw2-staging", "j8") == "j8 left the plat-usw2-staging slot's cut"
     assert [line for _, _, kind, line in state.slot_turns(data, moment + timedelta(minutes=41)) if kind == "freed"] == ["SLOT plat-usw2-staging freed by j1's cut"]
+
+
+def test_passes_restarting_one_stack_take_turns_and_a_top_coordinators_start_holds_a_cut_of_its_own() -> None:
+    moment = datetime(2026, 11, 16, 1, 0, tzinfo=UTC)
+    data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": []} for job_id in ("j0", "j1", "j2", "j3", "j4")}}
+    state.slot_claim(data, "plat-usw2-staging", "j0", 20, [], None, moment)
+    state.slot_claim(data, "plat-usw2-staging", "j1", 15, ["Forge-AI/monorepo#1"], None, moment, ["a"], ["api"])
+    state.slot_claim(data, "plat-usw2-staging", "j2", 15, ["Forge-AI/monorepo#2"], None, moment, ["b"], ["api"])
+    assert state.slot_claim(data, "plat-usw2-staging", "j3", 60, [], None, moment, starts=True).startswith("QUEUED j3")
+    state.slot_claim(data, "plat-usw2-staging", "j4", 15, ["Forge-AI/monorepo#4"], None, moment, ["c"], ["rsw-cp"])
+    data["jobs"]["j0"]["state"] = "done"
+    state.slot_turns(data, moment + timedelta(minutes=30))
+    held = data["slots"]["plat-usw2-staging"]["holder"]
+    assert (held["job"], [rider["job"] for rider in held["riders"]]) == ("j1", ["j4"])
+    for job_id in ("j1", "j4"):
+        data["jobs"][job_id]["state"] = "done"
+    state.slot_turns(data, moment + timedelta(minutes=40))
+    data["jobs"]["j2"]["state"] = "done"
+    moved = state.slot_turns(data, moment + timedelta(minutes=50))
+    assert [(job_id, kind) for _, job_id, kind, _ in moved] == [("j2", "freed"), ("j3", "start")]
+    assert data["slots"]["plat-usw2-staging"]["holder"]["riders"] == []
