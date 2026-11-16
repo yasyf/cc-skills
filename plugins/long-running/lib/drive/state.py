@@ -3634,8 +3634,8 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
     deployed, said, lacking = {}, [], {}
     try:
         for build in dict.fromkeys(build for builds in runs.values() for build in builds):
-            named = github.BUILD.match(build)
-            read = github.build(named["pipeline"], named["number"])
+            ran_build = github.BUILD.match(build)
+            read = github.build(ran_build["pipeline"], ran_build["number"])
             passed = {ran.get("step_key") or "" for ran in read.get("jobs", []) if ran.get("state") == "passed"}
             if envs := sorted({step["env"] for key in passed if (step := APPLY_STEP.fullmatch(key)) and settled.stage(step["env"], clone) == settled.STAGING}) + [MAC_BOX] * (MAC_BOX_SIGNED_IN in passed):
                 deployed[build] = (read["commit"], envs)
