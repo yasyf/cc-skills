@@ -28,7 +28,7 @@ PLANNED = re.compile(r"^(Goal|Done when|Where|Runs as|Native|Interactions|Would 
 RUNS_AS = re.compile(r"^Runs as:(?![ \t]*none\b)[ \t]*(.+)$", re.MULTILINE | re.IGNORECASE)
 FROM_THIS_MAC = re.compile(r"\bbreak[- ]?glass\w*|\bmachine[- ]profile\b", re.IGNORECASE)
 FIELD = re.compile(
-    r"^(Order \(his words\)|From|Linked messages|Serves|Goal|Done when|Where|Runs as|Release|Release build|Mac|Handoff|Decisions that bind|Repo rules|Research|Researched|Answer"
+    r"^(Order \(his words\)|From|Linked messages|Serves|Goal|Done when|Where|Runs as|Model|Release|Release build|Mac|Handoff|Decisions that bind|Repo rules|Research|Researched|Answer"
     r"|Native|Interactions|Would he ask|Plan|Incident|Scratch|Earlier parts|Transcripts|Drive):",
     re.MULTILINE,
 )
@@ -98,6 +98,8 @@ RESEARCHED_KINDS = ("builder", "design", "codex")
 RESEARCH_KINDS = ("reader", "design")
 LANE_KINDS = ("reader", "builder", "design")
 LIGHT_MODELS = ("sonnet", "haiku")
+MECHANICAL = {"model": "sonnet", "effort": "low"}
+NAMED_MODEL = re.compile(r"^Model:[ \t]*(opus)\b", re.MULTILINE | re.IGNORECASE)
 OPENINGS = ("DONE", "READY", "PUSHED", "BUILT", "WAITING", "ASK", "BLOCKED", "DESIGN", "HANDOFF")
 WORDED_KINDS = ("builder", "design")
 DESIGN_LINES = ("Root cause:", "Native:", "Change:", "Facts:")
@@ -1057,11 +1059,22 @@ def incident_refusal(job_id: str, order_id: str, brief: str, rule: str) -> str |
     return None
 
 
+def mechanical(data: dict, job: dict) -> bool:
+    """Whether a job's work is mechanical, ending in a script's exit code and Jev's read, so it runs on MECHANICAL, Sonnet at low effort, unless its starter's call or its brief's `Model: opus` line names Opus: a prover, whose goal reads prove <PRs> live, the work queue's prove worker, and a release job whose release harmless reads as a hotfix of pull requests none of which is dangerous; a release carrying a dangerous change, or a cut of the default branch, whose contents are not read here, keeps Opus."""
+    from drive import work
+
+    if job["kind"] != "builder":
+        return False
+    if release := (job.get("brief_flags") or {}).get("release"):
+        return harmless(release, data)
+    return bool(state.PROVER_GOAL.fullmatch(job["goal"])) or job.get("work_kind") == work.PROVE
+
+
 def heavier(data: dict, job_id: str, brief: str, model: str | None) -> bool:
-    """Whether a Sonnet or Haiku passed for the job's lane gives way to its agent definition's own model: a build order's reader, builder and designer run on Opus or Fable, and so does an answer order's lane when the communicator marked the order complex."""
+    """Whether a Sonnet or Haiku passed for the job's lane gives way to its agent definition's own model: a build order's reader, builder and designer run on Opus or Fable, and so does an answer order's lane when the communicator marked the order complex; a mechanical job keeps it."""
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
-    if HANDOFF.search(brief) or order["incident"] or job["kind"] not in LANE_KINDS or not any(word in (model or "") for word in LIGHT_MODELS):
+    if HANDOFF.search(brief) or order["incident"] or job["kind"] not in LANE_KINDS or not any(word in (model or "") for word in LIGHT_MODELS) or mechanical(data, job):
         return False
     if order["kind"] != "answer":
         return True

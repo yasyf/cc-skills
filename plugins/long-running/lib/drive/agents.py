@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import NoReturn, Self
 
 from drive import install, limits, procs, reads, render, state, superseded, view
-from drive.brief import BRIEF_JOB, carried, heavier
+from drive.brief import BRIEF_JOB, MECHANICAL, NAMED_MODEL, carried, heavier, mechanical
 
 HIS_KINDS = ("owner", "answer")
 RECORD = re.compile(r"^Record: (\d+)\b", re.MULTILINE)
@@ -278,7 +278,7 @@ def seen(payload: dict) -> dict:
 
 
 def shaped(payload: dict) -> dict:
-    """The Agent call a drive session makes, in the one shape the drive runs it: a role's call without `name`, since a named agent joins the agent team and never wakes on events, a design job as the designer, the only definition that keeps it read only and its forks in his cards' shape, and Fable on the designer alone; a lane whose order needs its definition's Opus or Fable without the Sonnet or Haiku passed for it; and any effort above EFFORT_CEILING lowered to it, by his Nov 15 words "nothing should be running at xhigh"."""
+    """The Agent call a drive session makes, in the one shape the drive runs it: a role's call without `name`, since a named agent joins the agent team and never wakes on events, a design job as the designer, the only definition that keeps it read only and its forks in his cards' shape, and Fable on the designer alone; a lane whose order needs its definition's Opus or Fable without the Sonnet or Haiku passed for it; a mechanical job, by brief.mechanical, on Sonnet at low effort when neither the call nor its brief's `Model: opus` line names a model; and any effort above EFFORT_CEILING lowered to it, by his Nov 15 words "nothing should be running at xhigh"."""
     call = payload["tool_input"]
     if not (names := state.session_drives(payload.get("session_id") or "")):
         return call
@@ -296,6 +296,8 @@ def shaped(payload: dict) -> dict:
         made["effort"] = EFFORT_CEILING
     if job_id and heavier(data, job_id, text, made.get("model")):
         del made["model"]
+    if job_id and not made.get("model") and not NAMED_MODEL.search(text) and mechanical(data, data["jobs"][job_id]):
+        made = {"effort": MECHANICAL["effort"]} | made | {"model": MECHANICAL["model"]}
     return made
 
 
@@ -642,7 +644,7 @@ def plugin_keys() -> list[str]:
 def start_job(name: str, job_id: str, agent: str, call: dict, held: dict, cwd: Path) -> str:
     """Start a builder's or reader's agent as its own `claude --bg` session on the Agent call its starter would make, its type, model and prompt, in cwd, the drive's checkout at the head of its default branch, as a handler starts, JOB_ENV naming the drive, the job, the agent id it is recorded as and the session holding its order, by which seen binds every hook of it as that session's agent, `CCI_PARENT_SESSION` naming that session, so cci posts from it as that session's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, on lane_session's settings and flags for its type, so it compacts, loads its rules and runs its effort as an Orca lane does, headless, advised by JOB_ADVISOR, and on only the plugins and servers its type needs; the session `claude --bg` names."""
     env = {state.JOB_ENV: f"{name}/{job_id}/{agent}/{held['session']}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name}
-    settings, flags = lane_session(env, call["subagent_type"], cwd)
+    settings, flags = lane_session(env, call["subagent_type"], cwd, call.get("effort") or EFFORT_CEILING)
     model = ["--model", call["model"]] if call.get("model") else ["--model", DESIGNER_MODEL] if call["subagent_type"] == DESIGNER else []
     argv = ["claude", "--bg", "--agent", call["subagent_type"], *model, *flags, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} {job_id}", call["prompt"]]
     return launched(reads.run(argv, cwd, {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
@@ -703,11 +705,11 @@ def watchdog(name: str, brief: str, cwd: str, out: Path) -> int:
         return subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=written, stderr=subprocess.STDOUT, start_new_session=True).pid
 
 
-def lane_session(env: dict[str, str], role: str, checkout: Path) -> tuple[dict, tuple[str, ...]]:
-    """The `--settings` value and the flags a lane the drive starts as its own Claude Code session on this Mac runs on, such as a builder or reader the watch starts with `claude --bg`: light's settings for role, the 350,000-token window of lib/lane.json, mcp_flags' servers for role, EFFORT_CEILING and JOB_ADVISOR as its advisor, by his pick for the drive's job workers, "use opus as the advisor for those", but a designer, the drive's one Fable job, which runs with no advisor, since an Opus advisor cannot advise a Fable executor, the flags going before any other flag or prompt, as LANE_RULES_ARGS must."""
+def lane_session(env: dict[str, str], role: str, checkout: Path, effort: str = EFFORT_CEILING) -> tuple[dict, tuple[str, ...]]:
+    """The `--settings` value and the flags a lane the drive starts as its own Claude Code session on this Mac runs on, such as a builder or reader the watch starts with `claude --bg`: light's settings for role, the 350,000-token window of lib/lane.json, mcp_flags' servers for role, the effort given, EFFORT_CEILING unless the job's Agent call names a lower one as a mechanical job's does, and JOB_ADVISOR as its advisor, by his pick for the drive's job workers, "use opus as the advisor for those", but a designer, the drive's one Fable job, which runs with no advisor, since an Opus advisor cannot advise a Fable executor, the flags going before any other flag or prompt, as LANE_RULES_ARGS must."""
     if role == DESIGNER:
-        return light(session_settings(env | ADVISOR_OFF), role, checkout), (*LANE_RULES_ARGS, *STRICT_MCP, "--effort", EFFORT_CEILING)
-    return light(session_settings(env), role, checkout), (*LANE_RULES_ARGS, *STRICT_MCP, "--effort", EFFORT_CEILING, ADVISOR_FLAG, JOB_ADVISOR)
+        return light(session_settings(env | ADVISOR_OFF), role, checkout), (*LANE_RULES_ARGS, *STRICT_MCP, "--effort", effort)
+    return light(session_settings(env), role, checkout), (*LANE_RULES_ARGS, *STRICT_MCP, "--effort", effort, ADVISOR_FLAG, JOB_ADVISOR)
 
 
 def session_settings(env: dict[str, str]) -> dict:

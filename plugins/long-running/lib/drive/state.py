@@ -50,7 +50,7 @@ ENDED_JOB_STATES = ("failed", "stopped")
 ANSWERING = timedelta(minutes=10)
 POSTS_LANE = "posts"
 FINISHED_JOB_STATES = ("done", *ENDED_JOB_STATES)
-BRIEF_FLAGS = ("serves", "done_when", "where", "runs_as", "release", "mac", "after", "handoff", "ruling", "native", "interactions", "would_he_ask", "plan", "incident", "scratch")
+BRIEF_FLAGS = ("serves", "done_when", "where", "runs_as", "model", "release", "mac", "after", "handoff", "ruling", "native", "interactions", "would_he_ask", "plan", "incident", "scratch")
 CHANGE_KINDS = ("builder", "codex")
 WORK_KINDS = (*CHANGE_KINDS, "design")
 INCIDENT_FIX = "fix"

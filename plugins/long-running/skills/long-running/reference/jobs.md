@@ -163,7 +163,11 @@ What the hooks do to an Agent call:
 - `agent_brief` sets its shape. It drops `name`, since a named agent joins the agent team and does
   not wake on events. It drops Fable from any agent but `long-running:designer`, starts a design job
   as `long-running:designer` whatever type the call names, and drops `sonnet` or `haiku` from a lane
-  of a build order or of an answer order marked `--complex`.
+  of a build order or of an answer order marked `--complex`. A mechanical job, a prover or a release
+  of a hotfix changing nothing dangerous, keeps a `sonnet` passed for it, and one whose call and
+  brief name no model runs on Sonnet at low effort; `drive job brief <j> --model opus` writes the
+  `Model: opus` line that keeps it on Opus. A release carrying a dangerous change, or a cut of the
+  default branch, keeps Opus.
 - `agent_brief` refuses a reader, builder or designer whose prompt names no brief file in the
   drive's `jobs/` folder, where `drive job brief`, a handoff and a launch write every brief. It
   names `drive job brief <j>`.

@@ -884,6 +884,16 @@ def drive_agent(subagent_type: str, prompt: str, model: str | None = None, sessi
     return {"session_id": session or os.environ["CLAUDE_CODE_SESSION_ID"], "tool_name": "Agent", "tool_input": tool_input}
 
 
+def test_a_prover_runs_on_sonnet_at_low_effort_unless_its_call_or_its_briefs_model_line_names_opus(meta: str, run: Run) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
+    run("job", "add", "builder", "--order", "o1", "--goal", "prove #12 live", "--builds-nothing")
+    prompt = "Order: Drive tooling: copy one store\nServes: drive tooling\nDrive: demo, order o1, job j1"
+    assert agents.shaped(drive_agent("long-running:builder", prompt)) == {"subagent_type": "long-running:builder", "prompt": prompt, "description": "d", "model": "sonnet", "effort": "low"}
+    assert agents.shaped(drive_agent("long-running:builder", prompt, "sonnet"))["model"] == "sonnet"
+    assert agents.shaped(drive_agent("long-running:builder", prompt, "opus")) == drive_agent("long-running:builder", prompt, "opus")["tool_input"]
+    assert "model" not in agents.shaped(drive_agent("long-running:builder", f"Model: opus\n{prompt}"))
+
+
 def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_research(
     meta: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

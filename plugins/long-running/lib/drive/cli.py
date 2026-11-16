@@ -4038,6 +4038,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         "Done when": flags["done_when"],
         "Where": " ".join(filter(None, [flags["where"], (stacked := state.stacked_on(data, job)) and f"Cut your branch {stacked}, so your PR stacks on the changes it waited on."])),
         "Runs as": flags["runs_as"],
+        "Model": flags["model"],
         "Release": release,
         "Release build": job["release_build"],
         "Release freezes": brief.releases(name, data),
@@ -7897,6 +7898,7 @@ def parser() -> argparse.ArgumentParser:
         help=f"his user stories on the result, `;` only between stories, each what he does, and sees what he then sees, its result inside the story after \", and sees\", never after a `;`, such as \"he presses j on the queue, and sees the next card open with its question as its first line\"; its job writes strict acceptance criteria for each before building and proves each on the installed surface with {brief.SEEN}; needed when --native names a surface",
     )
     brief_opt.add_argument("--would-he-ask", help="what he would still have to ask for if only his words were built")
+    brief_opt.add_argument("--model", choices=["opus"], help="opus keeps a mechanical job, a prover or a release of a hotfix changing nothing dangerous, on its definition's Opus where its work needs judgment, in place of the Sonnet at low effort it runs on by default")
     brief_opt.add_argument("--runs-as", help="for a pass, a hand repair or any other write of a team's data: the service account in its cluster and how it starts; \"none: <why>\" for a job that writes none")
     brief_opt.add_argument(
         "--mac",

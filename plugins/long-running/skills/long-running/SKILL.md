@@ -5,7 +5,7 @@ description: Use when work will outlive one context window, spans several PRs or
 
 # Long-running drives
 
-A drive is three Claude Code sessions, the communicator, coordinator and meta session, and their jobs. The top coordinator and the designer run Fable 5.2 (`claude-fable-5-2`); every other session runs Opus 5.5 (`claude-opus-5-5`) advised by Fable (`start`), and every other agent Opus, Sonnet only for a one-fact lookup.
+A drive is three Claude Code sessions, the communicator, coordinator and meta session, and their jobs. The top coordinator and the designer run Fable 5.2 (`claude-fable-5-2`); every other session runs Opus 5.5 (`claude-opus-5-5`) advised by Fable (`start`), and every other agent Opus, Sonnet only for a one-fact lookup and for mechanical jobs: a prover and a release job of a hotfix changing nothing dangerous run on Sonnet at low effort, since each ends in a script's exit code and Jev's read, unless the starter's call or the brief's `Model: opus` line names Opus; a release carrying a dangerous change, or any cut of the default branch, keeps Opus.
 
 The communicator is the only session he talks to, and it answers him itself. It reads his message against the whole thread, shows progress in the thread's status, posts the answer with `say`, and gives a long read to a background Explore or Sonnet subagent so his next message never waits. A `POST` report, and the watch's `ANSWER THIS:` note on a record to post or a message of his unanswered for 10 minutes, are the communicator's to post (`communicator`). He reads only Slack, and no session has AskUserQuestion.
 
