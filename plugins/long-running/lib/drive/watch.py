@@ -107,6 +107,9 @@ PASS_DONE = (
 )
 RELAUNCH_REFUSED = "relaunch_refused"
 START_AT_ONCE = 2
+LANE_READS_AT_ONCE = 6
+SPENT_SHOWN = 3
+SPENT_WORDS = 3
 READ_UNANSWERED = "read_unanswered"
 PROOFS_LOG = "proofs.log"
 POSTS_LOG = "posts.log"
@@ -3722,11 +3725,26 @@ def launching(job: dict, moment: datetime) -> bool:
     return bool(job.get("launching")) and moment - state.parse_time(job["launching"]) < RELAUNCH
 
 
+def lanes_shown(jobs: list[dict]) -> dict[str, dict | orca.OrcaError]:
+    """Each live remote lane's worker-show, by its dispatch, or the OrcaError its read raised, read LANE_READS_AT_ONCE at a time, so a pass waits on the slowest read of each batch rather than on every lane's read in turn."""
+
+    def shown(dispatch: str) -> dict | orca.OrcaError:
+        try:
+            return orca.worker(dispatch)
+        except orca.OrcaError as error:
+            return error
+
+    dispatches = sorted({job["dispatch"] for job in jobs})
+    with ThreadPoolExecutor(LANE_READS_AT_ONCE) as pool:
+        return dict(zip(dispatches, pool.map(shown, dispatches)))
+
+
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach, which wake hands to drive job resume at the first failed read, saying no LANE line, since a retry and reconnect needs no model, and again each REWAKE, its LANE line going to the session holding it from that second failure on, its failed reads neither counted nor said while busy reads another drive verb acting on the job, as the wake an earlier watch started does, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite; a live lane whose job keeps texts queued has them settled by its mailbox each pass, by state.take_mail, its worker's next turn started by orca.wake_turn when that read leaves a text unread and its turn is over, and a remote lane whose worker finished or exited has the mail it never read held on its job once for its dispatch by unread_lines, before death_lines relaunches a running job's lane. A local agent that ended its turn on a message opening with a result word its job's history lacks has that message taken by cli.take_report, as `drive job report` takes a return, or kept in that history once that refuses it, the refusal on its JOB line, and has no gap here; a codex job whose codex-ask run ended, or that has none going and none left to take, by Gone, has no gap here, since the relay takes it, by codex_takes, while one whose run codex-ask cannot read counts lost, as a lane Orca cannot read does."""
     data = state.load(watcher.name)
     gaps, deaths, refusals, heads, found, finished, boxes, lost, idle, lines = {}, {}, {}, {}, {}, {}, {}, {}, {}, []
     read: set[str] = set()
+    shown = lanes_shown([job for order_id, order in heard_orders(watcher, data).items() for job_id in order["jobs"] if (job := data["jobs"][job_id])["order"] == order_id and job.get("where") == "remote" and job.get("dispatch") and job["state"] in LIVE_JOB_STATES and not state.lane_death(job)])
     for order_id, order in heard_orders(watcher, data).items():
         for job_id in order["jobs"]:
             job = data["jobs"][job_id]
@@ -3778,7 +3796,8 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 continue
             source = f"lane of {job_id}"
             try:
-                worker = orca.worker(job["dispatch"])
+                if isinstance(worker := shown[job["dispatch"]], orca.OrcaError):
+                    raise worker
             except orca.OrcaError as error:
                 if running:
                     lost[job_id] = f"Orca cannot read its lane {job['dispatch']}: {orca.gone(error) or error}"
@@ -5992,6 +6011,7 @@ class Pulse:
     step: str = "start"
     since: float = field(default_factory=monotonic)
     staged: bool = False
+    spent: dict[str, list[float]] = field(default_factory=dict)
 
 
 PULSE = Pulse()
@@ -6000,8 +6020,40 @@ PULSE = Pulse()
 def beat(step: str, staged: bool = False) -> None:
     """Mark the watch as beginning step, logging the step before it when that one was a stage that ran past LOGGED_STAGE, so the log names each slow stage by its time."""
     if PULSE.staged and (took := monotonic() - PULSE.since) >= LOGGED_STAGE.total_seconds():
-        print(f"{state.stamp()} stage {PULSE.step} took {took:.0f}s", flush=True)
-    PULSE.step, PULSE.since, PULSE.staged = step, monotonic(), staged
+        print(f"{state.stamp()} stage {PULSE.step} took {took:.0f}s{spent_in(PULSE.spent)}", flush=True)
+    PULSE.step, PULSE.since, PULSE.staged, PULSE.spent = step, monotonic(), staged, {}
+
+
+def spent_in(spent: dict[str, list[float]]) -> str:
+    """The calls a slow stage spent longest in, by timed_calls: its three costliest kinds of state.load or subprocess.run, each with its count and seconds, which can sum past the stage's own time when calls ran side by side."""
+    top = sorted(spent.items(), key=lambda item: -item[1][1])[:SPENT_SHOWN]
+    return "".join(f"; {what} x{count:.0f} {seconds:.0f}s" for what, (count, seconds) in top)
+
+
+def timed_calls() -> None:
+    """Count each state.load and subprocess.run this watch process makes, by the step it runs in, so a slow stage's log line names what it waited on."""
+    run, load = subprocess.run, state.load
+
+    def spending(what: str, began: float) -> None:
+        held = PULSE.spent.setdefault(what, [0, 0.0])
+        held[0] += 1
+        held[1] += monotonic() - began
+
+    def timed_run(argv, *rest, **given):
+        began = monotonic()
+        try:
+            return run(argv, *rest, **given)
+        finally:
+            spending(" ".join(Path(str(word)).name if index == 0 else str(word) for index, word in enumerate(list(argv)[:SPENT_WORDS])) if isinstance(argv, list | tuple) else str(argv)[:40], began)
+
+    def timed_load(name, fields=None):
+        began = monotonic()
+        try:
+            return load(name, fields)
+        finally:
+            spending("state.load" if fields is None else "state.load fields", began)
+
+    subprocess.run, state.load = timed_run, timed_load
 
 
 def stalled(pulse: Pulse, now: float) -> bool:
@@ -6025,6 +6077,7 @@ def guard(path: Path, ended: threading.Event) -> None:
 
 def guarded(name: str, flag: str | None) -> threading.Event:
     """Start the guard of this process, the watch's when flag is None, else that of the responder, relay or landing loop flag names, writing its heartbeat beside the watch's, and return the event that ends it."""
+    timed_calls()
     beat("start")
     finished = threading.Event()
     threading.Thread(target=guard, args=(beat_path(name, flag), finished), daemon=True).start()
