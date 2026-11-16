@@ -1,5 +1,6 @@
 import collections
 import contextlib
+import faulthandler
 import functools
 import hashlib
 import itertools
@@ -12,6 +13,7 @@ import select
 import shlex
 import signal
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -19,6 +21,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
+from time import monotonic
 from typing import NamedTuple, Self
 
 from drive import agents, answer, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, page, place, procs, reads, receiver, refs, render, served, settled, slack, stage, stall, state, superseded, superseded_procs, train, view
@@ -31,6 +34,10 @@ RESPOND_SECONDS = 1
 READ_EVERY = timedelta(seconds=60)
 SETTLED_READ_EVERY = timedelta(minutes=10)
 PASS_FOR = timedelta(minutes=5)
+STALL_FOR = timedelta(minutes=2)
+SLOW_STAGE = timedelta(minutes=1)
+BEAT_SECONDS = 15
+BEAT_FILE = "watchd.beat"
 EVERY_PROJECT_ENV = "LONG_RUNNING_WATCH_EVERY_PROJECT"
 FAILURES_BEFORE_SAYING = 3
 FAILURE_EVERY = timedelta(minutes=10)
@@ -4935,12 +4942,16 @@ def passed(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
 
 def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lambda: None, lands: bool = False) -> Iterator[list[str]]:
     """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, so a pass that crashes while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass, a process's first included, so its ORPHAN comes on time however short a watch process lives, healing a gap that reads None only after the process's first read, since a gap a process reads before its agent_lines reads its lanes can read None and a part whose order a later stage closes is gone by the end's orphan_lines, then the drive's own Orca terminal every Orca call speaks as, his cards as the landing loop last stored them and the messages of his cc-slack owes an answer, or, in a pass run in-process, which lands, the landing stages, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the post in each place saying what waits on him, the status page, a coordinator whose process exited, a dashboard whose server exited, each teammate thread an order watches, each handoff the communicator withdrew and each message of his cc-slack owes an answer every 60 s, then events written since, its own stages' among them, and, in a pass that lands, the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, and each builder's PUSHED or lane's READY those settle, so one a lane sent this pass is taken in it, then the daily Slack sweep's drive tooling orders, claims whose end passed, job clocks run out, his answers no resume has carried to their jobs, each answer order left nothing owed, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, and parts nothing carries. Each stage after the orphans is named by its function: the pass starts those at the watcher's resume when one of them bears its name, so the watch after one that ended mid-pass for a newer install runs only the stages that one had not, and ends before the first one it reaches once until answers, keeping that one's name as the resume. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
+    beat("drained", True)
     yield drained(watcher.relayed)
+    beat("event_lines", True)
     yield event_lines(watcher)
+    beat("orphan_lines", True)
     yield orphan_lines(watcher, moment, NotStarted if watcher.read_at is None else (NotStarted, type(None)))
     later: list[functools.partial] = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
+        beat("reads", True)
         try:
             orca.speak_as_drive(watcher.name)
         except orca.OrcaError as error:
@@ -4999,6 +5010,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
         if until():
             watcher.resume = stage.func.__name__
             return
+        beat(stage.func.__name__, True)
         yield stage() or []
 
 
@@ -5485,6 +5497,45 @@ def stopped(watcher: Watcher, error: Exception) -> None:
         sent(watcher, watcher.lane, [line], state.now())
 
 
+@dataclass
+class Pulse:
+    """What the watch process is doing now: the step it began, when by time.monotonic, and whether that step is a pass's stage, which may run up to PASS_FOR, or anything else, a rest, a hand-off, its start or its end, which takes seconds."""
+
+    step: str = "start"
+    since: float = field(default_factory=monotonic)
+    staged: bool = False
+
+
+PULSE = Pulse()
+
+
+def beat(step: str, staged: bool = False) -> None:
+    """Mark the watch as beginning step, logging the step before it when that one was a stage that ran past SLOW_STAGE, so the log names each slow stage by its time."""
+    if PULSE.staged and (took := monotonic() - PULSE.since) >= SLOW_STAGE.total_seconds():
+        print(f"{state.stamp()} stage {PULSE.step} took {took:.0f}s", flush=True)
+    PULSE.step, PULSE.since, PULSE.staged = step, monotonic(), staged
+
+
+def stalled(pulse: Pulse, now: float) -> bool:
+    """Whether the watch is stuck on its step: a stage running past PASS_FOR and a minute more, or anything else past STALL_FOR."""
+    return now - pulse.since > (PASS_FOR + SLOW_STAGE if pulse.staged else STALL_FOR).total_seconds()
+
+
+def guard(name: str, ended: threading.Event) -> None:
+    """Write the watch's heartbeat, its pid, step and how long that step has run, to BEAT_FILE every BEAT_SECONDS until ended is set, and end the process once it is stalled on a step, its threads' stacks dumped to its log first, so its launch agent starts a fresh watch within RESTART_SECONDS and the log names the line it hung on; no pass, rest, start or end of the watch then holds the drive's watch for longer than PASS_FOR and a minute, or STALL_FOR outside a stage."""
+    path = state.drive_dir(name) / BEAT_FILE
+    while True:
+        now = monotonic()
+        path.write_text(json.dumps({"pid": os.getpid(), "step": PULSE.step, "for": round(now - PULSE.since), "at": state.stamp()}) + "\n")
+        if stalled(PULSE, now):
+            print(f"{state.stamp()} WATCH stalled {now - PULSE.since:.0f}s on {PULSE.step}, so it ends for its launch agent to start it again; every thread's stack:", flush=True)
+            faulthandler.dump_traceback(file=sys.stdout, all_threads=True)
+            sys.stdout.flush()
+            os._exit(3)
+        if ended.wait(BEAT_SECONDS):
+            return
+
+
 def main(drive_name: str | None = None, project: str | None = None) -> int:
     """Run the drive's watch as the process its launch agent starts, until it stops, once a watch an older install ran under a Monitor has ended, with the env of this Mac's Claude settings in its environment, so each read it runs carries the API keys a session here carries; it runs each project's passes beside the drive's own over the one copy of the drive this process keeps, by watching. Any other process, such as one an older install's watch re-executed itself into, lets the watch go, loads its agent and ends, so launchd runs every watch; a project's own watch, as an older install's launch agent starts it, takes that agent down and ends, by retire, for the drive's watch to take its project. On a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves, end at once, so a watch an older install started there ends at its next re-exec."""
     if state.scratch():
@@ -5501,19 +5552,25 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
         return 0
     if not claim(name):
         return 0
+    beat("start")
+    ended = threading.Event()
+    threading.Thread(target=guard, args=(name, ended), daemon=True).start()
     watcher = None
     try:
         os.environ.update(launchd.session_env())
         children.mark_watch()
         children.reap_inherited()
         while holder(state.monitor_pid_path(name)):
+            beat("waiting for the watch a Monitor runs")
             time.sleep(POLL_SECONDS)
+        beat("start")
         watcher = watched(name, None)
         watching(watcher)
     finally:
         for project in watcher.others if watcher else []:
             release(name, project)
         release(name)
+        ended.set()
     return 0
 
 
@@ -5529,6 +5586,7 @@ def watching(watcher: Watcher) -> None:
     try:
         with relaying(watcher):
             for _ in rests(state.events_path(watcher.name)):
+                beat("pass")
                 if newer := upgraded():
                     print(f"ended on long-running {state.VERSION} for {newer}, before {watcher.resume or 'its next pass'}", flush=True)
                     break
@@ -5540,6 +5598,8 @@ def watching(watcher: Watcher) -> None:
                             print(line, flush=True)
                     if one.offset != read_from:
                         state.save_watch_cursor(one.name, one.offset, one.project)
+                beat("rest")
+            beat("end")
     except Exception as error:
         for each in [watcher, *watcher.others.values()]:
             keep_unposted(each)
