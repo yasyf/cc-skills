@@ -79,7 +79,7 @@ def test_one_post_links_each_reference_the_way_slack_and_the_dashboard_each_show
     assert (kept["url"], kept["thread"]) == (POSTED, "1794300000.000900")
 
 
-def test_a_root_post_on_an_order_goes_to_its_projects_operator_channel_and_keeps_the_messages_it_answers(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_answer_on_a_project_order_goes_in_his_dm_messages_thread_and_keeps_the_messages_it_answers(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C777", "name": "him-drive-demo-iris"}])
     with state.edit(demo) as data:
         data["slack"]["channels"] = {"Iris": {"id": "C777", "name": "him-drive-demo-iris"}}
@@ -87,10 +87,10 @@ def test_a_root_post_on_an_order_goes_to_its_projects_operator_channel_and_keeps
     talk.posted(demo, {"text": "The fix is up.", "asked": json.dumps(["1794200000.000300"])}, "o1")
     talk.posted(demo, {"text": "The fix is in."})
     assert posts == [
-        ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--channel", "C777", "--", "The fix is up."),
+        ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--thread", "1794200000.000300", "--", "The fix is up."),
         ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--", "The fix is in."),
     ]
-    assert [(event["channel"], event["answers"]) for event in said(demo)] == [("C777", ["1794200000.000300"]), (None, [])]
+    assert [(event["channel"], event["answers"]) for event in said(demo)] == [(None, ["1794200000.000300"]), (None, [])]
 
 
 def test_a_card_of_no_project_asks_at_the_root_of_the_drives_own_channel_while_a_status_line_of_none_stays_in_his_dm(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
@@ -105,7 +105,7 @@ def test_a_card_of_no_project_asks_at_the_root_of_the_drives_own_channel_while_a
     assert [argv[argv.index("--channel") + 1] if "--channel" in argv else None for argv in posts] == ["C888", None]
 
 
-def test_once_the_drive_has_its_own_channel_a_post_of_a_project_with_none_makes_its_channel_and_a_status_line_of_no_project_goes_to_the_drives(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_once_the_drive_has_its_own_channel_a_post_of_a_project_with_none_makes_its_channel_an_incident_line_goes_there_too_and_a_status_line_of_no_project_goes_to_the_drives(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
     made = {"him-drive-demo-iris": {"id": "C777", "name": "him-drive-demo-iris"}}
     sent = slack.cc_slack
     monkeypatch.setattr(slack, "cc_slack", lambda *argv, **_: made[argv[1]] if argv[0] == "operator-channel" else sent(*argv))
@@ -116,7 +116,7 @@ def test_once_the_drive_has_its_own_channel_a_post_of_a_project_with_none_makes_
     talk.posted(demo, {"text": "The fix is up."}, "o1")
     talk.posted(demo, {"text": "The fix is in."})
     talk.posted(demo, {"text": "The outage is fixed."}, "o2")
-    assert [argv[argv.index("--channel") + 1] if "--channel" in argv else None for argv in posts] == ["C777", "C666", None]
+    assert [argv[argv.index("--channel") + 1] if "--channel" in argv else None for argv in posts] == ["C777", "C666", "C777"]
     assert state.load(demo)["slack"]["channels"]["Iris"] == made["him-drive-demo-iris"]
 
 
@@ -491,6 +491,7 @@ def test_each_visual_goes_to_slack_as_a_picture_and_to_the_dashboard_as_its_sour
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     drawn = tmp_path / "one chat.png"
+    drawn.write_bytes(b"one chat")
     asked: list[tuple[str, str, str]] = []
     monkeypatch.setattr(picture, "cached", lambda folder, name, kind, source: asked.append((name, kind, source)) or drawn)
     talk.say(demo, {"text": "The lock", "visuals": [{"kind": "code", "language": "go", "source": "mu.Lock()", "caption": "one chat"}]})
@@ -520,7 +521,13 @@ def test_a_code_or_diagram_fence_in_the_text_goes_to_slack_as_its_picture_while_
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     asked: list[tuple[str, str, str]] = []
-    monkeypatch.setattr(picture, "cached", lambda folder, name, kind, source: asked.append((name, kind, source)) or tmp_path / f"{name}.png")
+
+    def cached(folder: Path, name: str, kind: str, source: str) -> Path:
+        asked.append((name, kind, source))
+        (drawn := tmp_path / f"{name}.png").write_bytes(source.encode())
+        return drawn
+
+    monkeypatch.setattr(picture, "cached", cached)
     stays = 'The reply:\n```json\n{"locked": true}\n```\nThe steps:\n```\nlock, write, unlock\n```\nPer day:\n```chart\n{"mark": "bar"}\n```'
     text = f"The lock covers each chat:\n```go\nmu.Lock()\ndefer mu.Unlock()\n```\nWho takes it:\n```mermaid\nflowchart TD\n  chat --> lock\n```\n{stays}"
     talk.say(demo, {"text": text})
@@ -759,7 +766,7 @@ def test_a_post_on_an_order_goes_out_in_any_thread_and_a_thread_the_order_holds_
         line = f"{posted}?thread_ts={thread}" if thread else posted
         monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": line, "thread_ts": thread})
         report(monkeypatch, {"order": order})
-        return talk.say(demo, {"text": "The copy stalls on the lock.", "thread_ts": thread, "record": "683594"}).removeprefix(f"POSTED {line}; {order} progress line, no part delivered: {line}")
+        return talk.say(demo, {"text": "The copy stalls on the lock.", "thread_ts": thread, "record": str(683594 + len(slack_thread.messages))}).removeprefix(f"POSTED {line}; {order} progress line, no part delivered: {line}")
 
     assert [say(thread, order) for thread, order in [("1794300000.000100", "o1"), ("1794200000.000100", "o2"), (None, "o3")]] == ["", "", ""]
     assert say("1794400000.000100", "o1") == ", in thread 1794400000.000100, now one of its threads"
@@ -970,7 +977,7 @@ def test_a_say_of_a_record_retried_after_cc_slack_posted_and_failed_hands_cc_sla
     assert [(kept["url"], kept["order"]) for kept in said(demo)] == [(link, "o1")]
 
 
-def test_a_records_post_keys_on_its_words_so_a_second_line_on_one_record_goes_out_while_a_retry_of_one_line_does_not(
+def test_a_records_post_keys_on_its_words_so_a_retry_of_one_line_keys_alike_while_a_second_say_of_a_posted_record_is_refused(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     thread = "1794200000.000100"
@@ -980,11 +987,15 @@ def test_a_records_post_keys_on_its_words_so_a_second_line_on_one_record_goes_ou
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     report(monkeypatch, {"order": "o1", "thread": thread}, lane="communicator", kind="owner")
-    for text in ("The copy stalls on the lock.", "The copy stalls on the lock.", "The lock is released."):
-        talk.say(demo, {"text": text, "thread_ts": thread, "record": "690001"})
-    keys = [argv[argv.index("--request-key") + 1] for argv in posts]
-    assert keys[0] == keys[1] != keys[2]
-    assert all(key.startswith("1794388096896-demo.690001.") for key in keys)
+    talk.say(demo, {"text": "The copy stalls on the lock.", "thread_ts": thread, "record": "690001"})
+    [key] = [argv[argv.index("--request-key") + 1] for argv in posts]
+    written = {"written": "2026-11-11T09:08:16.896Z"}
+    keys = [talk.request_key(demo, {"text": text, "record": "690001"}, written) for text in ("The copy stalls on the lock.", "The copy stalls on the lock.", "The lock is released.")]
+    assert key == keys[0] == keys[1] != keys[2]
+    assert all(each.startswith("1794388096896-demo.690001.") for each in keys)
+    with pytest.raises(DriveError, match="^nothing posted: the watch already posted report 690001 at "):
+        talk.say(demo, {"text": "The lock is released.", "thread_ts": thread, "record": "690001"})
+    assert len(posts) == 1
 
 
 def test_a_report_delivers_on_an_order_only_from_the_lane_of_its_holder_and_a_refusal_names_the_report_the_handler_passes(
@@ -1218,7 +1229,7 @@ def test_a_line_in_an_alerts_thread_goes_out_through_cc_slack_reply_with_the_tic
     ]
     assert said(demo)[0]["channel"] == "C0ALERT1"
     with pytest.raises(DriveError, match=f"^nothing posted: thread {ALERT} is in channel C0ALERT1, not his DM, so pass channel_id C0ALERT1 with it$"):
-        talk.say(demo, {"text": "The release failed on the migration.", "thread_ts": ALERT, "record": "683597"})
+        talk.say(demo, {"text": "The release failed on the migration.", "thread_ts": ALERT, "record": "683598"})
     assert len(posts) == 1
 
 
@@ -1228,7 +1239,7 @@ def test_a_reports_post_naming_no_place_goes_nowhere_when_its_line_has_a_thread_
     alert_order(run, slack_thread)
     report(monkeypatch, {"order": "o1", "thread": ALERT})
     line = {"text": "The release failed on the migration.", "record": "683597"}
-    with pytest.raises(DriveError, match=f"^nothing posted: report 683597's line goes in thread {ALERT} of channel C0ALERT1, never his DM root: pass channel_id C0ALERT1 and thread_ts {ALERT}, "):
+    with pytest.raises(DriveError, match=f"^nothing posted: report 683597's line goes in thread {ALERT} of channel C0ALERT1, never its root: pass channel_id C0ALERT1 and thread_ts {ALERT}, "):
         talk.say(demo, line)
     card = "1794439546.145729"
     report(monkeypatch, {"order": "o1", "thread": card})
