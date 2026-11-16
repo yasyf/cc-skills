@@ -861,6 +861,7 @@ def queue(drive: dict, found: dict, moment: datetime, features: list[dict], answ
         home = next((filed.get(order_id) or drive["orders"][order_id] for order_id in item["tasks"] if order_id in drive["orders"]), None)
         item |= {"project": home and home["project"], "workstream": home and home["workstream"]}
         rank, item["rank_why"] = ranking(drive, item, item["tasks"], urgent, moment, answering.get(item.get("thread")))
+        item["reason"] = reason(item, rank, urgent)
         ranked.append((rank, item))
     return [
         item | {"priority": {"rank": position, "answering": rank[0], "incident": not rank[1], "weight": -rank[3]}}
@@ -892,6 +893,71 @@ def ranking(drive: dict, item: dict, orders: list[str], urgent: dict[str, str], 
     ]
     rank = (asked is not None, incident is None, not built, -weight, state.parse_time(since) if since else datetime.max.replace(tzinfo=moment.tzinfo))
     return rank, "; ".join(part for part in why if part)
+
+
+def reason(item: dict, rank: tuple, urgent: dict[str, str]) -> dict:
+    """The one plain reason an item ranks where it does, as the queue's card leads with it: `tone` (bad, warm, quiet or plain), `label` a few words, and `text` what it names."""
+    asked, calm, unbuilt, weight = rank[0], rank[1], rank[2], -rank[3]
+    if asked:
+        return {"tone": "quiet", "label": "Drive is answering you", "text": "It waits on the drive's reply to your words, so it sits below the rest"}
+    if not calm:
+        return {"tone": "bad", "label": "Fixes a live incident", "text": next(urgent[order_id] for order_id in item["tasks"] if order_id in urgent)}
+    built = len(item.get("built") or [])
+    if not unbuilt:
+        return {"tone": "warm", "label": f"{counted(built, 'build')} done, waiting on you", "text": "Work already built on the recommended answer opens its PRs once you decide"}
+    if item["kind"] == "tap" and weight:
+        lands = sum(pr["state"] == "open" for pr in item["prs"])
+        return {"tone": "plain", "label": f"Approve lands {counted(lands, 'PR')}", "text": f"It frees {counted(weight, 'piece')} of work in all"}
+    if weight:
+        return {"tone": "plain", "label": f"Unblocks {counted(weight, 'piece')} of work", "text": f"Holds {counted(len(item['blocks']), 'task')} and {counted(item['holds'], 'finished change')}"}
+    return {"tone": "plain", "label": "Oldest first", "text": "Nothing else waits on it, so it ranks by how long it has waited"}
+
+
+STAGING_PLAIN = (
+    (re.compile(r"^Tested on staging(?: after its merge)?: (?:[^;]*, )?passed"), "Passed on staging", "good"),
+    (re.compile(r"^Tested on staging(?: after its merge)?: .*stopped"), "Staging test stopped with no result", "bad"),
+    (re.compile(r"^Tested on staging"), "Failed on staging", "bad"),
+    (re.compile(r"^Testing on staging"), "Testing on staging now", "warn"),
+    (re.compile(r"^Not on staging yet"), "Queued for staging", "warn"),
+    (re.compile(r"^Not on staging: its staging test has not started"), "Staging test not started", "warn"),
+    (re.compile(r"^Not on staging: its test ended, stopped"), "Staging test stopped with no result", "bad"),
+    (re.compile(r"^Not on staging: its test ended"), "Failed on staging", "bad"),
+    (re.compile(r"^Not on staging before it merges"), "Tested on staging after it merges", ""),
+    (re.compile(r"^Not on staging: its builder says"), "No staging test: judged safe without one", ""),
+    (re.compile(r"^Not on staging: .* has no staging env"), "No staging for this repo", ""),
+    (re.compile(r"^Not on staging: staging has no copy"), "Staging cannot test it; it lands on your exception", "warn"),
+    (re.compile(r"^Not on staging"), "No staging test", ""),
+)
+AFTER_APPROVE = {
+    "landing": "It is merging now.",
+    "behind": "It merges once the change under it merges.",
+    "blocked": "It still waits on another decision of yours before it merges.",
+    "unlanded": "Its work is not finished, so Approve alone does not merge it.",
+    "red": "A check or its staging test failed; its builder fixes that, then it merges.",
+    "rework": "It is being reworked to your words first.",
+    "unscheduled": "It waits on work you have not scheduled.",
+    "held": "Your hold on a change it needs keeps it waiting.",
+    "grading": "Its checks are still running; it merges once they pass.",
+    "upstream": "That repository's maintainers merge it, not the drive.",
+    "reviewing": "It waits on a teammate's GitHub review first.",
+}
+
+
+def staging_plain(line: str) -> dict:
+    """A PR's staging line as a few plain words and a tone (good, bad, warn or none), never its env, commit or a job's words."""
+    return next({"word": word, "tone": tone} for shape, word, tone in STAGING_PLAIN if shape.search(line))
+
+
+def approve_plain(waits: str | None, staging: dict) -> str:
+    """What his Approve does to a PR, in one plain sentence from its lander's read: merges now, or what it still waits on, never a job's own words."""
+    if waits is None:
+        return "Approve records your yes; its author merges it."
+    if waits == "":
+        return "Approve sends it to merge now."
+    name = waits.split(":", 1)[0]
+    if name == "waiting" and "staging" in waits:
+        return f"It merges once its staging test passes. {staging['word']}."
+    return AFTER_APPROVE.get(name, "It merges once the work it waits on finishes.")
 
 
 def answering(events: Iterable[dict]) -> dict[str, str]:
@@ -1183,7 +1249,7 @@ def review_entry(key: str, pr: dict, drive: dict, found: dict) -> dict:
         "review": pr["review"],
         "tap": tap_of(pr),
         "stage": pr["stage"],
-        "staging": staging(drive, key),
+        "staging": (staged := staging(drive, key)),
         "on_him": on_him(pr),
         "failed": pr["failed_checks"],
         "conflict": pr["conflict"],
@@ -1192,7 +1258,9 @@ def review_entry(key: str, pr: dict, drive: dict, found: dict) -> dict:
         "base": pr["base"],
         "stack": pr.get("stack") or [],
         "landing": landing_words(pr),
-        "approve_waits": approve_waits(drive, key, pr, found),
+        "approve_waits": (waits := approve_waits(drive, key, pr, found)),
+        "staging_plain": (plain := staging_plain(staged)),
+        "approve_plain": approve_plain(waits, plain),
         "parts": pr["parts"],
         "lead": pr["lead"],
         "job": pr["job"],
@@ -1505,12 +1573,22 @@ def outline(entry: dict) -> dict:
     return {key: value for key, value in entry.items() if key not in ("text", "jobs", "parts", "where", "holdup", "heard")} | {"running": sum(job["state"] == "running" for job in entry["jobs"])}
 
 
+def headline(told: dict | None) -> str | None:
+    return ((told or {}).get("story") or {}).get("headline")
+
+
 def summary(model: dict) -> dict:
     """The board without its history, lanes and edges, which a page reads from its slice, each card at a glance without its rail or story and each feature without its order's words and jobs."""
     rest = {key: value for key, value in model.items() if key not in ("history", "work", "edges")}
+    heads = {entry["key"]: headline(entry.get("told")) for entry in model["review"]}
     return rest | {
-        "queue": [{key: value for key, value in item.items() if key not in ("rail", "told")} | {"card": glance(item["card"])} if item.get("card") else item for item in model["queue"]],
-        "review": [{key: value for key, value in entry.items() if key != "told"} | {"card": entry["card"] and glance(entry["card"])} for entry in model["review"]],
+        "queue": [
+            {key: value for key, value in item.items() if key not in ("rail", "told")}
+            | {"headline": headline(item.get("told")) or (heads.get(state.pr_key(item["pr"])) if item["kind"] == "tap" and len(item["prs"]) == 1 else None)}
+            | ({"card": glance(item["card"])} if item.get("card") else {})
+            for item in model["queue"]
+        ],
+        "review": [{key: value for key, value in entry.items() if key != "told"} | {"card": entry["card"] and glance(entry["card"]), "headline": heads[entry["key"]]} for entry in model["review"]],
         "status": [group | {"features": [outline(entry) for entry in group["features"]]} for group in model["status"]],
     }
 

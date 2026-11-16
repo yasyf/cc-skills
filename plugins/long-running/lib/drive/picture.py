@@ -214,10 +214,17 @@ def visual_site(folder: Path, page: str) -> Iterator[str]:
     (folder / "visual.html").write_text(page)
     for name in ("visuals.js", "vendor"):
         (folder / name).symlink_to(VISUALS.parent / name)
+    with served(folder) as root:
+        yield f"{root}visual.html"
+
+
+@contextlib.contextmanager
+def served(folder: Path) -> Iterator[str]:
+    """The folder served on a loopback port of this Mac while the block runs, as the URL of its root."""
     with http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(QuietFiles, directory=folder)) as server:
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
-            yield f"http://127.0.0.1:{server.server_port}/visual.html"
+            yield f"http://127.0.0.1:{server.server_port}/"
         finally:
             server.shutdown()
 

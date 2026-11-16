@@ -2306,11 +2306,11 @@ def told(job: dict, words: list[str]) -> None:
 
 
 def went(name: str, data: dict, job_id: str, texts: list[dict], how: str) -> None:
-    """Write the TEXT_WENT event the watch hearing a job says for each of these texts the drive told its sender it held, by drive job resume's held line or the watch's ANSWER undelivered line, as it goes to a worker, how it went, so a sender told a text waits hears when it goes."""
+    """Write the TEXT_WENT event the watch hearing a job says for each of these texts the drive told its sender it held, by drive job resume's held line or the watch's ANSWER undelivered line, as it goes to a worker, how it went, so a sender told a text waits hears when it goes; once the write saying it went saves, by after_save."""
     job = data["jobs"][job_id]
-    for kept in texts:
-        if kept.get("said"):
-            append_event(name, TEXT_WENT, job=job_id, order=job["order"], words=kept["words"], held=kept["at"], how=how, lane=heard_job_lane(data, job))
+    events = [{"job": job_id, "order": job["order"], "words": kept["words"], "held": kept["at"], "how": how, "lane": heard_job_lane(data, job)} for kept in texts if kept.get("said")]
+    if events:
+        after_save(name, lambda: [append_event(name, TEXT_WENT, **event) for event in events] and [])
 
 
 def hand_held(data: dict, job_id: str, into: str) -> None:
@@ -2972,7 +2972,7 @@ def mark_dangerous(data: dict, key: str, head: str, paths: list[str]) -> str | N
 
 
 def wait_on_staging(data: dict, key: str) -> tuple[str, str]:
-    """Put the open Forge-AI/monorepo PR at key on its staging test and that test's wait, ending any lift unstage kept, so it lands only once that test passes and never gets a second one: its undelivered staging part on any open order, a combined `staging test of #A with #B before they land` included, its own waits first, else its order's `staging test of #N before it lands` part, which, while no unended job carries it, deliver files on the unfinished tester staging_tester names for a wait of the PR or of an open PR under it in land.chain, the PR's own first, so a stack shares its tester; what stage_pr and reach_staging both do; the order and part."""
+    """Put the open PR at key on its staging test and that test's wait, ending any lift unstage kept, so it lands only once that test passes and never gets a second one: its undelivered staging part on any open order, a combined `staging test of #A with #B before they land` included, its own waits first, else its order's `staging test of #N before it lands` part, the wait kept only while view.holds reads it holding, so a test that passed leaves no wait for the watch's next pass to free and say FREE of again, which, while no unended job carries it, deliver files on the unfinished tester staging_tester names for a wait of the PR or of an open PR under it in land.chain, the PR's own first, so a stack shares its tester; what stage_pr and reach_staging both do; the order and part."""
     from drive import land, view
 
     pr, number = data["prs"][key], f"#{key.rpartition('#')[2]}"
@@ -2984,7 +2984,8 @@ def wait_on_staging(data: dict, key: str) -> tuple[str, str]:
         (pr["order"], STAGING_TEST.format(number=number[1:])),
     )
     data["orders"][order_id]["parts"].setdefault(part, new_part())
-    pr["waits"] = view.stored_waits(data, [*pr["waits"], f"{order_id}:{part}"])
+    if view.holds(data, wait := f"{order_id}:{part}", None):
+        pr["waits"] = view.stored_waits(data, [*pr["waits"], wait])
     if any(job["state"] not in ENDED_JOB_STATES for _, job in part_jobs(data, order_id, part)):
         return order_id, part
     stack = reversed(land.chain(land.unders(data), key))
@@ -3633,8 +3634,8 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
     deployed, said, lacking = {}, [], {}
     try:
         for build in dict.fromkeys(build for builds in runs.values() for build in builds):
-            named = github.BUILD.match(build)
-            read = github.build(named["pipeline"], named["number"])
+            ran_build = github.BUILD.match(build)
+            read = github.build(ran_build["pipeline"], ran_build["number"])
             passed = {ran.get("step_key") or "" for ran in read.get("jobs", []) if ran.get("state") == "passed"}
             if envs := sorted({step["env"] for key in passed if (step := APPLY_STEP.fullmatch(key)) and settled.stage(step["env"], clone) == settled.STAGING}) + [MAC_BOX] * (MAC_BOX_SIGNED_IN in passed):
                 deployed[build] = (read["commit"], envs)
@@ -4639,6 +4640,16 @@ def edit(name: str, rows: tuple[Row, ...] | None = None) -> Iterator[dict]:
             raise Refused(f"refused, nothing kept: another write changed {'.'.join(raced.args[0])} while this ran, so send it again") from None
 
 
+def changed_since(name: str, rev: int) -> tuple[int, set[Row] | None]:
+    """The drive's newest revision and each row any write committed after rev, a collection's record by its key or a top-level field under "", read from the changed table in one statement; None for the rows once the table no longer reaches back to rev, so a reader that kept rev reads only the rows that moved, and everything when it fell too far behind."""
+    with closing(connect(database_path(name))) as db:
+        db.execute("BEGIN")
+        newest, first = db.execute("SELECT COALESCE(MAX(rev), 0), COALESCE(MIN(rev), 1) FROM changed").fetchone()
+        rows = None if first > rev + 1 else {(collection, key) for collection, key in db.execute("SELECT DISTINCT collection, key FROM changed WHERE rev > ?", (rev,))}
+        db.execute("COMMIT")
+    return newest, rows
+
+
 def loaded_rows(name: str, rows: tuple[Row, ...]) -> tuple[dict, dict[Row, object]]:
     """The drive as load reads it, with each record the rows name as the database held it for that load, unshaped, ABSENT where it held none, which rows_saved compares the database's with, all read from this process's one copy at the one version and revision that load read, loading again while another thread's load or save moved the copy past them."""
     path = database_path(name)
@@ -4912,11 +4923,8 @@ def read_updated[T](name: str, change: Callable[[dict], T]) -> T:
             was = marshal.loads(base)
             written = tuple(sorted(written_rows(was, mine)))
             try:
-                if written:
+                if written or effects:
                     rows_saved(name, {row: row_of(was, row) for row in written}, was, mine, written, since, frozenset(reads), effects)
-                else:
-                    for effect in effects:
-                        effect()
             except Raced as raced:
                 why = f"another write changed {'.'.join(raced.args[0])} each time it ran"
                 released(taken)
@@ -6754,11 +6762,40 @@ def slot_claim(data: dict, env: str, job_id: str, minutes: int, prs: list[str], 
 
 
 def jumps_queue(data: dict, job_id: str) -> bool:
+    """Whether a staging pass goes ahead of the rest of its slot's queue: its job is marked priority, serves an open incident, or serves an order of a priority project, the open priority order, every order of its feature and every order in its thread, by priority_family, or it is a staging cut whose goal names a job that does, as a release's packed cut names the testers it carries."""
     job = data["jobs"][job_id]
-    return bool(job.get("priority")) or first_in_line(data, job) or bool(open_incidents(data, [job["order"], *job["carries"]]))
+    family = priority_family(data)
+    serves = lambda held: bool({held["order"], *held["carries"]} & family)
+    named = (data["jobs"][other] for other in dict.fromkeys(JOB_ID.findall(job["goal"])) if other != job_id and other in data["jobs"])
+    return bool(job.get("priority")) or serves(job) or bool(open_incidents(data, [job["order"], *job["carries"]])) or starts_cut(job) and any(serves(other) for other in named)
+
+
+def priority_family(data: dict) -> set[str]:
+    """Every order of a priority project: each open priority order, each order of its feature, by feature_orders, and each open order in the Slack thread of any of those."""
+    heads = {order_id for order_id, order in data["orders"].items() if prioritized(order)}
+    family = {member for head in heads for member in feature_orders(data, head)}
+    threads = {tuple(data["orders"][order_id]["thread"]) for order_id in family if data["orders"][order_id].get("thread")}
+    return family | {order_id for order_id, order in data["orders"].items() if order["state"] not in CLOSED_ORDER_STATES and order.get("thread") and tuple(order["thread"]) in threads}
 
 
 SLOT_LIVE_END = ("done", "stopped")
+
+
+SLOT_STOP = "STOP: you no longer hold the {env} staging slot, which {to} holds now: stop every staging command on {env} at once, leave what you started as it stands, and return WAITING on what you wait for; the watch resumes you with GO when the slot is yours again"
+
+
+def staging_owed(data: dict, key: str) -> bool:
+    """Whether a PR waits on its staging test while that test waits on a staging cut, its tester, or the PR's own job testing it, queued or holding a staging slot or waiting on staging serving a commit, so only the slot queue's turn or the top coordinator's START ends the wait and no line about it goes to the session holding its order."""
+    queued = {each["job"] for slot in data["slots"].values() for each in slot["queue"]} | {job_id for slot in data["slots"].values() for job_id in slot_members(slot)}
+    testers = [tester for wait in data["prs"][key]["waits"] if (part := part_wait(data, wait)) and STAGING_PART.fullmatch(part[1]) and (tester := part_tester(data, *part))]
+    testers += [data["prs"][key]["job"]] if data["prs"][key]["job"] in data["jobs"] else []
+    return any(tester in queued or any(STAGING_WAIT.fullmatch(wait) for wait in data["jobs"][tester]["waits"]) for tester in testers)
+
+
+def cut_started(data: dict, held: dict, env: str) -> bool:
+    """Whether a staging slot's holder has its START: its job started a release, keeping its build, or waits on staging serving a commit of its cut on this env."""
+    job = data["jobs"][held["job"]]
+    return bool(job.get("release_build")) or any((found := STAGING_WAIT.fullmatch(wait)) and found["env"] == env for wait in job["waits"])
 
 
 def slot_hand(data: dict, env: str, to: str, moment: datetime) -> tuple[dict, str]:

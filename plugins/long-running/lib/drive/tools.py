@@ -845,15 +845,17 @@ def keep_closed(name: str, posts: list[dict], closes: list[list[tuple[str, dict]
 
 def stamped(name: str, posts: list[dict], seqs: list[str]) -> list[tuple[int, str, dict]]:
     """Name each record's seq on every question his words in it ended before it went out, found by those words and their link, whether this call or one cci refused ended it; each such question, by its record's place and its job."""
-    ended = []
-    with state.edit(name) as data:
+    def named(data: dict) -> list[tuple[int, str, dict]]:
+        ended = []
         for index, (made, seq) in enumerate(zip(posts, seqs, strict=True), start=1):
             for job_id, job in data["jobs"].items():
                 for question in job["questions"]:
                     if (closed := question["closed"]) and ended_by(closed, made, seq):
                         closed["seq"] = seq
                         ended.append((index, job_id, question))
-    return ended
+        return ended
+
+    return state.update(name, None, named)
 
 
 def handed(name: str, lane: str, posts: list[dict], seqs: list[str]) -> None:

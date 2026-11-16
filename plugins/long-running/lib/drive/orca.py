@@ -2,6 +2,7 @@ import contextlib
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import shlex
@@ -75,6 +76,8 @@ EXIT = "/exit"
 MAIL = "You have orchestration messages: read them with `orca orchestration check`, then continue."
 RUNTIME_DOWN = "runtime_unavailable"
 STALE_TERMINAL = "terminal_handle_stale"
+KEPT_SHOWN_FOR = 60
+SHOWN_CONNECTED: dict[str, float] = {}
 RUNTIME_WAIT_SECONDS = 600
 RUNTIME_POLL_SECONDS = 2
 UNANSWERED = ("runtime_busy", "runtime_timeout", RUNTIME_DOWN, None)
@@ -301,21 +304,36 @@ def binder_terminal(drive: str) -> str:
 
 def kept_terminal(drive: str, key: str, title: str) -> str:
     """The agentless Orca terminal the drive keeps under key: the one kept while Orca still holds its shell connected, whether or not a pane shows it, since a terminal the drive creates headless reads orphaned from its first show, else, once Orca shows that shell disconnected or names its handle stale, one opened in the coordinator's checkout, titled after the drive and title, with no drive lock held, so an Orca that answers nothing holds no other verb of the drive, and kept unless another process kept a fresh one meanwhile; any other refusal of the kept one's show, a timeout or RUNTIME_DOWN or terminal_surface_ownership_unavailable, which says nothing of that pane, raised as it came, since opening a fresh shell on each such refusal filled Orca's 256-terminal cap with idle drive shells on Nov 15 and stopped every Sprite launch."""
+    if alive := live_kept(drive, key):
+        return alive
     loaded = state.load(drive)
     kept = loaded[key]
-    try:
-        if kept and terminal(kept)["connected"]:
-            return kept
-    except OrcaError as error:
-        if error.code != STALE_TERMINAL:
-            raise
     opened = request("terminal", "create", "--worktree", f"path:{loaded['roles']['coordinator']['cwd']}", "--title", f"{drive}-{title}")["terminal"]["handle"]
+
     def keep(data: dict) -> str:
         if data[key] == kept:
             data[key] = opened
         return data[key]
 
-    return state.update(drive, None, keep)
+    if (won := state.update(drive, None, keep)) != opened:
+        close_pane(opened)
+    return won
+
+
+def live_kept(drive: str, key: str) -> str | None:
+    """The terminal the drive keeps under key while Orca shows its shell connected; None when none is kept, Orca shows it disconnected or names its handle stale, and any other refusal raised as it came. This process trusts one Orca show of a terminal for KEPT_SHOWN_FOR, so a verb sending many texts asks Orca once."""
+    kept = state.load(drive)[key]
+    if kept and SHOWN_CONNECTED.get(kept, -math.inf) > time.monotonic() - KEPT_SHOWN_FOR:
+        return kept
+    try:
+        if kept and terminal(kept)["connected"]:
+            SHOWN_CONNECTED[kept] = time.monotonic()
+            return kept
+        return None
+    except OrcaError as error:
+        if error.code != STALE_TERMINAL:
+            raise
+    return None
 
 
 def reload_command(terminal: str, text: str, request_id: str | None = None) -> str:

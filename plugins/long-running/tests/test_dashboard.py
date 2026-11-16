@@ -837,12 +837,15 @@ TOLD = {
         {"label": "Shard it", "title": "Shard it", "consequence": "Each journal writes under 16 prefixes.", "priority": "", "metrics": []},
     ],
 }
-RAIL = {"failed": [], "conflict": False, "draft": False, "branch": "lane", "base": "main", "stack": [], "landing": None, "approve_waits": None, "parts": [], "job": None, "job_said": "", "job_at": None}
+RAIL = {"failed": [], "conflict": False, "draft": False, "branch": "lane", "base": "main", "stack": [], "landing": None, "approve_waits": None, "parts": [], "job": None, "job_said": "", "job_at": None, "staging": "Not on staging: no staging test is set for it", "staging_plain": {"word": "No staging test", "tone": ""}, "approve_plain": "Approve sends it to merge now."}
 QUESTION = {
     "priority": {"rank": 1, "incident": False, "weight": 0}, "kind": "question", "tasks": [], "answer": "https://x.slack.com/archives/D1/p1794382453859209", "title": "Raise the limit?", "since": None, "holds": 0, "blocks": [], "thread": None,
     "card": {"title": "Raise the limit?", "body": "", "options": ["Raise it", "Shard it"], "recommended": "Raise it"},
     "told": {"story": TOLD},
 }
+
+
+REASON = {"tone": "plain", "label": "Oldest first", "text": "Nothing else waits on it, so it ranks by how long it has waited"}
 
 
 def board(**changed: object) -> dict:
@@ -858,7 +861,7 @@ def board(**changed: object) -> dict:
     return {
         "drive": "demo", "at": "2026-11-11T00:00:00-08:00", "counts": counts, "queue": [], "status": [{"state": "running", "features": [FEATURE]}], "cards": "live",
         "review": [], "work": lanes, "history": moments, "incidents": [], "bug_reports": [], "edges": [], "repo": "", "links": [], "channel": "D1", "pages": [], "sweep": {"rows": [], "owed": "live"},
-    } | changed | {"queue": [item | {"priority": {"rank": rank, "incident": False, "weight": item.get("holds", 0) + len(item.get("blocks", []))} | {key: value for key, value in item.get("priority", {}).items() if key != "rank"}} for rank, item in enumerate(changed.get("queue", []), 1)]}
+    } | changed | {"queue": [{"reason": REASON} | item | {"priority": {"rank": rank, "incident": False, "weight": item.get("holds", 0) + len(item.get("blocks", []))} | {key: value for key, value in item.get("priority", {}).items() if key != "rank"}} for rank, item in enumerate(changed.get("queue", []), 1)]}
 
 
 def fresh(minutes: int) -> str:
@@ -1753,12 +1756,12 @@ const measured = [];
 for (const tab of ['show', 'change', 'context']) {
   document.querySelector(`#main [data-prtab="${tab}"]`).click();
   await wait(100);
-  const actions = document.querySelector('#main .pr-decision-actions');
+  const actions = document.querySelector('#main .pr-actions');
   actions.scrollIntoView({ block: 'center' });
   const bar = actions.getBoundingClientRect();
   const hit = document.elementFromPoint(bar.left + 30, bar.top + bar.height / 2);
   const frame = document.querySelector('#frames iframe');
-  measured.push({ tab, card: Math.round(card.getBoundingClientRect().height), bar: Math.round(bar.top), shown: bar.bottom <= innerHeight && Boolean(hit.closest('.pr-decision-actions')), frame: !frame.hidden });
+  measured.push({ tab, card: Math.round(card.getBoundingClientRect().height), bar: Math.round(bar.top), shown: bar.bottom <= innerHeight && Boolean(hit.closest('.pr-actions')), frame: !frame.hidden });
 }
 done(measured);
 """, board(queue=[STACK], review=OPEN), size, before=STAND_IN)
@@ -1873,7 +1876,7 @@ const rail = document.querySelector('#main .pr-rail');
 for (const details of rail.querySelectorAll('details')) details.open = true;
 const texts = (selector) => [...rail.querySelectorAll(selector)].map((el) => el.textContent.trim());
 const tab = () => document.querySelector('#main [data-prtab][aria-selected="true"]').dataset.prtab;
-const drawn = { heads: texts('.eyebrow'), facts: texts('.rail-block:first-child .fact'), lands: texts('.rail-list li'), spots: texts('[data-spot]'), cites: texts('[data-point][data-line]'), files: texts('[data-point]:not([data-line])') };
+const drawn = { heads: texts('.eyebrow'), risks: texts('.checklist b').filter((said) => /^[A-Z]/.test(said)), spots: texts('[data-spot]'), cites: texts('[data-point][data-line]'), files: texts('[data-point]:not([data-line])') };
 rail.querySelectorAll('[data-spot]')[1].click();
 await wait(800);
 const pane = document.querySelector('#main .pr-pane.show');
@@ -1902,9 +1905,8 @@ done({ drawn, jumped, pointed, commented, refused, asked, heard: HEARD.map(({ id
     shown = {"pr": 41, "embed": "1"}
     assert seen == {
         "drawn": {
-            "heads": ["Attached to this change bbbbbbb", "Question or line comment", "Tell the drive what to change"],
-            "facts": ["Tests pass", "Review approved"],
-            "lands": ["demo-org/demo-app#40 Landed", "demo-org/demo-app#41 lands once you approve", "demo-org/demo-app#42 does not land on Approve: CI failed; the agent is fixing it"],
+            "heads": ["Before you approve", "Question or line comment", "Tell the drive what to change"],
+            "risks": ["What you'll hate most."],
             "spots": ["Before", "After"],
             "cites": ["lib/lock.py:12", "lib/queue.py:90"],
             "files": ["lib/lock.py", "lib/queue.py"],
@@ -1939,7 +1941,7 @@ const drawer = document.querySelector('#drawer');
 const card = drawer.querySelector('.pr-card');
 const opened = {
   open: drawer.open, hash: location.hash, parts: [...card.children].map((part) => part.className), rail: Boolean(drawer.querySelector('.pr-rail')),
-  title: card.querySelector('.card-title').textContent, counter: Boolean(card.querySelector('.counter')), actions: card.querySelector('.pr-decision-actions').textContent.trim() + card.querySelector('.pr-actions').textContent.trim(),
+  title: card.querySelector('.card-title').textContent, counter: Boolean(card.querySelector('.counter')), actions: card.querySelector('.pr-actions').textContent.trim() + card.querySelector('.approve-says').textContent.trim(),
   focus: document.activeElement.matches('#drawer [data-prtab][aria-selected="true"]'),
 };
 drawer.querySelector('[data-prtab="change"]').click();
@@ -1952,8 +1954,8 @@ done({ opened, changed, closed: !drawer.open, back: document.activeElement === o
 """, board(review=[entry], status=[{"state": "running", "features": [FEATURE | {"prs": [tapped]}]}]), size, before=STAND_IN)
     assert seen == {
         "opened": {
-            "open": True, "hash": "#/feature/o1", "parts": ["card-content", "pr-decision-actions", "pr-tabs", "pr-pane show", "pr-pane change", "pr-pane context", "pr-actions"], "rail": True,
-            "title": "Time out the lock", "counter": False, "actions": "ApproveHoldYou tapped Approve; green, approved.", "focus": True,
+            "open": True, "hash": "#/feature/o1", "parts": ["card-content", "pr-tabs", "pr-pane show", "pr-pane change", "pr-pane context", "pr-actions"], "rail": True,
+            "title": "Time out the lock", "counter": False, "actions": "ApproveHoldYou tapped Approve. Approve sends it to merge now.", "focus": True,
         },
         "changed": {"embed": "?embed=1", "visible": "visible", "overlays": 0, "files": ["lib/lock.py", "lib/queue.py"]},
         "closed": True,
@@ -1974,7 +1976,7 @@ done({ decision, pr: !!document.querySelector('#main .context-rail form.say text
     assert seen == {"decision": {"box": True, "button": False}, "pr": True}
 
 
-def test_a_decisions_rail_lists_each_held_task_once_with_its_place_and_state_the_asking_job_and_his_earlier_words(tmp_path: Path) -> None:
+def test_a_decisions_rail_says_why_it_ranks_and_lists_each_held_task_once_with_its_state_and_his_earlier_words(tmp_path: Path) -> None:
     other = {"title": "Other one?", "url": "https://x.slack.com/archives/D1/p1794382999000100", "asked": "2026-11-10T22:00:00-08:00"}
     asked = {"title": "Raise the limit?", "url": QUESTION["answer"], "asked": "2026-11-10T23:00:00-08:00"}
     shipping = FEATURE | {"cards": [asked]}
@@ -1992,32 +1994,22 @@ await wait(150);
 const rail = document.querySelector('#main .context-rail');
 for (const details of rail.querySelectorAll('details')) details.open = true;
 const rows = [...rail.querySelectorAll('.held')].map((row) => ({
-  where: row.querySelector('.crumbs').textContent.replace(/\\s+/g, ''),
   title: row.querySelector('.held-title').textContent,
   href: row.querySelector('.held-title').getAttribute('href'),
   state: row.querySelector('.pill').textContent,
   finished: row.querySelector('small').textContent,
 }));
-const job = { goal: rail.querySelector('.jobs .title').textContent.trim(), files: [...rail.querySelectorAll('.jobs [data-file]')].map((button) => button.textContent) };
 const words = [...rail.querySelectorAll('.said-list q')].map((said) => said.textContent);
-rail.querySelectorAll('.held small')[1].dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-await wait(50);
-const hovered = document.querySelector('#srctip').textContent;
-const badge = getComputedStyle(document.querySelector('#srctip'), '::after').content;
-rail.querySelector('.held-title').focus();
-await wait(50);
-done({ rows, job, words, hovered, badge, focused: document.querySelector('#srctip').textContent });
+done({ rows, words, why: rail.querySelector('.rank-why').textContent, links: rail.querySelectorAll('.held a').length });
 """, board(queue=[item], status=[{"state": "running", "features": [shipping, stuck]}]))
     assert seen == {
         "rows": [
-            {"where": "Platform/SandSQL", "title": "ship the fix", "href": "#/feature/o1", "state": "Being built", "finished": "a/b#7 green and approved"},
-            {"where": "Platform/Unfiled", "title": "unblock the lane", "href": "#/feature/o2", "state": "Blocked", "finished": "built on lane/two"},
+            {"title": "ship the fix", "href": "#/feature/o1", "state": "Being built", "finished": "1 finished change waits on it"},
+            {"title": "unblock the lane", "href": "#/feature/o2", "state": "Blocked", "finished": "1 finished change waits on it; also waits on 1 other decision of yours"},
         ],
-        "job": {"goal": "read the limits", "files": ["Brief", "Report"]},
         "words": ["newer words", "older words"],
-        "hovered": "unblock the lane. Blocked. Finished and held: built on lane/two. Waits on this answer and on “Other one?”.",
-        "badge": "none",
-        "focused": "ship the fix. Being built. Finished and held: a/b#7 green and approved. Waits on this answer.",
+        "why": "Oldest first. Nothing else waits on it, so it ranks by how long it has waited.",
+        "links": 2,
     }
 
 
@@ -2104,7 +2096,7 @@ def test_a_pr_with_no_card_takes_approve_from_its_key_and_the_queue_lists_by_ran
     other = QUESTION | {"project": "Iris", "workstream": None, "rank_why": "waiting since Nov 10 10:00 PM"}
     review = [
         RAIL | {"key": "a/b#7", "title": "fix the lock", "url": url, "head": "abc", "group": "you", "feature": "o1", "feature_title": "", "detail": "green, no review yet", "checks": "pass",
-                "review": "none", "tap": None, "stage": None, "since": None, "updated": None, "card": None, "answer": None, "thread": None, "approve_waits": "its review reads none"}
+                "review": "none", "tap": None, "stage": None, "since": None, "updated": None, "card": None, "answer": None, "thread": None, "approve_waits": "its review reads none", "approve_plain": "Code review isn't done; it merges once a review approves it."}
     ]
     seen = browse(tmp_path, """
 location.hash = '#/queue/all';
@@ -2119,7 +2111,7 @@ const scoped = { hash: location.hash, title: document.querySelector('#item-title
 const sent = [];
 const real = window.fetch;
 window.fetch = (url, options) => (url === '/api/tap' ? (sent.push(JSON.parse(options.body)), new Promise(() => {})) : real(url, options));
-const waits = document.querySelector('#main .pr-actions .meta').textContent;
+const waits = document.querySelector('#main .approve-says').textContent;
 press('a');
 await wait(50);
 done({ listed, chips, scoped, waits, sent });
@@ -2128,7 +2120,7 @@ done({ listed, chips, scoped, waits, sent });
         "listed": ["1", "2"],
         "chips": ["All projects2", "Drive1", "Iris1"],
         "scoped": {"hash": "#/queue/all?project=Drive", "title": "Fix the lock", "listed": 0},
-        "waits": "After your Approve it still waits: its review reads none",
+        "waits": "Code review isn't done; it merges once a review approves it.",
         "sent": [{"pr": "a/b#7", "label": "Approve", "head": "abc"}],
     }
 
@@ -3075,8 +3067,8 @@ done({ read, draft: document.activeElement.value, asking: box === document.activ
 """, board(queue=items), size)
     assert seen == {
         "read": [
-            {"rank": "2", "reasons": "#2IncidentUnblocks 1", "title": title, "clipped": False, "links": 1, "buttons": 0, "tooltip": False},
-            {"rank": "4", "reasons": "#4Unblocks 3", "title": title, "clipped": False, "links": 1, "buttons": 0, "tooltip": False},
+            {"rank": "2", "reasons": "2Oldest first", "title": title, "clipped": False, "links": 1, "buttons": 0, "tooltip": True},
+            {"rank": "4", "reasons": "4Oldest first", "title": title, "clipped": False, "links": 1, "buttons": 0, "tooltip": True},
         ],
         "draft": "How does this affect writes?", "asking": True, "opened": True, "selected": True, "scoped": True, "overflow": False,
     }

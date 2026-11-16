@@ -1289,7 +1289,7 @@ def test_every_line_naming_a_job_or_an_order_goes_to_the_session_holding_it_with
     assert watch.line_lane(line, state.load(demo)) == holder
 
 
-def test_a_line_about_a_sub_coordinators_job_goes_to_it_from_any_watch_unless_another_coordinators_agent_runs_the_job(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_job_unsent_his_answer_holds_his_words_for_its_next_worker_from_any_watch_with_no_line(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     sub_coordinated(demo)
     with state.edit(demo) as data:
         data["jobs"]["j2"] = job(agent="a-2", where="local", session="session-under-test")
@@ -1299,14 +1299,13 @@ def test_a_line_about_a_sub_coordinators_job_goes_to_it_from_any_watch_unless_an
     sent = posts(monkeypatch)
     watching = watcher(demo)
     watching.cards = NO_CARDS
-    lines = watch.answer_lines(watching, T0 + timedelta(minutes=10))
-    assert lines == [
-        'ANSWER a1 j1 "one new tool": j1 not sent his words; drive answer a1 lists them',
-        'ANSWER a1 j2 "one new tool": j2 not sent his words; drive answer a1 lists them',
-    ]
+    assert watch.answer_lines(watching, T0 + timedelta(minutes=10)) == []
+    data = state.load(demo)
+    assert data["answers"]["a1"]["jobs"] == {"j1": {"mark": "sent"}, "j2": {"mark": "sent"}}
+    assert [[held["words"] for held in data["jobs"][job_id]["undelivered"]] for job_id in ("j1", "j2")] == [['His answer a1, verbatim: "one new tool"']] * 2
     prover = "JOB j1 o1 added, proves Forge-AI/monorepo#42: the watch starts its agent"
-    assert watch.handed(watching, [prover, *lines], T0) == [lines[1]]
-    assert posted(sent) == [("handoff", f"iris@{demo}", prover), ("handoff", f"iris@{demo}", lines[0])]
+    assert watch.handed(watching, [prover], T0) == []
+    assert posted(sent) == [("handoff", f"iris@{demo}", prover)]
 
 
 def test_a_handoff_the_meta_session_did_not_get_goes_again_and_says_so_from_the_third_failure(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -4941,15 +4940,19 @@ def test_a_release_job_follows_the_build_its_launch_triggered_and_it_and_the_coo
     failure = {"step": DEPLOY_STEP, "said": CAUSE, "job": f"{TRIGGERED_BUILD}#01a1"}
     records = {LAUNCH_BUILD: {"name": "auric-aristides", "build": TRIGGERED_BUILD}, TRIGGERED_BUILD: {"name": "auric-aristides", "build": TRIGGERED_BUILD, "failures": [failure]}}
     monkeypatch.setattr(watch.brief, "release_record", lambda release, data: records[release])
-    monkeypatch.setattr(state, "repo_config", lambda data: {"release": {"show": "ci release status {release}"}})
+    monkeypatch.setattr(state, "repo_config", lambda data: {"release": {"status": "ci release status {release} --json", "show": "ci release status {release}"}})
     with state.edit(demo) as data:
         data["orders"]["o1"]["jobs"].append("j2")
-        data["jobs"]["j2"] = state.new_job("o1", "builder", "follow the release", [], state.stamp(T0)) | {"brief_flags": RELEASED, "release_build": LAUNCH_BUILD}
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "follow the release", [], state.stamp(T0)) | {"brief_flags": RELEASED, "release_build": LAUNCH_BUILD, "waits": [LAUNCH_BUILD]}
     watching = watcher(demo)
+    monkeypatch.setattr(watch.brief, "release_record", lambda release, data: None)
+    assert watch.build_lines(watching, T0) == []
+    assert (watch.release_end_lines(watching, T0), state.load(demo)["jobs"]["j2"]["release_build"], posts) == ([], LAUNCH_BUILD, [])
+    monkeypatch.setattr(watch.brief, "release_record", lambda release, data: records[release])
     for minute in (1, 2):
         assert watch.build_lines(watching, T0 + timedelta(minutes=minute)) == []
         assert watch.release_end_lines(watching, T0 + timedelta(minutes=minute)) == []
-    assert (state.load(demo)["jobs"]["j2"]["release_build"], posts) == (TRIGGERED_BUILD, [])
+    assert (state.load(demo)["jobs"]["j2"]["release_build"], state.load(demo)["jobs"]["j2"]["waits"], posts) == (TRIGGERED_BUILD, [TRIGGERED_BUILD], [])
     answers["forge/release/17469"] = {**BUILD_RUNNING, "state": "FAILED", "failed": {"edges": [{"node": {"label": DEPLOY_STEP, "retried": False}}]}}
     for minute in (3, 4):
         assert watch.build_lines(watching, T0 + timedelta(minutes=minute)) == []
@@ -4961,7 +4964,7 @@ def test_a_release_job_follows_the_build_its_launch_triggered_and_it_and_the_coo
     assert body == f'"{DEPLOY_STEP}": {CAUSE} {TRIGGERED_BUILD}#01a1\n{TRIGGERED_BUILD} reads FAILED, its steps that did not pass "{DEPLOY_STEP}"'
     job = state.load(demo)["jobs"]["j2"]
     assert (job["release_heard"]["told"], [held["seq"] for held in job["undelivered"]]) == ("731000", ["731000"])
-    assert builds == [["forge/release/17468"], ["forge/release/17469"], ["forge/release/17469"], ["forge/release/17469"]]
+    assert builds == [["forge/release/17468"], ["forge/release/17468"], ["forge/release/17469"], ["forge/release/17469"], ["forge/release/17469"]]
 
 
 def test_a_release_build_stopped_at_its_approve_step_is_told_once_it_has_stood_there_half_an_hour(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -5063,12 +5066,12 @@ def test_a_built_job_whose_watch_died_after_claiming_its_card_and_before_posting
     def post(name: str, said: dict) -> dict:
         posts.append(said)
         if len(posts) == 1:
-            raise OSError("the watch was killed")
+            raise SystemExit("the watch was killed")
         return {"permalink": POSTED}
 
     monkeypatch.setattr(talk, "posted", post)
     gone = {"pid": 999999999, "started": "Mon Nov  9 08:00:00 2026"}
-    with monkeypatch.context() as dying, pytest.raises(OSError):
+    with monkeypatch.context() as dying, pytest.raises(SystemExit):
         dying.setattr(watch.os, "getpid", lambda: gone["pid"])
         dying.setattr(watch, "started", lambda pid: gone["started"])
         watch.run_pass(watcher(demo), T0)
@@ -10091,7 +10094,7 @@ def test_a_line_holding_a_credential_posts_once_with_it_withheld_rather_than_bei
     assert posted(sent) == [("evidence", f"root@{demo}", "EVENT j1's proof was killed running env ANTHROPIC_API_KEY=<an sk- API key withheld> probe --live")]
 
 
-def test_an_answer_leaving_a_card_unmarked_or_a_job_unsent_his_words_says_so_every_ten_minutes_until_each_is_marked(
+def test_an_answer_leaving_a_card_unmarked_says_so_every_ten_minutes_until_it_is_marked_and_a_job_unsent_his_words_holds_them_with_no_line(
     demo: str, monkeypatch: pytest.MonkeyPatch, send_message: Callable[..., None]
 ) -> None:
     serve(monkeypatch, {})
@@ -10113,10 +10116,9 @@ def test_an_answer_leaving_a_card_unmarked_or_a_job_unsent_his_words_says_so_eve
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(agent="a1", where="local", session="session-under-test")
         data["answers"]["a1"]["jobs"]["j1"] = None
-    assert said(50) == ['ANSWER a1 j1 "one new tool": j1 not sent his words; drive answer a1 lists them']
-    send_message(demo, "j1", "He wants one new tool")
-    assert said(70) == []
+    assert said(50) == []
     assert state.load(demo)["answers"]["a1"]["jobs"] == {"j1": {"mark": "sent"}}
+    assert [held["words"] for held in state.load(demo)["jobs"]["j1"]["undelivered"]] == ['His answer a1, verbatim: "one new tool"']
 
 
 O852_MONITOR = "https://app.datadoghq.com/monitors/341360574"
@@ -11585,10 +11587,83 @@ def test_a_wake_writes_the_marks_the_watch_asked_for_only_once_it_delivered_its_
         data["prs"][KEY]["objecting"] = {"head": "aaaaaaa111", "at": asked}
         data["mains"]["Forge-AI/monorepo"] = {"test_one": {"owner": KEY, "woke": None, "waking": asked, "run": "", "workflow": "", "since": asked}}
     assert (stage.waking(asked, T0 + stage.WAKE_GRACE - timedelta(seconds=1)), stage.waking(asked, T0 + stage.WAKE_GRACE)) == (True, False)
-    stage.mark_woken(demo, [f"stage:{KEY}", f"objected:{KEY}@aaaaaaa111", "main:Forge-AI/monorepo@test_one"], asked)
+    stage.mark_woken(demo, [f"stage:{KEY}@aaaaaaa111", f"objected:{KEY}@aaaaaaa111", "main:Forge-AI/monorepo@test_one"], asked)
     pr = state.load(demo)["prs"][KEY]
     assert ((pr["stage"]["woke"], pr["stage"]["waking"]), pr["objected"], pr["objecting"]) == ((asked, None), "aaaaaaa111", None)
     assert (state.load(demo)["mains"]["Forge-AI/monorepo"]["test_one"]["woke"], state.load(demo)["mains"]["Forge-AI/monorepo"]["test_one"]["waking"]) == (asked, None)
+
+
+def test_a_builders_staging_line_after_its_staging_test_passed_writes_no_wait_so_the_watch_says_free_once(demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]) -> None:
+    part = "staging test of #42 before it lands"
+    proof = "https://buildkite.com/forge/release/builds/16121"
+    with state.edit(demo) as data:
+        [change] = data["orders"]["o1"]["parts"]
+        data["orders"]["o1"]["parts"][part] = state.new_part()
+        data["jobs"]["j1"]["parts"] = [change, part]
+    waits_on(demo, f"o1:{part}")
+    waiting_job(demo)
+    with state.edit(demo) as data:
+        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}
+    serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    done = f"DONE {proof} passed every staging case of #42 at aaaaaaa111"
+    with state.edit(demo) as data:
+        state.take_result(data, "j1", done, f"{done}\nCHECK: {proof}\nCASE a rollback refused: pass {proof}\n")
+    said = [line for line in watch.run_pass(watching, T0 + timedelta(minutes=30)) if line.startswith("FREE ")]
+    waits = []
+    for n in range(1, 4):
+        with state.edit(demo) as data:
+            state.staging_testers(data, "j1", f"PUSHED {state.pr_url(KEY)}\nSTAGING: #42 a foreign-table read through the query route is refused for another principal\n")
+            waits.append(data["prs"][KEY]["waits"])
+        said += [line for line in watch.run_pass(watching, T0 + timedelta(minutes=30 + 2 * n)) if line.startswith("FREE ")]
+    assert (len(said), waits) == (1, [[], [], []])
+
+
+def test_a_proof_rerun_on_the_same_wait_line_says_nothing_on_its_prs_and_a_changed_one_is_said(demo: str) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j9"] = state.new_job("o1", "builder", "repair the staging-claim rule", [], state.stamp()) | {"state": "waiting", "repro": "/p.sh"}
+        data["orders"]["o1"]["jobs"].append("j9")
+    first = "WAIT his Approve on Forge-AI/monorepo#57038, the rule edit"
+    changed = "WAIT yasyf/cc-skills#5832 landing and installing"
+    for version, wait in (("1.0.1308", first), ("1.0.1308", first), ("1.0.1311", first), ("1.0.1312", changed)):
+        install.proof_kept(demo, "j9", f"BLOCKED j9's repair: /p.sh exits 1 on {version}: {wait}", f"checked the rule\n{wait}\n", version, 1, None)
+    proofs = [event["change"] for event, _ in state.read_events(demo) if event["kind"] == "proof" and event.get("job") == "j9"]
+    assert proofs == [f"{install.PROOF_WAITS}: j9's repair: /p.sh exits 1 on 1.0.1308: {first}", f"{install.PROOF_WAITS}: j9's repair: /p.sh exits 1 on 1.0.1312: {changed}"]
+
+
+def test_a_stage_wake_built_at_a_head_a_push_moved_the_pr_off_sends_nothing_and_writes_no_mark(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    from drive import tools
+
+    posted: list[dict] = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend(posts) or ["9"])
+    kept = {"name": "red", "owner": "j1", "why": "its required check test failed at bbbbbbb", "since": state.stamp(T0), "woke": None, "waking": state.stamp(T0)}
+    with state.edit(demo) as data:
+        data["prs"][KEY]["stage"] = dict(kept)
+    line = f"{KEY} red, owed by j1: its required check test failed at bbbbbbb [o1 j1]"
+    assert run("pr", "wake", state.pr_url(KEY), "--text", line, "--woke", f"stage:{KEY}@bbbbbbb222", "--woke-at", state.stamp(T0)) == (
+        0,
+        f"{KEY}: sent nothing, since its line was built at bbbbbbb and a push moved it to aaaaaaa; the watch's next pass reads its stage there",
+    )
+    assert (posted, state.load(demo)["prs"][KEY]["stage"]) == ([], kept)
+
+
+def test_a_github_read_ccxs_rate_limit_floor_refuses_is_said_once_and_no_read_is_tried_again_until_the_reset_it_names(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    refusal = f"could not read Forge-AI/monorepo's pull requests from GitHub: {FLOOR_4755.format(0)}"
+    calls = []
+
+    def refused(keys: list[str], into: dict[str, str] | None = None) -> tuple[dict[str, dict], github.GithubError | None]:
+        calls.append(keys)
+        return {}, github.GithubError(refusal)
+
+    monkeypatch.setattr(github, "fetch", refused)
+    remerging(monkeypatch, {})
+    watching = watcher(demo)
+    reset = datetime.fromisoformat("2026-11-15T01:55:01-08:00")
+    before = [watch.github_lines(watching, reset - timedelta(minutes=minutes)) for minutes in (16, 15, 1)]
+    after = [watch.github_lines(watching, reset + timedelta(minutes=minutes)) for minutes in (1, 2)]
+    assert before == [[f"WATCH ccx's GitHub rate-limit floor refused the watch's GitHub reads, so it reads none until {reset.isoformat()}, then each it owes: {refusal}"], [], []]
+    assert (after, calls) == ([[], []], [[KEY], [KEY], [KEY]])
 
 
 def test_a_lane_on_this_mac_with_no_transcript_since_its_worker_started_is_unprompted_once_the_bound_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -11688,3 +11763,37 @@ def test_the_relay_passes_a_project_again_only_once_the_drive_moved_or_its_idle_
     assert watch.due_again(project)
     project.passed_version, project.passed_at = 7, watch.monotonic() - watch.PROJECT_RELAY_IDLE
     assert watch.due_again(project)
+
+
+def test_the_relay_reads_post_reports_at_its_first_pass_then_only_once_cci_watch_prints_one_or_its_idle_time_ran_out(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    class Running:
+        def poll(self) -> None:
+            return None
+
+    heard = watch.Heard(Running(), threading.Event(), watch.monotonic())
+    monkeypatch.setattr(watch, "HEARD_POSTS", {})
+    monkeypatch.setattr(watch, "posts_heard", lambda name: heard)
+    assert watch.posts_due(demo)
+    assert not watch.posts_due(demo)
+    heard.arrived.set()
+    assert watch.posts_due(demo)
+    assert not watch.posts_due(demo)
+    heard.at = watch.monotonic() - watch.POSTS_IDLE
+    assert watch.posts_due(demo)
+
+
+def test_a_stage_that_raises_is_logged_and_skipped_and_its_third_failure_in_a_row_reaches_the_meta_session_once(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    posts: list[tuple[str, str, list[str]]] = []
+    monkeypatch.setattr(watch, "posted_record", lambda name, lane, kind, lines, checkout: posts.append((lane, kind, lines)))
+    watching = watcher(demo)
+
+    def broken(watching: watch.Watcher, moment: datetime) -> list[str]:
+        raise KeyError("Forge-AI/monorepo#55820")
+
+    stage = functools.partial(broken, watching, T0)
+    said = [watch.contained(watching, stage, T0 + timedelta(minutes=minute)) for minute in range(4)]
+    assert (said, [(lane, kind) for lane, kind, _ in posts]) == ([[], [], [], []], [("meta", "incident")])
+    assert posts[0][2][0].startswith("WATCH stage broken failed 3 times in a row: ")
+    assert capsys.readouterr().out.count("stage broken of the drive raised KeyError") == 4
+    assert watch.contained(watching, functools.partial(lambda watching, moment: ["FREE j1"], watching, T0), T0) == ["FREE j1"]
+    assert watching.failures["stage broken"] == 4

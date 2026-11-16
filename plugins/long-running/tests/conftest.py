@@ -1615,3 +1615,9 @@ def stack_quiet(monkeypatch: pytest.MonkeyPatch) -> Callable[[timedelta], None]:
     """No watch pass holds his first card for its stack to settle; a test of that hold sets stage.STACK_QUIET back through this."""
     monkeypatch.setattr(stage, "STACK_QUIET", timedelta(0))
     return lambda quiet: monkeypatch.setattr(stage, "STACK_QUIET", quiet)
+
+
+@pytest.fixture(autouse=True)
+def no_shown_terminals(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each test reads its kept terminals from its own fake Orca, never from a show an earlier test cached."""
+    monkeypatch.setattr(orca, "SHOWN_CONNECTED", {})

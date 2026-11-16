@@ -178,6 +178,9 @@ class FakeCcRemote(orca_gc.CcRemote):
         self.checkouts = checkouts or {}
         self.refusal = refusal
         self.destroyed: list[str] = []
+        self.state = Path(os.devnull) / "no-cc-remote-state"
+        self.listed = True
+        self.forgotten: list[str] = []
 
     def task(self, workspace: str) -> tuple[dict, orca_gc.Sprite] | None:
         return next((({"worktreeId": worktree, "terminal": terminal}, sprite) for (worktree, terminal), sprite in self.hosted.items() if sprite.workspace == workspace), None)
@@ -191,6 +194,12 @@ class FakeCcRemote(orca_gc.CcRemote):
     def destroy(self, sprite: orca_gc.Sprite) -> str | None:
         self.destroyed.append(sprite.workspace)
         return self.refusal
+
+    def exists(self, sprite: orca_gc.Sprite) -> bool:
+        return self.listed
+
+    def forget(self, sprite: orca_gc.Sprite) -> None:
+        self.forgotten.append(sprite.workspace)
 
 
 class StateCcRemote(FakeCcRemote):
@@ -1215,6 +1224,13 @@ class DestroyTest(unittest.TestCase):
             orca_gc.destroy("pool-abc", "demo-j1", refused, unverified=True)
         self.assertEqual(refused.destroyed, [])
 
+    def test_destroy_drops_the_records_of_a_sprite_it_cannot_read_once_the_sprite_list_no_longer_has_it(self):
+        unread = orca_gc.Unreachable("ssh to pool-abc could not read /home/sprite/repo: cc-remote step on pool-abc gave no answer in 240 s")
+        gone = self.hosting(unread)
+        gone.listed = False
+        self.assertEqual(orca_gc.destroy("pool-abc", "demo-j1", gone), f"Sprite pool-abc no longer exists, so nothing on it is left to read: dropped its cc-remote records ({unread})")
+        self.assertEqual((gone.destroyed, gone.forgotten), ([], ["pool-abc"]))
+
     def test_destroy_of_a_workspace_no_task_records_fails_naming_that_it_destroyed_nothing(self):
         cc_remote = self.hosting(checkout(SPRITE.root))
         with self.assertRaisesRegex(orca_gc.Unsaved, "^cc-remote records no Sprite pool-other, so nothing was destroyed$"):
@@ -1892,6 +1908,23 @@ class OrcaArgvTest(unittest.TestCase):
         self.assertIn("for-each-ref --format='%(refname) %(refname:short) %(objectname)' refs/heads refs/stash", argv[0][-1])
         self.assertIn('rev-list -1 "$ref" --not HEAD --remotes=origin', argv[0][-1])
         self.assertIn('rev-list --first-parent --max-parents=0 "$ref" --not HEAD --remotes=origin', argv[0][-1])
+
+    def test_checkout_reads_each_shared_branch_root_once_per_snapshot(self):
+        branches = [(f"known-{n}", f"tip-{n}", "known") for n in range(60)]
+        branches += [(f"unknown-{n}", f"other-{n}", "unknown") for n in range(60)]
+        branches.append(("unrooted", "unrooted-tip", ""))
+        refs = " ".join(":".join(row) for row in branches)
+        output = f"https://github.com/acme/repo\n{refs}\n\n# branch.oid head\n# branch.head lane\n"
+        remote = orca_gc.CcRemote(Path("/nonexistent"))
+        with mock.patch.object(remote, "ssh", return_value=subprocess.CompletedProcess([], 0, output, "")), \
+             mock.patch.object(orca_gc, "on_github_trunk", return_value=False), \
+             mock.patch.object(orca_gc, "github_compare", side_effect=lambda root, _: {"status": "ahead"} if root == "known" else None) as compare:
+            found = remote.checkout(SPRITE)
+            self.assertEqual(found.off_origin, tuple((name, tip) for name, tip, root in branches if root != "unknown"))
+            self.assertEqual(compare.call_args_list, [mock.call("known", "acme/repo"), mock.call("unknown", "acme/repo")])
+            compare.reset_mock()
+            remote.checkout(SPRITE)
+            self.assertEqual(compare.call_count, 2)
 
     def test_a_rate_limit_on_the_landed_check_reads_as_unsaved_not_a_crash(self):
         class Limited:

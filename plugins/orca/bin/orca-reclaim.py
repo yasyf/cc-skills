@@ -60,6 +60,8 @@ REPO_VALUES = json.loads(Path(".orca.json").read_text()) if Path(".orca.json").i
 CC_REMOTE = os.environ.get("WORKER_CC_REMOTE") or REPO_VALUES.get("ccRemote") or "cc-remote"
 SPRITE_CLI = os.environ.get("WORKER_SPRITE") or "sprite"
 SPRITE_ORG = re.compile(r"sprite proxy -o (\S+)")
+CONFIG_ORG = re.compile(r"^\s+org: (\S+)", re.MULTILINE)
+CONFIG_REPOSITORY = re.compile(r"^repository: \S+/([^/\s]+?)(?:\.git)?$", re.MULTILINE)
 CHECKPOINTED = re.compile(r"Checkpoint (v\d+) created")
 if "ccRemoteConfig" in REPO_VALUES:
     os.environ.setdefault("CC_REMOTE_CONFIG", str(Path(REPO_VALUES["ccRemoteConfig"]).resolve()))
@@ -640,7 +642,12 @@ class CcRemote:
         return task, Sprite(task["workspace"], task["forward"]["host"], task["forward"]["config"], task["projectRoot"], task["environmentId"])
 
     def sprite(self, workspace: str) -> Sprite | None:
-        return found[1] if (found := self.task(workspace)) else None
+        if found := self.task(workspace):
+            return found[1]
+        if not (self.state / "workspaces" / f"{workspace}.json").is_file():
+            return None
+        config = Path(os.environ["CC_REMOTE_CONFIG"]).read_text()
+        return Sprite(workspace, "", "", f"/home/sprite/{CONFIG_REPOSITORY.search(config)[1]}", "")
 
     def checkout(self, sprite: Sprite) -> Checkout | str:
         git_c = f"git -C {shlex.quote(sprite.root)}"
@@ -662,7 +669,8 @@ class CcRemote:
         head, branch = headers["branch.oid"], headers["branch.head"]
         try:
             on_trunk = on_github_trunk(head, hub["slug"])
-            own = tuple((name, tip) for name, tip, root in (ref.split(":") for ref in off_origin.split()) if not root or github_compare(root, hub["slug"]))
+            compare = functools.cache(lambda root: github_compare(root, hub["slug"]))
+            own = tuple((name, tip) for name, tip, root in (ref.split(":") for ref in off_origin.split()) if not root or compare(root))
         except GitHubRefusal as refused:
             return str(refused)
         return Checkout(
@@ -677,6 +685,8 @@ class CcRemote:
         )
 
     def ssh(self, sprite: Sprite, script: str, given: str | None = None) -> subprocess.CompletedProcess[str]:
+        if not sprite.host:
+            return self.step(sprite, script, given)
         done = subprocess.run(["ssh", "-F", sprite.ssh_config, "-o", "BatchMode=yes", "-o", f"ConnectTimeout={SSH_CONNECT_S}", sprite.host, script], input=given, capture_output=True, text=True)
         return self.step(sprite, script, given) if done.returncode == 255 else done
 
@@ -700,9 +710,20 @@ class CcRemote:
         (KEPT / sprite.workspace).unlink(missing_ok=True)
         return None
 
+    def org(self, sprite: Sprite) -> tuple[str, ...]:
+        org = SPRITE_ORG.search(Path(sprite.ssh_config).read_text()) if sprite.ssh_config else CONFIG_ORG.search(Path(os.environ["CC_REMOTE_CONFIG"]).read_text())
+        return ("-o", org[1]) if org else ()
+
+    def exists(self, sprite: Sprite) -> bool:
+        listed = subprocess.run([SPRITE_CLI, "list", *self.org(sprite)], capture_output=True, text=True, check=True, timeout=REVIVE_S)
+        return sprite.workspace in {line.split()[0] for line in listed.stdout.splitlines() if line.strip()}
+
+    def forget(self, sprite: Sprite) -> None:
+        for record in (self.state / "workspaces" / f"{sprite.workspace}.json", self.state / "orca" / f"{sprite.workspace}.json", KEPT / sprite.workspace):
+            record.unlink(missing_ok=True)
+
     def revive(self, sprite: Sprite) -> str | None:
-        org = SPRITE_ORG.search(Path(sprite.ssh_config).read_text())
-        named = (*(("-o", org[1]) if org else ()), "-s", sprite.workspace)
+        named = (*self.org(sprite), "-s", sprite.workspace)
         try:
             made = subprocess.run([SPRITE_CLI, "checkpoint", "create", *named], capture_output=True, text=True, timeout=REVIVE_S)
             if not (point := CHECKPOINTED.search(made.stdout)):
@@ -833,6 +854,9 @@ def destroy(workspace: str, lane: str, cc_remote: CcRemote, unverified: bool = F
             if isinstance(checkout, str):
                 raise (Unread if isinstance(checkout, Unreachable) else Unsaved)(checkout)
         except Unread as unread:
+            if not cc_remote.exists(sprite):
+                cc_remote.forget(sprite)
+                return f"Sprite {workspace} no longer exists, so nothing on it is left to read: dropped its cc-remote records ({unread})"
             if not unverified:
                 raise
             if refusal := cc_remote.destroy(sprite):

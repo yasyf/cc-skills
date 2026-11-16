@@ -16,6 +16,7 @@ const GROUPS = {
   'not started': 'Not started',
 };
 const CHECKS = { pass: 'green', fail: 'red', pending: 'running', none: 'no CI' };
+const CHECK_WORDS = { pass: ['Tests pass', 'good'], fail: ['Tests failing', 'bad'], pending: ['Tests running', 'warn'], none: ['No tests ran', ''] };
 const JOB_STATES = { running: 'Running', waiting: 'Waiting', built: 'Built, no PR until you answer', done: 'Done', failed: 'Failed', stopped: 'Stopped' };
 const LEVEL_IN = 2.2;
 const LEVEL_OUT = 2.4;
@@ -60,7 +61,7 @@ const QUEUE_FILTERS = [
 const NONE_LEFT = { tap: 'No PR waits on your tap.', question: 'No decision waits on you.' };
 const LABEL = { question: 'Decision', tap: 'Pull request' };
 const TAP_LABELS = ['Approve', 'Hold'];
-const PR_TABS = [['show', 'Show me'], ['change', 'The change'], ['context', 'Context']];
+const PR_TABS = [['show', 'Show me'], ['change', 'The code'], ['context', 'Its description']];
 const TALK_FOLLOW_MS = 15 * 60 * 1000;
 const FRAMES_KEPT = 4;
 const GONE_ROWS = { merged: 'Landed', live: 'Landed', folded: 'Merged into another open PR, lands with it', closed: 'Closed without merging', dropped: 'Dropped from the drive' };
@@ -519,16 +520,13 @@ function move(delta) {
 }
 
 function heldRow(item, entry, held) {
-  const project = fileKey(entry.project);
-  const stream = fileKey(entry.workstream);
-  const finished = held.filter((each) => each.feature === entry.id).map((each) => (each.kind === 'pr' ? `${prKey(each.url)} green and approved` : `built on ${each.branch}`));
-  const others = entry.cards.filter((each) => each.url !== item.answer).map((each) => `“${each.title}”`);
-  const tip = [`${entry.title}.`, `${STOP_WORDS[entry.state]}.`, finished.length ? `Finished and held: ${finished.join(', ')}.` : '', `Waits on this answer${others.length ? ` and on ${others.join(', ')}` : ''}.`].filter(Boolean).join(' ');
-  return `<li class="held" data-tip="${esc(tip)}">
-    <nav class="crumbs" aria-label="Where it sits"><a href="${zoomHref('now', project)}">${esc(fileName(project))}</a><span aria-hidden="true">/</span><a href="${zoomHref('now', project, stream)}">${esc(fileName(stream))}</a></nav>
+  const finished = held.filter((each) => each.feature === entry.id).length;
+  const others = entry.cards.filter((each) => each.url !== item.answer).length;
+  const small = [finished ? `${counted(finished, 'finished change')} ${finished === 1 ? 'waits' : 'wait'} on it` : '', others ? `also waits on ${counted(others, 'other decision')} of yours` : ''].filter(Boolean).join('; ');
+  return `<li class="held">
     <a class="held-title" href="#/feature/${esc(entry.id)}">${esc(bare(entry.title))}</a>
     ${pill(STOP_WORDS[entry.state], STOP_TONES[entry.state])}
-    ${finished.length ? `<small>${esc(finished.join(' · '))}</small>` : ''}
+    ${small ? `<small>${esc(small.replace(/^./, (c) => c.toUpperCase()))}</small>` : ''}
   </li>`;
 }
 
@@ -538,24 +536,53 @@ function earlierWords(answer) {
 }
 
 function priorityChips(item) {
-  const { priority } = item;
-  return `<span class="priority-chips"><span class="rank-chip" aria-label="Global priority ${priority.rank}">#${priority.rank}</span>${priority.answering ? '<span class="reason-chip">Drive answering</span>' : ''}${priority.incident ? '<span class="reason-chip urgent">Incident</span>' : ''}${item.built?.length ? `<span class="reason-chip warm">${item.built.length} built</span>` : ''}${priority.weight ? `<span class="reason-chip">Unblocks ${priority.weight}</span>` : ''}${item.since ? `<span class="reason-chip age">${esc(ago(item.since))} waiting</span>` : ''}</span>`;
+  const { priority, reason } = item;
+  return `<span class="priority-chips"><span class="rank-chip" aria-label="Rank ${priority.rank}">${priority.rank}</span><span class="reason-chip ${esc(reason.tone)}" data-tip="${esc(reason.text)}">${esc(reason.label)}</span>${item.since ? `<span class="age">${esc(ago(item.since))}</span>` : ''}</span>`;
+}
+
+function entryOf(key) {
+  return model.review.find((each) => each.key === key);
+}
+
+function prWord(entry, row = {}) {
+  if (row.state && row.state !== 'open') return { word: GONE_ROWS[row.state] ?? row.state, tone: GONE_ROWS[row.state] === 'Landed' ? 'good' : '' };
+  if (!entry) return { word: (CHECK_WORDS[row.checks] ?? CHECK_WORDS.none)[0], tone: (CHECK_WORDS[row.checks] ?? CHECK_WORDS.none)[1] };
+  if (entry.conflict) return { word: 'Needs a rebase', tone: 'bad' };
+  if (entry.checks === 'fail') return { word: 'Tests failing', tone: 'bad' };
+  if (entry.draft) return { word: 'Still a draft', tone: 'warn' };
+  if (entry.checks === 'pending') return { word: 'Tests running', tone: 'warn' };
+  if (entry.staging_plain.tone === 'bad' || entry.staging_plain.tone === 'warn') return entry.staging_plain;
+  if (entry.approve_waits === '') return { word: 'Ready to land', tone: 'good' };
+  return entry.staging_plain;
+}
+
+function dot({ word, tone }) {
+  return `<i class="dot ${esc(tone)}" title="${esc(word)}" aria-hidden="true"></i>`;
+}
+
+function itemStatus(item) {
+  if (item.kind !== 'tap') {
+    const tasks = item.blocks?.length ?? 0;
+    return tasks ? `<span class="qrow-status">Holds up ${esc(counted(tasks, 'task'))}${item.built?.length ? `, ${esc(counted(item.built.length, 'build'))} done` : ''}</span>` : '';
+  }
+  const open = item.prs.filter((pr) => pr.state === 'open');
+  const words = open.map((pr) => prWord(entryOf(prKey(pr.url)), pr));
+  const worst = ['bad', 'warn', '', 'good'].map((tone) => words.find((each) => each.tone === tone)).find(Boolean);
+  return `<span class="qrow-status">${words.map(dot).join('')}<span>${open.length > 1 ? `${esc(counted(open.length, 'PR'))} · ` : ''}${esc(worst?.word ?? '')}</span></span>`;
 }
 
 function decisionRail(item) {
   const card = item.card;
   const rail = item.rail ?? { held: [], asker: null, answers: [] };
-  const tasks = item.blocks.map(({ id }) => featureOf(id)).sort((a, b) => (b.id === rail.asker?.feature) - (a.id === rail.asker?.feature));
+  const tasks = item.blocks.map(({ id }) => featureOf(id)).filter(Boolean).sort((a, b) => (b.id === rail.asker?.feature) - (a.id === rail.asker?.feature));
   const links = [...(card.links ?? []), ...(card.refs ?? [])].filter((each) => !SLACK.test(each.url)).map((each) => `<li>${link(each.label, each.url)}</li>`).join('');
   return `<aside class="context-rail decision-sidebar" aria-label="About this decision">
-    <div class="eyebrow">Need something before deciding?</div>
-    <h3>Ask in your words.</h3>
-    ${sayBox(`q:${item.answer}`, item.answer, 'Ask a question, or answer in your own words', '', item.thread ?? '')}
-    ${item.thread ? `<details class="story-disclosure"><summary>Conversation</summary>${talkPane(item.thread, cardTs(item.answer))}</details>` : ''}
-    <details class="story-disclosure" data-story-evidence><summary>Evidence and source</summary>${prose(card.body)}${links ? `<ul class="rail-list">${links}</ul>` : ''}${pictures(card.pictures)}${card.options.map((label) => card.hints?.[label] ? `<details><summary>${esc(decisionPlain(optionParts(label)[0]))}</summary>${prose(card.hints[label])}</details>` : '').join('')}</details>
-    ${tasks.length ? `<details class="story-disclosure"><summary>Related work</summary><ul class="held-list">${tasks.map((entry) => heldRow(item, entry, rail.held)).join('')}</ul></details>` : ''}
+    <div class="rail-block"><div class="eyebrow">Why it is #${item.priority.rank}</div><p class="rank-why"><b class="${esc(item.reason.tone)}">${esc(item.reason.label)}.</b> ${esc(item.reason.text)}${item.since ? `. Asked ${esc(ago(item.since))} ago.` : '.'}</p></div>
+    ${tasks.length ? `<div class="rail-block"><div class="eyebrow">What waits on your answer</div><ul class="held-list">${tasks.map((entry) => heldRow(item, entry, rail.held)).join('')}</ul></div>` : ''}
+    <div class="rail-block"><div class="eyebrow">Not sure yet?</div>${sayBox(`q:${item.answer}`, item.answer, 'Ask a question, or answer in your own words', '', item.thread ?? '')}</div>
+    ${item.thread ? `<details class="story-disclosure"><summary>Conversation so far</summary>${talkPane(item.thread, cardTs(item.answer))}</details>` : ''}
+    <details class="story-disclosure" data-story-evidence><summary>The card as the drive wrote it</summary>${prose(card.body)}${links ? `<ul class="rail-list">${links}</ul>` : ''}${pictures(card.pictures)}${card.options.map((label) => card.hints?.[label] ? `<details><summary>${esc(decisionPlain(optionParts(label)[0]))}</summary>${prose(card.hints[label])}</details>` : '').join('')}</details>
     ${rail.answers.length ? `<details class="story-disclosure"><summary>Your earlier words</summary><ul class="said-list">${rail.answers.map(earlierWords).join('')}</ul></details>` : ''}
-    <details class="story-disclosure"><summary>Question details</summary>${priorityChips(item)}${rail.asker ? `<ul class="jobs">${jobRow(rail.asker)}</ul>` : ''}</details>
   </aside>`;
 }
 
@@ -573,7 +600,7 @@ function decisionCard(item, at, total) {
   const pictured = item.option_pictures[showing].map((each) => (each.kind === 'image' ? shot(each.source, each.caption) : visual(each.kind, each.source, each.caption)));
   const media = pictured.length ? `<div class="story-outcome-media" data-option="${showing}"${pictured.length > 1 ? ` tabindex="0" aria-label="${pictured.length} pictures of this path"` : ''}>${pictured.join('')}</div>` : '';
   const outcome = `<section class="story-outcome" aria-live="polite"><span class="eyebrow">${recommended ? 'Recommended outcome' : showing === state.selected ? 'Selected outcome' : 'Previewed outcome'}</span><h3>${esc(option.title)}</h3>${option.consequence ? `<p>${esc(option.consequence)}</p>` : ''}${media}${metrics}${item.card.hints?.[option.label] ? `<div class="story-hint">${prose(item.card.hints[option.label])}</div>` : ''}</section>`;
-  const options = `<div class="story-options" role="group" aria-label="Choose a path">${story.options.map((choice, i) => `<button class="story-option" data-story-pick="${i}" data-story-card="${esc(key)}" aria-pressed="${i === state.selected}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.title)}</strong>${choice.label === item.card.recommended ? '<em>Recommended</em>' : ''}${story.format === 'lab' ? `<span class="option-metrics">${choice.metrics.map((metric) => `<span><b>${esc(metric.value)}</b>${esc(metric.label)}</span>`).join('')}</span>` : `<small>${esc(choice.consequence)}</small>`}</span><span aria-hidden="true">→</span></button>`).join('')}</div>`;
+  const options = `<div class="story-options" role="group" aria-label="Choose a path">${story.options.map((choice, i) => `<button class="story-option" data-story-pick="${i}" data-story-card="${esc(key)}" aria-pressed="${i === state.selected}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.title)}</strong>${choice.label === item.card.recommended ? '<em>Recommended</em>' : ''}${story.format === 'lab' ? `<span class="option-metrics">${choice.metrics.map((metric) => `<span><b>${esc(metric.value)}</b>${esc(metric.label)}</span>`).join('')}</span>` : ''}</span><span aria-hidden="true">→</span></button>`).join('')}</div>`;
   const given = answers.get(key);
   const action = given?.done ? `<p class="answered">✓ ${esc(given.label)}</p>` : `<div class="story-action"><button class="btn" data-story-review="${esc(key)}"${given && !given.error ? ' disabled' : ''}>Review this choice <kbd>↵</kbd></button><small>Choose first. Review before sending.</small>${given?.error ? `<p role="alert">${esc(given.error)}</p>` : ''}</div>`;
   const lab = `<div class="story-lab">${options}${action}${outcome}<button class="linkish" data-story-compare="${esc(key)}" aria-expanded="${state.compare}">${state.compare ? 'Close comparison' : 'Compare every path'}</button>${state.compare ? table([['Path', 'What changes', ...story.options[0].metrics.map((metric) => metric.label)], ...story.options.map((choice) => [choice.title, choice.consequence, ...choice.metrics.map((metric) => metric.value)])]) : ''}</div>`;
@@ -593,23 +620,19 @@ function reviewDecision(key) {
   dialog.querySelector('[data-story-close]').focus();
 }
 
-function stateFacts(row) {
-  return sharedRenderers.stateFacts(row);
+function unjobbed(text) {
+  return text.replace(/\b[jo]\d{2,5}'s\b/g, 'its').replace(/\b[jo]\d{2,5}\b/g, 'a drive job');
 }
 
-function prFacts(item, row, read) {
-  const pr = read?.pr;
-  return [
-    stateFacts(row),
-    pr ? fact(`<span class="add">+${pr.additions}</span> <span class="del">−${pr.deletions}</span> · ${pr.changedFiles} ${pr.changedFiles === 1 ? 'file' : 'files'}`, `${pr.headRefName} into ${pr.baseRefName}`) : '',
-    pr?.isDraft ? fact('Draft', '', 'warn') : '',
-    row.head ? fact(`<code>${esc(row.head.slice(0, 7))}</code>`, `The commit this card was drawn for, ${row.head}`) : '',
-    item.since ? fact(esc(`Asked ${clock(item.since)}`), `Waiting on you for ${ago(item.since)}`) : '',
-    item.rank_why ? fact('Why it ranks here', item.rank_why) : '',
-    row.lands ? fact(esc(`Lands once ${row.lands}`), '', 'good') : '',
-    row.blocks ? fact(esc(row.blocks), '', 'bad') : '',
-    row.changed ? fact('Changed since your tap', row.changed, 'warn') : '',
-  ].join('');
+function approvePath(entry, row) {
+  const checks = { pass: ['Pass', 'good'], fail: ['Failing', 'bad'], pending: ['Running', 'warn'] }[entry?.checks ?? row.checks] ?? ['None ran', ''];
+  const review = { approved: ['Approved', 'good'], changes: ['Changes asked', 'bad'], stale: ['On an older commit', 'warn'] }[entry?.review ?? row.review] ?? ['Not yet', 'warn'];
+  const staged = entry?.staging_plain ?? { word: 'Unknown', tone: '' };
+  const tapped = (entry?.tap ?? row.tap) === 'Approve';
+  const merge = entry?.landing ? ['Merging', 'warn'] : entry?.approve_waits === '' ? ['On your Approve', ''] : ['Waits', ''];
+  const steps = [['Tests', ...checks], ['Code review', ...review], ['Staging', staged.word, staged.tone], ['You', tapped ? 'Approved' : 'Your call', tapped ? 'good' : 'now'], ['Merge', ...merge]];
+  return `<ol class="approve-path" aria-label="From tests to merge">${steps.map(([step, word, tone]) => `<li class="${esc(tone)}"><span>${esc(step)}</span><b>${esc(word)}</b></li>`).join('')}</ol>
+    <p class="approve-says">${esc(entry?.approve_plain ?? 'Approve records your yes.')}${row.changed ? ` <span class="warn">It changed since your tap: ${esc(decisionPlain(row.changed))}</span>` : ''}</p>`;
 }
 
 function showMe(row, pr, read) {
@@ -636,32 +659,17 @@ function prPane(tab, row, pr, head, read, inline) {
     return `<div class="review-slot" data-slot="${esc(pr)}" data-head="${esc(head)}">${frame}${review?.loaded ? '' : reviewWait(pr, head)}</div>`;
   }
   if (tab === 'context') {
-    const fields = PR_FIELDS.filter(([key]) => key !== 'refresher' && key !== 'show_me' && row[key]).map(([key, label]) => `<dt>${label}</dt><dd>${prose(row[key], pr)}</dd>`).join('');
-    const whole = read?.pr ? `<details class="whole"><summary>The whole description</summary>${prose(read.pr.body, pr)}</details>` : '';
-    return `${fields ? `<dl class="fields">${fields}</dl>` : '<p class="meta">Its description names no surprise, risk or departure from the plan.</p>'}${whole}`;
+    return read?.pr ? `<div class="whole">${prose(read.pr.body, pr)}</div>` : notRead(read);
   }
   return showMe(row, pr, read);
 }
 
 function stackRow(row, i, on, key) {
-  const name = `<span class="n">${i + 1}</span><span class="name">${esc(`${prKey(row.url)} · ${bare(row.title)}`)}</span>`;
-  if (row.state !== 'open') return `<li class="gone">${name}${fact(esc(GONE_ROWS[row.state] ?? row.state), '', GONE_ROWS[row.state] === 'Landed' ? 'good' : '')}</li>`;
-  const lands = row.lands ? fact('Approve lands it', `It lands once ${row.lands}`, 'good') : row.blocks ? fact(esc(row.blocks), '', 'bad') : '';
-  return `<li><button class="row${on ? ' on' : ''}" data-row="${i}" data-item="${esc(key)}" aria-current="${on}">${name}<span class="row-facts">${stateFacts(row)}${lands}</span></button></li>`;
-}
-
-function approveWords(entry, row) {
-  if (entry?.approve_waits === '') return 'Approve queues it for merge at once';
-  if (entry?.approve_waits) return `After your Approve it still waits: ${entry.approve_waits}`;
-  return `Lands once ${row?.lands || 'you approve'}`;
-}
-
-function landing(item, rows, entry) {
-  if (!item.card) return `<li><b>${esc(prKey(item.url))}</b> ${esc(approveWords(entry).replace(/^./, (c) => c.toLowerCase()))}</li>`;
-  return rows.map((row) => {
-    const said = row.state !== 'open' ? GONE_ROWS[row.state] ?? row.state : row.lands ? `lands once ${row.lands}` : row.blocks ? `does not land on Approve: ${row.blocks}` : 'Reading its card…';
-    return `<li><b>${esc(prKey(row.url))}</b> ${esc(said)}</li>`;
-  }).join('');
+  const entry = entryOf(prKey(row.url));
+  const status = prWord(entry, row);
+  const name = `<span class="n">${i + 1}</span><span class="name">${esc(entry?.headline ?? bare(row.title))}</span>`;
+  if (row.state !== 'open') return `<li class="gone">${name}<span class="row-word ${esc(status.tone)}">${esc(status.word)}</span></li>`;
+  return `<li><button class="row${on ? ' on' : ''}" data-row="${i}" data-item="${esc(key)}" aria-current="${on}">${name}<span class="row-word ${esc(status.tone)}">${dot(status)}${esc(status.word)}</span></button></li>`;
 }
 
 function spots(html) {
@@ -710,33 +718,37 @@ function noteBox(key, pr) {
   </form>`;
 }
 
-function prState(entry) {
-  const facts = [
-    entry.conflict ? fact(esc(`Conflicts with ${entry.base}`), `GitHub cannot merge ${entry.branch} until it is rebased onto ${entry.base}`, 'bad') : '',
-    entry.draft ? fact('Draft', '', 'warn') : '',
-    entry.landing ? fact(esc(`Lander: ${entry.landing}`)) : '',
-  ].join('');
-  const failed = entry.failed.map((name) => `<li>${link(name, `${entry.url}/checks`)}</li>`).join('');
-  const stack = entry.stack.length > 1 ? entry.stack.map((key) => `<li>${key === entry.key ? `<b>${esc(key)}</b>, this one` : `<button class="linkish" data-pr="${esc(key)}">${esc(key)}</button>`}</li>`).join('') : '';
-  return `${facts ? `<div class="facts">${facts}</div>` : ''}${failed ? `<p class="spot-head">Failing checks</p><ul class="rail-list">${failed}</ul>` : ''}${stack ? `<p class="spot-head">${entry.card?.siblings ? 'Its card, PRs of one request' : 'Its stack, bottom first'}</p><ol class="rail-list">${stack}</ol>` : ''}`;
+const RISK_FIELDS = [['hate_most', "What you'll hate most"], ['surprise', 'Biggest surprise'], ['impact', 'Who else it touches'], ['plan', 'Where it left the plan']];
+
+function risks(entry, row, pr, read) {
+  const size = read?.pr ? `<li><span class="mark">±</span><span><b><span class="add">+${read.pr.additions}</span> <span class="del">−${read.pr.deletions}</span></b> across ${esc(counted(read.pr.changedFiles, 'file'))}</span></li>` : '';
+  const failed = entry?.failed.length ? `<li class="bad"><span class="mark">✕</span><span><b>Failing:</b> ${entry.failed.map((name) => link(name, `${entry.url}/checks`)).join(', ')}</span></li>` : '';
+  const conflict = entry?.conflict ? `<li class="bad"><span class="mark">✕</span><span><b>Needs a rebase.</b> GitHub cannot merge it onto ${esc(entry.base)} as it stands.</span></li>` : '';
+  const proof = (entry?.staging ?? '').match(/\[proof\]\((https?:[^)\s]+)\)/)?.[1];
+  const staged = proof ? `<li class="good"><span class="mark">✓</span><span>${link('Open its staging proof', proof)}</span></li>` : '';
+  const said = RISK_FIELDS.filter(([field]) => row[field]).map(([field, label]) => {
+    const text = row[field].replace(/^\s*[-*•]\s*/, '').trim();
+    const cut = text.search(/(?<=[.;])\s/);
+    const [lead, rest] = cut > 0 && cut < text.length - 1 ? [text.slice(0, cut), text.slice(cut + 1)] : [text, ''];
+    const body = `<b>${esc(label)}.</b> ${inline(lead, pr)}`;
+    return `<li><span class="mark">!</span>${rest ? `<details><summary>${body}</summary><p>${inline(rest, pr)}</p></details>` : `<span>${body}</span>`}</li>`;
+  }).join('');
+  const html = conflict + failed + said + staged + size;
+  return html ? `<div class="rail-block"><div class="eyebrow">Before you approve</div><ul class="checklist">${html}</ul></div>` : '';
 }
 
 function serves(entry) {
   const task = featureOf(entry.feature);
-  const html = [
-    task ? `<p><a href="#/feature/${esc(task.id)}">${esc(bare(task.title))}</a></p>` : entry.feature_title ? `<p>${esc(bare(entry.feature_title))}</p>` : '',
-    entry.parts.length ? `<ul class="rail-list">${entry.parts.map((part) => `<li>${esc(part)}</li>`).join('')}</ul>` : '',
-    entry.job_said ? `<p class="spot-head">Its builder, ${ago(entry.job_at)} ago</p><p>${esc(named(entry.job_said))}</p>` : '',
-  ].join('');
-  return html ? `<div class="rail-block"><div class="eyebrow">What it serves</div>${html}</div>` : '';
+  if (!task && !entry.feature_title) return '';
+  return `<div class="rail-block"><div class="eyebrow">Part of</div><p class="serves">${task ? `<a href="#/feature/${esc(task.id)}">${esc(bare(task.title))}</a>` : esc(bare(entry.feature_title))}</p></div>`;
 }
 
 function prRail(item, key, rows, row, pr, head, read, inline) {
-  const entry = model.review.find((each) => each.key === pr);
+  const entry = entryOf(pr);
   return `<aside class="context-rail pr-rail" aria-label="About this change">
-    <div class="rail-block"><div class="eyebrow">Attached to this change <code>${esc(head.slice(0, 7))}</code></div><div class="facts">${stateFacts(row)}</div>${entry ? prState(entry) : ''}<p class="spot-head">What Approve lands</p><ul class="rail-list">${landing(item, rows, entry)}</ul></div>
-    ${entry ? `<details class="story-disclosure"><summary>Related work</summary>${serves(entry)}</details>` : ''}
-    <details class="story-disclosure"><summary>Evidence and files</summary>${jumps(key, row, pr, read)}</details>
+    ${risks(entry, row, pr, read)}
+    ${entry ? serves(entry) : ''}
+    <details class="story-disclosure"><summary>Pictures, lines and files</summary>${jumps(key, row, pr, read)}</details>
     <div class="rail-block"><div class="eyebrow">Question or line comment</div>${noteBox(key, pr)}</div>
     <div class="rail-block talk"><div class="eyebrow"${inline ? '' : ' data-key="q"'}>Tell the drive what to change</div>${item.thread ? `<details class="story-disclosure"><summary>Conversation</summary>${talkPane(item.thread, cardTs(item.answer))}</details>` : ''}
       ${sayBox(item.answer ? `t:${item.answer}` : `r:${pr}`, item.answer ?? '', 'Ask the drive, or tell Claude what to change', item.answer ? '' : `About ${row.url}`, item.thread ?? '')}
@@ -758,10 +770,10 @@ function prCard(item, at, total, embedded = false) {
   const told = slice(`/api/told?${new URLSearchParams({ pr })}`)?.told;
   const title = told?.story?.headline ?? lead?.headline ?? decisionPlain(read?.pr?.title ?? row.title).replace(/^./, (c) => c.toUpperCase());
   const context = read?.pr?.body?.match(/^## Context\s*\n([\s\S]*?)(?=^## |$(?![\s\S]))/m)?.[1]?.trim();
-  const beats = told?.story?.beats.map((beat) => [beat.label, beat.text]) ?? [['Why this exists', lead?.why ?? context ?? row.refresher], ['What changes', lead?.what ?? row.summary], ['Downstream', lead?.downstream ?? row.hate_most]];
+  const beats = told?.story?.beats.map((beat) => [beat.label, beat.text]) ?? [['Why this exists', lead?.why ?? context ?? row.refresher], ['What changes', lead?.what ?? row.summary], ['Downstream', lead?.downstream ?? row.hate_most]].map(([label, text]) => [label, text && unjobbed(text)]);
   const story = beats.map(([label, text]) => `<div><strong>${esc(label)}</strong><p>${text ? inline(text, pr) : 'The author has not supplied this explanation yet.'}</p></div>`).join('');
   const pictured = firstPicture(key, row, pr, read);
-  const stack = rows.length > 1 ? `<ol class="stack" aria-label="The PRs on this card, in the order they land">${rows.map((each, i) => stackRow(each, i, i === chosen, key)).join('')}</ol>` : '';
+  const stack = rows.length > 1 ? `<p class="spot-head stack-head">Approve lands these ${rows.length} together, bottom first</p><ol class="stack" aria-label="The PRs on this card, in the order they land">${rows.map((each, i) => stackRow(each, i, i === chosen, key)).join('')}</ol>` : '';
   const tabs = PR_TABS.map(([id, label]) => `<button role="tab" class="${id === tab ? 'on' : ''}" aria-selected="${id === tab}" data-prtab="${id}" data-item="${esc(key)}">${label}</button>`).join('');
   const panes = PR_TABS.map(([id]) => `<div class="pr-pane ${id}" role="tabpanel"${id === tab ? '' : ' hidden'}>${prPane(id, row, pr, head, read, embedded)}</div>`).join('');
   return `<div class="pr-layout" data-read="${esc(pr)}" data-head="${esc(head)}">
@@ -769,15 +781,14 @@ function prCard(item, at, total, embedded = false) {
       <div class="card-content">
         <div class="card-top"><span class="type-label">Pull request <a href="${esc(row.url)}" target="_blank" rel="noopener" data-github data-tip="Open it on GitHub"${embedded ? '' : ' data-key="o"'}>${esc(pr)}</a></span>${embedded ? '' : counter(at, total)}</div>
         <h2 class="card-title" id="item-title">${esc(title)}</h2>
+        ${item.untapped ? `<p class="approve-says">${esc(item.untapped)}</p>` : approvePath(entry, row)}
         ${pictured ? `<div class="pr-lede"><div class="pr-story">${story}</div>${pictured}</div>` : `<div class="pr-story">${story}</div>`}
         ${told && !told.story ? untold(told) : ''}
         ${stack}
-        <div class="facts">${prFacts(item, row, read)}</div>
       </div>
-      <div class="pr-decision-actions">${choices(item, !embedded)}</div>
       <div class="pr-tabs" role="tablist" aria-label="About this change">${tabs}</div>
       ${panes}
-      <div class="pr-actions"><span class="meta">${esc(item.untapped ?? approveWords(model.review.find((each) => each.key === pr), row))}</span></div>
+      <div class="pr-actions">${choices(item, !embedded)}</div>
     </article>
     ${prRail(item, key, rows, row, pr, head, read, embedded)}
   </div>`;
@@ -801,7 +812,7 @@ function queueScreen(id) {
       <div><div class="eyebrow">Your attention</div><h1 class="h1">Priority queue <span class="total-chip">${list.length}</span></h1></div>
       <div class="queue-tools">${queueScope(filter)}<nav class="subtabs" aria-label="Show">${filters}</nav></div>
     </div>
-    <p class="queue-order">Ranked by incident, past due, built work waiting, what it unblocks, then age; what the drive is answering you on goes last</p>
+    <p class="queue-order">Most urgent first: fixes for live incidents, then finished work waiting on your answer, then what frees the most work, then the oldest. What the drive is answering you on sits last.</p>
     ${unread}
     ${list.length === 1 ? `<div class="queue-current">${priorityChips(item)}</div>` : ''}
     <div class="queue-shell${list.length > 1 ? '' : ' alone'}">${list.length > 1 ? `<details class="queue-picker"${narrow.matches ? '' : ' open'}><summary>Browse ranked queue <span>${list.length}</span></summary>${queueList(list, at, filter)}</details>` : ''}${shown}</div>
@@ -810,29 +821,16 @@ function queueScreen(id) {
 
 function queueList(list, at, filter) {
   return `<ol class="queue-list" aria-label="Everything here, most urgent first">${list.map((item, i) => {
-    const tip = [item.title, item.rank_why, [fileName(fileKey(item.project)), fileName(fileKey(item.workstream))].join(' / ')].filter(Boolean).join('\n');
-    return `<li class="qrow${i === at ? ' on' : ''}" data-rank="${item.priority.rank}">
-      <a class="qrow-main" href="${esc(queueHref(filter, item))}" data-queue="${esc(noticeKey(item))}"${item.kind === 'question' ? '' : ` data-tip="${esc(tip)}"`}${i === at ? ' aria-current="true"' : ''}>${priorityChips(item)}<span class="qrow-kind">${LABEL[item.kind]} · ${esc(fileName(fileKey(item.project)))}</span><span class="qrow-title">${esc(bare(item.title))}</span>${heldPRs(item)}</a>
-      ${item.kind === 'question' ? '' : `<span class="qrow-acts">${rowActions(item, filter)}</span>`}
+    const why = item.reason.tone === 'bad' ? `<span class="qrow-why">${esc(item.reason.text)}</span>` : '';
+    return `<li class="qrow${i === at ? ' on' : ''} ${esc(item.reason.tone)}" data-rank="${item.priority.rank}">
+      <a class="qrow-main" href="${esc(queueHref(filter, item))}" data-queue="${esc(noticeKey(item))}"${i === at ? ' aria-current="true"' : ''}>${priorityChips(item)}<span class="qrow-kind">${LABEL[item.kind]} · ${esc(fileName(fileKey(item.project)))}</span><span class="qrow-title">${esc(item.headline ?? bare(item.title))}</span>${why}${itemStatus(item)}</a>
+      ${item.kind === 'question' ? '' : `<span class="qrow-acts">${rowActions(item)}</span>`}
     </li>`;
   }).join('')}</ol>`;
 }
 
-function heldPRs(item) {
-  if (!(item.prs?.length > 1)) return '';
-  return `<span class="qrow-prs">${item.prs.map((pr) => `<span class="qrow-pr${pr.state === 'open' ? '' : ' gone'}">${esc([`${prKey(pr.url)} · ${bare(pr.title)}`, GONE_ROWS[pr.state]].filter(Boolean).join(' · '))}</span>`).join('')}</span>`;
-}
-
-function rowActions(item, filter) {
-  const options = item.card?.options ?? TAP_LABELS;
-  const picks = options.map((option) => `<button class="mini${option === 'Approve' ? ' go' : ''}" data-card="${esc(answerKey(item))}" data-label="${esc(option)}" data-tip="${esc(option)}">${esc(option)}</button>`);
-  const task = item.tasks.find(Boolean);
-  return [
-    ...picks,
-    `<button class="mini" data-ask-about="${esc(noticeKey(item))}" data-href="${esc(queueHref(filter, item))}">Ask</button>`,
-    task ? `<a class="mini" href="#/feature/${esc(task)}">Open task</a>` : '',
-    ...(item.prs?.length > 1 ? item.prs.map((pr) => `<a class="mini" href="${esc(pr.url)}" target="_blank" rel="noopener">#${esc(prKey(pr.url).split('#')[1])} ↗</a>`) : [item.pr ? `<a class="mini" href="${esc(item.pr)}" target="_blank" rel="noopener">GitHub ↗</a>` : '']),
-  ].join('');
+function rowActions(item) {
+  return (item.card?.options ?? TAP_LABELS).map((option) => `<button class="mini${option === 'Approve' ? ' go' : ''}" data-card="${esc(answerKey(item))}" data-label="${esc(option)}">${esc(option)}</button>`).join('');
 }
 
 function nowScreen() {
@@ -1422,7 +1420,7 @@ function drawDrawer() {
   const [repo, number] = reviewing.split('#');
   const item = entry && {
     kind: 'tap', url: entry.url, title: entry.title, since: entry.since, answer: entry.answer, thread: entry.thread, card: null,
-    untapped: entry.group === 'decided' ? `You tapped ${entry.tap}; ${entry.detail}.` : entry.group === 'you' ? null : `It does not wait on your tap yet: ${entry.detail}.`,
+    untapped: entry.group === 'decided' ? `You tapped ${entry.tap}. ${entry.approve_plain}` : entry.group === 'you' ? null : `It does not wait on your tap yet: ${prWord(entry).word.toLowerCase()}.`,
     prs: [{ state: 'open', checks: entry.checks, review: entry.review }],
   };
   const html = `<div class="dr-bar"><b>${esc(reviewing)}</b><span class="acts"><a class="ext" href="https://github.com/${esc(repo)}/pull/${esc(number)}" target="_blank" rel="noopener">GitHub ↗</a><button class="linkish" data-close>Close</button></span></div>
@@ -2710,13 +2708,6 @@ document.addEventListener('click', (event) => {
   if (queued) {
     queueAt = queued.dataset.queue;
     return go(queued.getAttribute('href') ?? '#/queue/all');
-  }
-  const asking = event.target.closest('[data-ask-about]');
-  if (asking) {
-    queueAt = asking.dataset.askAbout;
-    history.replaceState(history.state, '', asking.dataset.href);
-    render();
-    return $('#main form[data-say] textarea')?.focus();
   }
   if (event.target.closest('[data-motion]')) {
     paused = !paused;
