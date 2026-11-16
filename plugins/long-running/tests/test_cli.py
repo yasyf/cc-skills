@@ -12936,7 +12936,7 @@ def test_a_staging_release_start_names_one_rehearsal_env_alone() -> None:
     assert (brief.leased_env(start.split()), brief.leased_env("tools/ci release start api --order 23eefb9".split()), brief.leased_env(f"{start} --env core-usw2-prod".split())) == ("plat-usw2-staging", None, None)
 
 
-def test_dropping_an_order_whose_staging_test_holds_a_dangerous_pr_is_refused_naming_the_pr(
+def test_dropping_an_order_closes_its_open_prs_with_the_reason_and_is_refused_while_one_is_queued_to_land(
     run: Run, demo: str, on_github: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     dangerous_repo(tmp_path, on_github, ["api/migrations/1700_add_runs.sql"])
@@ -12945,10 +12945,18 @@ def test_dropping_an_order_whose_staging_test_holds_a_dangerous_pr_is_refused_na
     key = "Forge-AI/monorepo#42"
     reaching(monkeypatch, key)
     run("pr", "add", PR, "--job", "j1", *LEAD)
-    assert state.dangerous_staged(state.load("demo"), "o1") == [key]
+    closed: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(github, "close", lambda url, comment=None: closed.append((url, comment)))
+    with state.edit("demo") as data:
+        data["prs"][key]["stage"] = {"name": "landing", "owner": "the lander", "since": state.stamp()}
     code, out = run("order", "set", "o1", "--state", "dropped", "--note", "backlog cut")
-    assert (code, f"o1: refused, {key} waits on o1's staging test, staged because its head changes a dangerous class of file" in out) == (2, True)
-    assert state.load("demo")["orders"]["o1"]["state"] not in state.CLOSED_ORDER_STATES
+    assert (code, f"o1: refused, nothing changed: {key} is queued to land" in out, closed) == (2, True, [])
+    with state.edit("demo") as data:
+        data["prs"][key]["stage"] = None
+    code, out = run("order", "set", "o1", "--state", "dropped", "--note", "backlog cut")
+    data = state.load("demo")
+    assert (code, closed, data["prs"][key]["state"], data["jobs"]["j1"]["state"]) == (0, [(PR, "Closed by the drive: backlog cut.")], "closed", "stopped")
+    assert f"{key} closed with o1: backlog cut" in out
 
 
 def test_a_new_waiting_replaces_a_jobs_staging_waits_and_a_withdrawn_cut_frees_a_wait_on_its_commit(

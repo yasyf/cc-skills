@@ -926,6 +926,21 @@ def refuse_unquotable_parts(flag: str, parts: list[str]) -> None:
         )
 
 
+def closed_prs(name: str, order_id: str, keys: list[str], why: str) -> list[str]:
+    """Close on GitHub each open PR a dropped order leaves with no live order, its comment the drop's reason, so no PR outlives the order it served; the line of each, a close GitHub refused naming its error."""
+    lines = []
+    for key in keys:
+        try:
+            github.close(state.pr_url(key), f"Closed by the drive: {why}.")
+        except github.GithubError as error:
+            lines.append(f"{key} not closed: {error}; close it with gh pr close {state.pr_url(key)}")
+            continue
+        with state.edit(name) as data:
+            data["prs"][key]["state"] = "closed"
+        lines.append(f"{key} closed with {order_id}: {why}")
+    return lines
+
+
 def order_set(args: argparse.Namespace) -> int:
     """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; --add-part refuses a name a part cannot hold, by state.unquotable_part, and --add-part and --drop-part change only the parts they name, by change_parts, and --add-part prints each open part of another order and open PR Jev reads as already making a new part's change, by repeated_lines; closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns; --incident turns an open order into an incident by turned_incident and names each open question card of his its words point at, by state.asked_lines; --kind answer --part takes each part off each done builder, codex or design job holding it, whose hold would keep it work he ordered, and delivers it by the post one's POSTED line names when that answer reaches him only by a post, saying so by answered_line; --standing keeps each --part standing on its goal, or takes it out with an empty one, by standing_parts, which --part needs no --kind for; a change to its parts, kind, standing parts, options-only mark or incident mark from a session of the drive that does not hold the order is refused before anything is written, by state.held_elsewhere, the check every job verb makes, but for the communicator and its handlers, which file his words onto any order's parts and kind and are refused only the incident mark. --unjoin takes it off the order it joined, by state.unjoin, filed under its own project and workstream by filing, from any session, since it changes no part. --priority puts its work first at each admission point, by state.first_in_line, and gives it a coordinator session of its own, by seat_started, from any session; a close, a drop or --no-priority retires each priority seat no open order holds any longer in the same step, by seats_retired."""
     name = state.resolve(args.drive)
@@ -980,7 +995,11 @@ def order_set(args: argparse.Namespace) -> int:
         )
     message = his_message(args.source) if args.source else state.slack_message(order["from"])
     thread = check_thread(data, args.thread, message) if args.thread else None
-    if args.state in state.CLOSED_ORDER_STATES and order["state"] not in state.CLOSED_ORDER_STATES and (untested := state.dangerous_staged(data, args.id)):
+    dropping = args.state == "dropped" and order["state"] not in state.CLOSED_ORDER_STATES
+    closing = state.order_open_prs(data, args.id) if dropping else []
+    if landing := [key for key in closing if (data["prs"][key]["stage"] or {}).get("name") == "landing"]:
+        raise DriveError(f"{args.id}: refused, nothing changed: {', '.join(landing)} {'is' if len(landing) == 1 else 'are'} queued to land, so dropping {args.id} would close a PR mid-merge: let it land or dequeue it first")
+    if not dropping and args.state in state.CLOSED_ORDER_STATES and order["state"] not in state.CLOSED_ORDER_STATES and (untested := state.dangerous_staged(data, args.id)):
         raise DriveError(
             f"{args.id}: refused, {', '.join(untested)} {'waits' if len(untested) == 1 else 'wait'} on {args.id}'s staging test, staged because {'its head changes' if len(untested) == 1 else 'their heads change'} a dangerous class of file,"
             f" and closing {args.id} frees that wait, so {'it' if len(untested) == 1 else 'they'} would land untested: let the test pass, or move the wait onto another order's part with drive pr set <url> --waits"
@@ -1082,6 +1101,7 @@ def order_set(args: argparse.Namespace) -> int:
     seated = [said] if args.priority and (said := seat_started(name, order["priority"])) else []
     seated += [priority_page(name, args.id, order)] if args.priority and not args.dry_run else []
     retired = list(seats_retired(name).values()) if args.state in state.CLOSED_ORDER_STATES or args.priority is False else []
+    retired += closed_prs(name, args.id, closing, args.note or f"its order {args.id} was dropped") if closing and not args.dry_run else []
     return emit(args, render.order_line(data, args.id, order) + "".join(f"\n{line}" for line in [*turned, *unjoined, *parts, *stopped, *restarted, *repeated, *render.builder_lines(name, data, added), *reworked, *seated, *retired]), {"id": args.id, **(state.load(name)["orders"][args.id] if restarted else order)})
 
 

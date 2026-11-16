@@ -2894,6 +2894,16 @@ def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
     return added
 
 
+def order_open_prs(data: dict, order_id: str) -> list[str]:
+    """Each open PR of the order that no other live order holds: its job's order and every order it carries are closed or are this one."""
+    return [
+        key
+        for key, pr in data["prs"].items()
+        if pr["order"] == order_id and pr["state"] == "open"
+        and not any(other != order_id and data["orders"][other]["state"] not in CLOSED_ORDER_STATES for other in ([data["jobs"][pr["job"]]["order"], *data["jobs"][pr["job"]]["carries"]] if pr["job"] in data["jobs"] else []))
+    ]
+
+
 def dangerous_staged(data: dict, order_id: str) -> list[str]:
     """Each open PR waiting on a staging test part of the order that the watch staged because its head changes a dangerous class of file, by its tester's DANGEROUS_GOAL, so closing the order, which frees that wait, would let it land untested."""
     return [

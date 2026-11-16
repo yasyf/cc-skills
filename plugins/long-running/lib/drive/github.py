@@ -117,9 +117,9 @@ def floor_lifts_in(said: str) -> float | None:
     return max(datetime.fromisoformat(resets[-1]).timestamp() - time.time(), 0) + 1
 
 
-def close(url: str) -> None:
-    """Close a pull request on GitHub."""
-    run(["gh", "pr", "close", url])
+def close(url: str, comment: str | None = None) -> None:
+    """Close a pull request on GitHub, leaving the comment on it when one is given."""
+    run(["gh", "pr", "close", url, *(["--comment", comment] if comment else [])])
 
 
 def author_login(author: dict | None) -> str:
