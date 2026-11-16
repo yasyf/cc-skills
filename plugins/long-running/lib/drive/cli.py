@@ -28,6 +28,7 @@ ROLE_NAMES = {"coordinator": "top coordinator", "communicator": "communicator", 
 FREEZE_FOR = timedelta(hours=12)
 JUDGED_LATER = "The drive kept the report you sent with drive job report {job} -, then its check refused it: {refused}. Fix what it names and send drive job report {job} - again; your newest report is the one that stands."
 KEPT_SPRITE_CAP = 60
+OWED = "owed, send it now:"
 NBD_READS = "nbd-reads.json"
 CHECK_UNBOUND = frozenset({state.DRIVE_ENV, "CLAUDE_CODE_SESSION_ID", "CCI_AGENT_ID"})
 RELEASE_WORD = re.compile(r"\breleas", re.IGNORECASE)
@@ -4086,19 +4087,34 @@ def to_starter(args: argparse.Namespace, name: str, job: dict, lane: str) -> int
 
 def held_to_starter(args: argparse.Namespace, name: str, job: dict, lane: str) -> int:
     """Give each text the job holds, oldest first, to its agent on this Mac that a session of the drive started and still holds, in one record by starter_post, each held text under the last, so a resume with no text sends the words the drive holds whole in one record the agent reads once and the session that runs it types one SendMessage line, by his words "make everything less chatty"; a text another resume took off the job meanwhile is not posted again. Nothing held, handed over or started."""
-    left = {kept["request"] for kept in state.load(name)["jobs"][args.id]["undelivered"]}
-    held = [kept for kept in job["undelivered"] if kept["request"] in left]
-    if not held:
+    if not (given := deliver_held(name, args.id, job, lane)):
         return emit(args, "", {"id": args.id, "how": f"handoff to {lane}", "seqs": []})
-    seq, line = starter_post(name, args.id, job, lane, "\n\n".join(kept["words"] for kept in held), held[0]["at"], held[0]["request"])
+    seq, line = given
+    return emit(args, line, {"id": args.id, "how": f"handoff to {lane}", "seqs": [seq]})
+
+
+def deliver_held(name: str, job_id: str, job: dict, lane: str) -> tuple[str, str] | None:
+    """Post every text the job holds to its agent on this Mac in one record by starter_post, his words first under an URGENT line, and take them off the job; when the agent is a subagent only the session that started it reaches, that session gets a second record at once, marked urgent, carrying the owed SendMessage line, so his words never wait for a `drive job resume`; the record's seq and the line, None when the job holds nothing."""
+    from drive import tools
+
+    left = {kept["request"] for kept in state.load(name)["jobs"][job_id]["undelivered"]}
+    held = sorted((kept for kept in job["undelivered"] if kept["request"] in left), key=lambda kept: kept["sender"] != state.HIM)
+    if not held:
+        return None
+    his = any(kept["sender"] == state.HIM for kept in held)
+    text = "\n\n".join([*(["URGENT: his words come first; act on them before anything else."] if his else []), *(kept["words"] for kept in held)])
+    seq, line = starter_post(name, job_id, job, lane, text, held[0]["at"], held[0]["request"])
     taken = {kept["request"] for kept in held}
 
-    def held_to_starter_write(data: dict):
-        data["jobs"][args.id]["undelivered"] = [kept for kept in data["jobs"][args.id]["undelivered"] if kept["request"] not in taken]
+    def deliver_held_write(data: dict):
+        data["jobs"][job_id]["undelivered"] = [kept for kept in data["jobs"][job_id]["undelivered"] if kept["request"] not in taken]
         return data
 
-    state.update(name, (("jobs", args.id),), held_to_starter_write)
-    return emit(args, line, {"id": args.id, "how": f"handoff to {lane}", "seqs": [seq]})
+    state.update(name, (("jobs", job_id),), deliver_held_write)
+    if OWED in line and state.session_lane(state.load(name), os.environ.get("CLAUDE_CODE_SESSION_ID")) != lane:
+        urgent = f"{'URGENT, his words: ' if his else ''}{line[line.index(OWED):]}"
+        tools.sent(name, state.WATCH_SENDER, [{"kind": "handoff", "to": [f"{lane}@{name}"], "attr": {"order": job["order"], "job": job_id, "urgent": "true"}, "text": f"{job_id}: {urgent}"}])
+    return seq, line
 
 
 def starter_post(name: str, job_id: str, job: dict, lane: str, text: str, at: str, held: str | None = None) -> tuple[str, str]:
@@ -4117,7 +4133,7 @@ def starter_post(name: str, job_id: str, job: dict, lane: str, text: str, at: st
     sent_kept(name, job_id, {"words": text, "request": seq, "held": held, "at": at, "ask": job.get("ask")})
     if session:
         return seq, own_post(name, job_id, session, seq)
-    line = f'{job_id}: owed, send it now: SendMessage {job["agent"]} "{superseded.POINTER.format(seq)}"'
+    line = f'{job_id}: {OWED} SendMessage {job["agent"]} "{superseded.POINTER.format(seq)}"'
     if not starter:
         return seq, line
     return seq, f"{job_id}: posted to agent {job['agent']}'s cci address and to {lane}@{name} as handoff record {seq}, its sendmessage attr naming the agent whose SendMessage alone reaches it: {line}"

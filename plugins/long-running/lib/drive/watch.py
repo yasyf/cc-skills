@@ -3412,6 +3412,36 @@ def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return state.update(watcher.name, None, said_undelivered)
 
 
+def held_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Post every text a job holds for its agent on this Mac, a subagent only the session that started it reaches, the moment it is held, by cli.deliver_held: one handoff record to the agent's cci address and its starter's lane, his words first, and an urgent record to that session carrying the owed SendMessage line, so his words never sit on a job until a `drive job resume`, as "Stop delaying: staging tests, then merge" sat on j6159 and a packer's answer on j4915 for 2h25m. Says the owed line and each post that failed."""
+    from drive import cli
+
+    data = state.load(watcher.name)
+    owed = [
+        (job_id, lane)
+        for job_id, job in data["jobs"].items()
+        if job["undelivered"]
+        and job["state"] not in state.FINISHED_JOB_STATES
+        and heard_job(watcher, data, job)
+        and (lane := state.agent_lane(data, job))
+        and not agent_death(job, data)
+        and not orca.locked_out(watcher.name, job_id, job)
+        and not superseded.fresh_builder(data, job_id, job, "", "a held text")
+    ]
+    lines = []
+    for job_id, lane in owed:
+        job = state.load(watcher.name)["jobs"][job_id]
+        try:
+            given = cli.deliver_held(watcher.name, job_id, job, lane)
+        except state.DriveError as error:
+            lines += failed(watcher, f"held of {job_id}", f"held text post to {job_id}", error, moment)
+            continue
+        watcher.failures.pop(f"held of {job_id}", None)
+        if given and cli.OWED in given[1]:
+            lines.append(f"HELD {given[1]} [{job['order']} {job_id}]")
+    return lines
+
+
 def case_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Post each staging case a tester holds, by state.stage_pr, to its agent on this Mac that the session holding it started, at once and whole, as drive job resume posts a held text to such an agent, by cli.starter_post: a handoff record to the agent's cci address and the SendMessage pointing it there to that session's lane, so the tester adds the case to the test it runs rather than leaving it to its next worker; a Sprite tester's worker gets it from agent_lines, and a tester no agent of a session runs, or whose agent died, from its next worker. Says only a post that failed."""
     from drive import cli
@@ -6085,7 +6115,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
         functools.partial(train_lines, watcher, moment),
         functools.partial(event_lines, watcher),
         *(owed_reads(watcher, moment) if lands else []),
-        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, clock_lines, case_lines, undelivered_lines, close_answered, close_joined_repeats, tell_lines, standing_lines, retired_seats, communicators_idle, env_alert_lines, orphan_lines)),
+        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, clock_lines, case_lines, held_lines, undelivered_lines, close_answered, close_joined_repeats, tell_lines, standing_lines, retired_seats, communicators_idle, env_alert_lines, orphan_lines)),
     ]
     names = [stage.func.__name__ for stage in later]
     resume, watcher.resume = watcher.resume, None
