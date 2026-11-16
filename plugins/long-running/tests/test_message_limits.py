@@ -1226,23 +1226,27 @@ def test_no_cc_slack_plugin_goes_out_unchecked_saying_his_thread_could_not_be_re
     )
 
 
-def test_the_communicators_own_post_is_refused_once_per_place_with_each_check_post_finding_its_status_line_never_and_goes_out_when_check_post_cannot_run(
+def test_the_communicators_own_post_goes_out_in_one_call_with_each_mechanical_check_post_fix_made_and_the_rest_warned(
     talker: str, transcript: Path, checked: Checked, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     payload = call("slack_dm_status", transcript, text=HISTORY_POST, thread_ts="1.2", asked="why did it reset?")
     del payload["agent_id"]
     payload |= {"tool_name": message_limits.SAY}
     assert message_limits.hook_output(payload) == {}
-    checked.findings = ["1:5 bare-url '<https://acme.sentry.io/issues/1>': wrap it as <url|short label>", "1:40 jargon 'a builder': say what it does"]
-    refused = message_limits.hook_output(payload)["hookSpecificOutput"]
-    assert refused["permissionDecision"] == "deny"
-    assert refused["permissionDecisionReason"].endswith("\n" + "\n".join(checked.findings))
+    checked.findings = ["1:40 jargon 'a builder': say what it does"]
+    warned = message_limits.hook_output(payload)["hookSpecificOutput"]
+    assert "permissionDecision" not in warned
+    assert "still finds, and the post went out: 1:40 jargon 'a builder'" in warned["additionalContext"]
     assert checked.texts[-1] == HISTORY_POST.strip()
     assert checked.asked[-1] == ["why did it reset?"]
-    again = message_limits.hook_output(payload)["hookSpecificOutput"]
-    assert "permissionDecision" not in again
-    assert "still finds, and the post went out" in again["additionalContext"]
-    assert message_limits.hook_output(payload)["hookSpecificOutput"]["permissionDecision"] == "deny"
+    late = payload | {"tool_input": payload["tool_input"] | {"text": "It failed at 2026-11-16T09:15:42Z. See https://github.com/acme/app/pull/12 for the fix."}}
+    checked.findings = ["1:14 machine-time '2026-11-16T09:15:42Z': write it in the team's local time", "1:39 bare-url 'https://github.com/acme/app/pull/12': wrap it as <url|short label>"]
+    fixed = message_limits.hook_output(late)["hookSpecificOutput"]
+    assert fixed["permissionDecision"] == "allow"
+    assert fixed["updatedInput"]["text"].startswith("It failed at ")
+    assert "1:15 AM" in fixed["updatedInput"]["text"]
+    assert "<https://github.com/acme/app/pull/12|PR #12>" in fixed["updatedInput"]["text"]
+    assert checked.texts[-1] == fixed["updatedInput"]["text"]
     assert message_limits.hook_output(payload | {"tool_name": "mcp__plugin_cc-slack_cc-slack__slack_dm_status"}) == {}
 
     def broken(text: str, asked: list[str]) -> list[str]:

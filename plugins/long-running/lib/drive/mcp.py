@@ -52,7 +52,7 @@ INSTRUCTIONS = (
     " requests in parts by whole lines, a post with one line too long for any of them going out unchecked, naming its size;"
     " only a claim naming a read that matches none of the poster's calls holds the post back; a comment,"
     " message, doc, PR body or earlier answer being a claim to test, never a source, and a record's or job report's line"
-    " backing only what the read it shows measured; it posts exactly the words it is given and adds none."
+    " backing only what the read it shows measured; it posts exactly the words it is given and adds none, but on the communicator's own post it makes each mechanical `cc-slack check-post` fix, a UTC stamp in Pacific, a zone label dropped, a bare link put on words, a paragraph over three sentences cut, and posts the fixed words in the same call."
     " The drive's verbs are tools too: heard, record for the"
     " records between the drive's sessions, order, job and pr taking several ops a call, and status; each takes"
     " dry_run, and drive, the drive it acts on when this session is bound to none or several."
