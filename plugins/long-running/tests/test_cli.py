@@ -12833,3 +12833,25 @@ def test_a_staging_testers_done_is_refused_while_a_case_its_pr_requires_reads_an
     assert f"Forge-AI/monorepo#42 {gateway}: no CASE line" in capsys.readouterr().err
     monkeypatch.setattr("sys.stdin", io.StringIO(f"DONE #42 passed on staging\n{check}\nCASE {gateway}: pass: the Mac agent's call answered 200\n"))
     assert cli.main(["job", "report", "j1", "-"]) == 0
+
+
+def test_a_wave_start_holds_its_start_on_testers_of_orders_two_sessions_hold_and_wakes_each_from_the_top_coordinator_alone(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--workstream", "Staging", "prove the cut on staging")
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Staging", "agents wake on their inbox")
+    run("job", "add", "reader", "--order", "o1", "--goal", "staging cases of wave 2")
+    run("job", "add", "reader", "--order", "o2", "--goal", "case 7 of wave 2")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "platform-1")
+    run("start", "demo", "--role", "coordinator", "--project", "Platform")
+    detached: list[list[str]] = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or 1)
+    assert cli.main(["wave", "start", "wave 2 cut 2b 82778a97bccf", "j1", "j2", "--text", "j1 runs now; j2 case 7"]) == 2
+    assert capsys.readouterr().err.strip() == "drive: refused: only the top coordinator starts a wave"
+    assert (detached, state.load("demo")["jobs"]["j1"]["undelivered"]) == ([], [])
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
+    code, out = run("wave", "start", "wave 2 cut 2b 82778a97bccf", "j1", "j2", "--text", "j1 runs now; j2 case 7")
+    assert (code, out.strip()) == (0, "wave 2 cut 2b 82778a97bccf: START held on j1, j2, each woken now by drive job resume, whichever session holds its order")
+    jobs = state.load("demo")["jobs"]
+    assert [[kept["words"] for kept in jobs[job_id]["undelivered"]] for job_id in ("j1", "j2")] == [["START wave 2 cut 2b 82778a97bccf: j1 runs now; j2 case 7"]] * 2
+    assert detached == [["job", "resume", "j1"], ["job", "resume", "j2"]]

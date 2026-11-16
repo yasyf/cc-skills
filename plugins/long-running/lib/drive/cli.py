@@ -5154,6 +5154,28 @@ def slot_hold(args: argparse.Namespace) -> int:
     return emit(args, line + "".join(f"; {job_id} told NO-START" for job_id in args.take), {"env": args.env, "line": line, "taken": args.take})
 
 
+def wave_start(args: argparse.Namespace) -> int:
+    """Start a wave of testers on a cut from the top coordinator's session: hold its START text on each named job, whichever session holds the job's order, then wake each by a detached drive job resume, as a slot hand wakes a job, so no lane relays a START to testers it cannot resume."""
+    name = state.resolve(args.drive)
+    if not state.top_coordinator(state.load(name), os.environ.get("CLAUDE_CODE_SESSION_ID")):
+        raise DriveError("refused: only the top coordinator starts a wave")
+    text = f"START {args.cut}: {args.text}"
+
+    def wave_held(data: dict) -> None:
+        sender = state.held_sender(data)
+        for job_id in args.jobs:
+            job = find(data["jobs"], job_id, "job")
+            if job["state"] in state.FINISHED_JOB_STATES:
+                raise DriveError(f"{job_id}: refused, nothing held or woken: it ended {job['state']}; add the tester that runs this wave's cases first")
+            state.hold_text(job, text, sender)
+
+    state.write(name, wave_held)
+    for job_id in args.jobs:
+        state.detach(name, ["job", "resume", job_id], watch.RELAUNCHES_LOG)
+    line = f"{args.cut}: START held on {', '.join(args.jobs)}, each woken now by drive job resume, whichever session holds its order"
+    return emit(args, line, {"cut": args.cut, "jobs": args.jobs, "text": text})
+
+
 def slot_packer(args: argparse.Namespace) -> int:
     """Name the lane that packs a staging env's cuts, from the top coordinator's session, so each QUEUED line and tester brief addresses a tester's cut ask there, never root."""
     name = state.resolve(args.drive)
@@ -8251,6 +8273,13 @@ def parser() -> argparse.ArgumentParser:
     verb = slot.add_parser("queue", parents=both, help="each staging slot's holder, its lease's end and the jobs waiting, in order")
     verb.add_argument("env", nargs="?", help="the staging env; default every one")
     verb.set_defaults(run=slot_queue)
+
+    wave = verbs.add_parser("wave", help="waves of staging testers on a cut").add_subparsers(dest="action", required=True)
+    verb = wave.add_parser("start", parents=both, help="hold a wave's START on each named tester and wake each, from the top coordinator")
+    verb.add_argument("cut", help="the cut the wave tests, as its START names it, such as \"wave 2 cut 2b 82778a97bccf\"")
+    verb.add_argument("jobs", nargs="+", metavar="JOB", help="each tester job the wave runs, on any session's order")
+    verb.add_argument("--text", required=True, help="the START's steps, one line per named job")
+    verb.set_defaults(run=wave_start)
 
     queue = verbs.add_parser("work", help="the work queue: items workers pull in groups").add_subparsers(dest="action", required=True)
     verb = queue.add_parser("enable", parents=both, help="turn a kind of work over to the queue, or back with --off")
