@@ -2773,7 +2773,7 @@ def named_waits(data: dict, order_id: str, line: str) -> list[str]:
     """The waits a result line names: each release:<service>:<owner>/<repo>#<n>, with its @<env> when it names one, of a PR the drive tracks, each staging:<target>/<env>@<commit>, each Buildkite build it links, by the build's own link, each other drive PR it names, each part it names as <order>:<part>, each order he has not scheduled it names by its id, by unscheduled, each process on this Mac it names as pid:<n> that runs now, by pid_waits, each teammate's reply it names as reply:<the question's permalink> and each next record of another drive it names as reply:cci:<the seq of the record it follows>."""
     releases = [found[0] for found in RELEASE_WAIT.finditer(line) if found["pr"] in data["prs"]]
     stagings = [found[0] for found in STAGING_WAIT.finditer(line)]
-    builds = [found[0] for found in github.BUILD.finditer(line)]
+    builds = [found[0] for found in provided(data).build.finditer(line)]
     orders = [found for found in LINE_ORDER.findall(line) if unscheduled(data, found)]
     boxes = [f"mac-box:{found['box']}" for found in MAC_BOX_WAIT.finditer(line) if not found["handed"]]
     boxes += [found[0] for found in SLOT_TURN_WAIT.finditer(line) if found["job"] in data["jobs"]]
@@ -2850,7 +2850,7 @@ def result_waits(data: dict, job_id: str, line: str) -> list[str]:
 
     job = data["jobs"][job_id]
     if re.match(r"WAITING\b", line):
-        started = [found[0]] if job["release_build"] and (found := github.BUILD.match(job["release_build"])) else []
+        started = [found[0]] if job["release_build"] and (found := provided(data).build.match(job["release_build"])) else []
         jobs = [change_wait(data, other, job_id, job) for other in dict.fromkeys(LINE_JOB.findall(line)) if other in data["jobs"] and other != job_id]
         kept = next((wait for wait in job["waits"] if HIS_WORD_WAIT.fullmatch(wait)), None)
         named = [kept if kept and HIS_WORD_WAIT.fullmatch(wait) else wait for wait in named_waits(data, job["order"], line)]
@@ -3867,12 +3867,12 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
     tested = {f"{home(data)}#{STAGING_PART.fullmatch(part)['number']}".casefold(): part for _, part in staging_parts(data, job)}
     every = [proof for check in brief.CHECK.findall(report) for proof in brief.proofs(check)]
     named = {key: part_run(data, job_id, report, tested[key.casefold()])[1] if key.casefold() in tested else every for key in freed}
-    runs = {key: [found[0] for proof in proofs if (found := github.BUILD.match(proof))] for key, proofs in named.items()}
+    runs = {key: [found[0] for proof in proofs if (found := provided(data).build.match(proof))] for key, proofs in named.items()}
     deployed, said, lacking = {}, [], {}
     signed_in = provided(data).mac_box.signed_in_step
     try:
         for build in dict.fromkeys(build for builds in runs.values() for build in builds):
-            ran_build = github.BUILD.match(build)
+            ran_build = provided(data).build.match(build)
             read = github.build(ran_build["pipeline"], ran_build["number"])
             passed = {ran.get("step_key") or "" for ran in read.get("jobs", []) if ran.get("state") == "passed"}
             if envs := sorted({step["env"] for key in passed if (step := APPLY_STEP.fullmatch(key)) and settled.stage(step["env"], clone) == settled.STAGING}) + [MAC_BOX] * (signed_in in passed):
@@ -6767,7 +6767,7 @@ def followed_builds(orders: dict[str, dict]) -> set[str]:
 
 def card_wait(data: dict, wait: str) -> bool:
     """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a job's next report, a PR, tracked or not, an order or a part of one, a release of the drive, a staging test's soak commit, a process on this Mac, a Buildkite build, a teammate's reply to a question the drive asked them, another drive's next record on a topic, a teammate's review of a PR's head, a builder slot on this Mac or a Sprite lane under this Mac's cap."""
-    return wait not in data["jobs"] and wait not in data["prs"] and wait not in data["orders"] and not part_wait(data, wait) and not RELEASE_WAIT.fullmatch(wait) and not STAGING_WAIT.fullmatch(wait) and not PID_WAIT.fullmatch(wait) and not MAC_BOX_WAIT.fullmatch(wait) and not HIS_WORD_WAIT.fullmatch(wait) and not BOX_PID_WAIT.fullmatch(wait) and not SLOT_TURN_WAIT.fullmatch(wait) and not github.BUILD.fullmatch(wait) and not REPLY_WAIT.fullmatch(wait) and not REVIEW_WAIT.fullmatch(wait) and not RETURN_WAIT.fullmatch(wait) and not untracked_wait(data, wait) and wait not in TURN_WAITS
+    return wait not in data["jobs"] and wait not in data["prs"] and wait not in data["orders"] and not part_wait(data, wait) and not RELEASE_WAIT.fullmatch(wait) and not STAGING_WAIT.fullmatch(wait) and not PID_WAIT.fullmatch(wait) and not MAC_BOX_WAIT.fullmatch(wait) and not HIS_WORD_WAIT.fullmatch(wait) and not BOX_PID_WAIT.fullmatch(wait) and not SLOT_TURN_WAIT.fullmatch(wait) and not provided(data).build.fullmatch(wait) and not REPLY_WAIT.fullmatch(wait) and not REVIEW_WAIT.fullmatch(wait) and not RETURN_WAIT.fullmatch(wait) and not untracked_wait(data, wait) and wait not in TURN_WAITS
 
 
 def job_wait_refusal(data: dict, waits: list[str]) -> str | None:
