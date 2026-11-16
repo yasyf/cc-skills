@@ -912,17 +912,11 @@ class Copy:
         self.shaped = b""
 
     def built_back(self) -> dict:
-        """The drive the rows hold, as rows_read builds it back, with the cyclic garbage collector paused, since the records hold no cycles and each collection it ran while they were built walked every object of the process, each drive copy it holds included, which took longer than building them."""
-        collecting = gc.isenabled()
-        gc.disable()
-        try:
-            data = {field: {} if body is None else marshal.loads(body) for field, (_, body) in self.rows.get("", {}).items()}
-            for collection, records in self.rows.items():
-                if collection:
-                    data[collection] = {key: marshal.loads(body) for key, (_, body) in records.items()}
-        finally:
-            if collecting:
-                gc.enable()
+        """The drive the rows hold, as rows_read builds it back."""
+        data = {field: {} if body is None else marshal.loads(body) for field, (_, body) in self.rows.get("", {}).items()}
+        for collection, records in self.rows.items():
+            if collection:
+                data[collection] = {key: marshal.loads(body) for key, (_, body) in records.items()}
         return data
 
     def patch(self, rows: dict[str, dict[str, tuple[int, str | None] | None]]) -> None:
@@ -1016,12 +1010,18 @@ def bound(data: dict) -> dict:
 
 
 def load(name: str) -> dict:
-    """Read a drive, bringing a drive saved by an older install up to the fields this one reads, in memory and from what is on this Mac alone, whatever install saved it last. Inside a batch, the batch's copy as its writes so far left it. It writes nothing: a one-time change to the drive's files is `migrate`'s, since every drive command, hook and watch pass reads through here at once."""
-    if name in BATCHED:
-        return marshal.loads(BATCHED[name])
-    if not (path := database_path(name)).exists():
-        return shaped(name, stored_json(name))[0]
-    return whole(path, lambda saved: shaped(name, saved))
+    """Read a drive, bringing a drive saved by an older install up to the fields this one reads, in memory and from what is on this Mac alone, whatever install saved it last. Inside a batch, the batch's copy as its writes so far left it. It writes nothing: a one-time change to the drive's files is `migrate`'s, since every drive command, hook and watch pass reads through here at once. All copies of its acyclic JSON records are materialized without cyclic garbage collection, which would repeatedly scan every retained drive copy while allocating them; the caller's collector setting is restored on return or error."""
+    collecting = gc.isenabled()
+    gc.disable()
+    try:
+        if name in BATCHED:
+            return marshal.loads(BATCHED[name])
+        if not (path := database_path(name)).exists():
+            return shaped(name, stored_json(name))[0]
+        return whole(path, lambda saved: shaped(name, saved))
+    finally:
+        if collecting:
+            gc.enable()
 
 
 def bare_seq(seq: str | None) -> str | None:
@@ -4297,7 +4297,7 @@ def batch(name: str, dry: bool = False) -> Iterator[list[str]]:
         REHEARSING.add(name)
     try:
         yield after
-        mine, effects = marshal.loads(BATCHED[name]), AFTER_SAVE[name]
+        mine, effects = load(name), AFTER_SAVE[name]
     finally:
         del BATCHED[name], AFTER_SAVE[name]
         REHEARSING.discard(name)
