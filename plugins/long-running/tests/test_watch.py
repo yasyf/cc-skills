@@ -3282,6 +3282,8 @@ def test_ensure_loads_a_launch_agent_that_starts_the_watch_again_after_any_exit_
     ran: list[tuple[str, ...]] = []
     loaded = iter([False, True])
     monkeypatch.setenv("OPENAI_API_KEY", "a session secret")
+    monkeypatch.setenv("PATH", f"{tmp_path}/mise/installs/cc-remote/0.27.26:{tmp_path}/worktree/tools/bin:{os.environ['PATH']}")
+    monkeypatch.setenv("MISE_DATA_DIR", str(tmp_path / "mise"))
     monkeypatch.setattr(launchd, "kept", lambda label: next(loaded))
     monkeypatch.setattr(launchd, "launchctl", lambda *args: ran.append(args))
     monkeypatch.setattr(launchd, "LAUNCH_AGENTS", tmp_path / "LaunchAgents")
@@ -3294,6 +3296,8 @@ def test_ensure_loads_a_launch_agent_that_starts_the_watch_again_after_any_exit_
     assert agent["StandardOutPath"] == agent["StandardErrorPath"] == str(state.watch_log_path(demo))
     env = agent["EnvironmentVariables"]
     assert (env[state.DRIVE_ENV], env[launchd.LAUNCHED_ENV], "CLAUDE_CODE_SESSION_ID" in env, "OPENAI_API_KEY" in env) == (demo, watch.label(demo), False, False)
+    assert env["PATH"].split(os.pathsep)[:2] == [str(tmp_path / "mise" / "shims"), str(Path.home() / ".local" / "bin")]
+    assert ("/mise/installs/" in env["PATH"], "/worktree/tools/bin" in env["PATH"]) == (False, False)
     assert REAL_ENSURE(demo).startswith("the watch runs under its launch agent")
     assert len(ran) == 1
 

@@ -9,7 +9,7 @@ from drive.state import DriveError
 
 LAUNCH_AGENTS = Path.home() / "Library" / "LaunchAgents"
 MANIFEST = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
-AGENT_ENV = ("PATH", "CLAUDE_CONFIG_DIR", "XDG_STATE_HOME", "XDG_BIN_HOME", "CC_SLACK_CONFIG", "CHROME")
+AGENT_ENV = ("CLAUDE_CONFIG_DIR", "XDG_STATE_HOME", "XDG_BIN_HOME", "CC_SLACK_CONFIG", "CHROME")
 LAUNCHED_ENV = "CLAUDE_LONG_RUNNING_LAUNCH_AGENT"
 LABEL = "com.yasyf.long-running"
 DOMAIN = f"gui/{os.getuid()}"
@@ -31,13 +31,20 @@ def kept(label: str) -> bool:
     return subprocess.run(["launchctl", "print", service(label)], capture_output=True, check=False).returncode == 0
 
 
+def agent_path() -> str:
+    """The PATH every launch agent runs with, whichever shell installed it: mise's shims first, so each tool resolves to the version the working directory or the global mise config pins, then the user and Homebrew bin folders and the system ones. The installing shell's own PATH is never copied, since it carries versioned mise install folders and a worktree's tool folders that pin a launch agent to an old release until it is installed again."""
+    home = Path.home()
+    mise = Path(os.environ.get("MISE_DATA_DIR") or Path(os.environ.get("XDG_DATA_HOME") or home / ".local" / "share") / "mise")
+    return os.pathsep.join([str(mise / "shims"), str(home / ".local" / "bin"), "/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"])
+
+
 def session_env() -> dict[str, str]:
     """The `env` block of this Mac's Claude user settings, which Claude Code puts into every session's processes, such as the BUILDKITE_API_TOKEN `tools/ci bk` reads: what the watch its launch agent started takes into its own environment at each start, since its plist holds none of those keys."""
     return json.loads((config_dir() / "settings.json").read_text()).get("env", {})
 
 
 def keep(label: str, args: list[str], log: Path, env: dict[str, str], cwd: Path) -> None:
-    """Load the launch agent, which runs `drive <args>` in cwd now and again RESTART_SECONDS after it exits, however it exits, on the newest long-running installed, found the way the drive's MCP server finds it. Its environment holds only AGENT_ENV of this process's, since a plist keeps on disk the API keys the rest holds, then env and LAUNCHED_ENV naming the agent; the watch takes those keys from session_env as it starts."""
+    """Load the launch agent, which runs `drive <args>` in cwd now and again RESTART_SECONDS after it exits, however it exits, on the newest long-running installed, found the way the drive's MCP server finds it. Its environment holds agent_path as its PATH and only AGENT_ENV of this process's, since a plist keeps on disk the API keys the rest holds, then env and LAUNCHED_ENV naming the agent; the watch takes those keys from session_env as it starts."""
     newest = json.loads(MANIFEST.read_text())["mcpServers"]["drive"]
     path = LAUNCH_AGENTS / f"{label}.plist"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -46,7 +53,7 @@ def keep(label: str, args: list[str], log: Path, env: dict[str, str], cwd: Path)
             {
                 "Label": label,
                 "ProgramArguments": ["/usr/bin/env", newest["command"], *newest["args"][:-1], *args],
-                "EnvironmentVariables": {variable: os.environ[variable] for variable in AGENT_ENV if variable in os.environ} | env | {LAUNCHED_ENV: label},
+                "EnvironmentVariables": {variable: os.environ[variable] for variable in AGENT_ENV if variable in os.environ} | {"PATH": agent_path()} | env | {LAUNCHED_ENV: label},
                 "WorkingDirectory": str(cwd),
                 "KeepAlive": True,
                 "RunAtLoad": True,
