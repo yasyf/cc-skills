@@ -406,6 +406,7 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
         args.joins = settled.repeats(state.load(name), args.words, tooling)
     project, workstream = (None, None) if unfiled or args.joins else filing(state.load(name), args.words, args.project, args.workstream, "refused, no order added")
     paged = not (tooling or args.incident or args.joins) and settled.asks_page(args.words)
+    minutes = 0 if args.every or args.incident else settled.cadence(args.words)
     with state.edit(name) as data:
         role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
         if tooling and args.owner not in (None, "meta"):
@@ -430,6 +431,7 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
             project, workstream = head["project"], head["workstream"]
         incidents = [render.incident_line(other_id, other) for other_id, other in state.open_orders(data).items() if args.incident and not joined and other["incident"]]
         order_id = state.next_id(data["orders"], "o")
+        paced = next((each for each, other in state.open_orders(data).items() if not other["incident"] and thread and state.promise_thread(other) == tuple(thread)), order_id) if minutes else None
         parts = {part: state.new_part() for part in args.parts or [title]}
         order = data["orders"][order_id] = state.new_order(args.words, slack_key(args.source, message), thread, parts, created) | {
             "alerts": alerts,
@@ -440,7 +442,7 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
             "complex": args.complex,
             "options_only": args.options_only,
             "once": args.once,
-            "every": args.every,
+            "every": args.every or (minutes if paced == order_id else 0),
             "owner": owner,
             "project": project,
             "workstream": workstream,
@@ -454,8 +456,12 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
         if args.due:
             need_thread(order_id, order)
             state.new_promise(order, state.promise_thread(order), due_stamp(args.due), created)
+        if paced and paced != order_id:
+            data["orders"][paced]["every"] = minutes
         started = [state.incident_job(data, name, order_id, part, created) for part in (order["parts"] if args.incident and not joined else [])]
         started += [state.INCIDENT_BRIEF] if started else []
+        if paced:
+            started.append(f"every {minutes} minutes, as his words ask: {paced} owes him a line in its thread that long after its last one until done, and each line there promises the next within it")
         page_job = paged and state.codex_job(data, order_id, state.PAGE, created)
         repeats = joined and not state.hurts_now(data, order)
         group = [other for other in state.feature_orders(data, order_id) if other != order_id] if repeats else []
@@ -6277,7 +6283,7 @@ def parser() -> argparse.ArgumentParser:
         help="his words order its design started over from scratch: every card asked on its work before them is withdrawn on them, and its builders decide implementation details with no card; with neither, Jev reads his words for it",
     )
     verb.add_argument("--once", action="store_true", help="a repair he asked to run once: its job runs it and puts up no PR")
-    verb.add_argument("--every", type=int, default=0, metavar="MINUTES", help="he asked for a line every this many minutes: its thread owes one that long after its last line until the order is done")
+    verb.add_argument("--every", type=int, default=0, metavar="MINUTES", help="the minutes he asked a line every, in place of the cadence the drive reads from his words itself: its thread owes one that long after its last line until the order is done")
     verb.add_argument(
         "--owner",
         choices=state.ROLES,
@@ -6387,7 +6393,7 @@ def parser() -> argparse.ArgumentParser:
             " turn for a slot and the load gate, and one already waiting its turn takes it on the watch's next pass; other orders' builders wait behind it; and it owes him a line every five quiet minutes whether or not a job of it is at work"
         ),
     )
-    verb.add_argument("--every", type=int, metavar="MINUTES", help="the minutes he asked a line every, owed that long after its thread's last line until the order is done; 0 takes it out")
+    verb.add_argument("--every", type=int, metavar="MINUTES", help="the minutes he asked a line every, owed that long after its thread's last line until the order is done, each line there promising the next within it; 0 takes it out")
     verb.add_argument("--project", metavar="NAME", help="the project the dashboard's Now screen files this order under; an empty name takes it out")
     verb.add_argument("--workstream", metavar="NAME", help="the workstream inside its project the Now screen files this order under; an empty name takes it out")
     verb.add_argument(

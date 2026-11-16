@@ -1055,6 +1055,26 @@ def test_a_tooling_order_jev_reads_as_repeating_an_open_one_joins_it_and_rides_o
     assert state.load("demo")["orders"]["o3"]["joins"] is None
 
 
+def test_his_words_asking_a_line_every_15_minutes_set_that_cadence_on_the_first_open_order_of_their_thread_and_minutes_naming_anything_else_set_none(run: Run, demo: str, jev: Jev) -> None:
+    filed = ("--project", "The drive", "--workstream", "Drive tooling")
+    release, replica = ("--thread", "1794774184.502879"), ("--thread", "1794548960.047439")
+    run("order", "add", "--title", "Whole-platform release", *filed, *release, "Ship the whole-platform release")
+    run("order", "add", "--title", "Replica read", *filed, *replica, "Fix the replica read")
+    jev.breaks(settled.PACED, "")
+    words = "Ok and while that's happening how's release 3 merging going? Also ur supposed to give updates every 15 mins you forgot that you just promised next like 30 mins dorm now."
+    code, out = run("order", "add", "--title", "Release 3 merges", *filed, *release, words)
+    assert code == 0
+    assert "every 15 minutes, as his words ask: o1 owes him a line in its thread that long after its last one until done, and each line there promises the next within it" in out.splitlines()
+    assert run("order", "add", "--title", "Hourly lines", *filed, "Ping me every hour on the cache rebuild until it lands")[0] == 0
+    jev.ruled.clear()
+    assert run("order", "add", "--title", "Retry cadence", *filed, *replica, "The cleanup job retries every half hour and never gives up; make it stop after one try")[0] == 0
+    assert run("order", "add", "--title", "Every twenty", *filed, *replica, "Give me a line every hour on the replica read", "--every", "20")[0] == 0
+    assert [order["every"] for order in state.load(demo)["orders"].values()] == [15, 0, 0, 60, 0, 20]
+    asked = [request for request in jev.asked if settled.PACED in request["questions"]]
+    assert [(request["state"]["minutes"], request["questions"]) for request in asked] == [(minutes, {settled.PACED: settled.ASKS_CADENCE}) for minutes in (15, 60, 30)]
+    assert asked[0]["state"]["words"] == words
+
+
 def test_his_words_jev_reads_as_on_an_open_feature_stay_alone_naming_it_and_join_only_by_joins_under_its_coordinator_binding_its_rulings(
     run: Run, demo: str, jev: Jev, capsys: pytest.CaptureFixture[str]
 ) -> None:

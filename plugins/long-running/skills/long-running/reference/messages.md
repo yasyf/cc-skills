@@ -137,6 +137,16 @@ his words "your messages need to be way shorter rewrite this for a human".
   report at once, saying when he went away rather than calling the line late. The order cannot close before a post is there. An open
   incident keeps no such time: the watch owes its next line five quiet minutes after its last once it has news, by
   [Clocks](incidents.md#clocks).
+- In the thread of an open order he asked a line of every so many minutes, every line, an ack or a
+  status answer included, and every edit of one promises its next line within the fewest of those
+  minutes, as "Next line by 9:36 PM.", and `say` refuses one promising it later or not at all,
+  naming the latest time it may promise, by his words "ur supposed to give updates every 15 mins you
+  forgot that you just promised next like 30 mins". A card, a PR card, a line closing each such
+  order and an incident's line owe none. The minutes are the drive's from his words: when `drive order
+  add` finds "every 15 mins", "every half hour" or "every hour" in them and Jev reads them as asking
+  that line, it sets the cadence itself on the first open order whose lines go in the thread he
+  said them in, which outlives the order holding his words, else on the order it adds, so no
+  session remembers it.
 - The handler records each post on an order through the post itself,
   `say(record=<the report's seq>)`, on the order the report is about, in whatever thread it goes, which delivers each part
   the report's `part` attr names, or each part of an order its `close` attr names, whatever the
