@@ -82,6 +82,7 @@ from drive import (
     land,
     limits,
     orca,
+    owing,
     picture,
     place,
     providers,
@@ -10481,7 +10482,7 @@ def test_an_answer_orders_reporter_is_told_once_its_answer_is_posted_and_never_a
         data["roles"]["coordinator"]["session"] = "elsewhere"
     data = state.load(demo)
     order = data["orders"]["o1"]
-    assert not watch.owed_reporters(data, "o1", state.parse_time(order["updated"]) + watch.TELL_AFTER)
+    assert owing.tell_due(data, "o1") is None
     note = note_in(slack_thread, "1794418000.000100")
     assert cli.main(["order", "told", "o1", note]) == 2
     assert "o1: refused, a part of its answer is not posted yet, so a note now would come before the answer: post it first" in capsys.readouterr().err
@@ -10490,7 +10491,7 @@ def test_an_answer_orders_reporter_is_told_once_its_answer_is_posted_and_never_a
     data = state.load(demo)
     order = data["orders"]["o1"]
     assert order["state"] != "done" and not order["proof"]
-    assert watch.owed_reporters(data, "o1", state.parse_time(order["updated"]) + watch.TELL_AFTER)
+    assert owing.tell_due(data, "o1") is not None
     assert run("order", "told", "o1", note) == (0, f"o1: told in the reporter's thread, {note}")
 
 
@@ -12773,3 +12774,36 @@ def test_drive_work_done_takes_the_waiting_line_a_provers_merge_handoff_names_an
     work.done(demo, "j2", "j1", f"WAITING {wait}\n")
     data = state.load(demo)
     assert (data["jobs"]["j1"]["claim"], data["jobs"]["j1"]["waits"], work.KIND[work.PROVE].blocking(data, "j1")) == (None, [wait], [wait])
+
+
+def test_his_ask_owes_its_delivery_from_the_moment_it_is_filed_until_it_closes_and_closing_it_warns_of_nothing_else(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the batch writer")
+    [item] = state.load(demo)["orders"]["o1"]["owed"]
+    assert (item["kind"], item["what"], item["due"], item["class"], item["done_when"]) == (owing.DELIVER, "Short title", None, "asked", {"order_closed": "o1"})
+    with edit(demo) as data:
+        data["orders"]["o1"]["state"] = "done"
+        assert owing.close_warning(data["orders"]["o1"], "o1") is None
+        assert owing.settle(data, state.now())
+        assert data["orders"]["o1"]["owed"][0]["closed"]["by"] == "met"
+
+
+def test_his_undo_of_an_answer_owes_a_revert_on_each_job_that_acted_on_it_the_job_a_hand_off_gave_its_work_among_them(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship again")
+    undo = "https://acme.slack.com/archives/D123/p1794800000000100"
+    assert cli.main(["owed", "revert", "a1", "--link", undo, "--due", "2026-11-16T13:00:00-08:00"]) == 2
+    with edit(demo) as data:
+        data["answers"]["a1"] = state.new_answer("roll it out", None, state.stamp(), {}, {"j1": {"mark": "sent"}})
+        data["jobs"]["j1"]["answers"] = ["a1"]
+        state.hand_off(data, {"j1": "j2"})
+    assert state.load(demo)["jobs"]["j2"]["answers"] == ["a1"]
+    capsys.readouterr()
+    code, out = run("owed", "revert", "a1", "--link", undo, "--due", "2026-11-16T13:00:00-08:00")
+    data = state.load(demo)
+    reverts = [item for item in data["orders"]["o1"]["owed"] if item["kind"] == owing.REVERT]
+    assert (code, [item["job"] for item in reverts], data["answers"]["a1"]["undone"]["link"]) == (0, ["j1", "j2"], undo)
+    assert reverts[0]["what"] == f"undo what j1 did on his answer a1, which he undid in {undo}"
+    with edit(demo) as data:
+        owing.posted(data, "o1", "https://acme.slack.com/archives/D123/p1794800100000100", None, None, [reverts[0]["id"]], state.now())
+        assert [item["id"] for item in owing.still_open(data["orders"]["o1"]) if item["kind"] == owing.REVERT] == [reverts[1]["id"]]

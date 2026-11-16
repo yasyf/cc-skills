@@ -1307,8 +1307,6 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             order["joins"] = next((other for other in carriers if other != order_id and data["orders"][other]["incident"]), None)
         if merge_proven(order):
             order.update(proof=None, close_report=None, closed_on=None)
-            for held in untold_reporters(data, order):
-                held["tell_said"] = None
     untallied = joined_orders(data) if any("tally" not in order for order in data["orders"].values()) else {}
     for order_id, order in data["orders"].items():
         if "tally" not in order:
@@ -2488,9 +2486,10 @@ def hand_held(data: dict, job_id: str, into: str) -> None:
 
 
 def hand_off(data: dict, ends: dict[str, str]) -> None:
-    """Leave each job whose work another job took, by a replace, a hand-over, his superseding answer or a fold, mapped to that job, nothing to own and that job as its handed_to: its texts move by hand_held, it keeps no part, so no walk of a part's jobs, such as the one naming a STAGE line's owner, reaches it, and each wait on it of an unfinished job or unlanded PR waits on that job instead, but that job's own, since a wait on a stopped job holding no part ends."""
+    """Leave each job whose work another job took, by a replace, a hand-over, his superseding answer or a fold, mapped to that job, nothing to own and that job as its handed_to: its texts move by hand_held, the answers of his it acted on go with them, so his undo reaches the job that took the work, it keeps no part, so no walk of a part's jobs, such as the one naming a STAGE line's owner, reaches it, and each wait on it of an unfinished job or unlanded PR waits on that job instead, but that job's own, since a wait on a stopped job holding no part ends."""
     for job_id, into in ends.items():
         hand_held(data, job_id, into)
+        data["jobs"][into]["answers"] = list(dict.fromkeys([*data["jobs"][into]["answers"], *data["jobs"][job_id]["answers"]]))
         data["jobs"][job_id].update(parts=[], carries={}, handed_to=into)
     for holder_id, holder in [*((job_id, job) for job_id, job in data["jobs"].items() if job["state"] not in FINISHED_JOB_STATES), *((key, pr) for key, pr in data["prs"].items() if pr["state"] in github.UNLANDED)]:
         holder["waits"] = list(dict.fromkeys(ends.get(wait, wait) for wait in holder["waits"] if ends.get(wait) != holder_id))
@@ -4315,7 +4314,7 @@ def reporter(link: str) -> dict:
     """The message someone else wrote that an order fixes or answers, a bug they reported or a question they asked him, as the Slack thread its one note goes in, read from its permalink, a reply's carrying its thread's ts, or from slack:<channel>/<thread ts>, with no Slack call, since the bot may not be in that channel; none told yet."""
     if not (linked := link_thread(link)):
         raise DriveError(f"--reporter {link}: refused, name the message by its Slack permalink or as slack:<channel>/<its thread's ts>")
-    return {"link": link, "channel": linked[0], "thread": linked[1], "told": None, "tell_said": None}
+    return {"link": link, "channel": linked[0], "thread": linked[1], "told": None}
 
 
 def new_check(command: str) -> dict:
@@ -4403,6 +4402,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "release_heard": None,
         "gave_way": [],
         "train": None,
+        "answers": [],
         "release_pass": None,
         "release_cards": {},
         "waits": [],

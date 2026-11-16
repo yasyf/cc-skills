@@ -74,6 +74,8 @@ How verbs run:
 | `drive mac-box handed <job> <box>` | `--host <host>`. Called by the drive's Mac box pool once it hands a job a box: each `mac-box:<box>` or `mac-box:any` wait of the job ends, so the watch frees it on its next pass. Refused for a job waiting on no box |
 | `drive owed list` | `--order <o>`. Each open order's open owed items, overdue first. |
 | `drive owed due <w>` | `--by <RFC 3339 time>`. Names a new due. Its misses stay, so the next miss still goes to the coordinator, then to him. |
+| `drive owed add` | `--card <job> --what "<card>" --due <time> --source <record>`. One session asks another to raise a card of his on a job. The item closes once that job draws one of his cards or ends. |
+| `drive owed revert <answer>` | `--link <his message> --due <time>`. Records his undo of an answer and owes a revert on each job that acted on it. A job carries the answer through every hand-off. Each revert closes on a post naming it with `outcome=<w>`, or by hand. |
 | `drive owed done <w>` | `--because "<why>"`. Ends an owed item by hand. |
 | `drive work enable <kind>` | `<kind>` prove or build. Turns that kind of work over to the queue: its items no agent took start no job of their own, and the watch starts a worker that pulls them in groups. `--off` gives the kind back to its own jobs. Stage-test always runs in the queue |
 | `drive work pull` | `--worker <j>`, required, the worker's job id. Claims the worker's next group of items and prints them with the steps their cut takes, or NONE or HOLD when it has none |

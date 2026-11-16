@@ -38,7 +38,6 @@ A PR's line comes without its title.
 | `RECOVERED o<n> …` | An open incident is over: every merged fix PR of it is live in production, any monitor of it OK and each order of it that builds something he uses proven from that surface. The watch sent its step 8 report, which closes it. |
 | `PAGED o<n> …` | The watch paged him for an incident whose real users fail and no worker ran its fix or diagnosis; it names the codex jobs it added to launch now. |
 | `PROVE o<n> …` | Once, an open incident's fix is live but an order of it that builds something he uses keeps no recording or live post from there; it names the builder to add that proves it. |
-| `TELL o<n> …` | Once, an order's fix is proven live, or an answer order's answer is posted, and a reporter's thread has no note 10 minutes on. |
 | `CARD … settled in place` | Every PR his open PR card carries merged or closed. |
 | `ANSWER …` | An answer of his leaves cards or PRs unmarked. |
 | `ORPHAN …` | A part of an open order has nothing carrying it: no job took it once its order sat still five minutes, or its job is stuck, gone or has an untracked open PR. |
@@ -48,7 +47,7 @@ A PR's line comes without its title.
 Where a line goes: a `Drive tooling:` order's lines go to the meta session, a PR's move to the remote
 lane of the job waiting on it, and the rest over cci to the coordinator session hearing the order
 (a job's own order, not one it only carries), the sub-coordinator bound for its project or else the
-top. `TAP`, `FREE`, `DUE`, `TELL`, `PROVE`, `ORPHAN`, `ANSWER`, `JOB`, `LANE` and `WATCH stopped`
+top. `TAP`, `FREE`, `DUE`, `PROVE`, `ORPHAN`, `ANSWER`, `JOB`, `LANE` and `WATCH stopped`
 lines, and a PR's line whose job is not running, wake it at once. The rest wake it at most every 5
 minutes, the lines one stage of a pass makes for a session going as one record whose text counts
 them by first word and whose body holds each. A PR's own new head, passed checks, approval or

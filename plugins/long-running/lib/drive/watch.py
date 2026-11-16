@@ -65,10 +65,9 @@ FREED_AGAIN = timedelta(minutes=30)
 ELAPSED = re.compile(r"\b\d+(?: minutes?| hours?| seconds?|s\b)|\b\d{1,2}:\d{2}(?::\d{2})?(?: [AP]M)?")
 BUILT_BASE = "{built}, the change yours builds on, its PR held on his answer: cut your branch from that head, so your PR stacks on it"
 LIVE_EVERY = timedelta(minutes=5)
-TELL_AFTER = timedelta(minutes=10)
 REACH_READS = 20
 REACH_SHOWN = 8
-WAKES = ("TAP ", "DUE ", "TELL ", "PROVE ", "PAGED ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STAGE ", "FREE ", "MOVED ", "WATCH stopped")
+WAKES = ("TAP ", "DUE ", "PROVE ", "PAGED ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STAGE ", "FREE ", "MOVED ", "WATCH stopped")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 STAGE_LINE = re.compile(r"STAGE (?P<key>\S+) (?P<name>\w+)\b")
 ENDED = ("merged", "closed", PROOF_FAILED)
@@ -3120,7 +3119,7 @@ def limit_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def claim_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Owe the thread of each claim whose end passed, such as a staging claim's in #releases-staging, its closing line: read from Slack, a drive post there after the post that set the end ends the claim, and with none the order's lane gets a DUE line naming the claim, again every ten minutes until one is there, by his words "this thread message saying we're done and what the result is was is good, we should always do that"; a line in that thread naming a new end moves it, which state.claim keeps. A thread that could not be read is said as a failed read is and tried again next pass."""
+    """Owe the thread of each claim whose end passed, such as a staging claim's in #releases-staging, its closing line: read from Slack, a drive post there after the post that set the end ends the claim, and with none the order owes that line as a claim item, which owing_lines escalates like any owed item, the thread read again every ten minutes until the line is there, by his words "this thread message saying we're done and what the result is was is good, we should always do that"; a line in that thread naming a new end moves it, which state.claim keeps. A thread that could not be read is said as a failed read is and tried again next pass."""
     data = state.load(watcher.name)
     due = [
         (order_id, ts, held)
@@ -3140,23 +3139,22 @@ def claim_lines(watcher: Watcher, moment: datetime) -> list[str]:
         watcher.failures.pop(source, None)
         closed = any(message.get("from_claude") for message in messages)
 
-        def claim_said(data: dict) -> bool:
-            claims = data["orders"][order_id]["claims"]
-            if claims.get(ts, {}).get("since") != held["since"]:
-                return False
+        def claim_said(data: dict) -> None:
+            order = data["orders"][order_id]
+            if order["claims"].get(ts, {}).get("since") != held["since"]:
+                return
             if closed:
-                claims.pop(ts)
-                return False
-            claims[ts]["said"] = state.stamp(moment)
-            return True
+                order["claims"].pop(ts)
+                return
+            order["claims"][ts]["said"] = state.stamp(moment)
+            if not owing.open_on(order, owing.CLAIM, {"claim": ts}):
+                what = (
+                    f"the closing line of claim {held['link']}, which ended {when(held['until'])}: once the work ends, free what it claimed and send a POST report"
+                    f" with --attr thread={ts} saying it is done, what is free again and the result, as the repository's staging-claim rule says, or one with --attr until=<the new end> while it runs on"
+                )
+                owing.add(data, order_id, owing.CLAIM, what, moment, {"claim": ts}, "its claim", moment)
 
-        if not state.write(watcher.name, claim_said, budget=state.WATCH_WRITE_SECONDS):
-            continue
-        lines.append(
-            f"DUE {order_id} claim {held['link']} ended {when(held['until'])} with no closing line in its thread: once the work ends, free what it"
-            f" claimed and send a POST report with --attr thread={ts} saying it is done, what is free again and the result, as the repository's"
-            " staging-claim rule says, or one with --attr until=<the new end> while it runs on"
-        )
+        state.write(watcher.name, claim_said, budget=state.WATCH_WRITE_SECONDS)
     return lines
 
 
@@ -3390,14 +3388,6 @@ def incident_prs(data: dict, group: list[str], jobs: dict[str, dict], registered
     )
 
 
-def owed_reporters(data: dict, order_id: str, moment: datetime) -> list[dict]:
-    """Each reporter whose record the order keeps and whose thread is owed its note and the watch has not said so: a bug report's once its fix is proven live, a question's once its answer is posted, nothing moved on it for ten minutes, the drive's last line on an answer order counting as a move since posting its answer moves nothing else, and no note is recorded; a record another order keeps is that order's to owe."""
-    order = data["orders"][order_id]
-    moved = (order["last_line"] if order["kind"] == "answer" else None) or order["updated"]
-    if not (state.may_tell(data, order_id) and moment - state.parse_time(moved) >= TELL_AFTER):
-        return []
-    return [held for held in order["reporters"] if "kept_by" not in held and not held["told"] and not held["tell_said"]]
-
 
 def close_answered(watcher: Watcher, moment: datetime) -> None:
     """Close done each heard answer order left nothing owed, by state.answered, whichever post delivered its last part, a report's, drive order posted's or a POSTED line's, and whether its last job ended or its last reporter was told after it."""
@@ -3424,34 +3414,6 @@ def close_joined_repeats(watcher: Watcher, moment: datetime) -> None:
 
     state.write(watcher.name, close_joined_repeats_write, budget=state.WATCH_WRITE_SECONDS)
 
-
-def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each open order proven live, or whose answer is posted, with a reporter's thread that has not heard it ten minutes on, said once for each thread."""
-    data = state.load(watcher.name)
-    if not (owing := [order_id for order_id, order in heard_orders(watcher, data).items() if owed_reporters(data, order_id, moment)]):
-        return []
-
-    def tell_said(data: dict) -> list[str]:
-        lines = []
-        for order_id in owing:
-            owed = owed_reporters(data, order_id, moment)
-            for held in owed:
-                held["tell_said"] = state.stamp(moment)
-            answered = data["orders"][order_id]["kind"] == "answer"
-            happened, asked, heard, note = (
-                ("its answer is posted", "its question was asked in", "the answer", "the answer")
-                if answered
-                else (f"its fix is proven live by {cut(state.fix_proof(data, data['orders'][order_id]), 160)}", "its bug was reported in", "it is fixed", "the fix-live note")
-            )
-            threads = f"the thread {asked}, has not heard {heard}" if len(owed) == 1 else f"the threads {asked}, have not heard {heard}"
-            lines.append(
-                f"TELL {order_id}: {happened} and nothing moved on it for 10 minutes, but {' and '.join(held['link'] for held in owed)}, {threads}:"
-                f" send its report with --attr close={order_id}, which the communicator posts {note} {'there' if len(owed) == 1 else 'in each'} and records it with"
-                f" drive order told {order_id} <its permalink>; done refuses until then"
-            )
-        return lines
-
-    return state.write(watcher.name, tell_said, budget=state.WATCH_WRITE_SECONDS)
 
 
 def ran_out(job: dict, moment: datetime) -> bool:
@@ -3482,15 +3444,18 @@ def clock_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def owing_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each owed item of an order this watch hears whose due passed, by owing.missed: its first miss wakes the session holding the order, its second the coordinator, its third tells him in the order's thread by a POST report, each on its own clock, by owing.miss; nothing else is said, so tracking stays quiet."""
+    """From the drive's own watch, open what events owe and close what is met, by owing.settle; then each owed item of an order this watch hears whose due passed, by owing.missed, its ask's class first: its first miss wakes the session holding the order, its second the coordinator, its third tells him in the order's thread by a POST report, each on its own clock, by owing.miss; nothing else is said, so tracking stays quiet."""
     data = state.load(watcher.name)
-    if not any(owing.missed(item, moment) for order in heard_orders(watcher, data).values() for item in owing.items(order)):
+    settles = not watcher.project and owing.settle(data, moment)
+    if not settles and not any(owing.missed(item, moment) for order in owing_orders(watcher, data).values() for item in owing.items(order)):
         return []
 
     def missed_write(data: dict) -> tuple[list[str], list[dict]]:
         lines, posts = [], []
-        for order_id, order in heard_orders(watcher, data).items():
-            for item in owing.items(order):
+        if not watcher.project:
+            owing.settle(data, moment)
+        for order_id, order in owing_orders(watcher, data).items():
+            for item in owing.overdue_first(order, moment):
                 if not owing.missed(item, moment):
                     continue
                 was = item["due"]
@@ -3508,6 +3473,11 @@ def owing_lines(watcher: Watcher, moment: datetime) -> list[str]:
     if posts:
         reported(watcher, posts)
     return lines
+
+
+def owing_orders(watcher: Watcher, data: dict) -> dict[str, dict]:
+    """The orders this watch hears that owe an open item, a closed order's among them, since closing one leaves what it owes open."""
+    return {order_id: order for order_id, order in data["orders"].items() if owing.still_open(order) and hears(watcher, data, order_id)}
 
 
 def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -6245,7 +6215,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
         functools.partial(train_lines, watcher, moment),
         functools.partial(event_lines, watcher),
         *(owed_reads(watcher, moment) if lands else []),
-        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, clock_lines, owing_lines, case_lines, held_lines, undelivered_lines, close_answered, close_joined_repeats, tell_lines, standing_lines, retired_seats, communicators_idle, env_alert_lines, orphan_lines)),
+        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, clock_lines, owing_lines, case_lines, held_lines, undelivered_lines, close_answered, close_joined_repeats, standing_lines, retired_seats, communicators_idle, env_alert_lines, orphan_lines)),
     ]
     names = [stage.func.__name__ for stage in later]
     resume, watcher.resume = watcher.resume, None

@@ -338,7 +338,7 @@ is merged and installed, listing each rule now in the skill.
 - Proven live means the order's `--proof`, or a passing `drive job prove` on a PR a job of the order
   opened. The communicator posts the note with `slack_reply` in the same step as his own line,
   then records it with `drive order told`. The order closes once each note is recorded, and the
-  watch says `TELL` when a proof sits 10 minutes with no note.
+  watch opens a `fix_live` owed item when a proof sits 10 minutes with no note.
 - When the bot cannot post in that thread, as in a person's 1:1 DM with him, the note goes in the group DM of that person, him and the bot: one `say` whose `channel_id` is the
   person's user id, no `thread_ts`, recorded with `drive order told --group-dm <that user id>`.
 - A question someone asked him that a `--kind answer` order answers gets its answer in that

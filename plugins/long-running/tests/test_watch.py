@@ -1449,7 +1449,6 @@ def test_the_lines_of_an_order_the_meta_session_holds_go_to_it_and_never_the_coo
         ('DUE o1 "ship the watch" was due 9:00 AM: nothing moved', "meta"),
         ('DUE j1 o1 "watch" was due 9:00 AM and still runs', "meta"),
         ("RECOVERED o1: its fix is live", "meta"),
-        ("TELL o1 his answer is waiting", "meta"),
         ("JOB j1 o1 READY https://github.com/yasyf/cc-skills/pull/7", "meta"),
         ("LANE j1 o1 died on Sprite s1: its worker exited", "meta"),
         ("STUCK j1 o1: j1 unmoved 61 minutes: j1 waiting on j2", "meta"),
@@ -1520,7 +1519,7 @@ def test_partial_event_line_waits_for_its_newline(demo: str, monkeypatch: pytest
     assert watch.run_pass(watching, T0) == ["EVENT note"]
 
 
-def test_a_claim_whose_end_passed_owes_its_thread_a_closing_line_every_ten_minutes_until_a_drive_post_is_there(demo: str, slack_thread: "Thread") -> None:
+def test_a_claim_whose_end_passed_with_no_closing_line_owes_one_claim_item_met_once_a_drive_post_closes_the_claim(demo: str, slack_thread: "Thread") -> None:
     claim, moved = "1794200000.000100", "1794203600.000200"
     link = "https://acme.slack.com/archives/C0STAGING1/p1794200000000100"
     with edit(demo) as data:
@@ -1530,23 +1529,23 @@ def test_a_claim_whose_end_passed_owes_its_thread_a_closing_line_every_ten_minut
         state.claim(data, data["orders"]["o1"], ("C0STAGING1", claim), link, state.stamp(T0), claim)
     watching = watcher(demo)
     assert watch.claim_lines(watching, T0 - timedelta(minutes=1)) == []
-    [line] = watch.claim_lines(watching, T0)
-    assert line == (
-        f"DUE o1 claim {link} ended {render.when(state.stamp(T0))} with no closing line in its thread: once the work ends, free what it claimed and send a"
-        f" POST report with --attr thread={claim} saying it is done, what is free again and the result, as the repository's staging-claim rule says, or one"
-        " with --attr until=<the new end> while it runs on"
-    )
-    assert watch.ABOUT.match(line)["named"] == "o1"
-    assert watch.claim_lines(watching, T0 + timedelta(minutes=9)) == []
+    assert watch.claim_lines(watching, T0) == []
+    [item] = state.load(demo)["orders"]["o1"]["owed"]
+    assert (item["kind"], item["done_when"], item["due"]) == (owing.CLAIM, {"claim": claim}, state.stamp(T0))
+    assert item["what"].startswith(f"the closing line of claim {link}, which ended {render.when(state.stamp(T0))}: once the work ends, free what it claimed")
+    [line] = watch.owing_lines(watching, T0 + timedelta(minutes=1))
+    assert line.startswith(f'DUE o1 owed w1: claim "the closing line of claim {link}')
     slack_thread.post(T0 + timedelta(minutes=9), from_user=True)
-    assert len(watch.claim_lines(watching, T0 + timedelta(minutes=10))) == 1
+    assert watch.claim_lines(watching, T0 + timedelta(minutes=10)) == []
+    assert len(state.load(demo)["orders"]["o1"]["owed"]) == 1
     with edit(demo) as data:
         state.claim(data, data["orders"]["o2"], ("C0STAGING1", claim), link, state.stamp(T0 + timedelta(hours=1)), moved)
-    assert state.load(demo)["orders"]["o1"]["claims"] == {claim: {"channel": "C0STAGING1", "link": link, "until": state.stamp(T0 + timedelta(hours=1)), "since": moved, "said": None, "replies_read": None}}
     assert watch.claim_lines(watching, T0 + timedelta(minutes=30)) == []
     slack_thread.post(T0 + timedelta(minutes=70), from_claude=True)
     assert watch.claim_lines(watching, T0 + timedelta(minutes=71)) == []
     assert state.load(demo)["orders"]["o1"]["claims"] == {}
+    watch.owing_lines(watching, T0 + timedelta(minutes=72))
+    assert state.load(demo)["orders"]["o1"]["owed"][0]["closed"]["by"] == "met"
     assert slack_thread.reads == [("--channel", "C0STAGING1", "--thread", claim, "--since-ts", since, "--limit", "1000") for since in (claim, claim, moved)]
 
 
@@ -10055,9 +10054,8 @@ def test_a_fix_merged_to_dev_that_no_release_holds_is_never_proven_live_so_its_r
     watching = watcher(demo)
     lines = [line for minutes in (0, 11, 40) for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes))]
     assert [line for line in lines if line.startswith(f"JOB j2 o1 added, proves {fix}, waits on ")]
-    assert not [line for line in lines if line.startswith("TELL ")]
     data = state.load(demo)
-    assert (data["jobs"]["j1"]["state"], data["orders"]["o1"]["proof"], data["orders"]["o1"]["reporters"][0]["tell_said"]) == ("done", None, None)
+    assert (data["jobs"]["j1"]["state"], data["orders"]["o1"]["proof"], [item for item in data["orders"]["o1"]["owed"] if item["kind"] == owing.FIX_LIVE]) == ("done", None, [])
     assert not [record for records in ready_records for record in records if (record.get("attr") or {}).get("close") == "o1"]
     assert render.reporter_said(data, "o1", data["orders"]["o1"]) == f", reported in {REPORTED}, which hears it is fixed once its fix is proven live"
     assert provers == []
@@ -10067,12 +10065,12 @@ def test_a_fix_merged_to_dev_that_no_release_holds_is_never_proven_live_so_its_r
 def test_an_open_order_a_merge_commit_once_proved_loses_that_proof_and_its_close_while_a_closed_one_or_a_yasyf_commit_keeps_them(demo: str, sha: str) -> None:
     commit, tooling = f"https://github.com/Forge-AI/monorepo/commit/{sha}", "https://github.com/yasyf/cc-skills/commit/ccc333ddd444"
     with edit(demo) as data:
-        data["orders"]["o1"] |= {"proof": commit, "closed_on": "689162", "reporters": [state.reporter(REPORTED) | {"tell_said": state.stamp(T0)}]}
+        data["orders"]["o1"] |= {"proof": commit, "closed_on": "689162", "reporters": [state.reporter(REPORTED)]}
         data["orders"]["o2"] = order(state="done", proof=commit, closed_on="689100", jobs=[])
         data["orders"]["o3"] = order(proof=tooling, jobs=[])
     data = state.load(demo)
     reported = data["orders"]["o1"]
-    assert (reported["proof"], reported["closed_on"], reported["close_report"], reported["reporters"][0]["tell_said"]) == (None, None, None, None)
+    assert (reported["proof"], reported["closed_on"], reported["close_report"]) == (None, None, None)
     assert (data["orders"]["o2"]["proof"], data["orders"]["o2"]["closed_on"], data["orders"]["o3"]["proof"]) == (commit, "689100", tooling)
 
 
@@ -11432,40 +11430,49 @@ def test_an_answer_order_whose_last_part_a_report_posted_closes_on_the_watchs_pa
     assert [state.load(demo)["orders"][order_id]["state"] for order_id in ("o1", "o2")] == ["working", "done"]
 
 
-def test_an_answer_posted_to_him_whose_asker_has_not_heard_it_is_said_once_ten_minutes_after_his_line(demo: str) -> None:
+def test_an_answer_posted_to_him_whose_asker_has_not_heard_it_owes_a_fix_live_item_due_ten_minutes_after_his_line_that_wakes_its_holder_once_late(demo: str) -> None:
     with edit(demo) as data:
-        data["orders"]["o1"] |= {"kind": "answer", "reporters": [state.reporter(REPORTED)], "updated": state.stamp(T0 - timedelta(hours=5))}
+        data["orders"]["o1"] |= {"kind": "answer", "reporters": [state.reporter(REPORTED)], "last_line": state.stamp(T0)}
     watching = watcher(demo)
-    assert watch.tell_lines(watching, T0 + timedelta(minutes=40)) == []
+    assert (watch.owing_lines(watching, T0 + timedelta(minutes=1)), state.load(demo)["orders"]["o1"]["owed"]) == ([], [])
     with edit(demo) as data:
         for part in data["orders"]["o1"]["parts"].values():
             part["posted"] = "https://acme.slack.com/archives/D123/p1794200300000100"
-    assert watch.tell_lines(watching, T0 + timedelta(minutes=9)) == []
-    line = (
-        f"TELL o1: its answer is posted and nothing moved on it for 10 minutes, but {REPORTED}, the thread its question was asked in,"
-        " has not heard the answer: send its report with --attr close=o1, which the communicator posts the answer there and records it with"
-        " drive order told o1 <its permalink>; done refuses until then"
-    )
-    assert watch.tell_lines(watching, T0 + timedelta(minutes=10)) == [line]
-    assert watch.tell_lines(watching, T0 + timedelta(minutes=40)) == []
-
-
-def test_a_fix_proven_live_whose_bug_report_has_not_heard_it_is_fixed_is_said_once_ten_minutes_on(demo: str) -> None:
-    with edit(demo) as data:
-        data["orders"]["o1"] |= {"reporters": [state.reporter(REPORTED)], "proof": "https://buildkite.com/forge/release/builds/14185"}
-    watching = watcher(demo)
-    assert watch.tell_lines(watching, T0 + timedelta(minutes=9)) == []
-    line = (
-        "TELL o1: its fix is proven live by https://buildkite.com/forge/release/builds/14185 and nothing moved on it for 10 minutes,"
-        f" but {REPORTED}, the thread its bug was reported in,"
-        " has not heard it is fixed: send its report with --attr close=o1, which the communicator posts the fix-live note there and records it"
-        " with drive order told o1 <its permalink>; done refuses until then"
-    )
-    assert watch.tell_lines(watching, T0 + timedelta(minutes=10)) == [line]
-    assert watch.tell_lines(watching, T0 + timedelta(minutes=40)) == []
+    assert owing.tell_due(state.load(demo), "o1") == T0 + owing.TELL_AFTER
+    assert watch.owing_lines(watching, T0 + timedelta(minutes=9)) == []
+    [line] = watch.owing_lines(watching, T0 + timedelta(minutes=11))
+    assert line.startswith(f'DUE o1 owed w1: fix_live "its answer is posted, so post the answer in {REPORTED}: send its report with --attr close=o1')
     assert watch.wakes(line, state.load(demo), NO_CARDS)
-    tooling_order(demo, "running")
-    assert watch.line_lane(line, state.load(demo)) == "meta"
+    with edit(demo) as data:
+        data["orders"]["o1"]["reporters"][0]["told"] = "https://acme.slack.com/archives/C0REPORTS01/p1794400200000300"
+    assert watch.owing_lines(watching, T0 + timedelta(minutes=12)) == []
+    assert state.load(demo)["orders"]["o1"]["owed"][0]["closed"]["by"] == "met"
+
+
+def test_a_fix_proven_live_owes_one_fix_live_item_naming_every_untold_reporters_thread_and_a_reporter_added_after_it_closed_owes_another(demo: str) -> None:
+    second, later = "https://acme.slack.com/archives/C0REPORTS02/p1794593225751189", "https://acme.slack.com/archives/C0REPORTS03/p1794600000000100"
+    told = state.reporter("https://acme.slack.com/archives/C0REPORTS04/p1794500000000100") | {"told": "https://acme.slack.com/archives/C0REPORTS04/p1794500060000100"}
+    with edit(demo) as data:
+        data["orders"]["o1"] |= {"reporters": [state.reporter(REPORTED), told, state.reporter(second)], "proof": "https://buildkite.com/forge/release/builds/14185", "updated": state.stamp(T0)}
+    watching = watcher(demo)
+    assert watch.owing_lines(watching, T0) == []
+    [item] = state.load(demo)["orders"]["o1"]["owed"]
+    assert (item["kind"], item["due"], item["what"]) == (
+        owing.FIX_LIVE,
+        state.stamp(T0 + owing.TELL_AFTER),
+        f"its fix is proven live by https://buildkite.com/forge/release/builds/14185, so post the fix-live note in {REPORTED} and {second}: send its report with --attr close=o1,"
+        " which the communicator posts and records with drive order told o1 <its permalink>",
+    )
+    with edit(demo) as data:
+        for held in data["orders"]["o1"]["reporters"]:
+            held["told"] = held["told"] or "https://acme.slack.com/archives/C0REPORTS01/p1794400200000300"
+    watch.owing_lines(watching, T0 + timedelta(minutes=5))
+    with edit(demo) as data:
+        data["orders"]["o1"]["reporters"].append(state.reporter(later))
+        data["orders"]["o1"]["updated"] = state.stamp(T0 + timedelta(minutes=6))
+    watch.owing_lines(watching, T0 + timedelta(minutes=6))
+    owed = state.load(demo)["orders"]["o1"]["owed"]
+    assert [(each["id"], each["closed"] and each["closed"]["by"], later in each["what"]) for each in owed] == [("w1", "met", False), ("w2", None, True)]
 
 
 def test_a_passing_job_proof_on_a_pr_of_the_order_owes_the_one_fix_live_note_though_the_order_keeps_no_proof_and_the_order_carrying_it_owes_none(demo: str) -> None:
@@ -11475,35 +11482,31 @@ def test_a_passing_job_proof_on_a_pr_of_the_order_owes_the_one_fix_live_note_tho
         data["orders"]["o1"] |= {"reporters": [state.reporter(REPORTED)], "jobs": ["j1", "j2"]}
         data["orders"]["o2"] = order(text="release the watch", jobs=["j2"], reporters=[state.reporter(release)])
         data["jobs"]["j2"] = job(order="o2", goal="follow its release and prove it live", carries={"o1": []}, state="done", said=f"DONE {proof}")
-    assert state.load(demo)["orders"]["o2"]["reporters"] == [{"link": release, "channel": "C0REPORTS01", "thread": "1794400100.000200", "kept_by": "o1"}]
-    assert watch.tell_lines(watcher(demo), T0 + timedelta(minutes=10)) == [
-        f"TELL o1: its fix is proven live by {proof} and nothing moved on it for 10 minutes,"
-        f" but {REPORTED}, the thread its bug was reported in,"
-        " has not heard it is fixed: send its report with --attr close=o1, which the communicator posts the fix-live note there and records it"
-        " with drive order told o1 <its permalink>; done refuses until then"
-    ]
+    data = state.load(demo)
+    assert data["orders"]["o2"]["reporters"] == [{"link": release, "channel": "C0REPORTS01", "thread": "1794400100.000200", "kept_by": "o1"}]
+    assert (owing.tell_due(data, "o1") is not None, owing.tell_due(data, "o2")) == (True, None)
+    assert owing.tell_what(data, "o1").startswith(f"its fix is proven live by {proof}, so post the fix-live note in {REPORTED}")
 
 
-def test_a_fix_proven_live_names_every_reporters_thread_not_yet_told_on_one_tell_and_a_reporter_added_later_on_its_own(demo: str) -> None:
-    second, later = "https://acme.slack.com/archives/C0REPORTS02/p1794593225751189", "https://acme.slack.com/archives/C0REPORTS03/p1794600000000100"
-    told = state.reporter("https://acme.slack.com/archives/C0REPORTS04/p1794500000000100") | {"told": "https://acme.slack.com/archives/C0REPORTS04/p1794500060000100"}
+def test_items_take_their_asks_class_and_escalate_an_incidents_before_an_asked_one_and_a_process_one_last(demo: str) -> None:
+    moment = state.parse_time("2026-11-09T05:07:00-08:00")
     with edit(demo) as data:
-        data["orders"]["o1"] |= {"reporters": [state.reporter(REPORTED), told, state.reporter(second)], "proof": "https://buildkite.com/forge/release/builds/14185"}
-    watching = watcher(demo)
-    assert watch.tell_lines(watching, T0 + timedelta(minutes=10)) == [
-        "TELL o1: its fix is proven live by https://buildkite.com/forge/release/builds/14185 and nothing moved on it for 10 minutes,"
-        f" but {REPORTED} and {second}, the threads its bug was reported in, have not heard it is fixed: send its report with"
-        " --attr close=o1, which the communicator posts the fix-live note in each and records it with drive order told o1 <its permalink>;"
-        " done refuses until then"
-    ]
+        data["orders"]["o1"]["class"] = "process"
+        owing.add(data, "o1", owing.STEP, "the process step", moment, {"post_on": "o1"}, "o1", moment)
+        data["orders"]["o1"]["class"] = "incident"
+        owing.add(data, "o1", owing.STEP, "the incident step", moment + timedelta(minutes=5), {"post_on": "o1"}, "o1", moment)
+        assert [item["class"] for item in data["orders"]["o1"]["owed"]] == ["process", "incident"]
+        assert [item["what"] for item in owing.overdue_first(data["orders"]["o1"], moment + timedelta(hours=1))] == ["the incident step", "the process step"]
+
+
+def test_a_card_one_session_asked_another_for_closes_once_its_job_draws_one_of_his_cards(demo: str) -> None:
+    moment = state.parse_time("2026-11-09T05:07:00-08:00")
     with edit(demo) as data:
-        data["orders"]["o1"]["reporters"].append(state.reporter(later))
-    assert watch.tell_lines(watching, T0 + timedelta(minutes=40)) == [
-        "TELL o1: its fix is proven live by https://buildkite.com/forge/release/builds/14185 and nothing moved on it for 10 minutes,"
-        f" but {later}, the thread its bug was reported in, has not heard it is fixed: send its report with --attr close=o1, which"
-        " the communicator posts the fix-live note there and records it with drive order told o1 <its permalink>; done refuses until then"
-    ]
-    assert watch.tell_lines(watching, T0 + timedelta(minutes=70)) == []
+        owing.add(data, "o1", owing.CARD, "the rollout question", moment + timedelta(minutes=15), {"card": "j1"}, "735999", moment, "j1")
+        assert not owing.settle(data, moment)
+        data["jobs"]["j1"]["questions"] = [state.new_question("asks/j1-1.md", "Roll out now?", "Roll out now?") | {"waits": "w-j1-1"}]
+        assert owing.settle(data, moment)
+        assert data["orders"]["o1"]["owed"][0]["closed"]["by"] == "met"
 
 
 def test_a_job_clock_renewed_after_the_watch_read_it_is_kept_and_not_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
