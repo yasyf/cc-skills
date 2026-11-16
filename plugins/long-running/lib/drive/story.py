@@ -163,15 +163,16 @@ class Writer:
         threading.Thread(target=self.loop, daemon=True).start()
 
     def tell(self, model: dict) -> None:
-        """Give each question card in the queue and each PR waiting on his tap its story as it stands, queueing each one not yet written in the queue's order, a PR card's PRs at its place in it, then each other PR waiting on his tap."""
-        yours = {entry["key"]: entry for entry in model["review"] if entry["group"] == "you"}
+        """Give each question card in the queue, each open PR a queue card shows whether or not it waits on his tap yet, and each other PR waiting on his tap its story as it stands, queueing each one not yet written in the queue's order, a PR card's PRs at its place in it, then each other PR waiting on his tap; a card showing a PR decided or not yet ready still opens on its story."""
+        review = {entry["key"]: entry for entry in model["review"]}
+        yours = [key for key, entry in review.items() if entry["group"] == "you"]
         for item in model["queue"]:
             if item["kind"] == "question":
                 item["told"] = self.told(question_key(item["card"]), lambda asked=item["card"]: question(self.name, asked))
-            for key in [state.pr_key(pr["url"]) for pr in item.get("prs") or []]:
-                if (entry := yours.pop(key, None)) is not None:
+            for key in [state.pr_key(pr["url"]) for pr in item.get("prs") or [] if pr.get("state", "open") == "open"]:
+                if (entry := review.pop(key, None)) is not None:
                     entry["told"] = self.told(change_key(entry), lambda entry=entry: change(self.name, entry))
-        for entry in yours.values():
+        for entry in (review[key] for key in yours if key in review):
             entry["told"] = self.told(change_key(entry), lambda entry=entry: change(self.name, entry))
 
     def told(self, key: str, write: Callable[[], dict]) -> dict:

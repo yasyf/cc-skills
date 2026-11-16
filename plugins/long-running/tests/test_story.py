@@ -89,3 +89,12 @@ def test_a_pr_cards_stories_queue_at_its_place_in_the_queue_before_other_prs_wai
         key, write = writer.writing.get()
         written.append(write().get("headline"))
     assert written == ["demo-org/demo-app#42", "Raise the limit?", "demo-org/demo-app#41"]
+
+
+def test_a_pr_a_queue_card_shows_gets_its_story_though_it_does_not_wait_on_his_tap_yet_and_a_merged_one_does_not(writer: story.Writer, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(story, "change", lambda name, entry: {"headline": entry["key"], "beats": []})
+    review = [{"key": f"demo-org/demo-app#{n}", "head": "h1", "lead": None, "staging": UNSTAGED, "group": group} for n, group in ((41, "decided"), (42, "not ready"))]
+    tap = {"kind": "tap", "prs": [{"url": "https://github.com/demo-org/demo-app/pull/41", "state": "merged"}, {"url": "https://github.com/demo-org/demo-app/pull/42", "state": "open"}]}
+    writer.tell({"queue": [tap], "review": review})
+    assert [entry.get("told") for entry in review] == [None, {"writing": True}]
+    assert writer.writing.get()[1]()["headline"] == "demo-org/demo-app#42"
