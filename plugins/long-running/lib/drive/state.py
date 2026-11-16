@@ -2007,10 +2007,13 @@ def reopen_jev_fold(name: str, data: dict) -> None:
             into = next(question for job in data["jobs"].values() for question in job["questions"] if question["file"] == folded["replaced"])
             cwd = data["roles"]["coordinator"]["cwd"]
             settled.retitled(settled.shown(closed["noted"], cwd), into["title"], cwd)
-        with edit(name) as data:
+
+        def reopened(data: dict) -> None:
             job = data["jobs"][job_id]
             question_in(job, folded).update(closed=None, replaced=None, card=None, waits=new_waits(name, job_id))
             job["undelivered"] = [kept for kept in job["undelivered"] if kept["seq"] != closed["seq"]]
+
+        update(name, None, reopened)
     (drive_dir(name) / JEV_FOLD_REOPENED).touch()
 
 
