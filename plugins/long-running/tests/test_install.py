@@ -1200,6 +1200,25 @@ def test_a_session_already_reloaded_onto_the_newest_install_is_not_reloaded_agai
     assert stamps("demo") == {"communicator": UPDATED, "coordinator": UPDATED}
 
 
+def test_a_version_installed_again_in_a_new_worktree_reloads_no_session(
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]], tmp_path: Path
+) -> None:
+    start_drive(runs_in, "demo", communicator="term_comm")
+    running("demo-communicator")
+    git = fake(["unused"], set())
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    held(git, capsys)
+    plugins = json.loads((git.config / "plugins" / "installed_plugins.json").read_text())["plugins"]
+    worktree = tmp_path / "lane-worktree"
+    worktree.mkdir()
+    again = plugins["long-running@skills"][1] | {"scope": "project", "projectPath": str(worktree), "lastUpdated": "2026-11-10T10:00:00.000Z"}
+    plugins["long-running@skills"].append(again)
+    git.write_installed(plugins)
+    assert install.reload_session("demo", "communicator", [{"handle": "term_comm", "orphaned": False}], False) == "demo communicator: already reloaded onto long-running@skills 1.0.3"
+    assert sends(git, "term_comm") == [sent("term_comm")]
+    assert stamps("demo") == {"communicator": UPDATED}
+
+
 def test_an_install_reloads_each_sub_coordinator_beside_both_roles_stamping_each_session(
     fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]
 ) -> None:
