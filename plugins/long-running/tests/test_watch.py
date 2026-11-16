@@ -9874,7 +9874,7 @@ def test_a_merged_ready_job_beside_a_product_merge_hands_it_and_the_parts_it_car
     watching = watcher(demo)
     lines = watch.run_pass(watching, T0)
     data = state.load(demo)
-    assert [line.partition(":")[0] for line in lines if line.startswith("JOB ")] == [f"JOB j2 o1 added, proves {KEY}, waits on no release"]
+    assert [line.partition(":")[0] for line in lines if line.startswith("JOB ")] == [f"JOB j2 o1 added, proves {KEY}, waits on the next production release cut, which the watch binds it to once a cut carries its merges"]
     assert (data["jobs"]["j2"]["parts"], provers) == (parts, [])
     assert [state.tester_of(data, "o1", part) for part in parts] == ["j2"] * len(parts)
     watch.run_pass(watching, T0 + timedelta(minutes=1))
@@ -9917,7 +9917,7 @@ def test_a_merged_ready_tooling_job_keeping_no_proof_file_takes_blocked_at_its_m
     assert provers == []
 
 
-def test_a_merged_ready_product_job_takes_done_at_its_merge_and_the_watch_adds_the_builder_proving_it_live_starting_at_once_on_no_release(
+def test_a_merged_ready_product_job_takes_done_at_its_merge_and_the_watch_adds_the_builder_proving_it_live_waiting_on_the_next_release_cut(
     demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path, ready_records: list[list[dict]]
 ) -> None:
     serve(monkeypatch, {})
@@ -9930,19 +9930,19 @@ def test_a_merged_ready_product_job_takes_done_at_its_merge_and_the_watch_adds_t
     lines = watch.run_pass(watching, T0)
     data = state.load(demo)
     said = [line for line in lines if line.startswith("JOB ")]
-    assert said == [f'JOB j2 o1 added, proves {OTHER}, waits on no release: the watch starts its agent on its brief {data["jobs"]["j2"]["brief"]}, so start no agent for it; drive job resume reaches it'] and watch.wakes(said[0], data, NO_CARDS)
+    assert said == [f"JOB j2 o1 added, proves {OTHER}, waits on the next production release cut, which the watch binds it to once a cut carries its merges: drive status j2"]
     assert asked == [[OTHER]]
     assert not [line for line in lines if line.startswith(("FREE ", "ORPHAN "))]
     builder = data["jobs"]["j2"]
     assert (builder["kind"], builder["state"], builder["waits"], builder["parts"], builder["builds_nothing"], "j2" in data["orders"]["o1"]["jobs"]) == (
         "builder",
         "waiting",
-        [],
+        [state.CUT_WAIT],
         data["jobs"]["j1"]["parts"],
         True,
         True,
     )
-    assert f"Handoff: {merged} merged: install it by the INSTALL: line of j1's return, in reports/j1.md, write its PROVE: line as a proof file, keep it with drive job set <your job> --repro <file> and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part" in Path(builder["brief"]).read_text()
+    assert f"Handoff: {merged} merged: it goes live on the next production release cut, which this job waits on" in Path(builder["brief"]).read_text()
     assert (data["jobs"]["j1"]["said"], data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (f"DONE {state.pr_url(OTHER)} merged: {merged}", None, None)
     assert not [record for records in ready_records for record in records if (record.get("attr") or {}).get("close") == "o1"]
     assert provers == []
@@ -9981,7 +9981,7 @@ def test_a_done_at_its_merge_delivers_no_part_so_the_part_is_owed_until_the_buil
     assert state.delivered(state.load(demo), "o1", "ship the watch")
 
 
-def test_an_old_merge_never_proven_live_across_two_parts_gets_one_prover_starting_at_once_for_the_parts_it_carries_and_a_second_pass_adds_none(
+def test_an_old_merge_never_proven_live_across_two_parts_gets_one_prover_waiting_on_the_next_release_cut_for_the_parts_it_carries_and_a_second_pass_adds_none(
     demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], checkers: list[str]
 ) -> None:
     serve(monkeypatch, {})
@@ -9998,16 +9998,15 @@ def test_an_old_merge_never_proven_live_across_two_parts_gets_one_prover_startin
     data = state.load(demo)
     builder = data["jobs"]["j2"]
     said = [line for line in lines if line.startswith("JOB ")]
-    assert said == [f'JOB j2 o1 added, proves {KEY}, waits on no release: the watch starts its agent on its brief {builder["brief"]}, so start no agent for it; drive job resume reaches it']
-    assert watch.wakes(said[0], data, NO_CARDS)
+    assert said == [f"JOB j2 o1 added, proves {KEY}, waits on the next production release cut, which the watch binds it to once a cut carries its merges: drive status j2"]
     assert not [line for line in lines if line.startswith(("FREE ", "ORPHAN "))]
-    assert (builder["kind"], builder["state"], builder["waits"], builder["parts"], builder["carries"]) == ("builder", "waiting", [], ["ship the watch"], {"o2": [carried]})
-    assert f"Handoff: {merged} merged: install it by the INSTALL: line of j1's return, in reports/j1.md, write its PROVE: line as a proof file, keep it with drive job set <your job> --repro <file> and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part" in Path(builder["brief"]).read_text()
+    assert (builder["kind"], builder["state"], builder["waits"], builder["parts"], builder["carries"]) == ("builder", "waiting", [state.CUT_WAIT], ["ship the watch"], {"o2": [carried]})
+    assert f"Handoff: {merged} merged: it goes live on the next production release cut, which this job waits on" in Path(builder["brief"]).read_text()
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=31)) if line.startswith("JOB ")]
     assert (list(state.load(demo)["jobs"]), asked, provers, checkers) == (["j1", "j2"], [[KEY]], [], [])
 
 
-def test_a_merged_product_job_over_several_prs_gets_one_prover_said_in_one_line_waiting_on_no_release(demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str]) -> None:
+def test_a_merged_product_job_over_several_prs_gets_one_prover_said_in_one_line_waiting_on_the_next_release_cut(demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str]) -> None:
     serve(monkeypatch, {})
     live_reads(monkeypatch)
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"], "staged": ["api"]}, OTHER: {"components": ["web"], "touched": ["web"], "dev": [], "releases": ["web"], "staged": ["web"]}})
@@ -10018,9 +10017,41 @@ def test_a_merged_product_job_over_several_prs_gets_one_prover_said_in_one_line_
     lines = watch.run_pass(watcher(demo), T0)
     data = state.load(demo)
     assert [line for line in lines if line.startswith("JOB ")] == [
-        f'JOB j2 o1 added, proves {KEY}, {OTHER}, waits on no release: the watch starts its agent on its brief {data["jobs"]["j2"]["brief"]}, so start no agent for it; drive job resume reaches it'
+        f"JOB j2 o1 added, proves {KEY}, {OTHER}, waits on the next production release cut, which the watch binds it to once a cut carries its merges: drive status j2"
     ]
-    assert (list(data["jobs"]), data["jobs"]["j2"]["waits"], provers) == (["j1", "j2"], [], [])
+    assert (list(data["jobs"]), data["jobs"]["j2"]["waits"], data["jobs"]["j2"]["cut"], provers) == (["j1", "j2"], [state.CUT_WAIT], True, [])
+
+
+def test_merges_of_two_orders_share_the_one_prover_of_the_next_release_cut_which_waits_on_the_drives_cut_carrying_them_once_it_starts(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str]
+) -> None:
+    serve(monkeypatch, {})
+    live_reads(monkeypatch, carried={"fff000111222"})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"], "staged": ["api"]} for key in keys})
+    merged_ready(demo, OTHER, None)
+    carried = "ship the dashboard"
+    with state.edit(demo) as data:
+        data["prs"][KEY] = state.new_pr(state.pr_url(KEY), "j9", "o9") | {"state": "merged", "merged_sha": "aaa111bbb222ccc"}
+        data["orders"]["o9"] = order(text=carried, jobs=["j9"], parts={carried: state.new_part()})
+        data["jobs"]["j9"] = data["jobs"]["j1"] | {"order": "o9", "parts": [carried], "said": f"READY {state.pr_url(KEY)}", "prs": [state.pr_url(KEY)]}
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    data = state.load(demo)
+    [prover] = [job_id for job_id, job in data["jobs"].items() if job["goal"].startswith("prove ")]
+    assert (sorted(install.proves(data, prover)), data["jobs"][prover]["waits"]) == (sorted([KEY, OTHER]), [state.CUT_WAIT])
+    assert {data["jobs"][prover]["order"], *data["jobs"][prover]["carries"]} == {"o1", "o9"}
+    with state.edit(demo) as data:
+        data["jobs"]["j20"] = state.new_job("o1", "builder", "cut the release", [], state.stamp(T0)) | {
+            "state": "running",
+            "agent": "a20",
+            "brief_flags": {"release": "tools/ci release start --targets api --from fff000111222"},
+            "release_build": "https://buildkite.com/forge/release/builds/1",
+        }
+        data["orders"]["o1"]["jobs"].append("j20")
+    lines = watch.run_pass(watching, T0 + timedelta(minutes=31))
+    job = state.load(demo)["jobs"][prover]
+    assert (job["waits"], job["cut"]) == (["j20"], "j20")
+    assert any(line.startswith(f"JOB {prover} o") and "bound to the release cut j20 starts" in line for line in lines)
 
 
 def test_a_merged_product_job_with_no_staging_test_reaching_a_target_staging_runs_gets_a_prover_starting_now_on_its_after_merge_pass_waiting_on_no_release(
@@ -10295,7 +10326,7 @@ def test_a_second_unstarted_prover_of_a_pr_marked_or_not_folds_into_the_first_wh
 
 
 @pytest.mark.parametrize("out", [False, True])
-def test_a_merged_product_job_waiting_on_its_own_release_takes_done_at_its_merge_with_no_free_and_its_prover_starts_at_the_merge_on_no_release(
+def test_a_merged_product_job_waiting_on_its_own_release_takes_done_at_its_merge_with_no_free_and_its_prover_waits_on_the_next_release_cut(
     demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], out: bool
 ) -> None:
     serve(monkeypatch, {})
@@ -10308,8 +10339,8 @@ def test_a_merged_product_job_waiting_on_its_own_release_takes_done_at_its_merge
     lines = watch.run_pass(watcher(demo), T0)
     data = state.load(demo)
     assert not [line for line in lines if line.startswith(("FREE ", "ORPHAN "))]
-    assert [line for line in lines if line.startswith("JOB ")] == [f'JOB j2 o1 added, proves {OTHER}, waits on no release: the watch starts its agent on its brief {data["jobs"]["j2"]["brief"]}, so start no agent for it; drive job resume reaches it']
-    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["waits"], data["jobs"]["j2"]["waits"], provers) == ("done", [], [], [])
+    assert [line for line in lines if line.startswith("JOB ")] == [f"JOB j2 o1 added, proves {OTHER}, waits on the next production release cut, which the watch binds it to once a cut carries its merges: drive status j2"]
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["waits"], data["jobs"]["j2"]["waits"], provers) == ("done", [], [state.CUT_WAIT], [])
 
 
 def test_a_merge_whose_pr_an_unmarked_prover_at_work_on_another_order_proves_gives_that_prover_its_parts_and_adds_no_second(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1832,7 +1832,13 @@ def job_set(args: argparse.Namespace) -> int:
                 state.start(job)
                 hear_opening(data, args.id)
             superseded.hear_start(data, args.id)
-        if args.repro:
+        if args.order and not args.repro:
+            raise DriveError(f"{args.id}: refused, nothing changed: --order names whose proof file --repro keeps, so it needs --repro <file>")
+        if args.order and args.order not in [job["order"], *job["carries"]]:
+            raise DriveError(f"{args.id}: refused, nothing changed: {args.order} is neither its order nor one it carries, so no proof file of it delivers {args.order}'s parts")
+        if args.order:
+            job["repros"] = (job.get("repros") or {}) | {args.order: keep_repro(name, f"{args.id}.{args.order}", job["kind"], args.repro)}
+        elif args.repro:
             job["repro"] = keep_repro(name, args.id, job["kind"], args.repro)
         for url in urls:
             if (key := state.pr_key(url)) in data["prs"]:
@@ -4281,7 +4287,7 @@ def release_sprite(drive: str, job_id: str, job: dict, root: Path) -> str | None
 def job_prove(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     find(state.load(name)["jobs"], args.id, "job")
-    line = install.prove(name, args.id, args.timeout)
+    line = install.prove(name, args.id, args.timeout, args.again)
     return emit(args, line, {"id": args.id, "line": line})
 
 
@@ -6687,6 +6693,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--said", help="its latest line")
     verb.add_argument("--due", help="its clock: when it must have returned, said once as DUE if it still runs then, a time or +10m")
     verb.add_argument("--repro", help="the job's pick-up-and-run reproduction file, kept in the drive")
+    verb.add_argument("--order", help="with --repro, the order, its own or one it carries, whose proof the file is: a prover of a release cut keeps one per order, and drive job prove runs each on its own timeout, each one's exit 0 delivering that order's parts and posting its close while the others still run")
     verb.add_argument("--pr", action="append", default=[], help="a PR it opened or took over; a PR the drive tracks then names it on its row, as drive pr add --job moves one; a PR the drive does not track, kept on a builder stopped before any agent took it, such as a teammate's open PR its reader found already doing its work, carries its parts while GitHub reads it open, and once it merged the part's ORPHAN line names the drive order posted that delivers it; one kept on a live job can wake it, its WAITING waiting on it until the watch's GitHub read finds it merged or closed")
     named = verb.add_mutually_exclusive_group()
     named.add_argument("--part", action="append", default=[], help='another part of the order this job delivers, or of the one order --carries names, a "port of #N" that order lacks added to it')
@@ -7075,6 +7082,11 @@ def parser() -> argparse.ArgumentParser:
         type=int,
         default=900,
         help=f"seconds the installs get, the dashboard's handover gets, and each run of the proof file gets from its own start, its end the Unix second {install.PROOF_DEADLINE_ENV} names to the file",
+    )
+    verb.add_argument(
+        "--again",
+        action="store_true",
+        help="run a proof whose last run failed though neither its long-running install, its merges nor its proof files changed since, for a cause fixed outside them, such as a merged fix in another repository; refused without it",
     )
     verb.set_defaults(run=job_prove)
     verb = job.add_parser("show", parents=both, help="drive status for these ids")
