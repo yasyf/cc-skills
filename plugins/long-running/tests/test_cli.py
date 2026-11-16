@@ -9001,7 +9001,7 @@ def test_pr_add_on_a_sprite_lanes_job_copies_each_show_me_picture_off_its_sprite
     body = on_github["body"] = CARD_BODY + f"\n## Show me\n![1 · Before, dev]({before})\n![2 · After, this PR]({after})\n"
     assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD]) == 2
     refused = capsys.readouterr().err.strip()
-    assert refused.startswith(f"drive: Forge-AI/monorepo#42: refused, nothing added: its Show me pictures did not copy off pool-one: copying {before}, {after} off pool-one exited ")
+    assert refused == f"drive: Forge-AI/monorepo#42: refused, nothing added: its Show me pictures did not copy off pool-one: no file at {after}"
     assert state.load("demo")["prs"] == {}
     (sprite / after.lstrip("/")).write_bytes(b"after")
     assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0

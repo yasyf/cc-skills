@@ -213,25 +213,28 @@ def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
 
 
 def lane_files(sent: dict, drive: str, job_id: str, verb: tuple[str, ...]) -> dict[str, str]:
-    """For one of LANE_CARDS, each picture the files and stdin a Sprite lane's drive sent show on a line of its own, `![caption](/absolute/path)` as a card draws it, and for a job report the proof file its REPRO: line names, each by a path on its Sprite, copied off that Sprite as off_sprite copies it; the copy here by the Sprite path."""
+    """For one of LANE_CARDS, each picture the files and stdin a Sprite lane's drive sent show on a line of its own, `![caption](/absolute/path)` as a card draws it, and for a job report the proof file its REPRO: line names, each by a path on its Sprite, copied off that Sprite as off_sprite copies it; the copy here by the Sprite path. A proof path the Sprite holds no file at, such as the copy `job set --repro` kept on this Mac, stays as the report wrote it, while DriveError names each picture the Sprite holds no file at."""
     if verb not in LANE_CARDS:
         return {}
     stdin = sent.get("stdin", "")
     texts = [file["text"] for file in sent.get("files", {}).values()] + [stdin]
     pictures = [shown["path"] for text in texts for line in text.splitlines() if (shown := limits.POSTED_PICTURE.fullmatch(line.strip()))]
     proofs = [named["path"] for named in [state.REPRO.search(stdin)] if verb == ("job", "report") and named and named["path"].startswith("/")]
-    return off_sprite(drive, job_id, list(dict.fromkeys([*pictures, *proofs])))
+    return off_sprite(drive, job_id, list(dict.fromkeys(pictures)), tuple(proofs))
 
 
-def off_sprite(drive: str, job_id: str, paths: list[str]) -> dict[str, str]:
-    """Each file at its path on the job's Sprite copied off it under the job's scratch folder here, at that path below its `sprite` folder, which outlives the run since a card drawn later from what names it opens it; the copy here by the Sprite path."""
-    if not paths:
+def off_sprite(drive: str, job_id: str, paths: list[str], if_held: tuple[str, ...] = ()) -> dict[str, str]:
+    """Each file at one of the paths on the job's Sprite, and at each of if_held that the Sprite holds, copied off it under the job's scratch folder here, at that path below its `sprite` folder, which outlives the run since a card drawn later from what names it opens it; the copy here by the Sprite path. DriveError names each of the paths the Sprite holds no file at."""
+    wanted = list(dict.fromkeys([*paths, *if_held]))
+    if not wanted:
         return {}
     from drive import orca
 
     into = sprite_folder(drive, job_id)
-    orca.take_off_sprite(state.load(drive)["jobs"][job_id]["workspace"], paths, into)
-    return {path: str(into / path.lstrip("/")) for path in paths}
+    copied = orca.take_off_sprite(state.load(drive)["jobs"][job_id]["workspace"], wanted, into)
+    if gone := [path for path in paths if path not in copied]:
+        raise state.DriveError(f"no file at {', '.join(gone)}")
+    return {path: str(into / path.lstrip("/")) for path in copied}
 
 
 def sprite_folder(drive: str, job_id: str) -> Path:
