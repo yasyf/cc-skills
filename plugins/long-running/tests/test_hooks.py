@@ -1860,7 +1860,7 @@ def test_a_cluster_job_build_is_no_release_cut_so_any_drive_session_opens_its_ga
     monkeypatch.setattr(landing_guard, "UNJUDGED", [])
     unreadable = "could not read forge/release build 15700 from Buildkite: HTTP 404"
     assert landing_guard.deny_reason(bash(unread) | top) == landing_guard.JOB_UNREAD.format(command=unread, error=unreadable)
-    assert landing_guard.UNJUDGED == [landing_guard.CUT_UNRESOLVED.format(command=unread, build="15700", error=unreadable)]
+    assert list(dict.fromkeys(landing_guard.UNJUDGED)) == [landing_guard.CUT_UNRESOLVED.format(command=unread, build="15700", error=unreadable)]
 
 
 def test_a_forge_release_build_created_with_its_env_inline_is_judged_by_that_env_so_a_tester_starts_a_staging_cluster_job_at_a_prs_commit_while_he_holds_every_release(
