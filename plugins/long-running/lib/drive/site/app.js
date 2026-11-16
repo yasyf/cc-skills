@@ -1034,15 +1034,15 @@ const APPLET_BLOCKS = {
     const entries = blockPRs(shown, block.prs).filter((entry) => !answers.get(entry.answer)?.label || answers.get(entry.answer)?.error);
     if (!entries.length) return blockShell(block, 'approve', '<p class="ap-empty">✓ Nothing here waits on your Approve now.</p>');
     const yours = (entry) => entry.group === 'you';
-    const picked = appletPicks.get(`${page.slug}:${block.title}`) ?? new Set(entries.filter((entry) => yours(entry) && prWord(entry).tone !== 'bad').map((entry) => entry.key));
+    const picked = appletPicks.get(`${page.slug}:${block.title}`) ?? new Set(entries.filter((entry) => yours(entry) && prWord(entry).tone !== 'bad').map((entry) => entry.answer));
     appletPicks.set(`${page.slug}:${block.title}`, picked);
     const rows = entries.map((entry) => {
       const status = prWord(entry);
-      return `<li${yours(entry) ? '' : ' class="moving"'}><label>${yours(entry) ? `<input type="checkbox" data-ap-pick="${esc(page.slug)}:${esc(block.title)}" value="${esc(entry.key)}"${picked.has(entry.key) ? ' checked' : ''}>` : '<span class="ap-moving" title="Needs nothing from you">↻</span>'}<span class="ap-pr"><b>${esc(sentence(entry.headline ?? bare(entry.title)))}</b><small>${dot(status)} ${esc(status.word)} · ${esc(yours(entry) ? entry.approve_plain : 'Needs nothing from you')}</small></span></label><button class="linkish" data-pr="${esc(entry.key)}">Review</button></li>`;
+      return `<li${yours(entry) ? '' : ' class="moving"'}><label>${yours(entry) ? `<input type="checkbox" data-ap-pick="${esc(page.slug)}:${esc(block.title)}" value="${esc(entry.answer)}"${picked.has(entry.answer) ? ' checked' : ''}>` : '<span class="ap-moving" title="Needs nothing from you">↻</span>'}<span class="ap-pr"><b>${esc(sentence(entry.headline ?? bare(entry.title)))}</b><small>${dot(status)} ${esc(status.word)} · ${esc(yours(entry) ? entry.approve_plain : 'Needs nothing from you')}</small></span></label><button class="linkish" data-pr="${esc(entry.key)}">Review</button></li>`;
     }).join('');
-    const count = entries.filter((entry) => picked.has(entry.key)).length;
+    const count = entries.filter((entry) => yours(entry) && picked.has(entry.answer)).length;
     const mine = entries.filter(yours).length;
-    return blockShell(block, 'approve', `<ul class="ap-approve">${rows}</ul><div class="ap-actions"><button class="btn" data-ap-approve="${esc(page.slug)}:${esc(block.title)}"${count ? '' : ' disabled'}>Approve ${count === mine && count > 1 ? `all ${count}` : count}</button><small>Each sends at once, with Undo, as the queue sends it.</small></div>`);
+    return blockShell(block, 'approve', `<ul class="ap-approve">${rows}</ul><div class="ap-actions"><button class="btn" data-ap-approve="${esc(page.slug)}:${esc(block.title)}"${count ? '' : ' disabled'}>Approve ${count === mine && count > 1 ? `all ${count}` : count}</button><small>${entries.some((entry, i) => yours(entry) && entries.findIndex((other) => other.answer === entry.answer) !== i) ? 'Changes of one stack tick together, since Approve lands a stack whole. ' : ''}Each sends at once, with Undo, as the queue sends it.</small></div>`);
   },
   stack(page, shown, block) {
     const entries = blockPRs(shown, block.prs);
@@ -2861,7 +2861,7 @@ document.addEventListener('click', (event) => {
   if (approving) {
     const page = model.pages.find((each) => approving.dataset.apApprove.startsWith(`${each.slug}:`));
     const shown = pageSlice(page);
-    const picks = [...(appletPicks.get(approving.dataset.apApprove) ?? [])].map((key) => shown.prs.find((entry) => entry.key === key)).filter(Boolean).map((entry) => ({ card: entry.answer, label: 'Approve' }));
+    const picks = [...(appletPicks.get(approving.dataset.apApprove) ?? [])].filter((card) => shown.prs.some((entry) => entry.answer === card)).map((card) => ({ card, label: 'Approve' }));
     return answerBatch(picks).then(render);
   }
   const queued = event.target.closest('[data-queue]');
