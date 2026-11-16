@@ -1029,20 +1029,28 @@ def close_installed(clone: str, repo: str, key: str, build: str, version: str, d
     if not (owed := {name: fixes for name in state.names() if (fixes := installed_fixes(state.load(name), repo))}):
         return lines
     git(clone, "fetch", "--quiet", "--filter=tree:0", "--no-tags", "origin", f"+HEAD:{DEFAULT_BRANCH}", deadline=deadline)
-    for name in owed:
-        with state.edit(name) as data:
-            his = []
-            for order_id, keys in installed_fixes(data, repo).items():
-                if not all(ran(["git", "-C", clone, "merge-base", "--is-ancestor", data["prs"][each]["merged_sha"], build], deadline).returncode == 0 for each in keys):
-                    continue
-                proof = f"{' '.join(map(state.pr_url, keys))}{INSTALLED_PROOF}{key} {version} at {build[:12]}"
-                data["orders"][order_id].update(proof=proof, state="done", updated=state.stamp())
-                if not state.unasked_tooling(data["orders"][order_id]):
-                    his.append(order_id)
-                lines.append(f"{name} {order_id}: closed, {proof}")
-            if his:
-                data["orders"][his[0]].update(state="open", close_report=live_report(name, his, key.partition("@")[0], version, build))
-    return lines
+    contained: dict[str, bool] = {}
+
+    def holds(sha: str) -> bool:
+        if sha not in contained:
+            contained[sha] = ran(["git", "-C", clone, "merge-base", "--is-ancestor", sha, build], deadline).returncode == 0
+        return contained[sha]
+
+    def installed_closes(name: str, data: dict) -> list[str]:
+        his, closes = [], []
+        for order_id, keys in installed_fixes(data, repo).items():
+            if not all(holds(data["prs"][each]["merged_sha"]) for each in keys):
+                continue
+            proof = f"{' '.join(map(state.pr_url, keys))}{INSTALLED_PROOF}{key} {version} at {build[:12]}"
+            data["orders"][order_id].update(proof=proof, state="done", updated=state.stamp())
+            if not state.unasked_tooling(data["orders"][order_id]):
+                his.append(order_id)
+            closes.append(f"{name} {order_id}: closed, {proof}")
+        if his:
+            data["orders"][his[0]].update(state="open", close_report=live_report(name, his, key.partition("@")[0], version, build))
+        return closes
+
+    return lines + [line for name in owed for line in state.update(name, None, partial(installed_closes, name))]
 
 
 def unbatched(data: dict) -> list[str]:
