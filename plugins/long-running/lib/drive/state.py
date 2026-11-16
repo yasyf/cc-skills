@@ -108,6 +108,7 @@ SUBJECT_LABEL = ', recorded on the subject of "'
 MESSAGES_JOINED = " … "
 TAP_LABELS = ("Approve", "Hold")
 CARDS_FIRST = 'fe09e93 "Buttons only after you answer each question"'
+UNSCHEDULED_RULING = '785e260, "unacceptable", on a card for cutover work while the cutover is not on'
 TOOLING = "Drive tooling:"
 TOOLING_DETAILS_RULING = "43aa665"
 REHEARSAL_RULING = "716e70d"
@@ -186,6 +187,7 @@ CASE_VERDICT = re.compile(r"(?:pass(?:ed)?|fail(?:ed)?|skipped|not exercised)\b"
 UNEXERCISED_CASE = re.compile(r"not exercised\b[ \t]*:?[ \t]*", re.IGNORECASE)
 RETURN_WAIT = re.compile(r"(?P<job>j\d+)@(?P<returned>\d+)")
 LINE_JOB = re.compile(r"(?<![\w:/.-])j\d+(?![\w@-])")
+LINE_ORDER = re.compile(r"(?<![\w:/.-])o\d+(?![\w:@-])")
 SLOT_WAIT = "builder-slot"
 HOLDS_NOW = "## Holds now"
 REPLY_WAIT = re.compile(r"reply:(?:(?P<link>https://[\w.-]+/archives/[A-Z0-9]+/p\d{16}(?:\?[^\s,;]*)?)|cci:(?P<seq>[1-9]\d*))")
@@ -2254,11 +2256,12 @@ def fix_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
 
 
 def named_waits(data: dict, order_id: str, line: str) -> list[str]:
-    """The waits a result line names: each release:<service>:<owner>/<repo>#<n>, with its @<env> when it names one, of a PR the drive tracks, each staging:<target>/<env>@<commit>, each Buildkite build it links, by the build's own link, each other drive PR it names, each part it names as <order>:<part>, each process on this Mac it names as pid:<n> that runs now, by pid_waits, each teammate's reply it names as reply:<the question's permalink> and each next record of another drive it names as reply:cci:<the seq of the record it follows>."""
+    """The waits a result line names: each release:<service>:<owner>/<repo>#<n>, with its @<env> when it names one, of a PR the drive tracks, each staging:<target>/<env>@<commit>, each Buildkite build it links, by the build's own link, each other drive PR it names, each part it names as <order>:<part>, each order he has not scheduled it names by its id, by unscheduled, each process on this Mac it names as pid:<n> that runs now, by pid_waits, each teammate's reply it names as reply:<the question's permalink> and each next record of another drive it names as reply:cci:<the seq of the record it follows>."""
     releases = [found[0] for found in RELEASE_WAIT.finditer(line) if found["pr"] in data["prs"]]
     stagings = [found[0] for found in STAGING_WAIT.finditer(line)]
     builds = [found[0] for found in github.BUILD.finditer(line)]
-    return list(dict.fromkeys([*releases, *stagings, *builds, *named_prs(data, order_id, RELEASE_WAIT.sub("", line)), *named_parts(data, line), *pid_waits(line), *(found[0] for found in REPLY_WAIT.finditer(line))]))
+    orders = [found for found in LINE_ORDER.findall(line) if unscheduled(data, found)]
+    return list(dict.fromkeys([*releases, *stagings, *builds, *named_prs(data, order_id, RELEASE_WAIT.sub("", line)), *named_parts(data, line), *orders, *pid_waits(line), *(found[0] for found in REPLY_WAIT.finditer(line))]))
 
 
 def anchors(data: dict, waits: Iterable[str]) -> dict[str, dict]:
@@ -5072,8 +5075,8 @@ def followed_builds(orders: dict[str, dict]) -> set[str]:
 
 
 def card_wait(data: dict, wait: str) -> bool:
-    """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a job's next report, a PR, tracked or not, a part of an order, a release of the drive, a staging test's soak commit, a process on this Mac, a Buildkite build, a teammate's reply to a question the drive asked them, another drive's next record on a topic, a teammate's review of a PR's head or a builder slot on this Mac."""
-    return wait not in data["jobs"] and wait not in data["prs"] and not part_wait(data, wait) and not RELEASE_WAIT.fullmatch(wait) and not STAGING_WAIT.fullmatch(wait) and not PID_WAIT.fullmatch(wait) and not github.BUILD.fullmatch(wait) and not REPLY_WAIT.fullmatch(wait) and not REVIEW_WAIT.fullmatch(wait) and not RETURN_WAIT.fullmatch(wait) and not untracked_wait(data, wait) and wait != SLOT_WAIT
+    """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a job's next report, a PR, tracked or not, an order or a part of one, a release of the drive, a staging test's soak commit, a process on this Mac, a Buildkite build, a teammate's reply to a question the drive asked them, another drive's next record on a topic, a teammate's review of a PR's head or a builder slot on this Mac."""
+    return wait not in data["jobs"] and wait not in data["prs"] and wait not in data["orders"] and not part_wait(data, wait) and not RELEASE_WAIT.fullmatch(wait) and not STAGING_WAIT.fullmatch(wait) and not PID_WAIT.fullmatch(wait) and not github.BUILD.fullmatch(wait) and not REPLY_WAIT.fullmatch(wait) and not REVIEW_WAIT.fullmatch(wait) and not RETURN_WAIT.fullmatch(wait) and not untracked_wait(data, wait) and wait != SLOT_WAIT
 
 
 def job_wait_refusal(data: dict, waits: list[str]) -> str | None:
@@ -5389,7 +5392,7 @@ def against(pr: dict) -> str:
 
 
 def tap_refused(data: dict, pr: dict) -> str | None:
-    """Why his card on the PR offers no Approve; None when it does: open on a repository this account may merge on, since one by upstream() reads as merged outside the drive, waiting on his tap with no exempt class landing it, not approved by him, no teammate's review of its head still awaited by its review:<login> waits, so a PR his order runs by a teammate first draws his card only once that review lands, and, outside an open incident, no question card of his holding it by land.pr_cards, by his pick CARDS_FIRST, so no tap on a PR card answers a design question he has not, whatever the check against his words says, and not on the branch of a job that has opened no PR there yet, by built_base, since it lands only with that job's PR, whose opening puts the two on one card. His Approve stands until his words rework the PR or he taps Hold, so a card of his that came to hold it since he tapped, which his Approve did not answer, holds it as held, owed by him and naming that card, until his answer on it frees it. His Hold stops only its landing, by his pick 6f2f239, so a held PR offers it, and his Approve there lifts the Hold, as one Approve on a stack card lifts each member's, by his pick eb69825. A red PR offers it, as does one the hold label on GitHub holds, and so does one the check objects to; an incident's repair offers it beside the card that holds it, whose recommended option his Approve picks, by his pick e55b1cd."""
+    """Why his card on the PR offers no Approve; None when it does: open on a repository this account may merge on, since one by upstream() reads as merged outside the drive, waiting on his tap with no exempt class landing it, not approved by him, waiting on no order he has not scheduled, by unscheduled_waits, so no card asks him on work whose step he has not scheduled, such as a deletion waiting on the cutover, by his answer UNSCHEDULED_RULING, no teammate's review of its head still awaited by its review:<login> waits, so a PR his order runs by a teammate first draws his card only once that review lands, and, outside an open incident, no question card of his holding it by land.pr_cards, by his pick CARDS_FIRST, so no tap on a PR card answers a design question he has not, whatever the check against his words says, and not on the branch of a job that has opened no PR there yet, by built_base, since it lands only with that job's PR, whose opening puts the two on one card. His Approve stands until his words rework the PR or he taps Hold, so a card of his that came to hold it since he tapped, which his Approve did not answer, holds it as held, owed by him and naming that card, until his answer on it frees it. His Hold stops only its landing, by his pick 6f2f239, so a held PR offers it, and his Approve there lifts the Hold, as one Approve on a stack card lifts each member's, by his pick eb69825. A red PR offers it, as does one the hold label on GitHub holds, and so does one the check objects to; an incident's repair offers it beside the card that holds it, whose recommended option his Approve picks, by his pick e55b1cd."""
     from drive import land
 
     if pr["state"] != "open":
@@ -5402,6 +5405,8 @@ def tap_refused(data: dict, pr: dict) -> str | None:
         return "its author or its own builder lands it with no tap"
     if (pr["tap"] or {}).get("label") == "Approve":
         return "he approved it already"
+    if steps := unscheduled_waits(data, pr):
+        return f"it waits on {', '.join(steps)}, work he has not scheduled, so no card asks him on it until he does, by his answer {UNSCHEDULED_RULING}"
     if reviewers := awaited_reviewers(pr):
         return f"it waits on a GitHub review of its head by {', '.join(reviewers)}, so his card draws once that review lands"
     job = data["jobs"][pr["job"]]
@@ -5410,6 +5415,21 @@ def tap_refused(data: dict, pr: dict) -> str | None:
     if built := built_base(data, pr):
         return f"it sits on {pr['base']}, the branch of {built}, which has opened no PR there yet, so his card asks Approve on it once that PR opens under it"
     return None
+
+
+def unscheduled(data: dict, wait: str) -> bool:
+    """Whether a wait names an order he has not scheduled: one the drive holds in state waiting, such as the cutover, whose work starts only on his word, which drive order set <o> --state open records, freeing each PR and job waiting on it at once."""
+    return wait in data["orders"] and data["orders"][wait]["state"] == "waiting"
+
+
+def unscheduled_waits(data: dict, pr: dict) -> list[str]:
+    """Each order he has not scheduled that the PR waits on, by unscheduled, by its own waits or its job's, by unscheduled_job."""
+    return list(dict.fromkeys([*(wait for wait in pr["waits"] if unscheduled(data, wait)), *unscheduled_job(data, pr["job"])]))
+
+
+def unscheduled_job(data: dict, job_id: str) -> list[str]:
+    """Each order he has not scheduled that the job waits on, by unscheduled, as a WAITING line naming the order sets it, so neither its PRs nor its questions draw a card of his until he schedules it."""
+    return [wait for wait in data["jobs"][job_id]["waits"] if unscheduled(data, wait)]
 
 
 def built_base(data: dict, pr: dict) -> str | None:

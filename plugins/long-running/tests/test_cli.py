@@ -1925,6 +1925,21 @@ def test_job_ask_keeps_an_ask_in_the_shape_he_reads_keeps_its_builder_running_to
     assert shown["show_me"][-1] == "```"
 
 
+def test_job_ask_keeps_with_no_card_a_question_of_a_job_waiting_on_an_order_he_has_not_scheduled(
+    run: Run, asking: str, tmp_path: Path, state_root: Path, cards_drawn: list[dict]
+) -> None:
+    run("order", "add", "--title", "The cutover", "--project", "The drive", "--workstream", "Drive tooling", "cut over to the new tree")
+    assert run("job", "set", asking, "--waits", "o2")[0] == 2
+    run("order", "set", "o2", "--state", "waiting")
+    assert run("job", "set", asking, "--waits", "o2")[0] == 0
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    code, out = run("job", "ask", asking, str(block))
+    kept = state_root / "demo" / "asks" / f"j1-{hashlib.sha256(SHORT_ASK.encode()).hexdigest()[:8]}.md"
+    assert (code, out, cards_drawn) == (0, f"{kept}\nj1 waits on o2, work he has not scheduled, so no card asks him this until he schedules it, by his answer {state.UNSCHEDULED_RULING}; the watch draws it then", [])
+    assert [(question["file"], question["card"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(str(kept), None)]
+
+
 PINNED_CHATS_ASK = explained("""ASK Where should pinned chats draw in the Iris sidebar?
 Drive tooling: your pick decides which spot counts as the top. A row's menu gains Pin and Unpin, and the sidebar draws pinned chats and agents ahead of unpinned ones.
 You have not decided this. A user asked to keep a Unichat pinned at the top at all times, and a Unichat lists under Agents, below every chat, so I recommend one Pinned group above both.
