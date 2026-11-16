@@ -148,7 +148,8 @@ def step(held: dict, moment: datetime, away: bool) -> str | None:
 
 
 def searching(held: dict, moment: datetime) -> bool:
-    return moment - state.parse_time(held["agent"]["at"]) < SEARCH_FOR and state.alive(held["agent"]["pid"])
+    """Whether the stall's watchdog agent may still be reading it: one started under SEARCH_FOR ago whose process lives; a cause the drive's rows named, by cause, ran none."""
+    return bool(held["agent"]["pid"]) and moment - state.parse_time(held["agent"]["at"]) < SEARCH_FOR and state.alive(held["agent"]["pid"])
 
 
 def owner(data: dict, subject: str) -> tuple[str, str]:
@@ -160,10 +161,30 @@ def owner(data: dict, subject: str) -> tuple[str, str]:
 
 
 def starts(stalls: dict[str, dict], moment: datetime) -> tuple[int, int]:
-    """How many watchdog agents run now, each started under SEARCH_FOR ago on a stall whose STUCK line or report has not taken its answer yet, and how many started in the last hour, over every stall of the drive."""
-    held = [kept for kept in stalls.values() if kept["agent"]]
+    """How many watchdog agents run now, each started under SEARCH_FOR ago on a stall whose STUCK line or report has not taken its answer yet, and how many started in the last hour, over every stall of the drive, a cause read from the drive's rows, which starts none, counting as neither."""
+    held = [kept for kept in stalls.values() if kept["agent"] and kept["agent"]["pid"]]
     running = sum(1 for kept in held if moment - state.parse_time(kept["agent"]["at"]) < SEARCH_FOR and not ((taken := kept["told"] or kept["said"]) and state.parse_time(taken) >= state.parse_time(kept["agent"]["at"])))
     return running, sum(1 for kept in held if moment - state.parse_time(kept["agent"]["at"]) < timedelta(hours=1))
+
+
+def cause(data: dict, thing: str, held: dict) -> dict[str, str] | None:
+    """The WHY, WHO and NEXT lines of a stall whose cause the drive's own rows name, so no watchdog agent is started to read it: a staging env's slot, a release a PR waits on, a builder or Sprite turn this Mac's caps hold, a job whose Sprite lane died, which drive job resume restarts on a fresh one, an open card of his a member is or a job member waits on, an open PR of a job member asking his Approve, or a release a job member waits on; None for any other, which only an agent reads."""
+    if staging := re.fullmatch(r"staging:(?P<env>[\w.-]+)", thing):
+        return {"WHY": f"{', '.join(held['members'])} waits for its slot on staging env {staging['env']}", "WHO": "the staging slot's holder, then the watch's GO", "NEXT": "nothing to run: the slot's GO starts it"}
+    if release := re.fullmatch(r"release:(?P<pr>\S+?)(?:@(?P<env>[\w.-]+))?", thing):
+        return {"WHY": f"waits on {release['pr']}'s release to {release['env'] or 'every cluster'}", "WHO": "the release that carries it", "NEXT": "nothing to run: the watch's release read frees it once its clusters serve the merge"}
+    if turns := [member for member in held["members"] if member in state.TURN_WAITS]:
+        return {"WHY": f"waits its turn on {', '.join(turns)}, which this Mac's caps hold", "WHO": "the watch, which frees the earliest due job as a slot opens", "NEXT": "nothing to run: its FREE line starts it"}
+    if dead := [member for member in held["members"] if (job := data["jobs"].get(member)) and job.get("where") == "remote" and state.lane_death(job, "dispatch")]:
+        return {"WHY": f"{', '.join(dead)}'s Sprite lane died", "WHO": "the session holding its order", "NEXT": f"drive job resume {dead[0]} restarts it on a fresh Sprite"}
+    jobs = [data["jobs"][member] for member in held["members"] if member in data["jobs"]]
+    if cards := [wait for wait in [*held["members"], *(wait for job in jobs for wait in job["waits"])] if wait not in data["jobs"] and state.card_wait(data, wait)]:
+        return {"WHY": f"waits on his card {', '.join(dict.fromkeys(cards))}", "WHO": "him", "NEXT": "nothing to run: his answer frees it"}
+    if taps := [key for job in jobs for key in job["prs"] if (pr := data["prs"].get(key)) and pr["state"] == "open" and state.asks_tap(data, pr)]:
+        return {"WHY": f"{', '.join(taps)} waits on his Approve", "WHO": "him", "NEXT": "nothing to run: his tap lands it"}
+    if releases := [wait for job in jobs for wait in job["waits"] if state.RELEASE_WAIT.fullmatch(wait)]:
+        return {"WHY": f"waits on {', '.join(releases)}", "WHO": "the release that carries it", "NEXT": "nothing to run: the watch's release read frees it once its clusters serve the merge"}
+    return None
 
 
 def answer(text: str) -> dict[str, str]:

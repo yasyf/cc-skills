@@ -103,6 +103,7 @@ REPLY_READ = 100
 SETTLING = ""
 PR_LINE = re.compile(r"\s*(?:READY|PUSHED|PR:)")
 JOB_LINE = re.compile(r"JOB (?P<job>j\d+) (?P<order>o\d+) ")
+SETTLED_RETURN = re.compile(r"(?:WAITING|PUSHED)\b")
 MESSAGE_LINE = re.compile(r"MESSAGE (?P<id>\S+): ")
 MERGE_ENDS = re.compile(r"(?:READY|PUSHED|WAITING)\b")
 UNKEPT_ASK = "keep it with `drive job ask {job}`, which draws his card on it, since no card draws for it until then"
@@ -3593,7 +3594,7 @@ def launching(job: dict, moment: datetime) -> bool:
 
 
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach, which wake hands to drive job resume at the first failed read and again each REWAKE, its failed reads neither counted nor said while busy reads another drive verb acting on the job, as the wake an earlier watch started does, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite; a live lane whose job keeps texts queued has them settled by its mailbox each pass, by state.take_mail, its worker's next turn started by orca.wake_turn when that read leaves a text unread and its turn is over, and a remote lane whose worker finished or exited has the mail it never read held on its job once for its dispatch by unread_lines, before death_lines relaunches a running job's lane. A local agent that ended its turn on a message opening with a result word its job's history lacks has that message taken by cli.take_report, as `drive job report` takes a return, or kept in that history once that refuses it, the refusal on its JOB line, and has no gap here; a codex job whose codex-ask run ended, or that has none going and none left to take, by Gone, has no gap here, since the relay takes it, by codex_takes, while one whose run codex-ask cannot read counts lost, as a lane Orca cannot read does."""
+    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach, which wake hands to drive job resume at the first failed read, saying no LANE line, since a retry and reconnect needs no model, and again each REWAKE, its LANE line going to the session holding it from that second failure on, its failed reads neither counted nor said while busy reads another drive verb acting on the job, as the wake an earlier watch started does, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite; a live lane whose job keeps texts queued has them settled by its mailbox each pass, by state.take_mail, its worker's next turn started by orca.wake_turn when that read leaves a text unread and its turn is over, and a remote lane whose worker finished or exited has the mail it never read held on its job once for its dispatch by unread_lines, before death_lines relaunches a running job's lane. A local agent that ended its turn on a message opening with a result word its job's history lacks has that message taken by cli.take_report, as `drive job report` takes a return, or kept in that history once that refuses it, the refusal on its JOB line, and has no gap here; a codex job whose codex-ask run ended, or that has none going and none left to take, by Gone, has no gap here, since the relay takes it, by codex_takes, while one whose run codex-ask cannot read counts lost, as a lane Orca cannot read does."""
     data = state.load(watcher.name)
     gaps, deaths, refusals, heads, found, finished, boxes, lost, idle, lines = {}, {}, {}, {}, {}, {}, {}, {}, {}, []
     read: set[str] = set()
@@ -3659,7 +3660,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 if running and orca.UNREACHABLE in str(error) and (woke.get("dispatch") != job["dispatch"] or moment - state.parse_time(woke["at"]) >= REWAKE):
                     wake(watcher, job_id, moment)
                     watcher.failure_said[source] = moment
-                    said = [
+                    said = [] if woke.get("dispatch") != job["dispatch"] else [
                         f'LANE {job_id} {job["order"]} unreachable {orca.place(job)}: {error}, while it worked on "{cut(job["said"] or job["goal"], 60)}". The watch ran'
                         f" drive job resume {job_id}, which wakes that Sprite and, when its worker no longer works, restarts the lane there, else on a fresh Sprite once that Sprite"
                         f" answers no ssh and no transcript there was written in {orca.QUIET_SECONDS // 60} minutes; it runs again every {orca.QUIET_SECONDS // 60} minutes while Orca"
@@ -3835,7 +3836,7 @@ def budget_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Age each thing the drive's chains of waits end on, a PR stack's card, a PR's release, a staging env or a job, and act once on each that stood unmoved past its deadline, however many jobs and PRs wait on it, by his words "the watch reports a stall for each job held by the same open Approve card, so three jobs waiting on one card would each send him a line" and his pick "an automated watchdog that spawns a small agent if it detects anything truly stick which can go read transcript etc": start one watchdog agent on it, at most two at a time and six an hour, oldest stall first, never on a chain ending at a step of his, his hold on every release read once a pass, nor on a staging env, or a release on it, behind another drive's staging claim until that claim ends, as stall.behind() reads the claims of every other drive on this Mac once a pass; once that agent answers, or ten minutes pass, say one STUCK line naming it, each job and PR waiting on it and what the agent found, or that alone; and, by his pick "One line to you, once per stall, after the coordinator had 30 minutes and nothing changed; never while you are away.", once that line stood 30 minutes with the thing unmoved and he is here, start a fresh watchdog agent, since records and PRs move while the thing's own words do not, as a merged replacement fix or a re-cut ready line, and once it answers, or ten minutes pass, write him one report of that answer the communicator's handler posts in that work's thread, his presence read by the clock right before that agent starts and again right before that report is written, never at the pass's start, which the stage can run twenty minutes after, so while he reads away the step goes back unclaimed and the first pass after he is heard takes it. Each stall is one row of the drive's stalls, aged under the drive's lock by every watch and acted on only by the watch hearing the job answering for the first job or PR waiting on it, each step claimed under the lock with the pid and start time of the watch taking it, as waiting_lines claims its lines, then taken outside the lock and settled under it, so a watch restart adopts its agent, two watches never take one step and nothing is said twice; a thing that moves starts a fresh one."""
+    """Age each thing the drive's chains of waits end on, a PR stack's card, a PR's release, a staging env or a job, and act once on each that stood unmoved past its deadline, however many jobs and PRs wait on it, by his words "the watch reports a stall for each job held by the same open Approve card, so three jobs waiting on one card would each send him a line" and his pick "an automated watchdog that spawns a small agent if it detects anything truly stick which can go read transcript etc": start one watchdog agent on it, unless the drive's own rows name its cause, by stall.cause, a staging slot, a release, a builder or Sprite turn, a dead Sprite lane or his card, whose WHY, WHO and NEXT lines stand as that agent's answer with no agent started, at most two agents at a time and six an hour, oldest stall first, never on a chain ending at a step of his, his hold on every release read once a pass, nor on a staging env, or a release on it, behind another drive's staging claim until that claim ends, as stall.behind() reads the claims of every other drive on this Mac once a pass; once that agent answers, or ten minutes pass, say one STUCK line naming it, each job and PR waiting on it and what the agent found, or that alone; and, by his pick "One line to you, once per stall, after the coordinator had 30 minutes and nothing changed; never while you are away.", once that line stood 30 minutes with the thing unmoved and he is here, start a fresh watchdog agent, since records and PRs move while the thing's own words do not, as a merged replacement fix or a re-cut ready line, and once it answers, or ten minutes pass, write him one report of that answer the communicator's handler posts in that work's thread, his presence read by the clock right before that agent starts and again right before that report is written, never at the pass's start, which the stage can run twenty minutes after, so while he reads away the step goes back unclaimed and the first pass after he is heard takes it. Each stall is one row of the drive's stalls, aged under the drive's lock by every watch and acted on only by the watch hearing the job answering for the first job or PR waiting on it, each step claimed under the lock with the pid and start time of the watch taking it, as waiting_lines claims its lines, then taken outside the lock and settled under it, so a watch restart adopts its agent, two watches never take one step and nothing is said twice; a thing that moves starts a fresh one."""
     if watcher.cards is None:
         return []
     known = state.load(watcher.name)
@@ -3861,6 +3862,11 @@ def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
         held = claims[thing]
         if step == "agent":
             out = state.drive_dir(watcher.name) / "stalls" / f"{NOT_SLUG.sub('-', thing)}-{moment:%Y%m%dT%H%M%S}.md"
+            if known_cause := stall.cause(known, thing, found[thing]):
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_text("".join(f"{label}: {said}\n" for label, said in known_cause.items()))
+                settle(watcher.name, thing, held, {"agent": {"pid": None, "out": str(out), "at": state.stamp(moment)}})
+                continue
             try:
                 pid = agents.watchdog(watcher.name, watchdog_brief(watcher, known, thing, found[thing], held, moment), str(orca.checkout(watcher.name, coordinator(known, watcher.project)["cwd"], wait=0)), out)
             except (OSError, state.DriveError) as error:
@@ -3896,7 +3902,7 @@ def watchdog_answer(held: dict) -> dict[str, str]:
 
 
 def owed(watcher: Watcher, data: dict, found: dict[str, dict], stalls: dict[str, dict], moment: datetime) -> dict[str, str]:
-    """The step each stall past its deadline owes now, oldest first, of those this watch hears and no live watch claims: its agent while the watchdog caps have room and this Mac admits a local Claude lane, by place.admission, so a stall it holds back waits for a later pass, its STUCK line, or his report, whether he is away read by the clock, never moment, the pass's start."""
+    """The step each stall past its deadline owes now, oldest first, of those this watch hears and no live watch claims: its agent while the watchdog caps have room and this Mac admits a local Claude lane, by place.admission, so a stall it holds back waits for a later pass, but at once and past both for a stall whose cause the drive's rows name, by stall.cause, which starts no agent, its STUCK line, or his report, whether he is away read by the clock, never moment, the pass's start."""
     running, begun = stall.starts(stalls, moment)
     room = 0 if place.admission(data, None, "local", moment) else min(stall.AT_ONCE - running, stall.STARTS_AN_HOUR - begun)
     away = state.owner_away(data, state.now())
@@ -3905,7 +3911,7 @@ def owed(watcher: Watcher, data: dict, found: dict[str, dict], stalls: dict[str,
         if claimed(stalls[thing]["claim"]) or not heard_job(watcher, data, data["jobs"][stall.owner(data, found[thing]["subjects"][0])[0]]):
             continue
         step = stall.step(stalls[thing], moment, away)
-        if step == "agent":
+        if step == "agent" and not stall.cause(data, thing, found[thing]):
             if room <= 0:
                 continue
             room -= 1
@@ -5460,10 +5466,10 @@ def line_lane(line: str, data: dict) -> str | None:
 
 
 def needs_step(line: str, data: dict, cards: dict | None) -> bool:
-    """Whether a line asks for a step now: any line but a PR's, his tap but an Approve, which the drive's lander lands in every repository once its stage reads ready, a STAGE line on a PR the drive tracks only while stage.of still names that stage, so one made before its PR merged or its lander tried a newer head asks nothing, a PR's merged line only when nobody else says it, never GitHub's merged line for a PR the lander merges and says so itself or whose job took DONE at its merge, whose prover's JOB line asks the step, or is one the watch finishes in that pass, nor the lander's merged line on a job already proved or whose proof the watch runs, whose proof line says so, and a line on a PR no longer open or folded only when it says how the PR ended, its merge, close or failed proof, while its job does not run to take it, never a move made while it was open, such as a lander's try refused at an older head, new heads, checks or a check against his words. An open PR's moves wake nobody, since its stage wakes its owner. A standing part's pass that ended DONE or HANDOFF asks nothing by its own line alone, since the watch alone starts the next pass, quoting it; a clause the drive adds to that line, such as an ASK it did not keep, still asks its step."""
+    """Whether a line asks for a step now: any line but a PR's, his tap but an Approve, which the drive's lander lands in every repository once its stage reads ready, a STAGE line on a PR the drive tracks only while stage.of still names that stage, so one made before its PR merged or its lander tried a newer head asks nothing, a PR's merged line only when nobody else says it, never GitHub's merged line for a PR the lander merges and says so itself or whose job took DONE at its merge, whose prover's JOB line asks the step, or is one the watch finishes in that pass, nor the lander's merged line on a job already proved or whose proof the watch runs, whose proof line says so, and a line on a PR no longer open or folded only when it says how the PR ended, its merge, close or failed proof, while its job does not run to take it, never a move made while it was open, such as a lander's try refused at an older head, new heads, checks or a check against his words. An open PR's moves wake nobody, since its stage wakes its owner. A standing part's pass that ended DONE or HANDOFF asks nothing by its own line alone, since the watch alone starts the next pass, quoting it, nor does a WAITING or PUSHED return, by settled_return, whose row of the coordinator's manual says Nothing; a clause the drive adds to either line, such as an ASK it did not keep, still asks its step."""
     if (tapped := TAP_EVENT.match(line)) and tapped["label"] == "Approve":
         return False
-    if (job := JOB_LINE.match(line)) and standing_pass_ended(data, job["job"], line):
+    if (job := JOB_LINE.match(line)) and (standing_pass_ended(data, job["job"], line) or settled_return(data, job["job"], line)):
         return False
     if (staged := STAGE_LINE.match(line)) and staged["key"] in data["prs"]:
         return stage.of(data, staged["key"], cards).name == staged["name"]
@@ -5478,6 +5484,12 @@ def needs_step(line: str, data: dict, cards: dict | None) -> bool:
     if pr["state"] in github.UNLANDED or not found["change"].startswith(ENDED):
         return False
     return data["jobs"][found["job"]]["state"] != "running"
+
+
+def settled_return(data: dict, job_id: str, line: str) -> bool:
+    """Whether a JOB line is a return whose row of the coordinator's manual says Nothing, a WAITING the result check let through only naming what the watch frees it on, or a PUSHED whose green checks the watch settles as READY, with no clause beside the line it said, so it reaches the coordinator as evidence and wakes nobody."""
+    job = data["jobs"][job_id]
+    return bool(SETTLED_RETURN.match(job["said"] or "")) and line == LINE_BREAKS.sub(" ", f"JOB {job_id} {job['order']} {job['said']}")
 
 
 def standing_pass_ended(data: dict, job_id: str, line: str) -> bool:
