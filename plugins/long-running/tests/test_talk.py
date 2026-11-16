@@ -623,6 +623,30 @@ def test_a_report_slack_still_rate_limits_stays_taken_and_the_watchs_next_pass_p
     assert "report 735976 taken again after a Slack rate limit" in (state.drive_dir(demo) / "posts.log").read_text()
 
 
+def test_a_report_a_live_run_holds_is_never_posted_beside_it_by_a_retry(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {}, "report": {"kind": "report", "lane": "root", "text": "POST x", "seq": seq}, "thread": None})
+    monkeypatch.setattr(talk, "report_line", lambda name, seq: pytest.fail("posted beside a live run"))
+    taken: list[list[str]] = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: taken.append(args) or 1)
+    with talk.report_lock(demo, "736162") as held:
+        assert held
+        assert talk.report_post(demo, "736162") == "report 736162 is being posted by a live run already, which holds its lock: nothing started"
+        agents.take_post(demo, "736162", "taken again, with no post after its first try,")
+        assert taken == []
+    assert not talk.report_running(demo, "736162")
+    agents.take_post(demo, "736162", "taken again, with no post after its first try,")
+    assert taken == [["report-post", "736162"]]
+
+
+def test_a_report_posted_meanwhile_is_refused_before_the_slack_write(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    link = "https://acme.slack.com/archives/C0CHV3PTX4K/p1794859034825359"
+    with edit(demo) as data:
+        data["carried"]["736162"] = link
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: pytest.fail(f"wrote to Slack after a parallel run posted: {argv}"))
+    with pytest.raises(DriveError, match=f"report 736162 went out meanwhile at {re.escape(link)}"):
+        talk.posted(demo, {"text": "The fix is live.", "record": "736162"})
+
+
 def test_a_report_post_tries_again_while_cc_slack_times_out_and_the_report_has_no_post(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     tries: list[str] = []
 

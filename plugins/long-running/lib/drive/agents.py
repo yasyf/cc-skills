@@ -464,7 +464,13 @@ def retake_deferred(name: str) -> None:
 
 
 def take_post(name: str, seq: str, how: str) -> None:
-    """Start `drive report-post` on one report, logging that it was taken first, so posts.log shows every report the watch took, whatever the process does after."""
+    """Start `drive report-post` on one report, logging that it was taken first, so posts.log shows every report the watch took, whatever the process does after; none while a live run of it holds its lock, a slow first try that a retry would post beside, by meta's fix of 736414."""
+    from drive import talk
+
+    if talk.report_running(name, seq):
+        with (state.drive_dir(name) / "posts.log").open("a") as log:
+            log.write(f"{render.when(state.stamp())} report {seq} not {how} by the watch: a live run of report-post holds it\n")
+        return
     with (state.drive_dir(name) / "posts.log").open("a") as log:
         log.write(f"{render.when(state.stamp())} report {seq} {how} by the watch\n")
     state.detach(name, ["report-post", seq], "posts.log")
