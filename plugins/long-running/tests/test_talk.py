@@ -546,6 +546,15 @@ def test_a_post_report_the_drive_took_and_never_posted_is_flagged_to_meta_once_a
     assert len(sent) == 1
 
 
+def test_a_seat_communicators_say_marks_its_seat_active_so_the_watch_never_retires_it_as_idle(communicator: str) -> None:
+    started = state.stamp(state.now() - watch.COMMUNICATOR_IDLE - timedelta(minutes=5))
+    with state.edit(communicator) as data:
+        data["communicators"]["Priority o9"] = {"session": os.environ["CLAUDE_CODE_SESSION_ID"], "started": started}
+    talk.caller(communicator)
+    heard = state.load(communicator, ("communicators",))["communicators"]["Priority o9"]["heard"]
+    assert state.now() - state.parse_time(heard) < timedelta(minutes=1)
+
+
 def test_say_posts_the_words_its_hook_judged_and_checks_none_of_them_again(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:
     checked.findings = ["1:5 drive-term 'fence': say what happens to the reader's work instead"]
     with edit(demo) as data:

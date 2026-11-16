@@ -253,6 +253,14 @@ def caller(name: str) -> dict:
     known = state.load(name)
     if refused := cli.recording_refusal(known, f"only the communicator posts to him: send these words as a report record to communicator@{name}, which posts and records them"):
         raise DriveError(f"nothing posted: {refused}")
+    if seat := state.communicator_project(known, os.environ.get("CLAUDE_CODE_SESSION_ID")):
+        stamp = state.stamp()
+
+        def active_write(data: dict) -> None:
+            if seat in data["communicators"]:
+                data["communicators"][seat]["heard"] = stamp
+
+        state.write(name, active_write)
     return known
 
 
