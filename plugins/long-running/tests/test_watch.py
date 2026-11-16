@@ -1057,21 +1057,20 @@ def test_a_watch_that_ends_ends_its_responder_last_so_lanes_get_readers_while_th
     monkeypatch.setattr(watch, "spawn", spawn)
     with watch.relaying(watcher(demo)):
         pass
-    assert ended == ["--relay", "--land", "--respond"]
+    assert ended == ["--land", "--relay"]
 
 
 def test_a_watch_that_stops_ends_its_relay_process_before_it_returns(demo: str, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess) -> None:
     serve(monkeypatch, {})
     posts(monkeypatch)
     run_watch(demo, monkeypatch)
-    assert [child.returncode for child in watch_process.relays] == [-signal.SIGTERM, -signal.SIGTERM, -signal.SIGTERM]
+    assert [child.returncode for child in watch_process.relays] == [-signal.SIGTERM, -signal.SIGTERM]
     assert [thread.name for thread in threading.enumerate() if thread.name.endswith("(relayed_lines)")] == []
 
 
 def test_the_watch_hands_on_each_line_its_relay_process_writes_keeps_the_untracked_prs_its_landing_loop_writes_and_starts_again_one_that_ended_unasked(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     started: list[tuple[str, subprocess.Popen]] = []
     written = {
-        "--respond": ["time.sleep(60)"],
         "--relay": ["os.write({lines}, b'DUE o1 was due\\nDUE o2 was due\\n'); raise SystemExit(2)", "os.write({lines}, b'DUE o3 was due\\n'); time.sleep(60)"],
         "--land": ['os.write({lines}, b\'{{"yasyf/cc-skills#9": "MERGED"}}\\n\'); time.sleep(60)'],
     }
@@ -1102,7 +1101,7 @@ def test_the_watch_hands_on_each_line_its_relay_process_writes_keeps_the_untrack
         ["DUE o1 was due", "DUE o2 was due", f"WATCH the relay, process {first.pid}, exited 2; the watch starts it again within 0 seconds; its output is in {state.watch_log_path(demo)}", "DUE o3 was due"],
         {"yasyf/cc-skills#9": "MERGED"},
     )
-    assert [(flag, child.returncode) for flag, child in started] == [("--respond", -signal.SIGTERM), ("--relay", 2), ("--land", -signal.SIGTERM), ("--relay", -signal.SIGTERM)]
+    assert [(flag, child.returncode) for flag, child in started] == [("--relay", 2), ("--land", -signal.SIGTERM), ("--relay", -signal.SIGTERM)]
 
 
 def test_the_watchs_own_pass_reads_no_github_and_lands_nothing_leaving_both_to_its_landing_loop_whatever_the_pass_holds(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -11687,6 +11686,8 @@ def test_the_relay_passes_a_project_again_only_once_the_drive_moved_or_its_idle_
     project = watch.Watcher(demo, offset=0, project="Platform")
     monkeypatch.setattr(watch.state, "unchanged_since", lambda name, version: version == 7)
     assert watch.due_again(watch.Watcher(demo, offset=0))
+    own = watch.Watcher(demo, offset=0, passed_at=watch.monotonic())
+    assert not watch.due_again(own)
     assert watch.due_again(project)
     project.passed_version, project.passed_at = 7, watch.monotonic()
     assert not watch.due_again(project)

@@ -33,7 +33,7 @@ RELAY_SECONDS = 2
 PROJECT_RELAY_IDLE = 10
 RESPOND_SECONDS = 5
 RELAY_JOIN_SECONDS = 10
-RESPONDER = "--respond"
+RELAY = "--relay"
 READ_EVERY = timedelta(seconds=60)
 SETTLED_READ_EVERY = timedelta(minutes=10)
 PASS_FOR = timedelta(minutes=5)
@@ -1873,7 +1873,7 @@ def sending(message: dict) -> str:
 
 @contextlib.contextmanager
 def relaying(watcher: Watcher) -> Iterator[None]:
-    """Answer the lanes' reads from the watch's responder, owe him each promised line from a relay, and land, stage and wake from its landing loop, each a process of its own the watch starts, by beside, for as long as the watch runs: one relay for the drive and every project the watch takes, which passes a project only once the drive changed or PROJECT_RELAY_IDLE went by, by beside_passes; each line the responder or the relay writes handed to the watcher it is for as it comes, and each map of the PRs the drive does not track the landing loop writes kept as that watcher's, by relayed_lines, which starts again each that ends before the watch ends it; each ended with SIGTERM and its reader waited for RELAY_JOIN_SECONDS before the watch keeps its unposted lines, so each line the relay made is kept, then SIGKILL and as long again, so a pipe another process still holds open never holds the watch's end, which says the reader it left."""
+    """Answer the lanes' reads and owe him each promised line from the watch's relay, and land, stage and wake from its landing loop, each a process of its own the watch starts, by beside, for as long as the watch runs: one relay for the drive and every project the watch takes, which passes a project only once the drive changed or PROJECT_RELAY_IDLE went by, by beside_passes; each line the responder or the relay writes handed to the watcher it is for as it comes, and each map of the PRs the drive does not track the landing loop writes kept as that watcher's, by relayed_lines, which starts again each that ends before the watch ends it; each ended with SIGTERM and its reader waited for RELAY_JOIN_SECONDS before the watch keeps its unposted lines, so each line the relay made is kept, then SIGKILL and as long again, so a pipe another process still holds open never holds the watch's end, which says the reader it left."""
     ending, guard, live = threading.Event(), threading.Lock(), {}
     readers: dict[str, tuple[str, threading.Thread]] = {}
 
@@ -1885,7 +1885,6 @@ def relaying(watcher: Watcher) -> Iterator[None]:
             readers[slot] = (what, reader)
         reader.start()
 
-    started("--respond", "the responder", functools.partial(routed, watcher, took=took_relayed))
     started("--relay", "the relay", functools.partial(routed, watcher, took=took_relayed))
     started("--land", "the landing loop", functools.partial(routed, watcher, took=took_untracked))
     if not watcher.project and "communicator" in state.saved(watcher.name)["roles"]:
@@ -1895,7 +1894,7 @@ def relaying(watcher: Watcher) -> Iterator[None]:
     finally:
         with guard:
             ending.set()
-        for slot, (what, reader) in sorted(readers.items(), key=lambda item: item[0] == RESPONDER):
+        for slot, (what, reader) in sorted(readers.items(), key=lambda item: item[0] == RELAY):
             live[slot].terminate()
             reader.join(RELAY_JOIN_SECONDS)
             if reader.is_alive():
@@ -1979,8 +1978,8 @@ def took_untracked(watcher: Watcher, line: str) -> None:
 
 
 def relay(name: str, project: str | None, lines: int) -> int:
-    """Run the watch's relay, the process the watch starts: a relay pass of the drive every RELAY_SECONDS and of each project the watch holds once due_again says so, beside the watch's passes, by beside_passes, so no GitHub read, landing, Slack redraw or install a pass runs holds the handler on a line owed him by the clock or the handler on a POST report."""
-    return beside_passes(name, project, lines, "--relay", lambda watcher, moment: relay_pass(watcher, moment), RELAY_SECONDS)
+    """Run the watch's relay, the process the watch starts: a respond pass of the drive and of each project the watch holds every RESPOND_SECONDS, and a relay pass of the drive every RELAY_SECONDS and of each project once due_again says so, by relayed_passes, beside the watch's passes, by beside_passes, so no GitHub read, landing, Slack redraw or install a pass runs holds the handler on a line owed him by the clock or the handler on a POST report."""
+    return beside_passes(name, project, lines, RELAY, relayed_passes, RESPOND_SECONDS)
 
 
 def hearer(name: str, lines: int) -> int:
@@ -2049,11 +2048,8 @@ def beside_passes(name: str, project: str | None, lines: int, flag: str, passing
                 for one in [passer, *passer.others.values()]:
                     if over(ended):
                         break
-                    if flag == "--relay" and not due_again(one):
-                        continue
                     for line in passing(one, state.now()):
                         written.write(f"{relayed(one, LINE_BREAKS.sub(' ', line))}\n")
-                    one.passed_version, one.passed_at = state.LOADED_VERSION.get(), monotonic()
                 beat("rest")
                 time.sleep(seconds)
     finally:
@@ -2061,9 +2057,20 @@ def beside_passes(name: str, project: str | None, lines: int, flag: str, passing
     return 0
 
 
+def relayed_passes(watcher: Watcher, moment: datetime) -> list[str]:
+    """One tick of the relay for a watcher: its respond pass every RESPOND_SECONDS, so a lane's read gets its reader at once, then its relay pass once due_again owes it one, each handler the relay starts started detached, so no tick waits on a session's start."""
+    lines = respond_pass(watcher, moment)
+    if due_again(watcher):
+        lines += relay_pass(watcher, moment)
+        watcher.passed_version, watcher.passed_at = state.LOADED_VERSION.get(), monotonic()
+    return lines
+
+
 def due_again(watcher: Watcher) -> bool:
-    """Whether the relay owes a watcher its next pass: the drive's own every RELAY_SECONDS, so a POST report or a line due by the clock waits on no commit, and a project's once another connection committed to the drive since its last pass read it, or PROJECT_RELAY_IDLE after that pass, so its clocks still come due on a quiet drive."""
-    return not watcher.project or monotonic() - watcher.passed_at >= PROJECT_RELAY_IDLE or not state.unchanged_since(watcher.name, watcher.passed_version)
+    """Whether the relay owes a watcher its next relay pass: the drive's own RELAY_SECONDS after its last, so a POST report or a line due by the clock waits on no commit, and a project's once another connection committed to the drive since its last pass read it, or PROJECT_RELAY_IDLE after that pass, so its clocks still come due on a quiet drive."""
+    if not watcher.project:
+        return monotonic() - watcher.passed_at >= RELAY_SECONDS
+    return monotonic() - watcher.passed_at >= PROJECT_RELAY_IDLE or not state.unchanged_since(watcher.name, watcher.passed_version)
 
 
 def term_flag() -> list[int]:

@@ -476,7 +476,7 @@ def start_posts(name: str, moment: datetime) -> None:
             continue
         carried[seq] = "a handler"
         try:
-            handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'post-{seq}'}")
+            handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'post-{seq}'}", detached=True)
         except Exception as error:
             errors.append(f"the handler on POST report {seq} did not start: {start_error(error)}")
     def marked(data: dict) -> None:
