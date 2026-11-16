@@ -3819,7 +3819,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     if isinstance(gap, Returned):
                         gap.take(watcher.name, job_id)
                     elif (why := bg_death(job)) and relaunchable(state.lane_death(job), moment):
-                        deaths[job_id] = (job["agent"], why)
+                        deaths[job_id] = (job["agent"] or job["bg"]["agent"], why)
                         continue
                     gaps[job_id] = None if isinstance(gap, Returned | Answered | Gone) else gap
                     if gaps[job_id] and job["kind"] == "codex" and not job.get("agent"):
@@ -4448,6 +4448,8 @@ def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: da
             if job["state"] in state.FINISHED_JOB_STATES or job.get("where") == "remote" and job["state"] == "waiting":
                 state.lane_died(job, worker, why, moment)
                 continue
+            if job.get("where") != "remote" and not job.get("agent") and (job.get("bg") or {}).get("agent") == worker:
+                job["agent"] = worker
             if job[state.worker_key(job)] != worker or not relaunchable(state.lane_death(job), moment) or busy(watcher, job_id, moment):
                 continue
             state.lane_died(job, worker, why, moment)
