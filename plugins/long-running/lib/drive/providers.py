@@ -4,6 +4,7 @@ import json
 import re
 import shlex
 import subprocess
+import time
 import tomllib
 import types
 from collections.abc import Iterator
@@ -277,7 +278,9 @@ class Providers:
         return [text for role in ROLES if (text := getattr(self, role).page(name).strip())]
 
 
-LOADED: dict[tuple[str, str], Providers] = {}
+LOADED: dict[tuple[str, str, str], Providers] = {}
+HEADS: dict[str, tuple[str, float]] = {}
+HEAD_SECONDS = 60
 
 
 def git(clone: Path, *argv: str) -> subprocess.CompletedProcess:
@@ -285,11 +288,14 @@ def git(clone: Path, *argv: str) -> subprocess.CompletedProcess:
 
 
 def default_head(clone: Path) -> str:
-    """The commit the clone's origin/HEAD, its default branch, names."""
+    """The commit the clone's origin/HEAD, its default branch, names, read again once HEAD_SECONDS pass, so a hot path pays for no git process per call."""
+    if (kept := HEADS.get(str(clone))) and time.monotonic() - kept[1] < HEAD_SECONDS:
+        return kept[0]
     found = git(clone, "rev-parse", "--verify", "refs/remotes/origin/HEAD^{commit}")
     if found.returncode:
         raise ProviderError(f"{clone} has no origin/HEAD to read its providers from: {found.stderr.strip()}")
-    return found.stdout.strip()
+    HEADS[str(clone)] = (found.stdout.strip(), time.monotonic())
+    return HEADS[str(clone)][0]
 
 
 def blob(clone: Path, sha: str, path: str) -> str | None:
@@ -298,9 +304,9 @@ def blob(clone: Path, sha: str, path: str) -> str | None:
 
 
 def at(clone: Path, checkout: Path | None = None) -> Providers:
-    """The providers the .claude/long-running.toml at the default branch's head of the repository cloned at clone names, their module read from that same commit, never a working tree, so no branch changes the providers that judge it; each run commands in checkout, the clone when none is named. One load per process per clone and commit."""
+    """The providers the .claude/long-running.toml at the default branch's head of the repository cloned at clone names, their module read from that same commit, never a working tree, so no branch changes the providers that judge it; each run commands in checkout, the clone when none is named. One load per process per clone, checkout and commit."""
     sha = default_head(clone)
-    if (key := (str(clone), sha)) in LOADED:
+    if (key := (str(clone), str(checkout or clone), sha)) in LOADED:
         return LOADED[key]
     text = blob(clone, sha, REPO_RULES)
     config = tomllib.loads(text) if text else {}
