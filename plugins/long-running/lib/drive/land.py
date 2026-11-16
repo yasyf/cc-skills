@@ -54,6 +54,7 @@ RUNNING = "not landed: its checks still run"
 RETRIED = (NEWER_INSTALL, OWN_FAILURE, HELD, WAITED, AWAY, UNREAD, RUNNING)
 OWN_RED = "not landed: its own change fails"
 DEQUEUED_LINE = re.compile(r"^#\d+ DEQUEUED ", re.MULTILINE)
+NOT_QUEUED_LINE = re.compile(r"^#\d+ NOT_QUEUED\b", re.MULTILINE)
 BLOCKED_LINE = re.compile(r"^#(?P<number>\d+) BLOCKED (?P<head>\w+) (?P<gaps>.+)$", re.MULTILINE)
 OLDER_HEAD = re.compile(r"awaiting approval on head from \S+ \(approved [^,]+, (?:on an older head|dismissed by a push)\)")
 REVERT = re.compile(r"^Reverts?\s|⏪|\bThis reverts\b", re.MULTILINE)
@@ -443,7 +444,7 @@ def answer_picks(name: str, keys: list[str]) -> list[str]:
 
 
 def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
-    """Stop each landing of a merge-queue unit with a PR among keys that stopping() stops, or that unattended() holds while he is not present, read before the write since it reads GitHub, so a unit queued before he went quiet leaves the queue: a lander still running on it by cancelling the reservation its unit's PRs hold, so a lander started on it that has not adopted it yet ends without working, and else by ending the process group of the child that cancel read as having adopted that very reservation, while that process, by its pid and start, still runs, never its starter nor whatever holds the PRs since, which dequeues what it queued, its stop reserved on each PR of its unit and adopted by this halt itself before the signal, so it holds that stop while it lives and signals nothing once another halt took it, and the hold recorded there once it went, so a halt that dies between them leaves the lander running for the next halt to stop, by halting(), and a unit the merge queue holds after its lander ended by unqueue(), a process of its own that adopts the dequeue reserved on each PR of the unit, takes it out of the queue and records it; each PR reads that hold until he answers, waiting until the wait ends or away until his next word, and lands then; the PRs stopped."""
+    """Stop each landing of a merge-queue unit with a PR among keys that stopping() stops, or that unattended() holds while he is not present, read before the write since it reads GitHub, so a unit queued before he went quiet leaves the queue: a lander still running on it by cancelling the reservation its unit's PRs hold, so a lander started on it that has not adopted it yet ends without working, and else by ending the process group of the child that cancel read as having adopted that very reservation, while that process, by its pid and start, still runs, never its starter nor whatever holds the PRs since, which dequeues what it queued, its stop reserved on each PR of its unit and adopted by this halt itself before the signal, so it holds that stop while it lives and signals nothing once another halt took it, and the hold recorded there once it went, so a halt that dies between them leaves the lander running for the next halt to stop, by halting(), and a unit the merge queue holds after its lander ended by unqueue(), a process of its own that adopts the dequeue reserved on each PR of the unit, takes it out of the queue and records it; a PR the drive reads as merged is never part of a unit it stops or dequeues; each PR reads that hold until he answers, waiting until the wait ends or away until his next word, and lands then; the PRs stopped."""
     data = state.load(name)
     away = {key: f"{AWAY}: {why}" for key in keys if landing(pr := data["prs"][key]) and not dequeuing(pr) and not halting(pr) and not stopping(data, key, cards) and (why := unattended(data, key, state.now()))}
     if not held_landings(data, keys, cards, away):
@@ -453,7 +454,7 @@ def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
     def stop_landings(data: dict) -> tuple[dict[object, list[str]], dict[tuple[str, ...], tuple[state.Reservation | int, state.Reservation, str]], dict[tuple[str, ...], tuple[state.Reservation, str]]]:
         stopped = held_landings(data, keys, cards, away)
         under = unders(data)
-        units = {tried: sorted((key for key, pr in data["prs"].items() if landing(pr) and attempt(pr["lander"]) == tried), key=lambda key: len(chain(under, key))) for tried in stopped}
+        units = {tried: sorted((key for key, pr in data["prs"].items() if landing(pr) and pr["state"] != "merged" and attempt(pr["lander"]) == tried), key=lambda key: len(chain(under, key))) for tried in stopped}
         kills, dequeues = {}, {}
         for tried, unit in units.items():
             if running(data["prs"][unit[0]]):
@@ -506,11 +507,11 @@ def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
 
 
 def held_landings(data: dict, keys: list[str], cards: dict | None, away: dict[str, str]) -> dict[object, str]:
-    """Each landing of a merge-queue unit with a PR among keys that stopping() stops, or that away holds by the outcome it names for that PR, a lander running on it or the merge queue holding what its lander queued, by that lander's try, by attempt, with the outcome saying why; none a dequeuer already takes out of the queue, nor one a halt still stops, by halting()."""
+    """Each landing of a merge-queue unit with a PR among keys that stopping() stops, or that away holds by the outcome it names for that PR, a lander running on it or the merge queue holding what its lander queued, by that lander's try, by attempt, with the outcome saying why; none a dequeuer already takes out of the queue, nor one a halt still stops, by halting(), nor one by a PR the drive reads as merged, which the queue no longer holds."""
     return {
         attempt(pr["lander"]): outcome
         for key in keys
-        if landing(pr := data["prs"][key]) and not dequeuing(pr) and not halting(pr) and (outcome := stopping(data, key, cards) or away.get(key, ""))
+        if landing(pr := data["prs"][key]) and pr["state"] != "merged" and not dequeuing(pr) and not halting(pr) and (outcome := stopping(data, key, cards) or away.get(key, ""))
     }
 
 
@@ -546,24 +547,43 @@ def unqueue(name: str, keys: list[str], why: str, token: str) -> int:
 
 
 def dequeue(name: str, keys: list[str], why: str) -> str:
-    """Take a unit the merge queue holds out of it with the queue's dequeue on each PR, its top first, the entry the queue queued the unit by, from a fresh() worktree of its repository's default branch as a landing runs it, then record why and what the queue said as its outcome, so each PR reads that hold and lands again once he approves it; on a failure of its own, no worktree, the queue's script failing itself, or no PR of the unit answering DEQUEUED, as #56900's NOT_QUEUED once the queue had passed its tests, the dequeue took nothing out, so undequeued() says so and the watch's next pass dequeues it again while the queue still holds it."""
+    """Take a unit the merge queue holds out of it with the queue's dequeue on each PR of it the drive does not read as merged, its top first, the entry the queue queued the unit by, from a fresh() worktree of its repository's default branch as a landing runs it, then record why and what the queue said as its outcome, so each PR reads that hold and lands again once he approves it; a unit whose PRs all merged dequeues nothing and only drops its dequeuer, by out_of_queue(); every PR answering NOT_QUEUED, as #56900 did once the queue had passed its tests, is already out of the queue, so out_of_queue() records the hold with no landing event; on a failure of its own, no worktree, the queue's script failing itself, or a PR answering neither DEQUEUED nor NOT_QUEUED, the dequeue took nothing out, so undequeued() says so and the watch's next pass dequeues it again while the queue still holds it."""
     repo = github.repo_of(keys[0])
     data = state.load(name)
+    if not (unmerged := [key for key in keys if data["prs"][key]["state"] != "merged"]):
+        return out_of_queue(name, keys, [], why)
     try:
         enqueue = providers.of(data).repo.queue().script
         with fresh(name, Path(data["roles"]["coordinator"]["cwd"]), repo, github.default_branch(repo)) as (checkout, _):
-            done = [subprocess.run([str(checkout / enqueue), "--dequeue", key.split("#")[1]], cwd=checkout, env=os.environ | {MISE_TRUST: str(checkout)}, capture_output=True, text=True) for key in reversed(keys)]
+            done = [subprocess.run([str(checkout / enqueue), "--dequeue", key.split("#")[1]], cwd=checkout, env=os.environ | {MISE_TRUST: str(checkout)}, capture_output=True, text=True) for key in reversed(unmerged)]
     except (github.GithubError, providers.ProviderError) as error:
         return undequeued(name, keys, cut(str(error), SAID_CHARS))
     output = "".join(each.stdout + each.stderr for each in done)
     print(output, flush=True)
-    if any(each.returncode == ENQUEUE_FAILED for each in done) or not DEQUEUED_LINE.search(output):
+    if any(each.returncode == ENQUEUE_FAILED for each in done):
         return undequeued(name, keys, f"{said(output)}; its whole output is in {state.drive_dir(name) / LOG}")
-    return record(name, keys, f"{why}; {Path(enqueue).name} --dequeue said {said(output)}", [], {})
+    if DEQUEUED_LINE.search(output):
+        return record(name, unmerged, f"{why}; {Path(enqueue).name} --dequeue said {said(output)}", [], {})
+    if all(NOT_QUEUED_LINE.search(each.stdout + each.stderr) for each in done):
+        return out_of_queue(name, keys, unmerged, why)
+    return undequeued(name, keys, f"{said(output)}; its whole output is in {state.drive_dir(name) / LOG}")
+
+
+def out_of_queue(name: str, keys: list[str], held: list[str], why: str) -> str:
+    """Drop the dequeuer of each PR of keys and record why as the outcome of each of held, which the merge queue no longer holds, with no landing event, since nothing failed and nothing left the queue now; why."""
+
+    def left(data: dict) -> None:
+        for key in keys:
+            data["prs"][key]["lander"].pop("dequeue")
+        for key in held:
+            data["prs"][key]["lander"] |= {"outcome": why, "below": [], "entry": held[-1]}
+
+    state.write(name, left)
+    return why
 
 
 def undequeued(name: str, keys: list[str], why: str) -> str:
-    """Say the dequeue of a unit failed on its own step, as the lander's own failure, and drop its dequeuer, so the watch's next pass starts another while Trunk's merge queue still holds it."""
+    """Say the dequeue of a unit failed on its own step, its script failing itself or a PR answering neither DEQUEUED nor NOT_QUEUED, as the lander's own failure, and drop its dequeuer, so the watch's next pass starts another while Trunk's merge queue still holds it."""
     outcome = f"{NO_DEQUEUE} {', '.join(keys)} out of Trunk's merge queue: {why}"
 
     repo, number = keys[-1].split("#")

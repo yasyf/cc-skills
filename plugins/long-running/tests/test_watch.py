@@ -8041,19 +8041,60 @@ def test_a_dequeue_stack_enqueue_fails_on_its_own_keeps_the_pr_queued_says_so_as
     assert landers == [("--dequeue", KEY), ("--dequeue", KEY)]
 
 
-def test_a_dequeue_trunk_answers_not_queued_for_as_56900s_after_its_tests_passed_took_nothing_out_says_so_and_the_next_pass_dequeues_again(
+def test_a_dequeue_trunk_answers_not_queued_for_as_56900s_after_its_tests_passed_is_already_out_so_it_keeps_the_hold_drops_the_dequeuer_and_says_nothing(
     home_repo: None,
     demo: str, tmp_path: Path, landers: list[tuple[str, ...]]
 ) -> None:
     on_main(tmp_path, demo, '#!/bin/sh\necho "#42 NOT_QUEUED"\nexit 2\n')
     queued(demo)
+    with edit(demo) as data:
+        data["prs"][KEY]["tap"] = state.new_tap("Hold", "aaaaaaa111", "slack")
+    watching = watcher(demo)
     assert land.halt(demo, [KEY], NO_CARDS) == [KEY]
-    failed = f"{land.NO_DEQUEUE} {KEY} out of Trunk's merge queue: #42 NOT_QUEUED; its whole output is in {state.drive_dir(demo) / land.LOG}"
-    assert land.dequeue(demo, [KEY], f"{land.WAITED}: {KEY} waits on o1:staging test of #42 before it lands") == failed
+    why = f"{land.HELD}: {KEY}: he holds it"
+    assert land.dequeue(demo, [KEY], why) == why
     lander = state.load(demo)["prs"][KEY]["lander"]
-    assert (lander["outcome"], "dequeue" in lander) == (land.QUEUED, False)
-    assert land.halt(demo, [KEY], NO_CARDS) == [KEY]
-    assert landers == [("--dequeue", KEY), ("--dequeue", KEY)]
+    assert (lander["outcome"], "dequeue" in lander, watch.event_lines(watching)) == (why, False, [])
+    assert stage.alone(state.load(demo), KEY, NO_CARDS).name == "held"
+    assert land.halt(demo, [KEY], NO_CARDS) == []
+    assert landers == [("--dequeue", KEY)]
+
+
+def test_a_halt_never_dequeues_a_pr_the_drive_reads_as_merged_and_a_unit_whose_prs_all_merged_dequeues_nothing(
+    home_repo: None,
+    demo: str, landers: list[tuple[str, ...]]
+) -> None:
+    stacked(demo)
+    queued(demo)
+    with edit(demo) as data:
+        data["prs"][OTHER]["lander"] = data["prs"][KEY]["lander"] | {"head": "bbbbbbb222"}
+        data["prs"][KEY]["state"] = "merged"
+    assert (land.halt(demo, [KEY, OTHER], NO_CARDS), landers) == ([OTHER], [("--dequeue", OTHER)])
+    with edit(demo) as data:
+        data["prs"][OTHER]["state"] = "merged"
+        data["prs"][OTHER]["lander"].pop("dequeue")
+    assert (land.halt(demo, [KEY, OTHER], NO_CARDS), landers) == ([], [("--dequeue", OTHER)])
+
+
+def test_a_dequeue_passes_no_pr_the_drive_reads_as_merged_to_the_queues_script(home_repo: None, demo: str, tmp_path: Path, landers: list[tuple[str, ...]]) -> None:
+    calls = tmp_path / "calls"
+    on_main(tmp_path, demo, f'#!/bin/sh\necho "$*" >> {calls}\necho "#43 DEQUEUED bbbbbbb"\n')
+    stacked(demo)
+    queued(demo)
+    with edit(demo) as data:
+        data["prs"][OTHER]["lander"] = data["prs"][KEY]["lander"] | {"head": "bbbbbbb222"}
+    assert land.halt(demo, [KEY, OTHER], NO_CARDS) == [KEY, OTHER]
+    with edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+    land.dequeue(demo, [KEY, OTHER], "held")
+    assert calls.read_text().splitlines() == ["--dequeue 43"]
+    with edit(demo) as data:
+        data["prs"][OTHER]["state"] = "merged"
+        for key in (KEY, OTHER):
+            data["prs"][key]["lander"]["dequeue"] = {"at": state.stamp()}
+    watching = watcher(demo)
+    assert land.dequeue(demo, [KEY, OTHER], "held") == "held"
+    assert (calls.read_text().splitlines(), watch.event_lines(watching), ["dequeue" in state.load(demo)["prs"][key]["lander"] for key in (KEY, OTHER)]) == (["--dequeue 43"], [], [False, False])
 
 
 @pytest.mark.parametrize(("cards", "first"), [(ONE_CARD, []), (TWO_CARDS, [(KEY,)])])
