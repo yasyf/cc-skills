@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
 from drive import dashboard, github, launchd, state
-from drive.install import upgraded
+from drive.install import watch_upgraded as upgraded
 
 PORT = 40990
 FUNNEL_PORT = 8443
@@ -312,7 +312,7 @@ def serving(listening: socket.socket, key: bytes) -> dashboard.Server:
 
 
 def main(inherited: int | None) -> int:
-    """Take GitHub's and Buildkite's signed deliveries on loopback behind the Funnel paths, the process the receiver's launch agent runs. Started on its own, it listens before it opens the paths, asks GitHub what it missed and owes each drive a read of every Buildkite build it waits on, since Buildkite lists no deliveries, so a delivery landing meanwhile waits in the socket's queue, as one handed the socket does while its deliveries log is still empty, since the install before it wrote its deliveries into each drive's events file. Once a newer long-running is installed it takes each delivery it accepted to its end and hands its listening socket to that install's drive, as the dashboard hands over its port, which serves on it at once and asks GitHub and Buildkite nothing, since the socket queued every delivery meanwhile, so the receiver runs each install's code and spends no GitHub read on it. It exits for launchd to start it again, which asks GitHub again, only once the clock jumps past SLEPT_SECONDS, as after this Mac slept."""
+    """Take GitHub's and Buildkite's signed deliveries on loopback behind the Funnel paths, the process the receiver's launch agent runs. Started on its own, it listens before it opens the paths, asks GitHub what it missed and owes each drive a read of every Buildkite build it waits on, since Buildkite lists no deliveries, so a delivery landing meanwhile waits in the socket's queue, as one handed the socket does while its deliveries log is still empty, since the install before it wrote its deliveries into each drive's events file. Once a newer long-running is installed that runs other code than this one, as watch_upgraded reads it, it takes each delivery it accepted to its end and hands its listening socket to that install's drive, as the dashboard hands over its port, which serves on it at once and asks GitHub and Buildkite nothing, since the socket queued every delivery meanwhile, so the receiver runs each install's code and spends no GitHub read on it. It exits for launchd to start it again, which asks GitHub again, only once the clock jumps past SLEPT_SECONDS, as after this Mac slept."""
     os.environ.update(launchd.session_env())
     listening = socket.socket(fileno=inherited) if inherited is not None else socket.create_server((dashboard.LOOPBACK, PORT))
     server = serving(listening, secret().encode())

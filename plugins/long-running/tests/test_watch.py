@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 from conftest import DRIVE_TERMINAL, HELD_RELEASES, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, UNFROZEN, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged
-from drive import agents, card, cli, codex, dashboard, github, install, land, launchd, limits, orca, place, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, view, watch
+from drive import agents, card, cli, codex, dashboard, github, install, land, launchd, limits, orca, place, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, train, view, watch
 
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
@@ -1040,6 +1040,7 @@ def test_the_relay_process_writes_each_line_to_the_watch_moving_onto_the_newest_
     lines, given = os.pipe()
     state.save_watch_cursor(demo, 7, "Iris")
     passes = relay_passes(monkeypatch, 2)
+    monkeypatch.setattr(watch, "upgraded", lambda: Path("/newer/bin/drive"))
     reopened: list[list[str]] = []
     monkeypatch.setattr(install, "reopen", reopened.append)
     assert watch.relay(demo, "Iris", given) == 0
@@ -1053,6 +1054,7 @@ def test_the_responder_process_runs_only_respond_passes_moving_onto_the_newest_i
     passes = relay_passes(monkeypatch, 2)
     monkeypatch.setattr(watch, "respond_pass", watch.relay_pass)
     monkeypatch.setattr(watch, "relay_pass", lambda watching, moment: pytest.fail("the responder ran a relay pass"))
+    monkeypatch.setattr(watch, "upgraded", lambda: Path("/newer/bin/drive"))
     reopened: list[list[str]] = []
     monkeypatch.setattr(install, "reopen", reopened.append)
     assert watch.responder(demo, None, given) == 0
@@ -1061,10 +1063,21 @@ def test_the_responder_process_runs_only_respond_passes_moving_onto_the_newest_i
     assert (len(passes), reopened) == (2, [["watch", "--respond", str(given), "--drive", demo]] * 2)
 
 
+def test_the_relay_process_stays_on_its_install_while_no_newer_one_changes_its_code(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    lines, given = os.pipe()
+    passes = relay_passes(monkeypatch, 2)
+    monkeypatch.setattr(watch, "upgraded", lambda: None)
+    monkeypatch.setattr(install, "reopen", lambda argv: pytest.fail(f"the relay moved onto an install running its own code: {argv}"))
+    assert watch.relay(demo, None, given) == 0
+    os.close(lines)
+    assert len(passes) == 2
+
+
 def test_the_relay_process_runs_its_next_pass_on_a_newer_install_in_its_place_keeping_the_pipe_to_the_watch(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     lines, given = os.pipe()
     relay_passes(monkeypatch, 1)
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
+    monkeypatch.setattr(watch, "upgraded", lambda: newer)
     monkeypatch.setattr(install, "upgraded", lambda: newer)
 
     def execv(path: Path, argv: list[str]) -> None:
@@ -9573,8 +9586,9 @@ def test_a_stack_trunk_ejected_on_a_failing_check_or_refused_only_before_its_try
     assert land.start(demo, [BOTTOM, TOP], NO_CARDS) == []
 
 
-def test_a_yasyf_lander_merges_with_admin_records_its_merge_commit_and_installs_each_plugin_its_merge_changes(
-    demo: str, monkeypatch: pytest.MonkeyPatch, pr_reads: dict[str, dict]
+@pytest.mark.parametrize("mark", ["incident", "priority"])
+def test_a_yasyf_lander_merges_with_admin_records_its_merge_commit_and_installs_at_once_each_plugin_a_merge_for_an_incident_or_priority_order_changes(
+    demo: str, monkeypatch: pytest.MonkeyPatch, pr_reads: dict[str, dict], mark: str
 ) -> None:
     runs: list[list[str]] = []
     pr_reads["yasyf/cc-skills#7"] = read(state="MERGED", mergeCommit="ccc333ddd444eee")
@@ -9584,6 +9598,7 @@ def test_a_yasyf_lander_merges_with_admin_records_its_merge_commit_and_installs_
         land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 0, "long-running@skills 1.0.4 installed\n", "")
     )
     with state.edit(demo) as data:
+        data["orders"]["o1"][mark] = True if mark == "incident" else state.priority_seat("o1")
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1")
     assert land.merged(demo, "yasyf/cc-skills#7", "squash", ["--admin"]) == "merged at ccc333ddd444; long-running@skills 1.0.4 installed"
     assert {field: state.load(demo)["prs"]["yasyf/cc-skills#7"][field] for field in ("state", "merged_sha")} == {"state": "merged", "merged_sha": "ccc333ddd444eee"}
@@ -9591,6 +9606,21 @@ def test_a_yasyf_lander_merges_with_admin_records_its_merge_commit_and_installs_
         ["gh", "pr", "merge", "7", "-R", "yasyf/cc-skills", "--squash", "--admin"],
         [str(land.DRIVE), "install", "long-running@skills", "--sha", "ccc333ddd444eee", "--drive", "demo"],
     ]
+    assert train.read()["boarded"] == {}
+
+
+def test_a_yasyf_merge_for_any_other_order_boards_the_install_train_and_installs_nothing_until_it_leaves(demo: str, monkeypatch: pytest.MonkeyPatch, pr_reads: dict[str, dict]) -> None:
+    runs: list[list[str]] = []
+    pr_reads["yasyf/cc-skills#7"] = read(state="MERGED", mergeCommit="ccc333ddd444eee")
+    monkeypatch.setattr(github, "run", lambda cmd, **_: "plugins/long-running/lib/drive/land.py\n")
+    monkeypatch.setattr(install, "touched", lambda repo, files: ["long-running@skills"])
+    monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 0, "", ""))
+    monkeypatch.setattr(state, "now", lambda: T0)
+    with state.edit(demo) as data:
+        data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1")
+    assert land.merged(demo, "yasyf/cc-skills#7", "squash", ["--admin"]) == f"merged at ccc333ddd444; long-running@skills boarded the install train, which leaves by {T0.strftime('%-I:%M %p')}"
+    assert runs == [["gh", "pr", "merge", "7", "-R", "yasyf/cc-skills", "--squash", "--admin"]]
+    assert train.read()["boarded"] == {"long-running@skills": {"sha": "ccc333ddd444eee", "repo": "yasyf/cc-skills", "merges": {"yasyf/cc-skills#7": "ccc333ddd444eee"}}}
 
 
 @pytest.mark.parametrize(
@@ -9720,6 +9750,26 @@ def test_a_merged_ready_job_waits_for_its_lander_before_its_proof_starts(demo: s
     with state.edit(demo) as data:
         data["prs"][YASYF]["lander"] = {"head": "aaaaaaa111", "pid": os.getpid(), "at": state.stamp(T0), "outcome": None}
     assert (watch.run_pass(watcher(demo), T0), provers) == ([], [])
+
+
+def test_a_merged_ready_job_whose_merge_rides_the_install_train_gets_its_proof_only_once_the_trains_install_of_it_ended(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path
+) -> None:
+    serve(monkeypatch, {})
+    merged_ready(demo, YASYF, proof_file(tmp_path))
+    train.board("long-running@skills", "yasyf/cc-skills", YASYF, "ccc333ddd444eee")
+    watching = watcher(demo)
+    assert (watch.run_pass(watching, T0), provers) == ([], [])
+    assert watch.proving(state.load(demo), "j1")
+    with train.boarding() as board:
+        board.update(boarded={}, left=state.stamp(T0), carried={"long-running@skills": board["boarded"]["long-running@skills"] | {"pid": os.getpid()}})
+    assert (watch.run_pass(watching, T0 + timedelta(minutes=1)), provers) == ([], [])
+    ended = subprocess.Popen(["true"])
+    ended.wait()
+    with train.boarding() as board:
+        board["carried"]["long-running@skills"]["pid"] = ended.pid
+    watch.run_pass(watching, T0 + timedelta(minutes=2))
+    assert provers == ["j1"]
 
 
 def test_a_merged_ready_job_beside_a_product_merge_hands_it_and_the_parts_it_carries_to_a_prover_before_its_own_proof_proves_the_yasyf_merge_alone(

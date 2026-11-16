@@ -294,7 +294,7 @@ and waits ids, record seqs), never a technical name.
    - A PR that is not a port and whose brief names no order of his is not his order. Drive tooling
      is such a PR: its his-words section says none rather than borrow his words for the order it
      unblocks. A `yasyf/*` one lands once its `READY` or `PUSHED` is taken and every check at its head
-     finished with none failing on its own change: the lander merges it with `--admin`, and installs each plugin it changes, and once every PR your job names merged the watch's
+     finished with none failing on its own change: the lander merges it with `--admin` and boards each plugin it changes on the install train, which leaves at most every 30 minutes (an incident or `--priority` order's merge installs at once, and `drive install <plugin> --sha <merge>` by hand installs one ahead of it), and once every PR your job names merged and the train installed it the watch's
      `drive job prove` runs your job's proof file on the installed build, then each command your
      brief's `After install:` line names, takes `DONE` only when each exits 0, else `BLOCKED`, on
      your job and sends the close report of an order with a thread of his, closing a tooling order a
