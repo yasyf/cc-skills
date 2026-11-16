@@ -65,8 +65,9 @@ COMMUNICATOR_RULES = (
         " defect record quoting the payload. A PR-card tap (merge:) gets nothing, since cc-slack records it."
     ),
     (
-        "A POST report from a session or the watch is posted by the handler the watch starts on it; a handler's done"
-        " line is context for his next message, and its DEFECT line is tooling, below."
+        "A POST report from a session or the watch is yours to post in the thread it names, citing it with record:"
+        " <seq> on say; an `ANSWER THIS:` note from lane watch hands you a record to post or a message of his gone"
+        " unanswered for 10 minutes, by his ruling \"get rid of handlers\"."
     ),
     (
         f"Drive tooling, {DRIVE_TOOLING}, is the meta session's alone, never yours or the coordinator's, so you start no"

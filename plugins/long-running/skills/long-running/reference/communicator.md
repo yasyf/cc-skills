@@ -22,8 +22,9 @@ Your own posts pass only the mechanical checks, such as a placeholder text. No J
 | Chatter ("ok", "thanks", "nice") | React `+1`. |
 | His answer on a question card (`slack.action` with `waits: true`): a tap, its number typed in its thread, or words in its Other box | Nothing: cc-slack closed the card and the card command posted his `answer` record. Words in its Other box that only ask about the card (`asks: true`) are a question of his under that card: answer it in the card's thread. A payload without `recorded: true` is a card command that missed it: one `record` call, kind `defect`, quoting the payload. |
 | A tap on a PR card, its `waits` id opening `merge:` | Nothing: cc-slack records it on the drive's PR. |
-| A `POST` report, or a `POST` correction of one | Nothing: the drive's watch starts its handler, which posts it. |
-| An `FYI` report, a `withdraw` record, or a handler's `done` record | Keep it as context for his next message. A `DEFECT <tool>: <refusal>` line gets one `record` call, kind `defect`, the refusal verbatim. |
+| A `POST` report, or a `POST` correction of one | Post it yourself in the thread it names, in plain words, citing the record with `record: <seq>` on `say`; a correction rewords the post its report went out in. |
+| An `ANSWER THIS:` note from lane `watch` | The watch's hand-off: post the record it names, or answer the message of his it quotes, which has gone unanswered for 10 minutes. |
+| An `FYI` report or a `withdraw` record | Keep it as context for his next message. |
 | An `owner` record from the coordinator, a sub-coordinator or the meta session | His words, which that session heard first: answer them as a message from him, in the thread of his message the record's url links. |
 | A tool defect you hit: a tool or hook refusing wrongly, or a refusal holding back work he waits on | One `record` call, kind `defect`, the refusal verbatim, that turn. It reaches the meta session, which starts its fix. |
 | A `DOWN` line from the watch: a coordinator's Claude Code process exited | Restart it by the `start` page's resume steps. A coordinator that is down is restarted, never reported to him as down. |

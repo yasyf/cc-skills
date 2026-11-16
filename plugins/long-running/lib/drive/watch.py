@@ -2712,7 +2712,6 @@ def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
         return []
     agents.release_quiet(watcher.name)
     agents.reap_orphans(watcher.name)
-    agents.warm(watcher.name)
     data = state.load(watcher.name)
     try:
         replies = slack.owed(agents.beside(data)[1]["session"])

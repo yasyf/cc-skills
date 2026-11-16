@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import re
@@ -591,44 +592,10 @@ def signalled(pid: int) -> bool:
 
 
 def handle(name: str, brief: str, detached: bool = False, answer: str | None = None, briefs: bool = False, prefer: str | None = None) -> tuple[str, bool]:
-    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time, but for a message of his reaching a handler waiting its turn on this Mac to start, by its wakes, which starts a handler of its own at once, since his answer never waits on a report's start: a brief for another record or another message of his, on that message, in that thread or on its record's re chain, is handed to that handler, which takes it at its next step, and a copy, the same record or the same message of his, is handed to it with nothing added, since that handler already holds it; the id of the handler at work on the brief, and whether it was handed. A record whose brief, attrs and re chain name no thread and reach no message of his is in the thread its order's lines go in, as the thread attr the drive stamps on its own records names it, and one whose post goes elsewhere than that thread or the thread of the message of his its chain reaches, at the root of a channel outside his DM such as a staging claim or in another thread its thread attr names, holds that place alone, so it waits on no handler of his messages there. A handler whose turn is over holds nothing, however it ended: it leaves the drive, and each brief handed to it that it never took goes to the handler this brief reaches, but one for the record this brief names; one that never started leaves its own brief with them, by forget. With briefs, the brief a new handler starts on is written from its id by cli.briefing, with answer its --answer title, in the process that starts it, recording what it adds, so the call returns before those writes and reads take the drive's lock; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool and the watch's hand of each message of his cc-slack owes run it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch's other stages start it in the call, so a start that fails is tried again at their next read. Owed, as the handler tool's and the watch's read's start on a `POST` report is, a report the drive owes no post is refused, naming the post or done record that carries it or his catch-up holding it, and one whose last handler ended posting nothing, died or never started starts on a brief closing on the line that handler ended on, checked in the same save that starts it, a handler that died or never started keeping DIED as its line, and the brief briefed writes closes on that line too. A brief for a record a post carries goes to no handler., nor one for a record say's own rules settle with no post, such as a quiet report held for his return while he is away, by talk.unhandled, which is refused as Carried naming why."""
-    read = holds(brief)
-    asked = brief
-    handler_id = uuid.uuid4().hex[:8]
-    with state.edit(name) as data:
-        held_now = threaded(data, read)
-        left: list[str] = []
-        keys = route_keys(data, read, held_now)
-        prefer = prefer or sticky(data, keys)
-        while (held := holder(data, held_now) or picked_handler(data, prefer)) and gone(data["handlers"][held]):
-            left += forget(data, held)
-        if held and his_message(held_now) and not data["handlers"][held]["session"] and waiting(data["handlers"][held]):
-            held = None
-        left = [one for one in dict.fromkeys(left) if one != brief.strip() and (not (named := RECORD.search(one)) or (named[1] != held_now["record"] and named[1] not in data["carried"]))]
-        woken = held if held and resting(data["handlers"][held]) else None if held else free_handler(data)
-        holder_id = woken or held or fewest_handed(data) or handler_id
-        if woken:
-            data["handlers"][woken] |= {"busy": True, "brief": brief.strip(), "holds": held_now, "handed": left, "took": [], "posted": [], "given": state.stamp()}
-        elif held or (held := holder_id if holder_id != handler_id else None):
-            entry = data["handlers"][held]
-            same = "record" if held_now["record"] else "message"
-            kept = not held_now[same] or held_now[same] != (entry["holds"] or {}).get(same)
-            entry["handed"] += [one for one in [*left, *([brief.strip()] if kept else [])] if one not in entry["handed"]]
-        else:
-            data["handlers"][handler_id] = new_handler(brief.strip(), held_now, left)
-        keep_routes(data, holder_id, keys, brief)
-    later = {"brief": asked, "answer": answer, "context": ""} if briefs else None
-    if held and not woken:
-        return held, True
-    try:
-        state.after_save(name, lambda: started(name, woken or handler_id, brief, brief, detached or bool(woken), later))
-    except Exception as error:
-        if woken:
-            rest(name, woken)
-        else:
-            unstarted(name, handler_id)
-        raise (state.DriveError(f"claude --bg started no handler: {error}") if isinstance(error, reads.ReadError) else error) from None
-    return (woken, True) if woken else (handler_id, False)
+    """Hand a brief to the communicator, which answers him itself, as one cci note from lane watch keyed by the brief so a pass repeating it sends nothing new, by his ruling "get rid of handlers": a `Record:` brief names a record for it to post, and a message of his one it owes an answer."""
+    key = hashlib.sha256(brief.strip().encode()).hexdigest()[:16]
+    reads.run(["cci", "post", "--drive", name, "--lane", "watch", "--kind", "note", "--to", f"communicator@{name}", "--id", f"hand-{key}", "--text", f"ANSWER THIS: {brief.strip()}"])
+    return "communicator", True
 
 
 def route_keys(data: dict, read: dict, held: dict) -> list[str]:
