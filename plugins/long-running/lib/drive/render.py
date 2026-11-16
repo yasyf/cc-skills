@@ -196,8 +196,11 @@ COORDINATOR_RULES = (
         " and the landing_guard hook refuse a production start, resume or approve but a hotfix of PRs"
         " changing nothing dangerous; a rollback runs whenever it is prudent. Meanwhile "
         f"{PAGE_RULE}. The watch pages once for each incident opened since he was last heard whose order carries"
-        " that record, by drive order set --users <seq>, and drive page-owner \"<why>\" --users <seq> pages for one no"
-        " incident holds yet, never for news or a question."
+        " that record, by drive order set --users <seq>, and a job runs drive page-owner \"<why>\" --users <seq> --order <its order>"
+        " for one it reads, never for news or a question. Each page comes with its line in a drive channel and its fix and diagnosis"
+        " started, and a PAGED line hands you each job to launch that pass. A paged incident is the one place to be over-communicative:"
+        " its thread gets a line at each step, jobs started, mechanism found, PR up, merged, release started, fix live, each as soon as"
+        " it happens, so he never has to ask whether anyone is on it."
     ),
     (
         "Give each order to one background job that owns its deliverable end to end, since work in your own turn"

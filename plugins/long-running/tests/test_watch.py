@@ -10853,21 +10853,29 @@ def test_o761s_incident_on_a_surface_he_uses_holds_its_live_line_with_one_prove_
     assert state.load(demo)["orders"]["o1"]["proof"] == f"{fixed}; {recording}"
 
 
-def test_an_incident_opened_while_he_is_away_carrying_a_record_of_real_users_failing_pages_his_datadog_user_once_with_its_first_line_and_one_he_heard_of_one_while_he_is_here_one_only_the_drive_hit_or_one_whose_line_did_not_post_pages_nobody(demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]) -> None:
+def test_a_page_comes_with_its_line_in_a_drive_channel_and_its_fix_and_diagnosis_started_only_for_real_users_failing_while_he_is_away_and_a_retry_posts_no_second_line(demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]) -> None:
     calls = []
+    unreachable = [True]
 
     class PagingRepo(providers.RepoProvider):
         page_owner = "tools/ci oncall page me"
 
         def run(self, template: str, stdin: str | None = None, timeout: int = 0, **fields: str) -> str:
+            if unreachable.pop() if unreachable else False:
+                raise reads.ReadError("oncall page timed out")
             calls.append(shlex.split(template.format_map({key: shlex.quote(value) for key, value in fields.items()})))
             return "Paged Datadog user u-ym at high urgency: page p-1\n"
 
+    def unposted(name: str, post: dict, order: str | None = None) -> dict:
+        raise state.DriveError("nothing posted: cc-slack is down")
+
     provide(monkeypatch, DRIVE_CHECKOUT, repo=PagingRepo)
     monkeypatch.setattr(watch.orca, "checkout", lambda name, data, wait=0: DRIVE_CHECKOUT)
+    monkeypatch.setattr(talk, "posted", unposted)
     with edit(demo) as data:
+        data["slack"]["channels"] = {"": {"id": "C0DRIVE01", "name": "yasyf-drive-demo"}}
         data["owner"]["heard"] = state.stamp(T0)
-        data["orders"]["o1"].update(incident=True, title="SandSQL writes down", created=state.stamp(T0 + timedelta(minutes=5)), users=732569)
+        data["orders"]["o1"].update(incident=True, title="SandSQL writes down", created=state.stamp(T0 + timedelta(minutes=5)), users=732569, thread=["C0ALERTS1", "1794200000.000100"])
         data["orders"]["o2"] = order(text="raw_sql reads fail", incident=True, created=state.stamp(T0 - timedelta(minutes=5)), users=732570)
         data["orders"]["o3"] = order(text="the purpose proof fails its reads", incident=True, created=state.stamp(T0 + timedelta(minutes=6)))
     watching = watcher(demo)
@@ -10875,14 +10883,31 @@ def test_an_incident_opened_while_he_is_away_carrying_a_record_of_real_users_fai
     away = T0 + timedelta(minutes=20)
     assert (watch.owner_page_lines(watching, away), calls, state.load(demo)["orders"]["o1"]["paged"]) == ([], [], None)
     lined: list[str] = []
-    monkeypatch.setattr(talk, "report_line", lambda name, seq: lined.append(seq) or f"POSTED {POSTED}" if not calls else pytest.fail("paged before its line posted"))
-    assert watch.owner_page_lines(watching, away + timedelta(minutes=1)) == [f"WATCH paged him for incident o1 while he is away: POSTED {POSTED}; Paged Datadog user u-ym at high urgency: page p-1"]
-    assert watch.owner_page_lines(watching, away + timedelta(minutes=2)) == []
-    [line] = [record for records in ready_records for record in records if record.get("attr", {}).get("order") == "o1"]
-    assert (line["text"].startswith("POST Paging you: SandSQL writes down, failing for real users, by {record:732569|"), line["attr"]["progress"], lined) == (True, "true", ["9"])
+
+    def report_line(name: str, seq: str) -> str:
+        lined.append(seq)
+        with edit(name) as data:
+            data["carried"][seq] = POSTED
+        return POSTED
+
+    monkeypatch.setattr(talk, "report_line", report_line)
+    assert (watch.owner_page_lines(watching, away + timedelta(minutes=1)), calls, lined) == ([], [], ["9"])
+    data = state.load(demo)
+    fix, cause = (next(job_id for job_id in data["orders"]["o1"]["jobs"] if data["jobs"][job_id]["parts"] == [part]) for part in ("fix", "cause"))
+    starts = [state.start_line(demo, "o1", fix, "fix"), state.start_line(demo, "o1", cause, "cause")]
+    assert watch.owner_page_lines(watching, away + timedelta(minutes=2)) == [
+        f"WATCH paged him for incident o1 while he is away: {POSTED}; Paged Datadog user u-ym at high urgency: page p-1",
+        f"PAGED o1: he is paged and no worker runs its fix or diagnosis, so launch each now: {'; '.join(starts)}; {state.INCIDENT_BRIEF}",
+    ]
+    assert watch.wakes(f"PAGED o1: {starts[0]}", state.load(demo), NO_CARDS)
+    assert (watch.owner_page_lines(watching, away + timedelta(minutes=3)), lined) == ([], ["9"])
+    line = next(record for records in ready_records for record in records if record.get("id") == "page-o1-732569")
+    assert (line["attr"], line["text"]) == (
+        {"order": "o1", "progress": "true", "channel": "C0DRIVE01"},
+        f'POST Paging you: SandSQL writes down, failing for real users, by {{record:732569|the read of users failing}}. Fixing it: {fix} on "fix" starting now; {cause} on "cause" starting now.',
+    )
     assert [argv[1:6] for argv in calls] == [["oncall", "page", "me", "--title", "o1 SandSQL writes down"]]
-    assert calls[0][-1].split("\n")[1] == "real users failing: record 732569"
-    assert state.load(demo)["orders"]["o1"]["paged"] == state.stamp(away + timedelta(minutes=1))
+    assert state.load(demo)["orders"]["o1"]["paged"] == state.stamp(away + timedelta(minutes=2))
 
 
 def test_an_incident_whose_drive_checkout_cannot_move_to_the_default_branch_head_closes_nothing_and_says_so_from_the_third_failed_read(home_repo: None, demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

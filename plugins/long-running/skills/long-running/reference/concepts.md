@@ -36,6 +36,7 @@ A PR's line comes without its title.
 | `DUE j<n> …` | Once, a job's clock ran out while it still runs. |
 | `DUE o<n> claim …` | Every 10 minutes from the end a post at a channel's root, such as a staging claim, named with `--attr until`, while no drive post is in its thread since. |
 | `RECOVERED o<n> …` | An open incident is over: every merged fix PR of it is live in production, any monitor of it OK and each order of it that builds something he uses proven from that surface. The watch sent its step 8 report, which closes it. |
+| `PAGED o<n> …` | The watch paged him for an incident whose real users fail and no worker ran its fix or diagnosis; it names the codex jobs it added to launch now. |
 | `PROVE o<n> …` | Once, an open incident's fix is live but an order of it that builds something he uses keeps no recording or live post from there; it names the builder to add that proves it. |
 | `TELL o<n> …` | Once, an order's fix is proven live, or an answer order's answer is posted, and a reporter's thread has no note 10 minutes on. |
 | `CARD … settled in place` | Every PR his open PR card carries merged or closed. |

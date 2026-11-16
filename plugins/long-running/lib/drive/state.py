@@ -6454,8 +6454,30 @@ def running_stops(data: dict, order_id: str) -> list[str]:
 
 
 def incident_job(data: dict, name: str, order_id: str, part: str, created: str) -> str:
-    job_id = codex_job(data, order_id, part, created)
+    return start_line(name, order_id, codex_job(data, order_id, part, created), part)
+
+
+def start_line(name: str, order_id: str, job_id: str, part: str) -> str:
     return f'{job_id} on "{part}": start it now with drive job launch {job_id} -, its brief on stdin ending Drive: {name}, order {order_id}, job {job_id}'
+
+
+def page_starts(data: dict, name: str, order_id: str, created: str) -> tuple[list[str], list[str]]:
+    """The jobs at work on an incident's fix and diagnosis when he is paged, and the start line of each the coordinator launches now, by his ruling b4d22c3 that a page "in parallel needs to start working on a fix": on each of its fix part and its first check or cause, the first of those its order has, else cause, a job some worker started is at work, one drive job add recorded that no worker started yet gets its start line, and a part no unfinished job holds gets a codex job, as incident_job adds one, the part added to the order as a build's work when it lacks one."""
+    order = data["orders"][order_id]
+    diagnosis = next((part for part in INCIDENT_DIAGNOSIS if part in order["parts"]), INCIDENT_CAUSE)
+    working, starts = [], []
+    for part in (INCIDENT_FIX, diagnosis):
+        held = [(job_id, job) for job_id, job in part_jobs(data, order_id, part) if job["state"] not in FINISHED_JOB_STATES]
+        if running := [job_id for job_id, job in held if not unstarted(job)]:
+            working += [f'{job_id} on "{part}"' for job_id in running]
+        elif held:
+            starts += [start_line(name, order_id, job_id, part) for job_id, _ in held]
+        else:
+            if part not in order["parts"]:
+                order["parts"][part] = new_part()
+                sort_as_build(order, [INCIDENT_FIX, diagnosis], order["kind"] == "answer")
+            starts.append(incident_job(data, name, order_id, part, created))
+    return working, starts
 
 
 def codex_job(data: dict, order_id: str, part: str, created: str) -> str:

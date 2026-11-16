@@ -305,27 +305,62 @@ check's verdict, or from the order when none ran.
 ## What he hears
 
 Each line is a `report` to the communicator with `--attr progress=true`, or `--attr close=<o>` on
-the one closing the incident. The communicator posts it in his thread or the alert's thread, the
-alert's with `say(channel_id=<the alert's channel>, thread_ts=<its ts>)`, while he is away too. A
-report on an open incident goes out when it is written: the one report per thread per turn that
-`record_lines` holds the coordinator and the meta session to does not hold it.
+the one closing the incident. The communicator posts it in the incident's thread, while he is away
+too. A report on an open incident goes out when it is written, outside the one report per thread
+per turn that `record_lines` holds the coordinator and the meta session to.
 
-He is paged only while he is away, and only when a read shows real users failing, by his words
+### When he is paged
+
+He is paged only while he is away, and only when a read shows real users failing. His words
 (ruling 07937c4): "this is only cloud agents? No real users? Then shouldn't have paged me. If it's
 real users and it's impacting runs or local chats / agents page me". That read is a cci record
-showing real users' runs, or their local chats or agents, failing on production. A failure only
-the drive's own callers or proofs hit opens the incident and its jobs work on, but nobody is paged,
-and news or a question never pages. Whether the record shows real users is the session's call
-against that rule. The coordinator puts that record on the incident with `--users <seq>` on
-`drive incident open` or `drive order set <o>`, and the watch then pages his Datadog On-Call user once for each incident opened since he
-was last heard whose order carries one. Each page goes with the incident's first line to him, posted
-first in its thread: what broke, for whom, its link, and the fix and first-check jobs working on it,
-so he never wakes to a page with no line, by his words "Why is it that you paged me (good) but
-there's no message here about you working on the fix?". A line that does not post pages nobody.
-`drive incident open` and `drive order set --users` refuse an incident with no thread he reads:
-name the alert's Slack thread with `--thread`, or `--thread dm` to start one at his DM root. A job
-that reads real users failing where no incident holds it yet runs
-`drive page-owner "<why>" --users <seq> --order <its order>`.
+showing real users' runs, or their local chats or agents, failing on production. Whether it shows
+real users is your call against that rule. A failure only the drive's own callers or proofs hit
+opens the incident, and its jobs work on it, but nobody is paged. News or a question never pages.
+
+Put the record on the incident with `--users <seq>` on `drive incident open` or
+`drive order set <o>`. The watch then pages his Datadog On-Call user once for each incident opened
+since he was last heard whose order carries one. A job that reads real users failing where no
+incident holds it yet runs `drive page-owner "<why>" --users <seq> --order <its order>`.
+
+A page never goes out alone. His ruling b4d22c3: "a page always comes with 1) a channel message in
+a drive channel, and 2) in parallel needs to start working on a fix and be over communicative about
+it, ai-oncall style". In the pass that pages, the drive:
+
+1. Adds a codex job on the incident's `fix` and on its first check or cause wherever no worker
+   runs one, and hands you each to launch in a `PAGED o<n>` line.
+2. Posts the incident's line in a drive channel: the order's thread there, else the root of its
+   seat's channel, never an alert's thread outside the drive's channels. The line says what broke,
+   for whom, its link, and who is fixing it. That post starts the incident's thread.
+3. Pages him naming the same. When no line posts, nobody is paged and the next pass tries again;
+   a pass that posted and failed to page pages next pass with no second post.
+
+### Over-communicate a paged incident
+
+"Make everything less chatty" holds everywhere but here. A paged incident's thread hears each step
+as it happens, so he never has to ask whether anyone is on it. Write it the way ai-oncall writes an
+incident (`.agents/skills/incident/references/outage-comms.md` in the monorepo):
+
+- The top post is the headline: status and what broke in at most eight words, then who is affected
+  and the next step. Evidence, PR lists and links go in the thread right after it.
+- Reply in the thread only with news: a step of the list that follows reached, impact changed, a mitigation, or an
+  answer to a question asked there. Skip the "no change" line when a step has not moved.
+- Describe impact as what users see ("runs for Polar fail to start"), not the failing component.
+- An ETA is when something already running finishes. Without one, say "No ETA yet."
+- No logs, commands, stack traces, or queries. One sentence says what happened.
+
+No timer sets the cadence. Each step of that list is a line, sent the turn it happens. A thread
+from the page to the fix reads like this:
+
+> 🚨 Runs fail to start for every team on plat. Paged; fix and diagnosis running.
+> ↳ Since 8:31 AM: run start returns 500 from runtime-api (record 734657, monitor 334629504). Fixing: j7901 on fix, j7902 on cause.
+> ↳ Cause found: the 8:20 AM release reads sessions with a schema its replica lacks. Rolling back to `sha-4ae49e12`.
+> ↳ 🩹 Mitigated: rollback live at 8:52 AM, new runs start again. Root fix still to come.
+> ↳ Fix PR up: <PR link|runtime-api reads the session schema it mounts>.
+> ↳ Merged; release `17790` started, ETA 9:40 AM.
+> ↳ 🟢 Fix live at 9:38 AM: runs for every team start; the rollback is undone.
+
+### Every line
 
 A report's `part` attr names only the first check or the cause, the answers a line delivers. The
 `fix` and every other part are work, which the proof file under `drive job prove` delivers, so
@@ -334,13 +369,15 @@ A report's `part` attr names only the first check or the cause, the answers a li
 - Each line names the failing service, function, file or table by its proper term, by
   [messages.md](messages.md), and carries no side facts about a release.
 - What he hears about the cause comes from the record, `ccn investigation show <id>`, not from
-  when alerts fired. The verdict goes out once. Before one, he hears that there is none yet and
+  when alerts fired. The verdict, the mechanism found, goes out once, as its own line in the
+  incident's thread. Before one, he hears that there is none yet and
   what the fix job is changing right then, from its transcript. When he asks what the bug is, he
   gets each open suspect with its PR and the evidence for and against it.
 
-The steps, in order:
+The steps, in order, each one line in the incident's thread:
 
-1. **Running:** the fix job and the code path it started at, and the jobs beside it.
+1. **Running:** the fix and diagnosis jobs started, and the code path the fix job started at. On a
+   paged incident this is the page's own line.
 2. **The fix is a release:** releasing the default branch fixes it, as the test machine showed.
 3. **Rollback started:** the build it rolls back to, and that it lacks the failing change.
 4. **Users unblocked:** whose runs succeed again, on a real machine, and the freeze on the

@@ -1344,7 +1344,7 @@ def test_order_set_standing_keeps_each_part_it_names_standing_on_its_goal_an_emp
     assert state.load("demo")["orders"]["o1"]["parts"]["old-tree ports"]["standing"] is None
 
 
-FILED = ("--thread", "dm", "--project", "Platform", "--workstream", "SandSQL", "--title", "SandSQL incident")
+FILED = ("--project", "Platform", "--workstream", "SandSQL", "--title", "SandSQL incident")
 
 
 def recorded(calls: list[list[str]]) -> Callable[[list[str], Path], str]:
@@ -1379,21 +1379,6 @@ def test_incident_open_files_the_order_a_job_on_each_part_and_its_evidence_recor
         (True, "build", ["fix", "rollback", "cause"], "record 5f6b2b5"),
         (True, "build", ["fix", "stop", "cause"], "record 5f6b2b5"),
     ]
-
-
-def test_an_incident_from_the_terminal_or_users_on_an_order_with_no_thread_he_reads_is_refused_naming_the_default(
-    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
-) -> None:
-    default = "pass --thread <the alert's Slack thread> when the alert posted in a channel, else --thread dm"
-    assert cli.main(["incident", "open", "runs fail for one team", *FILED[2:]]) == 2
-    assert default in capsys.readouterr().err
-    assert state.load("demo")["orders"] == {}
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL copies fail on plat", "--incident", "--parts", "fix", "first check")
-    assert cli.main(["order", "set", "o1", "--users", "734657"]) == 2
-    assert default in capsys.readouterr().err
-    assert state.load("demo")["orders"]["o1"]["users"] is None
-    run("order", "set", "o1", "--users", "734657", "--thread", "dm")
-    assert state.load("demo")["orders"]["o1"]["users"] == 734657
 
 
 def test_incident_open_writes_nothing_when_its_record_does_not_open(
