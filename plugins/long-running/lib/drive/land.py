@@ -442,7 +442,8 @@ def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
         units = {tried: sorted((key for key, pr in data["prs"].items() if landing(pr) and attempt(pr["lander"]) == tried), key=lambda key: len(chain(under, key))) for tried in stopped}
         kills, dequeues = {}, {}
         for tried, unit in units.items():
-            if running(lander := data["prs"][unit[0]]["lander"]):
+            if running(data["prs"][unit[0]]):
+                lander = data["prs"][unit[0]]["lander"]
                 if stop := state.reserve(data, tuple(("prs", key, "lander", "stop") for key in unit)):
                     for key in unit:
                         data["prs"][key]["lander"]["stop"] |= {"at": at}
