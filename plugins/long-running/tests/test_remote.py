@@ -31,6 +31,7 @@ from conftest import (
     REAL_SESSION_OF,
     SILENT_SPRITE,
     UNLISTED,
+    REAL_SPRITES,
     REAL_SPRITE_API,
     REAL_SPRITE_CONFIG,
     REAL_MAILBOX,
@@ -2125,7 +2126,7 @@ def found(outcome: str) -> Callable[..., str]:
 
 
 def unsaveable(why: str) -> Callable[..., str]:
-    def save(drive: str, job_id: str, job: dict, root: Path) -> str:
+    def save(drive: str, job_id: str, job: dict, root: Path, unverified: bool = False) -> str:
         raise orca.OrcaError(why)
 
     return save
@@ -2179,7 +2180,7 @@ def test_resume_copies_a_dead_lanes_sprite_logs_and_transcripts_before_it_saves_
     steps = []
     dead_lane_holding(remote, tmp_path, monkeypatch, lambda drive, job_id, job, root: steps.append(("save", list(kept_logs), list(kept_transcripts))) or SAVED)
     monkeypatch.setattr(orca, "holds_sprite", lambda job: True)
-    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: steps.append(("destroy", list(kept_logs), list(kept_transcripts))) or f"destroyed {job['workspace']}")
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root, unverified=False: steps.append(("destroy", list(kept_logs), list(kept_transcripts))) or f"destroyed {job['workspace']}")
     assert run("job", "resume", "j1", "Build #4412 failed: fix the lint")[0] == 0
     kept = [("j1", DISPATCH)]
     assert steps == [("save", kept, kept), ("destroy", kept, kept)]
@@ -2384,7 +2385,7 @@ def test_a_lane_whose_sprite_died_resumes_its_own_claude_session_there_with_its_
     orca.death_logs(remote, "j1", "dispatch-2").write_bytes(sprite_read(SPRITE_BOOT, "564.20 4158.12\n    543\n"))
     acted: list[str] = []
     monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: acted.append(f"saved {job['workspace']}") or SAVED)
-    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: acted.append(f"destroyed {job['workspace']}") or f"destroyed {job['workspace']}")
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root, unverified=False: acted.append(f"destroyed {job['workspace']}") or f"destroyed {job['workspace']}")
     code, out = run("job", "resume", "j1", "carry on")
     job = state.load(remote)["jobs"]["j1"]
     first = job["deaths"][0]
@@ -2495,7 +2496,7 @@ def lane_with_kept_logs(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(orca, "keep_logs", REAL_KEEP_LOGS)
     monkeypatch.setattr(orca, "on_sprite", lambda *args: pytest.fail(f"logs keep_logs copied once are read from the drive's folder: {args}"))
     monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: acted.append(f"saved {job['workspace']}") or SAVED)
-    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: acted.append(f"destroyed {job['workspace']}") or f"destroyed {job['workspace']}")
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root, unverified=False: acted.append(f"destroyed {job['workspace']}") or f"destroyed {job['workspace']}")
     return launched, acted
 
 
@@ -2863,7 +2864,7 @@ def test_j982s_full_disk_sprite_whose_claude_lives_while_nothing_listens_where_o
     monkeypatch.setattr(orca, "save", (lambda drive, job_id, job, root: saved) if saved else unsaveable(UNREAD))
     monkeypatch.setattr(orca, "holds_sprite", lambda job: True)
     released = []
-    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: released.append(job["workspace"]) or f"destroyed {job['workspace']}")
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root, unverified=False: released.append(job["workspace"]) or f"destroyed {job['workspace']}")
     held = "Next event for builder j982, from the coordinator. TAP Approve #12"
     with state.edit(remote) as data:
         data["jobs"]["j1"]["undelivered"] = [{"seq": None, "words": held, "at": state.stamp(T0), "said": None, "request": "req-held"}]
@@ -3548,7 +3549,7 @@ def test_a_launch_local_of_a_job_whose_sprite_does_not_answer_moves_it_to_this_m
     monkeypatch.setattr(github, "read", matching_refs)
     monkeypatch.setattr(orca, "save", save)
     monkeypatch.setattr(orca, "holds_sprite", lambda job: True)
-    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: released.append(job["workspace"]) or f"destroyed {job['workspace']}")
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root, unverified=False: released.append(job["workspace"]) or f"destroyed {job['workspace']}")
     code, out = run("job", "launch", "j1", "--local")
     assert (code, out.startswith("j1: the message went to the job's next worker, relaunched in a fresh worktree on this Mac as dispatch dispatch-2")) == (0, True)
     assert f"its lane on Sprite {workspace} was dead ({unreachable(port)}), and " in out
@@ -5397,11 +5398,11 @@ def test_end_destroys_the_sprite_cc_remote_still_records_or_names_what_keeps_it(
     monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
     monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "nothing to reclaim")
     released = []
-    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: released.append(job["workspace"]) or "destroyed pool-one")
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root, unverified=False: released.append(job["workspace"]) or "destroyed pool-one")
     assert run("job", "end", "j1") == (0, "nothing to reclaim\ndestroyed pool-one\nj1's lane ended; j1 stays done")
     assert released == ["pool-one"]
 
-    def kept(drive: str, job_id: str, job: dict, root: Path) -> str:
+    def kept(drive: str, job_id: str, job: dict, root: Path, unverified: bool = False) -> str:
         raise orca.OrcaError("orca-reclaim.py exited 1: uncommitted changes")
 
     monkeypatch.setattr(orca, "release", kept)
@@ -5509,7 +5510,7 @@ def test_reclaim_destroys_a_left_sprite_and_marks_a_lane_on_this_mac_freed_so_no
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(state="done", deaths=[{"dispatch": "ctx_old", "workspace": "pool-old", "why": "its worker exited", "at": quiet}])
     destroyed: list[str] = []
-    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: destroyed.append(job["workspace"]) or f"destroyed {job['workspace']}")
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root, unverified=False: destroyed.append(job["workspace"]) or f"destroyed {job['workspace']}")
     assert run("job", "reclaim", "j1", "pool-nobody")[0] == 2
     assert (run("job", "reclaim", "j1", "pool-old"), destroyed) == ((0, "destroyed pool-old"), ["pool-old"])
     with state.edit(remote) as data:
@@ -5524,6 +5525,23 @@ def test_reclaim_destroys_a_left_sprite_and_marks_a_lane_on_this_mac_freed_so_no
     assert state.death_on(state.load(remote)["jobs"]["j1"], "ctx_mac")["freed"]
     watch.release_lanes(watch.Watcher(remote, offset=state.events_end(remote)), T0 + timedelta(hours=1))
     assert started == [["job", "reclaim", "j1", "ctx_mac"]]
+
+
+def test_reclaim_destroys_a_superseded_attempts_sprite_unverified_but_never_the_sprite_of_a_job_whose_current_one_it_knows_not(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, remote)
+    left = [{"dispatch": None, "workspace": workspace, "why": "its worker exited", "at": state.stamp(T0)} for workspace in ("pool-old", "pool-new")]
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="waiting", workspace="pool-new", deaths=left)
+    asked: list[tuple[str, bool]] = []
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root, unverified=False: asked.append((job["workspace"], unverified)) or f"destroyed {job['workspace']}")
+    run("job", "reclaim", "j1", "pool-old")
+    run("job", "reclaim", "j1", "pool-new")
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["workspace"] = None
+    run("job", "reclaim", "j1", "pool-old")
+    assert asked == [("pool-old", True), ("pool-new", False), ("pool-old", False)]
 
 
 def test_a_finished_job_on_this_mac_has_every_lane_its_relaunches_left_reclaimed_in_one_pass(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -5573,7 +5591,7 @@ def test_a_reclaim_that_cannot_read_a_left_sprite_keeps_it_says_so_once_and_no_w
     for hours in (1, 24):
         watch.release_lanes(watch.Watcher(remote, offset=state.events_end(remote)), T0 + timedelta(hours=hours))
     assert started == [["job", "reclaim", "j1", sprite]]
-    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: (workspaces / f"{job['workspace']}.json").unlink() or f"destroyed {job['workspace']}")
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root, unverified=False: (workspaces / f"{job['workspace']}.json").unlink() or f"destroyed {job['workspace']}")
     assert run("job", "reclaim", "j1", sprite) == (0, f"destroyed {sprite}")
     assert not orca.holds_sprite(state.load(remote)["jobs"]["j1"])
 
@@ -5608,7 +5626,7 @@ def test_end_frees_the_sprite_lane_a_row_records_beside_an_agent_on_this_mac_so_
     assert ended_lanes == ["j1"]
     monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: pytest.fail("a stopped job's lane ends whatever its Sprite holds"))
     monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: f"closed {dispatch} of {run_id}")
-    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: (workspaces / f"{job['workspace']}.json").unlink() or f"destroyed {job['workspace']}")
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root, unverified=False: (workspaces / f"{job['workspace']}.json").unlink() or f"destroyed {job['workspace']}")
     assert run("job", "end", "j1") == (0, f"closed {row['dispatch']} of {row['run']}\ndestroyed {row['workspace']}\nj1's lane ended; j1 stays stopped")
     job = state.load(remote)["jobs"]["j1"]
     assert (job["where"], job["agent"], [death["dispatch"] for death in job["deaths"]], state.lane_ended(job), kept_transcripts) == (
@@ -8424,21 +8442,90 @@ def test_the_watch_says_a_dead_local_lane_died_on_this_mac(rooted: str, monkeypa
     ]
 
 
-def test_a_pool_sprite_claimed_for_a_jobs_lane_that_neither_its_row_nor_its_deaths_name_is_adopted_into_its_deaths(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_live_sprite_of_a_jobs_lane_that_neither_its_row_nor_its_deaths_name_is_adopted_into_its_deaths_whatever_its_pool_record_says(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sprites_listed: set[str]
+) -> None:
+    run("job", "add", "builder", "--order", "o1", "--goal", "more remote builders", "--remote")
+    run("job", "add", "builder", "--order", "o1", "--goal", "a launch that recorded no Sprite", "--remote")
     pool, workspaces = tmp_path / "cc-remote" / "pool", tmp_path / "cc-remote" / "workspaces"
     pool.mkdir(parents=True)
     workspaces.mkdir()
     monkeypatch.setattr(orca, "CC_REMOTE", tmp_path / "cc-remote")
     monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
     claimed = (T0 - watch.ADOPT_AFTER).isoformat()
-    for name, lane, at in (("pool-left", f"{remote}-j1-2", claimed), ("pool-own", f"{remote}-j1", claimed), ("pool-fresh", f"{remote}-j1-3", T0.isoformat()), ("pool-other", "elsewhere-j1", claimed)):
-        (pool / f"{name}.json").write_text(json.dumps({"name": name, "state": "prepared", "lane": lane, "updatedAt": at}))
-        (workspaces / f"{name}.json").write_text("{}")
+    pooled = {
+        "pool-left": ("prepared", f"{remote}-j1-2", claimed),
+        "pool-own": ("prepared", f"{remote}-j1", claimed),
+        "pool-fresh": ("prepared", f"{remote}-j2-3", T0.isoformat()),
+        "pool-other": ("prepared", "elsewhere-j1", claimed),
+        "pool-stopped": ("stopped", f"{remote}-j1-4", claimed),
+        "pool-gone": ("prepared", f"{remote}-j1-5", claimed),
+        "pool-unlisted": ("prepared", f"{remote}-j1-6", claimed),
+        "pool-j2-current": ("claimed", f"{remote}-j2", claimed),
+        "pool-j2-old": ("prepared", f"{remote}-j2-1", claimed),
+        "pool-j3-unknown": ("prepared", f"{remote}-j3-2", claimed),
+    }
+    for name, (held, lane, at) in pooled.items():
+        (pool / f"{name}.json").write_text(json.dumps({"name": name, "state": held, "lane": lane, "updatedAt": at}))
+        if name != "pool-gone":
+            (workspaces / f"{name}.json").write_text(json.dumps({"name": name, "updatedAt": at}))
+    (workspaces / f"{remote}-j1-7.json").write_text(json.dumps({"name": f"{remote}-j1-7", "updatedAt": claimed}))
+    sprites_listed.update({*pooled, f"{remote}-j1-7"} - {"pool-unlisted"})
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(state="done", workspace="pool-own")
+        state.start(data["jobs"]["j2"])
+        data["jobs"]["j2"].update(workspace="pool-j2")
+        state.start(data["jobs"]["j3"])
+        data["jobs"]["j3"].update(state="waiting", workspace=None, dispatch="ctx_unrecorded", turn_open=True)
     watch.adopt_sprites(watch.Watcher(remote, offset=state.events_end(remote)), T0)
     watch.adopt_sprites(watch.Watcher(remote, offset=state.events_end(remote)), T0)
-    assert [(death["workspace"], death["why"]) for death in state.load(remote)["jobs"]["j1"]["deaths"]] == [("pool-left", watch.ADOPTED)]
+    jobs = state.load(remote)["jobs"]
+    assert sorted((death["workspace"], death["why"]) for death in jobs["j1"]["deaths"]) == [(f"{remote}-j1-7", watch.ADOPTED), ("pool-left", watch.ADOPTED), ("pool-stopped", watch.ADOPTED)]
+    assert [death["workspace"] for death in jobs["j2"]["deaths"]] == ["pool-j2-old"]
+    assert not jobs["j3"].get("deaths")
+
+
+def test_a_finished_jobs_sprite_is_adopted_at_once_and_a_failed_sprite_list_adopts_none(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sprites_listed: set[str]) -> None:
+    workspaces = tmp_path / "cc-remote" / "workspaces"
+    workspaces.mkdir(parents=True)
+    monkeypatch.setattr(orca, "CC_REMOTE", tmp_path / "cc-remote")
+    monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
+    (workspaces / f"{remote}-j1.json").write_text(json.dumps({"name": f"{remote}-j1", "updatedAt": T0.isoformat()}))
+    sprites_listed.add(f"{remote}-j1")
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="stopped", workspace=None)
+    failing = mock_failing_list(monkeypatch)
+    watching = watch.Watcher(remote, offset=state.events_end(remote))
+    assert watch.adopt_sprites(watching, T0) == []
+    assert failing == ["sprite list"]
+    assert not state.load(remote)["jobs"]["j1"].get("deaths")
+    monkeypatch.setattr(orca, "sprites", lambda: sprites_listed)
+    watch.adopt_sprites(watching, T0)
+    assert [(death["workspace"], death["why"]) for death in state.load(remote)["jobs"]["j1"]["deaths"]] == [(f"{remote}-j1", watch.ADOPTED)]
+
+
+def mock_failing_list(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    asked: list[str] = []
+
+    def failing() -> set[str]:
+        asked.append("sprite list")
+        raise orca.OrcaError("sprite list exited 1: unauthorized")
+
+    monkeypatch.setattr(orca, "sprites", failing)
+    return asked
+
+
+def test_sprite_list_is_read_once_per_freshness_window_across_watches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    listed = tmp_path / "list"
+    listed.write_text("#!/bin/sh\necho run >> \"$0.calls\"\nprintf 'pool-a\\ndurable-j1\\n'\n")
+    listed.chmod(0o755)
+    monkeypatch.setattr(orca, "SPRITE_CLI", str(listed))
+    assert REAL_SPRITES() == {"pool-a", "durable-j1"}
+    assert REAL_SPRITES() == {"pool-a", "durable-j1"}
+    assert (tmp_path / "list.calls").read_text() == "run\n"
+    os.utime(state.root() / "sprites.txt", (0, 0))
+    assert REAL_SPRITES() == {"pool-a", "durable-j1"}
+    assert (tmp_path / "list.calls").read_text() == "run\nrun\n"
 
 
 def test_a_lane_on_this_mac_whose_worker_finished_with_orcas_follow_up_open_in_its_terminal_records_that_follow_up_and_sends_it_the_resumes_text(

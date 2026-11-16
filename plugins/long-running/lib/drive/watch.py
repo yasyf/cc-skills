@@ -82,8 +82,9 @@ QUIET_LANE = timedelta(minutes=5)
 UNPROMPTED = timedelta(minutes=15)
 KEPT_RETRY = timedelta(hours=1)
 RECLAIMED = "reclaimed by the watch's drive job reclaim once its job was quiet"
-ADOPTED = "its Sprite stayed claimed for this job's lane though no row or death of the job named it, so the watch adopted it for drive job reclaim"
+ADOPTED = "its Sprite stayed up for this job's lane though no row or death of the job named it, so the watch adopted it for drive job reclaim"
 ADOPT_AFTER = timedelta(hours=1)
+SPRITE_LIST = "sprite list"
 LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
 OWED_HAND = timedelta(minutes=2)
@@ -3963,18 +3964,18 @@ def stranded(job_id: str, data: dict, gap: str, unlisted: dict[str, dict]) -> st
     return "; ".join([gap, *tracked, *untracked])
 
 
-def release_lanes(watcher: Watcher, moment: datetime) -> None:
+def release_lanes(watcher: Watcher, moment: datetime) -> list[str]:
     """Free what each job it hears is done with still holds, never what a running job holds, starting each drive verb that frees one as a process of its own, by state.detach, and keeping that process's pid and time on the drive, so a restarted watch reads what every earlier watch asked. First, by one rule, a remote job that is not running holds no Sprite once its worker's turn is over: the own lane of each job whose line set it done, failed or stopped, or set it waiting or built and whose worker then ended its turn or died, by unended, so a live lane waiting on its own question or on a read it asked keeps it, is ended by `drive job end`, which keeps its transcripts, saves what its Sprite holds on no remote and destroys it, every due job's in the pass that reads the event ending its turn, so lanes end as fast as they start, kept as the job's end, so no watch ends that lane again while that end is in_flight, and its Sprite left to that end alone while the end it records on the lane is, ahead of every reclaim, so no reclaim and no install delays an end. Then each Sprite cc-remote still records that an earlier or ended lane of any job left, such as the Sprite a relaunch moved off or one an end kept, destroyed with its Orca environment by --destroy once what it holds on no remote is saved to GitHub as saved/<the job's lane>/<branch>, or else kept by that reclaim, said once and never asked for again; and the dispatch of a done, failed or stopped lane on this Mac once its job has been quiet for QUIET_LANE, as lr's gc --done waited after a lane's last word, whose terminal --run --done closes and whose worktree it removes once clean and pushed, the reclaimer skipping whatever its pauses hold, its death recorded first. Each of those goes to `drive job reclaim`, whose orca.reclaimer kills the reclaimer with every process it started past RECLAIM_SECONDS, kept as the reclaim on the death of the lane that left it, and none asked again while its own is in_flight; what each run printed goes to the watch log."""
     if state.scratch():
-        return
-    adopt_sprites(watcher, moment)
+        return []
+    lines = adopt_sprites(watcher, moment)
     data = state.load(watcher.name)
     heard = {job_id: job for job_id, job in data["jobs"].items() if heard_job(watcher, data, job)}
     ending = [job_id for job_id, job in heard.items() if unended(job, moment)]
     live = {job.get(key) for job in data["jobs"].values() if job["state"] not in state.FINISHED_JOB_STATES for key in ("workspace", "run", "dispatch")} - {None}
     reclaiming = [(job_id, lane) for job_id, job in heard.items() for lane in sorted(lane_holds(job, moment, live) - live) if not in_flight((state.death_on(job, lane) or {}).get("reclaim"), moment)]
     if not ending and not reclaiming:
-        return
+        return lines
     log = state.watch_log_path(watcher.name, watcher.project).name
     with state.edit(watcher.name) as data:
         for job_id in ending:
@@ -3984,39 +3985,47 @@ def release_lanes(watcher: Watcher, moment: datetime) -> None:
             if state.on_mac(job) and lane == job.get("dispatch"):
                 state.lane_died(job, lane, RECLAIMED, moment)
             state.death_on(job, lane)["reclaim"] = {"pid": state.detach(watcher.name, ["job", "reclaim", job_id, lane], log), "at": state.stamp(moment)}
+    return lines
 
 
-def adopt_sprites(watcher: Watcher, moment: datetime) -> None:
-    """Record as a death of its job each Sprite cc-remote's pool holds for a lane of a job the watch hears on a Sprite, claimed ADOPT_AFTER ago or more, that neither the job's row nor any death of it names, as a launch that failed after its claim leaves one, so lane_holds hands it to drive job reclaim like any Sprite a dead lane left."""
-    claimed = pool_claims(watcher.name, moment)
+def adopt_sprites(watcher: Watcher, moment: datetime) -> list[str]:
+    """Record as a death of its job each live Sprite of a lane of a job the watch hears on a Sprite, by pool_claims, that neither the job's row nor any death of it names, at once when the job is done, failed or stopped, else once its records last moved ADOPT_AFTER ago or more, while the job's row names the Sprite its current lane runs on and this Sprite's lane is not that lane, since a job whose launch recorded no Sprite or whose current lane's Sprite this is may have its live worker on it, and so keeps it; and no launch of the job is in flight, as a launch that failed after its claim or a stop that came before the job recorded its Sprite leaves one, so lane_holds hands it to drive job reclaim like any Sprite a dead lane left."""
+    try:
+        claimed = pool_claims(watcher.name)
+    except orca.OrcaError as error:
+        return read_failed(watcher, SPRITE_LIST, error, moment)
+    watcher.failures.pop(SPRITE_LIST, None)
     if not claimed:
-        return
+        return []
     data = state.load(watcher.name)
     found = {
         (job_id, workspace)
-        for workspace, job_id in claimed.items()
+        for workspace, (job_id, lane, moved) in claimed.items()
         if (job := data["jobs"].get(job_id)) and heard_job(watcher, data, job) and not state.on_mac(job)
+        and (job["state"] in state.FINISHED_JOB_STATES or job.get("workspace") and moment - moved >= ADOPT_AFTER and lane != orca.lane_of(watcher.name, job_id, job))
         and job.get("workspace") != workspace and not state.death_on(job, workspace) and not state.launch_in_flight(watcher.name, job_id, job)
     }
     if not found:
-        return
+        return []
     with state.edit(watcher.name) as data:
         for job_id, workspace in found:
             job = data["jobs"][job_id]
             if job.get("workspace") != workspace and not state.death_on(job, workspace):
                 job.setdefault("deaths", []).append({"dispatch": None, "workspace": workspace, "why": ADOPTED, "at": state.stamp(moment)})
+    return []
 
 
-def pool_claims(drive: str, moment: datetime) -> dict[str, str]:
-    """Each Sprite cc-remote's pool holds, prepared or claimed, for a lane of the drive's, with the job whose lane it is, once its record last moved ADOPT_AFTER ago or more and cc-remote still records its workspace."""
+def pool_claims(drive: str) -> dict[str, tuple[str, str, datetime]]:
+    """Each Sprite `sprite list` names that cc-remote still records a workspace for, whose lane, by its cc-remote pool record in whatever state that record is, else by its own name, is a lane of the drive's, with the job whose lane it is, that lane and when its pool record, else its workspace record, last moved; so a Sprite whose pool record went stopped or failed without a destroy, or that a lane started by name with no pool record, is found as well as a claimed one."""
     lane = re.compile(rf"{re.escape(orca.lane_name(drive, 'j0')[:-2])}(j\d+)(?:-\d+)?")
     claims = {}
-    for path in (orca.CC_REMOTE / "pool").glob("pool-*.json"):
-        record = json.loads(path.read_text())
-        if record.get("state") not in ("prepared", "claimed") or not (named := lane.fullmatch(record.get("lane") or "")):
+    for name in orca.sprites():
+        workspace, pooled = orca.CC_REMOTE_WORKSPACES / f"{name}.json", orca.CC_REMOTE / "pool" / f"{name}.json"
+        if not workspace.is_file():
             continue
-        if moment - datetime.fromisoformat(record["updatedAt"]).astimezone() >= ADOPT_AFTER and (orca.CC_REMOTE_WORKSPACES / f"{record['name']}.json").is_file():
-            claims[record["name"]] = named[1]
+        record = json.loads((pooled if pooled.is_file() else workspace).read_text())
+        if named := lane.fullmatch(record.get("lane") or name):
+            claims[name] = (named[1], named[0], datetime.fromisoformat(record["updatedAt"]).astimezone())
     return claims
 
 

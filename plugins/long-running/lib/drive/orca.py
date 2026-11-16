@@ -78,6 +78,9 @@ UNSTARTED = 75
 UNFIT = 76
 CC_REMOTE = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "cc-remote"
 CC_REMOTE_WORKSPACES = CC_REMOTE / "workspaces"
+SPRITE_CLI = "sprite"
+SPRITES_FRESH = 600
+SPRITE_LIST_SECONDS = 60
 CC_REMOTE_TASKS = CC_REMOTE / "orca"
 SPRITE_ANSWERS = ".local/state/long-running/answers"
 SPRITE_LOG_BYTES = 20000
@@ -792,10 +795,10 @@ def reclaim(run: str, dispatch: str, checkout: Path) -> str:
     return reclaimer(checkout, "--run", run, "--done", dispatch)
 
 
-def release(drive: str, job_id: str, job: dict, checkout: Path) -> str:
-    """Destroy the Sprite at the job's workspace, with its Orca environment and forward, once the reclaimer's --destroy has saved what it holds on no remote to GitHub as save does: what it saved and destroyed; OrcaError naming why its checkout could not be read, the save failed, what it still holds, or cc-remote's refusal, which keeps it, or that cc-remote records no such Sprite, so nothing was destroyed."""
-    state.said(job_id, f"it destroys Sprite {job['workspace']} with {RECLAIMER} --destroy, for at most {RECLAIM_SECONDS} s")
-    return reclaimer(checkout, "--destroy", job["workspace"], lane_of(drive, job_id, job))
+def release(drive: str, job_id: str, job: dict, checkout: Path, unverified: bool = False) -> str:
+    """Destroy the Sprite at the job's workspace, with its Orca environment and forward, once the reclaimer's --destroy has saved what it holds on no remote to GitHub as save does, or, unverified, at once when ssh cannot read its checkout even after a revive, as for a superseded attempt's Sprite: what it saved and destroyed; OrcaError naming why its checkout could not be read, the save failed, what it still holds, or cc-remote's refusal, which keeps it, or that cc-remote records no such Sprite, so nothing was destroyed."""
+    state.said(job_id, f"it destroys Sprite {job['workspace']} with {RECLAIMER} --destroy{' --unverified' if unverified else ''}, for at most {RECLAIM_SECONDS} s")
+    return reclaimer(checkout, "--destroy", job["workspace"], lane_of(drive, job_id, job), *(("--unverified",) if unverified else ()))
 
 
 def holds_sprite(job: dict) -> bool:
@@ -832,6 +835,25 @@ def reclaimer(checkout: Path, *args: str) -> str:
         said = done.stderr.strip().splitlines()
         raise OrcaError(f"{RECLAIMER} exited {done.returncode}: {said[-1] if said else 'no output'}")
     return done.stdout.strip()
+
+
+def sprites() -> set[str]:
+    """The name of each Sprite `sprite list` prints, read at most once every SPRITES_FRESH seconds by every watch on this Mac together through one file under the state root, so a Sprite with no cc-remote record is seen too; OrcaError when the list fails or runs past SPRITE_LIST_SECONDS."""
+    listed = state.root() / "sprites.txt"
+    if listed.is_file() and time.time() - listed.stat().st_mtime < SPRITES_FRESH:
+        return set(listed.read_text().split())
+    try:
+        done = grouped([SPRITE_CLI, "list"], timeout=SPRITE_LIST_SECONDS)
+    except subprocess.TimeoutExpired:
+        raise OrcaError(f"sprite list gave no answer in {SPRITE_LIST_SECONDS} s") from None
+    except OSError as error:
+        raise OrcaError(f"the sprite CLI did not run: {error}") from None
+    if done.returncode:
+        raise OrcaError(f"sprite list exited {done.returncode}: {(done.stderr.strip().splitlines() or ['no output'])[-1]}")
+    writing = listed.with_name(f".sprites.{os.getpid()}")
+    writing.write_text(done.stdout)
+    writing.replace(listed)
+    return set(done.stdout.split())
 
 
 def grouped(argv: list[str], *, timeout: float, **given: object) -> subprocess.CompletedProcess[str]:

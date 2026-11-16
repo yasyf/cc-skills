@@ -4368,7 +4368,7 @@ class Kept(DriveError):
 
 
 def job_reclaim(args: argparse.Namespace) -> int:
-    """Free one thing an earlier or ended lane of the job left, which the watch's release_lanes starts as a process of its own: on a Sprite, the one cc-remote records under that workspace, destroyed by orca.release once what it holds on no remote is saved to GitHub as saved/<the job's lane>/<branch>, or else marked kept on that lane's death and refused with Kept, since a Sprite that does not answer, holds what could not be saved or that cc-remote would not destroy may still hold work on no remote, and destroying it unread is his pick, so no watch asks for it again; on this Mac, that dispatch, whose terminal orca.reclaim closes and whose worktree it removes once clean and pushed, then marked freed on its death, so no watch reclaims it again. Either runs the orca plugin's reclaimer from the drive's checkout, moved to its default branch's head first, through orca.reclaimer, which kills it with every process it started past RECLAIM_SECONDS; refused, naming why, for a lane no death of the job records, when the checkout is not moved, or when the reclaimer fails or overruns."""
+    """Free one thing an earlier or ended lane of the job left, which the watch's release_lanes starts as a process of its own: on a Sprite, the one cc-remote records under that workspace, destroyed by orca.release once what it holds on no remote is saved to GitHub as saved/<the job's lane>/<branch>, or, when a newer lane of the job holds another Sprite, so this one is a superseded attempt's, destroyed unverified when ssh cannot read it even after a revive; or else marked kept on that lane's death and refused with Kept, since a job's current Sprite that does not answer, or any Sprite that holds what could not be saved or that cc-remote would not destroy, may still hold work on no remote, so the watch asks for it again in an hour; on this Mac, that dispatch, whose terminal orca.reclaim closes and whose worktree it removes once clean and pushed, then marked freed on its death, so no watch reclaims it again. Either runs the orca plugin's reclaimer from the drive's checkout, moved to its default branch's head first, through orca.reclaimer, which kills it with every process it started past RECLAIM_SECONDS; refused, naming why, for a lane no death of the job records, when the checkout is not moved, or when the reclaimer fails or overruns."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
@@ -4377,7 +4377,7 @@ def job_reclaim(args: argparse.Namespace) -> int:
     root = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
     if not state.on_mac(job):
         try:
-            released = orca.release(name, args.id, {**job, "workspace": args.lane}, root)
+            released = orca.release(name, args.id, {**job, "workspace": args.lane}, root, unverified=bool(job.get("workspace")) and job["workspace"] != args.lane)
         except orca.OrcaError as error:
             with state.edit(name) as data:
                 state.death_on(data["jobs"][args.id], args.lane)["kept"] = state.stamp()

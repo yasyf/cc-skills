@@ -565,7 +565,7 @@ connect or banner that times out or an exit of 0 that prints nothing, revives it
 and reads once more: `sprite checkpoint create` (`WORKER_SPRITE`, else `sprite` on
 PATH), then `sprite restore` of that new checkpoint, which restarts a Sprite whose
 API reads `running` while its sshd and `sprite exec` hang, with its disk as it
-was. The revive goes to stderr, and a read that fails again keeps the Sprite. A branch whose first-parent history begins at a root commit
+was. The revive goes to stderr, and a read that fails again keeps the Sprite, except under `--destroy WORKSPACE LANE --unverified`, which destroys it unsaved and says so: the drive passes that only for a superseded attempt's Sprite, never a job's current worker. A branch whose first-parent history begins at a root commit
 GitHub's default branch shares no history with, such as the
 `cc-notes-source-live-v2` branch cc-notes pins its own records on, is no lane's
 work: `--held`, `--save`, `--destroy` and `--done` all pass over it. It reads through cc-remote alone, so a Sprite whose Dispatch
