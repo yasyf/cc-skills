@@ -16,7 +16,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import ACME_CUT, CAP_RULING, CARD_BODY, card_reads, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, carrying, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, Redraws, SessionLaunches, Thread, WatchProcess, Withdrawals
+from conftest import ACME_CUT, CAP_RULING, CARD_BODY, card_reads, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, Redraws, SessionLaunches, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -830,7 +830,7 @@ def test_job_set_waits_on_the_release_of_a_pr_the_drive_tracks(run: Run, demo: s
     assert state.load("demo")["jobs"]["j1"]["waits"] == [wait]
 
 
-def test_job_set_waits_on_a_part_of_an_order_named_word_for_word_until_a_passing_proof_delivers_what_its_merged_diff_carries(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+def test_job_set_waits_on_a_part_of_an_order_named_word_for_word_until_a_passing_proof_delivers_it(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("order", "add", "--title", "Memory moves", "--project", "The drive", "--workstream", "Drive tooling", "move every team", "--parts", "move every team")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
@@ -846,7 +846,7 @@ def test_job_set_waits_on_a_part_of_an_order_named_word_for_word_until_a_passing
     assert view.holding(state.load("demo"), [wait], None) == [wait]
     with state.edit("demo") as data:
         moved = "https://github.com/Forge-AI/monorepo/pull/8"
-        data["prs"]["Forge-AI/monorepo#8"] = state.new_pr(moved, "j2", "o2") | {"state": "merged", "merged_sha": "ddd444eee555", "checker": carrying("", {"o2": ["move every team"]})}
+        data["prs"]["Forge-AI/monorepo#8"] = state.new_pr(moved, "j2", "o2") | {"state": "merged", "merged_sha": "ddd444eee555"}
         data["jobs"]["j2"]["prs"].append(moved)
         state.take_result(data, "j2", f"DONE {moved} merged, every team moved, its Job succeeded on each cluster")
     assert view.holding(state.load("demo"), [wait], None) == [wait]
@@ -7247,7 +7247,7 @@ def test_a_pr_of_a_two_part_job_naming_one_part_is_judged_alone_against_that_par
     assert cli.main(["pr", "check", PR, "--drive", demo]) == 0
     said, changes = judge.asked[-1]
     assert list(changes) == ["Forge-AI/monorepo#42"]
-    assert "this change delivers: [1] moved-table abstraction\n  other changes deliver: doors close; partitioning\n" in said
+    assert "this change delivers: moved-table abstraction\n  other changes deliver: doors close; partitioning\n" in said
     answered = said.rpartition("his answers that bind the PRs, those their brief carries and those they cite for the design they make:\n")[2]
     assert answered.startswith("953a8c8, ") and answered.endswith(f'asked "{DOORS["title"]}": "Close every door once Env::file_of reads env_id (recommended)\nOptions: Once Env::file_of reads env_id | Now"')
     assert "the coordinator's reading" not in said
@@ -7265,30 +7265,11 @@ def test_a_pr_whose_job_carries_one_part_of_its_order_passes_on_that_part_while_
     run("pr", "add", PR, "--job", "j1", *LEAD)
     run("pr", "add", STACKED, "--job", "j2", *LEAD)
     refused = {"order": "o1", "words": purpose, "file": "", "change": "Agent.purpose still reads the agents table"}
-    monkeypatch.setattr(served, "judged", lambda name, said, changes, parts: judge.asked.append((said, changes)) or {"against": [] if f"other changes deliver: {purpose}" in said else [refused], "carried": []})
+    monkeypatch.setattr(served, "judged", lambda name, said, changes: judge.asked.append((said, changes)) or {"against": [] if f"other changes deliver: {purpose}" in said else [refused]})
     assert cli.main(["pr", "check", PR, "--drive", demo]) == 0
     said, changes = judge.asked[-1]
-    assert (list(changes), f"this change delivers: [1] {sessions}\n" in said) == (["Forge-AI/monorepo#42"], True)
+    assert (list(changes), f"this change delivers: {sessions}\n" in said) == (["Forge-AI/monorepo#42"], True)
     assert state.load(demo)["prs"]["Forge-AI/monorepo#42"]["checker"]["outcome"].startswith(f"{served.CHECKED} against the words of o1 at ")
-
-
-def test_the_check_keeps_the_parts_its_judge_finds_the_diff_carries_by_their_numbers_on_a_not_ready_as_on_a_pass(
-    run: Run, demo: str, judge: Judge
-) -> None:
-    sessions, purpose = "The agent API reads and writes the sessions table", "Purpose moves to the chat's meta, set by an inbox message"
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Agents", "agents live in the sessions table", "--parts", sessions, purpose)
-    run("job", "add", "builder", "--order", "o1", "--part", sessions, "--part", purpose, "--goal", "move the API")
-    run("pr", "add", PR, "--job", "j1", *LEAD)
-    judge.carried = [2]
-    assert cli.main(["pr", "check", PR, "--drive", demo]) == 0
-    assert judge.asked[-1][0].endswith(f"this change delivers: [1] {sessions}; [2] {purpose}")
-    assert state.carried(state.load(demo)["prs"]["Forge-AI/monorepo#42"]) == {"o1": [purpose]}
-    judge.against, judge.carried = [{"order": "o1", "words": purpose, "file": "", "change": "Agent.purpose still reads the agents table"}], [1]
-    with state.edit(demo) as data:
-        data["prs"]["Forge-AI/monorepo#42"]["checked"] = None
-    assert cli.main(["pr", "check", PR, "--drive", demo]) == 0
-    pr = state.load(demo)["prs"]["Forge-AI/monorepo#42"]
-    assert (pr["checker"]["outcome"].startswith(served.NOT_READY), state.carried(pr)) == (True, {"o1": [sessions]})
 
 
 def test_a_pr_set_to_serve_an_order_its_job_carries_is_judged_against_that_order_alone_and_its_builders_pushed_is_kept(
@@ -7300,13 +7281,13 @@ def test_a_pr_set_to_serve_an_order_its_job_carries_is_judged_against_that_order
         state.carry(data, "j1", "o2", [grant])
     recorded.shown["3185177"] = DOORS | {"id": "3185177", "title": "How does a grant reach the guards?", "body": f"{grant}; the guards admit it then, never otherwise. One PR"}
     judge.against = [{"order": "o1", "words": "land it", "file": "", "change": "no moved table"}]
-    monkeypatch.setattr(served, "judged", lambda name, said, changes, parts: judge.asked.append((said, changes)) or {"against": list(judge.against) if '"land it"' in said else [], "carried": []})
+    monkeypatch.setattr(served, "judged", lambda name, said, changes: judge.asked.append((said, changes)) or {"against": list(judge.against) if '"land it"' in said else []})
     assert run("pr", "set", PR, "--serves", "o2", "--design", "asked:3185177")[0] == 0
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}") == (0, "")
     assert cli.main(["pr", "check", PR, "--drive", "demo"]) == 0
     [(said, _)] = judge.asked
     assert (state.served_orders(state.load("demo"), state.load("demo")["prs"][with_pr]), said.startswith("o2, "), '"land it"' in said) == (["o2"], True, False)
-    assert f"this change delivers: [1] {grant}\n" in said and "3185177, " in said
+    assert f"this change delivers: {grant}\n" in said and "3185177, " in said
     assert state.load("demo")["jobs"]["j1"]["said"] == f"PUSHED {PR}"
     assert state.load("demo")["prs"][with_pr]["checked"]["orders"] == ["o2"]
 
@@ -10422,7 +10403,7 @@ def test_pr_set_part_on_a_done_builders_merged_pr_gives_its_job_a_part_of_its_or
     assert f"posted by j1's passing proof: {proof}" in out
 
 
-def test_pr_set_part_on_a_done_builders_merged_pr_names_a_part_of_another_order_its_job_carries_which_the_check_of_its_merged_head_delivers(
+def test_pr_set_part_on_a_done_builders_merged_pr_names_a_part_of_another_order_its_job_carries_which_its_passing_proof_delivers(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "ship the watch", "--parts", "ship the watch")
@@ -10440,10 +10421,8 @@ def test_pr_set_part_on_a_done_builders_merged_pr_names_a_part_of_another_order_
     code, out = run("pr", "set", url, "--part", "stack 2")
     data = state.load("demo")
     assert (code, data["prs"]["yasyf/cc-skills#4582"]["parts"], data["jobs"]["j1"]["parts"], data["jobs"]["j1"]["carries"]) == (0, ["stack 2"], ["ship the watch"], {"o2": ["stack 2"]})
-    assert f"posted by j1's passing proof, a part of another order it carries once the check of its merged head finds the diff carries it: {proof}" in out
-    assert not state.delivered(data, "o2", "stack 2")
-    assert cli.main(["pr", "check", url, "--drive", demo]) == 0
-    assert state.load("demo")["orders"]["o2"]["parts"]["stack 2"]["posted"] == proof
+    assert f"posted by j1's passing proof: {proof}" in out
+    assert data["orders"]["o2"]["parts"]["stack 2"]["posted"] == proof
 
 
 def test_one_post_delivers_each_part_its_report_names_on_every_order_an_item_names(

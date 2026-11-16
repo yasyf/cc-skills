@@ -4401,16 +4401,15 @@ def set_outside(name: str, key: str, url: str, args: argparse.Namespace, dropped
 
 
 def shipped(data: dict, job_id: str, order_id: str, parts: list[str]) -> str:
-    """Give a done job the parts of the order its merged PR shipped without holding, by his answer 431352e, so the job owes them and its passing proof delivers them, by state.deliver_proven, at once when its said line is that proof's DONE and else once drive job prove runs its proof file, a part of another order it carries once the check of the merged head finds the diff carries it; the line saying which."""
+    """Give a done job the parts of the order its merged PR shipped without holding, by his answer 431352e, so the job owes them and its passing proof delivers them, by state.deliver_proven, at once when its said line is that proof's DONE and else once drive job prove runs its proof file; the line saying which."""
     job = data["jobs"][job_id]
     held = [part for held_order in [job["order"], *job["carries"]] for part in state.job_parts(job, held_order)]
     if unheld := [part for part in parts if part not in held]:
         state.deliver(data, job_id, order_id, unheld)
-    checked = ", a part of another order it carries once the check of its merged head finds the diff carries it" if any(part not in data["orders"][order_id]["parts"] for part in parts) else ""
     if not (proven := state.PROVEN_LINE.match(job["said"] or "")):
-        return f"\n{job_id} holds them, and drive job prove delivers them once its proof file exits 0{checked}"
+        return f"\n{job_id} holds them, and drive job prove delivers them once its proof file exits 0"
     state.deliver_proven(data, job_id, proven["proof"])
-    return f"\nposted by {job_id}'s passing proof{checked}: {proven['proof']}"
+    return f"\nposted by {job_id}'s passing proof: {proven['proof']}"
 
 
 def refuse_a_part_its_job_lacks(data: dict, key: str, parts: list[str], delivers: bool, done: str) -> None:

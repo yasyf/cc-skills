@@ -654,8 +654,15 @@ def done_unproven(data: dict, job_id: str) -> bool:
 
 
 def done_before_proofs(data: dict, job_id: str) -> bool:
-    """Whether the job's own DONE, as own_done reads it, was taken before the drive's own_done_proofs_since, so no proof of it is to come and no gap is said on the parts it holds."""
-    return own_done(data, job_id) and before_own_done_proofs(data, job_id)
+    """Whether the job's own DONE was taken before the drive's own_done_proofs_since, so no proof of it is to come and no gap is said on the parts it holds: its said line, as own_done reads it, or, on a done builder or codex job owing work whose said line an older install kept without its DONE, such as `#53689 live: …`, its newest return opening DONE."""
+    if not before_own_done_proofs(data, job_id):
+        return False
+    job = data["jobs"][job_id]
+    if own_done(data, job_id):
+        return True
+    if job["kind"] not in state.CHANGE_KINDS or job["state"] != "done" or (job["said"] or "").startswith("DONE") or not state.owed_work(data, job_id):
+        return False
+    return next((state.opening(reply["body"]) for reply in state.returns(data["name"], job_id)), "").startswith("DONE")
 
 
 def own_done(data: dict, job_id: str) -> bool:
