@@ -118,8 +118,6 @@ def report_line(name: str, seq: str) -> str:
     text = made["text"].strip()
     if strays := [url for url in answer.URL.findall(json.dumps(made)) if url not in words and url not in corrected]:
         raise DriveError(f"its post links {strays[0]}, which the report does not print")
-    if f"{{record:{seq}|" not in text and made.get("place") != "edit":
-        text = f"{text} ({{record:{seq}|its facts}})"
     if findings := slack.post_findings(text, bool(made.get("blocks")) and "{card:" in text):
         text = fixes.mended(text, findings, state.now())
         if findings := slack.post_findings(text, False):
@@ -552,7 +550,8 @@ def shown(name: str, post: dict) -> tuple[list[dict], str, list[str]]:
 def posted(name: str, post: dict, order: str | None = None, receipt: dict | None = None) -> dict:
     """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, naming each message of his it answers for the watch's daily sweep, the dashboard drawing each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post that draws a card stores his cards as cc-slack lists them now, so the next post's hook sees that card; a post check refuses goes nowhere, and every cc-slack call making the post carries the post's request key, so a retry gets back each message Slack already holds under it. A post at his DM root goes at the root of its project's operator channel when it has one, the project `project` names. A card's line goes in each thread of his DM or an operator channel its PRs' orders have, and through cc-slack reply in the thread outside his DM the post names, such as an alert's, so whichever he reads carries the card's link, and the thread of each PR card drawn joins every order its PRs serve; the post's permalink is then that line's. A post of words in a thread is kept, by `keep_line`, as the line that thread holds about each card of his it links. A post say records on order keeps receipt, its record and close report, and starts its recorder the moment cc-slack returns it, ahead of every drive write after it, the receipt's path and the recorder's pid then its recorder."""
     text = post.get("text") or ""
-    found = refs.resolved(name, text)
+    blocks = json.loads(post["blocks"]) if isinstance(post.get("blocks"), str) else post.get("blocks")
+    found = refs.resolved(name, "\n".join([text, *block_words(blocks)]))
     check(name, post)
     visuals, words, lifted = shown(name, post)
     card = post.get("card")
@@ -560,6 +559,10 @@ def posted(name: str, post: dict, order: str | None = None, receipt: dict | None
     data = state.load(name)
     dm = slack.dm()
     sent = refs.slack(words, found, shown_in(name, post))
+    if blocks:
+        post = post | {"blocks": linked_blocks(blocks, found, shown_in(name, post))}
+    if leftover := unrendered([sent, *block_words(post.get("blocks"))]):
+        raise DriveError(f"nothing posted: its words would show {leftover!r} as typed, a reference or stub say draws nothing for; name it as say's tool description does, or drop it")
     pictures = [*(visual["picture"] for visual in visuals if "picture" in visual), *lifted]
     asked = cli.asked_on(name, card["waits"]) if card and card.get("waits") else set()
     standing = None if card or post.get("edit") else asked_already(name, data, stack)
@@ -874,6 +877,41 @@ def replied(post: dict, pictures: list[str], sent: str) -> list[str]:
     argv = ["reply" if thread else "send", "--agent", "claude", "--channel", post["channel_id"], *thread, "--text", sent]
     argv += [flag for path in pictures for flag in ("--file", path)]
     return argv + blocked(post) + keyed(post) + ticketed(post)
+
+
+STUB = re.compile(r"^\W*\(?(?:its facts|the facts|facts|source|record)\)?\W*$", re.IGNORECASE)
+
+
+def block_words(blocks: object) -> list[str]:
+    """Each mrkdwn or plain text a Block Kit array holds, wherever it nests."""
+    if isinstance(blocks, dict):
+        return [blocks["text"]] if isinstance(blocks.get("text"), str) and blocks.get("type") in ("mrkdwn", "plain_text") else [word for value in blocks.values() for word in block_words(value)]
+    if isinstance(blocks, list):
+        return [word for value in blocks for word in block_words(value)]
+    return []
+
+
+def linked_blocks(blocks: object, found: dict[str, dict], thread: str | None) -> object:
+    """The blocks with each reference in their mrkdwn linked as say links the post's text, so a block never shows a {pr:} as typed."""
+    if isinstance(blocks, dict):
+        if blocks.get("type") == "mrkdwn" and isinstance(blocks.get("text"), str):
+            return blocks | {"text": refs.slack(blocks["text"], found, thread)}
+        if blocks.get("type") == "plain_text" and isinstance(blocks.get("text"), str):
+            return blocks | {"text": re.sub(r"<[^|<>]+\|([^<>]+)>", r"\1", refs.slack(blocks["text"], found, thread))}
+        return {key: linked_blocks(value, found, thread) for key, value in blocks.items()}
+    if isinstance(blocks, list):
+        return [linked_blocks(value, found, thread) for value in blocks]
+    return blocks
+
+
+def unrendered(texts: list[str]) -> str | None:
+    """The first reference token or stub line words about to go to Slack still hold: a {kind:…} say draws nothing for, or a line such as "(its facts)" that says nothing, by 732252, where a drive post showed {pr:56973} and {order:o1339} as typed."""
+    for text in texts:
+        if token := re.search(r"\{(?:card|pr|order|record|answer|started|at|release):[^{}]*\}", text):
+            return token[0]
+        if stub := next((line for line in text.splitlines() if line.strip() and STUB.match(line)), None):
+            return stub.strip()
+    return None
 
 
 def blocked(post: dict) -> list[str]:

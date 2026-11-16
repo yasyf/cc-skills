@@ -486,6 +486,13 @@ def test_say_words_a_bare_link_itself_since_another_hooks_updated_input_can_drop
     assert ([argv[-1] for argv in posts], checked.texts) == ([f"The new freeze holds until 9:00 AM tomorrow (<{freeze}|the message>). <{freeze}|See the freeze>."], [])
 
 
+def test_say_posts_no_reference_token_or_stub_line_its_text_or_blocks_still_hold_as_typed(demo: str, posts: list[tuple[str, ...]]) -> None:
+    for post in ({"text": "The fix {pr: 56973} is up."}, {"text": "The fix is up.\n(its facts)"}, {"text": "The fix is up.", "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "*Order* {order: o1339}"}}]}):
+        with pytest.raises(DriveError, match="nothing posted: its words would show"):
+            talk.say(demo, post)
+    assert posts == []
+
+
 def test_say_posts_the_words_its_hook_judged_and_checks_none_of_them_again(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:
     checked.findings = ["1:5 drive-term 'fence': say what happens to the reader's work instead"]
     with state.edit(demo) as data:

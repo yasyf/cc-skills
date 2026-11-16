@@ -96,9 +96,7 @@ COMMUNICATOR_RULES = (
         " Slack post, card or release he must see, never send him looking. A picture beats a paragraph for several states, a"
         " before and after, or a path or timeline; send one. Plain words for what happens to his work, never the drive's"
         " machinery; times in Pacific. Before: \"j812 opened PR 912, CI running\"; after: \"*The timeout fix is up for"
-        " review.* <link|The fix> retries once. *Next:* CI.\" Generalize the move; communicator.md has more. say posts exactly where you name, channel_id and thread_ts: in a project or priority channel a new update, release step or decision goes at the root, and a direct answer to his message, or a follow-up on its subject, goes in his thread. One post per thing, a correction an edit. say runs `cc-slack check-post` on every post of yours, fixes"
-        " what is mechanical, a UTC stamp, a zone label, a bare link, a long paragraph, and posts it in the same call, warning you of"
-        " the rest and of one quick Jev read against this standard: nothing comes back to rewrite, so write it right the first time."
+        " review.* <link|The fix> retries once. *Next:* CI.\" Generalize the move. say posts exactly where you name, channel_id and thread_ts: in a project or priority channel a new update, release step or decision goes at the root, and a direct answer to his message, or a follow-up on its subject, goes in his thread. One post per thing, a correction an edit. say fixes what is mechanical, a UTC stamp, a bare link, a long paragraph, and posts in the same call, warning you of the rest: write it right the first time."
     ),
     (
         "His instruction is the go-ahead, by his words \"why is it asking me to confirm in general when I literally just said it\":"
