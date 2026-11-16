@@ -51,6 +51,9 @@ COMPONENTS = re.compile(r"^components:\n((?:[ -].*(?:\n|$))*)", re.MULTILINE)
 PART_ENVS = re.compile(r"^    envs: \[([^\]]*)\]", re.MULTILINE)
 SCOPE_WORDS = 'his words on Nov 15, 2026, "why are you leaving stuff out? you should make sure everything including sand-next is working and has not broken anything and then release it all"'
 MANUAL_TARGET = re.compile(r"^    manual: true\s*$", re.MULTILINE)
+NAMED_TARGET = re.compile(r"^    named: true\s*$", re.MULTILINE)
+EVERYTHING = "everything"
+INFRA_TARGETS = ("infra", "ci-infra")
 LISTED_PARTS = re.compile(r"^    components:\n((?:    - .*(?:\n|$))+)", re.MULTILINE)
 OPUS_RULES = (
     "You answer a drive's questions about the JSON `state` it gives you, most of them about his words: the words of the one person whose"
@@ -1263,12 +1266,20 @@ def spoken(release: dict, words: str, cwd: str) -> bool:
 
 
 def shipped_parts(release: dict, cwd: str) -> set[str]:
-    """The components a release ships, as go/ci reads its flags: those of each target it names, by target_parts(), less each `--exclude` names and each component `--without` names whole, and only those `--only` names when it names any; none when it names a target the targets file does not."""
-    parts = target_parts(cwd)
-    if any(target not in parts for target in release["targets"]):
+    """The components a release ships, as go/ci reads its flags: those of each target it names, by picked_targets(), and target_parts(), less each `--exclude` names and each component `--without` names whole, and only those `--only` names when it names any; none when it names a target the targets file does not."""
+    parts, picked = target_parts(cwd), picked_targets(release, cwd)
+    if any(target not in parts for target in picked):
         return set()
-    ships = {part for target in release["targets"] for part in parts[target]} - {*release.get("exclude", ()), *release.get("without", ())}
+    ships = {part for target in picked for part in parts[target]} - {*release.get("exclude", ()), *release.get("without", ())}
     return ships & {only.partition("/")[0] for only in release["only"]} if release.get("only") else ships
+
+
+def picked_targets(release: dict, cwd: str) -> list[str]:
+    """The targets a start names, as go/ci's Said.shipped reads them: `everything` stands for every target but those `manual: true` or `named: true` keep for a start naming them, as sand-next is, and but INFRA_TARGETS unless the start names infra or passes --infra, which adds infra."""
+    named = [*release["targets"], *(["infra"] if "infra" in release else [])]
+    infra = "infra" in named
+    whole = [target for target, block in target_blocks(cwd) if not MANUAL_TARGET.search(block) and not NAMED_TARGET.search(block) and (infra or target not in INFRA_TARGETS)]
+    return list(dict.fromkeys(target for name in named for target in (whole if name == EVERYTHING else [name])))
 
 
 def target_blocks(cwd: str) -> list[tuple[str, str]]:

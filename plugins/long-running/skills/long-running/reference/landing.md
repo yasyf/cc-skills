@@ -738,12 +738,16 @@ the patch.
   everything including sand-next is working and has not broken anything and then release it
   all". Whoever writes the start reads its scope fresh from that ruling each time, never from an
   earlier plan or a reader's choice; the whole platform is every target in `release/targets.yaml`
-  except `manual: true` targets and those whose every component runs only off production. A
+  except `manual: true` targets and those whose every component runs only off production. A start
+  of `everything` is no whole platform: go/ci leaves out of it each `named: true` target, such as
+  sand-next, and infra and ci-infra unless it passes `--infra`, so name each of those too. A
   target the job wants left out needs a failing test, drawn on his card as `<target> fails:
   <the failing test>`; the `--without` rung above names each target it drops that way. A target
-  his ruling excludes is written in the ASK as `<target> left out by his <id>: "<his words>"`,
-  quoting his newest recorded ruling on a release. `drive job ask` refuses a card naming a
-  production `ci release start` in backticks that leaves out a target by neither. The start itself
+  his ruling excludes is drawn on his card the same way, as `<target> left out by his <id>: "<his
+  words>"` quoting his newest recorded ruling on a release, so the card lists every target the
+  start leaves out beside his words; a line kept under `Findings:` alone never reaches him.
+  `drive job ask` refuses a card naming a production `ci release start` in backticks that leaves
+  out a target by neither. The start itself
   is checked by its target list, whatever any card says: `drive job add --release`, `drive job
   held --release` and the `landing_guard` hook refuse a production start shipping more than half
   the platform's targets that leaves one out, unless the starting job's goal or brief records

@@ -12955,3 +12955,60 @@ def test_a_parse_never_hands_a_verb_the_list_its_parser_keeps_as_a_default() -> 
     first.part.append("a part")
     again = cli.parsed(["job", "set", "j1"])
     assert (again.waits, again.part, cli.parser() is cli.parser()) == ([], [], True)
+
+
+RELEASE_TWO_TARGETS = ("db", "platform", "llm-gateway", "restate", "runtime-api-next", "cloudrunner-next", "executor", "browser", "code-sandbox", "iris-agent-runner", "microvm", "tunnel", "dashboard")
+PLATFORM_TARGETS = "".join(
+    f"  {target}:\n    components: [{target}]\n" for target in (*RELEASE_TWO_TARGETS, "desktop", "sand", "sand-extensions", "sandsql", "infra", "ci-infra")
+) + "  sand-next:\n    named: true\n    components: [sand-next]\n  reco:\n    manual: true\n    components: [reco]\n"
+RELEASE_TWO = f"tools/ci release start --targets {','.join(RELEASE_TWO_TARGETS)} --without sandsql,plat-usw2-staging --order 9bce65a1"
+SCOPE_ASK = """ASK Start the release on production now?
+Drive tooling: your pick decides whether production gets the tested commit tonight.
+{drawn}
+- Start it now (recommended)
+  Runs `{release}` once.
+- Hold it
+  Nothing starts tonight.
+Findings:
+Root cause: none: this asks whether to start a release.
+First principles: Start it now
+Simplest: Start it now
+Holds: none: no option alters what any job builds.
+{findings}
+"""
+SSQL_LEFT_OUT = 'sandsql left out by his 9bce65a: "everything but ssql"'
+SECOND_RELEASE = {"answer": "9bce65a1", "asked": "how do the second and third releases go?", "words": "Work on the second release then, everything but ssql", "at": "2026-11-15T22:54:43Z"}
+
+
+def test_release_twos_start_names_each_of_the_six_targets_it_leaves_out_and_not_the_sandsql_his_quoted_words_leave_out(tmp_path: Path) -> None:
+    (tmp_path / "release").mkdir()
+    (tmp_path / "release" / "targets.yaml").write_text(f"targets:\n{PLATFORM_TARGETS}")
+    [flags] = brief.started(RELEASE_TWO)
+    assert settled.unexcused(settled.shipped(flags), str(tmp_path), SSQL_LEFT_OUT, [SECOND_RELEASE]) == ["desktop", "sand", "sand-extensions", "infra", "ci-infra", "sand-next"]
+
+
+def test_a_start_of_everything_names_the_named_and_infra_targets_go_ci_leaves_out_of_it_until_the_start_names_them(tmp_path: Path) -> None:
+    (tmp_path / "release").mkdir()
+    (tmp_path / "release" / "targets.yaml").write_text(f"targets:\n{PLATFORM_TARGETS}")
+
+    def left_out(start: str) -> list[str]:
+        [flags] = brief.started(f"tools/ci release start {start} --without sandsql --order 9bce65a1")
+        return settled.unexcused(settled.shipped(flags), str(tmp_path), SSQL_LEFT_OUT, [SECOND_RELEASE])
+
+    assert left_out("everything") == ["infra", "ci-infra", "sand-next"]
+    assert left_out("--targets everything --infra") == ["sand-next"]
+    assert left_out("--targets everything,sand-next --infra") == []
+
+
+def test_a_release_card_lists_each_target_its_start_leaves_out_beside_his_words_on_the_card_never_under_findings_alone(tmp_path: Path) -> None:
+    (tmp_path / "release").mkdir()
+    (tmp_path / "release" / "targets.yaml").write_text(f"targets:\n{PLATFORM_TARGETS}")
+    data = {"roles": {"coordinator": {"cwd": str(tmp_path)}}}
+    whole = RELEASE_TWO.replace("dashboard ", "dashboard,desktop,sand,sand-next,sand-extensions,infra,ci-infra ")
+
+    def refused(drawn: str, findings: str) -> list[str]:
+        text = SCOPE_ASK.format(drawn=drawn, findings=findings, release=whole)
+        return [problem.split(",")[0] for problem in cli.release_scope(data, limits.question(text), text, [SECOND_RELEASE])]
+
+    assert refused("", SSQL_LEFT_OUT) == ["its release leaves out sandsql"]
+    assert refused(SSQL_LEFT_OUT, "") == []
