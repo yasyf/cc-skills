@@ -4815,8 +4815,10 @@ def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: da
     """Record each worker's death on its job: a remote lane's, by its dispatch, or a running local job's agent's, by its agent, and say it once for a running job, whose worker is replaced that pass by `drive job resume` as a process of its own, its pid kept on the death so no later pass starts a second: a Sprite lane's is resumed in its own Claude session on its Sprite, or else relaunched, and an agent's is handed to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs. A running job busy reads another drive verb acting on has its death neither recorded nor said, so the first pass after that verb ends relaunches it, or reads the next worker that verb started. A waiting job's death asks no step, since his answer reaches it through drive job resume whether or not its lane lives, so it is recorded and not said: its Sprite is freed by the `drive job end` release_lanes runs on every remote job that is not running once its worker's turn is over, as its death makes it, which copies its Sprite's Orca runtime and worker logs to the drive's folder before the Sprite goes, and its lane on this Mac just waits; a job that runs again on the lane that died while it waited has that death relaunched once, as if it died running. A job stopped, done or failed since the pass read it has the death recorded and nothing started or said. A running Sprite lane's line names the file in the drive's folder that resume copies those logs to, and, when another lane of the job died with a cause since its last line, where and when that one died, never its cause, since the resume judges this death from those logs alone and moves the job to this Mac unless those logs show its Sprite rebooted after its worker started, failed on its own or did not answer while GitHub holds the job's branch."""
     if not deaths:
         return []
-    lines = []
-    with state.edit(watcher.name) as data:
+    at = state.stamp(moment)
+
+    def claim_relaunches(data: dict) -> tuple[list[str], dict[str, object]]:
+        lines, claims = [], {}
         for job_id, (worker, why) in deaths.items():
             job = data["jobs"][job_id]
             if job["state"] in state.FINISHED_JOB_STATES or job.get("where") == "remote" and job["state"] == "waiting":
@@ -4827,8 +4829,9 @@ def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: da
             if job[state.worker_key(job)] != worker or not relaunchable(state.lane_death(job), moment) or busy(watcher, job_id, moment):
                 continue
             state.lane_died(job, worker, why, moment)
-            tries = (state.lane_death(job).get("relaunch") or {}).get("tries", 0) + 1
-            state.lane_death(job)["relaunch"] = {"pid": relaunch(watcher, job_id, moment), "at": state.stamp(moment), "tries": tries}
+            claims[job_id] = state.lane_death(job).get("relaunch")
+            tries = (claims[job_id] or {}).get("tries", 0) + 1
+            state.lane_death(job)["relaunch"] = {"pid": os.getpid(), "at": at, "tries": tries}
             if job.get("where") != "remote":
                 lines.append(
                     f'LANE {job_id} {job["order"]} died as agent {worker} on this Mac: {why}, while it worked on "{cut(job["said"] or job["goal"], 60)}". The watch ran'
@@ -4843,6 +4846,28 @@ def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: da
                 f'LANE {job_id} {job["order"]} died {orca.place(job)}: {why}, while it worked on "{cut(job["said"] or job["goal"], 60)}".'
                 f" The watch ran drive job resume {job_id}, which {logs}{again}, its output in the drive's {RELAUNCHES_LOG}"
             )
+        return lines, claims
+
+    lines, claims = state.update(watcher.name, None, claim_relaunches)
+    spawned: dict[str, int] = {}
+
+    def own(data: dict) -> None:
+        for job_id, before in claims.items():
+            for death in data["jobs"][job_id]["deaths"]:
+                if (claim := death.get("relaunch")) and claim["pid"] == os.getpid() and claim["at"] == at:
+                    if job_id in spawned:
+                        death["relaunch"] = claim | {"pid": spawned[job_id]}
+                    elif before is None:
+                        death.pop("relaunch")
+                    else:
+                        death["relaunch"] = before
+
+    try:
+        for job_id in claims:
+            spawned[job_id] = relaunch(watcher, job_id, moment)
+    finally:
+        if claims:
+            state.update(watcher.name, tuple(("jobs", job_id) for job_id in claims), own)
     return lines
 
 
