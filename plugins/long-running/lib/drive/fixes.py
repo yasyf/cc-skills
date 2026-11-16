@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 PACIFIC = ZoneInfo("America/Los_Angeles")
 FINDING = re.compile(r"^\d+:\d+ ([\w-]+) (['\"])(.*?)\2: ")
 STAMP = re.compile(r"`?\b(?:(\d{4}-\d{2}-\d{2})[T ])?(\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?(?:Z| ?\(?UTC\)?| ?GMT)(?![\w])`?")
-ZONE = re.compile(r" ?\(?\b(?:UTC|GMT)\b\)?")
+ZONE = re.compile(r" ?\(?\b(?:UTC|GMT|PST|PDT|PT)\b\)?")
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z*_<`\"(])")
 TIMES = {"machine-time", "zone-label"}
 MOST_SENTENCES = 3
@@ -63,7 +63,7 @@ def split(paragraph: str) -> str:
 
 
 def mended(text: str, findings: list[str], moment: datetime) -> str:
-    """The post with each `cc-slack check-post` finding whose fix is mechanical made, so it goes out in one pass: a log's UTC stamp and a zone label as the Pacific time with no label, a bare link on words saying what it opens, and a paragraph over three sentences cut into parts. Every other finding is left for the writer."""
+    """The post with each `cc-slack check-post` finding whose fix is mechanical made, so it goes out in one pass: a log's UTC stamp as the Pacific time and any zone label dropped, a bare link on words saying what it opens, and a paragraph over three sentences cut into parts. Every other finding is left for the writer."""
     found = kinds(findings)
     if TIMES & found.keys():
         text = ZONE.sub("", STAMP.sub(lambda match: pacific(match, moment), text))

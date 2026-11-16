@@ -2574,9 +2574,6 @@ def named_lines(watcher: Watcher, data: dict, link: str, moment: datetime) -> li
 
         def named_write(saved: dict, seat=seat, renamed=renamed, purpose=purpose):
             saved["slack"]["channels"][seat] |= {"name": renamed["name"], "purpose": purpose}
-            for held in [saved["roles"].get("communicator"), saved["communicators"].get(seat)]:
-                if held:
-                    held.pop("rules", None)
 
         state.update(watcher.name, None, named_write)
         if renamed["name"] != made["name"]:
@@ -2932,8 +2929,6 @@ def retire_communicator(name: str, seat: str) -> str:
     def retire_communicator_write(saved: dict):
         saved["communicators"].pop(seat)
         saved["launched"].pop(f"communicator {seat}", None)
-        if root := saved["roles"].get("communicator"):
-            root.pop("rules", None)
 
     state.update(name, None, retire_communicator_write)
     return f"retired the communicator for {seat}, session {session}: its channel #{data['slack']['channels'][seat]['name']} had no message of his owed for {minutes(COMMUNICATOR_IDLE)} minutes, so the drive's communicator holds it again until his next message there starts one"

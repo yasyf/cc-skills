@@ -1182,7 +1182,7 @@ def mechanical(payload: dict) -> dict:
     if tool_input is payload["tool_input"]:
         return said
     context = "message_limits: the post went out with its UTC times, zone labels, bare links and long paragraphs fixed as `cc-slack check-post` names them."
-    return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow", "updatedInput": tool_input, "additionalContext": "\n".join(filter(None, [context, (said.get("hookSpecificOutput") or {}).get("additionalContext")]))}}
+    return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": tool_input, "additionalContext": "\n".join(filter(None, [context, (said.get("hookSpecificOutput") or {}).get("additionalContext")]))}}
 
 
 def hook_output(payload: dict) -> dict:

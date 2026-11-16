@@ -796,7 +796,7 @@ def test_a_seats_communicator_holds_its_channel_alone_and_its_records_and_its_su
     assert state.alias(demo, "communicator", "Iris") == f"{demo}-iris-communicator"
     assert render.hold_line(data, "communicator", "Iris") == "Hold with slack_watch: #him-drive-demo-iris C777"
     assert render.hold_line(data, "communicator").startswith("Hold with slack_watch: his DM D123, #him-drive-demo C666; slack_unwatch")
-    assert "rules" not in data["roles"]["communicator"]
+    assert agents.due_rules(data, "talker") == [render.hold_line(data, "communicator")]
     posted: list[tuple[str, list[dict]]] = []
 
     def post(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:

@@ -6384,8 +6384,6 @@ def open_channel(name: str, project: str | None) -> dict:
     made = slack.cc_slack("operator-channel", slack.seat_channel_name(name, state.load(name), project))
     def open_channel_write(fresh: dict):
         fresh["slack"]["channels"][project or ""] = fresh["slack"]["channels"].get(project or "", {}) | {"id": made["id"], "name": made["name"]}
-        if held := fresh["roles"].get("communicator"):
-            held.pop("rules", None)
 
     state.update(name, None, open_channel_write)
     slack.whoami.cache_clear()

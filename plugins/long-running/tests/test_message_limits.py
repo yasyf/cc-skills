@@ -1242,7 +1242,7 @@ def test_the_communicators_own_post_goes_out_in_one_call_with_each_mechanical_ch
     late = payload | {"tool_input": payload["tool_input"] | {"text": "It failed at 2026-11-16T09:15:42Z. See https://github.com/acme/app/pull/12 for the fix."}}
     checked.findings = ["1:14 machine-time '2026-11-16T09:15:42Z': write it in the team's local time", "1:39 bare-url 'https://github.com/acme/app/pull/12': wrap it as <url|short label>"]
     fixed = message_limits.hook_output(late)["hookSpecificOutput"]
-    assert fixed["permissionDecision"] == "allow"
+    assert "permissionDecision" not in fixed
     assert fixed["updatedInput"]["text"].startswith("It failed at ")
     assert "1:15 AM" in fixed["updatedInput"]["text"]
     assert "<https://github.com/acme/app/pull/12|PR #12>" in fixed["updatedInput"]["text"]
