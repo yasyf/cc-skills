@@ -1093,8 +1093,8 @@ def unroomed(post: int, parts: list[tuple[str, int]]) -> str:
 
 
 def own_communicator(payload: dict) -> bool:
-    """Whether the post is the communicator's own, typed in its turn, not a subagent's or the watch's run of these checks under its session."""
-    return not payload.get("agent_id") and not str(payload.get("tool_use_id") or "").startswith("watch-") and his_drive(payload.get("session_id") or "") is not None
+    """Whether the post is the communicator's own, typed in its turn or by a research subagent it started, which posts its answer to him itself, by his words "handing off to a subagent (with the relevant context handed to it) to do some further research then respond", not a drive agent's or the watch's run of these checks under its session."""
+    return (not payload.get("agent_id") or bool(payload.get("agent_type")) and not payload["agent_type"].startswith("long-running:")) and not str(payload.get("tool_use_id") or "").startswith("watch-") and his_drive(payload.get("session_id") or "") is not None
 
 
 CRAFT_SECONDS = 5
