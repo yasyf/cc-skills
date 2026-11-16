@@ -683,8 +683,8 @@ def test_j3986_a_drive_saved_keying_his_rulings_as_typed_keys_each_by_its_full_i
     drive = state.load("demo")
     assert listed == [["ccn", "answer", "list", "--limit", "0", "--include-superseded", "--json"]]
     assert drive["answers"] == {
-        ruling: kept | {"at": early, "said": late, "cards": {"demo:j1-1": dropped, "demo:j1-2": {"mark": "stands"}}, "jobs": {"j1": {"mark": "sent"}}},
-        other: kept | {"at": late, "said": late, "cards": {}, "jobs": {}},
+        ruling: kept | {"at": early, "said": late, "cards": {"demo:j1-1": dropped, "demo:j1-2": {"mark": "stands"}}, "jobs": {"j1": {"mark": "sent"}}, "approves": None},
+        other: kept | {"at": late, "said": late, "cards": {}, "jobs": {}, "approves": None},
     }
     assert (drive["jobs"]["j1"]["questions"][0]["closed"]["ruling"], drive["jobs"]["j1"]["brief_flags"]["ruling"]) == (other, [ruling, "deadbee"])
     with state.edit("demo"):
@@ -2515,3 +2515,19 @@ def test_a_handoff_is_owed_until_a_job_it_or_a_record_re_it_names_or_the_job_tha
     assert state.owed_handoffs(data, ["o146"]) == ([handoff] if owed else [])
     state.answer_handoffs(data, [("719716", "withdraw", {})])
     assert state.owed_handoffs(data, ["o146"]) == []
+
+
+def test_his_approval_covers_work_on_its_order_until_a_newer_answer_supersedes_it_or_he_holds_a_pr_it_covers(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    data = staging_drive("j1")
+    key = f"{MONOREPO}#42"
+    data["prs"] = {key: state.new_pr(state.pr_url(key), "j1", "o1")}
+    approves = {"orders": ["o1"], "keys": [], "on": ["o1"], "asked": "Drive tooling", "said": "stuff like this has my approval", "held": None}
+    data["answers"] = {"2164dcb0": {"words": approves["said"], "link": "terminal", "at": "", "said": "", "cards": {}, "jobs": {}, "approves": approves}}
+    gone: set[str] = set()
+    monkeypatch.setattr(settled, "replaced", lambda cwd: gone)
+    assert settled.approved_by(data, key, "o1", {}) == "2164dcb0"
+    gone.add("2164dcb0")
+    assert settled.approved_by(data, key, "o1", {}) is None
+    gone.clear()
+    state.end_approvals(data, key, None)
+    assert (settled.approved_by(data, key, "o1", {}), approves["held"]["pr"]) == (None, key)

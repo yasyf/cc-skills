@@ -838,6 +838,8 @@ def answered(ask: dict) -> dict:
             if entry["state"] != "open" or len(members) > 1 and land.approved(entry) or ask["action_ts"] and (entry["tap"] or {}).get("action_ts") == ask["action_ts"]:
                 continue
             picked = {wait: pick | {"seq": None} for wait, pick in picks(data, entry, found).items()} if ask["label"] == "Approve" else {}
+            if ask["label"] == "Hold":
+                state.end_approvals(data, member, entry["tap"])
             entry["tap"] = state.new_tap(ask["label"], ask["heads"].get(member, entry["head"]), ask["source"], ask["action_ts"], picks=picked, card=asked and entry.get("stack") or [member])
             entry["fundamental"] = None
             entry["updated"] = entry["tap"]["at"]

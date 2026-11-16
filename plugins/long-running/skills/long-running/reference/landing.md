@@ -152,8 +152,14 @@ for its repository says, then return `DONE <proof>`.
   lines it changes keeps the rest and redraws his card. Only a port (`--port-of <N>`), an exempt class (`--exempt <class>`), a PR of a `Drive tooling:`
   order outside `Forge-AI`, or one added with `--no-tap --why "<reason>"` waits on none; a `Forge-AI`
   PR waits on his tap whoever opened it and whatever order it serves, unless an exempt class covers
-  it, and `drive pr add` and `drive pr set` refuse `--no-tap` on one, since only his tap or an exempt
-  class lands it.
+  it or his standing approval does, and `drive pr add` and `drive pr set` refuse `--no-tap` on one,
+  since only his tap, his approval or an exempt class lands it. His approval is the mark
+  `drive answer <id> --approves <order or key>...` keeps on his answer: a PR first registered on an
+  order it names, or one Opus reads as inside its words and Notes, takes his Approve from that
+  answer's link, so no card draws and its order's thread gets one progress line naming
+  `{answer:<id>}`. A check against his words that objects takes that Approve back, so his card asks
+  him, by his "given my constraints"; his Hold on a PR it covers, the close of its orders or a newer
+  answer of his superseding it ends it.
 - Return `PUSHED <url>` once, the moment the head you mean to ship is pushed and registered, with CI and
   review still running. `READY` counts only on a green required check: the watch holds a `PUSHED`,
   waking nobody, until its first GitHub read after the take finds green every check the rules of its repository's default
