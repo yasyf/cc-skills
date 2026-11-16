@@ -121,6 +121,8 @@ CUT_OFF = (
 )
 LIVE_JOB_STATES = ("running", "waiting")
 SAFEGUARDED = "stopped by its model's safeguards"
+SAFEGUARD_RESTARTS = 2
+SAFEGUARD_MODEL = "claude-sonnet-5-5"
 QUIET_LANE = timedelta(minutes=5)
 UNPROMPTED = timedelta(minutes=15)
 KEPT_RETRY = timedelta(hours=1)
@@ -3591,7 +3593,7 @@ def agent_death(job: dict, data: dict) -> str | None:
 
 
 def agent_stop(job: dict, data: dict) -> dict | None:
-    """The stop of a running local job's agent the watch acts on, its last response: at once when a model's safeguards stopped it, which safeguard_lines passes to him, or a Claude usage limit did, by agents.limited, since the holding session may never answer again to show it lifted, and when it ended on any other API error only once the session holding it has had a response answered since, so the fresh worker the watch hands the job to does not start inside the outage that stopped it; None until then, and for an agent that ended with its session."""
+    """The stop of a running local job's agent the watch acts on, its last response: at once when a model's safeguards stopped it, which safeguard_lines restarts in a fresh Claude session, or a Claude usage limit did, by agents.limited, since the holding session may never answer again to show it lifted, and when it ended on any other API error only once the session holding it has had a response answered since, so the fresh worker the watch hands the job to does not start inside the outage that stopped it; None until then, and for an agent that ended with its session."""
     if not job.get("agent") or (holder := session_of(job, data)) is None or not (turn := stopped_turn(holder, job, data)):
         return None
     return turn if agents.refused(turn) or agents.limited(turn) or answered_since(holder, turn) else None
@@ -3768,7 +3770,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if not remote:
                 if running and (turn := agent_stop(job, data)):
                     if agents.refused(turn):
-                        refusals[job_id] = turn
+                        refusals[job_id] = (job["agent"], turn)
                     elif (ended := state.lane_death(job)) and not relaunchable(ended, moment):
                         gaps[job_id] = ended_gap(job_id, job, ended, moment)
                     else:
@@ -3853,7 +3855,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 gaps[job_id] = remote_gap(job_id, worker, moment)
                 if (terminal := orca.typed(job, worker)) and (stop := lane_stop(worker, data)):
                     if agents.refused(stop[0]):
-                        refusals[job_id] = stop[0]
+                        refusals[job_id] = (job["dispatch"], stop[0])
                     else:
                         lines += resume_lane(watcher, job_id, job, terminal, stop, moment)
                 if branch := ((worker.get("terminal") or {}).get("branch") or "").removeprefix("refs/heads/"):
@@ -3946,37 +3948,90 @@ def wake_lines(watcher: Watcher, idle: dict[str, tuple[dict, dict]], moment: dat
     return lines
 
 
-def safeguard_lines(watcher: Watcher, refusals: dict[str, dict], moment: datetime) -> list[str]:
-    """Pass Claude Code's notice on each stop a model's safeguards made of a running job's agent or lane to him in one line each from the watch itself, as the notice asks, first setting each job stopped, so nothing resumes, relaunches or restarts it or does its work and only `drive job add` on his word adds the job that takes its work; a post that fails leaves its jobs running, so the next read posts them again, said from its third failure in a row."""
+def safeguard_lines(watcher: Watcher, refusals: dict[str, tuple[str, dict]], moment: datetime) -> list[str]:
+    """Restart each running job whose agent or lane, the worker given, a model's safeguards stopped, in a fresh Claude session with a compact handoff, never resuming the session that was flagged, since the flag is a false positive on normal work that one context usually draws, by his order "restart the job at once in a FRESH Claude session", and pass it to him only once two restarts were stopped too. Each stop is kept on the job's safeguarded list by the worker it stopped and the stamp of its refused response, so the passes that read the same stop again while its restart runs count it once, and a stop read of a worker the job no longer runs counts nothing: the first starts `drive job launch <j> --local` by start_verb, whose takeover from an agent that stopped hands the job to a fresh `claude --bg` session on this Mac, where the watch reads its next stop, on a handoff carrying the brief and what the stopped agent left, the stopped agent's own idle session stopped first so it holds no memory, its transcript kept for that handoff; the second sets the job's model to SAFEGUARD_MODEL, which every later worker of the job starts on, then restarts it the same way; and a lane on this Mac that runs as an Orca worker has its terminal closed instead, by orca.close_pane, so the next read finds its worker exited and death_lines' drive job resume starts its next worker in a fresh Claude session there. A restart that leaves the same worker stopped is started again RELAUNCH_RETRY after its last try, at most RELAUNCH_TRIES times, and a job busy reads another drive verb acting on waits for a later pass. A third stop, or a stop whose restarts never started a worker, sets the job stopped and sends him one plain line by milestone, naming what it was doing, how often the safety check stopped it and one choice, to restart it once more or leave it stopped, never Claude Code's notice, an API error or a request id; a post that fails leaves the job running, so the next read posts it again, said from its third failure in a row. Each restart and stop is one LANE line to the session holding the job, naming no notice either."""
     if not refusals:
         return []
-    data = state.load(watcher.name)
-    with state.edit(watcher.name) as edited:
-        for job_id, turn in refusals.items():
-            edited["jobs"][job_id].update(state="stopped", said=f'{SAFEGUARDED}: "{cut(agents.notice(turn), 100)}"; the notice went to him and nothing restarts it', updated=state.stamp(moment))
-    lines = []
-    for job_id, turn in refusals.items():
+    lines, ending = [], []
+    with state.edit(watcher.name) as data:
+        for job_id, (worker, turn) in refusals.items():
+            job = data["jobs"][job_id]
+            if job["state"] != "running" or job[state.worker_key(job)] != worker or busy(watcher, job_id, moment):
+                continue
+            stops = job.setdefault("safeguarded", [])
+            if not stops or (stops[-1]["worker"], stops[-1]["turn"]) != (worker, turn["timestamp"]):
+                stops.append({"worker": worker, "turn": turn["timestamp"], "at": state.stamp(moment), "tries": 0, "pid": None})
+            stop = stops[-1]
+            if stop["pid"] and state.alive(stop["pid"]):
+                continue
+            if len(stops) > SAFEGUARD_RESTARTS or stop["tries"] >= RELAUNCH_TRIES:
+                ending.append(job_id)
+                continue
+            if stop["tries"] and moment - state.parse_time(stop["at"]) < RELAUNCH_RETRY:
+                continue
+            stop.update(tries=stop["tries"] + 1, at=state.stamp(moment))
+            if len(stops) == SAFEGUARD_RESTARTS:
+                job["model"] = SAFEGUARD_MODEL
+            lines.append(safeguard_restart(watcher, job_id, job, stop, len(stops), moment))
+    for job_id in ending:
+        job = data["jobs"][job_id]
         try:
-            milestone(watcher, safeguard_report(data, job_id, turn), f"A model's safeguards stopped the agent working on {cut(data['jobs'][job_id]['goal'], 80)}, and the drive restarts nothing. Claude Code's notice: {agents.notice(turn)}")
+            milestone(watcher, safeguard_report(data, job_id), f"The job working on {cut(job['goal'], 80)} for {{order:{job['order']}}} stopped on the model's safety check {times(len(job['safeguarded']))}, {restarts(job)}. It is stopped now: should I restart it once more, or leave it stopped?")
         except (slack.SlackError, state.DriveError) as error:
             lines += failed(watcher, f"safeguards stop {job_id}", f"post to him of a model's safeguards stop of {job_id}", error, moment)
-    return lines + [
-        f"LANE {job_id} {data['jobs'][job_id]['order']} {SAFEGUARDED}: the watch set it stopped, restarts nothing and sent Claude Code's notice to him, as it asks;"
-        f" only on his word does drive job add {data['jobs'][job_id]['kind']} --order {data['jobs'][job_id]['order']} on its parts add the job that takes its work"
-        for job_id in refusals
-    ]
+            continue
+        watcher.failures.pop(f"safeguards stop {job_id}", None)
+        said = f"{SAFEGUARDED} {times(len(job['safeguarded']))}, {restarts(job)}; he was asked whether to restart it once more"
+
+        def safeguard_stopped(data: dict, job_id: str = job_id, said: str = said):
+            data["jobs"][job_id].update(state="stopped", said=said, updated=state.stamp(moment))
+
+        state.update(watcher.name, None, safeguard_stopped)
+        lines.append(f"LANE {job_id} {job['order']} {said}: the watch set it stopped. Only on his yes does drive job add {job['kind']} --order {job['order']} on its parts add the job that takes its work")
+    return lines
 
 
-def safeguard_report(data: dict, job_id: str, turn: dict) -> dict:
-    """The report passing him whole the notice Claude Code wrote when a model's safeguards stopped a job's agent, in the thread its order's lines to him go in."""
+def safeguard_restart(watcher: Watcher, job_id: str, job: dict, stop: dict, count: int, moment: datetime) -> str:
+    """Start the next worker of a job a model's safeguards stopped in a fresh Claude session, for safeguard_lines, keeping the pid of a launch on the stop; its LANE line."""
+    on = f" on {SAFEGUARD_MODEL}" if job["model"] == SAFEGUARD_MODEL else ""
+    opening = f'LANE {job_id} {job["order"]} {SAFEGUARDED} {times(count)}, while it worked on "{cut(job["said"] or job["goal"], 60)}".'
+    if job.get("where") == "remote":
+        if refused := orca.close_pane(job["terminal"]):
+            return f"{opening} Orca refused to close its terminal {job['terminal']}: {refused}; the watch tries again in {RELAUNCH_RETRY.seconds // 60} minutes"
+        return f"{opening} The watch closed its terminal {job['terminal']}, so its next read finds the worker exited and drive job resume starts the next in a fresh Claude session{on} with a handoff"
+    if session := state.own_session(job):
+        agents.end_bg(session, Path(job["bg"]["cwd"]), removed=False)
+    stop["pid"] = start_verb(watcher, job_id, ["job", "launch", job_id, "--local"], moment)
+    return f"{opening} The watch ran drive job launch {job_id} --local, which starts it again in a fresh Claude session{on} on this Mac with a handoff, its output in the drive's {RELAUNCHES_LOG}"
+
+
+def times(count: int) -> str:
+    return {1: "once", 2: "twice"}.get(count, f"{count} times")
+
+
+def restarts(job: dict) -> str:
+    """How the drive restarted a job its model's safeguards stopped, as safeguard_lines kept it, in words for him."""
+    stops = job["safeguarded"]
+    if len(stops) > SAFEGUARD_RESTARTS:
+        return f"{times(SAFEGUARD_RESTARTS)} right after a fresh restart, the last on Sonnet 5.5"
+    return f"{times(len(stops) - 1)} right after a fresh restart, and the drive could not restart it again" if len(stops) > 1 else "and the drive could not restart it"
+
+
+def safeguard_report(data: dict, job_id: str) -> dict:
+    """The facts behind his line on a job a model's safeguards stopped past its restarts, in the thread its order's lines to him go in: the order, the job's work, when each stop came and how the drive restarted it, never Claude Code's notice."""
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
-    facts = [f"Order {job['order']}, job {job_id}: {order['text']}", f"Its work: {job['said'] or job['goal']}", f"Claude Code's notice: {agents.notice(turn)}"]
+    facts = [
+        f"Order {job['order']}, job {job_id}: {order['text']}",
+        f"Its work: {job['said'] or job['goal']}",
+        f"Its model's safety check stopped it at {', '.join(when(stop['turn']) for stop in job['safeguarded'])}",
+        f"Restarts: {restarts(job)}",
+    ]
     return {
         "kind": "report",
         "topic": f"watch-safeguards-{job_id}",
         "attr": {"order": job["order"], "job": job_id} | state.thread_attr(data, order),
-        "text": f"{job_id}'s agent was {SAFEGUARDED} and the drive restarts nothing",
+        "text": f"{job_id} {SAFEGUARDED} {times(len(job['safeguarded']))} and is stopped",
         "body": "\n".join(facts) + "\n",
     }
 

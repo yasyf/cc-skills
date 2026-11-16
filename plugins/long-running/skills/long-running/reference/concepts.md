@@ -32,7 +32,7 @@ A PR's line comes without its title.
 | `WAITING-ON-HIM …` | A card of his started holding a job built on its recommended option, and the watch replied to him once in that card's thread. |
 | `JOB …` | A job returned, wherever it runs, or a remote lane stopped. A Claude agent on this Mac has no `JOB` line: its result reaches the session that started it as its Agent result. |
 | `LANE … died` | A remote lane's worker died, or a running job's agent on this Mac stopped on an API error, and the watch relaunched the worker that pass. |
-| `LANE … stopped by its model's safeguards` | The watch set a running job stopped whose agent or lane a model's safeguards stopped, restarted nothing and passed Claude Code's notice to him. |
+| `LANE … stopped by its model's safeguards` | A model's safeguards stopped a running job's agent or lane. The watch restarts it in a fresh Claude session with a handoff, the second time on Sonnet 5.5, and after a third stop sets it stopped and asks him in plain words whether to restart it once more. |
 | `DUE j<n> …` | Once, a job's clock ran out while it still runs. |
 | `DUE o<n> claim …` | Every 10 minutes from the end a post at a channel's root, such as a staging claim, named with `--attr until`, while no drive post is in its thread since. |
 | `RECOVERED o<n> …` | An open incident is over: every merged fix PR of it is live in production, any monitor of it OK and each order of it that builds something he uses proven from that surface. The watch sent its step 8 report, which closes it. |

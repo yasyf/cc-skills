@@ -1784,11 +1784,13 @@ def test_the_watch_holds_a_stopped_agents_job_until_the_session_holding_it_has_a
     assert (lane_lines(watching, T0), relaunches, state.load(demo)["jobs"]["j1"].get("deaths", [])) == ([], [], [])
 
 
-SAFEGUARDED_SAID = f'stopped by its model\'s safeguards: "{render.cut(STOPPED_TEXT, 100)}"; the notice went to him and nothing restarts it'
-SAFEGUARDED_LINE = (
-    "LANE j1 o1 stopped by its model's safeguards: the watch set it stopped, restarts nothing and sent Claude Code's notice to him, as it asks;"
-    " only on his word does drive job add builder --order o1 on its parts add the job that takes its work"
+SAFEGUARDED_WORK = 'while it worked on "PUSHED https://github.com/Forge-AI/monorepo/pull/54870".'
+SAFEGUARDED_RESTART = (
+    "LANE j1 o1 stopped by its model's safeguards {times}, " + SAFEGUARDED_WORK + " The watch ran drive job launch j1 --local, which starts it again in a fresh Claude session{on}"
+    " on this Mac with a handoff, its output in the drive's relaunches.log"
 )
+SAFEGUARDED_SAID = "stopped by its model's safeguards 3 times, twice right after a fresh restart, the last on Sonnet 5.5; he was asked whether to restart it once more"
+SAFEGUARDED_LINE = f"LANE j1 o1 {SAFEGUARDED_SAID}: the watch set it stopped. Only on his yes does drive job add builder --order o1 on its parts add the job that takes its work"
 
 
 def safeguards_posts(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
@@ -1799,30 +1801,53 @@ def safeguards_posts(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     return posted
 
 
-def safeguards_reports(posted: list[dict]) -> list[tuple[str, str, str]]:
-    records = [record for record in posted if record.get("topic") == "watch-safeguards-j1"]
-    said = [post["text"].partition(", and the drive restarts nothing. ")[2] for post in posted if post.get("record") == "9"]
-    return [(record["text"], record["body"].splitlines()[-1], line) for record, line in zip(records, said, strict=True)]
+def safeguard_starts(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    """Each drive verb the watch starts, as a process that still runs."""
+    started: list[list[str]] = []
+    monkeypatch.setattr(watch, "start_verb", lambda watcher, job_id, args, moment: started.append(args) or os.getpid())
+    return started
 
 
-SAFEGUARDS_REPORT = (
-    "j1's agent was stopped by its model's safeguards and the drive restarts nothing",
-    f"Claude Code's notice: {STOPPED_TEXT}",
-    f"Claude Code's notice: {STOPPED_TEXT} ({{record:9|its facts}}).",
-)
+def earlier_stops(demo: str, count: int) -> None:
+    """Keep count stops of the job's earlier workers by a model's safeguards, each of whose restarts started a fresh worker."""
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["safeguarded"] = [{"worker": f"a0{index}", "turn": "2026-11-12T19:00:00.000Z", "at": "2026-11-12T19:00:01+00:00", "tries": 1, "pid": None} for index in range(count)]
 
 
-def test_the_watch_stops_a_job_whose_agent_on_this_mac_a_models_safeguards_stopped_at_once_and_passes_him_the_notice_restarting_nothing(
+@pytest.mark.parametrize(("earlier", "times", "on", "model"), [(0, "once", "", None), (1, "twice", " on claude-sonnet-5-5", "claude-sonnet-5-5")], ids=["first", "second"])
+def test_the_watch_restarts_a_job_whose_agent_on_this_mac_a_models_safeguards_stopped_in_a_fresh_session_telling_him_nothing(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relaunches: list[str], earlier: int, times: str, on: str, model: str | None
+) -> None:
+    posted = safeguards_posts(monkeypatch)
+    started = safeguard_starts(monkeypatch)
+    watching = stopped_agent_watched(run, demo, tmp_path, monkeypatch, [EARLIER], STOPPED)
+    earlier_stops(demo, earlier)
+    assert lane_lines(watching, T0) == [SAFEGUARDED_RESTART.format(times=times, on=on)]
+    assert lane_lines(watching, T0 + timedelta(minutes=1)) == []
+    assert (started, relaunches, posted) == ([["job", "launch", "j1", "--local"]], [], [])
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["state"], job["model"], len(job["safeguarded"]), job.get("deaths", [])) == ("running", model, earlier + 1, [])
+
+
+def test_the_watch_stops_a_job_a_models_safeguards_stopped_after_two_fresh_restarts_and_asks_him_in_plain_words(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relaunches: list[str]
 ) -> None:
     posted = safeguards_posts(monkeypatch)
+    started = safeguard_starts(monkeypatch)
     watching = stopped_agent_watched(run, demo, tmp_path, monkeypatch, [EARLIER], STOPPED)
+    earlier_stops(demo, 2)
     assert lane_lines(watching, T0) == [SAFEGUARDED_LINE]
     assert lane_lines(watching, T0 + timedelta(minutes=1)) == []
-    assert (relaunches, safeguards_reports(posted)) == ([], [SAFEGUARDS_REPORT])
     data = state.load(demo)
     job = data["jobs"]["j1"]
-    assert (job["state"], job["said"], job.get("deaths", [])) == ("stopped", SAFEGUARDED_SAID, [])
+    [record, said] = posted
+    assert (started, relaunches, record["topic"], record["text"]) == ([], [], "watch-safeguards-j1", "j1 stopped by its model's safeguards 3 times and is stopped")
+    assert said["text"] == (
+        f"The job working on {render.cut(job['goal'], 80)} for {{order:o1}} stopped on the model's safety check 3 times, twice right after a fresh restart, the last on Sonnet 5.5."
+        " It is stopped now: should I restart it once more, or leave it stopped? ({record:9|its facts})."
+    )
+    assert STOPPED_TEXT not in record["body"] + said["text"]
+    assert (job["state"], job["said"]) == ("stopped", SAFEGUARDED_SAID)
     assert [watch.part_gap(watching, data, "o1", part, T0 + timedelta(minutes=5)) for part in data["orders"]["o1"]["parts"]] == [None]
 
 
@@ -1912,16 +1937,23 @@ def test_the_watch_sends_escape_then_types_the_resume_into_a_lane_on_this_mac_th
     assert (dismissed, sends, relaunches) == (["term_lane"], typed_into(agents.RESUMED), [])
 
 
-def test_the_watch_stops_a_lane_on_this_mac_a_models_safeguards_stopped_at_once_and_types_nothing_into_it(
+def test_the_watch_closes_the_terminal_of_an_orca_lane_on_this_mac_a_models_safeguards_stopped_so_a_fresh_session_takes_it_and_types_nothing_into_it(
     remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relaunches: list[str]
 ) -> None:
     sends = terminal_sends(monkeypatch)
     posted = safeguards_posts(monkeypatch)
+    closed: list[str] = []
+    monkeypatch.setattr(orca, "close_pane", lambda terminal: closed.append(terminal) and None)
     watching = quiet_lane_watched(remote, tmp_path, monkeypatch, [CALLED, CALL_RESULT, STOPPED], [EARLIER])
-    assert lane_lines(watching, T0) == [SAFEGUARDED_LINE]
+    [line] = lane_lines(watching, T0)
+    job = state.load(remote)["jobs"]["j1"]
+    assert line == (
+        f'LANE j1 o1 stopped by its model\'s safeguards once, while it worked on "{render.cut(job["said"] or job["goal"], 60)}". The watch closed its terminal {job["terminal"]},'
+        " so its next read finds the worker exited and drive job resume starts the next in a fresh Claude session with a handoff"
+    )
     assert lane_lines(watching, T0 + timedelta(seconds=5)) == []
-    assert (sends, relaunches, safeguards_reports(posted)) == ([], [], [SAFEGUARDS_REPORT])
-    assert (state.load(remote)["jobs"]["j1"]["state"], state.load(remote)["jobs"]["j1"]["said"]) == ("stopped", SAFEGUARDED_SAID)
+    assert (sends, relaunches, posted, closed) == ([], [], [], [job["terminal"]])
+    assert (job["state"], len(job["safeguarded"])) == ("running", 1)
 
 
 def test_the_watch_says_once_and_types_nothing_into_a_lane_on_this_mac_whose_four_resumes_met_the_same_stop(

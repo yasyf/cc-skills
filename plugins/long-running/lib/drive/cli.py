@@ -4268,14 +4268,14 @@ def record_start(name: str, job_id: str, started: dict | None, handoff: str | No
 
 
 def started_here(name: str, job_id: str, kept: Path, text: str, cwd: Path) -> dict:
-    """Start a job's lane on this Mac as its own `claude --bg` session on the brief or handoff text, kept in the launch's brief file, in cwd, as drive job start starts a builder or reader, never as an Orca worker, so Orca holds no Run, terminal or worktree for work on this Mac; a receipt naming no Orca lane and the bg entry the job keeps. Unstarted when no session holds the job's order or `claude --bg` starts none."""
+    """Start a job's lane on this Mac as its own `claude --bg` session on the brief or handoff text, kept in the launch's brief file, in cwd, as drive job start starts a builder or reader, never as an Orca worker, so Orca holds no Run, terminal or worktree for work on this Mac, on the job's own model when its row names one, as the watch's second restart after a model's safeguards stopped it sets, past the model agents.shaped keeps or drops; a receipt naming no Orca lane and the bg entry the job keeps. Unstarted when no session holds the job's order or `claude --bg` starts none."""
     kept.write_text(text)
     data = state.load(name)
     job = data["jobs"][job_id]
     _, held = state.holding_role(data, data["orders"][job["order"]])
     if not held.get("session"):
         raise orca.Unstarted(f"{kept.stem}: no worker started, since no session holds {job['order']}, so none would hear its agent")
-    call = agents.shaped({"session_id": held["session"], "tool_input": {"subagent_type": state.JOB_AGENTS[job["kind"]][0], "prompt": f"Read your brief first: {kept}"}})
+    call = agents.shaped({"session_id": held["session"], "tool_input": {"subagent_type": state.JOB_AGENTS[job["kind"]][0], "prompt": f"Read your brief first: {kept}"}}) | ({"model": job["model"]} if job["model"] else {})
     bg = {"agent": uuid.uuid4().hex[:17], "session": None, "started": state.stamp(), "cwd": str(cwd), "pointed": []}
     try:
         bg["session"] = agents.start_job(name, job_id, bg["agent"], call, held, cwd)
@@ -4302,7 +4302,7 @@ def overtaken(data: dict, job: dict) -> bool:
 
 
 def launch_attempt(name: str, job: dict, attempt: str, kept: Path, brief: str, root: Path, workspace: str | None, session: str | None, transcript: Path | None = None) -> dict:
-    """Launch one attempt of a job's lane on a Run the drive's own terminal makes, since Orca binds a Run only to the terminal that made it: on a fresh Sprite, or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given, or on a fresh Sprite resuming the session given from the transcript given, which its prepare places there; a fresh Sprite's receipt records the SHA-256 of the cc-remote config the checkout holds, which it is made from, and one on the workspace's own Sprite keeps the job's; a try whose worker-start sent nothing reuses the Sprite it prepared, a Run Orca cannot make starts nothing, and the launcher copies this brief onto it. An attempt on a fresh Sprite that started no worker, since its prepare failed or its Sprite refused the tools a worker needs, launches once more, in a fresh Claude session, the launcher preparing another Sprite or retrying worker-start on the one it prepared; Unstarted when that one starts none either, or when the workspace's own Sprite or the Mac does."""
+    """Launch one attempt of a job's lane on a Run the drive's own terminal makes, since Orca binds a Run only to the terminal that made it: on a fresh Sprite, or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given, or on a fresh Sprite resuming the session given from the transcript given, which its prepare places there; a fresh Sprite's receipt records the SHA-256 of the cc-remote config the checkout holds, which it is made from, and one on the workspace's own Sprite keeps the job's; a try whose worker-start sent nothing reuses the Sprite it prepared, a Run Orca cannot make starts nothing, and the launcher copies this brief onto it, the lane running on the job's own model when its row names one, else orca.MODEL. An attempt on a fresh Sprite that started no worker, since its prepare failed or its Sprite refused the tools a worker needs, launches once more, in a fresh Claude session, the launcher preparing another Sprite or retrying worker-start on the one it prepared; Unstarted when that one starts none either, or when the workspace's own Sprite or the Mac does."""
     if state.on_mac(job):
         return started_here(name, attempt.partition("-")[0], kept, orca.brief_of(brief), Path(workspace) if workspace else root)
     kept.write_text(brief)
@@ -4313,11 +4313,11 @@ def launch_attempt(name: str, job: dict, attempt: str, kept: Path, brief: str, r
     lane = orca.lane_name(name, attempt)
     made = None if state.on_mac(job) else job.get("sprite_config") if workspace else orca.sprite_config(root)
     try:
-        receipt = orca.launch(name, lane, kept, root, run, job["route"], workspace, session, transcript) | {"resumed": session}
+        receipt = orca.launch(name, lane, kept, root, run, job["route"], workspace, session, job["model"] or orca.MODEL, transcript) | {"resumed": session}
     except orca.Unstarted:
         if workspace or state.on_mac(job):
             raise
-        receipt = orca.launch(name, lane, kept, root, run, job["route"], None, None) | {"resumed": None}
+        receipt = orca.launch(name, lane, kept, root, run, job["route"], None, None, job["model"] or orca.MODEL) | {"resumed": None}
     return {**receipt, "run": run, "sprite_config": made}
 
 

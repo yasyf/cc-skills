@@ -820,7 +820,7 @@ def limited(row: dict) -> bool:
 
 
 def refused(row: dict) -> bool:
-    """Whether a transcript row is a response a model's safeguards stopped, the one stop_reason the Messages API gives its safety classifiers alone: Claude Code's notice on that stop asks for it to go to the user and for no one to do the agent's work, so nothing resumes or restarts the agent, as the stop of an API error is."""
+    """Whether a transcript row is a response a model's safeguards stopped, the one stop_reason the Messages API gives its safety classifiers alone: a false positive on normal work that one context usually draws, so the watch restarts the agent in a fresh Claude session, never resuming the one flagged, as it resumes the stop of an API error."""
     return ended(row) and row["message"].get("stop_reason") == "refusal"
 
 
