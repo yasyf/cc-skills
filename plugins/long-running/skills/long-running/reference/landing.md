@@ -733,6 +733,17 @@ the patch.
   hotfix` of the fix his order names; the cut `--without` each stack holding a migration, storage or
   write-path change no staging test passed; the whole cut. Once his words withdraw a card, the next
   card offers every option they did not rule out.
+- A release ships every target of the whole platform that his latest ruling on it does not
+  exclude, by his words on Nov 15, 2026: "why are you leaving stuff out? you should make sure
+  everything including sand-next is working and has not broken anything and then release it
+  all". Whoever writes the start reads its scope fresh from that ruling each time, never from an
+  earlier plan or a reader's choice; the whole platform is every target in `release/targets.yaml`
+  except `manual: true` targets and those whose every component runs only off production. A
+  target the job wants left out needs a failing test, drawn on his card as `<target> fails:
+  <the failing test>`; the `--without` rung above names each target it drops that way. A target
+  his ruling excludes is written in the ASK as `<target> left out by his <id>: "<his words>"`,
+  quoting his newest recorded ruling on a release. `drive job ask` refuses a card naming a
+  production `ci release start` in backticks that leaves out a target by neither.
 - A release never skips a component or waits a night for a PR that is green and approved, by his
   words on Nov 15, 2026: "its saying it will wait all night or skip the mac release for 1 PR which
   is already green and approved, I just merged it to unblock but whatever in the tooling that did

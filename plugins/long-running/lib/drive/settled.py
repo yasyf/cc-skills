@@ -47,6 +47,9 @@ ALL_BUT = re.compile(r" (?:all|everything)(?: else)? (?:but|except|other than|be
 TARGETS = re.compile(r"^targets:\n((?:[ -].*(?:\n|$))*)", re.MULTILINE)
 TARGET = re.compile(r"^  ([a-z0-9][a-z0-9-]*):\n((?:    .*(?:\n|$))*)", re.MULTILINE)
 INLINE_PARTS = re.compile(r"^    components: \[([^\]]*)\]", re.MULTILINE)
+COMPONENTS = re.compile(r"^components:\n((?:[ -].*(?:\n|$))*)", re.MULTILINE)
+PART_ENVS = re.compile(r"^    envs: \[([^\]]*)\]", re.MULTILINE)
+MANUAL_TARGET = re.compile(r"^    manual: true\s*$", re.MULTILINE)
 LISTED_PARTS = re.compile(r"^    components:\n((?:    - .*(?:\n|$))+)", re.MULTILINE)
 OPUS_RULES = (
     "You answer a drive's questions about the JSON `state` it gives you, most of them about his words: the words of the one person whose"
@@ -1267,17 +1270,35 @@ def shipped_parts(release: dict, cwd: str) -> set[str]:
     return ships & {only.partition("/")[0] for only in release["only"]} if release.get("only") else ships
 
 
-def target_parts(cwd: str) -> dict[str, tuple[str, ...]]:
-    """Each release target's components, as release/targets.yaml in the drive's checkout lists them under `targets:`; none when the checkout has no such file."""
+def target_blocks(cwd: str) -> list[tuple[str, str]]:
+    """Each release target and its block, as release/targets.yaml in the drive's checkout lists them under `targets:`; none when the checkout has no such file."""
     path = Path(cwd) / "release" / "targets.yaml"
     section = TARGETS.search(path.read_text()) if path.is_file() else None
+    return TARGET.findall(section[1] if section else "")
+
+
+def target_parts(cwd: str) -> dict[str, tuple[str, ...]]:
+    """Each release target's components, by target_blocks()."""
     parts = {}
-    for target, block in TARGET.findall(section[1] if section else ""):
+    for target, block in target_blocks(cwd):
         if inline := INLINE_PARTS.search(block):
             parts[target] = tuple(filter(None, (part.strip() for part in inline[1].split(","))))
         elif listed := LISTED_PARTS.search(block):
             parts[target] = tuple(line.strip().removeprefix("- ").strip() for line in listed[1].splitlines())
     return parts
+
+
+def off_production_parts(cwd: str) -> set[str]:
+    """The components release/targets.yaml lists under `components:` whose `envs:` names no place go/ci counts as production, by prod(), as staging-smoke's [plat-usw2-staging] does."""
+    path = Path(cwd) / "release" / "targets.yaml"
+    section = COMPONENTS.search(path.read_text()) if path.is_file() else None
+    return {part for part, block in TARGET.findall(section[1] if section else "") if (envs := PART_ENVS.search(block)) and not any(prod(env.strip(), cwd) for env in envs[1].split(","))}
+
+
+def left_out(release: dict, cwd: str) -> list[str]:
+    """Each target of the whole platform none of whose components a release ships, by shipped_parts(), in the order the targets file lists them: every one target_blocks() lists but those its `manual: true` keeps for a hand deploy and those whose every component runs off production, by off_production_parts()."""
+    ships, parts, off = shipped_parts(release, cwd), target_parts(cwd), off_production_parts(cwd)
+    return [target for target, block in target_blocks(cwd) if not MANUAL_TARGET.search(block) and target in parts and not set(parts[target]) <= off and not set(parts[target]) & ships]
 
 
 def threaded(answer: dict, data: dict) -> list[dict]:

@@ -25,6 +25,8 @@ from drive.state import DriveError
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 ROLE_NAMES = {"coordinator": "top coordinator", "communicator": "communicator", "meta": "meta session"}
 FREEZE_FOR = timedelta(hours=12)
+RELEASE_WORD = re.compile(r"\breleas", re.IGNORECASE)
+RELEASE_SCOPE_WORDS = 'his words on Nov 15, 2026, "why are you leaving stuff out? you should make sure everything including sand-next is working and has not broken anything and then release it all"'
 INCIDENT_EXEMPTION = "incident fix"
 UNLANDABLE = (
     "{key}: refused, nothing {done}: only his tap or an exempt class lands a Forge-AI PR, and this leaves it with neither, so no card"
@@ -2213,6 +2215,7 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
                 " were up: link each in the summary by what it does, as <url|what it does>"
             )
     problems += release_holds(data, job, asked, text)
+    problems += release_scope(data, asked, text, recorded)
     if typed := limits.typed_time("\n".join([asked.title, *asked.summary, asked.cause, asked.interim, *asked.show_me, *asked.options, *asked.hints.values()]), data):
         problems.append(f"his card draws these words, and {typed}")
     said = "\n".join([asked.title, *asked.summary]).casefold()
@@ -2317,6 +2320,32 @@ def release_holds(data: dict, job: dict, asked: limits.Question, text: str) -> l
                 f" his pick recorded with drive answer <his answer> --dropped <order>:{state.STAGING_TEST.format(number=number)} so the lander lands it while he is present and the cut's staging retest"
                 f" reruns only what it touches; offer no option leaving a component out or holding the release on its test ({state.RELEASE_HOLD_WORDS})"
             )
+    return problems
+
+
+def release_scope(data: dict, asked: limits.Question, text: str, recorded: list[dict]) -> list[str]:
+    """Why an ASK naming a production `ci release start` in backticks may not draw: a start leaving out a target of the whole platform, by settled.left_out, whose card neither draws `<target> fails: <the failing test>` nor the ASK says `<target> left out by his <id>: "<his words>"`, quoting his newest recorded answer on a release that the brief binds or the ASK cites, by his words RELEASE_SCOPE_WORDS: a release ships everything his latest ruling on it does not exclude, its scope read fresh from that ruling, never carried from an earlier plan or a reader's choice."""
+    cwd = data["roles"]["coordinator"]["cwd"]
+    starts = [flags for release in brief.card_releases(text) if not brief.rehearsal(release) for flags in brief.started(release) if flags.get("targets") and not flags.get("hotfix")]
+    if not starts:
+        return []
+    drawn = "\n".join([*asked.summary, *asked.show_me, *asked.options, *asked.hints.values()])
+    rulings = [answer for answer in recorded if RELEASE_WORD.search(f"{answer['asked']}\n{answer['words']}")]
+    latest = max(rulings, key=lambda answer: answer["at"], default=None)
+    plain = settled.plain(latest["words"]) if latest else ""
+    problems = []
+    for target in dict.fromkeys(target for flags in starts for target in settled.left_out(settled.shipped(flags), cwd)):
+        if re.search(rf"(?<![\w-]){re.escape(target)} fails: \S", drawn):
+            continue
+        cited = re.search(rf"(?<![\w-]){re.escape(target)} left out by his (\w+): \"([^\"]+)\"", text)
+        if latest and cited and latest["answer"].startswith(cited[1][:7]) and settled.plain(cited[2]) in plain:
+            continue
+        newest = f'his newest ruling on a release, {latest["answer"]}: "{render.cut(latest["words"], settled.QUOTED_CHARS)}"' if latest else "no recorded ruling of his on a release, so none leaves it out"
+        problems.append(
+            f"its release leaves out {target}, which no failing test and no ruling of his excludes: a release ships every target his latest ruling on it does not exclude, read fresh from"
+            f" his words, never from an earlier plan or a reader's choice. Ship {target}, or draw `{target} fails: <the failing test>` on the card, or write"
+            f' `{target} left out by his <id>: "<his words>"` quoting {newest} ({RELEASE_SCOPE_WORDS})'
+        )
     return problems
 
 
