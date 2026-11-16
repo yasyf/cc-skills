@@ -1102,6 +1102,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order.setdefault("project", None)
         order.setdefault("workstream", None)
         order.setdefault("title", None)
+        order.setdefault("terms", {})
         order.setdefault("complex", False)
         order.setdefault("options_only", False)
         order.setdefault("fresh", None)
@@ -3950,6 +3951,11 @@ def death_on(job: dict, lane: str) -> dict | None:
     return next((death for death in reversed(job.get("deaths", [])) if lane in (death.get("workspace"), death["dispatch"])), None)
 
 
+def seat_order(data: dict, seat: str | None) -> dict | None:
+    """The order a priority seat holds, its newest when several have held it; None for a project or a seat no order holds."""
+    return next((order for order in reversed(data["orders"].values()) if seat and order["priority"] == seat), None)
+
+
 def whole_order(text: str) -> str:
     return " ".join(text.split())[:PART_CHARS].rstrip()
 
@@ -3989,6 +3995,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "project": None,
         "workstream": None,
         "title": None,
+        "terms": {},
         "proof": None,
         "proof_by": None,
         "close_report": None,
@@ -5178,6 +5185,11 @@ def communicator_project(data: dict, session: str | None) -> str | None:
 def session_seat(data: dict, session: str | None) -> str | None:
     """The project or priority seat a session holds, as its sub-coordinator or as its communicator."""
     return session_project(data, session) or communicator_project(data, session)
+
+
+def channel_seat(data: dict, channel: str) -> str | None:
+    """The seat, a project's or a priority order's, whose channel of the drive's slack row this is; None for the drive's own channel, his DM or any other."""
+    return next((seat for seat, made in data["slack"]["channels"].items() if seat and made["id"] == channel), None)
 
 
 def communicator_lane(project: str) -> str:

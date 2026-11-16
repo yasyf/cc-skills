@@ -575,6 +575,45 @@ def test_each_channel_gets_its_own_canvas_redrawn_only_when_its_words_change_acr
     ]
 
 
+def test_the_watch_renames_a_priority_channel_named_for_its_id_and_sets_each_channels_description_once(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(watch.github, "fetch", lambda keys, into=None: ({}, None))
+    monkeypatch.setattr(watch.slack, "owed", lambda session: [])
+    monkeypatch.setattr(slack, "workspace", lambda: "acme.slack.com")
+    monkeypatch.setattr(page, "draw", DRAW)
+    renames: list[list[str]] = []
+
+    def operator_channel(*argv: str, **_: object) -> dict:
+        if argv[0] != "operator-channel":
+            raise slack.SlackError(f"cc-slack {argv[0]} is not in this test")
+        renames.append(list(argv))
+        return {"id": argv[3], "name": argv[1]}
+
+    monkeypatch.setattr(slack, "cc_slack", operator_channel)
+    with state.edit(demo) as data:
+        data["slack"]["channels"] = {"": {"id": "C100", "name": "him-drive-demo"}, state.priority_seat("o1"): {"id": "C300", "name": "him-drive-demo-priority-o1"}}
+        data["orders"]["o1"] = order("hand the writer over", [], project="SandSQL") | {"title": "Blue-green SandSQL handoff, designed from scratch", "priority": state.priority_seat("o1")}
+    said = watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo)), T0)
+    link = dashboard.link(demo)
+    assert "WATCH #him-drive-demo-priority-o1 is now #him-drive-demo-prio-blue-green-sandsql-handoff" in said
+    assert renames == [
+        ["operator-channel", "him-drive-demo", "--rename", "C100", "--purpose", f"The demo drive: what spans its projects, and a link to each project's channel. Dashboard: {link}"],
+        ["operator-channel", "him-drive-demo-prio-blue-green-sandsql-handoff", "--rename", "C300", "--purpose", f"Priority: Blue-green SandSQL handoff, designed from scratch. Dashboard: {link}#/queue/all?project=Priority+o1"],
+    ]
+    assert state.load(demo)["slack"]["channels"][state.priority_seat("o1")]["name"] == "him-drive-demo-prio-blue-green-sandsql-handoff"
+    watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo)), T0 + timedelta(minutes=1))
+    assert len(renames) == 2
+
+
+def test_a_priority_channels_canvas_names_its_order_and_what_each_of_his_terms_means(demo: str) -> None:
+    with state.edit(demo) as data:
+        data["slack"]["channels"] = {state.priority_seat("o1"): {"id": "C300", "name": "him-drive-demo-prio-releases"}}
+        data["orders"]["o1"] = order("cut the release", [], project="Platform") | {"title": "Whole-platform release", "priority": state.priority_seat("o1"), "terms": {"Release 2": "everything but SandSQL; waits on its staging test"}}
+    data = state.load(demo)
+    title, words = page.canvases(demo, data, {"status": [], "queue": []}, "https://dash")[state.priority_seat("o1")]
+    assert title == "Whole-platform release: where it stands"
+    assert "## What each name means\n- **Release 2**: everything but SandSQL; waits on its staging test" in words
+
+
 def test_a_canvas_slack_refuses_is_drawn_again_next_pass_and_said_from_its_third_failure(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch.github, "fetch", lambda keys, into=None: ({}, None))
     monkeypatch.setattr(watch.slack, "owed", lambda session: [])

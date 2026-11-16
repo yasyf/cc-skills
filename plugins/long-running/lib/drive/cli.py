@@ -200,7 +200,6 @@ def start(args: argparse.Namespace) -> int:
     opened = channel_opened(args.name, data)
     siblings = "".join(sibling_started(args.name, role, held["cwd"], data["launched"].get(role)) for role in SIBLINGS if role not in data["roles"])
     watched = f"{watch.ensure(args.name)}\n" if args.role == "coordinator" else ""
-    watched += f"{said}\n" if args.project and args.role == "coordinator" and (said := communicator_started(args.name, args.project)) else ""
     seat = (f"communicator for {args.project}" if args.role == "communicator" else f"sub-coordinator for {args.project}") if args.project else args.role
     elsewhere = "" if Path.cwd() == kept.resolve() else f"this session runs in {Path.cwd()} until it next exits, when cci resumes it in the drive's checkout {kept}\n"
     text = f"{render.context(data, args.role, args.project)}\n\n{registered}{opened}{siblings}{watched}{elsewhere}{seat}: session {held['session']}, {seen}"
@@ -268,7 +267,7 @@ def seat_started(name: str, seat: str) -> str:
 
 
 def communicator_started(name: str, seat: str) -> str:
-    """Start the communicator of a seat, a project's or a priority order's, in an Orca terminal of its own while none is bound for it, once the drive keeps that seat's channel, making it first while the drive keeps its own channel, by his words "we should move so every project has a communicator to pair with its coordinator and messages in that channel should go to it", in the top coordinator's checkout, so its first turn binds it with drive start --role communicator --project <seat>; the line saying so, or nothing for a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves."""
+    """Start the communicator of a seat, a project's or a priority order's, in an Orca terminal of its own while none is bound for it, once the drive keeps that seat's channel, making it first while the drive keeps its own channel, by his words "we should move so every project has a communicator to pair with its coordinator and messages in that channel should go to it", from drive order set --priority and from the watch the first time a message of his is owed in that channel, in the top coordinator's checkout, so its first turn binds it with drive start --role communicator --project <seat>; the line saying so, or nothing for a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves."""
     if state.scratch():
         return ""
     data = state.load(name)
@@ -1116,6 +1115,14 @@ def order_set(args: argparse.Namespace) -> int:
             if args.priority and state.unasked_tooling(order):
                 raise DriveError(f"{args.id} is drive tooling no message of his asked for, so it takes no priority seat; drive job set <j> --priority starts one of its jobs past the caps when it blocks his answers, a handler, a post, his DM path or this Mac's load")
             order["priority"] = state.priority_seat(args.id) if args.priority else None
+        for term in args.term or []:
+            word, _, meaning = term.partition("=")
+            if not word.strip():
+                raise DriveError(f"--term {term!r}: name the term before its =, as 'Release 2=everything but SandSQL; waits on its staging test'")
+            if meaning.strip():
+                order["terms"][word.strip()] = meaning.strip()
+            else:
+                order["terms"].pop(word.strip(), None)
         if args.promote:
             if not state.on_backlog(data, args.id):
                 raise DriveError(f"--promote: refused, nothing written: {args.id} is not on the drive tooling backlog, which holds only drive tooling a session filed with no job yet")
@@ -6367,16 +6374,10 @@ def with_build(place: str, held: dict) -> str:
     return f"{place}; {note}" if note else place
 
 
-def priority_words(data: dict, seat: str | None) -> str | None:
-    """What a priority seat's channel is named for: the workstream its order is filed under, else the order's id; None for a seat no priority order holds."""
-    order_id = next((order_id for order_id, order in data["orders"].items() if seat and order["priority"] == seat), None)
-    return (data["orders"][order_id]["workstream"] or order_id) if order_id else None
-
-
 def open_channel(name: str, project: str | None) -> dict:
     """Make, as him with cc-slack's user token, the drive's own private channel for no project, or a project's under it, named by slack.channel_name, which cc-slack reads as it reads his DM, one he already has kept; keep its id and name in the drive's slack row, and hand the communicator its Hold with line again at its next tool call, so it holds the channel with no restart."""
     project = slack.channel_project(project)
-    made = slack.cc_slack("operator-channel", slack.channel_name(name, project, priority_words(state.load(name), project)))
+    made = slack.cc_slack("operator-channel", slack.seat_channel_name(name, state.load(name), project))
     def open_channel_write(fresh: dict):
         fresh["slack"]["channels"][project or ""] = fresh["slack"]["channels"].get(project or "", {}) | {"id": made["id"], "name": made["name"]}
         if held := fresh["roles"].get("communicator"):
@@ -6393,7 +6394,6 @@ def channels(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     data = state.load(name)
     made = [open_channel(name, project) for project in dict.fromkeys([None, *data["subcoordinators"], TOOLING_FILING[0]]) if (slack.channel_project(project) or "") not in data["slack"]["channels"]]
-    started = [communicator_started(name, seat) for seat in state.load(name)["subcoordinators"]]
     data = state.load(name)
     found, dm, moved = view.cards(name), slack.dm(), []
     try:
@@ -6409,7 +6409,7 @@ def channels(args: argparse.Namespace) -> int:
                 with state.edit(name) as fresh:
                     state.join_pr_cards(fresh, stack, [url], state.stamp())
         view.refresh_cards(name)
-    lines = [*(f"#{channel['name']} {channel['id']}" for channel in made), *started, f"{len(moved)} open card(s) of his DM moved to their project's channel"]
+    lines = [*(f"#{channel['name']} {channel['id']}" for channel in made), f"{len(moved)} open card(s) of his DM moved to their project's channel"]
     return emit(args, "\n".join(lines), {"channels": made, "moved": [{"from": card["url"], "to": url} for card, _, url in moved]})
 
 
@@ -7115,6 +7115,12 @@ def parser() -> argparse.ArgumentParser:
             "mark it first in line while it is open, or unmark it: each builder of its starts on this Mac at once, past the builder cap, the jobs waiting their"
             " turn for a slot and the load gate, and one already waiting its turn takes it on the watch's next pass; other orders' builders wait behind it; and it owes him a line every five quiet minutes whether or not a job of it is at work"
         ),
+    )
+    verb.add_argument(
+        "--term",
+        action="append",
+        metavar="NAME=MEANING",
+        help="a term he uses for this order and what it is in plain words with its state now, as 'Release 2=everything but SandSQL; waits on its staging test', drawn on its channel's canvas; repeatable, the same name replaces it, an empty meaning takes it out",
     )
     verb.add_argument("--every", type=int, metavar="MINUTES", help="the minutes he asked a line every, owed that long after its thread's last line until the order is done; 0 takes it out")
     verb.add_argument("--project", metavar="NAME", help="the project the dashboard's Now screen files this order under; an empty name takes it out")

@@ -121,7 +121,7 @@ def test_once_the_drive_has_its_own_channel_a_post_of_a_project_with_none_makes_
 
 
 def test_a_priority_orders_post_makes_its_bound_seats_own_channel_while_its_projects_other_orders_stay_in_the_projects(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
-    made = {"him-drive-demo-iris": {"id": "C777", "name": "him-drive-demo-iris"}, "him-drive-demo-prio-o2": {"id": "C790", "name": "him-drive-demo-prio-o2"}}
+    made = {"him-drive-demo-iris": {"id": "C777", "name": "him-drive-demo-iris"}, "him-drive-demo-prio-fix-the-lock": {"id": "C790", "name": "him-drive-demo-prio-fix-the-lock"}}
     sent = slack.cc_slack
     monkeypatch.setattr(slack, "cc_slack", lambda *argv, **_: made[argv[1]] if argv[0] == "operator-channel" else sent(*argv))
     with state.edit(demo) as data:
@@ -132,7 +132,7 @@ def test_a_priority_orders_post_makes_its_bound_seats_own_channel_while_its_proj
     talk.posted(demo, {"text": "The page is up."}, "o1")
     talk.posted(demo, {"text": "The lock is fixed."}, "o2")
     assert [argv[argv.index("--channel") + 1] for argv in posts] == ["C777", "C790"]
-    assert state.load(demo)["slack"]["channels"][state.priority_seat("o2")] == made["him-drive-demo-prio-o2"]
+    assert state.load(demo)["slack"]["channels"][state.priority_seat("o2")] == made["him-drive-demo-prio-fix-the-lock"]
 
 
 def test_the_drives_own_channel_posts_one_line_per_project_channel_linking_it_and_its_queue(demo: str, unposted_waits: Callable[..., dict[str, str]]) -> None:

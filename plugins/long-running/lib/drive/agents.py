@@ -526,11 +526,11 @@ def signalled(pid: int) -> bool:
     return True
 
 
-def handle(name: str, brief: str) -> tuple[str, bool]:
-    """Hand a brief to the communicator, which answers him itself, as one cci note from lane watch keyed by the brief so a pass repeating it sends nothing new, by his ruling "get rid of handlers": a `Record:` brief names a record for it to post, and a message of his one it owes an answer."""
+def handle(name: str, brief: str, lane: str = "communicator") -> tuple[str, bool]:
+    """Hand a brief to a communicator, the drive's or the lane of a seat's communicator holding the channel the brief's message is in, which answers him itself, as one cci note from lane watch keyed by the brief so a pass repeating it sends nothing new, by his ruling "get rid of handlers": a `Record:` brief names a record for it to post, and a message of his one it owes an answer."""
     key = hashlib.sha256(brief.strip().encode()).hexdigest()[:16]
-    reads.run(["cci", "post", "--drive", name, "--lane", "watch", "--kind", "note", "--to", f"communicator@{name}", "--id", f"hand-{key}", "--text", f"ANSWER THIS: {brief.strip()}"], Path.cwd(), reads.posting())
-    return "communicator", True
+    reads.run(["cci", "post", "--drive", name, "--lane", "watch", "--kind", "note", "--to", f"{lane}@{name}", "--id", f"hand-{key}", "--text", f"ANSWER THIS: {brief.strip()}"], Path.cwd(), reads.posting())
+    return lane, True
 
 
 def start_error(error: Exception) -> str:

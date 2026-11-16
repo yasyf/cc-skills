@@ -192,8 +192,8 @@ def canvases(name: str, data: dict, model: dict, dashboard: str) -> dict[str, tu
     """The title and words of each channel's own canvas, by its seat in the drive's slack row, each a bird's-eye view linking into the dashboard: a seat's channel its open orders, one line each with its state and the cards it waits on, then what waits on him there; the drive's own channel one line per other channel, linking it and its queue on the dashboard with how many orders are open and how many cards wait on him there, then the orders and cards filed in no channel of their own. No time is drawn, so the words change only when what they show does."""
     from drive import talk
 
-    held = data["slack"]["channels"]
-    seats = {made["id"]: seat for seat, made in held.items()}
+    kept = data["slack"]["channels"]
+    seats = {made["id"]: seat for seat, made in kept.items()}
     orders = {channel: [] for channel in seats}
     waiting = {channel: [] for channel in seats}
     for group in model["status"]:
@@ -203,16 +203,20 @@ def canvases(name: str, data: dict, model: dict, dashboard: str) -> dict[str, tu
         waiting.setdefault(talk.queue_channel(data, item), []).append(item)
     drawn = {}
     for channel, seat in seats.items():
-        lines = [f"# {seat or name}: where it stands", "", f"[Open the dashboard]({seat_query(dashboard, seat) if seat else dashboard})"]
+        held = state.seat_order(data, seat)
+        shown = (held["title"] or state.whole_order(held["text"])) if held else seat or name
+        lines = [f"# {shown}: where it stands", "", f"[Open the dashboard]({seat_query(dashboard, seat) if seat else dashboard})"]
+        if held and held["terms"]:
+            lines += ["", "## What each name means", *(f"- **{word}**: {meaning}" for word, meaning in held["terms"].items())]
         if not seat:
-            lines += ["", "## Channels", *(channel_line(made, len(orders[made["id"]]), len(waiting[made["id"]]), seat_query(dashboard, other)) for other, made in held.items() if other)]
+            lines += ["", "## Channels", *(channel_line(made, len(orders[made["id"]]), len(waiting[made["id"]]), seat_query(dashboard, other)) for other, made in kept.items() if other)]
         lines += ["", f"## Waiting on you ({len(waiting[channel])})", *(map(waiting_line, waiting[channel][:ROWS]) if waiting[channel] else ["Nothing waits on you here."])]
         if len(waiting[channel]) > ROWS:
             lines.append(f"*{len(waiting[channel]) - ROWS} more on the [dashboard]({seat_query(dashboard, seat) if seat else f'{dashboard}#/queue/all'})*")
         lines += ["", f"## Open orders ({len(orders[channel])})", *([order_line(entry, dashboard) for entry in orders[channel][:CANVAS_ORDERS]] or ["No open orders here."])]
         if len(orders[channel]) > CANVAS_ORDERS:
             lines.append(f"*{len(orders[channel]) - CANVAS_ORDERS} more on the [dashboard]({dashboard}#/now)*")
-        drawn[seat] = (f"{seat or name}: where it stands", "\n".join(lines) + "\n")
+        drawn[seat] = (f"{shown}: where it stands", "\n".join(lines) + "\n")
     return drawn
 
 
