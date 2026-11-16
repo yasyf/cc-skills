@@ -1209,9 +1209,9 @@ def test_a_report_the_away_check_held_posts_nothing_whatever_its_judge_read(demo
         talk.say(demo, {"text": "The journal fix merged.", "record": "684842"})
     assert (posts, said(demo)) == ([], [])
 
-def owe(name: str) -> str:
+def owe(name: str, *news: str) -> str:
     with state.edit(name) as data:
-        data["catch_up"] = state.new_catch_up(ASKED)
+        data["catch_up"] = state.new_catch_up(ASKED) | {"news": list(news)}
     return f"*Catch-up since {render.when(ASKED)}*\n"
 
 
@@ -1254,12 +1254,12 @@ def test_a_post_lets_go_of_only_the_reports_held_for_his_return_that_its_report_
     assert (list(state.load(demo)["held"]), state.load(demo)["carried"]["700"]) == (["702"], POSTED)
 
 
-def test_his_catch_up_with_no_words_no_card_waiting_and_nothing_held_for_it_posts_nothing_and_settles(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_his_catch_up_with_no_words_no_orders_news_no_card_waiting_and_nothing_held_for_it_posts_nothing_and_settles(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
     own_pr(demo)
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": [], "pr_cards": [], "closed": []})
     report(monkeypatch, {"catch_up": "true"})
     owe(demo)
-    assert talk.say(demo, {"text": "", "record": "660299"}) == "SETTLED report 660299: no card waits on him and nothing is held for his catch-up, so it posts nothing"
+    assert talk.say(demo, {"text": "", "record": "660299"}) == "SETTLED report 660299: no order has news, no card waits on him and nothing is held for his catch-up, so it posts nothing"
     assert (posts, said(demo), state.load(demo)["catch_up"]) == ([], [], None)
 
 
@@ -1438,6 +1438,30 @@ def test_his_catch_up_posts_nothing_while_cc_slack_cannot_list_the_cards_it_clos
     with pytest.raises(DriveError, match="nothing posted: his catch-up counts every open card of his, which cc-slack could not list: cc-slack exited 1"):
         talk.say(demo, {"text": "The run page fix is live.", "record": "660299"})
     assert (posts, said(demo)) == ([], [])
+
+
+def test_his_catch_up_draws_every_order_with_news_linking_its_dashboard_page_and_its_edit_draws_them_again(
+    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    orders = [f"o{n}" for n in range(1, 21)]
+    with state.edit(demo) as data:
+        for n, order_id in enumerate(orders, start=1):
+            data["orders"][order_id] = state.new_order(f"show the run page's step {n}", "terminal", ("D123", f"17942{n:05d}.000100"), {}, ASKED)
+    view.refresh_cards(demo)
+    report(monkeypatch, {"catch_up": "true"})
+    title = owe(demo, *orders)
+    rows = "The run page shows its history.\nIts steps show in order.\nIts fix waits on your review."
+    board = f"{dashboard.link(demo)}#/feature"
+    news = "\n\n*20 orders with news:*\n" + "\n".join(f"<{board}/{order_id}|show the run page's step {order_id[1:]}>" for order_id in orders)
+    talk.say(demo, {"text": rows, "record": "660299"})
+    assert posts[-1][-1] == title + rows + news + open_cards(demo)
+    assert state.load(demo)["last_catch_up"] == {"post": POSTED, "since": ASKED, "news": orders}
+    assert talk.say(demo, {"text": rows.replace("waits on your review", "is in review"), "edit": POSTED}).startswith(f"EDITED {POSTED}")
+    assert posts[-1][:3] == ("edit", "--url", POSTED)
+    assert posts[-1][4] == title + rows.replace("waits on your review", "is in review") + news + open_cards(demo)
+    assert "archives/D123/p17942" not in posts[-2][-1] + posts[-1][4]
+    talk.say(demo, {"text": "Shipped.", "edit": "https://acme.slack.com/archives/D123/p1794300000000950"})
+    assert posts[-1][4] == "Shipped."
 
 
 def test_a_post_goes_out_in_exactly_the_words_it_was_given_while_built_work_waits_on_his_card(

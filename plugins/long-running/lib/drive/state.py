@@ -829,6 +829,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "dropped_waits": {},
         "posted": {},
         "catch_up": None,
+        "last_catch_up": None,
         "launched": {},
         "closed_from_cards": True,
         "designs_cited": True,
@@ -1272,8 +1273,10 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             kept.setdefault("job", kept["owner"] and data["prs"][kept["owner"]]["job"])
     if "catch_up" not in data:
         data["catch_up"] = new_catch_up(min(mark["at"] for mark in data["held"].values())) if data["held"] else None
+    data.setdefault("last_catch_up", None)
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
+        data["catch_up"].setdefault("news", [])
         if data["catch_up"].pop("orders", None) is not None and data["catch_up"]["record"]:
             for mark in data["held"].values():
                 mark["record"] = mark["record"] or data["catch_up"]["record"]
@@ -5200,8 +5203,8 @@ def read_lines(path: Path, offset: int = 0) -> Iterator[tuple[dict, int]]:
 
 
 def new_catch_up(since: str) -> dict:
-    """The catch-up the drive owes him at his DM root until it posts: from since, when he was last heard before he went away, with the report of it the watch wrote, the handler last started to post it and the time he was heard that start answered."""
-    return {"since": since, "record": None, "handler": None, "tried": None}
+    """The catch-up the drive owes him at his DM root until it posts: from since, when he was last heard before he went away, with the report of it the watch wrote, each order with news that report lists, the handler last started to post it and the time he was heard that start answered."""
+    return {"since": since, "record": None, "news": [], "handler": None, "tried": None}
 
 
 def let_go(data: dict, withdrawn: list[str]) -> None:

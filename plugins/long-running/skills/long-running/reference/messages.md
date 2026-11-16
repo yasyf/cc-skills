@@ -24,7 +24,7 @@ The tooling holds every post to a length, counted on the words its writer typed,
 record names no cap of its own. A link, a `{card:…}`, `{pr:…}`, `{order:…}`, `{record:…}`,
 `{answer:…}`, `{started:…}` or `{at:…}` reference included, counts as the words after its `|`, or as
 one word, never the title or time `say` draws for it, and what `say` adds itself, such as a
-catch-up's title and its open cards, counts for nothing. The limits are the coordinator's reading of
+catch-up's title, its orders with news and its open cards, counts for nothing. The limits are the coordinator's reading of
 his words "your messages need to be way shorter rewrite this for a human".
 
 | What he reads | At most |
@@ -725,39 +725,49 @@ nothing waits there it reads "No open cards".
   `to: communicator@<drive>`: `drive status` names the withdrawal on the report's line, no post
   carries the report and no order closes on it, and the watch lets it go, freeing an order it
   claimed to close for another report's close.
-- His next message, right after its ack, or his next card tap, after reports were held, sends
-  each held report to its own order's thread, by his words 162648a "why did all of these get sent
-  in this thread?", and owes him one catch-up at his DM root, with no session in between. Within
+- His next message, right after its ack, or his next card tap, after he was away owes him one
+  catch-up at his DM root and sends each report held meanwhile to its own order's thread, by his
+  words 162648a "why did all of these get sent in this thread?", with no session in between. Within
   the watch's relay pass, 2 seconds, the watch writes one `quiet=true` report for each thread a
   held report was to go in, naming each held report its writer did not withdraw, with the
   corrections cci holds re it, and what else moved in that thread, and starts one handler there,
   from the watch that hears its order, which re-reads each and posts what still stands; that
   report counts the thread's steps told, as any `quiet=true` report does. News in a thread with
-  nothing held gets its line from that thread's own `quiet=true` report, never the catch-up. A
+  nothing held gets its line from that thread's own `quiet=true` report; the catch-up only lists
+  its order. A
   post of a thread's report lets go of each held report it carries, and `say` names each
   correction of one the post must carry and each withdrawn, which it must leave out. A handler
   that ends without posting leaves its held reports for the next time he is heard back. A
   correction that comes after rewords the post that carried its report: `say` of it posts nothing
   and names that post.
-- The same relay pass writes his catch-up's `report` and starts the handler that posts it at his
-  DM root. It carries only the cards waiting on him, which `say` draws, by his ruling 65768cd "Say
-  draws what waits", and any held report with no order's thread to go in, never a list of orders
-  with news or of the reports their threads carry, by his words c91b1a9 "stop telling me about the
-  whole drive I never asked for that". With no card waiting and nothing held for it, `say` posts
-  nothing and settles it, and a second catch-up while none is owed posts nothing.
+- The same relay pass, before those threads' reports, writes his catch-up's `report` and starts
+  the handler that posts it at his DM root. The catch-up keeps each order with news: each heading a
+  thread whose facts moved since that thread's last line, and each order of a held report, by his
+  words 0f3a640 "Just do less realtime more summary / batching, with a catch up post once I'm
+  back". `say` draws a line for each of those orders and the cards waiting on him, by his ruling
+  65768cd "Say draws what waits". The report's body carries only their count and any held report
+  with no order's thread to go in, never the news or the reports their threads carry, which each
+  thread's own line tells, by his words c91b1a9 "stop telling me about the whole drive I never
+  asked for that". With no order's news and nothing held, the watch settles the catch-up and writes
+  no report; with nothing for `say` to draw and nothing held for it, `say` posts nothing and
+  settles it, and a second catch-up while none is owed posts nothing.
 - A report found wrong after its post went out is corrected, never reported again: a report to
   the communicator `re` the seq of a `POST` report its own lane sent goes out as a `correction`,
   which no one-report-a-turn rule holds, and the watch starts the handler that rewords the post
   the report went out in, which `say` of the correction names.
 - That report carries `catch_up=true`, so `say` opens the post with the bold title
-  `*Catch-up since <the time he was last heard>*` whatever the text says, and closes it with a
-  count of every open card waiting on him, the list his status page queues, linking that queue on
+  `*Catch-up since <the time he was last heard>*` whatever the text says, draws under the text
+  `*<n> orders with news:*` and a line per order linking its dashboard page, never its Slack thread,
+  since Slack unfurls a thread's link into a copy of its message and cc-slack draws no card in a
+  message carrying one, and closes it with a count of every open card waiting on him, the list his status page queues, linking that queue on
   the dashboard, then each card asked since he was last heard, on its own line and five a message,
   since Slack draws five a message. A card asked before he went away stays behind the count, by his
   words on a catch-up that drew every card: "including all tehse cards each time ^^ is not helpful
-  and is very obtrusive". No writer lists a card in the catch-up: a card the text names is not
-  drawn twice, and the 120 words count the text alone, never the cards `say` adds, so none is cut
-  to fit. The catch-up never goes in
+  and is very obtrusive". No writer lists a card or an order in the catch-up: a card the text
+  names is not drawn twice, and the 120 words and the post check read the text alone, never the
+  orders and cards `say` adds, so none is cut to fit. The drive keeps the catch-up it posted last,
+  so `say(edit=<its permalink>)` draws its title, orders and count again, with the cards one
+  message draws. The catch-up never goes in
   the thread of the message that brought him back, because every line in a thread is about that
   thread's work alone, by the thread rule in "The short form".
 - The minute a job built on a card's recommended option starts waiting on that card, the watch

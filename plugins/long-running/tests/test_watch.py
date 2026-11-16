@@ -2997,20 +2997,29 @@ def returned_while_away(demo: str) -> None:
         data["jobs"]["j1"].update(state="done", said="DONE the watch reads each PR once a pass")
 
 
-def test_his_return_marks_no_orders_news_told_so_its_own_thread_gets_that_line_and_owes_no_catch_up_when_nothing_was_held(
+def test_his_catch_up_lists_each_order_with_news_in_the_relay_pass_that_owes_its_thread_a_line_and_that_thread_still_gets_it(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     returned_while_away(demo)
     calls = catching_up(monkeypatch, demo)
-    watching = watcher(demo)
     assert heard_now(demo, capsys) == "heard"
-    assert state.load(demo)["catch_up"] is None
-    assert watch.held_report_lines(watching, BACK) + watch.catch_up_lines(watching, BACK) == []
-    assert calls == []
-    assert watch.quiet_lines(watching, BACK + timedelta(minutes=6)) == []
-    [(report, body), _] = calls
-    assert report["attr"] == {"order": "o1", "progress": "true", "quiet": "true", "thread": INCIDENT_THREAD}
-    assert "Moved since the thread's last line or the watch's last report on it: j1. At work: no job." in body.splitlines()
+    assert watch.relay_pass(watcher(demo), BACK + timedelta(minutes=6)) == []
+    [(catch_up, catch_up_body), (quiet, quiet_body)] = [(record, body) for record, body in calls if isinstance(record, dict)]
+    assert catch_up["text"] == f"POST his catch-up since {render.when(state.stamp(T0))}: say draws the orders with news and the cards waiting on him, so post it with no words of your own"
+    assert "o1" not in catch_up_body
+    assert state.load(demo)["catch_up"]["news"] == ["o1"]
+    assert quiet["attr"] == {"order": "o1", "progress": "true", "quiet": "true", "thread": INCIDENT_THREAD}
+    assert "Moved since the thread's last line or the watch's last report on it: j1. At work: no job." in quiet_body.splitlines()
+
+
+def test_his_return_with_no_orders_news_and_nothing_held_settles_his_catch_up_with_no_report(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    with state.edit(demo) as data:
+        data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
+    calls = catching_up(monkeypatch, demo)
+    assert heard_now(demo, capsys) == "heard"
+    assert state.load(demo)["catch_up"] == state.new_catch_up(state.stamp(T0))
+    assert watch.catch_up_lines(watcher(demo), BACK) == []
+    assert (calls, state.load(demo)["catch_up"]) == ([], None)
 
 
 @pytest.mark.parametrize("many", [1, 100])
