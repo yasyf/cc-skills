@@ -5340,7 +5340,7 @@ def proving(data: dict, job_id: str) -> bool:
 
 
 def finished(watcher: Watcher, moment: datetime) -> list[str]:
-    """Finish each builder the watch hears whose PRs all merged, and each builder or codex job holding a DONE of its own, whose passing proof delivers every part it owes, own or carried: one waiting on a READY, PUSHED or WAITING line whose PRs all merged outside yasyf/* takes DONE at its merge, its order keeping no proof until a builder proves it live on the release holding its merge, its release waits ending with it; one whose READY or PUSHED names a yasyf/* PR and keeps an executable proof file, a DONE of a job's own on work no proof delivered, or a repair waiting on the proof it marked, gets drive job prove, which takes its DONE or BLOCKED once the installed plugins hold its yasyf/* merges, marked under the drive's lock so no second proof starts on its line, said on its PRs' lines; and one naming a yasyf/* PR and keeping no executable proof file takes BLOCKED, said by its part's ORPHAN line when no other job carries the part, so it leaves the jobs whose lanes each pass reads. Each builder unproved owes its parts, at that DONE or one it took before, or beside its install's proof, which starts only once its PRs outside yasyf/* hold their prover, goes to its PRs' prover by add_prover, which adds one only for PRs prover_of finds none for, waiting on no release, its handoff naming whether their paths reach only tests or CI config, read by cli.release_reach before the drive's lock, a read that fails leaving both the DONE and the prover to the next pass; one line says each prover."""
+    """Finish each builder the watch hears whose PRs all merged, and each builder or codex job holding a DONE of its own, whose passing proof delivers every part it owes, own or carried: one waiting on a READY, PUSHED or WAITING line whose PRs all merged outside yasyf/* takes DONE at its merge, its order keeping no proof until a builder proves it live on the release holding its merge, its release waits ending with it; one whose READY or PUSHED names a yasyf/* PR and keeps an executable proof file, a DONE of a job's own on work no proof delivered, or a repair waiting on the proof it marked, gets drive job prove, which takes its DONE or BLOCKED once the installed plugins hold its yasyf/* merges, marked first by a claim naming the watch, which drive job prove reads as the watch's own, then by the proof's pid once it starts, so no second proof starts on its line, said on its PRs' lines; and one naming a yasyf/* PR and keeping no executable proof file takes BLOCKED, said by its part's ORPHAN line when no other job carries the part, so it leaves the jobs whose lanes each pass reads. Each builder unproved owes its parts, at that DONE or one it took before, or beside its install's proof, which starts only once its PRs outside yasyf/* hold their prover, goes to its PRs' prover by add_prover, which adds one only for PRs prover_of finds none for, waiting on no release, its handoff naming whether their paths reach only tests or CI config, read by cli.release_reach before the write, a read that fails leaving both the DONE and the prover to the next pass; one line says each prover."""
     from drive import cli
 
     data = state.load(watcher.name)
@@ -5358,14 +5358,18 @@ def finished(watcher: Watcher, moment: datetime) -> list[str]:
         merging, owed, reach, lines = [], [], {}, failed(watcher, "release select", "the release provider's reach read and `the release provider's live read` reads of the releases a merged PR reaches and the targets staging runs", error, moment)
     else:
         watcher.failures.pop("release select", None)
-    with state.edit(watcher.name) as data:
+    at = state.stamp(moment)
+
+    def claim_proofs(data: dict) -> tuple[dict[str, dict], set[str], dict[str, list[str]]]:
+        claims = {}
         for job_id, job in list(data["jobs"].items()):
             if not heard_job(watcher, data, job):
                 continue
             if job_id in merging and at_merge(data, job_id):
                 merged_done(watcher.name, data, job_id)
             elif proof_due(data, job_id):
-                job["proof"] = {"pid": prove(watcher.name, job_id), "at": state.stamp(moment), "said": job["said"], "version": state.VERSION}
+                claims[job_id] = {"proof": job["proof"]} if "proof" in job else {}
+                job["proof"] = {"pid": os.getpid(), "at": at, "said": job["said"], "version": state.VERSION}
             elif unproven(data, job_id):
                 proofless(watcher.name, data, job_id)
         proving = {job_id: parts for job_id in owed if (parts := unproved(data, job_id))}
@@ -5373,6 +5377,27 @@ def finished(watcher: Watcher, moment: datetime) -> list[str]:
         provers: dict[str, list[str]] = {}
         for job_id, parts in proving.items():
             provers.setdefault(add_prover(watcher.name, data, job_id, reach, parts, watcher.staged or set()), []).append(job_id)
+        return claims, known, provers
+
+    claims, known, provers = state.update(watcher.name, None, claim_proofs)
+    spawned: dict[str, int] = {}
+
+    def own(data: dict) -> None:
+        for job_id, before in claims.items():
+            job = data["jobs"][job_id]
+            if (proof := job.get("proof")) and (proof["pid"], proof["at"]) == (os.getpid(), at):
+                if job_id in spawned:
+                    job["proof"] = proof | {"pid": spawned[job_id]}
+                else:
+                    del job["proof"]
+                    job.update(before)
+
+    try:
+        for job_id in claims:
+            spawned[job_id] = prove(watcher.name, job_id)
+    finally:
+        if claims:
+            state.update(watcher.name, tuple(("jobs", job_id, "proof") for job_id in claims), own)
     return lines + [merged_said(watcher.name, builder_id, f"widened to the parts of {', '.join(jobs)}" if builder_id in known else "added") for builder_id, jobs in provers.items()]
 
 
