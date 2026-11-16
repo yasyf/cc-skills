@@ -1198,8 +1198,8 @@ def test_a_launch_whose_brief_flag_is_refused_or_fails_to_parse_writes_and_start
         ("--mac", "record the drive's dashboard walking each part"),
     ],
 )
-def test_launch_starts_a_brief_declaring_a_step_only_this_mac_runs_only_on_this_mac(
-    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], flag: str, named: str
+def test_launch_starts_a_brief_declaring_a_step_only_this_mac_runs_on_this_mac_with_no_flag(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flag: str, named: str
 ) -> None:
     cloned(tmp_path, demo)
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
@@ -1208,13 +1208,7 @@ def test_launch_starts_a_brief_declaring_a_step_only_this_mac_runs_only_on_this_
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
     fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
     monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
-    assert cli.main(["job", "launch", "j1"]) == 2
-    assert capsys.readouterr().err == (
-        f"drive: j1: refused, not launched: its brief's Mac: or Release: line declares {named}, a step only this Mac runs: start it here,"
-        " with the Agent tool at any load or with --local\n"
-    )
-    assert state.load(demo)["jobs"]["j1"].get("launching") is None
-    assert run("job", "launch", "j1", "--local") == (0, f"j1 started on this Mac as dispatch {DISPATCH}")
+    assert run("job", "launch", "j1") == (0, f"j1 started on this Mac as dispatch {DISPATCH}, since its brief declares a step only this Mac runs")
     assert state.load(demo)["jobs"]["j1"]["route"] == state.LOCAL_ROUTE
 
 
@@ -4828,7 +4822,7 @@ def test_a_relaunch_that_ended_without_a_next_lane_is_said_at_once(remote: str, 
         (
             {"why": "its worker exited", "cause": HIGH_CAUSE},
             "reads from them why it died and moves it to a fresh worktree on this Mac, waiting its turn for a builder slot while they are full,"
-            f" as its lane on Sprite sprite-first died too since its last line, at {{at}} (its worker exited; {HIGH_CAUSE}), unless they show its Sprite rebooted"
+            " as its lane on Sprite sprite-first died too since its last line, at {at}, unless they show its Sprite rebooted"
             " after its worker started, which resumes its Claude session there, or failed on its own, a kernel error line after init with no OOM kill and its"
             " home volume not full, or did not answer while GitHub holds the job's branch, which relaunches it on a fresh Sprite",
         ),
@@ -4836,7 +4830,7 @@ def test_a_relaunch_that_ended_without_a_next_lane_is_said_at_once(remote: str, 
     ],
     ids=["a death with a cause before it", "an nbd0 death before it, which kept no cause"],
 )
-def test_a_running_jobs_lane_that_died_again_since_its_last_line_is_said_to_move_to_this_mac_only_after_a_death_with_a_cause(
+def test_a_running_jobs_lane_that_died_again_since_its_last_line_is_said_to_move_to_this_mac_only_after_a_death_with_a_cause_never_quoting_that_cause(
     remote: str, monkeypatch: pytest.MonkeyPatch, relaunches: list[str], earlier: dict[str, str], again: str
 ) -> None:
     deliver(monkeypatch)
@@ -4951,25 +4945,20 @@ def test_a_pr_added_while_github_reads_a_finished_lanes_branches_is_not_said_unt
     ]
 
 
-@pytest.mark.parametrize(
-    ("ago", "said"),
-    [
-        (timedelta(minutes=10), []),
-        (
-            timedelta(minutes=31),
-            ['ORPHAN o1 "Short title": j1\'s lane ended 31 minutes ago (its worker exited), was not resumed and its result is not recorded'],
-        ),
-    ],
-)
-def test_a_running_job_whose_lane_ended_is_said_once_a_relaunch_would_have_finished(
-    remote: str, monkeypatch: pytest.MonkeyPatch, ago: timedelta, said: list[str]
+def test_a_running_job_whose_lane_died_while_it_waited_is_resumed_once_with_no_message(
+    remote: str, monkeypatch: pytest.MonkeyPatch, relaunches: list[str]
 ) -> None:
     deliver(monkeypatch)
-    monkeypatch.setattr(orca, "worker", lambda dispatch: pytest.fail("a lane already said to have ended is not read again"))
+    monkeypatch.setattr(orca, "worker", lambda dispatch: pytest.fail("a lane already recorded dead is not read again"))
     with state.edit(remote) as data:
-        death = {"dispatch": DISPATCH, "workspace": "sprite-old", "why": "its worker exited", "at": state.stamp(T0 - ago)}
-        data["jobs"]["j1"].update(deaths=[death], updated=state.stamp(T0 - ago))
-    assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0) == said
+        death = {"dispatch": DISPATCH, "workspace": "sprite-old", "why": "its worker exited", "at": state.stamp(T0 - timedelta(minutes=17))}
+        data["jobs"]["j1"].update(workspace="sprite-old", said="PUSHED https://github.com/Forge-AI/monorepo/pull/9", deaths=[death])
+    watching = watch.Watcher(remote, offset=state.events_end(remote))
+    [line] = watch.run_pass(watching, T0)
+    assert line.startswith("LANE j1 o1 died on Sprite sprite-old: its worker exited")
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
+    assert relaunches == ["j1"]
+    assert state.load(remote)["jobs"]["j1"]["deaths"] == [death | {"relaunch": {"pid": os.getpid(), "at": state.stamp(T0)}}]
 
 
 def test_a_lane_result_opens_with_the_subject_it_was_sent_under(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:

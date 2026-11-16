@@ -142,6 +142,7 @@ class Watcher:
     relayed: collections.deque[str] = field(default_factory=collections.deque)
     relay_error: Exception | None = None
     redrawn_whole: set[str] = field(default_factory=set)
+    returns_taken: dict[str, tuple[str, str | None]] = field(default_factory=dict)
 
     @property
     def lane(self) -> str:
@@ -2785,6 +2786,32 @@ class Gone(str):
         return state.fix_shipper(data, job_id)
 
 
+class Returned(str):
+    """A running local job's gap once its agent ended its turn on a message opening with a result word its job never took, carrying that message whole and the transcript it ends, which the watch takes as `drive job report <j> -` takes it, since that agent may be gone and no resume reaches it."""
+
+    whole: str
+    path: Path
+
+    def __new__(cls, job_id: str, whole: str, path: Path) -> Self:
+        made = super().__new__(cls, f'{job_id}\'s agent finished and its result is not recorded: "{cut(first_line(whole), 100)}"')
+        made.whole, made.path = whole, path
+        return made
+
+    def take(self, watcher: Watcher, job_id: str) -> str | None:
+        """None once cli.take_report kept the return, else this gap naming its refusal and the transcript to read the return from, the take tried once for each return."""
+        from drive import cli
+
+        if (tried := watcher.returns_taken.get(job_id)) and tried[0] == self.whole:
+            return tried[1]
+        try:
+            cli.take_report(watcher.name, job_id, self.whole)
+            gap = None
+        except cli.VERB_ERRORS as error:
+            gap = f"{self}; the watch read it from the end of its agent's transcript {self.path}, and drive job report {job_id} - refused it: {error}"
+        watcher.returns_taken[job_id] = (self.whole, gap)
+        return gap
+
+
 class Idle(str):
     """A local agent's gap that waking it closes: its turn ended on a result its job never took, or on no result line. agent_gap adds the step that wakes it, never local_gap, since that step's place.woken judges every builder by local_gap."""
 
@@ -2867,6 +2894,8 @@ def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
     turn = last_turn(path)
     if turn and agents.ended(turn):
         line = said_last(turn)
+        if re.match(r"[A-Z]*", line)[0] in (*brief.OPENINGS, "POSTED"):
+            return Returned(job_id, [block["text"] for block in turn["message"]["content"] if block.get("type") == "text"][-1], path)
         if state.result_state(job, line):
             return Idle(
                 f'{job_id}\'s agent finished and its result is not recorded: "{cut(line, 100)}"; only drive job report {job_id} - sets it,'
@@ -2977,15 +3006,13 @@ def remote_gap(job_id: str, worker: dict, moment: datetime) -> str | None:
 
 
 def ended_gap(job_id: str, job: dict, ended: dict, moment: datetime) -> str | None:
-    """A running job whose lane died or finished and no next lane replaced in the time a relaunch takes: none while it waits its turn for a builder slot on this Mac, or within the time a relaunch takes since that turn came and started its next worker, or while the watch's relaunch of it runs, and once that relaunch ended or overran, the line names it and its log."""
+    """A running job whose lane died or finished, which the watch relaunched, and no next lane replaced in the time a relaunch takes: none while it waits its turn for a builder slot on this Mac, or within the time a relaunch takes since that turn came and started its next worker, or while that relaunch runs, and once that relaunch ended or overran, the line names it and its log."""
     if state.SLOT_WAIT in job["waits"] or (slot := job.get("slot")) and moment - state.parse_time(slot) < RELAUNCH:
         return None
     gone = moment - state.parse_time(ended["at"])
-    relaunch = ended.get("relaunch")
-    if relaunch and state.alive(relaunch["pid"]) and moment - state.parse_time(relaunch["at"]) < RELAUNCH:
+    relaunch = ended["relaunch"]
+    if state.alive(relaunch["pid"]) and moment - state.parse_time(relaunch["at"]) < RELAUNCH:
         return None
-    if not relaunch:
-        return None if gone < RELAUNCH else f"{job_id}'s lane ended {minutes(gone)} minutes ago ({cut(ended['why'], 60)}), was not resumed and its result is not recorded"
     return (
         f"{job_id}'s lane ended {minutes(gone)} minutes ago ({cut(ended['why'], 60)}) and the watch's drive job resume at"
         f" {when(relaunch['at'])} started no next lane, its output in the drive's {RELAUNCHES_LOG}"
@@ -2998,7 +3025,7 @@ def launching(job: dict, moment: datetime) -> bool:
 
 
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach, which wake hands to drive job resume at the first failed read and again each REWAKE, its failed reads neither counted nor said while busy reads another drive verb acting on the job, as the wake an earlier watch started does, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite; a live lane whose job keeps texts queued has them settled by its mailbox each pass, by state.take_mail, and a remote lane whose worker finished or exited has the mail it never read held on its job once for its dispatch by unread_lines, before death_lines relaunches a running job's lane. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job whose codex-ask run ended, or that has none going and none left to take, by Gone, has no gap here, since the relay takes it, by codex_takes, while one whose run codex-ask cannot read counts lost, as a lane Orca cannot read does."""
+    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach, which wake hands to drive job resume at the first failed read and again each REWAKE, its failed reads neither counted nor said while busy reads another drive verb acting on the job, as the wake an earlier watch started does, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite; a live lane whose job keeps texts queued has them settled by its mailbox each pass, by state.take_mail, and a remote lane whose worker finished or exited has the mail it never read held on its job once for its dispatch by unread_lines, before death_lines relaunches a running job's lane. A local agent that ended its turn on a message opening with a result word its job never took has that message taken by cli.take_report, as `drive job report` takes a return, once for each such message, a refusal its gap naming the transcript it ends; a codex job whose codex-ask run ended, or that has none going and none left to take, by Gone, has no gap here, since the relay takes it, by codex_takes, while one whose run codex-ask cannot read counts lost, as a lane Orca cannot read does."""
     data = state.load(watcher.name)
     gaps, deaths, refusals, heads, found, finished, boxes, lost, lines = {}, {}, {}, {}, {}, {}, {}, {}, []
     read: set[str] = set()
@@ -3017,16 +3044,16 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 if running and (turn := agent_stop(job, data)):
                     if agents.refused(turn):
                         refusals[job_id] = turn
-                    elif ended := state.lane_death(job):
+                    elif (ended := state.lane_death(job)) and "relaunch" in ended:
                         gaps[job_id] = ended_gap(job_id, job, ended, moment)
                     else:
-                        deaths[job_id] = (job["agent"], stopped_on(turn))
+                        deaths[job_id] = (job["agent"], ended["why"] if ended else stopped_on(turn))
                     continue
                 if running and job["kind"] != "codex" and job.get("agent") and session_of(job, data) is None:
                     lost[job_id] = f"no bound session holds its agent {job['agent']}"
                 if running:
                     gap = agent_gap(job_id, job, data, moment)
-                    gaps[job_id] = None if isinstance(gap, Answered | Gone) else gap
+                    gaps[job_id] = gap.take(watcher, job_id) if isinstance(gap, Returned) else None if isinstance(gap, Answered | Gone) else gap
                     if gaps[job_id] and job["kind"] == "codex" and not job.get("agent"):
                         lost[job_id] = gap
                 continue
@@ -3039,7 +3066,9 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if job["state"] not in LIVE_JOB_STATES:
                 continue
             if ended := state.lane_death(job):
-                if running:
+                if running and "relaunch" not in ended:
+                    deaths[job_id] = (job["dispatch"], ended["why"])
+                elif running:
                     gaps[job_id] = ended_gap(job_id, job, ended, moment)
                     if gaps[job_id]:
                         lost[job_id] = f"its lane on {ended['dispatch']} ended: {ended['why']}"
@@ -3510,7 +3539,7 @@ def lane_holds(job: dict, moment: datetime, live: set[str]) -> set[str]:
 
 
 def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: datetime) -> list[str]:
-    """Record each worker's death on its job: a remote lane's, by its dispatch, or a running local job's agent's, by its agent, and say it once for a running job, whose worker is replaced that pass by `drive job resume` as a process of its own, its pid kept on the death so no later pass starts a second: a Sprite lane's is resumed in its own Claude session on its Sprite, or else relaunched, and an agent's is handed to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs. A running job busy reads another drive verb acting on has its death neither recorded nor said, so the first pass after that verb ends relaunches it, or reads the next worker that verb started. A waiting job's death asks no step, since his answer reaches it through drive job resume whether or not its lane lives, so it is recorded and not said: its Sprite is freed by the `drive job end` release_lanes runs on every remote job that is not running once its worker's turn is over, as its death makes it, which copies its Sprite's Orca runtime and worker logs to the drive's folder before the Sprite goes, and its lane on this Mac just waits. A job stopped, done or failed since the pass read it has the death recorded and nothing started or said. A running Sprite lane's line names the file in the drive's folder that resume copies those logs to, and, when another lane of the job died with a cause since its last line, that death and its cause, since the resume then moves the job to this Mac unless those logs show its Sprite rebooted after its worker started, failed on its own or did not answer while GitHub holds the job's branch."""
+    """Record each worker's death on its job: a remote lane's, by its dispatch, or a running local job's agent's, by its agent, and say it once for a running job, whose worker is replaced that pass by `drive job resume` as a process of its own, its pid kept on the death so no later pass starts a second: a Sprite lane's is resumed in its own Claude session on its Sprite, or else relaunched, and an agent's is handed to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs. A running job busy reads another drive verb acting on has its death neither recorded nor said, so the first pass after that verb ends relaunches it, or reads the next worker that verb started. A waiting job's death asks no step, since his answer reaches it through drive job resume whether or not its lane lives, so it is recorded and not said: its Sprite is freed by the `drive job end` release_lanes runs on every remote job that is not running once its worker's turn is over, as its death makes it, which copies its Sprite's Orca runtime and worker logs to the drive's folder before the Sprite goes, and its lane on this Mac just waits; a job that runs again on the lane that died while it waited has that death relaunched once, as if it died running. A job stopped, done or failed since the pass read it has the death recorded and nothing started or said. A running Sprite lane's line names the file in the drive's folder that resume copies those logs to, and, when another lane of the job died with a cause since its last line, where and when that one died, never its cause, since the resume judges this death from those logs alone and moves the job to this Mac unless those logs show its Sprite rebooted after its worker started, failed on its own or did not answer while GitHub holds the job's branch."""
     if not deaths:
         return []
     lines = []
@@ -3520,10 +3549,10 @@ def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: da
             if job["state"] in state.FINISHED_JOB_STATES or job.get("where") == "remote" and job["state"] == "waiting":
                 state.lane_died(job, worker, why, moment)
                 continue
-            if job[state.worker_key(job)] != worker or state.lane_death(job) or busy(watcher, job_id, moment):
+            if job[state.worker_key(job)] != worker or "relaunch" in (state.lane_death(job) or {}) or busy(watcher, job_id, moment):
                 continue
             state.lane_died(job, worker, why, moment)
-            job["deaths"][-1]["relaunch"] = {"pid": relaunch(watcher, job_id, moment), "at": state.stamp(moment)}
+            state.lane_death(job)["relaunch"] = {"pid": relaunch(watcher, job_id, moment), "at": state.stamp(moment)}
             if job.get("where") != "remote":
                 lines.append(
                     f'LANE {job_id} {job["order"]} died as agent {worker} on this Mac: {why}, while it worked on "{cut(job["said"] or job["goal"], 60)}". The watch ran'
@@ -3537,7 +3566,7 @@ def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: da
             if not state.on_mac(job) and (first := state.died_before(job, worker)):
                 again = (
                     f"reads from them why it died and moves it to a fresh worktree {orca.ON_MAC}, waiting its turn for a builder slot while they are full,"
-                    f" as its lane on Sprite {first['workspace']} died too since its last line, at {when(first['at'])} ({state.why_died(first['why'], first['cause'])}),"
+                    f" as its lane on Sprite {first['workspace']} died too since its last line, at {when(first['at'])},"
                     " unless they show its Sprite rebooted after its worker started, which resumes its Claude session there, or failed on its own, a kernel error line"
                     " after init with no OOM kill and its home volume not full, or did not answer while GitHub holds the job's branch, which relaunches it on a fresh Sprite"
                 )
