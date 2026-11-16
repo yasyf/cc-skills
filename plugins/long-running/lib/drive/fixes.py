@@ -61,9 +61,9 @@ def wrapped(text: str, url: str) -> str:
 
 
 def on_words(found: re.Match[str], url: str, linked: str) -> str:
-    """A parenthesized link moved onto the words before it, unless those words finish a time or number, as "9:00 AM tomorrow (url)", where it stays in its parentheses on its own words."""
+    """A parenthesized link moved onto the words before it, unless those words finish a time or number, as "9:00 AM tomorrow (url)", never a link before them, where it stays in its parentheses on its own words."""
     before = found.string[: found.start()].split()
-    if (before and any(character.isdigit() for character in before[-1])) or re.search(r"\b(?:AM|PM)\b", found[1]):
+    if (before and "://" not in before[-1] and any(character.isdigit() for character in before[-1])) or re.search(r"\b(?:AM|PM)\b", found[1]):
         return f"{found[1]} ({linked})"
     return f"<{url}|{found[1]}>"
 
