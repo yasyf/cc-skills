@@ -614,6 +614,9 @@ def install(key: str, sha: str | None, repo: str | None, deadline: float, timeou
                 if lacking := install_lacking(clone, repo, key, each, sha, deadline):
                     raise InstallError(f"{lacking} after the update, which does not hold {sha[:12]}, the sha awaited")
         entry = newest(entries)
+        if sha:
+            for line in close_installed(clone, repo, key, entry["gitCommitSha"], entry["version"], deadline):
+                print(line)
         if after := AFTER_UPDATE.get(plugin):
             run([str(Path(entry["installPath"]) / after[0]), *after[1:]], deadline)
         if binary := HOMEBREW.get(plugin):
@@ -948,16 +951,26 @@ def finish(name: str, data: dict, job_id: str, line: str, check: list[str], post
 
 def closed(name: str, data: dict, job_id: str, order_id: str, keys: list[str], check: list[str], post: str, facts: str) -> bool:
     """Close an order a passing proof left nothing to do, every part delivered, every job on it finished or holding a passed unit for it, by unit_done, and no open incident on it, while he sees none of its results on a surface no CHECK: came from: a drive tooling order a session opened closes done on that proof, posting him no line; any other keeps its proof and the close report the watch posts to the communicator, opening POST with the PRs' titles, else the order's title, and post. Whether it closes."""
-    from drive import brief, view
+    from drive import brief
 
     order = data["orders"][order_id]
     closes = not brief.unseen(data, order, " ".join(check)) and order["state"] not in state.CLOSED_ORDER_STATES and all(state.delivered(data, order_id, part) for part in order["parts"])
     closes = closes and all(unit_done(data, other, order_id) for other in order["jobs"]) and not state.open_incidents(data, [order_id])
-    if closes and state.unasked_tooling(order):
-        order.update(proof=" ".join(check), state="done", updated=state.stamp())
-    elif closes:
+    if closes:
+        close_proven(name, data, job_id, order_id, keys, " ".join(check), post, facts)
+    return closes
+
+
+def close_proven(name: str, data: dict, job_id: str, order_id: str, keys: list[str], proof: str, post: str, facts: str) -> None:
+    """Close an order on its proof: a drive tooling order a session opened closes done, posting him no line; any other keeps its proof and the close report the watch posts to the communicator, opening POST with the PRs' titles, else the order's title, and post."""
+    from drive import view
+
+    order = data["orders"][order_id]
+    if state.unasked_tooling(order):
+        order.update(proof=proof, state="done", updated=state.stamp())
+    else:
         title = "; ".join(data["prs"][key]["title"] for key in keys) or view.order_title(order)
-        order["proof"] = " ".join(check)
+        order["proof"] = proof
         order["close_report"] = {
             "id": f"{state.PROVED_REPORT}{job_id}" if order_id == data["jobs"][job_id]["order"] else f"{state.PROVED_REPORT}{job_id}-{order_id}",
             "kind": "report",
@@ -967,7 +980,37 @@ def closed(name: str, data: dict, job_id: str, order_id: str, keys: list[str], c
             "text": f"POST {title} {post}",
             "body": f"Fixed: {', '.join(filter(None, [title, ' '.join(map(state.pr_url, keys))]))}\n{facts}",
         }
-    return closes
+
+
+def installed_fixes(data: dict, repo: str) -> dict[str, list[str]]:
+    """Each open drive tooling order whose fix is merged in repo, with no proof of its own to wait for, by his decision (b) "A drive-tooling order closes on a passing scripted proof, or on its fix being on main and installed": every job on it finished, at least one PR among them, each merged in repo, no standing part and no open incident on it, with those PRs."""
+    fixes = {}
+    for order_id, order in data["orders"].items():
+        if not state.tooling(order) or order["state"] in state.CLOSED_ORDER_STATES or order["close_report"] or not order["jobs"]:
+            continue
+        if any(data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES for job_id in order["jobs"]) or any(part["standing"] for part in order["parts"].values()):
+            continue
+        keys = list(dict.fromkeys(key for job_id in order["jobs"] for key in map(state.pr_key, data["jobs"][job_id]["prs"]) if key in data["prs"] and data["prs"][key]["state"] != "closed"))
+        if keys and all(key.startswith(f"{repo}#") and data["prs"][key]["merged_sha"] for key in keys) and not state.open_incidents(data, [order_id]):
+            fixes[order_id] = keys
+    return fixes
+
+
+def close_installed(clone: str, repo: str, key: str, build: str, version: str, deadline: float) -> list[str]:
+    """Close on the install each open drive tooling order of every drive whose fix, by installed_fixes, the installed build holds, its proof the PRs merged and the version installed, no recording asked of it, fetching the default branch's commits once only when some order has such a fix. A line for each order closed."""
+    if not (owed := {name: fixes for name in state.names() if (fixes := installed_fixes(state.load(name), repo))}):
+        return []
+    git(clone, "fetch", "--quiet", "--filter=tree:0", "--no-tags", "origin", f"+HEAD:{DEFAULT_BRANCH}", deadline=deadline)
+    lines = []
+    for name in owed:
+        with state.edit(name) as data:
+            for order_id, keys in installed_fixes(data, repo).items():
+                if not all(ran(["git", "-C", clone, "merge-base", "--is-ancestor", data["prs"][each]["merged_sha"], build], deadline).returncode == 0 for each in keys):
+                    continue
+                proof = f"{' '.join(map(state.pr_url, keys))} merged and installed in {key} {version} at {build[:12]}"
+                close_proven(name, data, data["orders"][order_id]["jobs"][-1], order_id, keys, proof, proof, proof)
+                lines.append(f"{name} {order_id}: closed, {proof}")
+    return lines
 
 
 def unit_done(data: dict, job_id: str, order_id: str) -> bool:

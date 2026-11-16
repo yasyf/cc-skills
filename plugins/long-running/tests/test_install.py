@@ -2932,3 +2932,15 @@ def test_the_watch_moves_onto_a_newer_install_only_when_its_python_differs_or_it
     shutil.rmtree(own.parents[1])
     monkeypatch.setattr(install, "upgraded", lambda: same)
     assert install.watch_upgraded() == same
+
+
+def test_a_drive_tooling_order_whose_every_job_finished_on_prs_merged_in_the_installed_repo_is_a_fix_the_install_closes(tmp_path: Path) -> None:
+    state.create(state.new_drive("demo", "coordinator", "demo-coordinator", str(tmp_path)))
+    with state.edit("demo") as data:
+        for order_id, words, job_state, merged in (("o1", "Drive tooling: prove each install", "done", SHA), ("o2", "Drive tooling: read each release", "running", SHA), ("o3", "Drive tooling: keep each proof", "done", None), ("o4", "ship the strip", "done", SHA)):
+            job_id, url = f"j{order_id[1]}", f"https://github.com/{REPO}/pull/{order_id[1]}"
+            data["orders"][order_id] = state.new_order(words, f"slack:D123/{HIS_THREAD}", ("D123", HIS_THREAD), {words: state.new_part()}, state.stamp()) | {"jobs": [job_id]}
+            data["jobs"][job_id] = state.new_job(order_id, "builder", "fix it", [words], state.stamp()) | {"state": job_state, "prs": [url]}
+            data["prs"][f"{REPO}#{order_id[1]}"] = state.new_pr(url, job_id, order_id) | {"state": "merged" if merged else "open", "merged_sha": merged}
+    assert install.installed_fixes(state.load("demo"), REPO) == {"o1": [f"{REPO}#1"]}
+    assert install.installed_fixes(state.load("demo"), "someone/fork") == {}
