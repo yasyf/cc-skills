@@ -3257,8 +3257,8 @@ function setupStatusBar(){
   future.style.left=pct(at)+"%";
   future.style.right="0";
   future.hidden=t==null;
-  const key=TIMELINE.filter(e=>e.key===true);
-  const last=(key.length?key:TIMELINE).filter(e=>{const x=tsOf(e.ts);return x!=null&&x<=at}).pop();
+  const told=TIMELINE.filter(e=>e.kind!=="alert"),key=told.filter(e=>e.key===true);
+  const last=(key.length?key:told).filter(e=>{const x=tsOf(e.ts);return x!=null&&x<=at}).pop();
   cap.innerHTML=`<span class="num">${esc(fmtLocal(isoAt(at)))}</span> ${phasePill(phaseAt(at))}`+
    (last?` ${esc(plain(tlName(last)))}`:"");
   track.setAttribute("aria-valuenow",String(Math.round(at)));
