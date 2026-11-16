@@ -118,19 +118,18 @@ cc-notes investigation: premise, timeline, findings and root cause.
   - Within 10 minutes it reads which commit the live build was cut from and how far the default
     branch is ahead on the failing path. Then it installs the default branch's newest build on a
     test machine and replays the failing action against state the bad build refused.
-  - In the monorepo, `<ci> release live` names the live build's commit, and `<ci> release
-    pull <pr> --json` lists each production stack behind a PR, a hotfix that cherry-picked it
-    counting as serving it. The test machine is a test Mac.
+  - The release provider's live read names the live build's commit, and its pull read lists each
+    production stack behind a PR, a hotfix that cherry-picked it counting as serving it.
 - With no release or new build before the break, two jobs start beside the fix job:
   - **rollback**, with apply authority, to the newest build that provably lacks the failing
-    change. The proof is the read `<ci> release pull` makes, GitHub's compare of the PR's squash
+    change. The proof is the release provider's pull read, GitHub's compare of the PR's squash
     commit to the target's commit: `behind`, or `diverged` with no listed commit whose subject ends
     `(#<pr>)`. `git merge-base --is-ancestor` proves nothing, since a cherry-pick is no ancestor.
     While the change is unknown, the proof is the failing action succeeding against the target on
     a test machine. It also proves the target opens what the bad builds wrote since.
   - When a build passes both, the rollback starts inside its clock. When none does, the job
-    returns that evidence, and `drive incident stop <o>` starts the stop. In the monorepo the
-    rollback is the `release` skill's. For a tool this Mac runs, the job installs that release.
+    returns that evidence, and `drive incident stop <o>` starts the stop. The repository's page text names
+    how it rolls back. For a tool this Mac runs, the job installs that release.
     A running watch moves to a new long-running install at most once per 15 minutes, so a fix to
     the drive's own code reaches it at once only through
     `sudo -n /usr/local/libexec/claude-restart service com.yasyf.long-running.watch.<drive>`.
@@ -190,14 +189,14 @@ up at once and the work goes on, on the recommended option.
 Bringing the service back comes first. While users are blocked, no freeze goes on, because a freeze
 can hold the release that brings the service back. Once users are unblocked, the service's other
 releases freeze until its root fix is released, so the root fix goes out alone: freeze, merge the
-root fix, lift the freeze, release. This page is the request for a freeze that the monorepo
-`release` skill waits for.
+root fix, lift the freeze, release. This page is the request for a freeze that a repository's
+release tooling waits for.
 
 - Once users are unblocked, run `drive incident freeze <o> <component>`, the bare component
-  covering every stack it deploys. It runs `<ci> release freeze` from your checkout for 12 hours
+  covering every stack it deploys. It runs the release provider's freeze from your checkout for 12 hours
   and puts the freeze's id on the order's note.
 - Among agents, only the session that set a freeze releases through it. A rollback skips every freeze.
-  The job that merges the root fix lifts it with `<ci> release unfreeze <id>` before it returns
+  The job that merges the root fix lifts it with the release provider's unfreeze before it returns
   `WAITING release` naming the fix's start.
 - Lift a freeze found on while users are still blocked.
 - Claim, fence or hold nothing else unless he asks.
@@ -251,27 +250,22 @@ check's verdict, or from the order when none ran.
 - An approved and green incident PR lands when the watch reports it: its `checks passed` or
   `approved` event wakes you, and you resume its job to land it, lift the freeze and return
   `WAITING release` naming its start.
-- In the monorepo the fix skips the merge queue: `drive pr set <url> --exempt "incident fix"`,
-  then `gh pr merge <n> -R <monorepo> --squash`. For a PR in a native GitHub stack, which
-  `gh pr merge` refuses, use `gh api -X PUT repos/<monorepo>/pulls/<n>/merge-async -f
-  sha=<head> -f merge_method=squash -f merge_action=direct_merge`. The `landing_guard` hook holds
-  both to that exemption, and refuses `--admin`.
-- Accept a reviewer-bot finding with `submit-pr`'s
-  `pr-reviews accept <slug> --why "incident: <why the fix is right>"`, unless it says the fix is
-  wrong.
+- The fix skips the merge queue: `drive pr set <url> --exempt "incident fix"`, then the direct
+  merge the repository names under `## In this repository`. The `landing_guard` hook holds it to
+  that exemption, and refuses `--admin`.
+- Accept a reviewer-bot finding with the repository's accept command, its why reading
+  `incident: <why the fix is right>`, unless it says the fix is wrong.
 - Nothing stands between the merged fix and its build: no dry run, no read of what the cut covers,
   no question. The job shipping the fix returns `WAITING release` naming the start at the fix
   commit, and the top coordinator starts it with `drive job add --release`. The release's own
   approve hold is the one check, and every other read runs while it builds.
 - Every release a drive job starts, an incident's included, starts the regular way at the merged
-  fix or the default branch's head a first check proved, `<ci> release start <target> --from <sha>`,
-  whose `Release-With` and `Release-Order` footers decide what ships with it. `--only`,
-  `--without` and `--emergency` each leave out a partner its footers name, so it is not narrowed
-  with them. The job it started on does not cancel it, however wide its plan reads: a job that
+  fix or the default branch's head a first check proved, a release start of its target from that commit, whose footers decide what ships with
+  it, so it is not narrowed to leave out a partner they name. The job it started on does not cancel it, however wide its plan reads: a job that
   would decline it at approve returns with it held for the coordinator, and the `landing_guard`
-  hook refuses a drive job's `<ci> release cancel`. A fix cherry-picked onto the live commit on a
+  hook refuses a drive job's release cancel. A fix cherry-picked onto the live commit on a
   pushed branch, only once a first check found the default branch's newest build fails too, starts
-  `<ci> release start --manual <target> --env <emergency env> --commit <sha> --emergency`, its
+  an emergency release of that commit on the emergency env, its
   target the one the repository names for an emergency cut under `## In this repository`, since
   the release platform refuses a commit off the default branch for any other.
 - The line that tells him of a rollback or a release of the default branch says which bug it ships
@@ -300,7 +294,7 @@ check's verdict, or from the order when none ran.
   migration or backfill over it runs inside the cluster that serves the team, by the brief's
   `Runs as:` line in [jobs.md](jobs.md). An urgent hand repair of the records
   a bug left stuck is an immediate fix: it starts at once beside the root fix, as a Job in the
-  team's cluster started from its suspended CronJob with `<ci> cluster-job`, never under
+  team's cluster started from its suspended CronJob by the repository's cluster Job verb, never under
   `drive break-glass` from this Mac. With no service account that can make it, its job returns
   `BLOCKED` naming the grant it needs while the root fix ships. That Job writes a team's data, so
   outside staging and sandbox the `landing_guard` hook refuses it while he is away or holds every
@@ -353,8 +347,8 @@ in the thread, which takes it off the dashboard's top strip.
 The watch sends step 8 itself once the incident's fix is live, read fresh each pass:
 
 - No job on a `fix` part still works, no PR of its orders is open, and each merged one runs in
-  production for each component in the `releases` of `<ci> release select --pr`: every cluster
-  whose env file marks it `prod: true` serves the merge, by `<ci> release live --json` every five
+  production for each component the release provider's components read lists for it: every
+  production cluster serves the merge, by the release provider's live read every five
   minutes, a hotfix that cherry-picked it included.
 - Every Datadog monitor recorded on the incident reads OK. An incident with none closes on its fix
   alone. A monitor that recovers alone, a rollback, a stop's release or a builder's `DONE` does
@@ -366,4 +360,4 @@ The watch sends step 8 itself once the incident's fix is live, read fresh each p
   the step 8 `report` closing each order, and tells you `RECOVERED o<n>`.
 
 You send step 8 yourself for an incident the watch has no read for: one with no fix PR, such as
-one a rollback or a repair made by hand ended, or one whose fix PR is outside `<monorepo>`.
+one a rollback or a repair made by hand ended, or one whose fix PR is outside the drive's repository.

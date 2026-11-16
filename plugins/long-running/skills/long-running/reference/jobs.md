@@ -83,12 +83,12 @@ Contents:
     takeover when the brief declares a Mac step. A move from a Sprite waits on `builder-slot` with
     its Sprite lane running on, until the watch starts it with `drive job launch <j> --local`. A
     refused launch reaches the coordinator as a `relaunch_refused` event.
-- **Placement.** A <monorepo> builder is placed when it starts, from the step its brief declares.
+- **Placement.** A builder of the drive's repository is placed when it starts, from the step its brief declares.
   `drive job add` does not refuse one for load.
   - `drive job brief <j> --mac "<the step>"` writes the brief's `Mac:` line: the step only this Mac
     runs that the job itself runs, such as break-glass, `drive install`, the drive's dashboard, a
-    Mac box (`ci mac-box`), a test Mac or a devbox (`ci devbox`). A `Release:` line declares one
-    too, since its agent follows and approves the release with this Mac's Buildkite token.
+    Mac box, a test Mac or a devbox. A `Release:` line declares one
+    too, since its agent follows and approves the release with this Mac's CI token.
   - `place.mac_step` reads those two lines and nothing else in the brief, at every start:
     `drive job resume`, `drive job launch` and `drive pr wake` included. So name the step on the
     `Mac:` line. Words in the Order, Goal, Plan or Handoff place nothing.
@@ -108,19 +108,19 @@ Contents:
     reads the Goal as naming such a step and no `After install:` line declares it.
   - A builder return's `Mac:` line, the step its `PROVE:` needs, goes onto the brief of the prover
     added at its merge, so the prover starts here.
-  - A Sprite holds no Buildkite token or Datadog key. It reads Datadog with `drive datadog`, which
-    runs on this Mac. Its AWS session reads Buildkite and starts `ci db-read` builds through the
-    sprite door. `ci mac-box` and `ci devbox` run on this Mac's machine profile through
-    `DEVBOX_AWS_PROFILE`, with no sign-in. Codex jobs and any job that touches this Mac's
+  - A Sprite holds no CI token or Datadog key. It reads Datadog with `drive datadog`, which
+    runs on this Mac. Its AWS session reads CI and starts the repository's data-read builds through
+    the sprite door. The Mac box and devbox verbs run on this Mac's machine profile, with no
+    sign-in. Codex jobs and any job that touches this Mac's
     processes run here, and so does a reader unless a cap sends it to a Sprite.
 - **Mac boxes.** A Mac box comes down with the job that holds it.
-  `<ci> mac-box up <name> --holder <drive>/<job>` refuses a box with no holder. The lane names the
-  drive and job from its brief's `Drive:` line, which tags the box `mac-box:holder`. The save that
+  The Mac box provider's up verb refuses a box with no holder `<drive>/<job>`. The lane names the
+  drive and job from its brief's `Drive:` line, which tags the box with its holder. The save that
   moves a job out of running, or to done, failed or stopped, starts `drive mac-boxes-down <job>`, which runs
-  `<ci> mac-box down --holder <drive>/<job>` and logs to the drive's `mac-boxes.log`. A job holds a
+  the Mac box provider's down for the holder `<drive>/<job>` and logs to the drive's `mac-boxes.log`. A job holds a
   box only while it runs: the save that moves it to waiting, by WAITING or any other line, takes its
-  box down too, and it runs `<ci> mac-box up` again when it resumes. To hand a box on, run <mac box hand over> before the old job's save: it moves the
-  tag. A box handed on without it comes down at the old job's save, and its host
+  box down too, and it brings its box up again when it resumes. To hand a box on, run the Mac box provider's
+  hand-over before the old job's save: it moves the holder tag. A box handed on without it comes down at the old job's save, and its host
   sits in AWS's scrub for an hour or more.
 
 ## Start one on this Mac
@@ -212,7 +212,7 @@ Waits a first line sets, and what ends them:
 
 - A `READY` or `PUSHED` first line turns each of these it names into a wait: a drive PR,
   `release:<service>:<owner>/<repo>#<n>[@<env>]`, `staging:<target>/<env>@<commit>`,
-  `<order>:<part>` and a Buildkite build link, the build a `--release` job started included.
+  `<order>:<part>` and a CI build link, the build a `--release` job started included.
 - A `WAITING` first line does the same for each that still holds, and also takes `pid:<n>` for a
   process on this Mac that still runs (not on a Sprite), `reply:<the question's permalink>` for a
   teammate's reply, `reply:cci:<the seq of its record the job waits after>` for another drive's next
@@ -225,8 +225,8 @@ Waits a first line sets, and what ends them:
 - No wait is kept on a PR that itself waits on the job or a part it carries, such as the PR a
   staging tester tests.
 - The watch's `FREE` line ends a wait: a PR's when it merges; a release wait's when every cluster of
-  its service, or the one env it names, serves the PR's merge, or at once where `<ci> release live`
-  cannot follow it; a staging wait's when `release live` reads the env running its target at its
+  its service, or the one env it names, serves the PR's merge, or at once where the release provider's
+  live read cannot follow it; a staging wait's when that live read reads the env running its target at its
   commit or a build carrying it; a build's when it passed, failed, was canceled or stopped at an
   approve step; a process's when it ends; a part's when a builder or codex job on it returns `DONE`
   with no PR of its own unlanded.
@@ -244,9 +244,9 @@ Waits a first line sets, and what ends them:
   opening `LAST-READ` and carrying every `CASE` line.
 - A staging test pausing until staging runs its soak commit, or an after-merge pass waiting for a
   build carrying its merge, returns one `WAITING staging:<target>/<env>@<commit>` per stack, such
-  as `WAITING staging:db/<staging env>@044e8552b694`.
+  as `WAITING staging:db/staging@044e8552b694`.
 - A release wait whose service the PR's changed paths do not reach, by
-  `<ci> release select --pr`, is kept with a note naming the components they reach. A release wait
+  the release provider's components read, is kept with a note naming the components they reach. A release wait
   is a wake the job sets, not a gate.
 
 ### Codex jobs
@@ -291,7 +291,7 @@ ago on any other line, wrote nothing for 30 minutes, or belonged to an earlier s
 ## Start one on a Sprite
 
 1. Add the job with a `job` call holding its `add` alone, `remote: true` on it. Then brief and
-   start it in one command from the monorepo checkout's root with `run_in_background: true`:
+   start it in one command from the drive repository's checkout root with `run_in_background: true`:
    `drive job launch <j> --serves "<…>" --done-when "<…>" --where "<repo and branch>"`, with any
    other `drive job brief` flag. It writes the brief before it starts anything, so a refused flag
    starts no worker. Pass words holding quotes as `--handoff "$(cat <<'EOF'`, the words, then `EOF`
@@ -366,7 +366,7 @@ report, or an `ASK <path> [<path>…]` question naming each block.
   every result the lane sent, newest first. `drive job replies <j>` prints every result, question
   and kept return, oldest first with its time.
 
-**Reads.** A Sprite lane reads a red check's whole log itself: a Buildkite job's with `<ci> bk log`
+**Reads.** A Sprite lane reads a red check's whole log itself: a CI job's with the build provider's log read
 through the sprite door, a GitHub Actions job's with `ccx vcs job-log`. A Sprite holds no copy of
 the drive's cci or cc-notes records and no Slack credential, so a lane reads those through this Mac
 with a blocking question.
@@ -487,7 +487,7 @@ Goal: <the deliverable, one sentence>
 Done when: <the check that proves it where he will see or use it, such as the installed command's output, the live post or a picture of each user story>
 Where: <repo, base branch, existing branch or PR to adopt>
 Runs as: <only for a pass, migration, backfill, conversion, bulk or hand repair or other write of a team's data: the service account in that team's cluster it runs as and how it starts, such as a pipeline or an in-cluster schedule, not from this Mac; `none: <why>` when the Goal makes no such write>
-Release: <only for a job a release started on: the one `<ci> release start` or `<ci> release hotfix` that `drive job add --release` started, written by the process that started it>
+Release: <only for a job a release started on: the one release start or hotfix that `drive job add --release` started, written by the process that started it>
 Release build: <beside Release only: the build that start printed, which the job's agent follows and approves>
 Release freezes: <the release freezes standing now>
 Mac: <the step only this Mac runs that the job itself runs, from `--mac`>
@@ -556,16 +556,16 @@ with no card or question first:
 `drive job add builder --order <o> --goal "<what it ships>" --release "<the start> --order <his answer id>" --reading "<why his words cover it>"`.
 
 - The call starts the release from the top's checkout, prints its build link and writes the job's
-  brief on that build. `--release` takes one `<ci> release start` or `<ci> release hotfix`. A start
+  brief on that build. `--release` takes one release start or hotfix, as the repository's page text writes it. A start
   typed directly is blocked by `landing_guard`, so this flag is the way in.
 - The start's own `--order` names the answer of his the release rests on. A release on
-  `<staging env>` or `<sandbox env>` alone needs none. An incident's order covers its own cut and
+  the staging or sandbox env alone needs none. An incident's order covers its own cut and
   rollback, by [incidents.md](incidents.md).
 - `--reading` records your reading, and the job keeps it for the release's resume, approve, rerun
   and rollback. Say in one line to him what you started and why.
 - The release job works out the order of what ships and holds itself. At the approve hold its agent
-  reads each held migration, delete and replace against the code at the release's commit, then runs
-  `<ci> release approve <id> --via <agent>`, naming in `--leave-out` each stack it cannot vouch
+  reads each held migration, delete and replace against the code at the release's commit, then approves
+  it with the release provider's approve verb, leaving out each stack it cannot vouch
   for.
 - The one limit: a dangerous release starts, resumes or passes its approve hold only while he is
   present, meaning his word or tap in the last 15 minutes. Dangerous is what the repository's root

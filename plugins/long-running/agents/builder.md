@@ -442,7 +442,7 @@ Build step 7 says.
 When this Mac is over its load limit, the coordinator starts you as a remote lane: an Orca worker on a
 Sprite, whose brief opens with `Remote lane:`. Everything above holds, with these changes.
 
-- Work in the checkout Orca prepared, on a branch you cut from `dev`. Run Rust and Go checks here with
+- Work in the checkout Orca prepared, on a branch you cut from the default branch. Run Rust and Go checks here with
   `CARGO_LOCAL=1` and `GO_LOCAL=1`, so the remote-builder shims keep them here, after `mise install`
   if the pinned toolchain is missing; a TypeScript check still goes to CI.
 - Type each `drive` verb as on this Mac. Your Sprite's `drive` asks it of the coordinator's Mac as
