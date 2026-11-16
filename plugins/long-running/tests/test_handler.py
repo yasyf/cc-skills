@@ -625,6 +625,14 @@ HIS_UNLINKED = f"Message (his words): and?\nThread: D123 {HELD_THREAD}\nDrive: d
 THREAD_LINE = f"Record: 690839 Drive: demo Scratch: {{scratch}}/690839\nThread: {HELD_THREAD}"
 SINCE_COMPACTION = f"Thread: D123 {HELD_THREAD}\nContext: he waits on a handler whose done record has not come\nDrive: demo\nScratch: {{scratch}}/compacted"
 HIS_IN_INCIDENT = "Message (his words): is it still down?\nLink: https://acme.slack.com/archives/D123/p1794494100000100?thread_ts=1794494004.895129&cid=D123\nThread: D123 1794494004.895129\nDrive: demo\nScratch: {scratch}/down"
+CLAIM_THREAD = "1794784617.997419"
+CLAIM_RECORDS = {
+    "722131": {"kind": "owner", "refs": {"url": f"https://acme.slack.com/archives/D123/p1794564987410009?thread_ts={HELD_THREAD}&cid=D123"}, "attrs": {"order": "o2046", "thread": HELD_THREAD}},
+    "722138": {"kind": "report", "re": 722101, "attrs": {"channel": "C0CAP5TP81Z", "order": "o2046", "progress": "true", "until": "2026-11-15T17:30:00-08:00"}},
+    "722150": {"kind": "report", "re": 722131, "attrs": {"order": "o2046", "progress": "true", "thread": CLAIM_THREAD, "until": "2026-11-15T18:15:00-08:00"}},
+    "722160": {"kind": "report", "re": 722131, "attrs": {"order": "o2046", "progress": "true"}},
+    "722170": {"kind": "report", "attrs": {"order": "o2046", "progress": "true"}},
+}
 
 
 def brief_of(seq: str) -> str:
@@ -655,15 +663,24 @@ def watch_quiet(seq: str) -> str:
         pytest.param(watch_quiet("701042"), brief_of("701056"), "handed", id="o1433-threadless-701056-re-700999-while-92404de6-held-701042"),
         pytest.param(watch_quiet("701099"), brief_of("701102"), "handed", id="o1433-threadless-701102-re-701056-while-da98a680-held-701099"),
         pytest.param(brief_of("701054"), watch_quiet("701042"), "handed", id="o1433-the-watchs-701042-while-a-handler-held-threadless-701054"),
+        pytest.param(HIS_FIRST, brief_of("722138"), "started", id="722305-staging-claim-root-722138-while-37ea4d07-held-his-messages-in-o2046s-release-thread"),
+        pytest.param(brief_of("722138"), HIS_FIRST, "started", id="his-message-in-the-release-thread-while-a-handler-held-claim-root-722138"),
+        pytest.param(HIS_FIRST, brief_of("722150"), "started", id="a-claim-thread-line-re-his-message-while-a-handler-held-that-message"),
+        pytest.param(HIS_FIRST, brief_of("722160"), "handed", id="a-threadless-line-re-his-message-while-a-handler-held-that-message"),
+        pytest.param(HIS_FIRST, brief_of("722170"), "handed", id="a-threadless-line-in-o2046s-release-thread-while-a-handler-held-his-message-there"),
     ],
 )
 def test_a_brief_in_a_live_handlers_thread_or_on_its_re_chain_is_handed_to_it_whichever_session_briefed_either_and_a_copy_adds_nothing(
     communicator: str, tmp_path: Path, started: list[list[str]], cci_records: dict[str, dict], first: str, then: str, met: str
 ) -> None:
-    cci_records |= {seq: {"seq": int(seq), "kind": kept["kind"], "lane": "root", "re": kept.get("re"), "fields": {"attrs": kept["attrs"]}} for seq, kept in LIVE_RECORDS.items()}
+    cci_records |= {
+        seq: {"seq": int(seq), "kind": kept["kind"], "lane": "root", "re": kept.get("re"), "refs": kept.get("refs"), "fields": {"attrs": kept["attrs"]}}
+        for seq, kept in (LIVE_RECORDS | CLAIM_RECORDS).items()
+    }
     with state.edit("demo") as data:
         alert = state.new_order("an alert's runs are refused", f"https://acme.slack.com/archives/C0ALERT1/p{ALERT_THREAD.replace('.', '')}", ("C0ALERT1", ALERT_THREAD), {}, state.stamp())
         data["orders"]["o1433"] = alert | {"incident": True}
+        data["orders"]["o2046"] = state.new_order("test today's release against production's SandSQL on staging", f"https://acme.slack.com/archives/D123/p{HELD_THREAD.replace('.', '')}", ("D123", HELD_THREAD), {}, state.stamp())
     handler = tools.run("handler", "demo", {"brief": first.format(scratch=tmp_path)}).removeprefix("started ")
     assert tools.run("handler", "demo", {"brief": then.format(scratch=tmp_path)}).startswith("started " if met == "started" else f"handed to {handler}")
     handlers = state.load("demo")["handlers"]
