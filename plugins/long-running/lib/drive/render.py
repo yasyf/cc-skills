@@ -526,7 +526,7 @@ def subcoordinator_line(project: str, held: dict, seen: dict[str, str]) -> str:
 
 
 def order_block(drive: dict, order_id: str, order: dict) -> list[str]:
-    lines = [f"- {order_line(drive, order_id, order, WHOLE, promise_thread(order))}", f"  parts: {'; '.join(part_line(drive, order_id, part) for part in order['parts'])}"]
+    lines = [f"- {order_line(drive, order_id, order, WHOLE, promise_thread(drive, order))}", f"  parts: {'; '.join(part_line(drive, order_id, part) for part in order['parts'])}"]
     lines.extend(orphans(drive, order_id, WHOLE))
     for job_id in order["jobs"]:
         job = drive["jobs"][job_id]
@@ -718,7 +718,7 @@ def status_data(drive: dict, seen: dict[str, str], named: bool = False, runs: Ca
         "owner": drive["owner"],
     }
     if not named:
-        return data | {"orders": {order_id: order_line(drive, order_id, order, 80, promise_thread(order)) for order_id, order in open_orders(drive).items() if runs is None or runs(order)}}
+        return data | {"orders": {order_id: order_line(drive, order_id, order, 80, promise_thread(drive, order)) for order_id, order in open_orders(drive).items() if runs is None or runs(order)}}
     job_ids = [job_id for order in drive["orders"].values() for job_id in order["jobs"]]
     return data | {
         "orders": drive["orders"],
@@ -746,7 +746,7 @@ def status_text(drive: dict, seen: dict[str, str], shown: dict | None = None, ru
         f"Open orders{'' if runs is None else ' you run'}: {len(orders)}, a line each and one under it for each standing part and each part an ORPHAN named until it heals or a job on it moves;"
         " drive status <id> prints one whole, with its jobs, PRs and questions:"
     )
-    lines.extend(line for order_id, order in orders.items() for line in [f"- {order_line(drive, order_id, order, 80, promise_thread(order))}", *standings(drive, order_id, order), *orphans(drive, order_id, 80)])
+    lines.extend(line for order_id, order in orders.items() for line in [f"- {order_line(drive, order_id, order, 80, promise_thread(drive, order))}", *standings(drive, order_id, order), *orphans(drive, order_id, 80)])
     repros = sorted(
         (
             (job["updated"], job_id, job)

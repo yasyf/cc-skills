@@ -172,7 +172,6 @@ class Watcher:
     drained_at: datetime | None = None
     failures: dict[str, int] = field(default_factory=dict)
     failure_said: dict[str, datetime] = field(default_factory=dict)
-    page_shape: str | None = None
     cards: dict | None = None
     owed: set[str] | None = None
     merging: set[str] = field(default_factory=set)
@@ -250,6 +249,11 @@ def failed(watcher: Watcher, source: str, what: str, error: Exception, moment: d
         return []
     watcher.failure_said[source] = moment
     return [f"WATCH {what} failed {failures} times in a row: {error}"]
+
+
+def placed(attr: dict) -> dict:
+    """The say place a record's thread and channel attrs name, none for a record naming no thread."""
+    return ({"thread_ts": attr["thread"]} if attr.get("thread") else {}) | ({"channel_id": attr["channel"]} if attr.get("thread") and attr.get("channel") else {})
 
 
 def ids(pr: dict) -> str:
@@ -998,7 +1002,7 @@ def milestone(watcher: Watcher, record: dict, words: str) -> str:
     from drive import talk, tools
 
     [seq] = tools.sent(watcher.name, LANE, [record])
-    post = {"text": f"{words} ({{record:{seq}|its facts}}).", "record": seq} | ({"thread_ts": thread} if (thread := (record.get("attr") or {}).get("thread")) else {})
+    post = {"text": f"{words} ({{record:{seq}|its facts}}).", "record": seq} | placed(record.get("attr") or {})
     return talk.watch_line(watcher.name, post)
 
 
@@ -1238,7 +1242,7 @@ def proved_lines(watcher: Watcher, moment: datetime) -> list[str]:
         if not (report := order["close_report"]) or "seq" not in report:
             continue
         words = report["text"].removeprefix("POST ")
-        post = {"text": f"{words} ({{record:{report['seq']}|proof}}).", "record": report["seq"]} | ({"thread_ts": thread} if (thread := report["attr"].get("thread")) else {})
+        post = {"text": f"{words} ({{record:{report['seq']}|proof}}).", "record": report["seq"]} | placed(report["attr"])
         try:
             outcome = f"{order_id} live line posted by the watch: {talk.proved_line(watcher.name, post)}"
             closes = state.load(watcher.name)["orders"][order_id]["state"] in state.CLOSED_ORDER_STATES
@@ -1295,7 +1299,7 @@ def closed(watcher: Watcher, head: str, links: list[str], fix: str, moment: date
     record = {
         "kind": "report",
         "topic": f"watch-recovered-{head}",
-        "attr": {"close": ",".join(group)} | state.thread_attr(incident),
+        "attr": {"close": ",".join(group)} | state.thread_attr(data, incident),
         "text": f"incident {head} is over: {'its monitors read OK and ' if links else ''}its fix is live",
         "body": "\n".join(facts) + "\n",
     }
@@ -1305,7 +1309,7 @@ def closed(watcher: Watcher, head: str, links: list[str], fix: str, moment: date
         return failed(watcher, f"close of {head}", f"close record of {head}", error, moment)
     watcher.failures.pop(f"close of {head}", None)
     lines, said = [], None
-    live = {"text": f"Live: {incident['title'] or cut(incident['text'], 80)} is over, {'its monitors read OK and ' if links else ''}its fix is live ({{record:{seq}|its facts}}).", "record": seq} | ({"thread_ts": thread} if (thread := record["attr"].get("thread")) else {})
+    live = {"text": f"Live: {incident['title'] or cut(incident['text'], 80)} is over, {'its monitors read OK and ' if links else ''}its fix is live ({{record:{seq}|its facts}}).", "record": seq} | placed(record["attr"])
     try:
         said = talk.watch_line(watcher.name, live)
     except (slack.SlackError, state.DriveError) as error:
@@ -1338,7 +1342,7 @@ def follow_up(data: dict, head: str, group: list[str], created: str) -> str | No
         return None
     order_id = state.next_id(data["orders"], "o")
     parts = {part: data["orders"][other]["parts"].pop(part) for other, names in left.items() for part in names}
-    follow = data["orders"][order_id] = state.new_order(incident["text"], incident["from"], state.promise_thread(incident), parts, created) | {
+    follow = data["orders"][order_id] = state.new_order(incident["text"], incident["from"], state.promise_thread(data, incident), parts, created) | {
         "owner": incident["owner"],
         "project": incident["project"],
         "workstream": incident["workstream"],
@@ -2508,35 +2512,25 @@ def waiting_post_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Redraw the drive's Slack status page when what it shows changed since the last drawing, its "Updated" line aside; say once, kept in the drive across watch restarts, when Slack starts refusing so the page he sees is stale, once when it takes a redraw again, and with the link whenever the page moved to a new tab."""
+    """Redraw the own canvas of each channel the drive keeps, in the words page.canvases gives it, whenever they changed since its last drawing, by the digest kept on that channel's entry across watch restarts, and say the link of each canvas drawn the first time; a drive keeping no channel draws none. A draw that fails goes again on the next pass and is said from its third failure in a row."""
     if watcher.project:
         return []
-    markdown = page.render(view.read(watcher.name, moment), dashboard.link(watcher.name))
-    shape = markdown.split("\n", 1)[1]
-    if shape == watcher.page_shape:
+    data = state.load(watcher.name)
+    if not data["slack"]["channels"]:
         return []
-    stale = state.load(watcher.name, ("slack",))["slack"].get("page_stale")
-    try:
-        drawn = page.draw(watcher.name, markdown)
-    except page.PageError as error:
-        if stale:
-            return []
-        def page_lines_write2(data: dict):
-            data["slack"]["page_stale"] = state.stamp(moment)
-
-        state.update(watcher.name, None, page_lines_write2)
-        return [f"WATCH status page stale since {when(state.stamp(moment))}: {error}"]
-    watcher.page_shape = shape
-    if stale:
-        def page_lines_write(data: dict):
-            data["slack"].pop("page_stale")
-
-        state.update(watcher.name, None, page_lines_write)
-    if drawn.new_tab:
-        return [f"WATCH status page redrawn on a new tab: {drawn.url}"]
-    if stale:
-        return [f"WATCH status page redrawn: Slack takes its redraws again, after refusing them since {when(stale)}"]
-    return []
+    lines = []
+    for seat, (title, markdown) in page.canvases(watcher.name, data, view.read(watcher.name, moment), dashboard.link(watcher.name)).items():
+        if data["slack"]["channels"][seat].get("canvas_digest") == page.digest(markdown):
+            continue
+        try:
+            drawn = page.draw(watcher.name, seat, title, markdown)
+        except page.PageError as error:
+            lines += failed(watcher, f"canvas {seat}", f"draw of the canvas of {data['slack']['channels'][seat]['name']}", error, moment)
+            continue
+        watcher.failures.pop(f"canvas {seat}", None)
+        if drawn.new:
+            lines.append(f"WATCH canvas of #{data['slack']['channels'][seat]['name']} drawn: {drawn.url}")
+    return lines
 
 
 def event_line(event: dict, data: dict) -> str:
@@ -3839,7 +3833,7 @@ def safeguard_report(data: dict, job_id: str, turn: dict) -> dict:
     return {
         "kind": "report",
         "topic": f"watch-safeguards-{job_id}",
-        "attr": {"order": job["order"], "job": job_id} | state.thread_attr(order),
+        "attr": {"order": job["order"], "job": job_id} | state.thread_attr(data, order),
         "text": f"{job_id}'s agent was {SAFEGUARDED} and the drive restarts nothing",
         "body": "\n".join(facts) + "\n",
     }

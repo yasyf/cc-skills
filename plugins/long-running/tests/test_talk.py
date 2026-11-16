@@ -1408,7 +1408,7 @@ def test_a_line_at_his_dm_root_on_an_order_whose_own_thread_holds_no_line_to_him
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": link})
     report(monkeypatch, {"progress": "true", "order": "o1"})
     assert talk.say(demo, {"text": "The fix is building.", "record": "677158"}).startswith(f"POSTED {link}; o1 progress line")
-    assert state.thread_attr(state.load(demo)["orders"]["o1"]) == {"thread": root}
+    assert state.thread_attr(state.load(demo), state.load(demo)["orders"]["o1"]) == {"thread": root}
 
 
 def test_a_claim_at_a_channels_root_keeps_its_end_on_its_order_and_a_line_in_its_thread_moves_it(
@@ -1508,7 +1508,7 @@ def test_an_incident_added_from_the_terminal_takes_its_first_line_at_his_dm_root
     assert talk.say(demo, {"text": "Memory recall returns nothing; the fix is building.", "record": "677158"}) == (
         f"POSTED {first}; o1 progress line, no part delivered: {first}, in thread {root}, now its own thread"
     )
-    assert state.thread_attr(state.load(demo)["orders"]["o1"]) == {"thread": root}
+    assert state.thread_attr(state.load(demo), state.load(demo)["orders"]["o1"]) == {"thread": root}
     second = slack_thread.post(state.now() + timedelta(minutes=1), from_claude=True)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": second, "thread_ts": root})
     report(monkeypatch, {"progress": "true", "order": "o1", "thread": root})
@@ -1604,3 +1604,46 @@ def test_a_post_in_a_drive_channels_thread_goes_at_its_root_unless_it_answers_hi
         assert talk.rooted(known, update | kept) == update | kept
     assert talk.rooted(known, update | {"channel_id": "C0ALERTS"}) == update | {"channel_id": "C0ALERTS"}
     assert talk.rooted(known, {"text": "In his DM.", "thread_ts": "1.2"}) == {"text": "In his DM.", "thread_ts": "1.2"}
+
+
+def test_while_the_drive_keeps_channels_an_orders_line_bound_for_its_dm_thread_starts_its_thread_at_its_seats_channel_root_and_a_follow_up_replies_there(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
+) -> None:
+    his, root = "1794200000.000100", "1794200100.000200"
+    run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Alerts", "memory recall returns nothing", "--thread", his)
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+        data["slack"]["channels"] = {"": {"id": "C100", "name": "him-drive-demo"}, "SandSQL": {"id": "C200", "name": "him-drive-demo-sandsql"}}
+    assert state.load(demo)["orders"]["o1"]["thread"] == ["D123", his]
+    first = f"https://acme.slack.com/archives/C200/p{root.replace('.', '')}"
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: calls.append(argv) or {"permalink": first})
+    report(monkeypatch, {"progress": "true", "order": "o1"})
+    assert talk.say(demo, {"text": "The fix is building.", "thread_ts": his, "record": "677158"}) == (
+        f"POSTED {first}; o1 progress line, no part delivered: {first}, in thread {root}, now one of its threads"
+    )
+    assert calls[-1][calls[-1].index("--channel") + 1] == "C200" and "--thread" not in calls[-1]
+    order = state.load(demo)["orders"]["o1"]
+    assert (order["thread"], [where[:2] for where in order["threads"]]) == (["D123", his], [["C200", root]])
+    assert state.thread_attr(state.load(demo), order) == {"thread": root, "channel": "C200"}
+    second = f"https://acme.slack.com/archives/C200/p1794200200000300?thread_ts={root}&cid=C200"
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: calls.append(argv) or {"permalink": second, "thread_ts": root})
+    report(monkeypatch, {"progress": "true", "order": "o1", "thread": root, "channel": "C200"})
+    assert talk.say(demo, {"text": "The fix is live.", "thread_ts": root, "in_thread": True, "record": "677159"}).startswith(f"POSTED {second}; o1 progress line")
+    assert (calls[-1][calls[-1].index("--channel") + 1], calls[-1][calls[-1].index("--thread") + 1]) == ("C200", root)
+
+
+def test_an_answer_to_his_message_stays_in_his_dm_thread_while_a_drive_post_bound_for_his_dm_goes_to_its_own_channel(demo: str) -> None:
+    his = "1794200000.000100"
+    with state.edit(demo) as data:
+        data["slack"]["channels"] = {"": {"id": "C100", "name": "him-drive-demo"}}
+    data = state.load(demo)
+    assert talk.homed(demo, data, {"text": "x", "thread_ts": his, "asked": [his]}, [], None, ("D123", his)) == ("D123", his)
+    assert talk.homed(demo, data, {"text": "x", "thread_ts": his}, [], None, ("D123", his)) == ("C100", None)
+    assert talk.homed(demo, data, {"text": "x"}, [], None, ("D123", None)) == ("C100", None)
+    assert talk.homed(demo, data, {"edit": "https://acme.slack.com/archives/D123/p1794200000000100"}, [], None, ("D123", his)) == ("D123", his)
+    with state.edit(demo) as data:
+        data["slack"]["channels"] = {}
+    assert talk.homed(demo, state.load(demo), {"text": "x"}, [], None, ("D123", None)) == ("D123", None)

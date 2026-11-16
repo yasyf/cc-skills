@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from conftest import SHORT_ASK
-from drive import card, land, limits, page, pages, pr_graph, render, slack, stage, state, view, watch
+from drive import card, dashboard, land, limits, page, pages, pr_graph, render, slack, stage, state, view, watch
 from drive.render import when
 
 T0 = state.parse_time("2026-11-09T10:00:00-08:00")
@@ -522,61 +522,74 @@ def test_a_big_drive_draws_every_section_at_most_eight_rows_and_counts_the_rest_
     assert page.link(questions[page.ROWS]["title"], questions[page.ROWS]["url"]) not in markdown
 
 
-def test_watch_redraws_the_page_only_when_the_model_changes(demo: str, drawn: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
+CHANNELS = {"": {"id": "C100", "name": "him-drive-demo"}, "Iris": {"id": "C200", "name": "him-drive-demo-iris"}}
+
+
+def kept_channels(name: str) -> None:
+    with state.edit(name) as data:
+        data["slack"]["channels"] = json.loads(json.dumps(CHANNELS))
+
+
+def test_the_watch_draws_no_canvas_for_a_drive_keeping_no_channel_and_none_in_his_dm(demo: str, drawn: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch.github, "fetch", lambda keys, into=None: ({}, None))
-    watching = watch.Watcher(demo, offset=state.events_end(demo))
-    watch.run_pass(watching, T0)
-    watch.run_pass(watching, T0 + timedelta(seconds=60))
-    assert len(drawn) == 1
+    watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo)), T0)
+    assert drawn == []
+
+
+def test_each_channel_gets_its_own_canvas_redrawn_only_when_its_words_change_across_restarts(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(watch.github, "fetch", lambda keys, into=None: ({}, None))
+    monkeypatch.setattr(watch.slack, "owed", lambda session: [])
+    monkeypatch.setattr(slack, "workspace", lambda: "acme.slack.com")
+    monkeypatch.setattr(page, "draw", DRAW)
+    kept_channels(demo)
+    calls: list[tuple[list[str], str]] = []
+
+    def canvas(*argv: str, timeout: int = 90, stdin: str | None = None) -> dict:
+        if argv[0] != "canvas":
+            raise slack.SlackError(f"cc-slack {argv[0]} is not in this test")
+        calls.append((list(argv), stdin or ""))
+        canvas_id = {"C100": "F100", "C200": "F200"}[argv[argv.index("--channel") + 1]]
+        return {"canvas_id": canvas_id, "url": f"https://acme.slack.com/docs/T1/{canvas_id}"}
+
+    monkeypatch.setattr(slack, "cc_slack", canvas)
     with state.edit(demo) as data:
-        data["orders"]["o1"] = order("a new order", [])
-    watch.run_pass(watching, T0 + timedelta(seconds=120))
-    assert len(drawn) == 2
-    assert "a new order" in drawn[-1]
+        data["orders"]["o1"] = order("index the iris tables", [], project="Iris")
+    said = watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo)), T0)
+    assert [line for line in said if line.startswith("WATCH canvas")] == [
+        "WATCH canvas of #him-drive-demo drawn: https://acme.slack.com/docs/T1/F100",
+        "WATCH canvas of #him-drive-demo-iris drawn: https://acme.slack.com/docs/T1/F200",
+    ]
+    assert [argv[:5] for argv, _ in calls] == [["canvas", "--channel", "C100", "--title", "demo: where it stands"], ["canvas", "--channel", "C200", "--title", "Iris: where it stands"]]
+    own, iris = (words for _, words in calls)
+    assert f"- [#him-drive-demo-iris](https://acme.slack.com/archives/C200) · 1 open · 0 waiting on you · [dashboard]({dashboard.link(demo)}#/queue/all?project=Iris)" in own
+    assert "#/feature/o1)" in iris and "o1: " in iris and "#/feature/o1)" not in own
+    assert {seat: (made["canvas"], made["canvas_digest"]) for seat, made in state.load(demo)["slack"]["channels"].items()} == {"": ("F100", page.digest(own)), "Iris": ("F200", page.digest(iris))}
+    watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo)), T0 + timedelta(minutes=1))
+    assert len(calls) == 2
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order("another iris order", [], project="Iris")
+    assert [line for line in watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo)), T0 + timedelta(minutes=2)) if line.startswith("WATCH canvas")] == []
+    assert [argv[:7] for argv, _ in calls[2:]] == [
+        ["canvas", "--channel", "C100", "--title", "demo: where it stands", "--canvas", "F100"],
+        ["canvas", "--channel", "C200", "--title", "Iris: where it stands", "--canvas", "F200"],
+    ]
 
 
-def test_a_refused_draw_is_said_once_across_restarts_and_once_when_slack_takes_a_redraw_again(
-    demo: str, drawn: list[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_canvas_slack_refuses_is_drawn_again_next_pass_and_said_from_its_third_failure(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch.github, "fetch", lambda keys, into=None: ({}, None))
-    accept = page.draw
+    monkeypatch.setattr(watch.slack, "owed", lambda session: [])
+    monkeypatch.setattr(slack, "workspace", lambda: "acme.slack.com")
+    with state.edit(demo) as data:
+        data["slack"]["channels"] = {"": {"id": "C100", "name": "him-drive-demo"}}
 
-    def refused(name: str, markdown: str) -> page.Drawn:
+    def refused(name: str, seat: str, title: str, markdown: str) -> page.Drawn:
         raise page.PageError("Slack refused the redraw (canvas_too_large)")
 
     monkeypatch.setattr(page, "draw", refused)
     watching = watch.Watcher(demo, offset=state.events_end(demo))
-    assert watch.run_pass(watching, T0) == [f"WATCH status page stale since {when(state.stamp(T0))}: Slack refused the redraw (canvas_too_large)"]
-    assert watch.run_pass(watching, T0 + timedelta(minutes=10)) == []
-    assert watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo)), T0 + timedelta(minutes=40)) == []
-    monkeypatch.setattr(page, "draw", accept)
-    redrawn = f"WATCH status page redrawn: Slack takes its redraws again, after refusing them since {when(state.stamp(T0))}"
-    assert watch.run_pass(watching, T0 + timedelta(minutes=50)) == [redrawn]
-    assert watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo)), T0 + timedelta(minutes=60)) == []
-    assert len(drawn) == 2
-
-
-def test_a_page_slack_calls_full_moves_to_a_new_tab_and_the_watch_says_where(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(watch.github, "fetch", lambda keys, into=None: ({}, None))
-    monkeypatch.setattr(page, "draw", DRAW)
-    monkeypatch.setattr(watch.slack, "owed", lambda session: [])
-    answers = iter(["F1", "F1", "F2"])
-
-    def canvas(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
-        if argv[1:2] != ["canvas"]:
-            return subprocess.CompletedProcess(argv, 1, "", f"{argv[0]} is no canvas")
-        canvas_id = next(answers)
-        return subprocess.CompletedProcess(argv, 0, json.dumps({"canvas_id": canvas_id, "url": f"https://slack.example/docs/T1/{canvas_id}"}), "")
-
-    monkeypatch.setattr(subprocess, "run", canvas)
-    watching = watch.Watcher(demo, offset=state.events_end(demo))
-    assert watch.run_pass(watching, T0) == []
-    for text, minutes in (("a new order", 10), ("another order", 20)):
-        with state.edit(demo) as data:
-            data["orders"][f"o{minutes}"] = order(text, [])
-        said = watch.run_pass(watching, T0 + timedelta(minutes=minutes))
-    assert [line for line in said if line.startswith("WATCH status page")] == ["WATCH status page redrawn on a new tab: https://slack.example/docs/T1/F2"]
-    assert state.load(demo)["slack"]["page"] == "F2"
+    said = [[line for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes)) if "canvas" in line] for minutes in range(3)]
+    assert said == [[], [], ["WATCH draw of the canvas of him-drive-demo failed 3 times in a row: Slack refused the redraw (canvas_too_large)"]]
+    assert "canvas" not in state.load(demo)["slack"]["channels"][""]
 
 
 def test_board_adds_progress_work_and_each_features_order_and_jobs() -> None:

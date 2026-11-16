@@ -334,20 +334,32 @@ is merged and installed, listing each rule now in the skill.
 Fixed: the agent picks up again right after you answer its question, on today's build.
 ```
 
-**The status page.** The watch redraws the drive's canvas, a tab in his DM with the app, within a
-minute of any change, and `drive view` prints the same page. A strip counts what waits on him and
-each state. Tables follow for his questions, his PR taps, every
-project's count by state, each open state's features, and finished work. When a line says where
-things stand, link the page instead of restating it.
+**The channel canvases.** Each channel the drive keeps has its own canvas, the channel's tab, which
+the watch redraws within a minute of a change to its words. The drive's own channel's canvas has
+one line per project or priority channel, linking that channel and its dashboard queue with its
+counts of open orders and waiting cards. A project or priority channel's canvas lists what waits on
+him there, then its open orders, one line each, each linking its dashboard page. No canvas goes in
+his DM. `drive view` prints the whole status page. When a line says where things stand, link the
+channel's canvas or the dashboard instead of restating it.
 
-**The Waiting on you post.** The watch keeps one pinned post at the root of his DM and of each
-operator channel, edited in place when what waits there changes, so it pings him once. It counts
-the open cards whose project posts there, links that queue on the dashboard, then links the first
-five, those fixing a bug hurting someone now first.
+**Nothing goes to his DM.** While the drive keeps channels, every post of the drive goes to a
+channel: updates, cards, the catch-up digest, incident lines, and fix-live lines. A post bound for
+his DM goes at the root of its seat's channel instead. An order whose own thread is in his DM
+starts its thread there with that line. An `in_thread` follow-up or a card goes in the thread a
+record's `thread` and `channel` attrs name, so pass both as `thread_ts` and `channel_id`. Only an
+answer to his own message stays in his DM thread, so cc-slack hears it answered. A drive with no
+channels posts where it always did. Old DM threads and cards are never moved in bulk.
 
-**The daily digest.** Once a Pacific day the watch posts one table in his DM linking each question
-card asked more than 24 hours before. It is the one place an old card is raised again, so a thread
-line does not name a card the digest lists.
+**The Waiting on you post.** The watch keeps one pinned post at the root of each channel the drive
+keeps, or of his DM for a drive with none. It edits the post in place when what waits there
+changes, so it pings him once. It counts the open cards whose project posts there, links that queue on the
+dashboard, then links the first five, those fixing a bug hurting someone now first. A DM post kept
+from before the drive had channels is edited once to say no cards wait there.
+
+**The daily digest.** Once a Pacific day the watch posts one table in the drive's own channel, or in
+his DM for a drive with no channels, linking each question card asked more than 24 hours before.
+It is the one place an old card is raised again, so a thread line does not name a card the digest
+lists.
 
 ## When it goes out
 

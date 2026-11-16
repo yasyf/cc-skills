@@ -159,7 +159,7 @@ def test_start_creates_the_drive_and_prints_the_roles_context(run: Run, tmp_path
             "rules": render.rules_digest(data, "communicator"),
         }
     }
-    assert data["slack"] == {"page": None, "watch": [], "swept": None, "waiting": {}, "digest": None, "channels": {}}
+    assert data["slack"] == {"watch": [], "swept": None, "waiting": {}, "digest": None, "channels": {}}
 
 
 def test_a_coordinators_start_starts_the_watch_and_says_so(run: Run, watch_process: WatchProcess, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -762,7 +762,7 @@ def test_an_order_from_his_reply_goes_in_the_thread_his_reply_is_in_in_the_chann
         ("--channel", "C0BUGS1", "--thread", bug_reply, "--limit", "1"),
     ]
     data = state.load("demo")
-    assert {order_id: (order["from"], order["thread"], state.promise_thread(order)) for order_id, order in data["orders"].items()} == {
+    assert {order_id: (order["from"], order["thread"], state.promise_thread(data, order)) for order_id, order in data["orders"].items()} == {
         "o1": (f"slack:D123/{reply}", ["D123", root], ("D123", root)),
         "o2": (f"slack:C0BUGS1/{bug_reply}", ["C0BUGS1", bug_root], None),
         "o3": (f"slack:C0BUGS1/{bug_reply}", ["C0BUGS1", bug_root], None),
@@ -810,9 +810,9 @@ def test_an_order_he_gives_in_a_thread_a_teammate_started_takes_that_thread_as_i
     data = state.load("demo")
     orders = data["orders"]
     assert orders["o1"]["reporters"] == [state.reporter(f"slack:C0BUGS1/{report}")]
-    assert (orders["o1"]["thread"], state.promise_thread(orders["o1"]), state.thread_attr(orders["o1"])) == (["C0BUGS1", report], None, {})
+    assert (orders["o1"]["thread"], state.promise_thread(data, orders["o1"]), state.thread_attr(data, orders["o1"])) == (["C0BUGS1", report], None, {})
     assert limits.his_words(orders["o1"]) == "fix this"
-    assert [(orders[order_id]["reporters"], state.own_thread(orders[order_id]), state.promise_thread(orders[order_id])) for order_id in ("o2", "o3")] == [([], ("C0BUGS1", report), None)] * 2
+    assert [(orders[order_id]["reporters"], state.own_thread(orders[order_id]), state.promise_thread(data, orders[order_id])) for order_id in ("o2", "o3")] == [([], ("C0BUGS1", report), None)] * 2
     slack_thread.messages[0] |= {"from_bot": True}
     assert run(*filed, "unpause the release", "--from", f"slack:C0BUGS1/{report}/{reply}") == (0, "o4")
     assert state.load("demo")["orders"]["o4"]["reporters"] == []
@@ -1000,7 +1000,7 @@ def test_an_order_asking_where_work_stands_gets_a_page_its_codex_job_starts_on_a
     assert (order["kind"], {part: held["answer"] for part, held in order["parts"].items()}, order["jobs"]) == ("build", {"SandSQL cutover": True, "page": False}, ["j1"])
     assert (data["jobs"]["j1"]["kind"], data["jobs"]["j1"]["parts"], data["jobs"]["j1"]["waits"]) == ("codex", ["page"], [])
     text = written.read_text()
-    assert "\nPlan: 1. Write strict user stories and acceptance criteria before implementation.\n" in text
+    assert "\nPlan: 1. Run `drive page make --order <order> --goal \"<his goal in plain words>\"`, open its link on the installed dashboard once it composes" in text
     assert "\nInteractions: open Pages on the dashboard and see the page listed live under its order" in text
     assert "Pages lists now: none." in text
     assert brief.job_refusal(data, "o1", "codex", ["page"]) is None
