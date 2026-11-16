@@ -792,18 +792,6 @@ def reply_row(message: dict) -> dict:
     return {field: message[field] for field in ("created_at", "id", "type", "subject", "body")} | payload | {"kept_at": message.get("kept_at") or stamp()}
 
 
-class Keeping(NamedTuple):
-    """A message a batch, or a call outside any write, keeps in its job's history once the batch saves, the after_save effect keep_reply_saved leaves there, which replies reads as kept until then."""
-
-    name: str
-    job_id: str
-    message: dict
-
-    def __call__(self) -> list[str]:
-        keep_reply(self.name, self.job_id, self.message)
-        return []
-
-
 class Owed(NamedTuple):
     """The effect a write owing messages on a job's outbox leaves once per job, by owe_reply: deliver everything the outbox holds as committed, its row read alone, by deliver_owed, those a dead process left included, so one delivery and one ack serve every message the job owes."""
 
@@ -812,14 +800,6 @@ class Owed(NamedTuple):
 
     def __call__(self) -> list[str]:
         return deliver_owed(self.name, self.job_id, (saved_row(self.name, "jobs", self.job_id) or {}).get("outbox", []))
-
-
-def keep_reply_saved(name: str, job_id: str, message: dict) -> None:
-    """Keep a message a remote lane sent in its job's history once the write it runs in commits: inside a write's change of the drive durably, by owe_reply, else by after_save, at once outside a write or once a batch saves, each read of that history by replies before then finding it, so a refused run of a lock-free write keeps nothing and its next run reads the history as it stands; each call inside a write moves to owe_reply."""
-    if (attempt := ATTEMPT.get()) is not None and attempt.name == name:
-        owe_reply(name, attempt.data, job_id, message)
-        return
-    after(Keeping(name, job_id, reply_row(message)))
 
 
 def owe_reply(name: str, data: dict, job_id: str, message: dict) -> None:
@@ -878,9 +858,8 @@ def owed(name: str, job_id: str) -> list[dict]:
 
 
 def replies(name: str, job_id: str) -> list[dict]:
-    """The job's kept messages and returns, oldest first, each once: its history, then each message its outbox still owes, by owed, and each the batch or write running now keeps once it saves, by keep_reply_saved, each placed as keep_reply will keep it, by reply_place, so a reader before the delivery reads what it will, every row without the kept_at it is ordered by; the outbox read before the history, so a delivery that keeps a message and acks it between the two reads leaves it in one of them; a watch stopped between keeping a message and saving its cursor keeps it again."""
-    running = AFTER_SAVE[name] if name in AFTER_SAVE else attempt.effects if (attempt := ATTEMPT.get()) is not None else []
-    pending = [*owed(name, job_id), *(effect.message for effect in running if isinstance(effect, Keeping) and (effect.name, effect.job_id) == (name, job_id))]
+    """The job's kept messages and returns, oldest first, each once: its history, then each message its outbox still owes, as the write or batch running now holds it, by owed, each placed as keep_reply will keep it, by reply_place, so a reader before the delivery reads what it will, every row without the kept_at it is ordered by; the outbox read before the history, so a delivery that keeps a message and acks it between the two reads leaves it in one of them; a watch stopped between keeping a message and saving its cursor keeps it again."""
+    pending = owed(name, job_id)
     path = replies_path(name, job_id)
     kept = list({reply["id"]: reply for reply in (json.loads(line) for line in path.read_text().splitlines())}.values()) if path.exists() else []
     ids = {reply["id"] for reply in kept}
