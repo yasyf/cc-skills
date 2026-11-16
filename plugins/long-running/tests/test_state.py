@@ -216,6 +216,37 @@ def ordered(name: str, count: int) -> Path:
     return state.database_path(name)
 
 
+@pytest.mark.parametrize("collection", ["", "answers"])
+def test_a_row_save_indexes_only_written_collections_and_keeps_insertion_order(state_root: Path, collection: str) -> None:
+    make("demo")
+    base = state.load("demo")
+    mine = dict(base)
+    traversed: list[str] = []
+
+    class Records(dict):
+        def __iter__(self):
+            traversed.append(self.collection)
+            return super().__iter__()
+
+    for field in state.COLLECTIONS:
+        records = Records(base[field])
+        records.collection = field
+        mine[field] = records
+    if collection:
+        mine[collection].update({"a9": {"text": "first"}, "a2": {"text": "second"}})
+        held = {(collection, key): state.ABSENT for key in ("a2", "a9")}
+    else:
+        mine["terminal"] = "the new terminal"
+        held = {("", "terminal"): base["terminal"]}
+    state.rows_saved("demo", held, base, mine, tuple(held))
+    assert traversed == ([collection] if collection else [])
+    with closing(state.connect(state.database_path("demo"))) as db:
+        if collection:
+            assert db.execute("SELECT key FROM rows WHERE collection = ? ORDER BY place", (collection,)).fetchall() == [("a9",), ("a2",)]
+        else:
+            assert json.loads(db.execute("SELECT body FROM rows WHERE collection = '' AND key = 'terminal'").fetchone()[0]) == "the new terminal"
+
+
 def other_process_save() -> None:
     subprocess.run([sys.executable, "-c", OTHER_PROCESS_SAVE, str(Path(state.__file__).resolve().parents[1])], check=True, timeout=30)
 
