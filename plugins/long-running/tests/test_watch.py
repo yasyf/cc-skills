@@ -992,7 +992,7 @@ def fetch_outcomes(monkeypatch: pytest.MonkeyPatch, outcomes: list[bool]) -> lis
     return calls
 
 
-def test_failed_read_retries_next_poll_and_says_so_from_the_third_failure_in_a_row(
+def test_failed_read_retries_next_poll_and_says_so_once_at_the_third_failure_in_a_row(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls = fetch_outcomes(monkeypatch, [False] * 5)
@@ -1001,7 +1001,7 @@ def test_failed_read_retries_next_poll_and_says_so_from_the_third_failure_in_a_r
     assert [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5, 10, 15)] == [[], [], [said.format(3)], []]
     assert len(calls) == 3
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=10, seconds=10)) == [said.format(5)]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=10, seconds=10)) == []
 
 
 def test_a_good_read_starts_the_failure_count_over(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

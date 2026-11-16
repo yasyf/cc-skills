@@ -7483,7 +7483,7 @@ def test_mail_is_read_only_while_a_remote_lane_is_live(remote: str, monkeypatch:
     assert calls == [None]
 
 
-def test_a_failed_mail_read_retries_next_poll_and_says_so_from_the_third_failure_in_a_row(
+def test_a_failed_mail_read_retries_next_poll_and_says_so_once_at_the_third_failure_in_a_row(
     remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls = []
@@ -7498,7 +7498,7 @@ def test_a_failed_mail_read_retries_next_poll_and_says_so_from_the_third_failure
     assert [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5, 10, 15)] == [[], [], [said.format(3)], []]
     assert calls == [None] * 3
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=10, seconds=10)) == [said.format(5)]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=10, seconds=10)) == []
 
 
 def test_lane_names_fit_a_sprite() -> None:

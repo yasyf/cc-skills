@@ -712,7 +712,7 @@ def test_the_communicators_record_answering_a_coordinators_record_reaches_its_wr
     assert [record["to"] for record in made] == [root, root, ["iris@demo"], ["iris@demo"], ["iris@demo"]]
 
 
-def test_a_coordinators_handoff_reaches_every_lane_it_names_whichever_session_holds_the_order_it_serves(
+def test_a_coordinators_handoff_reaches_the_one_lane_it_names_whichever_session_holds_the_order_it_serves_and_one_to_several_is_refused(
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Journal", "ship the journal")
@@ -720,9 +720,11 @@ def test_a_coordinators_handoff_reaches_every_lane_it_names_whichever_session_ho
     for project in ("SandSQL", "Platform"):
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", f"{project.lower()}-1")
         run("start", demo, "--role", "coordinator", "--project", project)
-    for to in (["platform@demo"], ["platform@demo", "sandsql@demo", "meta@demo", "communicator@demo"]):
+    for to in (["platform@demo"], ["sandsql@demo"]):
         handoff = {"kind": "handoff", "text": "the staging window opens at noon", "to": to, "re": ["699084"], "attrs": {"order": "o1"}}
         assert record_lines.decision(post(**handoff)) is None, to
+    fanned = {"kind": "handoff", "text": "the staging window opens at noon", "to": ["platform@demo", "sandsql@demo", "meta@demo", "communicator@demo"], "re": ["699084"], "attrs": {"order": "o1"}}
+    assert refusal(record_lines.decision(post(**fanned))) == reports.FANNED.format(lanes="platform, sandsql, meta, communicator")
 
 
 def bound_to_iris(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -817,8 +819,8 @@ def test_his_words_at_his_message_on_his_open_question_go_only_through_the_recor
 
 def test_a_state_note_or_evidence_record_and_one_fanned_out_to_several_lanes_are_refused_as_chatter_but_an_incident_naming_each_lanes_step(demo: str) -> None:
     for chatty in ("state", "note", "evidence"):
-        assert refusal(record_lines.decision(post(kind=chatty, text="LAST-READ j7 box j6 is free", to=["iris@demo"]))) == reports.CHATTY.format(kind=chatty)
-    fanned = refusal(record_lines.decision(post(kind="answer", text="box j6 is free", to=["iris@demo", "platform@demo"])))
-    assert fanned == reports.FANNED.format(lanes="iris, platform")
-    assert "permissionDecision" not in (record_lines.decision(post(kind="incident", text="api is down: iris rolls back, platform pages", to=["iris@demo", "platform@demo"], attrs={"about": "his work"})) or {})
-    assert refusal(record_lines.decision(post(kind="incident", text="api is down: iris rolls back", to=["iris@demo", "platform@demo"], attrs={"about": "his work"}))) == fanned
+        assert refusal(record_lines.decision(post(kind=chatty, text="LAST-READ j7 box j6 is free", to=["meta@demo"]))) == reports.CHATTY.format(kind=chatty)
+    fanned = refusal(record_lines.decision(post(kind="answer", text="box j6 is free", to=["meta@demo", "communicator@demo"])))
+    assert fanned == reports.FANNED.format(lanes="meta, communicator")
+    assert "permissionDecision" not in (record_lines.decision(post(kind="incident", text="api is down: meta rolls back, communicator pages", to=["meta@demo", "communicator@demo"], attrs={"about": "his work"})) or {})
+    assert refusal(record_lines.decision(post(kind="incident", text="api is down: meta rolls back", to=["meta@demo", "communicator@demo"], attrs={"about": "his work"}))) == fanned
