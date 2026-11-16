@@ -891,14 +891,21 @@ def taken_back(name: str, members: list[str], ask: dict) -> list[str]:
     from drive import land, view
 
     written = float(ask["action_ts"])
-    with state.edit(name) as data:
+
+    def untapped(data: dict) -> list[str]:
         taken = [member for member in members if (entry := data["prs"][member])["state"] == "open" and land.approved(entry) and state.parse_time(entry["tap"]["at"]).timestamp() < written]
+        events = []
         for member in taken:
             entry = data["prs"][member]
             entry["tap"] = None
             entry["updated"] = state.stamp()
             repo, number = member.split("#")
-            state.append_event(name, "tap", repo=repo, number=int(number), label=WORDS, head=entry["head"], source=ask["source"], action_ts=ask["action_ts"], lane=state.heard_lane(data, entry["order"]))
+            events.append({"repo": repo, "number": int(number), "label": WORDS, "head": entry["head"], "source": ask["source"], "action_ts": ask["action_ts"], "lane": state.heard_lane(data, entry["order"])})
+        if events:
+            state.after_save(name, lambda: [state.append_event(name, "tap", **event) for event in events] and [])
+        return taken
+
+    taken = state.update(name, None, untapped)
     land.halt(name, members, view.live_cards(name))
     return taken
 
