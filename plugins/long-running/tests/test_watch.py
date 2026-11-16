@@ -10337,7 +10337,7 @@ def test_o852_the_deleted_latch_closed_with_its_fix_not_live_is_back_on_the_stri
     assert [line for line in watch.run_pass(watcher(demo), T0) if line.startswith("RECOVERED")] == []
 
 
-CLOSE_REPORT = {"id": "install-proved-j1", "kind": "report", "to": ["communicator@demo"], "topic": "install-proved-o1", "attr": {"close": "o1"}, "text": "POST Fix: the watch is live in long-running 1.0.3", "body": "Fixed: Fix: the watch\n"}
+CLOSE_REPORT = {"id": "install-proved-j1", "kind": "report", "to": ["posts@demo"], "topic": "install-proved-o1", "attr": {"close": "o1"}, "text": "POST Fix: the watch is live in long-running 1.0.3", "body": "Fixed: Fix: the watch\n"}
 
 
 def test_a_close_report_drive_install_kept_posts_from_the_watch_once_cci_takes_it_and_survives_a_refusal_to_the_next_watch(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

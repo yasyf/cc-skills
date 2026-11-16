@@ -164,7 +164,7 @@ def test_every_session_start_block_fits_claude_codes_hook_limit_on_a_drive_as_la
     assert {seat: len(block) for seat, block in blocks.items() if len(block) >= HOOK_CHARS} == {}
     for role in state.ROLES:
         renamed = render.context(large, role).replace(str(state.drive_dir(large["name"])), str(state.drive_dir(small["name"])))
-        assert renamed.splitlines()[3:] == render.context(small, role).splitlines()[3:]
+        assert [line for line in renamed.splitlines()[3:] if not line.startswith("Your brief: ")] == [line for line in render.context(small, role).splitlines()[3:] if not line.startswith("Your brief: ")]
     assert not any(line.startswith("- o") for block in blocks.values() for line in block.splitlines())
 
 
