@@ -2,6 +2,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -42,6 +43,7 @@ SYNTHETIC = "<synthetic>"
 OUTAGE_WAITS = (1, 2, 4, 8)
 START_WINDOW = timedelta(minutes=5)
 REMOVE = ["sh", "-c", 'sleep 2; claude stop "$1"; claude rm "$1"', "remove"]
+STOP = ["sh", "-c", 'sleep 2; claude stop "$1"', "stop"]
 BATCH_WINDOW = timedelta(minutes=1)
 EFFORT_CEILING = "high"
 ABOVE_CEILING = ("xhigh", "max")
@@ -999,10 +1001,13 @@ def start_handler(name: str, handler: str, prompt: str) -> None:
     ]
     session = launched(backgrounded(argv, checkout, {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
 
-    def bound(data: dict) -> None:
-        data["handlers"][handler]["session"] = session
+    def bound(data: dict) -> bool:
+        if entry := data["handlers"].get(handler):
+            entry["session"] = session
+        return bool(entry)
 
-    state.update(name, (("handlers", handler),), bound)
+    if not state.update(name, (("handlers", handler),), bound):
+        end_bg(session, checkout, removed=True)
 
 
 def backgrounded(argv: list[str], checkout: Path, env: dict[str, str]) -> str:
@@ -1073,9 +1078,37 @@ def start_job(name: str, job_id: str, agent: str, call: dict, held: dict, cwd: P
     return launched(reads.run(argv, cwd, {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
 
 
-def resume_job(bg: dict, text: str) -> None:
-    """Continue a job's own `claude --bg` session whose turn ended on text, in the background under the same session and in the checkout it started in, as `claude --bg --resume` continues one, so a text to an agent the watch started wakes it with no SendMessage."""
-    reads.run(["claude", "--bg", "--resume", bg["session"], text], Path(bg["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"})
+def resume_job(name: str, job_id: str, bg: dict, text: str) -> None:
+    """Continue a job's own `claude --bg` session whose turn ended on text, in the background under the same session and in the checkout it started in, as `claude --bg --resume` continues one, so a text to an agent the watch started wakes it with no SendMessage: its idle background job stopped first, as a pool handler's wake stops its own, since a resume of a job still up starts a copy beside it; a copy Claude Code starts anyway becomes the job's session and the old job is removed."""
+    found = background_job(bg["session"])
+    if found:
+        subprocess.run(["claude", "stop", found[0]], cwd=bg["cwd"], capture_output=True, check=False)
+    resumed = launched(reads.run(["claude", "--bg", "--resume", bg["session"], text], Path(bg["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"}))
+    if resumed != bg["session"]:
+        with state.edit(name) as data:
+            data["jobs"][job_id]["bg"]["session"] = resumed
+        if found:
+            subprocess.Popen(["claude", "rm", found[0]], cwd=bg["cwd"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+def end_bg(session: str, cwd: Path, removed: bool) -> None:
+    """Stop a session's background job once its turn is over, which would otherwise sit idle holding its memory, and with removed `claude rm` it too, so nothing resumes it; a session whose job Claude Code no longer keeps while its process still runs, as an orphaned handler's start can leave, ended with SIGTERM to that process."""
+    if found := background_job(session):
+        subprocess.Popen([*(REMOVE if removed else STOP), found[0]], cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        return
+    for pid, record in session_records():
+        if record.get("sessionId") == session and running([(pid, record.get("procStartFt") or record.get("procStart"))]):
+            os.kill(pid, signal.SIGTERM)
+
+
+def reap_orphans(name: str) -> None:
+    """End each live `<drive> handler <id>` session whose id the drive keeps no row for, as a start that outlived START_WINDOW leaves once forget took its row and handed its briefs on, so the handlers alive never pass the rows the pool and the handlers cap count."""
+    prefix = f"{name} handler "
+    rows = state.saved(name)["handlers"]
+    for pid, record in session_records():
+        handler = (record.get("name") or "").removeprefix(prefix)
+        if handler != record.get("name") and handler not in rows and running([(pid, record.get("procStartFt") or record.get("procStart"))]):
+            end_bg(record["sessionId"], Path(record["cwd"]), removed=True)
 
 
 def take_pointed(name: str, job_id: str) -> list[str]:
@@ -1437,8 +1470,7 @@ def restart_handler(name: str, payload: dict) -> None:
 
 def remove_session(name: str, payload: dict) -> None:
     """Remove a handler's ended session, which would otherwise sit idle holding its memory: `claude rm` takes the id of the background job Claude Code keeps for it. The session then stops hearing his DM, so cc-slack hands each reply of his it never took to the session holding his DM at once rather than once the process exits."""
-    own, _ = background_job(payload["handler_session"])
-    subprocess.Popen([*REMOVE, own], cwd=Path(payload["cwd"]), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    end_bg(payload["handler_session"], Path(payload["cwd"]), removed=True)
     slack.cc_slack("unfollow", "--channel", slack.dm(), "--session", payload["handler_session"], "--cwd", payload["cwd"])
 
 

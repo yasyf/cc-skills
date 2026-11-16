@@ -2981,6 +2981,7 @@ def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
     if watcher.project:
         return []
     agents.release_quiet(watcher.name)
+    agents.reap_orphans(watcher.name)
     agents.warm(watcher.name)
     data = state.load(watcher.name)
     try:
@@ -4332,6 +4333,24 @@ def release_lanes(watcher: Watcher, moment: datetime) -> list[str]:
     return lines
 
 
+def rest_sessions(watcher: Watcher, moment: datetime) -> list[str]:
+    """End the own `claude --bg` session of each job the watch hears that is not running once that session's turn is over and its process still runs, by agents.end_bg under the job's own lock, passing over a job whose lock a resume or launch holds: removed for a done, failed or stopped job, so it never runs again, and stopped for a waiting or built one, its background job kept, so the text that clears its wait resumes that same session in place by agents.resume_job; so no job's idle session holds memory while it waits on a PR, CI or his card."""
+    if state.scratch():
+        return []
+    data = state.load(watcher.name)
+    records = agents.session_records()
+    resting = [job_id for job_id, job in data["jobs"].items() if heard_job(watcher, data, job) and job["state"] != "running" and (session := state.own_session(job)) and agents.alive(session, records) and agents.gone(job["bg"])]
+    for job_id in resting:
+        try:
+            with state.job_locked(watcher.name, job_id, 0):
+                job = state.load(watcher.name)["jobs"][job_id]
+                if job["state"] != "running" and (session := state.own_session(job)) and agents.alive(session, agents.session_records()) and agents.gone(job["bg"]):
+                    agents.end_bg(session, Path(job["bg"]["cwd"]), removed=job["state"] in state.FINISHED_JOB_STATES)
+        except state.DriveError:
+            continue
+    return []
+
+
 def adopt_sprites(watcher: Watcher, moment: datetime) -> list[str]:
     """Record as a death of its job each live Sprite of a lane of a job the watch hears on a Sprite, by pool_claims, that neither the job's row nor any death of it names, at once when the job is done, failed or stopped, else once its records last moved ADOPT_AFTER ago or more, while the job's row names the Sprite its current lane runs on and this Sprite's lane is not that lane, since a job whose launch recorded no Sprite or whose current lane's Sprite this is may have its live worker on it, and so keeps it; and no launch of the job is in flight, as a launch that failed after its claim or a stop that came before the job recorded its Sprite leaves one, so lane_holds hands it to drive job reclaim like any Sprite a dead lane left."""
     try:
@@ -5371,6 +5390,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
                     noted_lines,
                     lane_lines,
                     release_lanes,
+                    rest_sessions,
                     check_disks,
                     agent_lines,
                     stall_lines,

@@ -3847,7 +3847,7 @@ def own_post(name: str, job_id: str, session: str, seq: str) -> str:
             data["jobs"][job_id]["bg"]["pointed"].append(pointer)
         return f"{job_id}: posted to its own session {session}'s cci address as handoff record {seq}, which its next step reads"
     try:
-        agents.resume_job(bg, pointer)
+        agents.resume_job(name, job_id, bg, pointer)
     except reads.ReadError as error:
         raise DriveError(f"{job_id}: posted as handoff record {seq}, but claude --bg --resume {session} did not wake it: {error}") from None
     return f"{job_id}: posted to its own session {session}'s cci address as handoff record {seq}, and resumed that session on it"
