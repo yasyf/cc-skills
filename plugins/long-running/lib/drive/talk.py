@@ -647,7 +647,7 @@ def project(data: dict, post: dict, stack: list[str], order: str | None) -> str 
     """The sub-coordinator seat a post at the root is about, by state.coordinator_seat, so a priority order's goes in its seat's own channel once that seat is bound, by his pick "1 but also 1 per sub communicator including priority ones and then one central one for the drive": its order's, else that of the order of the job its card asks for, else that of the first order its PRs serve that names one, else for a card the drive's tooling project, so a card of no project asks in the drive's own operator channel."""
     waits = (post.get("card") or {}).get("waits")
     orders = [order] if order else [data["jobs"][job]["order"]] if waits and (job := state.waits_job(data, waits)) in data["jobs"] else [each for key in stack for each in state.served_orders(data, data["prs"][key])]
-    return next((seat for each in orders if each in data["orders"] and (seat := state.coordinator_seat(data, data["orders"][each]))), cli.TOOLING_FILING[0] if post.get("card") or stack else None)
+    return next((seat for each in orders if each in data["orders"] and (seat := state.channel_seat_of(data, data["orders"][each]))), cli.TOOLING_FILING[0] if post.get("card") or stack else None)
 
 
 def places(data: dict, post: dict, stack: list[str]) -> list[tuple[str, str | None]]:

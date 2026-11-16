@@ -198,7 +198,7 @@ def canvases(name: str, data: dict, model: dict, dashboard: str) -> dict[str, tu
     waiting = {channel: [] for channel in seats}
     for group in model["status"]:
         for entry in group["features"] if group["state"] in OPEN_STATES else []:
-            orders.setdefault(slack.project_channel(data, state.coordinator_seat(data, data["orders"][entry["id"]])), []).append(entry)
+            orders.setdefault(slack.project_channel(data, state.channel_seat_of(data, data["orders"][entry["id"]])), []).append(entry)
     for item in model["queue"]:
         waiting.setdefault(talk.queue_channel(data, item), []).append(item)
     drawn = {}

@@ -5983,6 +5983,14 @@ def coordinator_seat(data: dict, order: dict) -> str | None:
     return order["priority"] if order["priority"] in data["subcoordinators"] else order["project"]
 
 
+def channel_seat_of(data: dict, order: dict) -> str | None:
+    """The seat whose channel an order's root posts and canvas line go in: its coordinator_seat, but an order filed under the project and workstream of an open priority order whose seat is bound goes in that seat's channel, by his order "every release line goes to #yasyf-drive-durable-agents-prio-releases and is kept current there"."""
+    seat = coordinator_seat(data, order)
+    if seat in data["subcoordinators"] and seat != order["project"] or not order["workstream"]:
+        return seat
+    return next((held["priority"] for held in data["orders"].values() if prioritized(held) and held["priority"] in data["subcoordinators"] and (held["project"], held["workstream"]) == (order["project"], order["workstream"])), seat)
+
+
 def first_in_line(data: dict, job: dict) -> bool:
     """Whether the job serves an open order marked first in line by drive order set --priority, its own or one it carries, so it starts ahead of every other order's work at each admission point."""
     return any(prioritized(data["orders"][order_id]) for order_id in [job["order"], *job["carries"]])

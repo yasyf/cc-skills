@@ -135,6 +135,18 @@ def test_a_priority_orders_post_makes_its_bound_seats_own_channel_while_its_proj
     assert state.load(demo)["slack"]["channels"][state.priority_seat("o2")] == made["him-drive-demo-prio-fix-the-lock"]
 
 
+def test_an_order_filed_under_a_priority_orders_project_and_workstream_posts_in_that_seats_channel(demo: str, posts: list[tuple[str, ...]]) -> None:
+    with state.edit(demo) as data:
+        data["slack"]["channels"] = {"": {"id": "C666", "name": "him-drive-demo"}, "Platform": {"id": "C700", "name": "him-drive-demo-platform"}, state.priority_seat("o1"): {"id": "C790", "name": "him-drive-demo-prio-releases"}}
+        data["orders"]["o1"] = state.new_order("cut the release", "D123", None, {}, state.stamp()) | {"project": "Platform", "workstream": "Releases", "priority": state.priority_seat("o1")}
+        data["orders"]["o2"] = state.new_order("release everything but SandSQL", "D123", None, {}, state.stamp()) | {"project": "Platform", "workstream": "Releases"}
+        data["orders"]["o3"] = state.new_order("fix the router", "D123", None, {}, state.stamp()) | {"project": "Platform", "workstream": "Routing"}
+        data["subcoordinators"][state.priority_seat("o1")] = {"session": "seat-1", "cwd": "/w/demo", "from": 0}
+    for order_id in ("o2", "o3"):
+        talk.posted(demo, {"text": "Moving."}, order_id)
+    assert [argv[argv.index("--channel") + 1] for argv in posts] == ["C790", "C700"]
+
+
 def test_the_drives_own_channel_posts_one_line_per_project_channel_linking_it_and_its_queue(demo: str, unposted_waits: Callable[..., dict[str, str]]) -> None:
     with state.edit(demo) as data:
         data["slack"]["channels"] = {"": {"id": "C666", "name": "him-drive-demo"}, "Iris": {"id": "C777", "name": "him-drive-demo-iris"}}
