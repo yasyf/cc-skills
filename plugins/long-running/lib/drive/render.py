@@ -438,8 +438,8 @@ def incident_line(order_id: str, order: dict) -> str:
 
 def page_line(order: dict) -> str:
     """An incident's page mark as a read of the order shows it: the record showing real users failing and the session that marked it, and when he was paged and by whom, or that he was not."""
-    users = f"real users failing per record {order['users']}, marked by {order.get('users_by') or 'an earlier install'}" if order["users"] else "not marked as hitting real users"
-    paged = f"paged him at {when(order['paged'])} by {order.get('paged_by') or 'an earlier install'}" if order["paged"] else "he was not paged"
+    users = f"real users failing per record {order['users']}, marked by {order['users_by'] or 'an earlier install'}" if order["users"] else "not marked as hitting real users"
+    paged = f"paged him at {when(order['paged'])} by {order['paged_by'] or 'an earlier install'}" if order["paged"] else "he was not paged"
     return f"{users}; {paged}"
 
 

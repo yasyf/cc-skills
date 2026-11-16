@@ -12736,3 +12736,14 @@ def test_job_show_and_status_of_a_job_render_its_orders_reporters_own_and_kept_b
         for job_id in ("j1", "j2"):
             code, out = run(*verb, job_id)
             assert code == 0 and f"reported in {kept}, which hears it is fixed" in out, (verb, job_id, out)
+
+
+def test_an_incident_order_an_older_install_saved_without_its_page_mark_shows_it_unmarked_through_order_show(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "chats fail")
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["incident"] = True
+        for field in state.ORDER_FIELDS:
+            data["orders"]["o1"].pop(field)
+    code, out = run("order", "show", "o1")
+    assert (code, out.splitlines()[-1]) == (0, "page: not marked as hitting real users; he was not paged")
+    assert render.page_line(state.saved_row(demo, "orders", "o1")) == "not marked as hitting real users; he was not paged"

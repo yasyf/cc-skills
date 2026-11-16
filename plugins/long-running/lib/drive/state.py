@@ -159,6 +159,7 @@ REMOTE_LANE_ENV = "LONG_RUNNING_REMOTE_LANE"
 WATCHDOG_ENV = "LONG_RUNNING_WATCHDOG"
 DETACHED_ENV = "LONG_RUNNING_DETACHED"
 HIM = "him"
+ORDER_FIELDS = {"paged": None, "paged_by": None, "users": None, "users_by": None}
 WATCH_SENDER = "watch"
 SENDER_NAMES = {"coordinator": "the coordinator", "communicator": "the communicator", "meta": "the meta session", WATCH_SENDER: "the watch"}
 CARRY_ON = "The lane that held this job died while it worked, and the watch started you in its place: carry the job on from where that lane left it."
@@ -1002,12 +1003,14 @@ def saved(name: str) -> dict:
 
 
 def saved_row(name: str, collection: str, key: str) -> dict | None:
-    """One job or order as the drive saved it, its row alone read from the database and not brought up to this install's fields, so a hook asking after one job reads none of the rest; None for no such row."""
+    """One job or order as the drive saved it, its row alone read from the database, so a hook asking after one job reads none of the rest, an order carrying each of ORDER_FIELDS an older install never wrote at its default; None for no such row."""
     if not (path := database_path(name)).exists():
-        return stored_json(name)[collection].get(key)
-    with closing(connect(path)) as db:
-        found = db.execute("SELECT body FROM rows WHERE collection = ? AND key = ?", (collection, key)).fetchone()
-    return found and json.loads(found[0])
+        row = stored_json(name)[collection].get(key)
+    else:
+        with closing(connect(path)) as db:
+            found = db.execute("SELECT body FROM rows WHERE collection = ? AND key = ?", (collection, key)).fetchone()
+        row = found and json.loads(found[0])
+    return ORDER_FIELDS | row if row and collection == "orders" else row
 
 
 def stored(name: str, fields: tuple[str, ...] | None = None) -> dict:
@@ -1216,10 +1219,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             if "jobs" not in handoff:
                 job_id = handoff.pop("job", None)
                 handoff["jobs"] = [job_id] if job_id else []
-        order.setdefault("paged", None)
-        order.setdefault("paged_by", None)
-        order.setdefault("users", None)
-        order.setdefault("users_by", None)
+        for field, default in ORDER_FIELDS.items():
+            order.setdefault(field, default)
         if order.pop("fixed", None) and order["recovered"] and order["state"] not in CLOSED_ORDER_STATES:
             order.update(recovered=None, proof=None)
         order.setdefault("quiet", None)
