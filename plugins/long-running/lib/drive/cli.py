@@ -6407,7 +6407,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--rework", action="append", default=[], type=rework_mark, metavar="PR=LINK", help=REWORK_HELP)
     verb.add_argument("--lined", action="store_true", help="a line just went in its thread")
     verb.add_argument(
-        "--withdrawn", metavar="LINK", help="his Slack message calling off the promised time; the order then owes no line for it"
+        "--withdrawn", metavar="LINK", help="his Slack message calling off the order's lines: the promised time, the five-quiet-minutes clock and any every-so-many-minutes clock, until a drive post answers his next word in its thread"
     )
     verb.add_argument(
         "--add-part",

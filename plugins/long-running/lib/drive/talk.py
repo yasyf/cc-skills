@@ -577,7 +577,7 @@ def shown(name: str, post: dict) -> tuple[list[dict], str, list[str]]:
 
 
 def posted(name: str, post: dict, order: str | None = None, receipt: dict | None = None) -> dict:
-    """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, naming each message of his it answers for the watch's daily sweep, the dashboard drawing each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post that draws a card stores his cards as cc-slack lists them now, so the next post's hook sees that card; a post check refuses goes nowhere, and every cc-slack call making the post carries the post's request key, so a retry gets back each message Slack already holds under it. A post at his DM root goes at the root of its project's operator channel when it has one, the project `project` names. A card's line goes in each thread of his DM or an operator channel its PRs' orders have, and through cc-slack reply in the thread outside his DM the post names, such as an alert's, so whichever he reads carries the card's link, and the thread of each PR card drawn joins every order its PRs serve; the post's permalink is then that line's. A post of words in a thread is kept, by `keep_line`, as the line that thread holds about each card of his it links. A post say records on order keeps receipt, its record and close report, and starts its recorder the moment cc-slack returns it, ahead of every drive write after it, the receipt's path and the recorder's pid then its recorder."""
+    """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, naming each message of his it answers for the watch's daily sweep, an answer to one he wrote after the message withdrawing an order's lines in that order's thread ending that withdrawal, by state.heard_again, the dashboard drawing each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post that draws a card stores his cards as cc-slack lists them now, so the next post's hook sees that card; a post check refuses goes nowhere, and every cc-slack call making the post carries the post's request key, so a retry gets back each message Slack already holds under it. A post at his DM root goes at the root of its project's operator channel when it has one, the project `project` names. A card's line goes in each thread of his DM or an operator channel its PRs' orders have, and through cc-slack reply in the thread outside his DM the post names, such as an alert's, so whichever he reads carries the card's link, and the thread of each PR card drawn joins every order its PRs serve; the post's permalink is then that line's. A post of words in a thread is kept, by `keep_line`, as the line that thread holds about each card of his it links. A post say records on order keeps receipt, its record and close report, and starts its recorder the moment cc-slack returns it, ahead of every drive write after it, the receipt's path and the recorder's pid then its recorder."""
     text = post.get("text") or ""
     found = refs.resolved(name, text)
     check(name, post)
@@ -615,6 +615,7 @@ def posted(name: str, post: dict, order: str | None = None, receipt: dict | None
     if card and card.get("waits"):
         cli.follow_card(name, card["waits"], asked, reply["permalink"])
     kept = refs.board(text, found) or (card or {}).get("title") or ""
+    answers = answered_ts(data, post)
     state.append_event(
         name,
         "said",
@@ -627,8 +628,12 @@ def posted(name: str, post: dict, order: str | None = None, receipt: dict | None
         visuals=visuals,
         prs=stack,
         edited=bool(post.get("edit")),
-        answers=answered_ts(data, post),
+        answers=answers,
     )
+    if answers and (ended := state.heard_again(data, state.link_thread(reply["permalink"]), answers)):
+        with state.edit(name) as saved:
+            for order_id in ended:
+                saved["orders"][order_id]["withdrawn"] = None
     if drawn:
         view.refresh_cards(name)
     else:

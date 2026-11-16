@@ -317,6 +317,7 @@ MOVED_SAVER = "999999.0.0"
 SCHEMA = "1"
 COLLECTIONS = ("orders", "jobs", "prs", "answers", "handlers", "stalls")
 CLOCKS = "clocks"
+PRIORITY_CLOCKS = "priority_clocks"
 BINDINGS = ("driver", "roles", "subcoordinators", "handlers")
 TABLES = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
@@ -5249,7 +5250,7 @@ def open_orders(data: dict) -> dict[str, dict]:
 
 
 def clocks(data: dict) -> list[dict]:
-    """Each open order he waits on a line from, by its due: the time a line was promised him, else five quiet minutes after its thread's last line while a job of the order runs or it is top priority, else the minutes he asked a line every after it, by his words "And give me updates, every 15 mins, concise, on all 3 of these, in this thread, until all done" and "And for future when I say something is top priority it’s not acceptable that it's been an hour and there's no motion or updates on it" and his picks "Owe a line only on news: while a job works or something it names changed; silent while all waits." and "a line every five quiet minutes"; with when that thread last got a line, the session of the role holding it and of each handler holding a message in its thread, and the agent of each job of it running. A job runs only while `at_work` reads it so. The orders are those the watch's news_groups owes a line, an incident or one with a thread that no recovery, close report, close or proof finished, each on its own line, and a thread's last line the newest of its orders', else when the first was opened, as the watch's quiet_lines reads it, but never when the watch's own report reached a handler, which is no line to him. Each edit and batch saves it as one row, which hooks/role_rules.py reads alone with no lock, so a session's call learns how long he has waited from a read that stays one row however many orders and jobs the drive keeps."""
+    """Each open order he waits on a line from, by its due: the time a line was promised him, else five quiet minutes after its thread's last line while a job of the order runs or it is top priority, else the minutes he asked a line every after it, by his words "And give me updates, every 15 mins, concise, on all 3 of these, in this thread, until all done" and "And for future when I say something is top priority it’s not acceptable that it's been an hour and there's no motion or updates on it" and his picks "Owe a line only on news: while a job works or something it names changed; silent while all waits." and "a line every five quiet minutes"; an order his message withdrew by drive order set --withdrawn owes neither clock until his next word in its thread ends the withdrawal, by heard_again, and only a time promised after it; with when that thread last got a line, the session of the role holding it and of each handler holding a message in its thread, and the agent of each job of it running. A job runs only while `at_work` reads it so. The orders are those the watch's news_groups owes a line, an incident or one with a thread that no recovery, close report, close or proof finished, each on its own line, and a thread's last line the newest of its orders', else when the first was opened, as the watch's quiet_lines reads it, but never when the watch's own report reached a handler, which is no line to him. Each edit and batch saves it as one row, which hooks/role_rules.py reads alone with no lock, so a session's call learns how long he has waited from a read that stays one row however many orders and jobs the drive keeps."""
     from drive import view
 
     waited = {
@@ -5270,7 +5271,8 @@ def clocks(data: dict) -> list[dict]:
     for order_id, order in waited.items():
         since = heard[keyed[order_id]]
         running = [job for job in orders_jobs(data, [order_id]).values() if at_work(job)]
-        if not (dues := [*([parse_time(owed_at(order))] if owed(order) else []), *([since + QUIET_THREAD] if running or order["priority"] else []), *([since + timedelta(minutes=order["every"])] if order["every"] else [])]):
+        clocked = not order["withdrawn"]
+        if not (dues := [*([parse_time(owed_at(order))] if owed(order) else []), *([since + QUIET_THREAD] if clocked and (running or order["priority"]) else []), *([since + timedelta(minutes=order["every"])] if clocked and order["every"] else [])]):
             continue
         where = own_thread(order)
         sessions = [holding_role(data, order)[1].get("session"), *(handled.get(where[1], []) if where else [])]
@@ -5281,6 +5283,7 @@ def clocks(data: dict) -> list[dict]:
                 "since": stamp(since),
                 "due": stamp(min(dues)),
                 "incident": order["incident"],
+                "priority": bool(order["priority"]),
                 "sessions": list(dict.fromkeys(session for session in sessions if session)),
                 "agents": [job["agent"] for job in running if job.get("agent")],
             }
@@ -5294,9 +5297,29 @@ def at_work(job: dict) -> bool:
 
 
 def held_clocks(name: str, session: str, agent: str | None) -> dict:
-    """The owner row and the clocks row's orders a session or a job's agent holds, an agent's alone when the call is a subagent's, both read in one transaction with no lock; none from a drive no install writing the row saved since."""
+    """The owner row and the clocks row's orders a session or a job's agent holds, an agent's alone when the call is a subagent's, beside every priority order's of the drive, which priority_late reads, all read in one transaction with no lock; none from a drive no install writing the row saved since."""
     saved = stored(name, (CLOCKS, "owner"))
-    return saved | {CLOCKS: [entry for entry in saved.get(CLOCKS, []) if (agent in entry["agents"] if agent else session in entry["sessions"])]}
+    entries = saved.get(CLOCKS, [])
+    return saved | {CLOCKS: [entry for entry in entries if (agent in entry["agents"] if agent else session in entry["sessions"])], PRIORITY_CLOCKS: [entry for entry in entries if entry.get("priority")]}
+
+
+def clock_late(data: dict, entry: dict, moment: datetime) -> timedelta:
+    """How far past its due a clocks entry's line is at moment: an incident's every minute, since the watch owes its line while he is away too, any other's only the minutes he read present."""
+    return max(timedelta(), moment - parse_time(entry["due"]) if entry["incident"] else present(data, parse_time(entry["due"]), moment))
+
+
+def priority_late(data: dict, entries: list[dict], moment: datetime) -> bool:
+    """Whether the line of an open priority order among these clocks entries is past due, which holds every order but a priority order or an incident behind it until each is current, by his words "Prioritize scheduling workers for these 3 things btw everything else takes a backseat"."""
+    return any(entry["priority"] and clock_late(data, entry, moment) for entry in entries)
+
+
+def heard_again(data: dict, thread: tuple[str, str], answered: list[str]) -> list[str]:
+    """Each open order whose lines go in the thread and whose withdrawal a message of his answered there ends, one written after the message drive order set --withdrawn kept, since his next word in an order's thread owes its lines again."""
+    return [
+        order_id
+        for order_id, order in open_orders(data).items()
+        if order["withdrawn"] and promise_thread(order) == thread and any(float(ts) > float(slack_message(order["withdrawn"])[1]) for ts in answered)
+    ]
 
 
 def show_overdue(name: str, caller: str, shown: list[list]) -> bool:

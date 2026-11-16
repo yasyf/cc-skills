@@ -2604,6 +2604,26 @@ def test_replaying_o2103_an_order_he_called_top_priority_owes_a_line_every_five_
     assert calls[0][0]["text"] == "POST order o1 has had no line to him in 5 minutes: post where it stands now in its thread"
 
 
+def test_replaying_o222_an_order_his_message_withdrew_owes_no_line_until_his_next_word_and_one_waits_behind_a_late_priority_order(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    threaded(demo)
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["state"] = "waiting"
+        data["orders"]["o1"] |= {"every": 15, "priority": state.priority_seat("o1"), "withdrawn": "https://acme.slack.com/archives/D123/p1794494100000000"}
+    assert state.clocks(state.load(demo)) == []
+    assert (watch.quiet_lines(watching, T0 + timedelta(minutes=15)), calls) == ([], [])
+    with state.edit(demo) as data:
+        data["orders"]["o1"] |= {"priority": None, "withdrawn": None}
+        data["orders"]["o2"] = state.new_order("rush this", "slack", ("D123", "1794494200.000001"), {}, state.stamp(T0)) | {"title": "Rush", "priority": state.priority_seat("o2")}
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=15)) == []
+    assert [call[0]["text"] for call in calls] == ["POST order o2 has had no line to him in 15 minutes: post where it stands now in its thread"]
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["last_line"] = state.stamp(T0 + timedelta(minutes=15))
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=16)) == []
+    assert calls[-1][0]["text"].startswith("POST order o1 ")
+
+
 def test_replaying_o2138_the_relay_starts_the_handler_on_a_line_he_asked_every_fifteen_minutes_at_its_minute_while_a_pass_that_began_before_then_still_runs(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

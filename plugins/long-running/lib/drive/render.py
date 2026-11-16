@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from drive import slack
-from drive.state import AWAY_HOLD, CLOCKS, DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owed, owed_at, owed_at_return, owing, owner_away, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, present, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
+from drive.state import AWAY_HOLD, CLOCKS, DRIVE_TOOLING, PRIORITY_CLOCKS, clock_late, priority_late, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owed, owed_at, owed_at_return, owing, owner_away, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -243,7 +243,7 @@ JOB = {
     "meta": f"you hold drive tooling, {DRIVE_TOOLING}",
 }
 REPROS_SHOWN = 5
-OVERDUE_HEADING = "Orders he waits on a line from, most overdue first; due is the time promised him, else five quiet minutes after the thread's last line while a job of the order runs:"
+OVERDUE_HEADING = "Orders he waits on a line from, priority orders first, then most overdue first; due is the time promised him, else five quiet minutes after the thread's last line while a job of the order runs, neither once his message withdrew it until his next word there:"
 OVERDUE_TITLE_CHARS = 60
 OVERDUE_SHOWN = 5
 OVERDUE_STEP = timedelta(minutes=15)
@@ -342,13 +342,16 @@ def clock(moment: datetime, seconds: bool = False) -> str:
 
 
 def overdue(drive: dict, moment: datetime) -> tuple[list[list], list[str]]:
-    """The block of the orders of the clocks row state.held_clocks kept, those a session or job holds, most overdue first, by his words "add something in our tooling so the agent can see whenever it takes an action, how long since it last messaged the user / gave an update, and how far over it's SLA is it", beside what it shows for state.show_overdue to draw it by: the five most overdue and how many more, each with the minutes since its thread's last line to him, its due, and the minutes past it he read present, an incident's every minute, since the watch owes its line while he is away too, one he is away from now saying its line is owed at his return; what it shows is each of those five beside its step, none before its due, one more once past due and at each fifteen minutes past it, and while he is away none for a line that shows no minutes, so a block repeats only when the five or a step change."""
+    """The block of the orders of the clocks row state.held_clocks kept, those a session or job holds, priority orders first, then most overdue first, by his words "add something in our tooling so the agent can see whenever it takes an action, how long since it last messaged the user / gave an update, and how far over it's SLA is it", beside what it shows for state.show_overdue to draw it by: the five first with the minutes since its thread's last line to him, its due, and the minutes past it he read present, an incident's every minute, since the watch owes its line while he is away too, one he is away from now saying its line is owed at his return, then each other by its id, so the block names every order it lists; while a priority order's line anywhere in the drive is past due, by state.priority_late, every order but a priority order or an incident is named only as held behind them, owing nothing until they are current. What it shows is each of those five beside its step, none before its due, one more once past due and at each fifteen minutes past it, and while he is away none for a line that shows no minutes, then the ids named after them, so a block repeats only when those or a step change."""
     if not (held := drive[CLOCKS]):
         return [], []
     away = owner_away(drive, moment)
-    late = {entry["order"]: max(timedelta(), moment - parse_time(entry["due"]) if entry["incident"] else present(drive, parse_time(entry["due"]), moment)) for entry in held}
+    behind = [entry["order"] for entry in held if not (entry["priority"] or entry["incident"])] if priority_late(drive, drive[PRIORITY_CLOCKS], moment) else []
+    listed = [entry for entry in held if entry["order"] not in behind]
+    late = {entry["order"]: clock_late(drive, entry, moment) for entry in listed}
+    ranked = sorted(listed, key=lambda entry: (not entry["priority"], -late[entry["order"]], parse_time(entry["due"])))
     lines, shown = [OVERDUE_HEADING], []
-    for entry in sorted(held, key=lambda entry: (-late[entry["order"]], parse_time(entry["due"])))[:OVERDUE_SHOWN]:
+    for entry in ranked[:OVERDUE_SHOWN]:
         quiet = int((moment - parse_time(entry["since"])).total_seconds() // 60)
         if away and not entry["incident"]:
             standing, step = "; he is away, so its line is owed at his return", None
@@ -357,8 +360,12 @@ def overdue(drive: dict, moment: datetime) -> tuple[list[list], list[str]]:
             step = 1 + late[entry["order"]] // OVERDUE_STEP if late[entry["order"]] else 0
         lines.append(f"- {entry['order']} {cut(entry['title'], OVERDUE_TITLE_CHARS)}: {quiet} min since its thread's last line to him, due {when(entry['due'])}{standing}")
         shown.append([entry["order"], step])
-    if len(held) > OVERDUE_SHOWN:
-        lines.append(f"- and {len(held) - OVERDUE_SHOWN} more")
+    if rest := [entry["order"] for entry in ranked[OVERDUE_SHOWN:]]:
+        lines.append(f"- then, less overdue: {', '.join(rest)}")
+        shown.append(["then", rest])
+    if behind:
+        lines.append(f"- held behind the priority orders until their lines are current, so owed no line now: {', '.join(behind)}")
+        shown.append(["held", behind])
     return shown, lines
 
 

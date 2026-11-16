@@ -251,13 +251,34 @@ def test_a_call_shows_the_five_orders_its_session_waits_longest_on_from_one_read
                 f"- o{number} Fix {number}: 20 min since its thread's last line to him, due {render.when(state.stamp(state.parse_time(lined[f'o{number}']) + state.QUIET_THREAD))}, 15 min past due"
                 for number in range(1, min(orders.stop, 6))
             ),
-            *([f"- and {orders.stop - 6} more"] if orders.stop > 6 else []),
+            *([f"- then, less overdue: {', '.join(f'o{number}' for number in range(6, orders.stop))}"] if orders.stop > 6 else []),
         ]
         assert overdue_at_call(monkeypatch, capsys, coordinator) == []
         assert reads == [state.BINDINGS, (state.CLOCKS, "owner"), state.BINDINGS] * 2
     later = state.now() + timedelta(minutes=15)
     monkeypatch.setattr(state, "now", lambda: later)
-    assert [line.rsplit(", ", 1)[-1] for line in overdue_at_call(monkeypatch, capsys, coordinator)[1:]] == [*["30 min past due"] * 5, "- and 995 more"]
+    assert [line.rsplit(", ", 1)[-1] for line in overdue_at_call(monkeypatch, capsys, coordinator)[1:]] == [*["30 min past due"] * 5, "o1000"]
+
+
+def test_a_late_priority_line_holds_every_order_but_priority_and_incidents_and_a_withdrawn_order_owes_no_clock_until_his_next_word_there(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    coordinator = {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"]}
+    waited_on(range(1, 5), timedelta(minutes=20))
+    with state.edit("demo") as data:
+        data["orders"]["o3"]["priority"] = state.priority_seat("o3")
+        data["orders"]["o4"]["incident"] = True
+    lines = overdue_at_call(monkeypatch, capsys, coordinator)
+    assert [line.split(":")[0] for line in lines[1:]] == ["- o3 Fix 3", "- o4 Fix 4", "- held behind the priority orders until their lines are current, so owed no line now"]
+    assert lines[-1].endswith(": o1, o2")
+    with state.edit("demo") as data:
+        data["orders"]["o3"]["last_line"] = state.stamp(state.now())
+        data["orders"]["o1"]["withdrawn"] = "https://acme.slack.com/archives/D123/p1794000005000000?thread_ts=1794000000.000001"
+    assert [line.split(":")[0] for line in overdue_at_call(monkeypatch, capsys, coordinator)[1:]] == ["- o3 Fix 3", "- o2 Fix 2", "- o4 Fix 4"]
+    data = state.load("demo")
+    assert state.heard_again(data, ("D123", "1794000000.000001"), ["1794000004.000000"]) == []
+    assert state.heard_again(data, ("D123", "1794000000.000002"), ["1794000006.000000"]) == []
+    assert state.heard_again(data, ("D123", "1794000000.000001"), ["1794000006.000000"]) == ["o1"]
 
 
 def test_a_jobs_call_shows_its_own_order_alone_most_overdue_first_a_thread_lined_within_its_due_shows_nothing_past_due_and_a_job_whose_worker_the_watch_found_gone_runs_for_none(
