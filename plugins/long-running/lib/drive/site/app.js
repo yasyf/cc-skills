@@ -595,7 +595,7 @@ function decisionCard(item, at, total) {
   const showing = picked?.card === key ? picked.index : state.selected;
   const option = story.options[showing];
   const recommended = option.label === item.card.recommended;
-  const cause = decisionCause(item.card.body);
+  const cause = decisionCause(item.card.body).replace(/^none\b.*/i, '');
   const metrics = option.metrics.length ? `<dl class="story-metrics">${option.metrics.map((metric) => `<div><dd>${esc(metric.value)}</dd><dt>${esc(metric.label)}</dt></div>`).join('')}</dl>` : '';
   const pictured = item.option_pictures[showing].map((each) => (each.kind === 'image' ? shot(each.source, each.caption) : visual(each.kind, each.source, each.caption)));
   const media = pictured.length ? `<div class="story-outcome-media" data-option="${showing}"${pictured.length > 1 ? ` tabindex="0" aria-label="${pictured.length} pictures of this path"` : ''}>${pictured.join('')}</div>` : '';
@@ -605,7 +605,7 @@ function decisionCard(item, at, total) {
   const action = given?.done ? `<p class="answered">✓ ${esc(given.label)}</p>` : `<div class="story-action"><button class="btn" data-story-review="${esc(key)}"${given && !given.error ? ' disabled' : ''}>Review this choice <kbd>↵</kbd></button><small>Choose first. Review before sending.</small>${given?.error ? `<p role="alert">${esc(given.error)}</p>` : ''}</div>`;
   const lab = `<div class="story-lab">${options}${action}${outcome}<button class="linkish" data-story-compare="${esc(key)}" aria-expanded="${state.compare}">${state.compare ? 'Close comparison' : 'Compare every path'}</button>${state.compare ? table([['Path', 'What changes', ...story.options[0].metrics.map((metric) => metric.label)], ...story.options.map((choice) => [choice.title, choice.consequence, ...choice.metrics.map((metric) => metric.value)])]) : ''}</div>`;
   const interview = `<div class="story-interview"><div class="story-steps" aria-label="Step ${state.step + 1} of 2"><span class="on">1 · Your priority</span><span class="${state.step ? 'on' : ''}">2 · Your path</span></div>${state.step ? `<button class="linkish" data-story-back="${esc(key)}">← Change my priority</button>${outcome}${action}` : `<h3>${esc(story.ask)}</h3><div class="story-options">${story.options.map((choice, i) => `<button class="story-option" data-story-priority="${i}" data-story-card="${esc(key)}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.priority)}</strong><small>${esc(choice.title)}</small></span><span aria-hidden="true">→</span></button>`).join('')}</div>`}</div>`;
-  return `<div class="queue-layout story-layout"><article class="focus-card decision-story ${story.format}" aria-labelledby="item-title" tabindex="-1" data-story="${esc(key)}" data-format="${story.format}"><div class="card-content"><div class="card-top"><span class="type-label">${{ cockpit: 'Decision cockpit', lab: 'Tradeoff lab', interview: 'Decision interview' }[story.format]}</span>${counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(story.headline)}</h2><div class="story-beats">${story.beats.map((beat) => `<p><strong>${esc(beat.label)}</strong> ${esc(beat.text)}</p>`).join('')}</div>${cause ? `<p class="story-cause"><b>Root cause:</b> ${esc(cause)}</p>` : ''}${restored.has(key) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : ''}${story.format === 'lab' ? lab : story.format === 'interview' ? interview : `<div class="story-cockpit">${options}<div>${outcome}${action}</div></div>`}</div></article>${decisionRail(item)}</div>`;
+  return `<div class="queue-layout story-layout"><article class="focus-card decision-story ${story.format}" aria-labelledby="item-title" tabindex="-1" data-story="${esc(key)}" data-format="${story.format}"><div class="card-content"><div class="card-top"><span class="type-label">${{ cockpit: 'Decision', lab: 'Decision: compare the paths', interview: 'Decision: what matters most' }[story.format]}</span>${counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(story.headline)}</h2><div class="story-beats">${story.beats.map((beat) => `<p><strong>${esc(beat.label)}</strong> ${esc(beat.text)}</p>`).join('')}</div>${cause ? `<p class="story-cause"><b>Root cause:</b> ${esc(cause)}</p>` : ''}${restored.has(key) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : ''}${story.format === 'lab' ? lab : story.format === 'interview' ? interview : `<div class="story-cockpit">${options}<div>${outcome}${action}</div></div>`}</div></article>${decisionRail(item)}</div>`;
 }
 
 function reviewDecision(key) {
@@ -796,7 +796,7 @@ function prCard(item, at, total, embedded = false) {
       </div>
       <div class="pr-tabs" role="tablist" aria-label="About this change">${tabs}</div>
       ${panes}
-      <div class="pr-actions">${choices(item, !embedded)}</div>
+      <div class="pr-actions">${choices(item, !embedded)}${rows.filter((each) => each.state === 'open').length > 1 ? `<span class="meta">Approve lands all ${rows.filter((each) => each.state === 'open').length} open PRs, bottom first</span>` : ''}</div>
     </article>
     ${prRail(item, key, rows, row, pr, head, read, embedded)}
   </div>`;
@@ -964,7 +964,7 @@ function defaultLayout(page, shown) {
     blocks: [
       { kind: 'metrics', title: 'Where it stands' },
       ...(shown.questions.length ? [{ kind: 'decide', title: 'Decisions only you can make', questions: shown.questions.map((item) => item.answer) }] : []),
-      ...(waiting.length ? [{ kind: 'approve', title: 'Changes waiting on your Approve', prs: waiting }] : []),
+      ...(waiting.length ? [{ kind: 'approve', title: 'Changes awaiting your approval', prs: waiting }] : []),
       ...(steps.length ? [{ kind: 'path', title: 'The path to done', steps }] : []),
       { kind: 'timeline', title: 'What moved lately' },
     ],
@@ -979,7 +979,7 @@ function appletScreen(page) {
   const blocks = composed.blocks.map((block) => appletBlock(page, shown, { ...BLOCK_DEFAULTS, ...block })).filter(Boolean).join('');
   return `<div class="page-head applet-head">
       <div><div class="eyebrow">Page · ${esc([fileName(fileKey(page.project)), fileName(fileKey(page.workstream))].join(' / '))}</div><h1 class="h1">${esc(composed.headline)}</h1><p class="lead">${esc(composed.summary)}</p>${status}</div>
-      <a class="map-btn" href="#/feature/${esc(page.orders[0])}">Open its order ›</a>
+      <a class="map-btn" href="#/feature/${esc(page.orders[0])}">Open the request ›</a>
     </div>
     <div class="applet" data-applet="${esc(page.slug)}">${blocks}</div>`;
 }
@@ -1008,7 +1008,7 @@ const APPLET_BLOCKS = {
     const done = shown.features.filter((entry) => DONE_STATES.has(entry.state)).length;
     const total = shown.features.length;
     const tile = (n, label, tone = '') => `<div class="ap-tile ${tone}"><b>${n}</b><span>${esc(label)}</span></div>`;
-    return blockShell(block, 'metrics', `<div class="ap-tiles">${tile(shown.questions.length, 'decisions for you', shown.questions.length ? 'warm' : '')}${tile(yours, 'changes waiting on your Approve', yours ? 'warm' : '')}${tile(ready, 'ready to land on Approve', ready ? 'good' : '')}<div class="ap-tile ap-done"><b>${done}<small>/${total}</small></b><span>orders finished</span><i style="--done:${total ? Math.round((done / total) * 100) : 0}%"></i></div></div>`);
+    return blockShell(block, 'metrics', `<div class="ap-tiles">${tile(shown.questions.length, 'decisions for you', shown.questions.length ? 'warm' : '')}${tile(yours, 'changes awaiting your approval', yours ? 'warm' : '')}${tile(ready, 'ready to land on Approve', ready ? 'good' : '')}<div class="ap-tile ap-done"><b>${done}<small>/${total}</small></b><span>orders finished</span><i style="--done:${total ? Math.round((done / total) * 100) : 0}%"></i></div></div>`);
   },
   story(page, shown, block) {
     return block.beats.length ? blockShell(block, 'story', `<ol class="ap-beats">${block.beats.map((beat, i) => `<li><span class="n">${i + 1}</span><b>${esc(beat.label)}</b><p>${esc(beat.text)}</p></li>`).join('')}</ol>`) : '';
@@ -1048,7 +1048,9 @@ const APPLET_BLOCKS = {
   },
   staging(page, shown, block) {
     const entries = blockPRs(shown, block.prs.length ? block.prs : shown.prs.map((entry) => entry.key));
-    return entries.length ? blockShell(block, 'staging', `<div class="ap-staging">${entries.map((entry) => { const proof = (entry.staging ?? '').match(/\[proof\]\((https?:[^)\s]+)\)/)?.[1]; const status = prWord(entry); return `<div class="ap-stage ${esc(status.tone)}"><b>${esc(status.word)}</b><span>${esc(sentence(entry.headline ?? bare(entry.title)))}</span>${status.word === entry.staging_plain.word ? '' : `<small>${esc(entry.staging_plain.word)}</small>`}${proof ? link('Its proof', proof) : ''}</div>`; }).join('')}</div>`) : '';
+    const tile = (entry) => { const proof = (entry.staging ?? '').match(/\[proof\]\((https?:[^)\s]+)\)/)?.[1]; const status = prWord(entry); return `<div class="ap-stage ${esc(status.tone)}"><b>${esc(status.word)}</b><span>${esc(sentence(entry.headline ?? bare(entry.title)))}</span>${status.word === entry.staging_plain.word ? '' : `<small>${esc(entry.staging_plain.word)}</small>`}${proof ? link('Its proof', proof) : ''}</div>`; };
+    const [first, rest] = [entries.slice(0, 8), entries.slice(8)];
+    return entries.length ? blockShell(block, 'staging', `<div class="ap-staging">${first.map(tile).join('')}</div>${rest.length ? `<details class="ap-more"><summary>${rest.length} more</summary><div class="ap-staging">${rest.map(tile).join('')}</div></details>` : ''}`) : '';
   },
   path(page, shown, block) {
     const steps = block.steps.map((step) => ({ ...step, entries: step.orders.map((id) => shown.features.find((entry) => entry.id === id)).filter(Boolean) })).filter((step) => step.entries.length);

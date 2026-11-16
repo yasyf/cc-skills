@@ -71,7 +71,8 @@ Compose it from these blocks, in the order that tells this goal's story, five to
 
 Rules:
 - headline: what the goal is and where it stands, a plain statement of at most 90 characters. summary: one or two plain sentences on what he does here.
-- Open with metrics or a story, then lead with what needs him: decide and approve blocks come early when the slice holds decisions or PRs waiting on him; group PRs by what they do together, a stack or an approve block each.
+- Lead with what needs him: when the slice holds a decision or PRs waiting on him, the first block is that decision or that approval group, then metrics; the story and background come after. Group PRs by what they do together, a stack or an approve block each, and put work that needs nothing from him late, in one staging block.
+- A code review approving a PR is not his approval: say "code review approved" for one, and "needs your approval" for what waits on him.
 - prs, questions and orders hold only keys the slice gives, exactly; a block's other fields not used by its kind stay empty ("" or []).
 - Every word is for him: short plain sentences, outcome first, no ids, job or order numbers, branch names, commit hashes or internal state words such as WAITING; name a change by what it does.
 - Use the slice's facts only, never add one it does not hold.

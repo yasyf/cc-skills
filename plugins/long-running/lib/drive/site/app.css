@@ -928,11 +928,9 @@ button.task-row { cursor: pointer; }
 .reason-chip.quiet { background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1px var(--line-2); }
 .reason-chip.plain { background: var(--soft); color: var(--accent); }
 .priority-chips .age { margin-left: auto; color: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums; }
-.qrow.bad { border-left: 3px solid var(--bad); }
-.qrow.warm { border-left: 3px solid var(--warm); }
 .qrow.quiet { opacity: .72; }
-.qrow-why { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 2; -webkit-box-orient: vertical; color: #8f3428; font-size: 11px; line-height: 1.45; }
-.qrow-why::before { content: "Incident: "; font-weight: 650; }
+.qrow-why { display: -webkit-box; overflow: hidden; -webkit-line-clamp: 1; -webkit-box-orient: vertical; color: var(--ink-2); font-size: 11px; line-height: 1.45; }
+.qrow-why::before { content: "Incident: "; color: #983d31; font-weight: 650; }
 .qrow-status { display: flex; align-items: center; gap: 4px; color: var(--ink-2); font-size: 11px; }
 .qrow-status span { margin-left: 4px; }
 .dot { display: inline-block; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); }
@@ -975,7 +973,7 @@ button.task-row { cursor: pointer; }
 .rank-why b { color: var(--accent); }
 @keyframes pulse { 50% { box-shadow: 0 0 0 7px var(--soft); } }
 @media (prefers-reduced-motion: reduce) { .approve-path li.now::before { animation: none; } }
-@media (max-width: 720px) { .approve-path { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 18px; } }
+@media (max-width: 600px) { .approve-path { grid-template-columns: minmax(0, 1fr); gap: 0; border-left: 3px solid var(--line); margin-left: 6px; } .approve-path li { grid-template-columns: 110px 1fr; padding: 6px 0 6px 16px; border-top: 0; } .approve-path li::before { top: 10px; left: -8px; } }
 .qrow.on { background: #f8fbf8; }
 .qrow-kind { color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: .5px; text-transform: uppercase; }
 .queue-current { margin-bottom: 14px; }
@@ -1237,3 +1235,7 @@ button.task-row { cursor: pointer; }
   .ap-ba i { transform: rotate(90deg); justify-self: center; }
   .ap-block { padding: 20px 18px; }
 }
+.ap-more { margin-top: 12px; }
+.ap-more summary { color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; }
+.ap-more .ap-staging { margin-top: 10px; }
+.pr-actions .meta { margin-left: 4px; }

@@ -1526,7 +1526,7 @@ document.querySelector('[data-story-compare]').click();
 const table = document.querySelector('.story-lab table');
 done({ label, rows: table.querySelectorAll('tbody tr').length, headers: [...table.querySelectorAll('th')].map((cell) => cell.textContent), first: [...table.querySelectorAll('tbody tr:first-child td')].map((cell) => cell.textContent) });
 """, board(queue=[question]))
-    assert seen == {"label": "Tradeoff lab", "rows": 2, "headers": ["Path", "What changes", "Pods lost a day", "Code changed"], "first": ["Raise it", "One setting", "0", "2 files"]}
+    assert seen == {"label": "Decision: compare the paths", "rows": 2, "headers": ["Path", "What changes", "Pods lost a day", "Code changed"], "first": ["Raise it", "One setting", "0", "2 files"]}
 
 
 def test_an_interview_asks_his_priority_in_its_storys_words_then_shows_the_path_that_serves_it(tmp_path: Path) -> None:
