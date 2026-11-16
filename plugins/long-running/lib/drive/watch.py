@@ -5828,7 +5828,7 @@ def launched_pass(name: str, key: tuple[str, str], last: str | None, job_id: str
     try:
         cli.write_brief(name, job_id, {"handoff": pass_handoff(name, data, key, last), "done_when": PASS_DONE})
     except cli.VERB_ERRORS as error:
-        state.update(name, None, lambda data: data["jobs"][job_id].update(brief_error=cut(str(error), 300), brief_tries=data["jobs"][job_id].get("brief_tries", 0) + 1))
+        state.write(name, lambda data: data["jobs"][job_id].update(brief_error=cut(str(error), 300), brief_tries=data["jobs"][job_id].get("brief_tries", 0) + 1))
         return f"{head}, and wrote it no brief: {error}; brief it with drive job brief {job_id}, then drive job launch {job_id}"
     state.detach(name, ["job", "launch", job_id], RELAUNCHES_LOG)
     return f"{head}, and ran drive job launch {job_id}, its output in the drive's {RELAUNCHES_LOG}"

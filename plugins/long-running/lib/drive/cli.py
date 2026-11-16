@@ -5014,7 +5014,7 @@ def slot_packer(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     if not state.top_coordinator(state.load(name), os.environ.get("CLAUDE_CODE_SESSION_ID")):
         raise DriveError(f"refused: only the top coordinator names the {args.env} packer")
-    line = state.update(name, None, lambda data: state.slot_packer(data, args.env, args.lane))
+    line = state.write(name, lambda data: state.slot_packer(data, args.env, args.lane))
     return emit(args, line, {"env": args.env, "lane": args.lane or None})
 
 
@@ -5477,7 +5477,7 @@ def wake_pr(args: argparse.Namespace) -> int:
             state.hold_text(held["jobs"][job_id], f"STAGE {text}", state.held_sender(held))
             return True
 
-        kept = state.update(name, None, turned)
+        kept = state.write(name, turned)
         return emit(args, f"{key}: {'held on' if kept else 'not sent again to'} {job_id}, which {turn}, so no wake goes out: its worker reads it when its turn starts it", {"key": key, "job": job_id, "how": "held" if kept else None})
     if job_id and state.adopted_pr_job(data, job):
         state.detach(name, ["job", "launch", job_id, "--handoff", f"{pr['url']} at {pr['head']}: {text}"], watch.RELAUNCHES_LOG)
