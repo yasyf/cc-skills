@@ -1532,22 +1532,23 @@ def proof_kept(name: str, job_id: str, line: str, output: str, versions: str, co
     from drive import brief
 
     kept = state.proof_path(name, job_id)
-    with state.edit(name) as data:
+    kept.parent.mkdir(exist_ok=True)
+    before = quoted(kept.read_text()) if kept.exists() else None
+    kept.write_text(output)
+
+    def proving(data: dict):
         job = data["jobs"][job_id]
         then = {field: job.get(field) for field in ("state", "said", "updated")}
         take_back(name, data, job_id)
         if not provable(data, job_id):
-            return f"{job_id}: another proof took its result first"
+            return f"{job_id}: another proof took its result first", None
         keys = proved_prs(data, job_id)
         proven = f"{PROVEN} on {versions}: {proof_files(job)} exits 0, its output {kept}"
-        kept.parent.mkdir(exist_ok=True)
-        before = quoted(kept.read_text()) if kept.exists() else None
-        kept.write_text(output)
         repeated = False
         if wait := waited(code, output):
             repeated = wait == before
             if own_proof(data, job_id) and job["said"] != (said := f"WAITING {PROOF_WAITS}: {wait}"):
-                state.keep_report(name, job_id, said, f"{said}\nCHECK: {kept}\n")
+                state.after_save(name, lambda: state.keep_report(name, job_id, said, f"{said}\nCHECK: {kept}\n") or [])
                 state.take_result(data, job_id, said)
             job["proof"] = (job.get("proof") or {"pid": os.getpid(), "at": state.stamp(), "version": state.VERSION}) | {"said": job["said"], "waits": wait}
             change = f"{PROOF_WAITS}: {line.removeprefix('BLOCKED ')}"
@@ -1567,6 +1568,12 @@ def proof_kept(name: str, job_id: str, line: str, output: str, versions: str, co
                 change = f"{proven}; {job['order']} closed done on it with no close report, since a session opened that drive tooling order, so no line reaches him and the dashboard shows it live"
             elif closes:
                 change = f"{proven}; its close report of {job['order']} waits on the order for the watch, which posts it to the communicator on its next read and again each read until cci takes it"
+        return None, (data, keys, change, repeated)
+
+    refused, proved = state.update(name, None, proving)
+    if refused:
+        return refused
+    data, keys, change, repeated = proved
     if not repeated:
         said_on_prs(name, data, job_id, keys, change)
     return f"{job_id}: {change}"
