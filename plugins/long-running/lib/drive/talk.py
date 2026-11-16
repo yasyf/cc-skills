@@ -776,15 +776,15 @@ def withdraw(name: str, key: str) -> list[str]:
     """Withdraw each open card of his carrying a PR reworked to his words, his words its reason, linked to the message he said them in, so no card asks his tap on it until its builder's READY says how they are met and the watch draws a fresh one, or carrying a PR waiting on orders he has not scheduled, by state.unscheduled_waits, their titles its reason, until he schedules them and the watch draws a fresh one, and redraw one withdrawn under another reason; each card withdrawn."""
     data = state.load(name)
     pr = data["prs"][key]
-    reason, link = (state.rework_reason(pr), pr["rework"]["link"]) if pr["rework"] else (unscheduled_reason(data, pr), "")
+    reason, link = (state.rework_reason(pr), pr["rework"]["link"]) if pr["rework"] else (unscheduled_reason(data, state.unscheduled_waits(data, pr), "A fresh card asks your tap"), "")
     withdrawn = slack.withdraw_pr_card(pr["url"], reason, link if limits.PAGE_LINK.fullmatch(link) else "")
     view.refresh_cards(name)
     return withdrawn
 
 
-def unscheduled_reason(data: dict, pr: dict) -> str:
-    titles = ", ".join(f'"{view.order_title(data["orders"][step])}"' for step in state.unscheduled_waits(data, pr))
-    return f"Waits on your order {titles}, which you have not scheduled. A fresh card asks your tap once you do"
+def unscheduled_reason(data: dict, steps: list[str], asks: str) -> str:
+    titles = ", ".join(f'"{view.order_title(data["orders"][step])}"' for step in steps)
+    return f"Waits on your order {titles}, which you have not scheduled. {asks} once you do"
 
 
 def replied(post: dict, pictures: list[str], sent: str) -> list[str]:
