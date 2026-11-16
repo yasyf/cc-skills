@@ -92,11 +92,11 @@ Contents:
     `drive job resume`, `drive job launch` and `drive pr wake` included. So name the step on the
     `Mac:` line. Words in the Order, Goal, Plan or Handoff place nothing.
   - A brief with such a line starts here at any load, and `drive job launch <j>` refuses its Sprite
-    start, naming the step: start it with the Agent tool or `--local`. A Sprite job that gains one
+    start, naming the step: start it with `drive job start <j>` or `--local`. A Sprite job that gains one
     moves to a fresh worktree here, its Sprite worker stopped by `orca.reclaim` and every text the
     job holds carried in the handoff. A brief with no `Mac:` line starts on a Sprite, which lacks
     the step.
-  - Without such a line, the `agent_brief` hook refuses a builder started with the Agent tool while
+  - Without such a line, `drive job start` refuses a builder while
     this Mac's CPU is at or over the load gate's limit, the `remote` that `drive place` prints.
     Start it on its own Sprite with `drive job launch <j>`.
   - A drive tooling builder whose Goal names a step to take after its change is installed, such as
@@ -144,15 +144,17 @@ Contents:
    but shows in no Orca sidebar, so `claude --bg` and the drive's own death and gap reads track it.
    A Sprite lane, and a role that needs a visible terminal or Orca's ask and reply, runs through
    Orca.
-4. A refused start reaches you as a `relaunch_refused` event. Start it with the Agent tool:
-   `subagent_type` `long-running:builder`, `long-running:reader` or `long-running:designer`,
-   `run_in_background: true`, a short `description` and the `Read your brief first:` line as the
-   whole `prompt`. Or start it on a Sprite as the refusal names. Pass no model, or
-   `model: "sonnet"` for a reader whose question is a one-fact lookup. A design job's model is in
-   [Design first](design.md). A codex job runs no agent: see [Codex jobs](#codex-jobs).
+4. A refused start reaches you as a `relaunch_refused` event. Run `drive job start <j>` again
+   once its refusal clears, or start it on a Sprite as the refusal names. A builder or reader never
+   starts with the Agent tool: the `agent_brief` hook refuses it, since a subagent takes your
+   session's Fable advisor, while a `drive job start` lane runs Opus as its advisor, by his pick
+   "use opus as the advisor for those". A design job starts with the Agent tool, as
+   [Design first](design.md) says. A codex job runs no agent: see [Codex jobs](#codex-jobs).
 
 What the hooks do to an Agent call:
 
+- `agent_brief` refuses a job's `long-running:builder` or `long-running:reader`, naming
+  `drive job start <j>`, which starts it as its own `claude --bg` session advised by Opus.
 - `agent_brief` sets its shape. It drops `name`, since a named agent joins the agent team and does
   not wake on events. It drops Fable from any agent but `long-running:designer`, starts a design job
   as `long-running:designer` whatever type the call names, and drops `sonnet` or `haiku` from a lane
@@ -309,7 +311,7 @@ ago on any other line, wrote nothing for 30 minutes, or belonged to an earlier s
    Run of its own that this drive's watch reads. Its notification says where it started or why it
    could not. The worker runs the agent its kind starts as.
 3. A first try that started no worker launches once more by itself. When that starts none, start
-   the job here with the Agent tool on its brief. When Orca answered a worker start with no ready
+   the job here with `drive job launch <j> --local`. When Orca answered a worker start with no ready
    receipt, run `drive job launch <j>` or `drive job resume <j>` again: it reuses, re-prepares or
    replaces the Sprite as its config and Orca's answer allow, and records a worker that started
    unrecorded from its ready receipt.

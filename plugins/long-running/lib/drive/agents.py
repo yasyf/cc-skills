@@ -85,6 +85,7 @@ START_PAGE = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "
 SESSION_ENV = "<session env>"
 SESSION_SETTINGS_HOLE = "<session settings>"
 ADVISOR_FLAG = "--advisor"
+JOB_ADVISOR = "opus"
 LEAF_ENV = {"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
 DRIVE_PLUGINS = ("long-running@skills", *(f"{needed['name']}@{needed['marketplace']}" for needed in json.loads((Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json").read_text())["dependencies"]))
 GUARD_PLUGINS = ("cc-guides@cc-guides", *DRIVE_PLUGINS)
@@ -603,7 +604,7 @@ def plugin_keys() -> list[str]:
 
 
 def start_job(name: str, job_id: str, agent: str, call: dict, held: dict, cwd: Path) -> str:
-    """Start a builder's or reader's agent as its own `claude --bg` session on the Agent call its starter would make, its type, model and prompt, in cwd, the drive's checkout at the head of its default branch, as a handler starts, JOB_ENV naming the drive, the job, the agent id it is recorded as and the session holding its order, by which seen binds every hook of it as that session's agent, `CCI_PARENT_SESSION` naming that session, so cci posts from it as that session's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, on lane_session's settings and flags for its type, so it compacts, loads its rules and runs its effort as an Orca lane does, with no advisor, headless and on only the plugins and servers its type needs; the session `claude --bg` names."""
+    """Start a builder's or reader's agent as its own `claude --bg` session on the Agent call its starter would make, its type, model and prompt, in cwd, the drive's checkout at the head of its default branch, as a handler starts, JOB_ENV naming the drive, the job, the agent id it is recorded as and the session holding its order, by which seen binds every hook of it as that session's agent, `CCI_PARENT_SESSION` naming that session, so cci posts from it as that session's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, on lane_session's settings and flags for its type, so it compacts, loads its rules and runs its effort as an Orca lane does, headless, advised by JOB_ADVISOR, and on only the plugins and servers its type needs; the session `claude --bg` names."""
     env = {state.JOB_ENV: f"{name}/{job_id}/{agent}/{held['session']}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name}
     settings, flags = lane_session(env, call["subagent_type"], cwd)
     model = ["--model", call["model"]] if call.get("model") else []
@@ -667,8 +668,8 @@ def watchdog(name: str, brief: str, cwd: str, out: Path) -> int:
 
 
 def lane_session(env: dict[str, str], role: str, checkout: Path) -> tuple[dict, tuple[str, ...]]:
-    """The `--settings` value and the flags a lane the drive starts as its own Claude Code session on this Mac runs on, such as a builder or reader the watch starts with `claude --bg`: light's settings for role with no advisor, the 350,000-token window of lib/lane.json, mcp_flags' servers for role, and EFFORT_CEILING, the flags going before any other flag or prompt, as LANE_RULES_ARGS must."""
-    return light(session_settings(env | ADVISOR_OFF), role, checkout), (*LANE_RULES_ARGS, *STRICT_MCP, "--effort", EFFORT_CEILING)
+    """The `--settings` value and the flags a lane the drive starts as its own Claude Code session on this Mac runs on, such as a builder or reader the watch starts with `claude --bg`: light's settings for role, the 350,000-token window of lib/lane.json, mcp_flags' servers for role, EFFORT_CEILING and JOB_ADVISOR as its advisor, by his pick for the drive's job workers, "use opus as the advisor for those", the flags going before any other flag or prompt, as LANE_RULES_ARGS must."""
+    return light(session_settings(env), role, checkout), (*LANE_RULES_ARGS, *STRICT_MCP, "--effort", EFFORT_CEILING, ADVISOR_FLAG, JOB_ADVISOR)
 
 
 def session_settings(env: dict[str, str]) -> dict:
