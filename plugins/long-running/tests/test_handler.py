@@ -295,6 +295,7 @@ def test_a_handlers_own_session_reads_as_an_agent_of_the_communicators(
         "handed": [],
         "took": [],
         "posted": [],
+        "again": False,
     }
     assert state.session_drives("h-session") == ["demo"]
     assert state.session_role(data, "h-session") == "communicator"
@@ -578,13 +579,62 @@ def test_a_post_report_gets_one_handler_whichever_of_the_handler_tool_and_the_wa
     with state.edit("demo") as data:
         data["handlers"].clear()
     assert watch.post_lines(watching, state.now()) == []
-    with pytest.raises(state.DriveError, match="the drive read POST report 706845 before this call, and the handler it started then has ended on it, with no post of it kept"):
-        tools.run("handler", "demo", {"brief": f"Record: 706845 Drive: demo Scratch: {tmp_path / 'handler-706845'}"})
-    with state.edit("demo") as data:
-        data["carried"]["706845"] = "https://forge.slack.com/archives/D0/p1794494004895129"
-    with pytest.raises(state.DriveError, match="has ended on it, posting it at https://forge.slack.com/archives/D0/p1794494004895129"):
-        tools.run("handler", "demo", {"brief": f"Record: 706845 Drive: demo Scratch: {tmp_path / 'handler-706845'}"})
-    assert [argv[-1].split()[1] for argv in started if argv[:2] == ["claude", "--bg"]] == ["706844", "706845"]
+    assert tools.run("handler", "demo", {"brief": f"Record: 706845 Drive: demo Scratch: {tmp_path / 'handler-706845'}"}).startswith("started ")
+    for carried, held, went in (
+        (None, False, "on a line that posted nothing of it"),
+        ("https://forge.slack.com/archives/D0/p1794494004895129", False, "posting it at https://forge.slack.com/archives/D0/p1794494004895129"),
+        (None, True, "its line held for his catch-up"),
+    ):
+        with state.edit("demo") as data:
+            data["handlers"].clear()
+            data["carried"] = {} if held else {"706845": carried}
+            data["held"] = {"706845": {"order": None, "at": state.stamp()}} if held else {}
+        with pytest.raises(state.DriveError, match=f"the drive read POST report 706845 before this call, and the handler it started then has ended on it, {went}"):
+            tools.run("handler", "demo", {"brief": f"Record: 706845 Drive: demo Scratch: {tmp_path / 'handler-706845'}"})
+    assert [argv[-1].split()[1] for argv in started if argv[:2] == ["claude", "--bg"]] == ["706844", "706845", "706845"]
+
+
+def test_722581_a_post_reports_handler_a_tools_failure_ended_unposted_starts_again_once_and_one_that_chose_no_post_leaves_it_carried(
+    communicator: str,
+    tmp_path: Path,
+    started: list[list[str]],
+    cci_records: dict[str, dict],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    for seq in ("722581", "722582"):
+        cci_records[seq] = {"seq": int(seq), "kind": "report", "lane": "watch", "to": ["communicator@demo"], "text": "POST orders o2118 have news", "fields": {"attrs": {}}}
+    brief = f"Record: 722581 Drive: demo Scratch: {tmp_path / 'post-722581'}"
+    first = tools.run("handler", "demo", {"brief": brief}).removeprefix("started ")
+    monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: None)
+    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or "")
+    monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))
+    defect = "DEFECT say hook (drive message check): DriveError: could not check its lines against his recorded answers: [Errno 2] No such file or directory: 'ccn'"
+
+    bind(monkeypatch, first, "h1-session")
+    assert stop(monkeypatch, capsys, "h1-session", tmp_path / "h1.jsonl", defect, brief) == ""
+    [again] = state.load("demo")["handlers"]
+    assert state.load("demo")["handlers"][again] | {"started": None, "session": None} == {
+        "session": None, "started": None, "brief": brief, "holds": {"message": None, "link": None, "thread": None, "record": "722581", "re": []},
+        "handed": [], "took": [], "posted": [], "again": True,
+    }
+    assert [argv[-1] for argv in started if argv[:2] == ["cci", "post"]] == [f"{defect}; report 722581 started again as handler {again}"]
+    assert [argv[-1].split("\n")[0] for argv in started if argv[:2] == ["claude", "--bg"]] == [brief, brief]
+
+    bind(monkeypatch, again, "h2-session")
+    assert stop(monkeypatch, capsys, "h2-session", tmp_path / "h2.jsonl", defect, brief) == ""
+    assert state.load("demo")["handlers"] == {}
+    assert started[-1][-1] == f"{defect}; report 722581 stays unposted, since the drive already started it once again: start it with the handler tool once its tool is fixed"
+    assert "722581" not in state.load("demo")["carried"]
+    assert tools.run("handler", "demo", {"brief": brief}).startswith("started ")
+
+    chose = f"Record: 722582 Drive: demo Scratch: {tmp_path / 'post-722582'}"
+    third = tools.run("handler", "demo", {"brief": chose}).removeprefix("started ")
+    bind(monkeypatch, third, "h3-session")
+    assert stop(monkeypatch, capsys, "h3-session", tmp_path / "h3.jsonl", "NOTHING the thread's last line already tells it", chose) == ""
+    assert state.load("demo")["carried"] == {"722582": None}
+    with pytest.raises(state.DriveError, match="has ended on it, on a line that posted nothing of it"):
+        tools.run("handler", "demo", {"brief": chose})
 
 
 LIVE_RECORDS = {

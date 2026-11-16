@@ -406,16 +406,17 @@ def start_posts(name: str, own: str | None = None, detached: bool = False) -> bo
 
 
 def handle_report(name: str, seq: str, brief: str, once: bool = False, detached: bool = False, briefed: Callable[[str], str] | None = None) -> tuple[str, bool]:
-    """Start or hand over the handler on report seq as handle does, in one hold of the drive's POSTS_LOCK after start_posts passes seq, so the watch's read never starts a second handler on it, and a start that fails sets the cursor back to seq for that read to start. Once, as the handler tool starts one on a POST report, a report the cursor had passed goes to the handler whichever starter read it first started, still at work on it or still starting, starts again as handle starts it once that handler never started, and is refused once that handler ended, naming the post the drive kept its report going out in, or its line held for his catch-up, or that it kept neither; a stage of the watch starts its own report's again, as it does for a report whose handler never took it."""
+    """Start or hand over the handler on report seq as handle does, in one hold of the drive's POSTS_LOCK after start_posts passes seq, so the watch's read never starts a second handler on it, and a start that fails sets the cursor back to seq for that read to start. Once, as the handler tool starts one on a POST report, a report the cursor had passed goes to the handler whichever starter read it first started, still at work on it or still starting, starts again as handle starts it once that handler never started, and is refused once that handler ended carrying it, naming the post the drive kept its report going out in, its line held for his catch-up, or a line of its own that posted nothing of it, by end_handler; a report no post, hold or choice carries, as one whose handler ended on a tool's failure, starts a fresh handler; a stage of the watch starts its own report's again, as it does for a report whose handler never took it."""
     with state.flocked(state.drive_dir(name) / POSTS_LOCK):
         read = start_posts(name, seq, detached)
         if once and not read:
             data = state.load(name)
-            if not (held := holder(data, threaded(data, holds(brief)))):
-                went = f"posting it at {link}" if (link := data["carried"].get(seq)) else "its line held for his catch-up" if seq in data["held"] else "with no post of it kept"
+            if held := holder(data, threaded(data, holds(brief))):
+                if (entry := data["handlers"][held])["session"] or not gone(entry):
+                    return held, True
+            elif seq in data["carried"] or seq in data["held"]:
+                went = f"posting it at {link}" if (link := data["carried"].get(seq)) else "its line held for his catch-up" if seq in data["held"] else "on a line that posted nothing of it"
                 raise state.DriveError(f"refused, no handler started: the drive read POST report {seq} before this call, and the handler it started then has ended on it, {went}")
-            if (entry := data["handlers"][held])["session"] or not gone(entry):
-                return held, True
         try:
             return handle(name, brief, detached=detached, briefed=briefed)
         except Exception:
@@ -512,8 +513,8 @@ def signalled(pid: int) -> bool:
     return True
 
 
-def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str], str] | None = None) -> tuple[str, bool]:
-    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time: a brief for another record or another message of his, on that message, in that thread or on its record's re chain, is handed to that handler, which takes it at its next step, and a copy, the same record or the same message of his, is handed to it with nothing added, since that handler already holds it; the id of the handler at work on the brief, and whether it was handed. A record whose brief, attrs and re chain name no thread and reach no message of his is in the thread its order's lines go in, as the thread attr the drive stamps on its own records names it, and one whose post goes elsewhere than that thread or the thread of the message of his its chain reaches, at the root of a channel outside his DM such as a staging claim or in another thread its thread attr names, holds that place alone, so it waits on no handler of his messages there. A handler whose turn is over holds nothing, however it ended: it leaves the drive, and each brief handed to it that it never took goes to the handler this brief reaches, but one for the record this brief names; one that never started leaves its own brief with them, by forget. briefed writes the brief a new handler starts on from its id, recording what it adds; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool and the watch's hand of each message of his cc-slack owes run it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch's other stages start it in the call, so a start that fails is tried again at their next read."""
+def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str], str] | None = None, again: bool = False) -> tuple[str, bool]:
+    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time: a brief for another record or another message of his, on that message, in that thread or on its record's re chain, is handed to that handler, which takes it at its next step, and a copy, the same record or the same message of his, is handed to it with nothing added, since that handler already holds it; the id of the handler at work on the brief, and whether it was handed. A record whose brief, attrs and re chain name no thread and reach no message of his is in the thread its order's lines go in, as the thread attr the drive stamps on its own records names it, and one whose post goes elsewhere than that thread or the thread of the message of his its chain reaches, at the root of a channel outside his DM such as a staging claim or in another thread its thread attr names, holds that place alone, so it waits on no handler of his messages there. A handler whose turn is over holds nothing, however it ended: it leaves the drive, and each brief handed to it that it never took goes to the handler this brief reaches, but one for the record this brief names; one that never started leaves its own brief with them, by forget. briefed writes the brief a new handler starts on from its id, recording what it adds; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool and the watch's hand of each message of his cc-slack owes run it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch's other stages start it in the call, so a start that fails is tried again at their next read. again marks the handler the drive's one fresh start of a POST report a tool's failure left unposted, by end_handler."""
     read = holds(brief)
     handler_id = uuid.uuid4().hex[:8]
     with state.edit(name) as data:
@@ -528,7 +529,7 @@ def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str
             kept = not held_now[same] or held_now[same] != entry["holds"][same]
             entry["handed"] += [one for one in [*left, *([brief.strip()] if kept else [])] if one not in entry["handed"]]
         else:
-            data["handlers"][handler_id] = {"session": None, "started": state.stamp(), "brief": brief.strip(), "holds": held_now, "handed": left, "took": [], "posted": []}
+            data["handlers"][handler_id] = {"session": None, "started": state.stamp(), "brief": brief.strip(), "holds": held_now, "handed": left, "took": [], "posted": [], "again": again}
     if held:
         return held, True
     try:
@@ -740,11 +741,13 @@ def take_handed(name: str, handler: str) -> list[str]:
 
 
 def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | None:
-    """End a handler's turn once refused, the Stop hook's checks of its line, lets it: hand the line it ended on to the session it runs beside, the communicator or on a drive with none the coordinator, as one cci record led by TOOK and the ts of each message of his it took by handover, each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, each permalink named once where it first appears, and remove its session. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended. A check that raises still posts the handler's line before its error goes on."""
+    """End a handler's turn once refused, the Stop hook's checks of its line, lets it: hand the line it ended on to the session it runs beside, the communicator or on a drive with none the coordinator, as one cci record led by TOOK and the ts of each message of his it took by handover, each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, each permalink named once where it first appears, and remove its session. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended. A handler on a POST report that ends with no post or hold of his catch-up carrying it leaves it carried with no post when its line chose that, and when its line opens on a tool's failure, DEFECT, starts a fresh handler on its brief, once, since one the drive started that way starts none, its line saying which. A check that raises still posts the handler's line before its error goes on."""
     name = state.session_drives(payload["session_id"])[0]
+    failed = (payload.get("last_assistant_message") or "").strip().startswith("DEFECT ")
     try:
         if reason := refused(payload):
             return reason
+        report = unposted(name, state.load(name), payload["agent_id"])
         with state.edit(name) as data:
             ended_handler = data["handlers"][payload["agent_id"]]
             if briefs := ended_handler["handed"]:
@@ -754,16 +757,36 @@ def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | N
                 data["handlers"].pop(payload["agent_id"])
                 if job_id := state.agent_job(data, payload["agent_id"]):
                     data["jobs"][job_id]["transcript"] = payload["agent_transcript_path"]
+                if report and not failed:
+                    data["carried"].setdefault(report, None)
         if briefs:
             return Unjudged(f"Refused on purpose: {handed(briefs)}")
     except Exception:
         post_done(name, payload, state.saved(name)["handlers"][payload["agent_id"]])
         raise
-    post_done(name, payload, ended_handler)
+    post_done(name, payload, ended_handler, handled_again(name, report, ended_handler) if report and failed else None)
 
 
-def post_done(name: str, payload: dict, ended_handler: dict) -> None:
-    line = (payload.get("last_assistant_message") or "").strip()
+def unposted(name: str, data: dict, handler: str) -> str | None:
+    """The POST report a handler holds that no post of it or hold for his catch-up carries."""
+    if not (seq := (data["handlers"][handler]["holds"] or {}).get("record")) or seq in data["carried"] or seq in data["held"]:
+        return None
+    return seq if posting(name, shown(seq)) else None
+
+
+def handled_again(name: str, seq: str, ended_handler: dict) -> str:
+    """Start a fresh handler on the POST report seq a tool's failure ended its handler without posting, on that handler's brief, unless the drive started that one this way; the part of the done line saying what became of the report."""
+    if ended_handler["again"]:
+        return f"report {seq} stays unposted, since the drive already started it once again: start it with the handler tool once its tool is fixed"
+    try:
+        handler, was_handed = handle(name, ended_handler["brief"], detached=True, again=True)
+    except Exception as error:
+        return f"report {seq} did not start again: {start_error(error)}"
+    return f"report {seq} {'handed to' if was_handed else 'started again as'} handler {handler}"
+
+
+def post_done(name: str, payload: dict, ended_handler: dict, after: str | None = None) -> None:
+    line = "; ".join(filter(None, [(payload.get("last_assistant_message") or "").strip(), after]))
     if posted := ended_handler["posted"]:
         line = "; ".join(filter(None, [SAY_RESULT.sub("", line).strip(" ;"), *named_once(posted)]))
     if took := [f"{found[2]}.{found[3]}" for brief in ended_handler["took"] if HIS_WORDS in brief and (linked := LINK.search(brief)) and (found := state.CARD_LINK.search(linked[1]))]:
