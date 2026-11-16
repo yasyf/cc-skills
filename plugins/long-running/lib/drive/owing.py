@@ -142,42 +142,56 @@ def settle(data: dict, moment: datetime) -> bool:
             if met(data, order_id, item):
                 close(item, "met", moment)
                 changed = True
-    for job_id, why in waiting(data, moment).items():
-        changed = blocked(data, job_id, why, moment) or changed
-    return changed
+    return blocks(data, moment) or changed
 
 
-def waiting(data: dict, moment: datetime) -> dict[str, str]:
-    """Each job of an incident's or asked order waiting on a contended resource, with why: a stage-test item the queue starts no cut for, by work.STAGE.why_not, a release the train holds behind a cut, by state.train_waiting, and a builder that has waited on a builder slot SLOT_QUIET or more, so a brief routine wait says nothing, by his words "make the tooling even less chatty"."""
+def waiting(data: dict, moment: datetime) -> dict[str, tuple[str, str]]:
+    """Each job of an incident's or asked order waiting on a contended resource, with what blocks it, as a reason that stays the same while the block does, and why in words: a stage-test item the queue starts no cut for, by work.STAGE.why_not, a release the train holds behind a cut, by state.train_waiting, and a builder that has waited on a builder slot SLOT_QUIET or more, so a brief routine wait says nothing, by his words "make the tooling even less chatty"."""
     from drive import work
 
     held = {}
     if why := work.STAGE.why_not(data, moment):
-        held |= dict.fromkeys(work.STAGE.line(data), f"its staging test {why}")
+        held |= dict.fromkeys(work.STAGE.line(data), (f"staging:{work.env(data)}", f"its staging test {why}"))
     for env, slot in data["slots"].items():
         if slot["holder"]:
-            held |= dict.fromkeys(state.train_waiting(data, env), f"its release waits for {env}, which {slot['holder']['job']} holds until {when(slot['holder']['until'])}")
+            held |= dict.fromkeys(state.train_waiting(data, env), (f"train:{env}", f"its release waits for {env}, which {slot['holder']['job']} holds until {when(slot['holder']['until'])}"))
     held |= {
-        job_id: f"it has waited on a builder slot since {when(since)}"
+        job_id: ("builder-slot", f"it has waited on a builder slot since {when(since)}")
         for job_id, job in data["jobs"].items()
         if state.SLOT_WAIT in job["waits"] and job["state"] not in state.FINISHED_JOB_STATES and moment - state.parse_time(since := job.get("slot_since") or job["updated"]) >= SLOT_QUIET
     }
-    return {job_id: why for job_id, why in held.items() if state.class_rank(data, data["jobs"][job_id]) < state.CLASSES.index("process")}
+    return {job_id: found for job_id, found in held.items() if state.class_rank(data, data["jobs"][job_id]) < state.CLASSES.index("process")}
 
 
-def blocked(data: dict, job_id: str, why: str, moment: datetime) -> bool:
-    """Owe one step on the ask a blocked job serves, by his rule "silence is never acceptable; it tells me in the thread when it is blocked": a post in his thread saying what blocks the ask and what clears it, due BLOCKED_DUE on, closed only by a post naming it as its outcome, at most one open per ask; when a step of the ask is already due within FOLD_WITHIN, the block folds into that step's post instead of adding one, by his words "make the tooling even less chatty". Nothing is refused and the model writes the post. Whether it changed anything."""
-    order_id = data["jobs"][job_id]["order"]
+def blocks(data: dict, moment: datetime) -> bool:
+    """Owe one step per blocking episode of each ask, by blocked, the reasons its jobs wait on making the episode; an ask none of whose jobs waits any more ends its episode, so blocking again later owes a new post. Whether anything changed."""
+    episodes: dict[str, dict[str, str]] = {}
+    for job_id, (reason, why) in waiting(data, moment).items():
+        episodes.setdefault(data["jobs"][job_id]["order"], {}).setdefault(reason, why)
+    changed = False
+    for order_id, order in data["orders"].items():
+        if order["blocked"] and order_id not in episodes:
+            order["blocked"] = None
+            changed = True
+    for order_id, reasons in episodes.items():
+        changed = blocked(data, order_id, ", ".join(sorted(reasons)), "; ".join(reasons[reason] for reason in sorted(reasons)), moment) or changed
+    return changed
+
+
+def blocked(data: dict, order_id: str, reason: str, why: str, moment: datetime) -> bool:
+    """Owe one step on an ask blocked for a reason, once per episode, by his rule "silence is never acceptable; it tells me in the thread when it is blocked": a post in his thread saying what blocks the ask and what clears it, due BLOCKED_DUE on, closed only by a post naming it as its outcome; the same reason after that post owes nothing more, only a changed reason or a block after the ask was free again; when a step of the ask is already due within FOLD_WITHIN, the block folds into that step's post instead of adding one, by his words "make the tooling even less chatty". Nothing is refused and the model writes the post. Whether it changed anything."""
     order = data["orders"][order_id]
-    if open_on(order, STEP, {"blocked": order_id}):
+    if order["blocked"] == reason:
         return False
+    order["blocked"] = reason
     said = f"say in his thread what blocks {order['title'] or cut(order['text'], 80)} and what clears it: {why}"
     if soon := next((item for item in still_open(order) if item["kind"] == STEP and item["due"] and state.parse_time(item["due"]) - moment <= FOLD_WITHIN), None):
-        if " and what clears it: " in soon["what"]:
-            return False
         soon["what"] = f"{soon['what']}; and {said}"
         return True
-    add(data, order_id, STEP, said, moment + BLOCKED_DUE, {"blocked": order_id}, f"{job_id} blocked", moment, job_id)
+    if held := open_on(order, STEP, {"blocked": order_id}):
+        held["what"] = said
+        return True
+    add(data, order_id, STEP, said, moment + BLOCKED_DUE, {"blocked": order_id}, "its block", moment)
     return True
 
 
