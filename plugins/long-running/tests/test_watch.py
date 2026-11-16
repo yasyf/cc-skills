@@ -12737,3 +12737,12 @@ def test_a_lane_on_this_mac_with_no_transcript_since_its_worker_started_is_unpro
 def test_a_sprite_a_reclaim_kept_is_asked_for_again_after_an_hour() -> None:
     kept = state.stamp(T0)
     assert (watch.kept_lately(kept, T0 + watch.KEPT_RETRY - timedelta(seconds=1)), watch.kept_lately(kept, T0 + watch.KEPT_RETRY), watch.kept_lately(None, T0)) == (True, False, False)
+
+
+def test_the_watch_counts_as_stalled_past_two_minutes_on_a_rest_and_past_the_pass_cut_off_and_a_minute_on_a_stage() -> None:
+    rest = watch.Pulse("rest", 1000.0, False)
+    stage = watch.Pulse("lane_lines", 1000.0, True)
+    assert not watch.stalled(rest, 1000.0 + watch.STALL_FOR.total_seconds())
+    assert watch.stalled(rest, 1001.0 + watch.STALL_FOR.total_seconds())
+    assert not watch.stalled(stage, 1000.0 + (watch.PASS_FOR + watch.SLOW_STAGE).total_seconds())
+    assert watch.stalled(stage, 1001.0 + (watch.PASS_FOR + watch.SLOW_STAGE).total_seconds())
