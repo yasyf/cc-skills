@@ -4237,15 +4237,29 @@ def starts_itself(job: dict) -> bool:
     return job["kind"] in ("builder", "reader") and bool(job.get("brief")) and not (job.get("agent") or job.get("dispatch") or job.get("bg"))
 
 
-def start_jobs(watcher: Watcher, moment: datetime) -> None:
-    """Start each heard job's first worker that nothing holds, so no session's Agent call or launch starts it and no root relays it: `drive job start` for a briefed builder or reader on this Mac, which starts its agent as its own claude --bg session past every check an Agent start meets, counting its builder slot or holding it waiting its turn, and `drive job launch` for one placed on a Sprite, each by start_verb once busy lets it and once a watch, so a refusal, which reaches the session holding the job as its relaunch_refused event, leaves the job to that session. A job no order of a coordinator or the meta session holds, such as a handler's, a stopped or finished one, one whose cards or waits hold it, by view.start_refusal, or one launching is left alone."""
+def start_jobs(watcher: Watcher, moment: datetime, first: bool = False) -> None:
+    """Start each heard job's first worker that nothing holds, so no session's Agent call or launch starts it and no root relays it: `drive job start` for a briefed builder or reader on this Mac, which starts its agent as its own claude --bg session past every check an Agent start meets, counting its builder slot or holding it waiting its turn, and `drive job launch` for one placed on a Sprite, each by start_verb once busy lets it and once a watch, so a refusal, which reaches the session holding the job as its relaunch_refused event, leaves the job to that session. A job no order of a coordinator or the meta session holds, such as a handler's, a stopped or finished one, one whose cards or waits hold it, by view.start_refusal, or one launching is left alone. With first, only a job drive job set --priority marks or one serving an open priority order, by state.first_in_line, which first_starts runs on every pass."""
     data = state.load(watcher.name)
     for job_id, job in data["jobs"].items():
+        if first and not (job.get("priority") or state.first_in_line(data, job)):
+            continue
         if not starts_itself(job) or job["state"] in (*state.FINISHED_JOB_STATES, "running") or job_id in watcher.started or not heard_job(watcher, data, job) or view.open_cards(job) or launching(job, moment):
             continue
         if state.holding_lane(data, data["orders"][job["order"]]) == "communicator" or view.start_refusal(data, job_id, False) or busy(watcher, job_id, moment):
             continue
         start_verb(watcher, job_id, ["job", "launch", job_id] if job.get("where") == "remote" else ["job", "start", job_id], moment)
+
+
+def first_starts(watcher: Watcher, moment: datetime) -> list[str]:
+    """Start each job serving an open priority order that nothing holds, by start_jobs, on every pass right after its orphans, ahead of the READ_EVERY reads, the slow stages and a resumed pass's skip past start_jobs, by his words on a priority order, "they aren't slowed down at any cost by anything"."""
+    start_jobs(watcher, moment, first=True)
+    return []
+
+
+def seated_first(watcher: Watcher) -> list[Watcher]:
+    """The drive's watcher and each project's, each open priority order's seat first, so its pass runs before every other project's PASS_FOR."""
+    seats = {order["priority"] for order in state.open_orders(state.load(watcher.name)).values() if order["priority"]}
+    return sorted([watcher, *watcher.others.values()], key=lambda one: one.project not in seats)
 
 
 def carry_held(watcher: Watcher, moment: datetime) -> None:
@@ -5032,6 +5046,8 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
     yield event_lines(watcher)
     beat("orphan_lines", True)
     yield orphan_lines(watcher, moment, NotStarted if watcher.read_at is None else (NotStarted, type(None)))
+    beat("first_starts", True)
+    yield first_starts(watcher, moment)
     later: list[functools.partial] = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -5674,7 +5690,7 @@ def watched(name: str, project: str | None) -> Watcher:
 
 
 def watching(watcher: Watcher) -> None:
-    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, the drive's pass first, then each project's, by joined, each project the watch claims the pid file of, so a project an older install's watch still runs waits for it to end; and end once a newer long-running is installed, before a pass or between two of a pass's stages, saying so in its log, so its launch agent starts the watch on that install within RESTART_SECONDS of the stage running then, however long a pass runs, and the watch there runs the stages this one had not, though a watch reads no install until it has run one whole pass, so installs landing minutes apart never end each watch they start before its first pass ends. A pass that runs past PASS_FOR ends before its next stage the same way, that stage kept as its resume, so one slow project holds the others' passes up no longer than that. A crash wakes the session the crashing pass posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
+    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, each open priority order's seat first, by seated_first, then the drive's pass, then each other project's, by joined, each project the watch claims the pid file of, so a project an older install's watch still runs waits for it to end; and end once a newer long-running is installed, before a pass or between two of a pass's stages, saying so in its log, so its launch agent starts the watch on that install within RESTART_SECONDS of the stage running then, however long a pass runs, and the watch there runs the stages this one had not, though a watch reads no install until it has run one whole pass, so installs landing minutes apart never end each watch they start before its first pass ends. A pass that runs past PASS_FOR ends before its next stage the same way, that stage kept as its resume, so one slow project holds the others' passes up no longer than that. A crash wakes the session the crashing pass posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     one = watcher
     passes = 0
@@ -5687,7 +5703,7 @@ def watching(watcher: Watcher) -> None:
                     break
                 handing = bool(watcher.made)
                 joined(watcher, state.now(), functools.partial(claim, watcher.name), functools.partial(watched, watcher.name))
-                for one in [watcher, *watcher.others.values()]:
+                for one in seated_first(watcher):
                     read_from, moment = one.offset, state.now()
                     for said in [handed(one, one.made, moment)] if one.made else passed(one, moment, lambda moment=moment: (passes and upgraded()) or state.now() - moment > PASS_FOR):
                         for line in sent(one, one.lane, said, moment):
