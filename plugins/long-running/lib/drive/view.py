@@ -1406,7 +1406,7 @@ def review(drive: dict, found: dict) -> list[dict]:
 
 
 def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment: datetime, reports: set[str], heard: dict[str, list[dict]]) -> dict:
-    """The dashboard's model: `build`'s, with progress, work, history and each shown feature's full order, jobs and the newest records naming them; reports names the jobs whose history the drive keeps, which holds every return each took, and heard holds the newest records naming each order and job, newest first."""
+    """The dashboard's model: `build`'s, with progress, work, history and each shown feature's full order, jobs and the newest records naming them; reports names the jobs whose history the drive keeps, which holds every return each took, and heard holds the newest records naming each order and job, newest first. On a live lane drive it also carries `lanes`, the lane drive's Now, Work and History, which the page draws in place of the old drive's, and none of the old drive's incidents or bug reports, which the lanes carry now."""
     model = build(drive, found, moment, events) | {"cards": source}
     served = served_prs(drive)
     shown_ids = {entry["id"] for group in model["status"] for entry in group["features"]}
@@ -1431,7 +1431,7 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
     active.sort(key=lambda entry: (entry["state"] != "running", state.parse_time(entry["updated"])))
     told = history(drive, events, found["team_url"])
     today = day_of(model["at"])
-    return model | {
+    built = model | {
         "counts": model["counts"] | {"jobs": sum(job["state"] == "running" for job in drive["jobs"].values()), "lanes": len(active), "merged_today": sum(entry["kind"] == "merged" and day_of(entry["at"]) == today for entry in told)},
         "progress": progress(drive),
         "work": active,
@@ -1443,6 +1443,11 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
         "channel": slack.dm(),
         "priorities": lenses,
     }
+    from lane import board as lane_board
+
+    if (lanes := lane_board.screens(drive["name"])) is None:
+        return built
+    return built | {"lanes": lanes, "incidents": [], "bug_reports": []}
 
 
 def priorities(drive: dict) -> list[dict]:

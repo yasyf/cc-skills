@@ -710,3 +710,21 @@ def test_his_stack_card_tap_lands_on_each_member_and_is_his_presence(world: dict
     assert json.loads((store.drive_dir(DRIVE) / store.PRESENCE).read_text())["ts"] == "1794870000.000100"
     verbs.tapped(DRIVE, "acme/app", 7, "Hold", "h7", "recorded by hand")
     assert json.loads((store.drive_dir(DRIVE) / store.PRESENCE).read_text())["ts"] == "1794870000.000100"
+
+
+def test_his_lane_screens_show_each_lane_its_owner_at_work_and_its_record(world: dict) -> None:
+    from lane import board
+
+    opened("a", next_step="land #7")
+    opened("b", prs=[("acme/app", 9)])
+    ended("b", ["check:acme/app#9"], "2h")
+    store.update(DRIVE, "b", lambda lane: store.note(lane, "queued for merge: acme/app#9 at base abc"))
+    world["prs"][("acme/app", 9)] = pull(state="MERGED", head="h9") | {"title": "nine"}
+    supervisor.run_pass(DRIVE)
+    assert board.screens(DRIVE) is None
+    (store.drive_dir(DRIVE) / store.LIVE).touch()
+    shown = board.screens(DRIVE)
+    now = {lane["id"]: lane for lane in shown["now"]}
+    assert (now["a"]["state"], now["a"]["next"]) == ("running", "land #7")
+    assert [owner["id"] for owner in shown["work"] if owner["id"] == "a"] == ["a"]
+    assert [entry["words"] for entry in shown["history"] if entry["kind"] == "merged"] == ["#9 nine"]

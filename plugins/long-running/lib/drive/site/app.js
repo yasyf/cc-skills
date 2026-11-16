@@ -2178,6 +2178,77 @@ function workTree(lanes) {
   return new Map([...index().tree].map(([project, streams]) => [project, new Map([...streams].map(([stream, entries]) => [stream, entries.flatMap((entry) => held.get(entry.id) ?? [])]))]));
 }
 
+const LANE_TONES = { running: ['Working', 'doing'], waiting: ['Waiting', 'waiting'], parked: ['Parked', 'waiting'] };
+
+function laneStanding(lane) {
+  if (lane.state === 'running') return 'Working now.';
+  if (lane.state === 'waiting') return `Waiting on ${lane.waits} until ${clock(lane.until)}.`;
+  return `Parked: ${lane.parked}`;
+}
+
+function laneNowScreen() {
+  const lanes = model.lanes.now;
+  const working = lanes.filter((lane) => lane.state === 'running').length;
+  const asked = lanes.reduce((sum, lane) => sum + lane.asks.length, 0);
+  const ready = lanes.reduce((sum, lane) => sum + lane.stacks.length, 0);
+  return `<div class="page-head"><div><div class="eyebrow">Now</div><h1 class="h1">Where each lane stands.</h1>
+      <p class="lead">${counted(lanes.length, 'lane')} in queue order, ${working} working now. ${asked ? `${counted(asked, 'message')} of yours still unanswered. ` : ''}${ready ? `${counted(ready, 'stack')} ready for your tap.` : 'Nothing is ready for your tap.'}</p></div></div>
+    <ol class="lane-list">${lanes.map(laneNowCard).join('')}</ol>`;
+}
+
+function laneNextLead(next) {
+  const first = next.split(/\s+2\)\s|;\s|\.\s|\s\|\s/)[0].replace(/^1\)\s*/, '');
+  return first.length > 160 ? `${first.slice(0, 157).trimEnd()}…` : first;
+}
+
+function laneNowCard(lane) {
+  const [word, tone] = lane.hurting ? ['Hurting users', 'bad'] : LANE_TONES[lane.state];
+  const rest = Object.entries(lane.rest ?? {}).map(([why, count]) => `${count} ${why}`).join(', ');
+  return `<li class="card lane-card"><div class="card-content">
+      <div class="card-top"><span class="eyebrow">${lane.position} · ${esc(lane.id)}</span><span class="pill t-${tone}">${word}</span></div>
+      <h2 class="lane-title">${esc(lane.title)}</h2>
+      <p class="lane-standing">${esc(laneStanding(lane))}${lane.next ? ` <span class="lane-next">Next: ${inline(laneNextLead(lane.next))}</span>` : ''}</p>
+      ${lane.asks.length ? `<div class="lane-block"><div class="eyebrow">Your words, not yet answered</div><ul>${lane.asks.map((ask) => `<li>${ask.link ? `<a href="${esc(ask.link)}" target="_blank" rel="noopener">${esc(ask.words)}</a>` : esc(ask.words)} <span class="meta">${clock(ask.at)}</span></li>`).join('')}</ul></div>` : ''}
+      ${lane.stacks.length ? `<div class="lane-block"><div class="eyebrow">Ready for your tap</div><ul>${lane.stacks.map((stack) => `<li><a href="${esc(stack.url)}" target="_blank" rel="noopener">${esc(sharedRenderers.prName(stack.key))}</a> ${esc(stack.title)}${stack.above ? ` <span class="meta">and ${stack.above} stacked above</span>` : ''}</li>`).join('')}</ul></div>` : ''}
+      ${lane.next || rest || lane.why ? `<details class="lane-more"><summary>The whole plan</summary>${lane.next ? `<p>${inline(lane.next)}</p>` : ''}${lane.why ? `<p>Why it waits: ${esc(lane.why)}</p>` : ''}${rest ? `<p class="meta">Not ready for your tap yet: ${esc(rest)}.</p>` : ''}</details>` : ''}
+    </div></li>`;
+}
+
+function laneWorkScreen() {
+  const owners = model.lanes.work;
+  const builders = owners.reduce((sum, owner) => sum + owner.builders, 0);
+  return `<div class="page-head"><div><div class="eyebrow">Work</div><h1 class="h1">Who is working.</h1>
+      <p class="lead">${counted(owners.length, 'lane owner')} working now, running ${counted(builders, 'builder')} between them.</p></div></div>
+    <ol class="lane-list">${owners.map((owner) => `<li class="card lane-card"><div class="card-content">
+      <div class="card-top"><span class="eyebrow">${esc(owner.id)}</span><span class="pill t-doing">${owner.builders ? counted(owner.builders, 'builder') : 'On its own'}</span></div>
+      <h2 class="lane-title">${esc(owner.title)}</h2>
+      <p class="lane-standing">${inline(owner.doing)}</p>
+      <p class="meta">${owner.since ? `Started ${clock(owner.since)}` : ''}${owner.updated ? ` · last active ${ago(owner.updated)} ago` : ''}</p>
+    </div></li>`).join('') || '<li class="meta">No lane owner is working right now.</li>'}</ol>`;
+}
+
+function laneHistoryScreen() {
+  const days = new Map();
+  for (const entry of model.lanes.history) {
+    const day = new Date(entry.at).toLocaleDateString('en-US', { timeZone: ZONE, weekday: 'long', month: 'short', day: 'numeric' });
+    if (!days.has(day)) days.set(day, new Map());
+    const lanes = days.get(day);
+    if (!lanes.has(entry.lane)) lanes.set(entry.lane, []);
+    lanes.get(entry.lane).push(entry);
+  }
+  return `<div class="page-head"><div><div class="eyebrow">History</div><h1 class="h1">What the lanes did.</h1>
+      <p class="lead">${counted(model.lanes.merged_today, 'PR')} merged today. Each lane's record, newest first.</p></div></div>
+    ${[...days].map(([day, lanes]) => `<section class="lane-day"><h2 class="lane-day-title">${esc(day)}</h2><ol class="lane-list">${[...lanes].map(([id, entries]) => {
+      const merged = entries.filter((entry) => entry.kind === 'merged');
+      return `<li class="card lane-card"><div class="card-content">
+        <div class="card-top"><span class="eyebrow">${esc(id)}</span>${merged.length ? `<span class="pill t-doing">${counted(merged.length, 'merge')}</span>` : ''}</div>
+        <h2 class="lane-title">${esc(entries[0].title)}</h2>
+        ${merged.length ? `<ul class="lane-merges">${merged.map((entry) => `<li><a href="${esc(entry.url)}" target="_blank" rel="noopener">${esc(entry.words)}</a> <span class="meta">queued to merge ${clock(entry.at)}</span></li>`).join('')}</ul>` : ''}
+        <details class="lane-more"><summary>${counted(entries.length - merged.length, 'line')} of its record</summary><ol class="lane-log">${entries.filter((entry) => entry.kind !== 'merged').map((entry) => `<li><span class="meta">${clock(entry.at)}</span> ${inline(entry.words)}</li>`).join('')}</ol></details>
+      </div></li>`;
+    }).join('')}</ol></section>`).join('')}`;
+}
+
 function workScreen() {
   const read = slice('/api/lanes');
   if (!read?.ok) return notRead(read);
@@ -2790,8 +2861,12 @@ function render() {
   if (seated) return location.replace(`#/priority/${seated.id}`);
   document.title = `${model.drive}: ${model.counts.queue} waiting on you`;
   const at = { feature: 'now', file: 'work', priority: 'now' }[screen] ?? (SCREENS.some(([name]) => name === screen) ? screen : 'queue');
-  const counts = { queue: model.counts.queue, now: model.counts.jobs, work: model.counts.lanes, history: model.counts.merged_today, pages: model.pages.filter((page) => page.live).length };
-  const said = { queue: 'waiting on you', now: 'jobs running', work: 'lanes at work', history: 'merged today', pages: 'live' };
+  const counts = model.lanes
+    ? { queue: model.counts.queue, now: model.lanes.now.length, work: model.lanes.work.length, history: model.lanes.merged_today, pages: model.pages.filter((page) => page.live).length }
+    : { queue: model.counts.queue, now: model.counts.jobs, work: model.counts.lanes, history: model.counts.merged_today, pages: model.pages.filter((page) => page.live).length };
+  const said = model.lanes
+    ? { queue: 'waiting on you', now: 'lanes', work: 'working now', history: 'merged today', pages: 'live' }
+    : { queue: 'waiting on you', now: 'jobs running', work: 'lanes at work', history: 'merged today', pages: 'live' };
   $('#tabs').innerHTML = SCREENS.map(([name, href, label]) => `<a class="tab${name === at ? ' on' : ''}" href="${href}"${name === at ? ' aria-current="page"' : ''} data-tip="${esc([label, counts[name] ? `${counts[name]} ${said[name]}` : '', name === 'now' && model.incidents.length ? `${counted(model.incidents.length, 'incident')} open` : ''].filter(Boolean).join('\n'))}">${icon(name)}<span>${label}</span>${counts[name] ? `<b class="count${name === 'queue' ? '' : ' soft'}" aria-label="${counts[name]} ${said[name]}">${counts[name]}</b>` : ''}${name === 'now' && model.incidents.length ? `<i class="alarm" aria-label="${counted(model.incidents.length, 'incident')} open"></i>` : ''}</a>`).join('');
   morphChildren($('#crumb'), Object.assign(document.createElement('nav'), { innerHTML: trail() }));
   const raised = strip();
@@ -2799,7 +2874,7 @@ function render() {
   $('#alerts').hidden = !raised;
   morphChildren($('#incidents'), Object.assign(document.createElement('div'), { innerHTML: incidentList() }));
   morphChildren($('#bug-reports'), Object.assign(document.createElement('div'), { innerHTML: bugReportList() }));
-  const screens = { queue: () => queueScreen(id), now: nowScreen, work: workScreen, history: historyScreen, pages: () => pagesScreen(id), feature: () => featureScreen(id), priority: () => priorityScreen(id), file: () => fileScreen(route().path) };
+  const screens = { queue: () => queueScreen(id), now: model.lanes ? laneNowScreen : nowScreen, work: model.lanes ? laneWorkScreen : workScreen, history: model.lanes ? laneHistoryScreen : historyScreen, pages: () => pagesScreen(id), feature: () => featureScreen(id), priority: () => priorityScreen(id), file: () => fileScreen(route().path) };
   const open = new Set(model.review.map((entry) => entry.key));
   for (const [key, frame] of slotted) {
     if (open.has(key)) continue;

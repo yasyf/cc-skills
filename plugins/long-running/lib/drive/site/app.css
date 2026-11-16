@@ -1381,3 +1381,17 @@ button.task-row { cursor: pointer; }
 .pr-card > .told-more > summary { padding: 14px 32px; }
 .decision-story .told-more:first-of-type { margin-top: 20px; }
 .told-first .card-glance > .dot { display: inline-block; margin-right: 7px; vertical-align: 1px; }
+
+.lane-list { list-style: none; margin: 0; padding: 0; max-width: 820px; }
+.lane-card .card-content { padding: 20px 26px 18px; }
+.lane-card .card-top { margin-bottom: 10px; }
+.lane-title { margin: 0 0 8px; font-size: 20px; font-weight: 550; letter-spacing: -0.4px; }
+.lane-standing { margin: 0; color: var(--ink-2); line-height: 1.6; }
+.lane-next { color: var(--muted); }
+.lane-block { margin-top: 14px; }
+.lane-block ul, .lane-merges, .lane-log { margin: 6px 0 0; padding-left: 18px; line-height: 1.6; }
+.lane-block a, .lane-merges a { color: var(--accent); }
+.lane-more { margin-top: 12px; color: var(--muted); font-size: 13px; }
+.lane-more summary { cursor: pointer; }
+.lane-log li { margin-bottom: 4px; white-space: pre-line; }
+.lane-day-title { margin: 26px 0 12px; font-size: 15px; font-weight: 600; color: var(--muted); }
