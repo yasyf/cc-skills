@@ -7,7 +7,6 @@ import os
 import shlex
 import subprocess
 import sys
-import uuid
 
 from drive import brief, cli, limits, reads, render, settled, state, superseded, talk, view
 from drive.state import DriveError
@@ -157,7 +156,9 @@ RECORD = {
                 " naming no job to the coordinator that wrote the record its re answers, and its other owner, answer or handoff record"
                 " to the session holding the order its attrs.order names, else the order of the job it answers, else its thread's"
                 " newest order, whatever lane this names; any other session's record goes to the lane this names, and a lane no"
-                " session of the drive reads, such as coordinator, is refused"
+                " session of the drive reads, such as coordinator, is refused; an unfinished job's id, such as j12, is the lane that"
+                " job hears: the record goes out and is held on the job for its running worker or codex run, as drive job resume holds"
+                " a text, the one way to answer a job that asked over cci, since cci's own tools refuse that lane"
             ),
         },
         "attrs": {
@@ -230,7 +231,7 @@ def verb_tools() -> list[dict]:
                 " whose agent runs it on this Mac, the communicator's handoff naming no job the coordinator that wrote the record its"
                 " re answers, else the session holding the order its attrs.order names, as does any other session's handoff naming"
                 " no to, while any other session's record naming a to reaches that lane,"
-                " a to lane no session of the drive reads is refused, and an owner record names about, refused without it: the drive's owner record"
+                " a to lane no session of the drive reads is refused, a job's id holds the record on that job for its running worker or codex run, and an owner record names about, refused without it: the drive's owner record"
                 " about the drive, a ruling on how it works included, reaches the meta session alone holding its order, which"
                 " the call adds first, a new order the meta session holds or his words as a part of the open one they carry on, as its"
                 " order field says, and one about his work the coordinator hearing its order."
@@ -571,7 +572,7 @@ def ran(name: str, said: list[str], index: int, words: tuple[str, ...], given: d
 
 
 def record(name: str, records: list[dict], dry_run: bool) -> str:
-    """Post the records as one cci batch from this session's lane, a sub-coordinator's its project's, to the lane each names, else the communicator, the coordinator's for the communicator and the session its order's job's agent or holder reaches for another session's handoff, each sent where the drive routes it. Records of his words under a question card of another drive are kept on that drive, posted as its communicator lane whatever session calls it and whether or not that drive holds a communicator, as card.answer_question keeps his tap, since whichever drive's watch reads his DM hears them while that card's drive alone holds its question; none posts when one not in his words says a release may start while a freeze or his release hold it does not name stands."""
+    """Post the records as one cci batch from this session's lane, a sub-coordinator's its project's, to the lane each names, else the communicator, the coordinator's for the communicator and the session its order's job's agent or holder reaches for another session's handoff, each sent where the drive routes it, and each whose to names an unfinished job's id held on that job with its seq and this session's role as sender, by state.hold_addressed, for its running worker or codex run as drive job resume holds a text. Records of his words under a question card of another drive are kept on that drive, posted as its communicator lane whatever session calls it and whether or not that drive holds a communicator, as card.answer_question keeps his tap, since whichever drive's watch reads his DM hears them while that card's drive alone holds its question; none posts when one not in his words says a release may start while a freeze or his release hold it does not name stands."""
     held = card_drive(name, records)
     data = state.load(held)
     session = os.environ.get("CLAUDE_CODE_SESSION_ID") if held == name else (data["roles"].get("communicator") or {}).get("session")
@@ -651,7 +652,9 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     print("\n".join(went), file=sys.stderr, flush=True)
     with state.edit(name) as kept:
         kept["posted"] = dict([*kept["posted"].items(), (batch, {"seqs": seqs, "at": state.stamp()})][-POSTED_KEPT:])
+        hearing = [state.hold_addressed(kept, made, lane, seq, role) for made, seq in zip(posts, seqs, strict=True)]
     said += went
+    said += [f"{index} held on {', '.join(jobs)} for its running worker or codex run, as drive job resume holds a text" for index, jobs in enumerate(hearing, start=1) if jobs]
     ended = stamped(name, posts, seqs)
     if lane == "communicator":
         handed(name, posts, seqs)
@@ -864,11 +867,10 @@ def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list
             cards = {attrs.get("waits"), *(drawn for _, question in questions for drawn in (question["waits"], question["card"]))} - {None}
             tapped = [job_id for job_id, job in data["jobs"].items() for question in job["questions"] if (closed := question["closed"]) and closed["replaces"] and ended_by(closed, made, seq)]
             for job_id in dict.fromkeys([*hearers(data, asking, cards, since), *tapped]):
-                kept = data["jobs"][job_id]["undelivered"]
                 if "undone" in attrs:
                     superseded.unhold(data["jobs"][job_id], attrs["undone"])
-                elif all(answer["seq"] != seq for answer in kept):
-                    kept.append({"seq": seq, "words": verbatim(made, questions, found), "at": state.stamp(), "said": None, "request": str(uuid.uuid4()), "sender": state.HIM})
+                else:
+                    state.hold_text(data["jobs"][job_id], verbatim(made, questions, found), state.HIM, seq=seq)
 
 
 def hearers(data: dict, asking: list[str], cards: set[str], since: str | None) -> list[str]:
@@ -946,7 +948,7 @@ def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
 
 
 def post(item: dict, data: dict, other: str, session: str | None) -> dict:
-    """The cci record an item posts as, to the lane it names, alone or as <lane>@<drive> of this drive, else other, a defect's or handoff's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the meta session, the communicator's owner record about the drive to the meta session alone, its answer or handoff record naming a job by attr job or waits id, whatever lane it names, to the coordinator session whose agent runs that job on this Mac, its answer or handoff record naming no job, whatever lane it names, to the coordinator that wrote the record its re answers, and its other owner, answer or handoff record to the session holding the order its attr order names, else the order of the job it answers, else the newest order in its thread, where any other session's handoff naming no lane goes too, after the coordinator session whose agent runs the job it names; an owner record naming no about, or one to a lane no session of the drive reads, is refused."""
+    """The cci record an item posts as, to the lane it names, alone or as <lane>@<drive> of this drive, else other, a defect's or handoff's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the meta session, the communicator's owner record about the drive to the meta session alone, its answer or handoff record naming a job by attr job or waits id, whatever lane it names, to the coordinator session whose agent runs that job on this Mac, its answer or handoff record naming no job, whatever lane it names, to the coordinator that wrote the record its re answers, and its other owner, answer or handoff record to the session holding the order its attr order names, else the order of the job it answers, else the newest order in its thread, where any other session's handoff naming no lane goes too, after the coordinator session whose agent runs the job it names; an owner record naming no about, or one to a lane no session of the drive reads, is refused, an unfinished job's id being a lane its job hears."""
     drive = data["name"]
     if item["kind"] not in RECORD["properties"]["kind"]["enum"]:
         raise DriveError(f"record posts owner, answer, handoff and defect records; a {item['kind']} goes through the cci `post` tool, whose hook reads it")
@@ -979,7 +981,7 @@ def post(item: dict, data: dict, other: str, session: str | None) -> dict:
     if named not in ("", drive):
         raise DriveError(f"to {item['to']}: names no lane of drive {drive}, which this call posts in; name its lane alone or as <lane>@{drive}")
     made["to"] = state.routed({drive: data}, session, item["kind"], attrs, [f"{lane}@{drive}"], made.get("re") or [])
-    if unread := state.unread({drive: data}, made["to"], drive):
+    if unread := state.unread({drive: data}, made["to"], drive, held=True):
         raise DriveError(unread)
     if item.get("undone"):
         attrs["undone"], text = text, f"undone: {text}"

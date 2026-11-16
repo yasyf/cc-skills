@@ -734,7 +734,20 @@ def test_a_record_naming_a_job_goes_to_the_session_that_started_its_agent_and_on
     assert record_lines.decision(post("talker", **answer))["updatedInput"]["to"] == ["root@demo"]
     for to in (["coordinator@demo"], ["coordinator"]):
         reason = refusal(record_lines.decision(post("iris-1", kind="handoff", text="j1 may start", to=to)))
-        assert reason == "refused, nothing posted: to coordinator: no session of drive demo reads that lane; name one of root, communicator, meta, iris, owner", to
+        assert reason == "refused, nothing posted: to coordinator: no session of drive demo reads that lane; name one of root, communicator, meta, iris, owner, or an unfinished job's id on the drive's `record` tool", to
+
+
+def test_a_post_or_close_reaching_an_unfinished_jobs_id_is_refused_naming_the_record_tool_and_a_close_to_another_writer_goes(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the incident")
+    run("job", "add", "codex", "--order", "o1", "--goal", "fix the incident")
+    monkeypatch.setattr(agents, "shown", lambda seq: {"lane": {"7": "j1", "8": "builder"}[seq]})
+    assert refusal(record_lines.decision(post(kind="answer", text="port 8080", to=["j1"], re=["7"]))).startswith("refused, nothing posted: to j1: job j1 hears a record only from the drive's `record` tool")
+    close = post(seqs=["7"], how="answer", text="port 8080") | {"tool_name": record_lines.CLOSE}
+    assert refusal(record_lines.decision(close)).startswith("refused, nothing posted: to j1: job j1 hears a record only from the drive's `record` tool")
+    assert refusal(record_lines.decision(close | {"tool_input": close["tool_input"] | {"seqs": ["8"], "to": "j1@demo"}})).startswith("refused, nothing posted: to j1: job j1 hears a record only from the drive's `record` tool")
+    assert record_lines.decision(close | {"tool_input": close["tool_input"] | {"seqs": ["8"]}}) is None
 
 
 def test_his_words_in_the_thread_of_a_card_an_orders_job_drew_go_to_the_session_hearing_that_order(

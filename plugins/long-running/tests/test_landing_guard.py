@@ -526,8 +526,15 @@ def test_his_words_at_his_message_on_his_open_question_posted_with_cci_post_are_
 def test_a_cci_post_in_bash_to_a_lane_nobody_reads_is_refused_naming_the_lanes_someone_reads(demo: str, no_calls: None) -> None:
     for to in ("coordinator@demo", "coordinator --drive demo", "coordinator"):
         reason = landing_guard.deny_reason(bash(f"cci post --kind handoff --lane root --to {to} 'j1 may start'"))
-        assert reason == "refused, nothing posted: to coordinator: no session of drive demo reads that lane; name one of root, communicator, meta, owner", to
+        assert reason == "refused, nothing posted: to coordinator: no session of drive demo reads that lane; name one of root, communicator, meta, owner, or an unfinished job's id on the drive's `record` tool", to
     assert landing_guard.deny_reason(bash("cci post --kind handoff --lane root --to meta@demo 'j1 may start'")) is None
+
+
+def test_a_cci_post_in_bash_to_an_unfinished_jobs_id_is_refused_naming_the_record_tool(run: Callable[..., tuple[int, str]], demo: str, no_calls: None) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the incident")
+    run("job", "add", "codex", "--order", "o1", "--goal", "fix the incident")
+    for to in ("j1", "j1@demo"):
+        assert landing_guard.deny_reason(bash(f"cci post --kind answer --lane root --to {to} --re 7 'port 8080'")).startswith("refused, nothing posted: to j1: job j1 hears a record only from the drive's `record` tool"), to
 
 
 def cci_delta(path: Path, field: str, names: list[str]) -> None:

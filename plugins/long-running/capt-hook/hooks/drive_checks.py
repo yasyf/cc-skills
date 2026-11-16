@@ -42,13 +42,14 @@ DRIVE_AGENTS = "long-running:"
 HANDLER = "long-running:handler"
 BUILDER = "long-running:builder"
 POST = "mcp__plugin_cc-inbox_cci__post"
+CLOSE = "mcp__plugin_cc-inbox_cci__close"
 FILE_TOOLS = ("Read", "Write", "Edit", "Bash")
 SLACK_READS = (SLACK + "slack_thread", SLACK + "slack_history")
 QUESTIONS = ("AskUserQuestion", "request_access", "request_full_control", "request_teach_access")
 SHELL = ("Bash",)
 SEARCHES = ("Bash", "Read", "Grep")
 AGENT = ("Agent",)
-RECORDS = (POST,)
+RECORDS = (POST, CLOSE)
 PRE_TOOL_CHECKS: dict[str, tuple[str, ...] | None] = {
     "no_file_tools.py": FILE_TOOLS,
     "no_slack_reads.py": SLACK_READS,
@@ -574,6 +575,7 @@ def message_limits(evt: BaseHookEvent) -> HookResult | None:
     only_if=[Tool(*RECORDS)],
     tests={
         Input(tool=POST, tool_input={"kind": "report", "text": "x"}, session_id=NO_DRIVE): Allow(),
+        Input(tool=CLOSE, tool_input={"seqs": ["7"], "how": "answer", "text": "done"}, session_id=NO_DRIVE): Allow(),
         Input(
             tool=POST,
             tool_input={"kind": "report", "lane": "root", "to": "communicator@fixture", "text": "POST The fix is still building.", "attrs": {"thread": THREAD, "progress": "true"}},
