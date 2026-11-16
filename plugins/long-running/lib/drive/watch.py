@@ -21,6 +21,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
+from time import monotonic
 from typing import NamedTuple, Self
 
 from drive import agents, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, page, place, procs, reads, receiver, refs, render, served, settled, slack, stage, stall, state, superseded, superseded_procs, train, view
@@ -5331,7 +5332,7 @@ class Pulse:
     """What the watch process is doing now: the step it began, when by time.monotonic, and whether that step is a pass's stage, which may run up to PASS_FOR, or anything else, a rest, a hand-off, its start or its end, which takes seconds."""
 
     step: str = "start"
-    since: float = field(default_factory=time.monotonic)
+    since: float = field(default_factory=monotonic)
     staged: bool = False
 
 
@@ -5340,9 +5341,9 @@ PULSE = Pulse()
 
 def beat(step: str, staged: bool = False) -> None:
     """Mark the watch as beginning step, logging the step before it when that one was a stage that ran past SLOW_STAGE, so the log names each slow stage by its time."""
-    if PULSE.staged and (took := time.monotonic() - PULSE.since) >= SLOW_STAGE.total_seconds():
+    if PULSE.staged and (took := monotonic() - PULSE.since) >= SLOW_STAGE.total_seconds():
         print(f"{state.stamp()} stage {PULSE.step} took {took:.0f}s", flush=True)
-    PULSE.step, PULSE.since, PULSE.staged = step, time.monotonic(), staged
+    PULSE.step, PULSE.since, PULSE.staged = step, monotonic(), staged
 
 
 def stalled(pulse: Pulse, now: float) -> bool:
@@ -5350,18 +5351,19 @@ def stalled(pulse: Pulse, now: float) -> bool:
     return now - pulse.since > (PASS_FOR + SLOW_STAGE if pulse.staged else STALL_FOR).total_seconds()
 
 
-def guard(name: str) -> None:
-    """Write the watch's heartbeat, its pid, step and how long that step has run, to BEAT_FILE every BEAT_SECONDS, and end the process once it is stalled on a step, its threads' stacks dumped to its log first, so its launch agent starts a fresh watch within RESTART_SECONDS and the log names the line it hung on; no pass, rest, start or end of the watch then holds the drive's watch for longer than PASS_FOR and a minute, or STALL_FOR outside a stage."""
+def guard(name: str, ended: threading.Event) -> None:
+    """Write the watch's heartbeat, its pid, step and how long that step has run, to BEAT_FILE every BEAT_SECONDS until ended is set, and end the process once it is stalled on a step, its threads' stacks dumped to its log first, so its launch agent starts a fresh watch within RESTART_SECONDS and the log names the line it hung on; no pass, rest, start or end of the watch then holds the drive's watch for longer than PASS_FOR and a minute, or STALL_FOR outside a stage."""
     path = state.drive_dir(name) / BEAT_FILE
     while True:
-        now = time.monotonic()
+        now = monotonic()
         path.write_text(json.dumps({"pid": os.getpid(), "step": PULSE.step, "for": round(now - PULSE.since), "at": state.stamp()}) + "\n")
         if stalled(PULSE, now):
             print(f"{state.stamp()} WATCH stalled {now - PULSE.since:.0f}s on {PULSE.step}, so it ends for its launch agent to start it again; every thread's stack:", flush=True)
             faulthandler.dump_traceback(file=sys.stdout, all_threads=True)
             sys.stdout.flush()
             os._exit(3)
-        time.sleep(BEAT_SECONDS)
+        if ended.wait(BEAT_SECONDS):
+            return
 
 
 def main(drive_name: str | None = None, project: str | None = None) -> int:
@@ -5381,7 +5383,8 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
     if not claim(name):
         return 0
     beat("start")
-    threading.Thread(target=guard, args=(name,), daemon=True).start()
+    ended = threading.Event()
+    threading.Thread(target=guard, args=(name, ended), daemon=True).start()
     watcher = None
     try:
         os.environ.update(launchd.session_env())
@@ -5397,6 +5400,7 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
         for project in watcher.others if watcher else []:
             release(name, project)
         release(name)
+        ended.set()
     return 0
 
 
