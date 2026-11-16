@@ -127,6 +127,12 @@ def files(key: str) -> list[str]:
     return run(["gh", "api", "--paginate", f"repos/{owner}/{name}/pulls/{number}/files", "--jq", ".[].filename"]).splitlines()
 
 
+def removed(key: str) -> set[str]:
+    """The path of each file a PR removes, as GitHub lists them."""
+    owner, name, number = split(key)
+    return set(run(["gh", "api", "--paginate", f"repos/{owner}/{name}/pulls/{number}/files", "--jq", '.[] | select(.status == "removed") | .filename']).splitlines())
+
+
 def default_branch(repo: str) -> str:
     return read(f"{repo}'s default branch", ["gh", "api", f"repos/{repo}", "--jq", ".default_branch"], max_age="1h").strip()
 

@@ -65,6 +65,8 @@ CARGO_LOCK = "rust/Cargo.lock"
 GO_CI_BUILT = Path("go", "ci", ".build", "ci.dev")
 LIVE_SAND_NEXT_SECONDS = 60
 CI_CONFIG = re.compile(r"^\.(?:buildkite|github)/")
+BACKFILL_SCRIPT = re.compile(r"^api/src/modules/backfillScripts/scripts/(?P<script>[^/]+)\.ts$")
+API_CLUSTERS = Path("infra", "envs", "api")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
 READER_RESEARCH = "the Researched: block this build needs"
 VERB_ERRORS = (DriveError, slack.SlackError, github.GithubError)
@@ -5095,8 +5097,17 @@ def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
         request = {"body": "", "paths": paths}
         if CARGO_LOCK in paths:
             request["head"] = github.paths([key])[key][0]
-        reach[key] = json.loads(github.run([str(checkout / GO_CI), "release", "select", "--pr"], cwd=str(checkout), stdin=json.dumps(request)))
+        reach[key] = json.loads(github.run([str(checkout / GO_CI), "release", "select", "--pr"], cwd=str(checkout), stdin=json.dumps(request))) | {"runs": script_runs(checkout, key, paths)}
     return reach
+
+
+def script_runs(checkout: Path, key: str, paths: list[str]) -> list[str]:
+    """The part of its order each run a merged PR owes of a backfill script it adds or changes, a delete script among them: one per cluster the api runs on, as the checkout's infra/envs/api names them, for each such file outside test code that the PR does not remove, so the order stays open past the merge until a read-back of each run shows no rows left."""
+    if not (changed := [path for path in paths if BACKFILL_SCRIPT.match(path) and not served.TESTS.search(path)]):
+        return []
+    gone = github.removed(key)
+    clusters = sorted(path.stem for path in (checkout / API_CLUSTERS).glob("*.yaml"))
+    return [state.SCRIPT_RUN.format(script=BACKFILL_SCRIPT.match(path)["script"], cluster=cluster) for path in changed if path not in gone for cluster in clusters]
 
 
 def staging_mac_box(name: str, data: dict, job: dict) -> str:

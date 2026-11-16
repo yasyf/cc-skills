@@ -1009,6 +1009,12 @@ def add_prover(name: str, data: dict, job_id: str, reach: dict[str, dict], parts
     merges = {key: data["prs"][key]["merged_sha"] for key in handed_on(data, job_id)}
     found = list(dict.fromkeys(filter(None, (prover_of(data, key) for key in merges))))
     keys = [key for key in merges if not prover_of(data, key)]
+    runs = {key: reach[key]["runs"] for key in keys if reach.get(key, {}).get("runs")}
+    for key, owed in runs.items():
+        order_id = data["prs"][key]["order"]
+        for part in owed:
+            data["orders"][order_id]["parts"].setdefault(part, state.new_part())
+        parts = parts | {order_id: list(dict.fromkeys([*parts.get(order_id, []), *owed]))}
     merged = ", ".join(f"{key} at {sha[:12]}" for key, sha in merges.items())
     stagings = [
         f"staging:{target}/{state.STAGING_ENV}@{merges[key]}"
@@ -1039,6 +1045,11 @@ def add_prover(name: str, data: dict, job_id: str, reach: dict[str, dict], parts
         f"; {key} changes {answer['dev'][0]}{f' and {len(answer["dev"]) - 1} more' if answer['dev'][1:] else ''} on go/ci's dev list, which a checkout of dev holding {merges[key][:12]} runs"
         for key, answer in reach.items()
         if key in keys and answer["dev"]
+    ) + "".join(
+        f"; {key} adds or changes a backfill script, so its order keeps a part for each run it owes: {'; '.join(owed)}. Start each run its cluster has not had as that cluster's service account,"
+        " as agents/builder.md's rule on a pass over a team's data says, and have your proof file read each run back, the rows it wrote and the rows it left,"
+        " exiting nonzero while any run is unread or leaves a row, since only that read-back delivers its part and the order stays open until then"
+        for key, owed in runs.items()
     )
     lead = None if stagings else next((builder_id for builder_id in found if state.untaken(data["jobs"][builder_id])), None) or (open_cut(data) if cut else None)
     for builder_id in dict.fromkeys([*found, *filter(None, [lead])]):

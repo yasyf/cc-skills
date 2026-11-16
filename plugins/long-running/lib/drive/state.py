@@ -191,6 +191,7 @@ STAGING_TEST = "staging test of #{number} before it lands"
 STAGING_PART = re.compile(STAGING_TEST.format(number=r"(?P<number>\d+)"))
 STAGING_PARTS = re.compile(r"staging test of (?P<numbers>#\d+(?:(?:,| with| and)+ #\d+)*) before (?:it lands|they land)")
 STAGING_ENV = "plat-usw2-staging"
+SCRIPT_RUN = "run of the {script} backfill script on {cluster} read back with no rows left"
 AFTER_MERGE_PASS = "after-merge staging pass"
 PID_WAIT = re.compile(r"pid:(?P<pid>\d+)(?:@(?P<started>\d+))?")
 STAGING_GOAL = re.compile(r"\bstaging\b", re.IGNORECASE)
