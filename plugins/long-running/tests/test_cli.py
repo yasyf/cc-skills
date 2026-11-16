@@ -3124,6 +3124,7 @@ def test_j4050_a_replaces_line_naming_two_cards_redraws_the_first_shows_the_seco
     waits = ["demo:j1-1", "demo:j2-2", "demo:j3-3"]
     with state.edit("demo") as data:
         for job_id, title, card, wait in zip(("j1", "j2", "j3"), titles, cards, waits):
+            (tmp_path / f"{job_id}.md").write_text(f"ASK {title}\n")
             data["jobs"][job_id].update(waits=[wait], questions=[state.new_question(str(tmp_path / f"{job_id}.md"), title, state.stamp(), card=card) | {"waits": wait}])
     text = SHORT_ASK.replace("(1) ", f"Replaces: demo:j1-1, {tmp_path / 'j2.md'}\n(1) ")
     monkeypatch.setattr("sys.stdin", io.StringIO(text))
@@ -4044,6 +4045,29 @@ def test_a_replaces_line_naming_a_question_his_answer_closed_or_no_kept_file_is_
         assert cli.main(["job", "ask", "j2", "-"]) == 2
         assert refusal in capsys.readouterr().err
     assert state.load("demo")["jobs"]["j2"]["questions"] == []
+
+
+def test_j7016_a_replaces_line_naming_another_orders_card_or_a_card_naming_a_pr_this_one_does_not_is_refused_and_one_naming_it_folds_the_question(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    url = "https://github.com/acme/app/pull/42"
+    with state.edit("demo") as data:
+        data["prs"]["acme/app#42"] = state.new_pr(url, "j1", "o1") | {"state": "merged"}
+    linked = SHORT_ASK.replace("Meanwhile nothing is built on either layout.", f"Meanwhile nothing is built on either layout, and <{url}|the journal fix> merged.")
+    monkeypatch.setattr("sys.stdin", io.StringIO(linked))
+    first = run("job", "ask", asking, "-")[1].splitlines()[0]
+    run("order", "add", "--title", "Second title", "--project", "The drive", "--workstream", "Drive tooling", "design the status page")
+    run("job", "add", "design", "--order", "o2", "--goal", "design the status page")
+    run("job", "add", "design", "--order", "o1", "--goal", "design the run page")
+    for job_id, refusal in (("j2", "asks for o1, and j2 works o2, so his one answer on this card would end a question of other work"), ("j3", f"names {url}, which this card names nowhere")):
+        monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("ASK How should", "ASK Where should").replace("(1) ", f"Replaces: {first}\n(1) ")))
+        assert cli.main(["job", "ask", job_id, "-"]) == 2
+        assert refusal in capsys.readouterr().err
+    assert [state.load("demo")["jobs"][job_id]["questions"] for job_id in ("j2", "j3")] == [[], []]
+    monkeypatch.setattr("sys.stdin", io.StringIO(linked.replace("ASK How should", "ASK Where should").replace("(1) ", f"Replaces: {first}\n(1) ")))
+    code, out = run("job", "ask", "j3", "-")
+    assert (code, state.load("demo")["jobs"]["j1"]["questions"][0]["replaced"]) == (0, out.splitlines()[0])
 
 
 def test_a_question_built_on_a_drawn_card_redraws_that_card_and_the_question_it_folded_in_asked_again_stays_on_it(

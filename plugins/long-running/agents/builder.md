@@ -784,7 +784,9 @@ Replaces: <only on a question built on other open questions of his: each one's A
   `drive job ask` then gives this question the first card and its waits id, and redraws that card where
   it sits, shows each other named card asked again with a link to it and no buttons, and keeps each
   named question open, folded into this one, drawing no card of its own, until his one answer ends
-  them all. It refuses a name whose question his answer or a withdraw already closed.
+  them all. It refuses a name whose question his answer or a withdraw already closed, one asked for an
+  order your job does not work, and one whose card names a PR this card does not, since his one answer
+  here ends every question it folds in.
 - The summary tells the decision's story, by his words "its almost like each one needs to tell a
   story": its first line says what the card is, the work it serves, as `{order:<o>}`, which his
   card draws as his order's title linked to its thread, `port of #N` as the text of that PR's

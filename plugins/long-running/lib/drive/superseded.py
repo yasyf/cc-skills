@@ -461,7 +461,7 @@ def redrawn(data: dict, job_id: str, waits: str) -> list[dict]:
     job = data["jobs"][job_id]
     orders = [job["order"], *job["carries"]]
     held = [(each["order"], question) for each in data["jobs"].values() for question in each["questions"] if question["waits"] == waits and not question["replaced"]]
-    if not (mine := [question for order_id, question in held if order_id in orders or asked_orders(question) & set(orders)]):
+    if not (mine := [question for order_id, question in held if for_orders(order_id, question, orders)]):
         other = f", which asks for {', '.join(sorted({order_id for order_id, _ in held}))}" if held else ""
         raise DriveError(
             f"--redraws {waits}: no question of {', '.join(orders)} holds that card{other}, so {job_id} takes over none:"
@@ -479,6 +479,11 @@ def redrawn(data: dict, job_id: str, waits: str) -> list[dict]:
             " nothing more: ask what they leave open on a card of its own, under its own waits id"
         )
     return mine
+
+
+def for_orders(order_id: str, question: dict, orders: list[str]) -> bool:
+    """Whether a question a job of this order asked is a card of one of these orders: by that order, or by one its summary opens with, by asked_orders."""
+    return order_id in orders or bool(asked_orders(question) & set(orders))
 
 
 def asked_orders(question: dict) -> set[str]:
