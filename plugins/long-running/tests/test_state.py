@@ -2070,7 +2070,7 @@ def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_tha
     assert f"Forge-AI/monorepo#4202's changes to reach.rs are missing from {half[:12]}, which https://buildkite.com/forge/release/builds/16085 deployed to plat-usw2-staging" in halved
     assert "16090 deployed nothing to staging" in prod
     assert f"Forge-AI/monorepo#4202's changes to reach.rs are missing from {half[:12]}, which https://buildkite.com/forge/release/builds/16300 deployed to a Mac box signed in to staging" in box_halved
-    assert "16301 deployed nothing to staging, passing no apply step on an env its infra/envs file marks stage: staging and no mac-box-approve step of a Mac box proof" in unsigned
+    assert "16301 deployed nothing to staging, passing no apply step on an env the release provider places on staging and no mac-box-approve step of a Mac box proof" in unsigned
     assert none.endswith(
         "they name no Buildkite build. Name on a CHECK: line the release build that deployed a commit carrying each one's head to staging,"
         " or the `tools/ci mac-box prove` build that put it on a Mac box signed in to staging, or, for a PR reaching only code its caller runs from a checkout, the GitHub commit link of the head its checkout ran,"

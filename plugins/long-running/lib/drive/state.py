@@ -3718,7 +3718,7 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
             if envs := sorted({step["env"] for key in passed if (step := APPLY_STEP.fullmatch(key)) and settled.stage(step["env"], clone) == settled.STAGING}) + [MAC_BOX] * (signed_in in passed):
                 deployed[build] = (read["commit"], envs)
             else:
-                said.append(f"{build} deployed nothing to staging, passing no apply step on an env its infra/envs file marks stage: staging and no {signed_in} step of a Mac box proof")
+                said.append(f"{build} deployed nothing to staging, passing no apply step on an env the release provider places on staging and no {signed_in} step of a Mac box proof")
         for key in freed:
             misses = []
             for build in (build for build in runs[key] if build in deployed):
