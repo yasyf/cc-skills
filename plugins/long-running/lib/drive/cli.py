@@ -4945,7 +4945,8 @@ def work_show(args: argparse.Namespace) -> int:
 def slot_queue(args: argparse.Namespace) -> int:
     """Each staging slot, or the one env named: its holder, GO with when its lease ends once its cut has its START, by state.cut_started, else held for it and waiting for that START, so no job reads a lease it has not started as leave to run, then each job waiting, in order."""
     data = state.load(state.resolve(args.drive))
-    slots = data["slots"]
+    queued = {env: {"holder": None, "queue": []}} if work.enabled(data, work.STAGE_TEST) and (env := work.env(data)) else {}
+    slots = queued | data["slots"]
     shown = {env: slot for env, slot in slots.items() if not args.env or env == args.env}
     lines = []
     for env, slot in shown.items():

@@ -4795,7 +4795,7 @@ def test_a_testers_staging_waiting_report_keeps_its_slot_claim_and_a_queued_stag
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test it")
     run("job", "add", "builder", "--order", "o1", "--goal", "test it")
     run("job", "add", "builder", "--order", "o1", "--goal", "cut it")
-    env = state.STAGING_ENV
+    env = work.env(state.load(demo))
     with state.edit(demo) as data:
         data["jobs"]["j1"]["state"] = data["jobs"]["j2"]["state"] = "running"
         state.slot_claim(data, env, "j2", 30, [], None, state.now())
@@ -4821,10 +4821,20 @@ def test_slot_queue_lists_the_work_queues_stage_test_items_marked_in_the_queue_s
     monkeypatch.setattr(type(kind), "ready", lambda self, data, job_id: job_id == "j2")
     monkeypatch.setattr(type(kind), "blocking", lambda self, data, job_id: ["j9"])
     monkeypatch.setattr(state, "jumps_queue", lambda data, job_id: False)
-    assert cli.queue_items(data, work.ENV) == ["  q1. j2 in the queue, ready to pull", "  q2. j1 in the queue, waiting on j9"]
+    assert cli.queue_items(data, work.env(data)) == ["  q1. j2 in the queue, ready to pull", "  q2. j1 in the queue, waiting on j9"]
     assert cli.queue_items(data, "plat-usw2-sandbox") == []
     data["work"]["kinds"] = []
-    assert cli.queue_items(data, work.ENV) == []
+    assert cli.queue_items(data, work.env(data)) == []
+
+
+def test_slot_queue_runs_end_to_end_with_stage_test_on_and_lists_a_queued_tester_before_any_slot_is_claimed(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Soak it", "--project", "The drive", "--workstream", "Drive tooling", "soak it", "--kind", "build", "--parts", "staging test of #42 before it lands")
+    run("job", "add", "builder", "--order", "o1", "--part", "staging test of #42 before it lands", "--goal", "soak #42 on staging")
+    assert run("slot", "queue") == (0, "no staging slot is held or queued")
+    assert run("work", "enable", "stage-test")[0] == 0
+    code, shown = run("slot", "queue")
+    assert (code, shown.splitlines()[0], shown.splitlines()[1].startswith("  q1. j1 in the queue, ")) == (0, f"{work.env(state.load(demo))}: free", True)
+    assert run("work", "show")[0] == 0
 
 
 def test_job_report_keeps_a_jobs_whole_return_from_stdin_and_prints_it_back(

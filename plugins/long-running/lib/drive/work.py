@@ -191,7 +191,7 @@ class StageTest(Kind):
     def blocking(self, data: dict, job_id: str) -> list[str]:
         """The waits holding a stage-test item's start, but, for an item outside the queue's cut, its wait on staging serving its own commit on the env and its staging-slot turn, which only the queue's next cut gives it: a tester that reports WAITING on its cut as its brief asks stays in the line rather than stranding itself."""
         cut = state.slot_members(self.slot(data)) if self.ours(data) else []
-        return [wait for wait in super().blocking(data, job_id) if job_id in cut or not ((found := state.STAGING_WAIT.fullmatch(wait)) and found["env"] == ENV or wait == f"staging-slot:{job_id}")]
+        return [wait for wait in super().blocking(data, job_id) if job_id in cut or not ((found := state.STAGING_WAIT.fullmatch(wait)) and found["env"] == env(data) or wait == f"staging-slot:{job_id}")]
 
     def slot(self, data: dict) -> dict:
         return data["slots"].setdefault(env(data), {"holder": None, "queue": [], "hold": None})
