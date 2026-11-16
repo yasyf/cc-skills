@@ -222,6 +222,7 @@ def test_a_reader_or_designer_posting_to_him_is_refused_and_its_defect_goes_out_
 def test_a_coordinators_report_to_the_communicator_goes_to_the_posts_lane_and_a_watched_threads_stays(demo: str) -> None:
     assert record_lines.decision(post(kind="report", text="POST j702 merged", to=TO, attrs=PROGRESS))["updatedInput"]["to"] == POSTS
     assert record_lines.decision(post(kind="report", text="POST j702 merged", to=TO, attrs=PROGRESS | {"watch": "true"})) is None
+    assert record_lines.decision(post(kind="report", text="POST j702 merged", to=["communicator"], attrs=PROGRESS))["updatedInput"]["to"] == ["posts"]
 
 
 def test_a_communicators_or_designers_defect_to_the_meta_session_goes_out(communicator: str) -> None:
