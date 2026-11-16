@@ -1398,9 +1398,14 @@ CARD = Noul(
     no="The post says in a clause what each term of the title is and why the change needs it, his question does not turn on what the change does, such as when it ships or whether it merged, or the title holds only words anyone reads.",
 )
 SCOPE = Noul(
-    "`post.text` goes in a thread of his DM whose work is `thread.work`, each open order there with its jobs, their questions and PRs, and answers his words `thread.asked`. Does `post.text` tell him of work, questions, cards, taps or PRs outside `thread.work` and what it waits on, while `thread.asked` names no more than that work?",
-    yes="The post reaches past the thread's work, such as every question, tap or PR of the drive or another project's, while his words there ask about this work alone.",
-    no="All the post tells of is in `thread.work` or something its jobs and PRs wait on, or his words there name more, such as a project, all his PRs or the whole drive.",
+    "`post.text` goes in a thread of his DM about one piece of his work. Does it tell him of the whole drive's work, such as how many question cards, Approve cards or taps are open across his DM, his whole queue, or other projects' work?",
+    yes="It counts, lists or ranks what waits on him across the drive, his DM or the dashboard's queue, such as 143 question cards open in his DM or the queue's first four cards.",
+    no="It tells of one piece of work: its own PRs, cards, jobs, merges and staging tests, however many it names, and the release or PR they wait on, such as two Approve cards of this work and nothing else of it waiting on him.",
+)
+WIDER = Noul(
+    "Do his words `thread.asked` name a subject wider than the work of the thread they are in, such as a project, all his cards or PRs, or the whole drive?",
+    yes="His words name that wider subject, such as everything in the drive, all his open PRs or the SandSQL work.",
+    no="His words ask what is left, what else waits on him, whether it all merged or where things stand, naming no wider subject: in a work's thread, everything, all the questions or all the taps mean that work's own, by his words \"we're talking about the work this thread is about\".",
 )
 PROTECTS = Noul(
     "Is `call` the case `rule` exists to stop?",
@@ -1436,7 +1441,7 @@ def refusal_verdict(rule: str, call: dict, findings: list[dict], seconds: float 
 
 
 def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
-    """Whether a post the drive's checks hand with his words holds, by the requests `requests` packs, asked of Jev at once, every item Jev cannot weigh the post without whole in one of them, a read too long for one request by whole lines across several, since `unfit` refuses a post before it reaches here when one item alone has no room: it holds for a claim whose read, or each part of it, and the drive's line for each PR it names are all under BACKS, or whose read matched none of the handler's calls, a claim saying only, every, no or never of a set whose read reads one member rather than what decides every member at YES, a sentence no claim holds whole that states a fact beyond the claims at YES, a post answering his question under a card while leaving a term of the card's first line it turns on unexplained at YES, a post in a thread of his DM holding orders that tells him of work past that thread's while his words there name no more at YES, by his ruling 98c20ce "we're talking about the work this thread is about", and a finding Jev reads neither as a match its rule never meant, under NO, nor as lifted by his words, at YES, so a finding in the band holds as a refused call's does, by his pick f9e9302 "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims"; a claim at BACKS or more stands, since every unbacked claim of the drive's recorded posts drew under it; any other Noul in the band between, or a finding with no room left, only warns, naming it; a post that goes out says so first and names what it warns of, never in a refusal's words, which would tell the session nothing went out. When Jev cannot finish, a finding a count or a mark decides still holds, since no judgment lifts it, and every other only warns, by his pick b80a8b1 "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning"."""
+    """Whether a post the drive's checks hand with his words holds, by the requests `requests` packs, asked of Jev at once, every item Jev cannot weigh the post without whole in one of them, a read too long for one request by whole lines across several, since `unfit` refuses a post before it reaches here when one item alone has no room: it holds for a claim whose read, or each part of it, and the drive's line for each PR it names are all under BACKS, or whose read matched none of the handler's calls, a claim saying only, every, no or never of a set whose read reads one member rather than what decides every member at YES, a sentence no claim holds whole that states a fact beyond the claims at YES, a post answering his question under a card while leaving a term of the card's first line it turns on unexplained at YES, a post in a thread of his DM holding orders that tells him of the whole drive's work at YES while his words there name nothing wider at YES, by his ruling 98c20ce "we're talking about the work this thread is about", and a finding Jev reads neither as a match its rule never meant, under NO, nor as lifted by his words, at YES, so a finding in the band holds as a refused call's does, by his pick f9e9302 "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims"; a claim at BACKS or more stands, since every unbacked claim of the drive's recorded posts drew under it; any other Noul in the band between, or a finding with no room left, only warns, naming it; a post that goes out says so first and names what it warns of, never in a refusal's words, which would tell the session nothing went out. When Jev cannot finish, a finding a count or a mark decides still holds, since no judgment lifts it, and every other only warns, by his pick b80a8b1 "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning"."""
     reason = refusal_reason(output)
     reads = {item["id"]: item for item in output.get("reads") or []}
     claims = output["post"].get("claims") or []
@@ -1473,11 +1478,11 @@ def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
             held.append(f'it leaves a term of the card "{card["title"]}", which his question turns on, unexplained: say in a clause what each term of it your answer needs is and why the change needs it')
         elif unexplained is None:
             unsure.append(f'the terms of the card "{card["title"]}" his question is under')
-    if output.get("thread_scope"):
-        if (past := reading(read.get("scope"))) is True:
-            held.append("it tells him of work past what his thread holds, which his words there never asked about: answer from the orders its In his thread lines list, with each card and PR their jobs wait on, and leave the rest of the drive out")
-        elif past is None:
-            unsure.append("whether it reaches past the work of his thread")
+    if output.get("thread_scope") and reading(read.get("wider")) is not True:
+        if (wide := reading(read.get("scope"))) is True:
+            held.append("it tells him of the whole drive's work, which his words in this thread never asked about: answer from the orders its In his thread lines list, with each card and PR their jobs wait on, and leave the rest of the drive out")
+        elif wide is None:
+            unsure.append("whether it tells him of the whole drive's work")
     if held:
         return {"verdict": "hold", "note": f"Jev held back this post: {'; '.join(held)}. So fix each, then call say again." + (f"\n```\n{reason}\n```" if reason else "")}
     if unsure:
@@ -1486,13 +1491,13 @@ def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
 
 
 def asked(output: dict) -> tuple[dict, list[tuple[str, tuple[dict, dict[str, Noul]]]], list[tuple[dict, dict[str, Noul]]]]:
-    """What Jev's requests on a post hold, the one builder `requests` packs and `unfit` sizes, so a post that passes `unfit` reaches Jev with every item it must weigh whole: the state each request opens with, the post as Slack gets it and each time say drew from the drive's stamps; each item Jev cannot weigh the post without, beside the words naming it, each read whole beside every claim naming it as `backed` gives each, and the drive's line for each PR a claim names beside that claim as `staged` gives it, one item, or one item a part of it when `parted` finds it too long for a request, since no claim is weighed without its read and a read goes to Jev once, each sentence no claim holds whole beside the post's claims and one Noul whether it states a fact standing only on a read beyond what they say, and the first line of the card his question in that thread is under, beside his question and one Noul whether the post answering it leaves a term of that line unexplained, and the work of the thread of his DM it goes in, as a handler's In his thread line lists it, beside his words there and one Noul whether the post reaches past it, when it fits a request beside the post, else left out and only warned of, so a thread holding much work never refuses a post; then the items that go in as room allows, in a request of their own, each finding beside the rule it stands for, one Noul whether the rule holds and one whether his words lift it, and his words, the checks' own picks first, then newest first."""
+    """What Jev's requests on a post hold, the one builder `requests` packs and `unfit` sizes, so a post that passes `unfit` reaches Jev with every item it must weigh whole: the state each request opens with, the post as Slack gets it and each time say drew from the drive's stamps; each item Jev cannot weigh the post without, beside the words naming it, each read whole beside every claim naming it as `backed` gives each, and the drive's line for each PR a claim names beside that claim as `staged` gives it, one item, or one item a part of it when `parted` finds it too long for a request, since no claim is weighed without its read and a read goes to Jev once, each sentence no claim holds whole beside the post's claims and one Noul whether it states a fact standing only on a read beyond what they say, and the first line of the card his question in that thread is under, beside his question and one Noul whether the post answering it leaves a term of that line unexplained, and his words in the thread of his DM holding orders it goes in, beside one Noul whether the post tells him of the whole drive's work and one whether those words name a wider subject, neither reading the thread's work, so a thread holding much work still has its posts judged, when they fit a request beside the post, else left out and only warned of; then the items that go in as room allows, in a request of their own, each finding beside the rule it stands for, one Noul whether the rule holds and one whether his words lift it, and his words, the checks' own picks first, then newest first."""
     post = output["post"]
     reads = {item["id"]: item for item in output.get("reads") or []}
     words = output.get("his_words") or []
     base = {"post": {"text": post.get("text") or "", "written": post.get("written") or post.get("text") or ""} | ({"stamps": post["stamps"]} if post.get("stamps") else {})}
     shared: dict[str, list[tuple[dict, dict[str, Noul]]]] = {}
-    scoped = ({"thread": output.get("thread_scope")}, {"scope": SCOPE})
+    scoped = ({"thread": output.get("thread_scope")}, {"scope": SCOPE, "wider": WIDER})
     for number, claim in enumerate(post.get("claims") or [], 1):
         if not unmatched(reads, claim):
             for item in [backed(reads, number, claim), *(staged(stage, number, claim) for stage in reads.values() if number in stage.get("claims", ()))]:
@@ -1508,7 +1513,7 @@ def asked(output: dict) -> tuple[dict, list[tuple[str, tuple[dict, dict[str, Nou
             for index, sentence in uncovered(output)
         ),
         *((f'the card "{card["title"]}" his question is under', ({"card": card}, {"card": CARD})) for card in [output.get("thread_card")] if card),
-        *([("the work of the thread it goes in", scoped)] if output.get("thread_scope") and size(*together([(base, {}), scoped])) <= REQUEST_CHARS else []),
+        *([("his words in the thread it goes in", scoped)] if output.get("thread_scope") and size(*together([(base, {}), scoped])) <= REQUEST_CHARS else []),
     ]
     rest = [
         *(

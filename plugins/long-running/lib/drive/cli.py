@@ -5196,11 +5196,15 @@ def in_thread(name: str, brief: str) -> Callable[[str], str] | None:
 
 def thread_work(name: str, data: dict, thread: str | None, but: str | None = None) -> list[str]:
     """A handler brief's In his thread block: each open order but the one named that has a thread at ts thread, with its jobs, questions and PRs as drive status draws them, the cards of those alone read by with_cards, else none."""
-    ids = [order_id for order_id, order in state.open_orders(data).items() if order_id != but and any(ts == thread for _, ts in slack.order_threads(data, order_id, order))]
-    if ids:
+    if ids := thread_orders(data, thread, but):
         with_cards(name, data, only(data, ids))
     work = [line for order_id in ids for line in render.order_block(data, order_id, data["orders"][order_id])]
     return [f"{agents.IN_THREAD}:{'' if work else ' none'}", *work]
+
+
+def thread_orders(data: dict, thread: str | None, but: str | None = None) -> list[str]:
+    """Each open order but the one named that has a thread at ts thread."""
+    return [order_id for order_id, order in state.open_orders(data).items() if order_id != but and any(ts == thread for _, ts in slack.order_threads(data, order_id, order))]
 
 
 def with_cards(name: str, data: dict, within: dict | None = None) -> dict:

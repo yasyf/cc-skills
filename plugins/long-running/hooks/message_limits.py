@@ -384,15 +384,12 @@ def thread_card(payload: dict) -> dict | None:
     return {"title": messages[0]["text"].partition("\n")[0], "asked": "\n".join(dict.fromkeys(word.strip() for word in asked))}
 
 
-def in_his_thread(payload: dict) -> str | None:
-    """The work of the thread of his DM a say post goes in, every open order with a thread there with its jobs, their questions and PRs, as a handler's In his thread line lists them; none for a post with no words, at his DM root, outside his DM or in a thread holding no open order."""
+def in_work_thread(payload: dict) -> bool:
+    """Whether a say post with words goes in a thread of his DM holding an open order, never at his DM root or outside his DM."""
     tool_input = payload["tool_input"]
     if payload["tool_name"] != SAY or not tool_input.get("text") or not (thread := tool_input.get("thread_ts")) or tool_input.get("channel_id"):
-        return None
-    if (drive := his_drive(payload.get("session_id") or "")) is None:
-        return None
-    block = cli.thread_work(drive["name"], drive, thread)
-    return "\n".join(block) if block[1:] else None
+        return False
+    return (drive := his_drive(payload.get("session_id") or "")) is not None and bool(cli.thread_orders(drive, thread))
 
 
 def linked_words(asked: str | list[str] | None, dm: str) -> dict[str, dict]:
@@ -1141,12 +1138,12 @@ def main() -> None:
         heard = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": reason}} if isinstance(reason, Warned) else {}
         reason = "" if heard else reason
         card = thread_card(payload | {"tool_input": sent}) if reads else None
-        work = None if isinstance(reason, agents.Unjudged) else in_his_thread(payload | {"tool_input": sent})
+        scoped = not isinstance(reason, agents.Unjudged) and in_work_thread(payload | {"tool_input": sent})
         judged = {}
-        if (reason or reads or work) and not isinstance(reason, agents.Unjudged):
+        if (reason or reads or scoped) and not isinstance(reason, agents.Unjudged):
             words = his_words(payload)
             asked = "\n".join(dict.fromkeys(word["quote"].strip() for word in words if word["id"].startswith("slack:")))
-            judged = {"his_words": words, "reads": reads, "post": sent} | ({"thread_card": card} if card else {}) | ({"thread_scope": {"work": work, "asked": asked}} if work else {})
+            judged = {"his_words": words, "reads": reads, "post": sent} | ({"thread_card": card} if card else {}) | ({"thread_scope": {"asked": asked}} if scoped else {})
         if judged and (unfit := settled.unfit(judged))[1]:
             reason, heard, judged = unroomed(*unfit), {}, {}
     except Exception as error:
