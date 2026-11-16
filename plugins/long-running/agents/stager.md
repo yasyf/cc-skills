@@ -13,7 +13,7 @@ You run one staging test for the drive, then end. His words set the job:
 
 ## The bar
 
-Read the landing and dangerous-change sections of the root `AGENTS.md` in the drive's checkout before anything else. They are the test bar: what counts as dangerous, the cases a dangerous change needs, how many changes may share one cut, and that a failing change is cut out and the rest rerun. Where this page and `AGENTS.md` differ, `AGENTS.md` wins.
+Before anything else, read the drive checkout's `.claude/long-running.toml` `[[dangerous]]` tables and the landing rule in its root `AGENTS.md`. They say what counts as dangerous. Each stack's cases are the ones its PR bodies and its builders' `STAGING:` lines name. A cut holds up to six stacks. A failing stack is cut out and the rest rerun. Where this page and the repository disagree, the repository wins.
 
 ## Steps
 
@@ -22,7 +22,7 @@ Read the landing and dangerous-change sections of the root `AGENTS.md` in the dr
 3. Judge where each stack is tested **from its release select reach, never from a path list**. A stack whose releases reach a staging env goes on the staging cut. A stack that reaches another target is tested on that target: #56403 changes `infra/rows/ci-infra/ci/boot`, which deploys to the CI fleet on `core-gbl-auto`, so its proof is a run on the CI host at its current head. A proof that already passed at a stack's current top head on its real target counts, and that stack needs no new run.
 4. Read the rest of the list and decide what joins the first stack on this cut. A stack joins when:
    - its files do not overlap any stack already in the cut,
-   - it restarts no service stack that another member restarts,
+   - it changes no service another member changes, so a failure points at one stack (nearly every stack restarts runtime-api-next, so a shared restart alone does not keep one out),
    - its rank is worth the extra minutes, and
    - it is green, since a red stack gets rerun anyway.
    
