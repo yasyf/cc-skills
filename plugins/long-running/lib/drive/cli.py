@@ -1889,7 +1889,7 @@ def job_set(args: argparse.Namespace) -> int:
             hold_card(job, args.card, shown)
             state.join_card(data, args.id, args.card)
         waits = merged_waits(data, job, [state.job_wait(data, wait, args.id, job) for wait in args.waits], args.no_waits, found)
-        job["waits"] = [wait for wait in waits if not (state.builds_nothing(job) and wait == state.SLOT_WAIT)]
+        job["waits"] = [wait for wait in waits if not (state.builds_nothing(job) and wait == state.SLOT_WAIT or job.get("priority") and wait == state.SPRITE_WAIT)]
         if args.said:
             state.keep_waited(data, args.id, args.said)
         if args.carries:

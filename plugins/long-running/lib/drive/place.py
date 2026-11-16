@@ -308,10 +308,12 @@ def sprite_line(data: dict) -> list[str]:
 
 
 def sprite_turns(data: dict, moment: datetime) -> tuple[list[str], int]:
-    """The jobs whose turn for a Sprite lane comes now, one for each lane under the cap no drive here runs, and how many run."""
+    """The jobs whose turn for a Sprite lane comes now, and how many run: each one preempts lets past every cap at once, as admission lets its launch through, so a job marked priority after it queued never waits out a full cap, then one for each lane under the cap no drive here runs."""
     if not (line := sprite_line(data)):
         return [], 0
-    return line[: admitted_room("sprite", moment)], len(lanes(moment)["sprite"])
+    first = [job_id for job_id in line if preempts(data, data["jobs"][job_id])]
+    rest = [job_id for job_id in line if job_id not in first]
+    return [*first, *rest[: admitted_room("sprite", moment)]], len(lanes(moment)["sprite"])
 
 
 def queue_sprite(job: dict, moment: datetime) -> None:
