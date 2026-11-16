@@ -570,7 +570,7 @@ def test_a_say_an_old_mcp_server_hands_no_ticket_takes_the_sessions_ticket_the_h
 
 
 def test_a_report_the_drive_only_took_to_post_counts_as_unposted_and_one_with_a_permalink_as_posted(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {}, "thread": None})
+    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {}, "thread": "1794200000.000100"})
     monkeypatch.setattr(talk, "report_line", lambda name, seq: "POSTED https://acme.slack.com/archives/C1/p1")
     with edit(demo) as data:
         data["carried"]["700"] = agents.DRIVE_CLAIM
@@ -609,7 +609,7 @@ def test_a_report_slack_still_rate_limits_stays_taken_and_the_watchs_next_pass_p
     with edit(demo) as data:
         data["carried"]["735976"] = agents.DRIVE_CLAIM
         data["posts"]["claimed"] = {"735976": state.stamp()}
-    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {}, "report": {"kind": "report", "lane": "root", "text": "POST x", "seq": seq}, "thread": None})
+    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {}, "report": {"kind": "report", "lane": "root", "text": "POST x", "seq": seq}, "thread": "1794200000.000100"})
     limited = "cc-slack: can't read thread 1794687682.137749 now (ratelimited): Slack limits the read for 10s more"
     monkeypatch.setattr(talk, "report_line", lambda name, seq: (_ for _ in ()).throw(slack.SlackError(limited)))
     monkeypatch.setattr(tools, "sent", lambda name, lane, records: pytest.fail(f"sent the report back over a rate limit: {records}"))
@@ -625,7 +625,7 @@ def test_a_report_slack_still_rate_limits_stays_taken_and_the_watchs_next_pass_p
 
 
 def test_a_report_a_live_run_holds_is_never_posted_beside_it_by_a_retry(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {}, "report": {"kind": "report", "lane": "root", "text": "POST x", "seq": seq}, "thread": None})
+    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {}, "report": {"kind": "report", "lane": "root", "text": "POST x", "seq": seq}, "thread": "1794200000.000100"})
     monkeypatch.setattr(talk, "report_line", lambda name, seq: pytest.fail("posted beside a live run"))
     taken: list[list[str]] = []
     monkeypatch.setattr(state, "detach", lambda name, args, log: taken.append(args) or 1)
@@ -657,7 +657,7 @@ def test_a_report_post_tries_again_while_cc_slack_times_out_and_the_report_has_n
             raise slack.SlackError("cc-slack thread: context deadline exceeded")
         return "POSTED https://acme.slack.com/archives/C1/p1"
 
-    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {}, "thread": None})
+    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {}, "thread": "1794200000.000100"})
     monkeypatch.setattr(talk, "report_line", timing_out)
     assert talk.report_post(demo, "735671") == "report 735671 posted by the drive: POSTED https://acme.slack.com/archives/C1/p1"
     assert len(tries) == talk.REPORT_POST_TRIES
@@ -884,7 +884,7 @@ def test_a_channel_thread_post_naming_a_pr_by_its_github_link_links_its_open_car
 
 def test_a_report_sent_back_to_its_writer_counts_as_handled_so_no_has_no_post_defect_follows(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     sent: list[list[dict]] = []
-    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {}, "thread": None})
+    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {}, "thread": "1794200000.000100"})
     monkeypatch.setattr(agents, "shown", lambda seq: {"lane": "root"})
     monkeypatch.setattr(talk, "report_line", lambda name, seq: (_ for _ in ()).throw(DriveError("{release:18149} names no release post")))
     monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append(records) or ["1"])
@@ -895,6 +895,26 @@ def test_a_report_sent_back_to_its_writer_counts_as_handled_so_no_has_no_post_de
     assert state.load(demo, ("carried",))["carried"]["734916"] == "sent back to root@demo"
     agents.unposted(demo, state.now())
     assert [record["kind"] for records in sent for record in records] == ["refused"]
+
+
+def test_a_progress_report_stays_in_records_and_one_naming_no_thread_goes_back_to_its_writer_never_to_a_channels_root(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[list[dict]] = []
+    reports = {
+        "736397": {"attrs": {"order": "o2046", "progress": "true"}, "report": {"kind": "report", "lane": "priority-o2046", "text": "POST progress", "seq": "736397"}, "thread": None},
+        "736476": {"attrs": {"order": "o2046"}, "report": {"kind": "report", "lane": "priority-o2046", "text": "POST no thread", "seq": "736476"}, "thread": None},
+    }
+    monkeypatch.setattr(agents, "answered", lambda seq: reports[seq])
+    monkeypatch.setattr(agents, "shown", lambda seq: {"lane": "priority-o2046"})
+    monkeypatch.setattr(talk, "report_line", lambda name, seq: pytest.fail(f"posted report {seq}"))
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append(records) or ["1"])
+    with edit(demo) as data:
+        data["carried"] |= dict.fromkeys(reports, agents.DRIVE_CLAIM)
+        data["posts"]["claimed"] = dict.fromkeys(reports, state.stamp())
+    assert talk.report_post(demo, "736397") == "report 736397 kept in records, not posted: it is a progress report"
+    assert talk.report_post(demo, "736476").startswith("report 736476 sent back to priority-o2046@demo: it names no thread")
+    data = state.load(demo)
+    assert (data["carried"]["736397"], data["carried"]["736476"], data["posts"]["claimed"]) == ("kept in records: a progress report is never posted to him", "sent back to priority-o2046@demo", {})
+    assert [(record["kind"], record["re"]) for records in sent for record in records] == [("refused", ["736476"])]
 
 
 def test_a_release_reference_keeps_a_found_post_looks_a_miss_up_again_after_a_while_and_goes_out_unlinked_with_a_warning_while_none_is_up(communicator: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:

@@ -428,12 +428,20 @@ def report_post(name: str, seq: str) -> str:
 
 
 def locked_report_post(name: str, seq: str) -> str:
-    """report_post's work once it holds the report's lock."""
-    from drive import tools
-
+    """report_post's work once it holds the report's lock: a progress report stays in records, never posted to him, and a report naming no thread, which would land at a channel's root with no context, goes back to its writer, by his words "no context and it certainly doesn't belong in the root"."""
     if (link := state.load(name)["carried"].get(seq) or "").startswith("https://"):
         return f"report {seq} already posted at {link}: nothing posted again"
     read = agents.answered(seq)
+    if read["attrs"].get("progress") == "true" and not read["attrs"].get("incident") and not read["attrs"].get("edit"):
+
+        def kept_write(data: dict) -> None:
+            data["carried"][seq] = "kept in records: a progress report is never posted to him"
+            data["posts"].get("claimed", {}).pop(seq, None)
+
+        state.write(name, kept_write, patient=True)
+        return f"report {seq} kept in records, not posted: it is a progress report"
+    if not (read["attrs"].get("channel") or read["attrs"].get("thread") or read["thread"] or read["attrs"].get("edit")) and read["report"]["lane"] != agents.LANE_WATCH:
+        return sent_back(name, seq, "it names no thread, and a report goes in the thread of the message or order it answers, never at a channel's root; name it as attrs thread and send it again")
     target = read["attrs"].get("channel") or ((thread := read["attrs"].get("thread") or read["thread"]) and outside(state.load(name), thread))
     if target and target not in slack.homes(state.load(name)):
         handed_thread = read["attrs"].get("thread") or read["thread"]
@@ -450,18 +458,24 @@ def locked_report_post(name: str, seq: str) -> str:
         if slack.SLACK_LIMITED.search(str(error)):
             state.write(name, lambda data: data["posts"].setdefault("deferred", []).append(seq), patient=True)
             return f"report {seq} deferred: Slack still rate-limits its read, so it stays taken and the watch's next pass posts it: {error}"
-        writer = agents.shown(seq)["lane"]
-        made = {"kind": "defect", "to": [f"meta@{name}"]} if writer == "watch" else {"kind": "refused", "re": [seq], "to": [f"{writer}@{name}"]}
-        said = f"report {seq} is not posted, by the drive or the communicator, as the drive's carried posts read: {error}"
-        tools.sent(name, "watch", [limits.shortened(made | {"text": said}) or made | {"text": said}])
-        sent_back = f"sent back to {made['to'][0]}"
+        return sent_back(name, seq, str(error))
 
-        def sent_back_write(data: dict) -> None:
-            data["carried"][seq] = sent_back
-            data["posts"].get("claimed", {}).pop(seq, None)
 
-        state.write(name, sent_back_write)
-        return f"report {seq} sent back to {made['to'][0]}: {error}"
+def sent_back(name: str, seq: str, why: str) -> str:
+    """Send why a report posted nothing back to the session that wrote it, as a refused record re it, so it sends it again fixed, or to the meta session as a defect for one the watch wrote, and mark it carried as sent back."""
+    from drive import tools
+
+    writer = agents.shown(seq)["lane"]
+    made = {"kind": "defect", "to": [f"meta@{name}"]} if writer == "watch" else {"kind": "refused", "re": [seq], "to": [f"{writer}@{name}"]}
+    said = f"report {seq} is not posted, by the drive or the communicator, as the drive's carried posts read: {why}"
+    tools.sent(name, "watch", [limits.shortened(made | {"text": said}) or made | {"text": said}])
+
+    def sent_back_write(data: dict) -> None:
+        data["carried"][seq] = f"sent back to {made['to'][0]}"
+        data["posts"].get("claimed", {}).pop(seq, None)
+
+    state.write(name, sent_back_write)
+    return f"report {seq} sent back to {made['to'][0]}: {why}"
 
 
 SAID_FILE = "posted-words.json"
