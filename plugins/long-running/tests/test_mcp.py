@@ -210,3 +210,14 @@ def test_a_warm_process_no_call_used_for_the_idle_bound_is_retired_and_the_next_
     monkeypatch.setattr(mcp, "WARM_IDLE", 3600)
     assert json.loads(answered(tool_call(2, "status", {})))["result"]["isError"] is False
     assert mcp.WARM[mcp.newest_drive()] is not first
+
+
+def test_a_call_takes_the_ticket_cc_slacks_hook_kept_for_its_tool_use_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    kept = mcp.tickets_dir() / "toolu_1.json"
+    kept.parent.mkdir(parents=True)
+    kept.write_text(json.dumps({"ticket_id": "abc123", "ticket_tree": "root"}))
+    params = {"name": "say", "arguments": {"text": "hi"}, "_meta": {mcp.TOOL_USE_META: "toolu_1"}}
+    assert mcp.ticketed(params) == {"text": "hi", "ticket_id": "abc123", "ticket_tree": "root"}
+    assert not kept.exists()
+    assert mcp.ticketed(params) == {"text": "hi"}

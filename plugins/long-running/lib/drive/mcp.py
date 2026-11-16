@@ -22,6 +22,7 @@ from drive.install import config_dir, installed
 PLUGIN = "long-running@skills"
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 CALL_SECONDS = 180
+TOOL_USE_META = "claudecode/toolUseId"
 OWN_DRIVE = str(PLUGIN_ROOT / "bin" / "drive")
 LISTED: dict[str, str] = {}
 CALLS: dict[int | str, "subprocess.Popen | WarmCall"] = {}
@@ -294,7 +295,7 @@ def respond(request: dict, stdout: TextIO, writing: threading.Lock) -> None:
             LISTED["drive"] = newest_drive()
             reply["result"] = {"tools": listed(LISTED["drive"])}
         case "tools/call":
-            result = call(request["id"], request["params"]["name"], request["params"].get("arguments") or {})
+            result = call(request["id"], request["params"]["name"], ticketed(request["params"]))
             if result is None:
                 return
             reply["result"] = result
@@ -315,6 +316,21 @@ def listed(drive: str) -> list[dict]:
     if drive == OWN_DRIVE:
         return tool_list()
     return json.loads(subprocess.run([sys.executable, "-I", drive, "mcp", "--list"], capture_output=True, text=True, check=True, timeout=CALL_SECONDS).stdout)
+
+
+def tickets_dir() -> Path:
+    return Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "cc-slack" / "tickets"
+
+
+def ticketed(params: dict) -> dict:
+    """A tool call's arguments with the ticket cc-slack's permission hook kept for it, by the call's tool use id, under the names say and the other Slack verbs pass to cc-slack, when the call carries none: the hook keeps it in a file, since its rewrite of the call's input would undo the rewrites of this plugin's own hooks. The file is taken once."""
+    arguments = params.get("arguments") or {}
+    use = (params.get("_meta") or {}).get(TOOL_USE_META) or ""
+    if not use or "/" in use or not (kept := tickets_dir() / f"{use}.json").is_file():
+        return arguments
+    fields = json.loads(kept.read_text())
+    kept.unlink(missing_ok=True)
+    return arguments if "ticket_id" in arguments else arguments | fields
 
 
 def call(request_id: int | str, tool: str, arguments: dict) -> dict | None:
