@@ -94,7 +94,7 @@ def test_a_save_hands_a_stopped_jobs_mac_boxes_to_a_process_of_its_own_that_retu
     (checkout / ".claude" / "long-running.toml").write_text('[providers]\nmac_box = "Boxes"\n')
 
     class Boxes(providers.MacBoxProvider):
-        def down(self, box: str, holder: str) -> int:
+        def down(self, box: str, holder: str, finished: bool) -> int:
             self.run("tools/ci mac-box down --holder {holder} {box}", box=box, holder=holder)
             return 0
 

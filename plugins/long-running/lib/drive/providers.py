@@ -198,7 +198,8 @@ class MacBoxProvider(Provider):
     builds: frozenset[str] = frozenset()
     signed_in_step: str | None = None
 
-    def down(self, box: str, holder: str) -> int:
+    def down(self, box: str, holder: str, finished: bool) -> int:
+        """Give the box back, finished saying its holder job is done or failed, so the apps it left open may be quit first."""
         return 0
 
     def runs(self, box: str, pid: int) -> bool:

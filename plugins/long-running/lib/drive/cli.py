@@ -6484,7 +6484,7 @@ def mac_boxes_down(args: argparse.Namespace) -> int:
     codes = []
     for job_id in args.jobs:
         try:
-            codes.append(boxes.down(job_id, f"{name}/{job_id}"))
+            codes.append(boxes.down(job_id, f"{name}/{job_id}", data["jobs"][job_id]["state"] in ("done", "failed")))
         except providers.ProviderError as error:
             print(f"{job_id}: {error}", file=sys.stderr)
             codes.append(1)
@@ -6531,7 +6531,7 @@ def mac_box_yielded(name: str, data: dict, boxes: providers.MacBoxProvider, fami
         if not job or job["state"] != "waiting" or job["order"] in family or state.box_wanted(data, job_id):
             continue
         try:
-            boxes.down(job_id, f"{name}/{job_id}")
+            boxes.down(job_id, f"{name}/{job_id}", False)
         except providers.ProviderError:
             continue
         print(f"{job_id}: gave its box back for a priority job; it takes one again when it resumes")
