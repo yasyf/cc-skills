@@ -4917,8 +4917,9 @@ def cut_lines(watcher: Watcher, moment: datetime) -> list[str]:
     data = state.load(watcher.name)
     if not (backlog(data) or cut_waiting(data)):
         return []
-    said = []
-    with state.edit(watcher.name) as data:
+
+    def folded_cuts(data: dict) -> list[tuple[str, str]]:
+        said = []
         for job_id in backlog(data):
             job = data["jobs"][job_id]
             if not (first := open_cut(data)):
@@ -4929,6 +4930,9 @@ def cut_lines(watcher: Watcher, moment: datetime) -> list[str]:
             state.hand_off(data, {job_id: first})
             job.update(state="stopped", said=f"folded into {first}, the prover of the next production release cut", updated=state.stamp(moment))
             said.append((first, f"took the parts of {job_id}, a prover of merges the next cut carries, now stopped"))
+        return said
+
+    said = state.update(watcher.name, None, folded_cuts)
     data = state.load(watcher.name)
     if not (waiting := cut_waiting(data)):
         return [merged_said(watcher.name, job_id, change) for job_id, change in said]
@@ -4939,13 +4943,18 @@ def cut_lines(watcher: Watcher, moment: datetime) -> list[str]:
     except (state.DriveError, github.GithubError, reads.ReadError) as error:
         return [*(merged_said(watcher.name, job_id, change) for job_id, change in said), *read_failed(watcher, "release cut", error, moment)]
     watcher.failures.pop("release cut", None)
-    with state.edit(watcher.name) as data:
+
+    def bound_cuts(data: dict) -> list[tuple[str, str]]:
+        bound = []
         for job_id, cut in binds.items():
             job = data["jobs"][job_id]
             if state.CUT_WAIT not in job["waits"]:
                 continue
             job.update(waits=[*(wait for wait in job["waits"] if wait != state.CUT_WAIT), *([cut] if cut else [])], cut=cut or "served", updated=state.stamp(moment))
-            said.append((job_id, f"bound to the release cut {cut} starts, {data['jobs'][cut]['release_build']}, which it waits on" if cut else "freed by a production release serving its merges"))
+            bound.append((job_id, f"bound to the release cut {cut} starts, {data['jobs'][cut]['release_build']}, which it waits on" if cut else "freed by a production release serving its merges"))
+        return bound
+
+    said += state.update(watcher.name, None, bound_cuts)
     return [merged_said(watcher.name, job_id, change) for job_id, change in said]
 
 
