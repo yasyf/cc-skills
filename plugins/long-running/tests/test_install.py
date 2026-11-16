@@ -3010,6 +3010,8 @@ def test_a_drive_tooling_order_whose_every_job_finished_on_prs_merged_in_the_ins
 def test_the_watch_moves_onto_a_newer_install_only_once_its_own_try_on_a_copy_of_the_drives_passed_starting_that_try_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     newer = tmp_path / "1.0.4"
     (newer / "lib" / "drive").mkdir(parents=True)
+    (newer / "bin").mkdir()
+    (newer / "bin" / "drive").write_text("#!/usr/bin/env python3\n")
     (newer / "lib" / "drive" / "watch.py").write_text("PASS = 3\n")
     started: list[list[str]] = []
     monkeypatch.setattr(install.subprocess, "Popen", lambda cmd, **options: started.append(cmd))
