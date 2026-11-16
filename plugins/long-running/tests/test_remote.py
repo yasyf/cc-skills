@@ -1014,6 +1014,18 @@ def test_a_brief_naming_its_own_jobs_proof_output_and_report_is_carried_since_th
     )
 
 
+def test_a_brief_whose_earlier_parts_name_an_earlier_jobs_scratch_launches_since_that_section_is_history_as_j8262s_and_j8180s_were_refused(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    earlier = "Earlier parts:\n- j8035 on 'the evidence':\n  saves screenshots to scratch/j8035/evidence\n  left open: none\n"
+    brief = f"Goal: ship it\n{earlier}Drive: demo, order o1, job j1\n"
+    assert orca.uncarried(demo, "j1", brief) is None
+    assert orca.uncarried(demo, "j1", brief.replace("Goal: ship it", "Goal: ship it from scratch/j8035/evidence")) == (
+        "its brief names Drive file scratch/j8035/evidence, which the drive keeps no text of, so its lane would stop to ask for each;"
+        " launch it on a brief file that leaves each out: drive job launch j1 <file>"
+    )
+
+
 def test_the_prover_add_prover_gives_a_product_merge_launches_on_this_mac_on_the_brief_the_drive_writes_for_it(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bg_starts: list[tuple[str, dict, Path]]
 ) -> None:

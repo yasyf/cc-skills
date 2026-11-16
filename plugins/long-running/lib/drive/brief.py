@@ -32,6 +32,7 @@ FIELD = re.compile(
     r"|Native|Interactions|Would he ask|Plan|Incident|Scratch|Earlier parts|Transcripts|Drive):",
     re.MULTILINE,
 )
+EARLIER_PARTS = re.compile(rf"^Earlier parts:.*?(?={FIELD.pattern}|\Z)", re.MULTILINE | re.DOTALL)
 RESEARCHED = re.compile(r"^[ \t]*Researched:.*$", re.MULTILINE)
 RESEARCHED_LINE = re.compile(r"^Researched:", re.MULTILINE)
 RESEARCHED_BY = re.compile(r"^Researched:[ \t]*(j\d+)\b", re.MULTILINE)

@@ -598,9 +598,11 @@ def file_text(file: Path) -> str:
 
 
 def uncarried(drive: str, job_id: str, brief: str) -> str | None:
-    """Why no lane starts on this brief: it names a drive file the drive keeps none of, which its lane would stop to ask for, never the job's own report or proof output, which the drive writes once the job returns or its proof runs, nor any file under its own scratch/<job>/, which its lane writes."""
+    """Why no lane starts on this brief: it names a drive file the drive keeps none of, which its lane would stop to ask for, never the job's own report or proof output, which the drive writes once the job returns or its proof runs, nor any file under its own scratch/<job>/, which its lane writes, nor any its Earlier parts: section names, since that section is earlier builders' history the drive copied in, never an input the lane reads, so a brief the drive wrote always launches."""
+    from drive import brief as briefs
+
     own = {f"Report of {job_id}", f"Drive file {state.proof_path(drive, job_id).relative_to(state.drive_dir(drive))}"}
-    missing = [heading for heading, text in drive_files(drive, brief).items() if text is None and heading not in own and not heading.startswith(f"Drive file scratch/{job_id}/")]
+    missing = [heading for heading, text in drive_files(drive, briefs.EARLIER_PARTS.sub("", brief)).items() if text is None and heading not in own and not heading.startswith(f"Drive file scratch/{job_id}/")]
     if not missing:
         return None
     return (
