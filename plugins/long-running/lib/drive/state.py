@@ -4892,14 +4892,21 @@ def resolve(name: str | None = None) -> str:
 
 
 def append_event(name: str, kind: str, **fields: object) -> dict:
+    return append_line(events_path(name), kind, **fields)
+
+
+def append_line(path: Path, kind: str, **fields: object) -> dict:
     event = {"kind": kind, "at": stamp(), **fields}
-    with open(events_path(name), "a") as handle:
+    with open(path, "a") as handle:
         handle.write(json.dumps(event) + "\n")
     return event
 
 
 def events_end(name: str) -> int:
-    path = events_path(name)
+    return lines_end(events_path(name))
+
+
+def lines_end(path: Path) -> int:
     return path.stat().st_size if path.exists() else 0
 
 
@@ -4968,8 +4975,11 @@ def take_held_resume(name: str, project: str | None = None) -> str | None:
 
 
 def read_events(name: str, offset: int = 0) -> Iterator[tuple[dict, int]]:
-    """Yield each complete event after byte offset, paired with the offset just past it."""
-    path = events_path(name)
+    return read_lines(events_path(name), offset)
+
+
+def read_lines(path: Path, offset: int = 0) -> Iterator[tuple[dict, int]]:
+    """Yield each complete line of a JSON-lines log after byte offset, paired with the offset just past it."""
     if not path.exists():
         return
     with open(path, "rb") as handle:
@@ -5311,12 +5321,6 @@ def unmerged_pr_keys(data: dict) -> list[str]:
 
 def open_prs(data: dict) -> list[dict]:
     return [data["prs"][key] for key in open_pr_keys(data)]
-
-
-def held_builds(data: dict) -> set[str]:
-    """Each Buildkite build a live job or open PR of the drive waits on, or a part of an open order follows, by its link."""
-    owners = [*(job for job in data["jobs"].values() if job["state"] not in FINISHED_JOB_STATES), *open_prs(data)]
-    return {wait for owner in owners for wait in owner["waits"] if github.BUILD.fullmatch(wait)} | followed_builds(open_orders(data))
 
 
 def followed_builds(orders: dict[str, dict]) -> set[str]:

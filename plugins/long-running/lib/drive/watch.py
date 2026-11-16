@@ -112,6 +112,7 @@ class Watcher:
     name: str
     offset: int
     project: str | None = None
+    delivered: int = 0
     read_at: datetime | None = None
     failures: dict[str, int] = field(default_factory=dict)
     failure_said: dict[str, datetime] = field(default_factory=dict)
@@ -1637,18 +1638,19 @@ def relay(name: str, project: str | None, lines: int) -> int:
 
 
 def landing_loop(name: str, project: str | None, lines: int) -> int:
-    """Run the watch's landing loop, the process the watch starts beside its passes: a landing pass the moment anything appends to the drive's events file, as the receiver does for each delivery, or POLL_SECONDS after the last, by rests, each first moving this process onto the newest install, by install.reopen, once it held what it owes for the landing loop it starts there, so a GitHub read, a stage's wake and a landing wait on no lane read, Sprite launch or install a pass of the watch runs, and a fix to any of them runs within a pass of its install. It hands its own lines on as the watch does, those the process before it held with the first stage of its first pass, so lines kept back for a later post never cost a landing pass, and writes the watch down the pipe end it inherited each new map of the PRs the drive does not track it read, first the one the landing loop before it held. It takes the reads the landing loop before it held, with the events offset it had read to, else owes a read of every PR from the events file's end; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag, and however it ends it holds its unposted lines and owed reads for the landing loop after it."""
+    """Run the watch's landing loop, the process the watch starts beside its passes: a landing pass the moment anything appends to the drive's events file or the receiver's deliveries log, as the receiver does for each delivery, or POLL_SECONDS after the last, by rests, each first moving this process onto the newest install, by install.reopen, once it held what it owes for the landing loop it starts there, so a GitHub read, a stage's wake and a landing wait on no lane read, Sprite launch or install a pass of the watch runs, and a fix to any of them runs within a pass of its install. It hands its own lines on as the watch does, those the process before it held with the first stage of its first pass, so lines kept back for a later post never cost a landing pass, and writes the watch down the pipe end it inherited each new map of the PRs the drive does not track it read, first the one the landing loop before it held. It takes the reads the landing loop before it held, with the events and deliveries offsets it had read to, else owes a read of every PR from each file's end; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag, and however it ends it holds its unposted lines and owed reads for the landing loop after it."""
     ended: list[int] = []
     signal.signal(signal.SIGTERM, lambda signum, frame: ended.append(signum))
     held = state.take_held_reads(name, project)
     owes = {"owed": set(held["owed"]), "merging": set(held["merging"]), "stale": set(held["stale"]), "untracked": held["untracked"]} if held else {}
     offset = held.get("offset", state.watch_cursor(name, project)) if held else state.events_end(name)
-    landing = Watcher(name, offset=offset, project=project, cards=view.live_cards(name), made=state.take_held_lines(name, project), **owes)
+    delivered = held.get("delivered", 0) if held else receiver.deliveries_end()
+    landing = Watcher(name, offset=offset, project=project, delivered=delivered, cards=view.live_cards(name), made=state.take_held_lines(name, project), **owes)
     argv = ["watch", "--land", str(lines), "--drive", name, *(["--project", project] if project else [])]
     told = None
     try:
         with os.fdopen(lines, "w", buffering=1) as untracked:
-            for _ in rests(name):
+            for _ in rests(state.events_path(name), receiver.deliveries_path()):
                 if ended:
                     break
                 if upgraded():
@@ -1667,13 +1669,16 @@ def landing_loop(name: str, project: str | None, lines: int) -> int:
 
 
 def landing_pass(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
-    """The lines of each stage of one pass of the landing loop, as it returns: the reads each delivery since its last pass owes, then every READ_EVERY the landing stages, else those reads and the PUSHED lines they settle, by owed_reads."""
-    if events := list(state.read_events(watcher.name, watcher.offset)):
-        owe_delivered(watcher, events)
+    """The lines of each stage of one pass of the landing loop, as it returns: the reads each delivery since its last pass owes, then every READ_EVERY the landing stages, else those reads and the PUSHED lines they settle, by owed_reads, and none on a pass the deliveries alone woke that name none of the drive's PRs."""
+    events = list(state.read_events(watcher.name, watcher.offset))
+    if events:
         watcher.offset = events[-1][1]
+    named = take_deliveries(watcher)
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
         later = landing_stages(watcher, moment)
+    elif named == [] and not events:
+        later = []
     else:
         later = owed_reads(watcher, moment)
     for stage in later:
@@ -1949,12 +1954,11 @@ def moved_line(event: dict, data: dict) -> str:
 
 
 def event_lines(watcher: Watcher) -> list[str]:
-    """Each new event the watch hears: one is written with the lane of the coordinator session hearing its order then, so a binding or a refiling after it moves it to no other watch, an ORDERS_MOVED one with the lane that lost the orders it names, the drive's own watch saying one the communicator or the meta session lost, which handed sends that session, and one written with no lane is the drive's own watch's. A delivery the receiver wrote is said by no line: it owes the reads owe_delivered names, which the watch's landing loop makes, or a pass run in-process later in the same pass. A build delivery owes it a read of the Buildkite builds it names, which build_lines makes later in the same pass."""
+    """Each new event the watch hears: one is written with the lane of the coordinator session hearing its order then, so a binding or a refiling after it moves it to no other watch, an ORDERS_MOVED one with the lane that lost the orders it names, the drive's own watch saying one the communicator or the meta session lost, which handed sends that session, and one written with no lane is the drive's own watch's. Each delivery the receiver logged since owes the reads take_deliveries names, which a pass run in-process makes later in the same pass, as build_lines reads the Buildkite builds a build delivery names; a delivery line an older receiver wrote to the events file is said by no line."""
+    take_deliveries(watcher)
     events = list(state.read_events(watcher.name, watcher.offset))
     if not events:
         return []
-    owe_delivered(watcher, events)
-    watcher.builds_heard |= {link for event, _ in events if event["kind"] == receiver.BUILD_DELIVERY for link in event["builds"]}
     data = state.load(watcher.name)
     heard = (watcher.lane,) if watcher.project else (watcher.lane, *state.HOLDERS)
     said = [event_line(event, data) for event, _ in events if event["kind"] not in (*view.HISTORY_ONLY, receiver.DELIVERY, receiver.BUILD_DELIVERY) and event.get("lane", "root") in heard]
@@ -1962,13 +1966,30 @@ def event_lines(watcher: Watcher) -> list[str]:
     return said
 
 
-def owe_delivered(watcher: Watcher, events: list[tuple[dict, int]]) -> None:
-    """Owe a read of each PR a delivery among the events names, which github_lines reads for the PRs the watch hears, a push to their base a read of their mergeability alone; none while the watch owes a read of every PR, which reads them anyway."""
-    if watcher.owed is None:
-        return
-    delivered = [(f"{event['repo']}#{number}", event["event"] in receiver.REMERGES) for event, _ in events if event["kind"] == receiver.DELIVERY for number in event["numbers"]]
-    watcher.owed |= {key for key, remerges in delivered if not remerges}
-    watcher.merging |= {key for key, remerges in delivered if remerges}
+def take_deliveries(watcher: Watcher) -> list[str] | None:
+    """Read the receiver's deliveries log past where the watch last read it, None when it holds nothing new, else the keys of the drive's PRs its GitHub deliveries name by receiver.named, against each repository's unmerged PRs and, for a delivery of receiver.CARRYING, the PRs the drive does not track by state.carrier_keys, each owed a read github_lines makes for the PRs the watch hears, a push to their base a read of their mergeability alone; none while the watch owes a read of every PR, which reads them anyway. A build delivery has build_lines read again each build the watch holds that it names, every one for a missed delivery."""
+    deliveries = list(state.read_lines(receiver.deliveries_path(), watcher.delivered))
+    if not deliveries:
+        return None
+    watcher.delivered = deliveries[-1][1]
+    for delivery, _ in deliveries:
+        if delivery["kind"] == receiver.BUILD_DELIVERY:
+            watcher.builds_heard |= watcher.builds.keys() if delivery["builds"] is None else watcher.builds.keys() & set(delivery["builds"])
+    github_deliveries = [delivery for delivery, _ in deliveries if delivery["kind"] == receiver.DELIVERY]
+    if watcher.owed is None or not github_deliveries:
+        return []
+    data = state.load(watcher.name)
+    carried = state.carrier_keys(data)
+    named = []
+    for delivery in github_deliveries:
+        repo = delivery["repo"]
+        prs = {int(key.partition("#")[2]): pr for key, pr in data["prs"].items() if github.repo_of(key) == repo and pr["state"] != "merged"}
+        if delivery["event"] in receiver.CARRYING:
+            prs |= {int(key.partition("#")[2]): {} for key in carried if github.repo_of(key) == repo}
+        keys = [f"{repo}#{number}" for number in receiver.named(delivery, prs)]
+        (watcher.merging if delivery["event"] in receiver.REMERGES else watcher.owed).update(keys)
+        named += keys
+    return named
 
 
 def overdue(data: dict, order: dict, held: dict, moment: datetime) -> bool:
@@ -5022,7 +5043,7 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
         children.mark_watch()
         while holder(state.monitor_pid_path(name)):
             time.sleep(POLL_SECONDS)
-        watching(Watcher(name, offset=state.watch_cursor(name, project), project=project, cards=view.live_cards(name), made=state.take_held_lines(name, project), resume=state.take_held_resume(name, project)))
+        watching(Watcher(name, offset=state.watch_cursor(name, project), project=project, delivered=receiver.deliveries_end(), cards=view.live_cards(name), made=state.take_held_lines(name, project), resume=state.take_held_resume(name, project)))
     finally:
         release(name, project)
     return 0
@@ -5033,7 +5054,7 @@ def watching(watcher: Watcher) -> None:
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     try:
         with relaying(watcher):
-            for _ in rests(watcher.name):
+            for _ in rests(state.events_path(watcher.name)):
                 if newer := upgraded():
                     print(f"ended on long-running {state.VERSION} for {newer}, before {watcher.resume or 'its next pass'}", flush=True)
                     break
@@ -5052,11 +5073,14 @@ def watching(watcher: Watcher) -> None:
     keep_unposted(watcher)
 
 
-def rests(name: str) -> Iterator[None]:
-    """Yield at once, then POLL_SECONDS after each yield, or the moment anything appends to the drive's events file, as the receiver does for each delivery, so the pass that reads its PRs starts as it lands."""
-    with open(state.events_path(name), "a") as events:
+def rests(*paths: Path) -> Iterator[None]:
+    """Yield at once, then POLL_SECONDS after each yield, or the moment anything appends to one of the files at paths, such as the receiver's deliveries log as it takes each delivery, so the pass that reads its PRs starts as it lands."""
+    with contextlib.ExitStack() as stack:
         queue = select.kqueue()
-        queue.control([select.kevent(events, select.KQ_FILTER_VNODE, select.KQ_EV_ADD | select.KQ_EV_CLEAR, select.KQ_NOTE_WRITE | select.KQ_NOTE_EXTEND)], 0)
+        for path in paths:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            watched = stack.enter_context(open(path, "a"))
+            queue.control([select.kevent(watched, select.KQ_FILTER_VNODE, select.KQ_EV_ADD | select.KQ_EV_CLEAR, select.KQ_NOTE_WRITE | select.KQ_NOTE_EXTEND)], 0)
         while True:
             yield
             queue.control(None, 1, POLL_SECONDS)
@@ -5071,8 +5095,8 @@ def keep_unposted(watcher: Watcher) -> None:
 
 
 def hold(watcher: Watcher) -> None:
-    """Move each line the watch or its landing loop made and has not posted, routed or not, to the process after it, which hands them on before its first pass, and, once it read GitHub, the reads it still owes with the events offset it read to, so the landing loop after it reads those and the PRs the deliveries past that offset name, never every PR again unless it reads GitHub by another query."""
+    """Move each line the watch or its landing loop made and has not posted, routed or not, to the process after it, which hands them on before its first pass, and, once it read GitHub, the reads it still owes with the events and deliveries offsets it read to, so the landing loop after it reads those and the PRs the deliveries past that offset name, never every PR again unless it reads GitHub by another query."""
     state.hold_lines(watcher.name, watcher.project, [LINE_BREAKS.sub(" ", line) for line in [*watcher.made, *drained(watcher.relayed), *(line for lines in watcher.unsent.values() for line in lines)]])
     if watcher.owed is not None:
-        state.hold_reads(watcher.name, watcher.project, {"owed": sorted(watcher.owed), "merging": sorted(watcher.merging), "stale": sorted(watcher.stale), "untracked": watcher.untracked, "offset": watcher.offset})
+        state.hold_reads(watcher.name, watcher.project, {"owed": sorted(watcher.owed), "merging": sorted(watcher.merging), "stale": sorted(watcher.stale), "untracked": watcher.untracked, "offset": watcher.offset, "delivered": watcher.delivered})
     watcher.made, watcher.unsent = [], {}
