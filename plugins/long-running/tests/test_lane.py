@@ -482,3 +482,10 @@ def test_adopt_never_replaces_a_lane_already_on_the_drive(world: dict, tmp_path:
     with pytest.raises(store.Refused, match="adds new lanes only"):
         verbs.adopt(DRIVE, [str(source)])
     assert store.load(DRIVE, "a")["state"] == store.RUNNING
+
+
+def test_leaving_running_on_a_past_bound_is_refused(world: dict) -> None:
+    opened("a")
+    answered("a")
+    with pytest.raises(store.Refused, match="has passed"):
+        store.update(DRIVE, "a", lambda lane: lane.update(state=store.WAITING, owner=None, wait={"on": [{"kind": "his_reply"}], "until": "2026-01-01T00:00:00Z"}))

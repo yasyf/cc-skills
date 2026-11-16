@@ -230,6 +230,8 @@ def transact[T](drive: str, change: Callable[[dict[str, dict]], T], leaving_unre
         for lane_id, lane in changed.items():
             if why := invalid(lane):
                 raise Refused(f"lane {lane_id} would be left {why}")
+            if (before.get(lane_id) or {}).get("state") == RUNNING and lane["state"] == WAITING and parse(lane["wait"]["until"]) <= now():
+                raise Refused(f"lane {lane_id} cannot leave running on a wait whose bound {lane['wait']['until']} has passed")
             if (before.get(lane_id) or {}).get("state") == RUNNING and lane["state"] != RUNNING and not leaving_unreplied and (open_asks := unreplied(lane)):
                 raise Refused(f"lane {lane_id} cannot stop running while his ask is unanswered: {open_asks[0]['words'][:120]!r}; answer it with `lane say` first")
         for lane_id, lane in changed.items():
