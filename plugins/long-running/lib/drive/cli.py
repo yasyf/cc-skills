@@ -4496,6 +4496,23 @@ def slot_claim(args: argparse.Namespace) -> int:
     return emit(args, line, {"env": args.env, "job": args.job, "line": line})
 
 
+def slot_hand(args: argparse.Namespace) -> int:
+    """Hand a staging env's slot to a job in its queue now, the cut holding it going back to the head of the queue, from the holder's own session or the top coordinator's, and start the job's turn as the watch's hand-on does: its release for a start of the top coordinator's, else a GO by drive job resume."""
+    name = state.resolve(args.drive)
+    data = state.load(name)
+    held = (data["slots"].get(args.env) or {}).get("holder")
+    own = (os.environ.get(state.JOB_ENV) or "").split("/")[1:2]
+    if own and held and own[0] not in state.slot_members(data["slots"][args.env]) or not own and not state.top_coordinator(data, os.environ.get("CLAUDE_CODE_SESSION_ID")):
+        raise DriveError(f"refused: only the job holding the {args.env} slot or the top coordinator hands it on")
+    with state.edit(name) as data:
+        entry, line = state.slot_hand(data, args.env, args.to, state.now())
+        until = data["slots"][args.env]["holder"]["until"]
+        steps = state.SLOT_GO_STEPS.format(env=args.env, job=args.to) + state.holding(state.repo_config(data).get("release"), data, [args.to])
+    command = ["job", "release", args.to] if entry["starts"] else ["job", "resume", args.to, f"GO staging {args.env} until {until}: {steps}"]
+    state.detach(name, command, watch.RELAUNCHES_LOG)
+    return emit(args, f"{line}; drive {' '.join(command[:3])} runs now", {"env": args.env, "job": args.to, "line": line})
+
+
 def slot_release(args: argparse.Namespace) -> int:
     """Give a staging env's slot back, or leave its queue, so the watch's next pass hands it to the job first in line."""
     name = state.resolve(args.drive)
@@ -7081,6 +7098,10 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("env", help="the staging env")
     verb.add_argument("--job", required=True, help="the job giving it back")
     verb.set_defaults(run=slot_release)
+    verb = slot.add_parser("hand", parents=both, help="hand a staging env's slot to a job in its queue now, from its holder or the top coordinator")
+    verb.add_argument("env", help="the staging env")
+    verb.add_argument("--to", required=True, help="the queued job taking the slot")
+    verb.set_defaults(run=slot_hand)
     verb = slot.add_parser("queue", parents=both, help="each staging slot's holder, its lease's end and the jobs waiting, in order")
     verb.add_argument("env", nargs="?", help="the staging env; default every one")
     verb.set_defaults(run=slot_queue)

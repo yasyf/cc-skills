@@ -2815,3 +2815,20 @@ def test_passes_restarting_one_stack_take_turns_and_a_top_coordinators_start_hol
     moved = state.slot_turns(data, moment + timedelta(minutes=50))
     assert [(job_id, kind) for _, job_id, kind, _ in moved] == [("j2", "freed"), ("j3", "start")]
     assert data["slots"]["plat-usw2-staging"]["holder"]["riders"] == []
+
+
+def test_a_priority_job_heads_the_slot_queue_a_failed_pass_keeps_the_lease_and_a_hand_seats_a_queued_job_now() -> None:
+    moment = datetime(2026, 11, 16, 1, 0, tzinfo=UTC)
+    data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": [], "priority": None} for job_id in ("j0", "j1", "j2", "j3")}}
+    state.slot_claim(data, "plat-usw2-staging", "j0", 20, [], None, moment)
+    state.slot_claim(data, "plat-usw2-staging", "j1", 20, [], None, moment)
+    state.slot_claim(data, "plat-usw2-staging", "j2", 20, [], None, moment)
+    data["jobs"]["j2"]["priority"] = True
+    data["jobs"]["j0"]["state"] = "failed"
+    assert state.slot_turns(data, moment + timedelta(minutes=5)) == []
+    assert [each["job"] for each in data["slots"]["plat-usw2-staging"]["queue"]] == ["j2", "j1"]
+    state.slot_claim(data, "plat-usw2-staging", "j3", 30, [], None, moment, starts=True)
+    entry, line = state.slot_hand(data, "plat-usw2-staging", "j3", moment + timedelta(minutes=6))
+    assert (entry["starts"], line.startswith("j3 holds the plat-usw2-staging slot until"), [each["job"] for each in data["slots"]["plat-usw2-staging"]["queue"]]) == (True, True, ["j0", "j2", "j1"])
+    with pytest.raises(state.DriveError, match="waits in no plat-usw2-staging slot queue"):
+        state.slot_hand(data, "plat-usw2-staging", "j9", moment)
