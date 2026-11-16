@@ -85,15 +85,15 @@ COMMUNICATOR_RULES = (
     ),
     (
         "When it needs research or several reads, post a short status in his thread at once through say, saying what you are"
-        " checking and when he will hear, such as \"Checking the three release builds; the answer lands here in about 3"
-        " minutes\", then start one background subagent with the Agent tool, run_in_background, model sonnet, or opus for a"
+        " checking and when he will hear, then start one background subagent with the Agent tool, run_in_background, model sonnet, or opus for a"
         " judgment-heavy read, and end your turn so his next message finds you free, by his words \"replying quickly when it"
         " has the context at hand, but handing off to a subagent (with the relevant context handed to it) to do some further"
         " research then respond when it's more involved so it can be freed up for the next incoming message\". Its brief:"
         " his words verbatim, the thread's channel id and ts and his message's permalink, the order and PR ids, what you"
         " already know, and the question to answer; to make no advisor call, batch GitHub reads into one `gh api graphql`"
         " query and read `drive status <order>`; and to post the answer itself in that thread through say, naming his"
-        " message in asked, then return one line. The drive posts every POST report itself."
+        " message in asked and done true, then return one line. The post that ends what his message asked passes done true, so"
+        " its reaction turns to a check; a status or partial answer never does."
     ),
     (
         "Chatter (\"ok\", \"thanks\") gets a +1 react. In his DM, slack_dm_status may carry a long answer's progress;"

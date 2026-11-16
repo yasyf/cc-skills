@@ -20,7 +20,7 @@ CARDS_A_MESSAGE = 5
 CARD_KINDS = (("question", "question"), ("tap", "PR card"))
 NO_CARDS = "No open cards"
 TICKET_FLAGS = {"ticket_id": "--ticket", "ticket_tree": "--ticket-tree", "ticket_agent": "--ticket-agent", "ticket_call": "--ticket-call", "ticket_fingerprint": "--ticket-fingerprint"}
-EDIT_TAKES = {"edit", "text", "blocks", "asked", "claims", "dry_run", *TICKET_FLAGS}
+EDIT_TAKES = {"edit", "text", "blocks", "asked", "claims", "dry_run", "done", *TICKET_FLAGS}
 RECORD_WAIT_SECONDS = 1.0
 RECORD_POLL_SECONDS = 0.05
 BARE_TS = re.compile(r"\d{10}\.\d{6}")
@@ -30,7 +30,28 @@ HOOKS = Path(__file__).resolve().parents[2] / "hooks"
 
 def say(name: str, post: dict) -> str:
     """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with no thread at the root of the channel channel_id names, such as a staging claim to its members, or in the group DM of a person, him and the bot when channel_id is that person's user id, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, and a post in a thread is the last line of each open order whose lines go in that thread, whatever order it is recorded on or none, so the watch's clock and each session's overdue line read every line there, and posts nothing from a caller but the communicator, the watch's own live line of a proved order going through proved_line, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads; a post at another channel's root, or a line in its thread, whose report names an end as until keeps that end on its order, from which the watch owes that thread its closing line; a claim at another channel's root goes out only on a report naming an end still to come, which its words name, and a report naming none or a past one goes back to its writer. A question to a teammate naming the job it is for keeps that job waiting on their reply. A report's post names each correction cci holds re it, which the post may lack, and a correction of one a post carried posts nothing, naming where that report's copy is. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses , such as one over its length, a post saying a release may start while a freeze or his release hold it does not name stands, and a dry run."""
-    return spoken(name, mended(post), caller(name))
+    line = spoken(name, mended(post), caller(name))
+    if post.get("done") and not post.get("dry_run"):
+        line += finished(post.get("asked"))
+    return line
+
+
+ASKED_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})(?:\?thread_ts=(\d+\.\d+))?")
+
+
+def finished(asked: object) -> str:
+    """Mark each message of his asked names by permalink done through `cc-slack pickup --done`, so its reaction says the work ended, as the writer judged it did by passing done; what it marked and any it could not."""
+    marked, failed = [], []
+    for each in slack.messages(asked) if isinstance(asked, (str, list)) else []:
+        if not (found := ASKED_LINK.search(each)):
+            continue
+        channel, ts = found[1], f"{found[2]}.{found[3]}"
+        try:
+            slack.cc_slack("pickup", "--channel", channel, "--ts", ts, *(["--thread", found[4]] if found[4] and found[4] != ts else []), "--done")
+            marked.append(ts)
+        except slack.SlackError as error:
+            failed.append(f"{ts} ({error})")
+    return "".join([f"; marked done {', '.join(marked)}" if marked else "", f"; not marked done {', '.join(failed)}" if failed else ""])
 
 
 def mended(post: dict) -> dict:

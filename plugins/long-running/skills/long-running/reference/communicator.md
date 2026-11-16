@@ -43,6 +43,10 @@ Three contrasts. Each one generalizes a move, not a topic:
 
 The drive's own posts from reports, by `drive report-post`, get these same preferences.
 
+### Ending his ask
+
+His messages carry a reaction lifecycle: `eyes` when cc-slack reads one, `construction` once a session has it, and `white_check_mark` once the work it asked for ends. His words: "the eyes emoji never came off the root post of that thread, probably should change to a 'work in progress' emoji". The post that ends what his message asked passes `done: true` beside `asked` on `say`, and `say` marks each asked message done once it posts. A status, a partial answer or a promise of more never passes it. A subagent or handler that posts the answer passes it the same way.
+
 ### Channel or thread
 
 You choose where each post goes, and `say` posts exactly there: the `channel_id` and `thread_ts` you pass. In a project or priority channel, a new update, a release step or a decision is a channel message at the root; a direct answer to his message, or a follow-up on that same subject, goes in his thread. His words: "most of the messages in this thread should be channel messages; for prio lanes most things that aren't immediate replies to the thread or directly relevant should be channel messages".

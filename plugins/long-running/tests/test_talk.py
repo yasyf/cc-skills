@@ -501,6 +501,14 @@ def test_a_block_post_slack_shows_as_text_alone_or_drops_a_block_of_is_said_to_i
         assert (said in found) if said and (found := talk.drawn_as(link, blocks)) else talk.drawn_as(link, blocks) is None, shown
 
 
+def test_say_with_done_marks_each_asked_message_done_once_it_posts_and_a_status_marks_none(demo: str, posts: list[tuple[str, ...]]) -> None:
+    asked = "https://acme.slack.com/archives/C0CHZM7A478/p1794828096208109?thread_ts=1794827701.310319&cid=C0CHZM7A478"
+    talk.say(demo, {"text": "Checking the three builds.", "asked": asked})
+    assert [argv for argv in posts if argv[0] == "pickup"] == []
+    assert talk.say(demo, {"text": "All three builds passed.", "asked": asked, "done": True}).endswith("; marked done 1794828096.208109")
+    assert [argv for argv in posts if argv[0] == "pickup"] == [("pickup", "--channel", "C0CHZM7A478", "--ts", "1794828096.208109", "--thread", "1794827701.310319", "--done")]
+
+
 def test_say_posts_the_words_its_hook_judged_and_checks_none_of_them_again(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:
     checked.findings = ["1:5 drive-term 'fence': say what happens to the reader's work instead"]
     with state.edit(demo) as data:

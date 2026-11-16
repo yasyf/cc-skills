@@ -172,6 +172,14 @@ SAY = {
                     " and its line, linking it, in this thread. It takes no about, and an edit names its post by its permalink alone"
                 ),
             },
+            "done": {
+                "type": "boolean",
+                "description": (
+                    "True when this post ends the work his asked messages asked for: once it posts, say marks each one asked names by"
+                    " permalink done, its reaction turning to white_check_mark and its working line gone, by his words \"the eyes"
+                    " emoji never came off the root post of that thread\". Leave it off on a status or a partial answer"
+                ),
+            },
             "asked": {
                 "anyOf": [TEXT, {"type": "array", "items": TEXT}],
                 "description": (
