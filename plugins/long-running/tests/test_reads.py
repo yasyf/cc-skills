@@ -1,4 +1,3 @@
-import configparser
 import json
 import os
 import signal
@@ -10,12 +9,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import own_time
 from drive import orca, reads, state
 from drive.render import clock
 
 BUILD = "https://buildkite.com/forge/test/builds/121531"
-ASKER = "demo j7"
 GRANT = "https://buildkite.com/forge/break-glass/builds/1926"
 PROOF = "long-running 1.0.639 from bin/../lib\nFAIL: GitHub lists no delivery the receiver answered 200 and logged\n"
 SED_PROOF = r'''#!/usr/bin/env bash
@@ -61,34 +58,6 @@ SED_REPORT = """DONE fixed
 DEFECT: `drive job set --repro` refused a proof script, reading `sed 's/<img src="//; s/"$//'` as a picture path
 Measured: `drive job set j7 --repro proof.sh 2>&1` exits 2
 """
-SSO_FIRST = """[profile identity]
-sso_session = forge
-[profile devops-human]
-source_profile = identity
-role_arn = arn:aws:iam::111:role/frg-core-gbl-identity-devops
-"""
-MACHINE = """[profile machine]
-credential_process = /usr/local/bin/machine-credentials
-[profile tf]
-source_profile = machine
-role_arn = arn:aws:iam::111:role/frg-core-gbl-identity-devops
-"""
-WINDOW = """[profile machine-break-glass]
-source_profile = machine
-role_arn = arn:aws:iam::111:role/frg-core-gbl-identity-studio-break-glass
-role_session_name = operator@example.com
-region = us-west-2
-"""
-REFUSED = (
-    "User: arn:aws:sts::111:assumed-role/frg-core-gbl-identity-machines/studio is not authorized to perform: sts:SetSourceIdentity"
-    " on resource: arn:aws:iam::111:role/frg-core-gbl-identity-studio-break-glass"
-)
-GRANT_ENDS = "2026-11-12T12:22:25.577Z"
-GRANTED = state.parse_time("2026-11-12T11:22:30Z")
-ASSUME = ["aws", "sts", "assume-role", "--profile", "tf", "--role-arn", "arn:aws:iam::222:role/frg-plat-gbl-prod-admin", "--role-session-name", "demo-j7"]
-PROBE = [*ASSUME, "--duration-seconds", "900", "--output", "json"]
-DEVOPS_SESSION = "arn:aws:sts::111:assumed-role/frg-core-gbl-identity-devops/machine"
-WINDOW_ASSUME = ["aws", "sts", "assume-role", "--profile", "machine", "--role-arn", "arn:aws:iam::111:role/frg-core-gbl-identity-studio-break-glass"]
 @pytest.mark.parametrize(
     ("body", "question"),
     [
@@ -311,275 +280,6 @@ def test_an_empty_read_says_it_was_empty(monkeypatch: pytest.MonkeyPatch, tmp_pa
     monkeypatch.setattr(reads, "run", lambda argv, checkout: "\n")
     question = 'READ ccn answer search "cloud agent new pod start"'
     assert reads.answer(question, tmp_path, "demo", "j7") == f"{question}: empty, the read printed nothing"
-
-
-class Granted:
-    def __init__(self) -> None:
-        self.calls: list[list[str]] = []
-        self.envs: list[dict[str, str]] = []
-        self.configs: list[str] = []
-        self.expiration = "2026-11-12T12:21:00+00:00"
-        self.refusals = 0
-        self.refuses: set[str] = set()
-
-
-def grantable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str, ended: str = "passed", now: datetime = GRANTED) -> Granted:
-    envs = tmp_path / "infra" / "envs"
-    envs.mkdir(parents=True)
-    (envs / "plat-usw2-prod.yaml").write_text("id: plat-usw2-prod\ncloud:\n  kind: aws\n  account: plat-gbl-prod\n  region: us-west-2\n  namespace: frg\nnet: {}\n")
-    (envs / "plat-gbl-prod.yaml").write_text('id: plat-gbl-prod\ncloud:\n  kind: aws\n  account: plat-gbl-prod\n  accountId: "222"\n  region: us-west-2\n  namespace: frg\n')
-    (tmp_path / "aws").write_text(config)
-    monkeypatch.setenv("AWS_CONFIG_FILE", str(tmp_path / "aws"))
-    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "a-key-of-this-mac")
-    monkeypatch.setenv("AWS_DEFAULT_PROFILE", "tnt-0ddq7rb")
-    monkeypatch.setattr(state, "now", lambda: now)
-    granted = Granted()
-
-    def fake(argv: list[str], checkout: Path, env: dict[str, str] | None = None, bounded: bool = True) -> str:
-        granted.calls.append(argv)
-        if argv[:3] == ["bk", "build", "create"]:
-            return f"Build created: {GRANT}\n"
-        if argv[:3] == ["bk", "build", "view"]:
-            return json.dumps({"state": ended, "meta_data": {"break-glass-expires-at": GRANT_ENDS}})
-        if (role := argv[argv.index("--role-arn") + 1] if "--role-arn" in argv else None) in granted.refuses:
-            raise reads.ReadError(f"aws sts assume-role exited 254: User: {DEVOPS_SESSION} is not authorized to perform: sts:AssumeRole on resource: {role}")
-        if argv[: len(WINDOW_ASSUME)] == WINDOW_ASSUME and granted.refusals:
-            granted.refusals -= 1
-            raise reads.ReadError(f"aws sts assume-role exited 254: {REFUSED}")
-        if argv[:3] == ["aws", "sts", "assume-role"]:
-            minted = {"AccessKeyId": "ASIAMINTED", "SecretAccessKey": "minted-secret", "SessionToken": "minted/token+=", "Expiration": granted.expiration}
-            return json.dumps({"Credentials": minted})
-        if argv[0] == "bk":
-            return ""
-        granted.envs.append(env)
-        granted.configs.append(Path(env["AWS_CONFIG_FILE"]).read_text())
-        return '{"Arn": "arn:aws:sts::222:assumed-role/frg-plat-gbl-prod-admin/demo-j7"}\n'
-
-    monkeypatch.setattr(reads, "run", fake)
-    return granted
-
-
-def glass(checkout: Path, stack: str = "sandsql/plat-usw2-prod", started: Callable[[str], None] = lambda link: None) -> str:
-    with reads.break_glass(stack, "count rows, read only", ASKER, checkout, started) as granted:
-        return f"{granted.link} {reads.held(granted)}\n{reads.run(['aws', 'sts', 'get-caller-identity'], checkout, granted.env).strip()}"
-
-
-def test_a_break_glass_grant_runs_its_command_holding_only_the_stacks_and_the_machine_windows_credentials_minted_to_end_before_the_grant(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    granted = grantable(tmp_path, monkeypatch, SSO_FIRST + MACHINE + WINDOW)
-    said = glass(tmp_path, started=lambda link: granted.calls.append(["started", link]))
-    why = "demo j7: count rows, read only"
-    assert granted.calls == [
-        PROBE,
-        ["bk", "build", "create", "-p", "forge/break-glass", "-b", "dev", "-m", why]
-        + ["-e", f"BREAK_GLASS_REASON={why}", "-e", "BREAK_GLASS_STACK=sandsql/plat-usw2-prod", "--no-input", "-y"],
-        ["started", GRANT],
-        ["bk", "build", "watch", "1926", "-p", "forge/break-glass", "--interval", "2"],
-        ["bk", "build", "view", "1926", "-p", "forge/break-glass", "-o", "json"],
-        [*ASSUME, "--duration-seconds", "3535", "--output", "json"],
-        [*WINDOW_ASSUME, "--role-session-name", "operator@example.com", "--duration-seconds", "3535", "--output", "json"],
-        ["aws", "sts", "get-caller-identity"],
-    ]
-    [env] = granted.envs
-    assert {key: value for key, value in env.items() if key.startswith("AWS_")} == {
-        "AWS_CONFIG_FILE": env["AWS_CONFIG_FILE"],
-        "AWS_SHARED_CREDENTIALS_FILE": os.devnull,
-        "AWS_PROFILE": "plat-prod",
-    }
-    isolated = configparser.RawConfigParser()
-    isolated.read_string(granted.configs[0])
-    assert {section: dict(isolated[section]) for section in isolated.sections()} == {
-        "profile plat-prod": {
-            "region": "us-west-2",
-            "aws_access_key_id": "ASIAMINTED",
-            "aws_secret_access_key": "minted-secret",
-            "aws_session_token": "minted/token+=",
-        },
-        "profile machine-break-glass": {
-            "region": "us-west-2",
-            "aws_access_key_id": "ASIAMINTED",
-            "aws_secret_access_key": "minted-secret",
-            "aws_session_token": "minted/token+=",
-        },
-    }
-    assert not Path(env["AWS_CONFIG_FILE"]).exists()
-    assert said == (
-        f"{GRANT} holding only the plat-prod and machine-break-glass profiles' credentials, which end at {clock(state.parse_time(GRANT_ENDS).astimezone())}\n"
-        '{"Arn": "arn:aws:sts::222:assumed-role/frg-plat-gbl-prod-admin/demo-j7"}'
-    )
-
-
-@pytest.mark.parametrize(
-    ("number", "created", "finished", "ends"),
-    [
-        (1973, "2026-11-12T22:19:53.915Z", "2026-11-12T22:22:08.711Z", "2026-11-12T23:22:00.705Z"),
-        (1965, "2026-11-12T21:45:40.525Z", "2026-11-12T21:51:10.561Z", "2026-11-12T22:48:37.382Z"),
-    ],
-)
-def test_a_grant_build_outlasting_the_read_timer_is_watched_until_it_passes(
-    number: int, created: str, finished: str, ends: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    replay_speedup = 100
-    link = f"https://buildkite.com/forge/break-glass/builds/{number}"
-    took = (state.parse_time(finished) - state.parse_time(created)).total_seconds() / replay_speedup
-    viewed = json.dumps({"state": "passed", "meta_data": {"break-glass-expires-at": ends}})
-    bk = tmp_path / "bin" / "bk"
-    bk.parent.mkdir()
-    bk.write_text(f"""#!/bin/sh
-case "$1 $2" in
-  "build create") echo "Build created: {link}" ;;
-  "build watch") exec sleep {took} ;;
-  "build view") echo '{viewed}' ;;
-esac
-""")
-    bk.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{bk.parent}{os.pathsep}{os.environ['PATH']}")
-    monkeypatch.setattr(reads, "READ_SECONDS", reads.READ_SECONDS / replay_speedup)
-    started: list[str] = []
-    assert reads.grant("sandsql/plat-usw2-prod", "count rows, read only", tmp_path, started.append) == (link, state.parse_time(ends))
-    assert started == [link]
-
-
-@pytest.mark.parametrize("now",[state.parse_time(GRANT_ENDS) - timedelta(minutes=15, seconds=59), state.parse_time(GRANT_ENDS) + timedelta(seconds=1)])
-def test_a_grant_ending_before_the_shortest_credentials_sts_mints_runs_nothing(now: datetime, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    granted = grantable(tmp_path, monkeypatch, MACHINE + WINDOW, now=now)
-    with pytest.raises(reads.ReadError, match=f"^the break-glass grant {GRANT} ends at .*, too soon for the 15 minutes the shortest AWS credentials last, so nothing ran"):
-        glass(tmp_path)
-    assert [argv[0] for argv in granted.calls] == ["aws", "bk", "bk", "bk"]
-
-
-def test_credentials_sts_stamps_past_the_grants_end_are_never_used(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    granted = grantable(tmp_path, monkeypatch, MACHINE + WINDOW)
-    granted.expiration = "2026-11-12T12:22:26+00:00"
-    with pytest.raises(reads.ReadError, match=f"^STS minted credentials ending at 2026-11-12T12:22:26\\+00:00, past the end of the break-glass grant {GRANT}"):
-        glass(tmp_path)
-    assert granted.calls[-1][:3] == ["aws", "sts", "assume-role"]
-    assert granted.envs == []
-
-
-def slept(monkeypatch: pytest.MonkeyPatch) -> list[float]:
-    naps: list[float] = []
-    own_time(monkeypatch, reads, sleep=naps.append, monotonic=lambda: sum(naps))
-    return naps
-
-
-def test_a_window_sts_refuses_while_the_grants_trust_propagates_is_minted_again_until_sts_reads_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    granted = grantable(tmp_path, monkeypatch, MACHINE + WINDOW)
-    granted.refusals = 2
-    naps = slept(monkeypatch)
-    glass(tmp_path)
-    window = [*WINDOW_ASSUME, "--role-session-name", "operator@example.com", "--duration-seconds", "3535", "--output", "json"]
-    assert granted.calls[4:] == [[*ASSUME, "--duration-seconds", "3535", "--output", "json"], window, window, window, ["aws", "sts", "get-caller-identity"]]
-    assert naps == [5, 5]
-
-
-def test_a_window_sts_still_refuses_once_the_trust_had_time_to_settle_runs_nothing_and_names_the_grant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    granted = grantable(tmp_path, monkeypatch, MACHINE + WINDOW)
-    granted.refusals = 100
-    naps = slept(monkeypatch)
-    with pytest.raises(reads.ReadError) as refused:
-        glass(tmp_path)
-    assert str(refused.value) == (
-        f"STS still refused arn:aws:iam::111:role/frg-core-gbl-identity-studio-break-glass 120 seconds after the break-glass grant {GRANT} passed,"
-        f" so nothing ran: aws sts assume-role exited 254: {REFUSED}"
-    )
-    assert sum(naps) == 120
-    assert 100 - granted.refusals == 25
-    assert granted.envs == []
-
-
-def test_a_break_glass_grant_that_does_not_pass_runs_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    granted = grantable(tmp_path, monkeypatch, MACHINE + WINDOW, ended="failed")
-    with pytest.raises(reads.ReadError, match=f"^the break-glass grant {GRANT} failed, so nothing ran$"):
-        glass(tmp_path)
-    assert [argv[0] for argv in granted.calls] == ["aws", "bk", "bk", "bk"]
-
-
-@pytest.mark.parametrize(
-    ("stack", "why"),
-    [
-        ("plat-usw2-prod", '^"plat-usw2-prod" is no stack: name it as <domain>/<env>, such as sandsql/plat-usw2-prod$'),
-        ("sandsql/plat-usw2-dev", "^plat-usw2-dev is no env .* declares in infra/envs$"),
-    ],
-)
-def test_a_break_glass_grant_naming_no_stack_or_env_is_refused_before_any_grant(stack: str, why: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    granted = grantable(tmp_path, monkeypatch, MACHINE + WINDOW)
-    with pytest.raises(reads.ReadError, match=why):
-        glass(tmp_path, stack)
-    assert granted.calls == []
-
-
-@pytest.mark.parametrize(
-    ("env", "files", "name", "role_arn", "region"),
-    [
-        (
-            "plat-use1-prod",
-            {"plat-use1-prod": "id: plat-use1-prod\ncloud:\n  kind: aws\n  account: plat-gbl-prod\n  region: us-east-1\n  namespace: frg\ndelivery: direct\n"},
-            "plat-prod",
-            "arn:aws:iam::222:role/frg-plat-gbl-prod-admin",
-            "us-east-1",
-        ),
-        (
-            "tnt-gbl-26qmqm1",
-            {"tnt-gbl-26qmqm1": 'id: tnt-gbl-26qmqm1\ncloud:\n  kind: aws\n  account: tnt-gbl-26qmqm1\n  accountId: "333"\n  region: us-west-2\n  namespace: frg\n'},
-            "tnt-26qmqm1",
-            "arn:aws:iam::333:role/frg-tnt-gbl-26qmqm1-admin",
-            "us-west-2",
-        ),
-    ],
-)
-def test_an_envs_admin_profile_is_written_from_its_env_file_with_no_profile_of_its_own_on_this_mac(
-    env: str, files: dict[str, str], name: str, role_arn: str, region: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    grantable(tmp_path, monkeypatch, SSO_FIRST + MACHINE + WINDOW)
-    for each, text in files.items():
-        (tmp_path / "infra" / "envs" / f"{each}.yaml").write_text(text)
-    profile = reads.machine_profile(env, tmp_path)
-    assert (profile.name, dict(profile)) == (f"profile {name}", {"role_arn": role_arn, "region": region, "source_profile": "tf"})
-
-
-def test_a_mac_reaching_the_devops_role_only_through_an_sso_sign_in_has_no_machine_profile_and_posts_no_grant(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    granted = grantable(tmp_path, monkeypatch, SSO_FIRST)
-    with pytest.raises(reads.ReadError) as refused:
-        glass(tmp_path)
-    assert str(refused.value) == (
-        f"no profile in {tmp_path / 'aws'} assumes frg-core-gbl-identity-devops through source_profile from a credential_process,"
-        " so this Mac has no machine profile"
-    )
-    assert granted.calls == []
-
-
-def test_an_env_whose_admin_role_sts_refuses_this_macs_machine_posts_no_grant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    granted = grantable(tmp_path, monkeypatch, MACHINE + WINDOW)
-    (tmp_path / "infra" / "envs" / "core-gbl-identity.yaml").write_text(
-        'id: core-gbl-identity\ncloud:\n  kind: aws\n  account: core-gbl-identity\n  accountId: "111"\n  region: us-west-2\n  namespace: frg\n'
-    )
-    granted.refuses = {"arn:aws:iam::111:role/frg-core-gbl-identity-admin"}
-    with pytest.raises(reads.ReadError) as refused:
-        glass(tmp_path, "identity/core-gbl-identity")
-    assert str(refused.value) == (
-        "STS minted this Mac's machine no arn:aws:iam::111:role/frg-core-gbl-identity-admin credentials, so no grant started:"
-        f" aws sts assume-role exited 254: User: {DEVOPS_SESSION} is not authorized to perform: sts:AssumeRole on resource: arn:aws:iam::111:role/frg-core-gbl-identity-admin"
-    )
-    assert granted.calls == [
-        ["aws", "sts", "assume-role", "--profile", "tf", "--role-arn", "arn:aws:iam::111:role/frg-core-gbl-identity-admin"]
-        + ["--role-session-name", "demo-j7", "--duration-seconds", "900", "--output", "json"]
-    ]
-
-
-@pytest.mark.parametrize("window", ["", WINDOW.replace("role_session_name = operator@example.com\n", ""), WINDOW.replace("source_profile = machine", "source_profile = identity")])
-def test_a_mac_whose_machine_break_glass_profile_cannot_mint_the_window_posts_no_grant(window: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    granted = grantable(tmp_path, monkeypatch, SSO_FIRST + MACHINE + window)
-    with pytest.raises(reads.ReadError) as refused:
-        glass(tmp_path)
-    assert str(refused.value) == (
-        f"no machine-break-glass profile in {tmp_path / 'aws'} names a role_session_name and reaches its role through source_profile from a credential_process,"
-        " so no grant opens this Mac's break-glass role"
-    )
-    assert granted.calls == []
 
 
 FAKE_DRIVE = """#!/bin/sh
@@ -813,10 +513,7 @@ def test_ending_a_command_whose_group_holds_only_an_unreaped_exit_returns_its_st
     assert group.returncode == 5
 
 
-def test_a_break_glass_told_to_stop_and_stopped_again_while_it_ends_its_command_ends_every_process_and_deletes_its_credentials(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    grantable(tmp_path, monkeypatch, MACHINE + WINDOW)
+def test_a_break_glass_told_to_stop_and_stopped_again_while_it_ends_its_command_ends_every_process(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     child = tmp_path / "child"
 
     def stop_once_started() -> None:
@@ -828,13 +525,12 @@ def test_a_break_glass_told_to_stop_and_stopped_again_while_it_ends_its_command_
         os.kill(os.getpid(), signal.SIGTERM)
 
     stopper = threading.Thread(target=stop_once_started)
-    with reads.break_glass("sandsql/plat-usw2-prod", "count rows, read only", ASKER, tmp_path, lambda link: None) as granted:
-        config = Path(granted.env["AWS_CONFIG_FILE"])
+    with reads.stop_signals() as stops:
+        granted = reads.Grant(GRANT, "plat-prod", state.now() + timedelta(minutes=50), dict(os.environ), stops)
         stopper.start()
         status = reads.run_granted(["sh", "-c", f"trap 'kill -TERM $PPID; exit 0' TERM; sleep 60 & echo $! > {child}; wait"], granted)
     stopper.join()
     assert status == 128 + signal.SIGTERM
     assert granted.stops.signals == [signal.SIGTERM, signal.SIGTERM]
-    assert not config.exists()
     assert ended(int(child.read_text()))
     assert capsys.readouterr().err == "break-glass stopped by SIGTERM, so its command was stopped with every process left in its group\n"
