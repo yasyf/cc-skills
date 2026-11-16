@@ -1,6 +1,7 @@
 import html
 import itertools
 import json
+import os
 import re
 import sys
 from collections.abc import Callable
@@ -9,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, cli, limits, mcp, orca, picture, reads, refs, render, settled, slack, state, talk, tools, view, watch
+from drive import agents, cli, limits, mcp, orca, picture, reads, refs, render, route, settled, slack, state, talk, tools, view, watch
 from drive.state import DriveError
 
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
@@ -124,6 +125,7 @@ SAY_RULE = (
 )
 NO_READ = "your transcript shows no read of his thread {thread}, and a read by another agent or session does not count for yours"
 OLD_READ = "your last read of his thread {thread} was {minutes} minutes ago, and a read counts for 10"
+ROUTED_AWAY = timedelta(minutes=15)
 FAILED_READ = "your slack_thread call on his thread {thread} failed"
 UNOPENED_READ = "your read of his thread {thread} was saved to {file}, which you have not opened since"
 ANSWERED = "his message this post answers"
@@ -640,6 +642,25 @@ def claimed(claim: str, titled: dict[str, str]) -> str:
     return claim
 
 
+def routed_away(payload: dict, drive: dict) -> str | None:
+    """Why the communicator's own line in a thread, carrying no record, waits: the hearer routed a message of his there to another seat in the last ROUTED_AWAY, and that route answers him, so a line from the communicator too would be his second reply to one message."""
+    if payload["tool_name"] != SAY or payload.get("agent_id") or os.environ.get(state.HANDLER_ENV) or payload["tool_input"].get("record"):
+        return None
+    if not (thread := payload["tool_input"].get("thread_ts")):
+        return None
+    away = [
+        kept["route"]
+        for kept in drive["routed"].values()
+        if kept.get("thread") == thread and kept["route"] and kept["route"] != route.COMMUNICATOR and state.now() - state.parse_time(kept["at"]) <= ROUTED_AWAY
+    ]
+    if not away:
+        return None
+    return agents.Unjudged(
+        f"Refused on purpose: the hearer routed his message in thread {thread} to {away[-1]}, which answers him there, so this line would be his second reply."
+        " Post nothing for it; a record you were sent about it carries its record id."
+    )
+
+
 def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> str | None:
     """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, a question's thread one answer once it is posted to him, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a thread outside his DM, such as an alert's, is named with its channel_id, a post to the people of a reporter's or watched teammate's thread or of another channel passes `cc-slack check-post`, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, links, in his DM, the open question card of his asking about each PR or error it names, asks no tap that is not owed, links no Slack message from a table cell, backs each cause, and each state of work a session posting on its own tells him, with the record of the read that measured it, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, calls no job stuck or silent before its poster read that job's transcript, says no work sits with no one on it while it names no job on it now, tells him of no coming card but an open one it names or draws, types no clock time for work already done, says in a summary what a PR it names serves, which a PR card's line above its card already quotes, names in its writer's own words no failure of the drive's without the order or PR preventing it, puts up for change in no line of a list an item a recorded answer of his orders or keeps, and `cc-slack check-post` passes its exact words."""
     dm = slack.dm()
@@ -649,7 +670,7 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
             f"The text {text} is a placeholder, and Slack would send it as written. Pass the post's own words as text,"
             " the exact words `cc-slack check-post -` passed."
         )
-    if refusal := reporter_post(payload, drive) or card_edit(payload, drive) or unsaid_post(payload, drive):
+    if refusal := reporter_post(payload, drive) or card_edit(payload, drive) or unsaid_post(payload, drive) or routed_away(payload, drive):
         return refusal
     if payload["tool_name"] == SAY and talk.to_members(drive, tool_input):
         return unread(payload, dm) or members_findings(payload, dm)
