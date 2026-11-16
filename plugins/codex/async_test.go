@@ -995,7 +995,7 @@ func TestRemovedSubcommandRefusesBeforeMinting(t *testing.T) {
 	stubDir := mustTempDir(t)
 	writeStub(t, stubDir, stubCodexReply)
 	scope := canonicalScope(t)
-	for _, args := range [][]string{{"tools"}, {"channel", "--no-tools"}, {"channel-check"}, {"daemon"}, {"agent-start"}, {"direct", "ping"}, {"supervise"}} {
+	for _, args := range [][]string{{"tools"}, {"channel", "--no-tools"}, {"daemon"}, {"agent-start"}, {"direct", "ping"}, {"supervise"}} {
 		t.Run(args[0], func(t *testing.T) {
 			runs := mustTempDir(t)
 			var stderr bytes.Buffer
@@ -1019,3 +1019,16 @@ func TestRemovedSubcommandRefusesBeforeMinting(t *testing.T) {
 		})
 	}
 }
+
+func TestChannelCheckAnOlderSessionsStopHookRunsExitsZeroSilently(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	c := exec.Command(codexAskBin(t), "channel-check") //nolint:gosec // runs the binary under test
+	c.Stdout, c.Stderr = &stdout, &stderr
+	if err := c.Run(); err != nil {
+		t.Fatalf("codex-ask channel-check: %v, stderr %q", err, stderr.String())
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("codex-ask channel-check printed stdout %q stderr %q", stdout.String(), stderr.String())
+	}
+}
+
