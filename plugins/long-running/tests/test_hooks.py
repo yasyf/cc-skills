@@ -2323,6 +2323,9 @@ LISTED_RELEASES = {
 RELEASE_TARGETS = """components:
   api:
     title: API
+  sandsql:
+    title: SandSQL
+    handoff: {timeouts: 0, lanes: [sandsql]}
 targets:
   platform:
     title: Platform
@@ -2371,6 +2374,40 @@ def test_his_all_to_a_question_listing_releases_orders_each_listed_release_in_co
     turned = LISTED_RELEASES | {"id": "304ffb3" + "0" * 33, "body": "All 3 of these are not approved yet"}
     recorded.shown["304ffb3"] = turned
     assert brief.approval_refusal(ordered[3].replace("304ffb2", "304ffb3"), data) is not None
+
+WHOLE_PLATFORM = {
+    "id": "f3633ed" + "0" * 33,
+    "title": "What production release does he order past his release hold on Nov 15, and how are its commit and test chosen?",
+    "body": "find a safe sha that has this fix and has all the stuff tested in staging, make sure we do a thorough test again at that commit of anything that can go wrong, then cut a release of whole platform",
+    "tags": ["scope:durable"],
+    "created_at": "2026-11-15T19:51:37Z",
+}
+
+
+def test_a_production_release_handing_sandsql_writer_over_starts_only_on_words_naming_sandsql_even_where_opus_reads_them_ordering_it(
+    demo: str, run: Run, recorded: Answers, jev: Jev
+) -> None:
+    answered_cut(run, demo, [CUT_PICK])
+    data = state.load(demo)
+    (Path(data["roles"]["coordinator"]["cwd"]) / "release").mkdir()
+    (Path(data["roles"]["coordinator"]["cwd"]) / "release" / "targets.yaml").write_text(RELEASE_TARGETS)
+    with state.edit(demo) as data:
+        for n, answer in enumerate((WHOLE_PLATFORM, LISTED_RELEASES), 98):
+            data["answers"][answer["id"]] = {"words": answer["body"], "link": drawn_card(n), "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+    recorded.shown = {"f3633ed": WHOLE_PLATFORM, "304ffb2": LISTED_RELEASES}
+    jev.picks("orders")
+    data = state.load(demo)
+    whole = "tools/ci release start --from 216f90221a4708e2f694823ea207ae738992e829 --order f3633ed"
+    unhanded = settled.UNHANDED.format(parts="sandsql", names="SandSQL or sandsql")
+    refused = f'refused: `--order f3633ed` names his answer to "{WHOLE_PLATFORM["title"]}", "{WHOLE_PLATFORM["body"]}", and {unhanded}. {brief.RELEASE_APPROVAL}'
+    assert [brief.approval_refusal(release, data) for release in (whole, whole.replace(" --from", " sandsql --from"), whole.replace(" --from", " --only sandsql --from"))] == [refused] * 3
+    assert jev.asked == []
+    assert brief.approval_refusal(whole.replace(" --from", " --exclude sandsql --from"), data) is None
+    assert brief.approval_refusal(whole.replace(" --from", " platform dashboard --from"), data) is None
+    assert len(jev.asked) == 2
+    assert brief.approval_refusal("tools/ci release start sandsql --from 216f90221a4708e2f694823ea207ae738992e829 --order 304ffb2", data) is None
+    assert len(jev.asked) == 2
+
 
 STANDING_SOAK_CARD = """ASK May the drive soak each dangerous branch on frozen staging under your playbook unasked, or is each soak your exception?
 Drive tooling: your pick decides whether a staging-only soak waits for your word each time.

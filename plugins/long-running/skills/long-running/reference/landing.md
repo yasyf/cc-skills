@@ -846,7 +846,12 @@ the patch.
   production, its `infra/envs` file giving a stage and no `prod: true` as staging, sandbox and dev have, and a rollback
   run at any hour. A pick whose words
   order the release approves it whatever its card asked, by his words "if I apprtove a release dont
-  fuckl around kjust appriove it". The release gate and `drive job ask` read his answer one way: his
+  fuckl around kjust appriove it". A production release shipping a component whose `release/targets.yaml`
+  entry declares `handoff:`, as SandSQL's does, hands that database's writer over to a new one, so it starts
+  only on an answer whose words, question or kept card, its Show me included, name that component, by its
+  name, its title or a target holding it, as "SandSQL's HA release" does: a start naming no targets ships the
+  whole platform, SandSQL included, so "cut a release of whole platform" orders it only with SandSQL left out by
+  `--exclude sandsql`. The release gate and `drive job ask` read his answer one way: his
   option number or tap on a kept card whose option names a release in backticks orders a release
   shipping that option's change, on that option's places and on those his words past the number name,
   by env id or by the team's name in that env's `infra/envs` file, so "1 and then get Acme to the

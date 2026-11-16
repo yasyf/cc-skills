@@ -49,6 +49,12 @@ TARGET = re.compile(r"^  ([a-z0-9][a-z0-9-]*):\n((?:    .*(?:\n|$))*)", re.MULTI
 INLINE_PARTS = re.compile(r"^    components: \[([^\]]*)\]", re.MULTILINE)
 COMPONENTS = re.compile(r"^components:\n((?:[ -].*(?:\n|$))*)", re.MULTILINE)
 PART_ENVS = re.compile(r"^    envs: \[([^\]]*)\]", re.MULTILINE)
+HANDOFF = re.compile(r"^    handoff:", re.MULTILINE)
+TITLE = re.compile(r"^    title: *(.+?) *$", re.MULTILINE)
+UNHANDED = (
+    "this release ships {parts} on production, which hands that database's writer over to a new one, and neither his words nor the card"
+    " or question they answer name {names}, so he approved no such hand-over: ask him on a card naming it, or leave {parts} out of the release"
+)
 SCOPE_WORDS = 'his words on Nov 15, 2026, "why are you leaving stuff out? you should make sure everything including sand-next is working and has not broken anything and then release it all"'
 MANUAL_TARGET = re.compile(r"^    manual: true\s*$", re.MULTILINE)
 LISTED_PARTS = re.compile(r"^    components:\n((?:    - .*(?:\n|$))+)", re.MULTILINE)
@@ -1188,6 +1194,8 @@ def ordered_by(answer: dict, release: str, flags: dict, matches: Callable[[dict,
     said = his(answer["body"])
     asked = answered_card(data, answer)
     cwd = data["roles"]["coordinator"]["cwd"]
+    if why := unhanded(answer, said, asked, release, data):
+        return why
     if asked and (pick := picked_option(asked, said)):
         number, rest = pick
         option = asked.options[number - 1]
@@ -1212,6 +1220,40 @@ def ordered_by(answer: dict, release: str, flags: dict, matches: Callable[[dict,
     if orders is False or more:
         return UNORDERED
     raise Unsure(f"Opus is unsure whether his answer {answer['id'][:7]} approves this release")
+
+
+def unhanded(answer: dict, said: str, asked: limits.Question | None, release: str, data: dict) -> str | None:
+    """Why his answer cannot order a release that hands a database's writer over: the release runs on a production place, by off_production(), and ships a component whose release/targets.yaml entry declares `handoff:`, as SandSQL's does, by handed_names(), and no name of that component is in his words, the questions his message answers, by message_questions(), or the kept card it answers, its Show me included, so no word he approved named that hand-over; None otherwise. A start naming no targets ships every component of the whole platform, by platform_targets(), less those `--exclude` and `--without` leave out, and `--only` ships those it names alone."""
+    from drive import brief
+
+    cwd = data["roles"]["coordinator"]["cwd"]
+    [flags] = map(shipped, brief.started(release))
+    if off_production(flags, cwd) or not (handed := handed_names(released_parts(flags, cwd), cwd)):
+        return None
+    words = f" {plain(' '.join([said, *message_questions(answer, said, data), *([card_text(asked), *asked.show_me] if asked else [])]))} "
+    if unnamed := sorted(part for part, names in handed.items() if not any(f" {plain(name)} " in words for name in names)):
+        return UNHANDED.format(parts=", ".join(unnamed), names=" or ".join(sorted(name for part in unnamed for name in handed[part])))
+    return None
+
+
+def released_parts(release: dict, cwd: str) -> set[str]:
+    """The components a production release ships, as shipped() reads its flags: those of its targets, by shipped_parts(), else every component of the whole platform, by platform_targets(), less those `--exclude` and `--without` name, and only those `--only` names when it names any."""
+    if release.get("targets"):
+        return shipped_parts(release, cwd)
+    parts = target_parts(cwd)
+    ships = {part for target in platform_targets(cwd) for part in parts[target]} - {*release.get("exclude", ()), *release.get("without", ())}
+    return ships & {only.partition("/")[0] for only in release["only"]} if release.get("only") else ships
+
+
+def handed_names(parts: set[str], cwd: str) -> dict[str, set[str]]:
+    """Each of these components whose entry under release/targets.yaml's `components:` declares `handoff:`, its writer handed to a new one at each release, beside the names words call it by: its own, its title and each target holding it with that target's title."""
+    path = Path(cwd) / "release" / "targets.yaml"
+    section = COMPONENTS.search(path.read_text()) if path.is_file() else None
+    handed = {part: {part, *TITLE.findall(block)} for part, block in TARGET.findall(section[1] if section else "") if part in parts and HANDOFF.search(block)}
+    for target, block in target_blocks(cwd):
+        for part in handed.keys() & set(target_parts(cwd).get(target, ())):
+            handed[part] |= {target, *TITLE.findall(block)}
+    return handed
 
 
 def listed_order(said: str, question: str, flags: dict, matches: Callable[[dict, dict, str, str], str | None], cwd: str) -> bool:
