@@ -4375,9 +4375,11 @@ def job_replies(args: argparse.Namespace) -> int:
 def slot_claim(args: argparse.Namespace) -> int:
     """Claim a staging env's slot for a job: it holds the slot now when none does, its lease ending its minutes past the staging-claim rule's wait, else it queues last, first in first out, and the watch hands it the slot with a GO once the holder gives it back, finishes or outlives its lease, by state.slot_turns."""
     name = state.resolve(args.drive)
+    prs = [state.pr_key(pr) for pr in args.pr]
+    paths = watch.pass_paths(prs)
     with state.edit(name) as data:
         find(data["jobs"], args.job, "job")
-        line = state.slot_claim(data, args.env, args.job, args.minutes, [state.pr_key(pr) for pr in args.pr], args.cases, state.now())
+        line = state.slot_claim(data, args.env, args.job, args.minutes, prs, args.cases, state.now(), paths)
     return emit(args, line, {"env": args.env, "job": args.job, "line": line})
 
 
@@ -4396,7 +4398,7 @@ def slot_queue(args: argparse.Namespace) -> int:
     lines = []
     for env, slot in shown.items():
         held = slot["holder"]
-        lines.append(f"{env}: {held['job'] + ' until ' + held['until'] if held else 'free'}")
+        lines.append(f"{env}: {held['job'] + ' until ' + held['until'] + ''.join(', ' + rider['job'] + ' riding its cut' for rider in held['riders']) if held else 'free'}")
         lines += [f"  {place}. {each['job']} for {each['minutes']} minutes, queued {each['at']}" for place, each in enumerate(slot["queue"], 1)]
     return emit(args, "\n".join(lines) or "no staging slot is held or queued", {"slots": shown})
 

@@ -4091,11 +4091,27 @@ def seated_first(watcher: Watcher) -> list[Watcher]:
     return sorted([watcher, *watcher.others.values()], key=lambda one: one.project not in seats)
 
 
+def pass_paths(prs: list[str]) -> list[str] | None:
+    """Every file a staging pass's PRs change, by github.paths, which slot_turns packs passes by; None for a pass naming no PR or whose PRs GitHub could not read, which then rides no other pass's cut."""
+    if not prs:
+        return None
+    try:
+        read = github.paths(prs)
+    except github.GithubError:
+        return None
+    return sorted({path for key in prs if key in read for path in read[key][1]}) if all(key in read for key in prs) else None
+
+
 def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Hand on each staging slot, by state.slot_turns: end a lease whose job finished, extend once a lease that ran past its end and end it at its second, and give a free slot to the first job in its queue with a GO, sent to it by `drive job resume`, so no session sequences staging by hand; packing PRs into one cut stays the top coordinator's, by his picks. Its lines go as evidence and wake nobody; a GO's resume that is refused reaches the session holding the job as its relaunch_refused event."""
-    if watcher.project or not state.load(watcher.name)["slots"]:
+    """Hand on each staging slot, by state.slot_turns: end a lease whose job finished, extend once a lease that ran past its end and end it at its second, and give a free slot to the first job in its queue with a GO, packed with each later pass whose PRs change none of its files, up to six, each of those resumed with its RIDE line, every resume by `drive job resume`, so no session sequences or packs staging by hand; it reads the files of each queued pass whose files it has not read while the slot is held, so a pass is packed the moment the slot frees. Its lines go as evidence and wake nobody; a GO's resume that is refused reaches the session holding the job as its relaunch_refused event."""
+    if watcher.project or not (slots := state.load(watcher.name)["slots"]):
         return []
+    unread = {each["job"]: pass_paths(each["prs"]) for slot in slots.values() for each in slot["queue"] if each["paths"] is None and each["prs"]}
     with state.edit(watcher.name) as data:
+        for slot in data["slots"].values():
+            for each in slot["queue"]:
+                if each["paths"] is None and unread.get(each["job"]) is not None:
+                    each["paths"] = unread[each["job"]]
         moved = state.slot_turns(data, moment)
     lines = []
     for env, job_id, kind, line in moved:

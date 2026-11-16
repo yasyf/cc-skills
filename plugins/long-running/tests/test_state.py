@@ -2770,3 +2770,25 @@ def test_a_pr_a_bot_or_github_app_opened_is_no_teammates_and_the_drive_may_take_
     assert state.foreign("Forge-AI/monorepo#56030", github.author_login({"__typename": "Bot", "login": "poetic-vulcan"}), []) is None
     assert state.foreign("Forge-AI/monorepo#56030", "renovate[bot]", []) is None
     assert state.foreign("Forge-AI/monorepo#56030", github.author_login({"__typename": "User", "login": "rowan"}), [])
+
+
+def test_a_free_staging_slot_packs_up_to_six_passes_whose_files_never_overlap_into_one_cut_under_one_lease() -> None:
+    moment = datetime(2026, 11, 16, 1, 0, tzinfo=UTC)
+    names = [f"j{number}" for number in range(1, 10)]
+    data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": []} for job_id in ["j0", *names]}}
+    state.slot_claim(data, "plat-usw2-staging", "j0", 20, [], None, moment)
+    files = {"j1": ["a"], "j2": ["a", "b"], "j3": ["c"], "j4": None, "j5": ["d"], "j6": ["e"], "j7": ["f"], "j8": ["g"], "j9": ["h"]}
+    for job_id in names:
+        state.slot_claim(data, "plat-usw2-staging", job_id, 15 if job_id != "j3" else 40, [f"Forge-AI/monorepo#{job_id[1:]}"], None, moment, files[job_id])
+    data["jobs"]["j0"]["state"] = "done"
+    moved = state.slot_turns(data, moment + timedelta(minutes=30))
+    held = data["slots"]["plat-usw2-staging"]["holder"]
+    assert (held["job"], [rider["job"] for rider in held["riders"]], held["minutes"]) == ("j1", ["j3", "j5", "j6", "j7", "j8"], 40)
+    assert [each["job"] for each in data["slots"]["plat-usw2-staging"]["queue"]] == ["j2", "j4", "j9"]
+    goes = {job_id: line for _, job_id, kind, line in moved if kind == "go"}
+    assert ("Your cut carries Forge-AI/monorepo#3" in goes["j1"], goes["j3"].startswith("RIDE cut j1 on plat-usw2-staging until")) == (True, True)
+    for job_id in ("j1", "j3", "j5", "j6", "j7"):
+        data["jobs"][job_id]["state"] = "done"
+    assert state.slot_turns(data, moment + timedelta(minutes=40)) == []
+    assert state.slot_release(data, "plat-usw2-staging", "j8") == "j8 left the plat-usw2-staging slot's cut"
+    assert [line for _, _, kind, line in state.slot_turns(data, moment + timedelta(minutes=41)) if kind == "freed"] == ["SLOT plat-usw2-staging freed by j1's cut"]

@@ -1312,6 +1312,13 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data.setdefault("answers", {})
     data.setdefault("stalls", {})
     data.setdefault("slots", {})
+    for slot in data["slots"].values():
+        for each in slot["queue"]:
+            each.setdefault("paths", None)
+        if slot["holder"]:
+            slot["holder"].setdefault("paths", None)
+            slot["holder"].setdefault("riders", [])
+            slot["holder"].setdefault("released", False)
     data.setdefault("reader_pilot", None)
     data.setdefault("tooling_backlog", False)
     for answer in data["answers"].values():
@@ -6692,14 +6699,14 @@ SLOT_GO_STEPS = (
 )
 
 
-def slot_claim(data: dict, env: str, job_id: str, minutes: int, prs: list[str], cases: str | None, moment: datetime) -> str:
-    """Give a staging env's slot to the job when no job holds it, its lease ending minutes past the staging-claim rule's CLAIM_WAIT, else queue the job, first in first out but for a job jumps_queue reads as serving a priority order or an open incident, which goes behind only the jobs that jump too, by his ruling that they jump the line as their builders jump the builder-slot line; the line saying which, refused for a job already holding or queued on it."""
+def slot_claim(data: dict, env: str, job_id: str, minutes: int, prs: list[str], cases: str | None, moment: datetime, paths: list[str] | None = None) -> str:
+    """Give a staging env's slot to the job when no job holds it, its lease ending minutes past the staging-claim rule's CLAIM_WAIT, else queue the job, first in first out but for a job jumps_queue reads as serving a priority order or an open incident, which goes behind only the jobs that jump too, by his ruling that they jump the line as their builders jump the builder-slot line; paths, the files its PRs change, let slot_turns pack it into another pass's cut; the line saying which, refused for a job already holding, riding or queued on it."""
     slot = data["slots"].setdefault(env, {"holder": None, "queue": []})
-    if (slot["holder"] or {}).get("job") == job_id or any(each["job"] == job_id for each in slot["queue"]):
+    if job_id in slot_members(slot) or any(each["job"] == job_id for each in slot["queue"]):
         raise DriveError(f"{job_id}: refused, it already holds or waits for the {env} slot: drive slot queue {env} names its place")
-    asked = {"job": job_id, "prs": prs, "minutes": minutes, "cases": cases, "at": stamp(moment)}
+    asked = {"job": job_id, "prs": prs, "minutes": minutes, "cases": cases, "at": stamp(moment), "paths": paths}
     if slot["holder"] is None:
-        slot["holder"] = leased(asked, moment)
+        slot["holder"] = leased(asked, moment, [])
         return f"GO {job_id} holds the {env} slot until {slot['holder']['until']}: {SLOT_GO_STEPS.format(env=env, job=job_id)}"
     place = sum(1 for each in slot["queue"] if jumps_queue(data, each["job"])) if jumps_queue(data, job_id) else len(slot["queue"])
     slot["queue"].insert(place, asked)
@@ -6711,16 +6718,47 @@ def jumps_queue(data: dict, job_id: str) -> bool:
     return first_in_line(data, job) or bool(open_incidents(data, [job["order"], *job["carries"]]))
 
 
-def leased(asked: dict, moment: datetime) -> dict:
-    return asked | {"since": stamp(moment), "until": stamp(moment + CLAIM_WAIT + timedelta(minutes=asked["minutes"])), "extended": False}
+def leased(asked: dict, moment: datetime, riders: list[dict]) -> dict:
+    minutes = max(each["minutes"] for each in [asked, *riders])
+    return asked | {"minutes": minutes, "since": stamp(moment), "until": stamp(moment + CLAIM_WAIT + timedelta(minutes=minutes)), "extended": False, "riders": riders, "released": False}
+
+
+def slot_members(slot: dict) -> list[str]:
+    """The jobs a staging slot's cut holds: its starter and each pass packed into it."""
+    held = slot["holder"]
+    return [held["job"], *(rider["job"] for rider in held["riders"])] if held else []
+
+
+def packed(queue: list[dict]) -> tuple[dict, list[dict]]:
+    """Take the head of a slot's queue and up to PACKED_CUT - 1 later passes whose PRs change no file the cut's passes already change, by his rule that dangerous changes whose changed files never overlap share one staging cut, up to six; a pass whose files are unread rides with none."""
+    head, riders = queue.pop(0), []
+    touched = set(head["paths"] or ())
+    for each in list(queue) if head["paths"] is not None else []:
+        if len(riders) == PACKED_CUT - 1:
+            break
+        if each["paths"] is not None and not touched & set(each["paths"]):
+            riders.append(each)
+            queue.remove(each)
+            touched |= set(each["paths"])
+    return head, riders
+
+
+PACKED_CUT = 6
 
 
 def slot_release(data: dict, env: str, job_id: str) -> str:
-    """Take the job off a staging env's slot, as its holder or from its queue; the line saying which, refused for a job that neither holds nor waits for it."""
+    """Take the job off a staging env's slot, as its cut's starter, a pass riding it or from its queue; the slot frees once no pass of its cut still runs, by slot_turns; the line saying which, refused for a job that neither holds nor waits for it."""
     slot = data["slots"].get(env) or {"holder": None, "queue": []}
-    if (slot["holder"] or {}).get("job") == job_id:
-        slot["holder"] = None
+    if (held := slot["holder"]) and held["job"] == job_id:
+        held["released"] = True
+        if not held["riders"]:
+            slot["holder"] = None
         return f"{job_id} gave back the {env} slot"
+    if held and any(rider["job"] == job_id for rider in held["riders"]):
+        held["riders"] = [rider for rider in held["riders"] if rider["job"] != job_id]
+        if held["released"] and not held["riders"]:
+            slot["holder"] = None
+        return f"{job_id} left the {env} slot's cut"
     if any(each["job"] == job_id for each in slot["queue"]):
         slot["queue"] = [each for each in slot["queue"] if each["job"] != job_id]
         return f"{job_id} left the {env} slot's queue"
@@ -6728,18 +6766,30 @@ def slot_release(data: dict, env: str, job_id: str) -> str:
 
 
 def slot_turns(data: dict, moment: datetime) -> list[tuple[str, str, str, str]]:
-    """End each staging slot's lease whose job finished, stopped or failed, extend once by its minutes a lease whose end passed while its job still runs, by his ruling that an overrunning lease extends once, and end it at its second end, then give each free slot to the first job in its queue that still runs or waits, dropping finished ones, its lease starting now; each (env, job, kind, line) of a slot that changed, kind freed, extended or go, a go's line the GO its job is resumed with."""
+    """End each staging slot's lease once every pass of its cut finished, stopped, failed or gave the slot back, extend once by its minutes a lease whose end passed while a pass still runs, by his ruling that an overrunning lease extends once, and end it at its second end, then give each free slot to the first job in its queue that still runs or waits, dropping finished ones, packed with the later passes whose files never overlap, by packed, under one lease: the head starts the cut and each packed pass rides it; each (env, job, kind, line) of a slot that changed, kind freed, extended or go, a go's line the GO its job is resumed with."""
     moved = []
     for env, slot in data["slots"].items():
-        if (held := slot["holder"]) and data["jobs"][held["job"]]["state"] not in FINISHED_JOB_STATES and parse_time(held["until"]) <= moment and not held["extended"]:
+        held = slot["holder"]
+        running = held and [job_id for job_id in slot_members(slot) if data["jobs"][job_id]["state"] not in FINISHED_JOB_STATES and not (job_id == held["job"] and held["released"])]
+        if held and running and parse_time(held["until"]) <= moment and not held["extended"]:
             held.update(until=stamp(parse_time(held["until"]) + timedelta(minutes=held["minutes"])), extended=True)
-            moved.append((env, held["job"], "extended", f"SLOT {env} lease of {held['job']} ran past its end, extended once to {held['until']}"))
-        elif held and (data["jobs"][held["job"]]["state"] in FINISHED_JOB_STATES or parse_time(held["until"]) <= moment):
+            moved.append((env, held["job"], "extended", f"SLOT {env} lease of {held['job']}'s cut ran past its end, extended once to {held['until']}"))
+        elif held and (not running or parse_time(held["until"]) <= moment):
             slot["holder"] = None
-            moved.append((env, held["job"], "freed", f"SLOT {env} freed by {held['job']}"))
+            moved.append((env, held["job"], "freed", f"SLOT {env} freed by {held['job']}'s cut"))
         slot["queue"] = [each for each in slot["queue"] if data["jobs"][each["job"]]["state"] not in FINISHED_JOB_STATES]
         if slot["holder"] is None and slot["queue"]:
-            head = slot["queue"].pop(0)
-            slot["holder"] = leased(head, moment)
-            moved.append((env, head["job"], "go", f"GO staging {env} until {slot['holder']['until']}: {SLOT_GO_STEPS.format(env=env, job=head['job'])}"))
+            head, riders = packed(slot["queue"])
+            slot["holder"] = leased(head, moment, riders)
+            until = slot["holder"]["until"]
+            carried = f" Your cut carries {', '.join(pr for rider in riders for pr in rider['prs'])} too, packed with yours since no two change one file: start it from a branch with each of their heads and yours cherry-picked onto what staging serves, under one freeze and one claim naming them all." if riders else ""
+            moved.append((env, head["job"], "go", f"GO staging {env} until {until}: {SLOT_GO_STEPS.format(env=env, job=head['job'])}.{carried}"))
+            moved += [(env, rider["job"], "go", RIDE_STEPS.format(env=env, until=until, starter=head["job"], prs=", ".join(rider["prs"]) or "your PR", job=rider["job"])) for rider in riders]
     return moved
+
+
+RIDE_STEPS = (
+    "RIDE cut {starter} on {env} until {until}: {starter}'s START carries {prs}, packed into one cut with its own, so start no cut and post no claim yourself;"
+    " return `WAITING staging:<target>/{env}@<head>` for each target your paths reach, run your cases once staging serves your head, past the claim's 5 minutes,"
+    " and `drive slot release {env} --job {job}` once you finish"
+)

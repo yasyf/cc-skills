@@ -58,6 +58,10 @@ Each pass, for each slot:
 
 Every staging start holds the slot, the top coordinator's included. `drive job add --release` whose start names one staging `--env` takes that env's slot for the job it adds, with a 60-minute lease that ends with the job, and is refused while another job holds the slot.
 
+## Packing
+
+When a slot frees, the head of its queue takes it together with up to five later passes whose PRs change none of the cut's files, as AGENTS.md packs dangerous changes into one staging cut. The head's `GO` names the packed PRs and starts one cut carrying them all; each packed pass's `RIDE` line says to start no cut. One lease, its longest pass's minutes, covers the cut, and it frees once every pass in it finished or gave the slot back. Only the head may run `ci release start` on that env.
+
 ## The queue
 
 Claims queue first in, first out. A pass serving a priority order or an open incident goes ahead of every pass that does not, behind only the passes that jump too, as their builders jump the builder-slot line. A holder is never cut short.
