@@ -298,6 +298,7 @@ ATTEMPT: ContextVar["Attempt | None"] = ContextVar("attempt", default=None)
 BATCHING: ContextVar[str | None] = ContextVar("batching", default=None)
 COMMITTED: ContextVar[int | None] = ContextVar("committed", default=None)
 BUDGET: ContextVar["Budget | None"] = ContextVar("budget", default=None)
+ACTIVE: ContextVar[frozenset[str]] = ContextVar("active", default=frozenset())
 EDITING: ContextVar[str | None] = ContextVar("editing", default=None)
 TAKEN_IDS: ContextVar[list[tuple[str, str, int]] | None] = ContextVar("taken_ids", default=None)
 PTHREADS = ctypes.CDLL(None, use_errno=True)
@@ -5242,16 +5243,12 @@ def handled_lock(name: str, budget: Budget) -> Iterator[None]:
 
 
 def write[T](name: str, change: Callable[[dict], T], *, budget: float | None = None, patient: bool = False) -> T:
-    """The one way to change a drive: apply change, a function of the drive that only reads and changes data and leaves each effect outside the drive to after, to the drive as it loads, holding no lock while it runs, recording each row it reads, by ReadDrive, and every row once it loads the drive again itself, since those reads go untracked, and save each record it changed in one short transaction, refused when another write committed one of those rows or one it read since the load, by rows_saved's since, or, on a database no install gave a changed table yet, when the database no longer holds each record it changed as that load read it, unshaped; each effect it left runs once its save commits, the effects of a refused run dropped with it. A refused run runs change again on the drive as it then stands, at once for UPDATE_TRIES runs and then after a growing random pause, until budget, DRIVE_LOCK_SECONDS unless named, passes, counting each wait on the drive's lock or database against it, its move out of drive.json, the ids its change takes and those a refused run gives back included, then refuses as Refused, which locks.log names, or as Busy once a wait ran it out; a patient write, or one under waiting_out_lock, which records an outside action already done, waits and runs again for good. Inside a batch it runs change once on the batch's copy, its effects waiting for the batch's save; a drive still in drive.json moves into its database first. A write of a drive inside the change of another write of that drive raises, since its commit would race the outer one's on every run."""
-    if (running := ATTEMPT.get()) is not None and running.name == name:
-        raise DriveError(f"refused, nothing kept: a write of {name} ran inside the change of another write of it, whose commit it would race on every run, so fold it into that change or run it after that write")
+    """The one way to change a drive: apply change, a function of the drive that only reads and changes data and leaves each effect outside the drive to after, to the drive as it loads, holding no lock while it runs, recording each row it reads, by ReadDrive, and every row once it loads the drive again itself, since those reads go untracked, and save each record it changed in one short transaction, refused when another write committed one of those rows or one it read since the load, by rows_saved's since, or, on a database no install gave a changed table yet, when the database no longer holds each record it changed as that load read it, unshaped; each effect it left runs once its save commits, the effects of a refused run dropped with it. A refused run runs change again on the drive as it then stands, at once for UPDATE_TRIES runs and then after a growing random pause, until budget, DRIVE_LOCK_SECONDS unless named, passes, counting each wait on the drive's lock or database against it, its move out of drive.json, the ids its change takes and those a refused run gives back included, then refuses as Refused, which locks.log names, or as Busy once a wait ran it out; a patient write, or one under waiting_out_lock, which records an outside action already done, waits and runs again for good. Inside a batch it runs change once on the batch's copy, its effects waiting for the batch's save; a drive still in drive.json moves into its database first. A write of a drive inside the change of another write of that drive raises, at any depth, by unnested, since its commit would race the outer one's on every run."""
+    unnested(name)
     if name in BATCHED:
         data = load(name)
-        token = ATTEMPT.set(Attempt(name, data, Reads(), AFTER_SAVE[name]))
-        try:
+        with changing(Attempt(name, data, Reads(), AFTER_SAVE[name])):
             done = change(data)
-        finally:
-            ATTEMPT.reset(token)
         BATCHED[name] = marshal.dumps(data)
         return done
     patient = patient or WAITS_OUT_LOCK.get()
@@ -5271,17 +5268,15 @@ def write[T](name: str, change: Callable[[dict], T], *, budget: float | None = N
                 loaded, raw = loaded_raw(name)
                 since, base, reads = LOADED_REV.get(), marshal.dumps(loaded), Reads()
                 attempt = Attempt(name, ReadDrive(loaded, reads), reads, [])
-                token = ATTEMPT.set(attempt)
                 try:
-                    done = change(attempt.data)
+                    with changing(attempt):
+                        done = change(attempt.data)
                 except Busy:
                     if not patient:
                         raise
                     why = "another write held the drive's database each time it ran"
                     released(taken)
                     continue
-                finally:
-                    ATTEMPT.reset(token)
                 mine = plain(attempt.data)
                 was = marshal.loads(base)
                 written = tuple(sorted(written_rows(was, mine)))
@@ -5307,6 +5302,23 @@ def write[T](name: str, change: Callable[[dict], T], *, budget: float | None = N
         raise Refused(f"refused, nothing kept: {why} for {seconds:g}s, so send it again")
     ran(landed, [], rev)
     return done
+
+
+def unnested(name: str) -> None:
+    """Refuse a write of a drive while a change of that drive runs in this context, at any depth, whatever other drive's write runs inside it, since its commit would race the outer one's on every run; a write after that change ended, such as one of its effects, runs."""
+    if name in ACTIVE.get():
+        raise DriveError(f"refused, nothing kept: a write of {name} ran inside the change of another write of it, whose commit it would race on every run, so fold it into that change or run it after that write")
+
+
+@contextmanager
+def changing(attempt: Attempt) -> Iterator[None]:
+    """Run a write's change as attempt, which after and the reads of the drive it changes bind to, with its drive among those whose change runs, which unnested reads, both as they were once it ends."""
+    tokens = ATTEMPT.set(attempt), ACTIVE.set(ACTIVE.get() | {attempt.name})
+    try:
+        yield
+    finally:
+        ATTEMPT.reset(tokens[0])
+        ACTIVE.reset(tokens[1])
 
 
 def kept_runs(name: str, runs: int, seconds: float, why: str) -> list[str]:
@@ -5459,14 +5471,12 @@ def after_save(name: str, effect: Callable[[], list[str]]) -> list[str]:
 
 def create_or_write[T](name: str, fresh: dict, change: Callable[[dict], T]) -> T:
     """Apply change to the drive by write, or, while the drive does not exist yet, to fresh, saved as the drive's first database, built beside it and linked into place, so a drive another start made first meanwhile is never written over and change runs on that drive instead, by write; neither holds the drive's lock. Each effect change leaves by after runs once its drive is in place, and a run on fresh that lost the race drops its effects."""
+    unnested(name)
     if exists(name):
         return write(name, change)
     effects: list[Callable[[], list[str]]] = []
-    token = ATTEMPT.set(Attempt(name, fresh, Reads(), effects))
-    try:
+    with changing(Attempt(name, fresh, Reads(), effects)):
         done = change(fresh)
-    finally:
-        ATTEMPT.reset(token)
     drive_dir(name).mkdir(parents=True, exist_ok=True)
     made = built(name, fresh)
     try:
