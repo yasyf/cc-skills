@@ -766,9 +766,15 @@ def rest(name: str, handler: str) -> None:
 
 
 def wake(name: str, handler: str, prompt: str) -> None:
-    """Give a resting pool handler its brief as the next prompt of its own session, `claude --bg --resume` continuing it in the checkout it runs in, so its context carries over and no new session starts; a cci record to it never wakes it, since cci binds a handler's session to the communicator's by CCI_PARENT_SESSION."""
+    """Give a resting pool handler its brief as the next prompt of its own session: its idle background job stopped, then `claude --bg --resume` continuing that same session in the checkout it ran in, so its context carries over, since a resume of a job still up starts a copy beside it and a cci record to it never wakes it, cci binding a handler's session to the communicator's by CCI_PARENT_SESSION; a copy Claude Code starts anyway becomes the handler's session and the old job is removed."""
     session = state.saved(name)["handlers"][handler]["session"]
-    resume_job({"session": session, "cwd": background_job(session)[1]["cwd"]}, prompt)
+    own, kept = background_job(session)
+    subprocess.run(["claude", "stop", own], cwd=kept["cwd"], capture_output=True, check=False)
+    resumed = launched(backgrounded(["claude", "--bg", "--resume", session, prompt], Path(kept["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"}))
+    if resumed != session:
+        with state.edit(name) as data:
+            data["handlers"][handler]["session"] = resumed
+        subprocess.Popen(["claude", "rm", own], cwd=kept["cwd"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
 def warm(name: str) -> str | None:
@@ -1245,7 +1251,7 @@ def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | N
                     if job_id:
                         data["jobs"][job_id]["agent"] = f"{payload['agent_id']}@{ended_handler['given']}"
                     ended_handler = dict(ended_handler)
-                    data["handlers"][payload["agent_id"]] |= {"busy": False, "brief": None, "holds": None, "took": [], "posted": [], "ended": state.stamp()}
+                    data["handlers"][payload["agent_id"]] |= {"session": payload["handler_session"], "busy": False, "brief": None, "holds": None, "took": [], "posted": [], "ended": state.stamp()}
                 else:
                     data["handlers"].pop(payload["agent_id"])
             return ended_handler, briefs, given_up
