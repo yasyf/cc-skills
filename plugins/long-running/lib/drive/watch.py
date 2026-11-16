@@ -1723,8 +1723,16 @@ def sending(message: dict) -> str:
 
 
 @contextlib.contextmanager
+<<<<<<< ours
 def relaying(watcher: Watcher) -> Iterator[Callable[[str], None]]:
     """Answer the lanes' reads from the watch's responder, owe him each promised line from a relay, and land, stage and wake from its landing loop, each a process of its own the watch starts, by beside, for as long as the watch runs: the drive's own relay, and one relay for each project the watch takes, by the callable this yields, so a project's promised line waits on no other project's relay pass; each line the responder or a relay writes handed to the watcher it is for as it comes, and each map of the PRs the drive does not track the landing loop writes kept as that watcher's, by relayed_lines, which starts again each that ends before the watch ends it; each ended with SIGTERM and its reader waited for RELAY_JOIN_SECONDS before the watch keeps its unposted lines, so each line the relay made is kept, then SIGKILL and as long again, so a pipe another process still holds open never holds the watch's end, which says the reader it left."""
+||||||| base
+def relaying(watcher: Watcher) -> Iterator[None]:
+    """Answer the lanes' reads from the watch's responder, owe him each promised line from its relay, and land, stage and wake from its landing loop, each a process of its own the watch starts, by beside, for as long as the watch runs: each line the responder or relay writes handed to the watcher as it comes, and each map of the PRs the drive does not track the landing loop writes kept as the watcher's, by relayed_lines, which starts again each that ends before the watch ends it; each ended with SIGTERM and its reader waited for RELAY_JOIN_SECONDS before the watch keeps its unposted lines, so each line the relay made is kept, then SIGKILL and as long again, so a pipe another process still holds open never holds the watch's end, which says the reader it left."""
+=======
+def relaying(watcher: Watcher) -> Iterator[None]:
+    """Answer the lanes' reads from the watch's responder, owe him each promised line from its relay, and land, stage and wake from its landing loop, each a process of its own the watch starts, by beside, for as long as the watch runs: each line the responder or relay writes handed to the watcher as it comes, and each map of the PRs the drive does not track the landing loop writes kept as the watcher's, by relayed_lines, which starts again each that ends before the watch ends it; each ended with SIGTERM in turn, the responder last, so lanes get their readers while the relay and landing loop end, and its reader waited for RELAY_JOIN_SECONDS before the next is ended and the watch keeps its unposted lines, so each line the relay made is kept, then SIGKILL and as long again, so a pipe another process still holds open never holds the watch's end, which says the reader it left."""
+>>>>>>> theirs
     ending, guard, live = threading.Event(), threading.Lock(), {}
     readers: dict[str, tuple[str, threading.Thread]] = {}
 
@@ -1744,8 +1752,17 @@ def relaying(watcher: Watcher) -> Iterator[Callable[[str], None]]:
     finally:
         with guard:
             ending.set()
+<<<<<<< ours
         for slot, (what, reader) in sorted(readers.items(), key=lambda item: item[0] == RESPONDER):
             live[slot].terminate()
+||||||| base
+            for child in live.values():
+                child.terminate()
+        for flag, (what, reader) in readers.items():
+=======
+        for flag, (what, reader) in sorted(readers.items(), key=lambda item: item[0] == RESPONDER):
+            live[flag].terminate()
+>>>>>>> theirs
             reader.join(RELAY_JOIN_SECONDS)
             if reader.is_alive():
                 live[slot].kill()
