@@ -5434,7 +5434,7 @@ def open_served(data: dict, job: dict) -> dict[str, list[str]]:
 def merge_delivers(data: dict, keys: list[str], order_id: str, part: str) -> bool:
     """Whether merging these PRs delivers a part, so the prover a merge adds carries it: a staging test part only when it tests one of them, since another PR's test waits on that PR; otherwise a part one of them names in its parts, or, when none names any, each work part of the job, as before PRs kept parts."""
     if found := state.STAGING_PART.fullmatch(part):
-        return f"{state.MONOREPO}#{found['number']}" in keys
+        return f"{providers.of(data).repo.name}#{found['number']}" in keys
     named = [pr for key in keys if (pr := data["prs"][key])["parts"]]
     return not named or any(pr["order"] == order_id and part in pr["parts"] for pr in named)
 

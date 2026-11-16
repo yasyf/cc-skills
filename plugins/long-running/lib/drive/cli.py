@@ -5601,7 +5601,7 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
             raise DriveError(f"--waits {wait}: the drive tracks no PR {pr}; drive pr add it to its job first")
         if (named := state.ORDER_PART.fullmatch(wait)) and named[1] in data["orders"] and not (state.part_wait(data, wait) and view.holds(data, wait, None)):
             left = [part for part in data["orders"][named[1]]["parts"] if view.holds(data, f"{named[1]}:{part}", None)]
-            staging = f"; a PR's own staging test is added with its part, its wait and its tester by drive pr set {state.MONOREPO}#{found['number']} --staging \"<the cases it runs>\"" if (found := state.STAGING_PART.fullmatch(named[2])) else ""
+            staging = f"; a PR's own staging test is added with its part, its wait and its tester by drive pr set {providers.of(data).repo.name}#{found['number']} --staging \"<the cases it runs>\"" if (found := state.STAGING_PART.fullmatch(named[2])) else ""
             raise DriveError(f"--waits {wait}: name a part of {named[1]} still to be delivered, word for word, as {named[1]}:<part>: {'; '.join(left) or 'none is left'}{staging}")
         if state.PID_WAIT.fullmatch(wait) and not state.pid_waits(wait):
             raise DriveError(f"--waits {wait}: no process on this Mac holds that number now, so nothing is left to wait on")
