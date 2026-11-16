@@ -2,6 +2,7 @@ import json
 import os
 import re
 import subprocess
+import time
 from datetime import timedelta
 from pathlib import Path
 
@@ -14,6 +15,7 @@ WORDS = 60
 ROWS_BYTES = 24000
 RECENT = timedelta(minutes=90)
 ASK_SECONDS = 90
+CLAIM_WAIT = ASK_SECONDS + 30
 ESCALATE = "ESCALATE"
 ANSWER = "ANSWER"
 URL = re.compile(r"https?://[^\s|>)\]]+")
@@ -133,10 +135,39 @@ def holder_session(data: dict) -> str:
     return agents.beside(data)[1]["session"]
 
 
+def claim_path(name: str, ts: str) -> Path:
+    return state.drive_dir(name) / "answers" / f"{ts}.json"
+
+
+def claimed(path: Path) -> dict:
+    """What the answer that claimed his message first found, waiting up to CLAIM_WAIT while it runs, so the watch and the communicator's handler call never both answer him."""
+    deadline = time.time() + CLAIM_WAIT
+    while not (kept := path.read_text()) and time.time() < deadline:
+        time.sleep(0.5)
+    return json.loads(kept) if kept else {"answered": None, "why": f"the answer that claimed it found nothing in {CLAIM_WAIT} seconds"}
+
+
 def answer(name: str, link: str, words: str, dry_run: bool = False) -> dict:
-    """Answer his message from the drive's rows for its thread within seconds: eyes on it at once, one tool-less model call over those rows, and the answer posted in his thread as the session holding his DM, which answers his message there, or, when the model escalates or its answer names what the rows do not print, nothing posted and the reason, for a handler to take it."""
+    """Answer his message from the drive's rows for its thread within seconds, once whichever of the watch and the handler verb reaches it first, by its claim file: eyes on it at once, one tool-less model call over those rows, and the answer posted in his thread as the session holding his DM, which answers his message there, or, when the model escalates or its answer names what the rows do not print, nothing posted and the reason, for a handler to take it; a later call on the same message returns what the first found."""
     channel, ts, thread = state.slack_message(link)
-    thread = thread or ts
+    if dry_run:
+        return found_answer(name, link, words, channel, thread or ts, True)
+    path = claim_path(name, ts)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with path.open("x"):
+            pass
+    except FileExistsError:
+        return claimed(path)
+    found = {"answered": None, "why": "its answer raised"}
+    try:
+        found = found_answer(name, link, words, channel, thread or ts, False)
+    finally:
+        path.write_text(json.dumps({key: found[key] for key in ("answered", "why")}))
+    return found
+
+
+def found_answer(name: str, link: str, words: str, channel: str, thread: str, dry_run: bool) -> dict:
     if not dry_run:
         slack.cc_slack("pickup", "--url", link, "--session", holder_session(state.saved(name)), "--state", "Reading the drive…")
     data = state.load(name)

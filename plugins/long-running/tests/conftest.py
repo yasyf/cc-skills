@@ -650,10 +650,14 @@ def unopened_links(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     return shut
 
 
+REAL_ANSWER = answer.answer
+
+
 @pytest.fixture(autouse=True)
 def unanswered(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The drive's own answer of his message escalates unless a test says otherwise, so no test calls a model or adds eyes in Slack."""
+    """The drive's own answer of his message escalates, and the watch reads each owed message as claimed, unless a test says otherwise, so no test calls a model, adds eyes in Slack or detaches an answer."""
     monkeypatch.setattr(answer, "answer", lambda name, link, words, dry_run=False: {"answered": None, "why": "escalated in tests"})
+    monkeypatch.setattr(answer, "claim_path", lambda name, ts: Path(__file__))
 
 
 @pytest.fixture(autouse=True)
