@@ -82,7 +82,7 @@ STAGING_MAC = (
     "claim the staging slot for the PR each `staging test of #N before it lands` part of yours names, from this Mac, since a Sprite has no cci:"
     " `drive slot claim plat-usw2-staging --job <your job> --minutes <how long your cut and cases run> --pr <the PR> --cases \"<your cases>\"`, which prints GO and its steps"
     " when the slot is free, else QUEUED and your place, a priority or incident tester ahead of the rest; while queued, return `WAITING staging:<target>/plat-usw2-staging@<head>`,"
-    " one per target its paths reach by `tools/ci release select --pr <N>`, and the watch resumes you with GO and its steps once the slot is yours"
+    " one per target its paths reach by `the release provider's reach read <N>`, and the watch resumes you with GO and its steps once the slot is yours"
 )
 EXCEPTION_MAC = (
     "start the release dry run of each component the `staging test of #N before it lands` part of yours names that staging has no copy of, from this Mac, since go/ci's sprite door refuses a release start from a Sprite:"
@@ -5348,7 +5348,7 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
             raise DriveError(
                 f"--waits {wait}: name a job of this drive, the Slack link or waits id of a card of his still open, a question"
                 " card or a PR card still waiting on his tap, whose waits id is merge:<n>[.<n>…]:<heads>, a PR of this drive as"
-                " <owner>/<repo>#<n>, held until it merges, release:<service>:<owner>/<repo>#<n>, or with @<env> for one env as tools/ci release live"
+                " <owner>/<repo>#<n>, held until it merges, release:<service>:<owner>/<repo>#<n>, or with @<env> for one env as the release provider's live read"
                 " names it, held until every cluster of that service, or that one env, serves a commit holding the PR's merge, either one moving to the change"
                 " of the job that opened the PR once it closes unmerged, a Buildkite build by its link,"
                 " https://buildkite.com/<org>/<pipeline>/builds/<n>, held until it finishes or stops at an approve step, or"
@@ -5436,7 +5436,7 @@ def live_sand_next(checkout: Path) -> str:
 
 
 def staging_reach(name: str, data: dict, keys: list[str]) -> dict[str, list[str]]:
-    """Each PR among keys, the open Forge-AI/monorepo PRs waiting on his tap after flake_tap, whatever their exempt class, whose paths reach a component go/ci releases through paths off go/ci's dev list, the releases of release_reach, so it lands only once its staging test passes, which state.wait_on_staging keeps in the edit that keeps the PR, by his words "a high-risk change marked as a flaky-test fix reaches my Approve card with no staging test waiting on it"; a PR changing only tools/ci and go/ci, the dev list's code, which its caller runs from a checkout and no release deploys to staging, reaches none, by his pick bb9cf91 "a change that plans like dev passes untested", never one drive order set --drop-part or his answer let merge before that test, by state.merges_first_lift, which merges first and is tested after its merge, by his answer 2eb7e76; each with the releases staging has no copy of when it has a copy of none, neither one with a staging env, by release_reach's staged, nor one of the MAC_BOX_BUILDS, which a `tools/ci mac-box prove` signs in to staging, else none, as state.reach_staging reads it, so a PR touching only such a component, such as platy, goes to his exception after the release dry run's preview of each, by his answer 67caa93, rather than to a soak that cannot deploy it; DriveError when that read fails, so its caller keeps nothing."""
+    """Each PR among keys, the open PRs of the providers' repository waiting on his tap after flake_tap, whatever their exempt class, whose paths reach a component the repository releases through paths off its dev list, the releases of release_reach, so it lands only once its staging test passes, which state.wait_on_staging keeps in the edit that keeps the PR, by his words "a high-risk change marked as a flaky-test fix reaches my Approve card with no staging test waiting on it"; a PR changing only tools/ci and go/ci, the dev list's code, which its caller runs from a checkout and no release deploys to staging, reaches none, by his pick bb9cf91 "a change that plans like dev passes untested", never one drive order set --drop-part or his answer let merge before that test, by state.merges_first_lift, which merges first and is tested after its merge, by his answer 2eb7e76; each with the releases staging has no copy of when it has a copy of none, neither one with a staging env, by release_reach's staged, nor one of the MAC_BOX_BUILDS, which a `tools/ci mac-box prove` signs in to staging, else none, as state.reach_staging reads it, so a PR touching only such a component, such as platy, goes to his exception after the release dry run's preview of each, by his answer 67caa93, rather than to a soak that cannot deploy it; DriveError when that read fails, so its caller keeps nothing."""
     keys = [key for key in keys if not state.merges_first_lift(data["prs"].get(key))]
     try:
         reach = release_reach(name, data, keys)
@@ -6175,10 +6175,13 @@ def mac_boxes_down(args: argparse.Namespace) -> int:
 
 
 def fde_scan(args: argparse.Namespace) -> int:
-    """Run tools/ci fde-scan in the drive's checkout, moved to its default branch's head, since a lane's own tree on a branch cut before the scan landed routes the verb to a ci that lacks it and holds no go/sand command to run; its output and exit status are the verb's."""
+    """Run the FDE scan the repository's provider names in the drive's checkout, moved to its default branch's head, since a lane's own tree on a branch cut before the scan landed may lack it; its output and exit status are the verb's."""
     name = state.resolve(args.drive)
-    checkout = orca.checkout(name, state.load(name)["roles"]["coordinator"]["cwd"])
-    return subprocess.run([str(checkout / GO_CI), "fde-scan", *args.arguments], cwd=checkout, stdin=subprocess.DEVNULL, check=False).returncode
+    data = state.load(name)
+    checkout = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
+    if not (scan := providers.of(data).repo.fde_scan):
+        raise DriveError("this repository's providers name no FDE scan")
+    return subprocess.run([*shlex.split(scan), *args.arguments], cwd=checkout, stdin=subprocess.DEVNULL, check=False).returncode
 
 
 def thread_orders(data: dict, thread: str | None, but: str | None = None) -> list[str]:
@@ -6969,9 +6972,9 @@ def parser() -> argparse.ArgumentParser:
             "a design card or PR card of his still open, by its Slack link or waits id, on drive job set alone, since a card holds a PR"
             " only by its question's Holds: line or the PR's DESIGN: line citing it, and drive pr set refuses one, a PR the drive tracks as <owner>/<repo>#<n>,"
             " a part of an open order still to be delivered as <order>:<part>, word for word, held until a builder or codex job on it returns DONE with no PR of its own unlanded, or a staging test part's DONE keeps its first CHECK: proof on it, never the DONE the watch takes at a merge,"
-            " release:<service>:<owner>/<repo>#<n>, or release:<service>:<owner>/<repo>#<n>@<env> for one env as tools/ci release live names it,"
+            " release:<service>:<owner>/<repo>#<n>, or release:<service>:<owner>/<repo>#<n>@<env> for one env as the release provider's live read names it,"
             " a wake the job sets once it reads release live, never a gate, kept with a note naming the components they reach when go/ci's own map,"
-            " tools/ci release select --pr, finds the PR's changed paths reach components and that service is none of them or is no component at all,"
+            " the release provider's reach read, finds the PR's changed paths reach components and that service is none of them or is no component at all,"
             " a process on this Mac that still runs as pid:<n>, stored pinned to the second it started,"
             " a Buildkite build by its link, https://buildkite.com/<org>/<pipeline>/builds/<n>,"
             " reply:<the permalink of a question the drive asked a teammate>, say's job field setting it,"
@@ -6981,7 +6984,7 @@ def parser() -> argparse.ArgumentParser:
             " or a job of this drive still at work, of any kind, it waits on;"
             " repeat for each. The watch drops each as he answers or taps it, the PR merges, the job registers a PR, the FREE line naming its branch to stack on, or returns DONE, or, once it"
             " stops or fails, each part it carries is delivered, the process ends, crashed or finished, which starts a codex job's next codex-ask run carrying its last report,"
-            " once the PR merged, every cluster tools/ci release live reads running that service, production or not, or the one env the wait names, serves"
+            " once the PR merged, every cluster the release live read finds running that service, production or not, or the one env the wait names, serves"
             " a commit holding the merge, at once when release live cannot follow it, a PR outside Forge-AI/monorepo or a service or env no cluster runs,"
             " the FREE line naming why, the watch's Buildkite read, made as the build is first held"
             " and again on each delivery of Buildkite's to the receiver's /buildkite route naming it, finds the build passed, failed, canceled or stopped"
@@ -8234,7 +8237,7 @@ def parser() -> argparse.ArgumentParser:
         parents=both,
         help=(
             "work you left running broke production, or a production failure no incident holds yet is live: page his own Datadog On-Call"
-            " user at high urgency through `tools/ci oncall page me`, never for news or a question; the watch pages once on its own for"
+            " user at high urgency through the repository's page command, never for news or a question; the watch pages once on its own for"
             " each incident opened while he is away"
         ),
     )
@@ -8259,9 +8262,9 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("jobs", nargs="+", help="the jobs whose Mac boxes come down")
     verb.set_defaults(run=mac_boxes_down)
     verb = verbs.add_parser(
-        "fde-scan", parents=[drive_opt], help="run tools/ci fde-scan with the arguments after -- in the drive's checkout at its default branch's head, for a lane on any branch or Sprite"
+        "fde-scan", parents=[drive_opt], help="run the repository's FDE scan with the arguments after -- in the drive's checkout at its default branch's head, for a lane on any branch or Sprite"
     )
-    verb.add_argument("arguments", nargs="+", help="after --, what tools/ci fde-scan takes, such as --symbol raw_sql --pr 42")
+    verb.add_argument("arguments", nargs="+", help="after --, what the repository's FDE scan takes, such as --symbol raw_sql --pr 42")
     verb.set_defaults(run=fde_scan)
     verb = verbs.add_parser("report-post", parents=both, help="post a POST report to him from the drive's watch, written by one Sonnet call from the report's words, or hand it to the communicator with why not; the watch runs it detached")
     verb.add_argument("seq", help="the report's cci seq")

@@ -473,7 +473,7 @@ def dangerous_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def reach_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read once a drive go/ci's map of each open PR the release reach put on its staging test, by cli.release_reach, and take each whose paths now reach no component a release deploys off it, by state.unreach, since cli.staging_reach counts no path on go/ci's dev list, ahead of the stage_lines that redraws his card on it: a drive kept before that rule holds PRs changing only tools/ci and go/ci on a test no release could deploy; each lift and each job it stopped said, the drive marked once the read passed."""
+    """Read once a drive the repository's reach map of each open PR the release reach put on its staging test, by cli.release_reach, and take each whose paths now reach no component a release deploys off it, by state.unreach, since cli.staging_reach counts no path on the repository's dev list, ahead of the stage_lines that redraws his card on it: a drive kept before that rule holds PRs reaching only code a caller runs from a checkout on a test no release could deploy; each lift and each job it stopped said, the drive marked once the read passed."""
     from drive import cli
 
     data = state.load(watcher.name)
@@ -494,7 +494,7 @@ def reach_lines(watcher: Watcher, moment: datetime) -> list[str]:
     lines = []
     for key, stopped in lifted.items():
         ended = f", and {', '.join(stopped)} stopped" if stopped else ""
-        lines.append(f"PR {key}: changes only tools/ci and go/ci, code its caller runs from a checkout, so it waits on no staging test{ended} {ids(data['prs'][key])}")
+        lines.append(f"PR {key}: reaches no component a release deploys, only code its caller runs from a checkout, so it waits on no staging test{ended} {ids(data['prs'][key])}")
     return lines
 
 
@@ -1201,7 +1201,7 @@ def followed(watcher: Watcher, data: dict) -> list[str]:
 
 
 def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read which clusters serve the merged Forge-AI/monorepo PR of each release wait the watch follows and the soak commit of each staging wait, for waits_lines, and of each component in the releases release_reach names for each fix PR of an open incident, for recovered_lines: one `tools/ci release live --json`, run in the drive's checkout as orca.checkout moves it, at most once every LIVE_EVERY, since it takes most of a minute, prints the commit each cluster of every service serves, production or not, a stack whose switch never passed serving its older build. Kept on the watcher as serving until the next read, each wait's clusters by whether each serves a commit carrying the PR's merge, by github.carrier's read of the checkout's own history, or, for a staging wait, the soak commit itself or a build carrying it by the same read, so a promotion of dev holding a merge frees a wait on that merge commit while a soak commit off dev's line still frees only at itself, a service no cluster runs reading none, each fix PR's waits as fix_waits, both None while the read fails, and as production the clusters it read that go/ci counts as production, by settled.prod."""
+    """Read which clusters serve the merged Forge-AI/monorepo PR of each release wait the watch follows and the soak commit of each staging wait, for waits_lines, and of each component in the releases release_reach names for each fix PR of an open incident, for recovered_lines: one the release provider's live read, run in the drive's checkout as orca.checkout moves it, at most once every LIVE_EVERY, since it takes most of a minute, prints the commit each cluster of every service serves, production or not, a stack whose switch never passed serving its older build. Kept on the watcher as serving until the next read, each wait's clusters by whether each serves a commit carrying the PR's merge, by github.carrier's read of the checkout's own history, or, for a staging wait, the soak commit itself or a build carrying it by the same read, so a promotion of dev holding a merge frees a wait on that merge commit while a soak commit off dev's line still frees only at itself, a service no cluster runs reading none, each fix PR's waits as fix_waits, both None while the read fails, and as production the clusters it read that go/ci counts as production, by settled.prod."""
     from drive import cli
 
     data = state.load(watcher.name)
@@ -1241,7 +1241,7 @@ def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def live_rows(watcher: Watcher, data: dict) -> tuple[Path, list[dict]]:
-    """The drive's checkout, as orca.checkout moves it, and the rows of one `tools/ci release live --json` run there, a commit each cluster of every service serves, keeping them on the watcher as live for staging_line, and as staged the targets state.STAGING_ENV runs for add_prover. The rows are this process's one copy of that read, by live_copy, which every project's watcher shares."""
+    """The drive's checkout, as orca.checkout moves it, and the rows of one the release provider's live read run there, a commit each cluster of every service serves, keeping them on the watcher as live for staging_line, and as staged the targets state.STAGING_ENV runs for add_prover. The rows are this process's one copy of that read, by live_copy, which every project's watcher shares."""
     checkout = orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"], wait=0)
     live = live_copy(watcher.name, checkout)
     watcher.live = live
@@ -1255,7 +1255,7 @@ LIVE_READING: dict[str, threading.Thread] = {}
 
 
 def live_copy(name: str, checkout: Path) -> list[dict]:
-    """The rows of the drive's newest `tools/ci release live --json` read, which takes over a minute: a thread renews them once they are LIVE_EVERY old, so no pass of any project waits on the read, a failed or first read raising as a failed read does; with LIVE_SHARED off, as tests run, each call reads it at once."""
+    """The rows of the drive's newest the release provider's live read read, which takes over a minute: a thread renews them once they are LIVE_EVERY old, so no pass of any project waits on the read, a failed or first read raising as a failed read does; with LIVE_SHARED off, as tests run, each call reads it at once."""
     if not LIVE_SHARED:
         return json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "live", "--json"], checkout))
     at, rows = LIVE_COPIES.get(name, (None, None))
@@ -1263,7 +1263,7 @@ def live_copy(name: str, checkout: Path) -> list[dict]:
         LIVE_READING[name] = threading.Thread(target=live_renewed, args=(name, checkout), name=f"release-live-{name}", daemon=True)
         LIVE_READING[name].start()
     if rows is None:
-        raise reads.ReadError("tools/ci release live: its first read runs in the background, so the watch reads its rows next pass")
+        raise reads.ReadError("the release live read: its first read runs in the background, so the watch reads its rows next pass")
     if isinstance(rows, reads.ReadError):
         raise rows
     return rows
@@ -1350,10 +1350,12 @@ def proof_owed(watcher: Watcher, head: str, unseen: dict[str, str], fix: str, mo
 
 
 def page_owner(name: str, data: dict, title: str, why: str) -> str:
-    """Page his own Datadog On-Call user at high urgency with `tools/ci oncall page me` in the drive's checkout, which Platy answers for the release operator this Mac signs in as, so the drive holds no Datadog credential and can page nobody else; go/ci's line naming the page."""
-    checkout = orca.checkout(name, data["roles"]["coordinator"]["cwd"], wait=0)
-    argv = [str(checkout / "tools" / "ci"), "oncall", "page", "me", "--title", cut(title, 80), "--description", f"{why}\n{dashboard.link(name)}"]
-    return state.unrehearsed(name, lambda: reads.run(argv, checkout).strip(), "<page>")
+    """Page his own on-call user at high urgency with the page command the repository's provider names, run in the drive's checkout moved to its default branch's head, so the drive holds no paging credential and can page nobody else; the command's line naming the page."""
+    orca.checkout(name, data["roles"]["coordinator"]["cwd"], wait=0)
+    repo = providers.of(data).repo
+    if not repo.page_owner:
+        raise state.DriveError("this repository's providers name no command that pages him")
+    return state.unrehearsed(name, lambda: repo.run(f"{repo.page_owner} --title {{title}} --description {{description}}", title=cut(title, 80), description=f"{why}\n{dashboard.link(name)}").strip(), "<page>")
 
 
 def owner_page_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -1733,17 +1735,17 @@ def out_because(watcher: Watcher, data: dict, wait: str) -> str | None:
         if not data["prs"][key]["merged_sha"]:
             return None
         if github.repo_of(key).lower() != state.MONOREPO.lower():
-            return f"{key} merged, and tools/ci release live reads only {state.MONOREPO}, so nothing follows its release"
+            return f"{key} merged, and the release live read finds only {state.MONOREPO}, so nothing follows its release"
         if watcher.serving is None or (clusters := watcher.serving.get(wait)) is None:
             return None
         if env and env not in clusters:
-            return f"{key} merged, and tools/ci release live reads {service} on no env {env}, so nothing follows its release there"
+            return f"{key} merged, and the release live read finds {service} on no env {env}, so nothing follows its release there"
         if not clusters:
-            return f"{key} merged, and tools/ci release live reads {service} on no cluster, so nothing follows its release"
+            return f"{key} merged, and the release live read finds {service} on no cluster, so nothing follows its release"
         serves = [env] if env else sorted(clusters)
-        return f"tools/ci release live reads {service} on {', '.join(serves)} serving {key}" if all(clusters[each] for each in serves) else None
+        return f"the release live read finds {service} on {', '.join(serves)} serving {key}" if all(clusters[each] for each in serves) else None
     if (found := state.STAGING_WAIT.fullmatch(wait)) and (watcher.serving or {}).get(wait, {}).get(found["env"]):
-        return f"tools/ci release live reads {found['env']}'s {found['target']} serving {found['commit'][:12]} or a build carrying it"
+        return f"the release live read finds {found['env']}'s {found['target']} serving {found['commit'][:12]} or a build carrying it"
     if github.BUILD.fullmatch(wait) and wait in watcher.builds:
         return build_said(wait, watcher.builds[wait])
     if state.untracked_wait(data, wait) and (landed := watcher.untracked.get(wait)) and landed not in github.UNLANDED:
@@ -4438,19 +4440,19 @@ def release_line(watcher: Watcher, data: dict, wait: str) -> str:
     if not pr["merged_sha"]:
         return f"{wait}: {key} is {github.fold_line(pr) if pr['state'] == github.FOLDED else pr['state'] + ' and unmerged'}, so no release holds it yet"
     if not watcher.serving or not (clusters := watcher.serving.get(wait)):
-        return f"{wait}: the watch's tools/ci release live read holds no line for {key}, as it failed or has not run since the wait was added"
+        return f"{wait}: the watch's release live read holds no line for {key}, as it failed or has not run since the wait was added"
     return f"{wait}: {service} on {found['env'] or ', '.join(sorted(env for env, serves in clusters.items() if not serves))} is behind {key}'s merge commit {pr['merged_sha'][:12]}, running an older build"
 
 
 def staging_line(watcher: Watcher, target: str, env: str, commits: list[str]) -> str:
-    """A service staging waits await on one env, with each commit they await there and the commit and release the watch's last tools/ci release live read finds it serving, or that the read finds it on no cluster there or has not run."""
+    """A service staging waits await on one env, with each commit they await there and the commit and release the watch's last release live read finds it serving, or that the read finds it on no cluster there or has not run."""
     awaited = f"{target} on {env}, awaited at {', '.join(commits)}"
     if watcher.live is None:
-        return f"{awaited}: the watch has made no tools/ci release live read since it started"
+        return f"{awaited}: the watch has made no release live read since it started"
     if not (row := next((row for row in watcher.live if row["target"] == target and row["env"] == env), None)):
-        return f"{awaited}: the watch's last tools/ci release live read finds no {target} on {env}"
+        return f"{awaited}: the watch's last release live read finds no {target} on {env}"
     shipped = row.get("name") or row.get("release")
-    return f"{awaited}: the watch's last tools/ci release live read finds it serving {row['commit'][:12]}" + (f" of {shipped}" if shipped else "")
+    return f"{awaited}: the watch's last release live read finds it serving {row['commit'][:12]}" + (f" of {shipped}" if shipped else "")
 
 
 def stall_cards(data: dict, chain: dict[str, str], cards: dict) -> list[str]:
@@ -4777,7 +4779,7 @@ def seated_first(watcher: Watcher) -> list[Watcher]:
 
 
 def pass_reads(name: str, data: dict, prs: list[str]) -> tuple[list[str] | None, list[str] | None]:
-    """Every file a staging pass's PRs change, by github.paths, and every component they reach, by cli.release_reach, go/ci's own `tools/ci release select --pr`, which slot_turns packs passes by; None for each that a pass naming no PR, or whose PRs GitHub or go/ci could not read, leaves unread, so it rides no other pass's cut."""
+    """Every file a staging pass's PRs change, by github.paths, and every component they reach, by cli.release_reach, the repository's own reach read, which slot_turns packs passes by; None for each that a pass naming no PR, or whose PRs GitHub or go/ci could not read, leaves unread, so it rides no other pass's cut."""
     from drive import cli
 
     if not prs:
@@ -4928,7 +4930,7 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, order_id: str,
         if state.done_at_merge(job):
             return (
                 f"{job_id} took DONE at its merge, which proves nothing live, and the watch adds the builder proving it live once its"
-                f" `tools/ci release select --pr` read of {', '.join(reported_prs(data, job_id))} answers"
+                f" the release provider's reach read read of {', '.join(reported_prs(data, job_id))} answers"
             )
         if done_unproven(data, job_id):
             return None if proving(data, job_id) else merged_gap(job_id, data)
@@ -5099,7 +5101,7 @@ def finished(watcher: Watcher, moment: datetime) -> list[str]:
         if watcher.staged is None and any(answer["releases"] for answer in reach.values()):
             live_rows(watcher, data)
     except (github.GithubError, state.DriveError, reads.ReadError) as error:
-        merging, owed, reach, lines = [], [], {}, failed(watcher, "release select", "`tools/ci release select --pr` and `tools/ci release live` reads of the releases a merged PR reaches and the targets staging runs", error, moment)
+        merging, owed, reach, lines = [], [], {}, failed(watcher, "release select", "the release provider's reach read and `the release provider's live read` reads of the releases a merged PR reaches and the targets staging runs", error, moment)
     else:
         watcher.failures.pop("release select", None)
     with state.edit(watcher.name) as data:
