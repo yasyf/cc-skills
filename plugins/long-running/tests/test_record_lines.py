@@ -766,7 +766,7 @@ def test_a_record_naming_a_job_goes_to_the_session_that_started_its_agent_and_on
     assert record_lines.decision(post("talker", **answer))["updatedInput"]["to"] == ["root@demo"]
     for to in (["coordinator@demo"], ["coordinator"]):
         reason = refusal(record_lines.decision(post("iris-1", kind="handoff", text="j1 may start", to=to)))
-        assert reason == "refused, nothing posted: to coordinator: no session of drive demo reads that lane; name one of root, communicator, posts, meta, iris, owner, or an unfinished job's id on the drive's `record` tool", to
+        assert reason == "refused, nothing posted: to coordinator: no session of drive demo reads that lane; name one of root, communicator, meta, iris, owner, or an unfinished job's id on the drive's `record` tool", to
 
 
 def test_a_post_or_close_reaching_an_unfinished_jobs_id_is_refused_naming_the_record_tool_and_a_close_to_another_writer_goes(
