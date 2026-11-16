@@ -1057,10 +1057,10 @@ def env_alert_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def release_card_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Put each approve step of a release build a job the watch hears holds to him as one card he taps, by his words "in the future if it's blocked on needing an approve for me it should have posted a card for me to tap": the first Buildkite read that finds a build a job holds, by release_approve_builds, blocked at an approve step keeps one card for that build and step, by release_card_kept, once across every job, while the repository's [release] table names an `approve` command for his Approve to run. Each card kept is then drawn, closed or withdrawn by release_card_settled; a read, post or close that fails is said as a failed read is and tried again next pass."""
+    """Put each approve step of a release build a job the watch hears holds to him as one card he taps, by his words "in the future if it's blocked on needing an approve for me it should have posted a card for me to tap": the first CI read that finds a build a job holds, by release_approve_builds, blocked at an approve step keeps one card for that build and step, by release_card_kept, once across every job, while the release provider names an approve_command for his Approve to run. Each card kept is then drawn, closed or withdrawn by release_card_settled; a read, post or close that fails is said as a failed read is and tried again next pass."""
     data = state.load(watcher.name)
     lines = []
-    if state.repo_config(data).get("release", {}).get("approve"):
+    if providers.of(data).release.approve_command:
         carded = {key for job in data["jobs"].values() for key in job["release_cards"]}
         for job_id, job in data["jobs"].items():
             if job["state"] in state.FINISHED_JOB_STATES or not heard_job(watcher, data, job):
@@ -1096,12 +1096,11 @@ def release_approve_builds(data: dict, job: dict) -> list[str]:
 
 
 def release_card_kept(name: str, job_id: str, link: str, step: str, moment: datetime) -> None:
-    """Keep on the job one approve card for the build's approve step under a waits id minted for it, before anything posts, so a retry draws the same card: the release the repository's [release] status command names, by brief.release_record, and the migrations, replaces and deletes that record lists, which his card shows as what Approve covers. A build the status command reads as no release, or as a launch build passing on to another, which the job follows once release_told moves it, keeps none."""
+    """Keep on the job one approve card for the build's approve step under a waits id minted for it, before anything posts, so a retry draws the same card: the release the release provider's status names, by brief.release_record, and the migrations, replaces and deletes that record lists, which his card shows as what Approve covers. A build its status reads as no release, or as a launch build passing on to another, which the job follows once release_told moves it, keeps none."""
     data = state.load(name)
     record = brief.release_record(link, data)
-    if state.repo_config(data)["release"].get("status") and (record is None or record.get("build") not in (None, link)):
+    if record is None or record.get("build") not in (None, link):
         return
-    record = record or {}
     covers = {kind: record[kind] for kind in RELEASE_COVERS if kind in record} or None
     entry = {"build": link, "step": step, "release": record.get("name") or link, "covers": covers, "waits": state.new_waits(name, job_id), "url": None, "asked": state.stamp(moment), "tap": None, "result": None, "shown": None}
     def release_card_kept_write(data: dict):
@@ -1158,11 +1157,12 @@ def release_card_channel(name: str, data: dict, job: dict) -> str:
 
 
 def release_card(data: dict, entry: dict) -> dict:
-    """His approve card on a build's approve step: what Approve applies, each migration, replace and delete the repository's [release] status command lists, or that it lists none of them, the [release] show command, and the commands Approve and Hold run, the repository's [release] `approve` and `hold` with the release filled; Hold with no `hold` command records his hold and tells the job."""
+    """His approve card on a build's approve step: what Approve applies, each migration, replace and delete the release provider's status lists, or that it lists none of them, its show_command, and the commands Approve and Hold run, its approve_command and hold_command with the release filled; Hold with no hold_command records his hold and tells the job."""
     from drive.card import TAP_LABELS
 
-    config = state.repo_config(data)["release"]
-    filled = {verb: config[verb].replace("{release}", shlex.quote(entry["release"])) for verb in ("approve", "hold", "show") if config.get(verb)}
+    release = providers.of(data).release
+    commands = {"approve": release.approve_command, "hold": release.hold_command, "show": release.show_command}
+    filled = {verb: release.filled(command, release=entry["release"]) for verb, command in commands.items() if command}
     if entry["covers"] is None:
         covers = ["The release tool lists no migrations, replaces or deletes for it."]
     else:

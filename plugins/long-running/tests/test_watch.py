@@ -5155,17 +5155,32 @@ def test_730544_a_release_job_whose_waits_moved_on_from_its_release_build_is_nev
 
 
 APPROVE_CARD = "https://poetic-technology.slack.com/archives/C0PRIO/p1794800000000100"
-APPROVING = {"release": {"status": "ci release status {release} --json", "show": "ci release status {release}", "approve": "ci release approve {release}"}}
+
+
+class ApprovingRelease(LiveRelease):
+    approve_command = "ci release approve {release}"
+    show_command = "ci release status {release}"
+
+
+@pytest.fixture
+def approving(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every drive's providers the monorepo_providers ones with a release provider naming approve and show commands, so a build stopped at its approve step draws his card."""
+
+    def built(clone: Path) -> providers.Providers:
+        roles = HOME | {"repo": MonorepoPaths, "release": ApprovingRelease, "staging": SlotStaging}
+        return providers.Providers(None, {}, **{role: made(clone, clone, {}) for role, made in roles.items()})
+
+    monkeypatch.setattr(providers, "of", lambda data: built(Path(data["roles"]["coordinator"]["cwd"])))
+    monkeypatch.setattr(providers, "at", lambda clone, checkout=None: built(clone))
 
 
 def test_a_build_a_job_waits_on_stopped_at_an_approve_step_puts_one_approve_card_up_in_its_orders_channel_at_the_first_read_and_withdraws_it_once_the_build_moves_on_untapped(
-    demo: str, monkeypatch: pytest.MonkeyPatch
+    demo: str, monkeypatch: pytest.MonkeyPatch, approving: None
 ) -> None:
     answers = {"forge/release/17469": {**BUILD_RUNNING, "state": "BLOCKED", "blocks": {"edges": [{"node": {"label": APPROVE_STEP}}]}}}
     buildkite_reads(monkeypatch, answers)
     record = {"name": "auric-aristides", "build": TRIGGERED_BUILD, "migrations": ["0531 adds the runs index"], "replaces": [], "deletes": ["the old blobs bucket"]}
     monkeypatch.setattr(watch.brief, "release_record", lambda release, data: record)
-    monkeypatch.setattr(state, "repo_config", lambda data: APPROVING)
     posts: list[dict] = []
     monkeypatch.setattr(talk, "posted", lambda name, post, order=None, receipt=None: posts.append(post) or {"permalink": APPROVE_CARD})
     monkeypatch.setattr(watch, "release_card_channel", lambda name, data, job: "C0PRIO")
@@ -5194,8 +5209,7 @@ def test_a_build_a_job_waits_on_stopped_at_an_approve_step_puts_one_approve_card
     assert len(posts) == 1
 
 
-def test_his_approve_on_a_release_card_runs_the_repositorys_approve_command_once_tells_the_job_and_shows_its_failure_in_place_of_his_tap(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(state, "repo_config", lambda data: APPROVING)
+def test_his_approve_on_a_release_card_runs_the_repositorys_approve_command_once_tells_the_job_and_shows_its_failure_in_place_of_his_tap(demo: str, monkeypatch: pytest.MonkeyPatch, approving: None) -> None:
     waits = f"{demo}:j2-1794800000000"
     entry = {"build": TRIGGERED_BUILD, "step": APPROVE_STEP, "release": "auric-aristides", "covers": None, "waits": waits, "url": APPROVE_CARD, "asked": state.stamp(T0), "tap": None, "result": None, "shown": None}
     with state.edit(demo) as data:

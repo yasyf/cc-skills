@@ -1,7 +1,6 @@
 import json
 import os
 import re
-import shlex
 import subprocess
 import sys
 import unicodedata
@@ -10,7 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TextIO
 
-from drive import github, limits, picture, state
+from drive import github, limits, picture, providers, state
 from drive.github import GithubError, run
 from drive.pr_graph import chains
 from drive.render import cut, raised, when
@@ -910,7 +909,7 @@ def question_answered(ask: dict) -> dict:
 
 
 def release_answered(name: str, ask: dict) -> dict | None:
-    """Take his tap on an approve card the watch drew for a release build's approve step, by watch.release_card_lines, the card a job keeps under the tap's waits id; None for any other card. His Approve runs the repository's [release] `approve` command with the release filled, and his Hold its `hold` command, or records the hold when it names none, each as him in the drive's checkout; his tap is kept before the command runs and the result after, so cc-slack's run again of the same tap, or a later tap, runs nothing twice, and one record tells the job and the coordinator what his tap did. The watch shows the result on the card in place of his tap. An Undo takes back nothing the release tool already did, and his words in the card's Other box approve nothing: both answer `ok` false, so cc-slack hands them to the session it reached."""
+    """Take his tap on an approve card the watch drew for a release build's approve step, by watch.release_card_lines, the card a job keeps under the tap's waits id; None for any other card. His Approve runs the release provider's approve_command with the release filled, and his Hold its hold_command, or records the hold when it names none, each as him in the drive's checkout; his tap is kept before the command runs and the result after, so cc-slack's run again of the same tap, or a later tap, runs nothing twice, and one record tells the job and the coordinator what his tap did. The watch shows the result on the card in place of his tap. An Undo takes back nothing the release tool already did, and his words in the card's Other box approve nothing: both answer `ok` false, so cc-slack hands them to the session it reached."""
     from drive import watch
 
     data = state.load(name)
@@ -941,13 +940,13 @@ def release_answered(name: str, ask: dict) -> dict | None:
 
 
 def release_tapped(data: dict, entry: dict, label: str) -> str:
-    """What his tap on a release approve card did: Approved or Held once the repository's [release] command for it exits 0, Held when it names no `hold` command, else the tap failed with the command's last line of output, or its time running out."""
-    config = state.repo_config(data)["release"]
-    if not (command := config["approve"] if label == TAP_LABELS[0] else config.get("hold")):
+    """What his tap on a release approve card did: Approved or Held once the release provider's command for it exits 0, Held when it names no hold_command, else the tap failed with the command's last line of output, or its time running out."""
+    release = providers.of(data).release
+    if not (command := release.approve_command if label == TAP_LABELS[0] else release.hold_command):
         return "Held"
-    filled = command.replace("{release}", shlex.quote(entry["release"]))
+    filled = release.filled(command, release=entry["release"])
     try:
-        done = subprocess.run(filled, check=False, shell=True, cwd=data["roles"]["coordinator"]["cwd"], capture_output=True, text=True, timeout=RELEASE_TAP_SECONDS)
+        done = subprocess.run(filled, check=False, shell=True, cwd=release.checkout, capture_output=True, text=True, timeout=RELEASE_TAP_SECONDS)
     except subprocess.TimeoutExpired:
         return f"{label} failed: `{filled}` ran past {RELEASE_TAP_SECONDS} s"
     if done.returncode == 0:

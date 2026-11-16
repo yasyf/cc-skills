@@ -59,9 +59,13 @@ class Provider:
         """What this provider adds to the skill page named name, under its `## In this repository` heading."""
         return ""
 
+    def filled(self, template: str, **fields: str) -> str:
+        """The shell command template with each `{field}` it is given filled, quoted, and every other brace, such as a jq filter's, left as written."""
+        return re.sub(r"\{(\w+)\}", lambda found: shlex.quote(fields[found[1]]) if found[1] in fields else found[0], template)
+
     def run(self, template: str, stdin: str | None = None, timeout: int = COMMAND_SECONDS, **fields: str) -> str:
-        """The output of the shell command template with each `{field}` it is given filled, quoted, and every other brace, such as a jq filter's, left as written, run in the checkout; a ProviderError when it exits non-zero."""
-        command = re.sub(r"\{(\w+)\}", lambda found: shlex.quote(fields[found[1]]) if found[1] in fields else found[0], template)
+        """The output of the shell command template filled by filled, run in the checkout; a ProviderError when it exits non-zero."""
+        command = self.filled(template, **fields)
         try:
             done = subprocess.run(command, shell=True, cwd=self.checkout, input=stdin, capture_output=True, text=True, timeout=timeout, check=False)
         except subprocess.TimeoutExpired:
@@ -103,10 +107,13 @@ class RepoProvider(Provider):
 
 
 class ReleaseProvider(Provider):
-    """How the repository releases: its targets, a release's record, the freezes standing, what a PR reaches, what runs where, and how a cut names its holder."""
+    """How the repository releases: its targets, a release's record, the freezes standing, what a PR reaches, what runs where, and how a cut names its holder; approve_command, hold_command and show_command are the shell commands, each filling `{release}`, that pass a release build stopped at its approve step, hold it and show the whole release, which his approve card runs and names, and a repository naming no approve_command draws no such card."""
 
     whole: str | None = None
     rehearsal_envs: frozenset[str] = frozenset()
+    approve_command: str | None = None
+    hold_command: str | None = None
+    show_command: str | None = None
 
     def prebuild(self, commit: str) -> str | None:
         """Kick off the builds a later release at commit adopts, so a production start there builds nothing its staging start already built, returning the link of the build it started; None when the repository prebuilds nothing."""
