@@ -6046,6 +6046,7 @@ def test_his_answer_dropping_every_part_a_job_delivered_tells_it_why_and_stops_n
         job.update(J92_ROW | {"state": "waiting"})
         state.hold_text(job, J92_HELD, state.HIM)
         [part] = job["parts"]
+        data["answers"]["5565a57"] = state.new_answer("drop the analytics server", None, state.stamp(), {}, {"j0": {"mark": "sent"}, "j1": {"mark": "sent"}})
         lines = superseded.drop(data, "5565a57", "o1", part)
     assert lines == [
         f"o1:{part} dropped from o1 and j0, j1",
@@ -7063,7 +7064,7 @@ def test_an_ask_no_drive_job_ask_kept_goes_to_the_coordinator_saying_drive_job_a
 
 
 @pytest.mark.parametrize("named", ["#4127", "Forge-AI/monorepo#4127", "https://github.com/Forge-AI/monorepo/pull/4127"])
-def test_a_builders_holds_line_naming_a_pr_the_drive_tracks_on_the_jobs_order_is_kept_with_the_parts_its_job_works_and_one_naming_only_an_untracked_pr_is_refused(named: str, remote: str) -> None:
+def test_a_builders_holds_line_naming_a_pr_the_drive_tracks_on_the_jobs_order_is_kept_with_the_parts_its_job_works_and_one_naming_only_an_untracked_pr_is_refused(named: str, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     held = f'{named} "the nightly store copy runs on its own worker", where keeping copy times adds two store_copies columns'
     linked = "on the primary or on its own worker, as <https://github.com/Forge-AI/monorepo/pull/41270|the copy PR> and <https://github.com/Forge-AI/monorepo/pull/4127|the worker PR> build it."
     asked = ASK_IN_SHAPE.replace("Holds: none: no option changes code any job builds", f"Holds: {held}").replace("on the primary or on its own worker.", linked)
@@ -7071,7 +7072,8 @@ def test_a_builders_holds_line_naming_a_pr_the_drive_tracks_on_the_jobs_order_is
         cli.keep_ask(remote, "j1", asked, None)
     with edit(remote) as data:
         data["prs"]["Forge-AI/monorepo#41270"] = state.new_pr(state.pr_url("Forge-AI/monorepo#41270"), "j1", "o1")
-    with pytest.raises(state.DriveError, match="names no PR the drive tracks on j1's orders or waiting on a part j1 carries, as the PR its staging test tests, and no branch"):
+    with monkeypatch.context() as fresh, pytest.raises(state.DriveError, match="names no PR the drive tracks on j1's orders or waiting on a part j1 carries, as the PR its staging test tests, and no branch"):
+        fresh.setenv("CLAUDE_CODE_SESSION_ID", "another-builder")
         cli.keep_ask(remote, "j1", asked, None)
     with edit(remote) as data:
         data["prs"]["Forge-AI/monorepo#4127"] = state.new_pr(state.pr_url("Forge-AI/monorepo#4127"), "j1", "o1")

@@ -672,7 +672,7 @@ def remote_location(tool: str, word: str) -> str | None:
 
 
 def team_data(command: str, cwd: str, drives: list[str]) -> agents.Unjudged | None:
-    """Why a drive job's call must not run, refused by its shape alone: it, a script it runs, or a command it starts through `drive break-glass` or `xargs`, reads or writes a team's data, a location the repository's DataProvider calls a team's area or lists among its team buckets, read from the default branch of the folder its session runs in whatever folder the command `cd`s to, or any bucket but its build outputs when that branch holds no such list, or it reaches a namespace holding a team's data through `kubectl`. The folder's providers judge it unless they guard no data, when its drive's do; a refusal naming the error when they fail to load."""
+    """Why a drive job's call must not run, refused by its shape alone: it, a script it runs, or a command it starts through `drive break-glass` or `xargs`, reads or writes a team's data, a location the repository's DataProvider calls a team's area or lists among its team buckets, read from the default branch of the folder its session runs in whatever folder the command `cd`s to, or any bucket but its build outputs when that branch holds no such list, or it reaches a namespace holding a team's data through `kubectl`. The folder's providers judge it unless they guard no data, when its drive's do; when they fail to load it goes through unjudged with a note naming the error."""
     data = None
     for words in reached(command, Place(Path(cwd))):
         locations = bucket_locations(words)

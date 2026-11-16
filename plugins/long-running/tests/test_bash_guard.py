@@ -980,16 +980,15 @@ def test_a_cci_post_from_a_drive_agent_that_is_chatter_is_refused_as_the_post_ho
     assert bash_guard.deny_reason(bash("cci post --drive demo --kind handoff --to root --text 'box j6 is free'", **builder)) is None
 
 
-def test_providers_that_fail_to_load_refuse_a_bucket_or_kubectl_call_and_nothing_else(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_providers_that_fail_to_load_let_a_bucket_or_kubectl_call_through_with_a_note(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     def broken(clone: Path, checkout: Path | None = None) -> providers.Providers:
         raise providers.ProviderError(".claude/long-running/providers.py at 0123456789ab failed to load: SyntaxError: bad")
 
     monkeypatch.setattr(providers, "at", broken)
     reader = {"agent_id": "a-1", "agent_type": "long-running:reader"}
     for command in (CI_POINTER, "kubectl -n forge get pods"):
-        reason = bash_guard.deny_reason(bash(command, **reader))
-        assert reason.startswith("refused: this may reach a team's data where the job runs"), command
-        assert reason.endswith("SyntaxError: bad"), command
+        assert bash_guard.deny_reason(bash(command, **reader)) is None, command
+        assert capsys.readouterr().err.strip().endswith("a gate that cannot read its inputs lets the call go: .claude/long-running/providers.py at 0123456789ab failed to load: SyntaxError: bad"), command
     assert bash_guard.deny_reason(bash("ls && git status", **reader)) is None
 
 

@@ -1204,9 +1204,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data, order_fields = bound(saved), order_defaults().keys()
     seeded = 0
     for order_id, order in data["orders"].items():
-        if "asks" not in order:
-            seeded += order["state"] not in CLOSED_ORDER_STATES
-            order["asks"] = {} if order["state"] in CLOSED_ORDER_STATES else {f"a{seeded}": {"words": order["text"], "link": order["from"], "at": order["created"], "parts": [part for part in order.get("parts") or {} if not STAGING_PARTS.fullmatch(part)]}}
+        unasked = "asks" not in order
         order["priority"] = priority_seat(order_id) if order.get("priority") is True else order.get("priority") or None
         if "parts" not in order:
             whole = whole_order(order["text"])
@@ -1216,6 +1214,9 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         if missing := order_fields - order.keys():
             blank = order_defaults()
             order.update({field: blank[field] for field in missing})
+        if unasked:
+            seeded += order["state"] not in CLOSED_ORDER_STATES
+            order["asks"] = {} if order["state"] in CLOSED_ORDER_STATES else {f"a{seeded}": {"words": order["text"], "link": order.get("from"), "at": order.get("created"), "parts": [part.strip() for part in order["parts"] if not STAGING_PARTS.fullmatch(part.strip())]}}
         order.pop("milestone", None)
         order.pop("releases", None)
         order.pop("shipped", None)

@@ -88,14 +88,12 @@ COMMUNICATOR_RULES = (
     (
         "When it needs research or several reads, post a short status in his thread at once through say, saying what you are"
         " checking and when he will hear, then start one background subagent with the Agent tool, run_in_background, model sonnet, or opus for a"
-        " judgment-heavy read, and end your turn so his next message finds you free, by his words \"replying quickly when it"
-        " has the context at hand, but handing off to a subagent (with the relevant context handed to it) to do some further"
-        " research then respond when it's more involved so it can be freed up for the next incoming message\". Its brief:"
+        " judgment-heavy read, and end your turn so his next message finds you free, by his words \"handing off to a subagent"
+        " … so it can be freed up for the next incoming message\". Its brief:"
         " his words verbatim, the thread's channel id and ts and his message's permalink, the order and PR ids, what you"
         " already know, and the question to answer; to make no advisor call, batch GitHub reads into one `gh api graphql`"
         " query and read `drive status <order>`; and to post the answer itself in that thread through say, naming his"
-        " message in asked and done true, then return one line. The post that ends what his message asked passes done true, so"
-        " its reaction turns to a check; a status or partial answer never does."
+        " message in asked and done true, then return one line."
     ),
     (
         "Chatter (\"ok\", \"thanks\") gets a +1 react. In his DM, slack_dm_status may carry a long answer's progress;"
@@ -109,9 +107,9 @@ COMMUNICATOR_RULES = (
         " scannable: a bold lead, short parts under bold headings, bullets for parallel items, and say's Block Kit"
         " fields for any status or progress of several things. Link on the words"
         " saying what a thing is, never a bare URL or an id, an alert's own link excepted; embed or reproduce a"
-        " Slack post, card or release he must see, never send him looking. A picture beats a paragraph for several states, a"
-        " before and after, or a path or timeline; send one. Plain words for what happens to his work, never the drive's"
-        " machinery; times in Pacific. say posts exactly where you name, channel_id and thread_ts: in a project or priority channel a new update, release step or decision goes at the root, and a direct answer to his message, or a follow-up on its subject, goes in his thread. One post per thing, a correction an edit. say fixes what is mechanical, a UTC stamp, a bare link, a long paragraph, and posts in the same call, warning you of the rest: write it right the first time."
+        " Slack post, card or release he must see, never send him looking. A picture beats a paragraph for several states"
+        " or a timeline; send one. Plain words for what happens to his work, never the drive's"
+        " machinery; times in Pacific. say posts exactly where you name, channel_id and thread_ts: in a project or priority channel a new update, release step or decision goes at the root, and a direct answer to his message, or a follow-up on its subject, goes in his thread. One post per thing, a correction an edit. say fixes what is mechanical, such as a UTC stamp, and warns of the rest: write it right the first time."
     ),
     (
         "When say or record says this session holds no role: your communicator seat is retired; to reach him, hand a POST record to the main communicator; never post to Slack directly."
@@ -128,8 +126,8 @@ COMMUNICATOR_RULES = (
         " to him only for a real open choice he has not made: 2 to 4 options with your recommendation first, within a minute."
         " Work, a build, release, fix or PR, a question proposing work such as \"why not just X?\" included, goes to the"
         " coordinator, or the seat holding its order, an alert's straight to the seat owning that area by its order attr, as his owner record on the drive's record tool passing his message"
-        " along whole, since the session that acts on it reads it and decides, and `about` naming what it is about; you"
-        " never wait on that session to answer a read, and the owner record goes in the same message as your answer's say, never a step before it; the record tool returns at once and sends it in the background."
+        " along whole, and `about` naming what it is about; you"
+        " never wait on that session to answer a read, and the owner record goes in the same message as your answer's say, never a step before it."
     ),
     (
         "A question-card answer (slack.action with waits: true) and an Undo get no record: cc-slack closed the card and"

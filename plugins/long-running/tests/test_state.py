@@ -1412,7 +1412,7 @@ def test_an_order_an_older_install_saved_with_one_reporter_reads_as_a_list_of_th
 
 
 
-@pytest.mark.parametrize("field", list(state.order_defaults()))
+@pytest.mark.parametrize("field", [field for field in state.order_defaults() if field != "asks"])
 def test_an_order_an_older_install_saved_without_a_field_new_orders_carry_reads_with_that_fields_default_wherever_it_is_read(state_root: Path, field: str) -> None:
     make("demo")
     data = state.load("demo")
@@ -2934,8 +2934,8 @@ def test_projection_partitions_design_builders_without_repeated_job_scans() -> N
 
 
 def train_drive(*job_ids: str, **extra: dict) -> dict:
-    job = state.new_job("o1", state.JOB_KINDS[0], "", [], "2026-11-16T01:00:00+00:00") | {"state": "waiting", "priority": None, "said": None, "release_build": None, "train": None}
-    return {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open", "class": "process"}}, "jobs": {job_id: job | extra.get(job_id, {}) for job_id in job_ids}}
+    jobs = {job_id: state.new_job("o1", state.JOB_KINDS[0], "", [], "2026-11-16T01:00:00+00:00") | {"state": "waiting", "priority": None, "said": None, "release_build": None, "train": None} | extra.get(job_id, {}) for job_id in job_ids}
+    return {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open", "class": "process"}}, "jobs": jobs}
 
 
 def test_a_release_takes_a_free_staging_env_at_once_and_waits_for_a_cut_to_end_then_starts_before_any_new_cut_his_incidents_first(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3235,7 +3235,7 @@ def test_the_queue_plans_each_items_cut_start_and_end_from_the_lease_end_packing
     monkeypatch.setattr(work, "cut_shape", lambda data: work.CUT_SHAPE | {"cut_items": 2})
     monkeypatch.setattr(work, "ready_at", lambda data, job_id, moment: ready[job_id])
     monkeypatch.setattr(work, "rank", lambda data, job_id: job_id)
-    monkeypatch.setattr(work.STAGE, "queued", lambda data, job: job in [data["jobs"][job_id] for job_id in ready])
+    monkeypatch.setattr(work.STAGE, "queued", lambda data, job: any(job is data["jobs"][job_id] for job_id in ready))
     monkeypatch.setattr(work.STAGE, "entry", lambda data, job_id, moment: {"job": job_id, "paths": [job_id], "stacks": [job_id]})
     plan = work.planned(data, moment)
     free = moment + timedelta(minutes=20)

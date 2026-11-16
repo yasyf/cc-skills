@@ -3,6 +3,7 @@ import io
 import json
 import os
 import re
+import shutil
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -20,7 +21,7 @@ from conftest import (
     edit,
     explained,
 )
-from drive import agents, events, limits, picture, refs, settled, slack, state, talk, view
+from drive import agents, events, gate, limits, picture, refs, settled, slack, state, talk, view
 from drive.state import DriveError
 
 Run = Callable[..., tuple[int, str]]
@@ -900,6 +901,7 @@ def test_jev_gets_the_same_words_of_his_at_1_and_at_100_older_messages_and_card_
             {"ts": asked, "user": "U1", "text": "is the release out?"},
         ]
         slack_thread.reads.clear()
+        shutil.rmtree(gate.store(None), ignore_errors=True)
         monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text=said(61), thread_ts="1.2") | {"tool_name": message_limits.SAY})))
         message_limits.main()
         printed = capsys.readouterr().out
@@ -1291,7 +1293,7 @@ def test_a_repositorys_post_rule_is_one_more_line_of_the_one_jev_read(jev: Jev) 
 
 
 def test_a_refused_post_to_one_place_goes_through_with_a_warning_when_the_session_posts_there_again(transcript: Path) -> None:
-    payload = call("slack_reply", transcript, channel_id="C1", thread_ts="1.2", text="x")
+    payload = call("slack_reply", transcript, "poster", channel_id="C1", thread_ts="1.2", text="x")
     assert message_limits.refused_once(payload, "refused: a cause with no read") == "refused: a cause with no read"
     again = message_limits.refused_once(payload, "refused: a cause with no read")
     assert isinstance(again, message_limits.Warned) and "repeat of one refused once" in again
