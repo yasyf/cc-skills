@@ -622,3 +622,21 @@ def test_a_page_reaches_him_once_when_first_composed_and_again_only_when_what_it
     applet.announce(demo, "run-page", file, layout | {"glance": glance | {"status": "Blocked on you: 28 approvals"}}, posted=False)
     assert applet.last_sent(demo, "run-page") == glance
     assert applet.unannounced(demo, quiet + applet.PAGE_QUIET) == []
+
+
+def test_a_board_built_while_his_cards_could_not_be_read_composes_no_page_and_shows_each_its_last_layout(ordered: str) -> None:
+    from drive import applet
+
+    demo = ordered
+    folder = state.drive_dir(demo) / "applets" / "run-page"
+    folder.mkdir(parents=True)
+    last = {"headline": "h", "summary": "s", "blocks": [], "glance": {"tone": "warn", "status": "36 PRs wait on you"}, "changed_for_him": "", "basis": {"questions": [], "approvals": True, "done": False}}
+    (folder / "last.json").write_text(json.dumps(last))
+    composer = applet.Composer(demo)
+    model = {"cards": "unavailable: cc-slack daemon not running", "pages": [{"kind": applet.KIND, "slug": "run-page", "orders": ["o1"], "goal": "ship it", "title": "Run page"}]}
+
+    composer.tell(model)
+
+    assert model["pages"][0]["layout"] == {"composed": last}
+    assert composer.queued == set()
+    assert sorted(path.name for path in folder.iterdir()) == ["last.json"]

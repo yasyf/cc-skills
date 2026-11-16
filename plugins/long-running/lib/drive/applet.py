@@ -220,9 +220,12 @@ class Composer:
         threading.Thread(target=self.loop, daemon=True).start()
 
     def tell(self, model: dict) -> None:
-        """Give each applet page of the model its layout as it stands, queueing a compose for each page whose slice changed."""
+        """Give each applet page of the model its layout as it stands, queueing a compose for each page whose slice changed; a model built while his cards could not be read, as when the cc-slack daemon restarts, composes nothing and shows each page's last layout, since every card, PR stage and decision it reads would be read as none."""
         for page in model["pages"]:
             if page.get("kind") != KIND:
+                continue
+            if model["cards"] != "live":
+                page["layout"] = {"composed": composed} if (composed := newest(self.folder / page["slug"])) else {}
                 continue
             told = fed(page, pages.slice_of(model, page))
             key = digest(page, told)
