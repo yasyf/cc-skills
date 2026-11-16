@@ -434,7 +434,7 @@ def test_an_update_another_write_raced_runs_again_on_the_drive_as_it_then_stands
     assert not (state.drive_dir("demo") / "locks.log").exists()
 
 
-def test_an_update_raced_on_every_run_runs_last_as_a_write_of_the_whole_drive(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_update_raced_on_every_run_runs_on_as_a_write_naming_no_rows(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     make("demo")
     monkeypatch.setattr(state, "UPDATE_TRIES", 2)
     runs: list[str] = []
@@ -448,10 +448,9 @@ def test_an_update_raced_on_every_run_runs_last_as_a_write_of_the_whole_drive(st
 
     state.update("demo", (("", "terminal"),), keep)
     assert (runs, state.load("demo")["terminal"]) == (["", "theirs 1", "theirs 2"], "mine")
-    assert "ran as a write of the whole drive, since another write changed terminal each time it ran" in (state.drive_dir("demo") / "locks.log").read_text()
 
 
-def test_an_update_changing_a_row_it_did_not_name_runs_again_as_a_write_of_the_whole_drive(state_root: Path) -> None:
+def test_an_update_changing_a_row_it_did_not_name_runs_again_as_a_write_naming_no_rows(state_root: Path) -> None:
     make("demo")
 
     def keep(data: dict) -> None:
@@ -460,7 +459,6 @@ def test_an_update_changing_a_row_it_did_not_name_runs_again_as_a_write_of_the_w
 
     state.update("demo", (("", "terminal"),), keep)
     assert (state.load("demo")["terminal"], state.load("demo")["binder"]) == ("term-1", "term-2")
-    assert "ran as a write of the whole drive, since it changed binder too" in (state.drive_dir("demo") / "locks.log").read_text()
 
 
 def test_a_write_of_its_rows_changing_another_row_raises_keeping_nothing(state_root: Path) -> None:

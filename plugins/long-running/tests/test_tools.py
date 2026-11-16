@@ -215,8 +215,8 @@ def test_a_refusal_while_a_job_call_runs_writes_nothing_and_a_passing_call_saves
     ]
     assert (state.load(demo)["orders"], state.load(demo)["jobs"]) == ({}, {})
     saves: list[str] = []
-    save = state.save
-    monkeypatch.setattr(state, "save", lambda name, data: saves.append(name) or save(name, data))
+    commit = state.rows_saved
+    monkeypatch.setattr(state, "rows_saved", lambda name, *rest, **given: saves.append(name) or commit(name, *rest, **given))
     tools.run("job", demo, {"ops": [{"add": {"kind": "reader", "order": order, "goal": "fix it"}}, {"set": {"branch": "lr-fix"}}, {"set": {"said": "pushed"}}]})
     assert saves == [demo]
     assert state.load(demo)["jobs"]["j1"]["branch"] == "lr-fix"
@@ -232,10 +232,10 @@ def test_a_pr_call_saves_the_drive_once_runs_each_read_its_check_ran_once_and_pr
         run("pr", "add", pr, "--job", "j1", *LEAD)
     ran: list[list[str]] = []
     saves: list[str] = []
-    prior, save = subprocess.run, state.save
+    prior, commit = subprocess.run, state.rows_saved
     monkeypatch.setattr(subprocess, "run", lambda argv, *rest, **given: ran.append(argv) or subprocess.CompletedProcess(argv, 0, "", "") if argv[:3] == ["gh", "pr", "view"] else prior(argv, *rest, **given))
     monkeypatch.setattr(cli, "staging_reach", lambda name, data, keys: subprocess.run(["gh", "pr", "view", *keys], check=False) and {})
-    monkeypatch.setattr(state, "save", lambda name, data: saves.append(name) or save(name, data))
+    monkeypatch.setattr(state, "rows_saved", lambda name, *rest, **given: saves.append(name) or commit(name, *rest, **given))
     capsys.readouterr()
     said = tools.run("pr", demo, {"ops": [{"set": {"url": pr, "no_waits": True}} for pr in prs]}).splitlines()
     assert ([line.split(":")[0] for line in said[:2]], saves) == (["1 pr set", "2 pr set"], [demo])
