@@ -4228,8 +4228,8 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 if running and orca.UNREACHABLE in str(error) and busy(watcher, job_id, moment):
                     continue
                 if running and orca.UNREACHABLE in str(error):
-                    if not orca.exec_answers(watcher.name, job["workspace"], orca.UNREACHED_PROBE_SECONDS):
-                        deaths[job_id] = (job["dispatch"], f"{orca.UNREACHED_DEATH}: {error}, and its Sprite answered no command in {orca.UNREACHED_PROBE_SECONDS} s")
+                    if not orca.exec_answers(watcher.name, job["workspace"]):
+                        deaths[job_id] = (job["dispatch"], f"{orca.UNREACHED_DEATH}: {error}, and its Sprite answered no command in {orca.EXEC_PROBE_SECONDS} s")
                     continue
                 lines += read_failed(watcher, source, error, moment)
                 continue

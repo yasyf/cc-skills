@@ -49,7 +49,6 @@ RUN_NOT_FOUND = "run_not_found"
 UNREACHABLE = "remote_runtime_unavailable"
 UNREACHED_DEATH = "Orca could not reach its Sprite"
 EXEC_PROBE_SECONDS = 60
-UNREACHED_PROBE_SECONDS = 20
 UNLIVE = "its worker's liveness is"
 GONE = {
     "dispatch_not_found": "Orca no longer holds its worker",
