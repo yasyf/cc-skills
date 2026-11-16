@@ -64,6 +64,7 @@ LANE = "watch"
 READS_LOG = "reads.log"
 CONFLICTS = "conflicts with its base"
 NEWEST_MAIL = "newest lane mail"
+BAR_PROMOTED = "his Slack back-and-forth with the drive crossed a bar"
 LANE_MAIL = "lane mail"
 MARK_READ = "marking lane mail read"
 ANSWERS = "answers"
@@ -5026,7 +5027,7 @@ def catch_up_report(watcher: Watcher, data: dict) -> str:
 
 
 def sweep_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Once a day, on the drive's own watch, end what still asks him only by an oversight, then file a drive tooling order for each bar the Slack back-and-forth with him crossed, by `crossed`, its measure the order's note, so work he assumes done never sits unseen (his 6cd6aa2): each of his open cards on the drive's own questions of a Drive tooling order that Jev reads as asking him only a detail ends decided on its recommended option, as `drive job ask --answer 43aa665` ends it, by his ruling 43aa665 "don't ask me every little thing ask my high level preferences", and each open flake fix of the drive's that changes only test and fixture code at its head stops waiting on his tap, by `untapped_lines`; a card still open past CARD_WAIT reaches him once in its order's news line instead, by waited_cards. An order still open on a bar holds its words, so that bar crossed again takes the new measure in place of a second order. A sweep waits for a pass that read his cards, and one whose read, close or filing fails is said as a failed read is and tried again next pass, keeping the lines of what it ended before."""
+    """Once a day, on the drive's own watch, end what still asks him only by an oversight, then file a drive tooling order for each bar the Slack back-and-forth with him crossed, by `crossed`, its measure the order's note, so work he assumes done never sits unseen (his 6cd6aa2): each of his open cards on the drive's own questions of a Drive tooling order that Jev reads as asking him only a detail ends decided on its recommended option, as `drive job ask --answer 43aa665` ends it, by his ruling 43aa665 "don't ask me every little thing ask my high level preferences", and each open flake fix of the drive's that changes only test and fixture code at its head stops waiting on his tap, by `untapped_lines`; a card still open past CARD_WAIT reaches him once in its order's news line instead, by waited_cards. The same pass drains the drive tooling backlog by state.backlog_drain, his option A of Nov 15: a BACKLOG line for each item it promotes, whose one builder the meta session starts, and each item no repeat reached in three days dropped, said in the watch's log alone. An order still open on a bar holds its words, so that bar crossed again takes the new measure in place of a second order. A sweep waits for a pass that read his cards, and one whose read, close or filing fails is said as a failed read is and tried again next pass, keeping the lines of what it ended before."""
     from drive import cli
 
     data = state.load(watcher.name)
@@ -5039,7 +5040,7 @@ def sweep_lines(watcher: Watcher, moment: datetime) -> list[str]:
             lines += [f"{line} [{data['jobs'][job_id]['order']} {job_id}]" for line in cli.answered_drop(watcher.name, job_id, file, state.TOOLING_DETAILS_RULING)]
         lines += untapped_lines(watcher, moment)
         bars, offset = crossed(watcher, data, swept["offset"] if swept else state.events_end(watcher.name), moment)
-        filed = {cli.added_order(cli.parser().parse_args(["order", "add", words, "--title", title, "--drive", watcher.name]))[0]: note for words, title, note in bars}
+        filed = {cli.added_order(cli.parser().parse_args(["order", "add", words, "--title", title, "--promote", BAR_PROMOTED, "--drive", watcher.name]))[0]: note for words, title, note in bars}
     except (slack.SlackError, github.GithubError, state.DriveError) as error:
         return lines + failed(watcher, "sweep", "daily Slack sweep", error, moment)
     watcher.failures.pop("sweep", None)
@@ -5047,7 +5048,10 @@ def sweep_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for order_id, note in filed.items():
             data["orders"][order_id]["note"] = note
         data["slack"]["swept"] = {"at": state.stamp(moment), "offset": offset}
-    return lines
+        promoted, dropped = state.backlog_drain(data, moment)
+        drained = {order_id: data["orders"][order_id]["promoted"]["why"] for order_id in promoted}
+    print(f"{state.stamp(moment)} drive tooling backlog: dropped {', '.join(dropped) or 'none'}, no repeat in {state.BACKLOG_STALE.days} days", flush=True)
+    return lines + [f"BACKLOG {order_id} promoted ({why}): add its one builder now, which researches inline with no reader" for order_id, why in drained.items()]
 
 
 def decided_details(name: str, data: dict, cards: dict) -> list[tuple[str, Path]]:

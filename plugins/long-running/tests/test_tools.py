@@ -47,18 +47,47 @@ def test_a_job_call_whose_inline_tooling_order_repeats_an_open_one_adds_no_job_a
     assert (list(state.load(meta)["jobs"]), len([request for request in jev.asked if any(key.startswith("repeats.") for key in request["questions"])])) == (["j1", "j2"], 1)
 
 
-def test_a_job_call_past_the_days_cap_of_readers_on_unasked_tooling_orders_adds_its_order_with_no_job_until_it_is_priority(meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(state, "UNASKED_READERS_A_DAY", 1)
+def test_with_the_backlog_on_a_session_filed_defect_waits_with_no_job_its_repeats_tally_and_the_third_in_a_day_promotes_its_builder(meta: str, jev: Jev) -> None:
+    assert cli.main(["order", "backlog", "on", "--drive", meta]) == 0
     filed = {"title": "Install lock stall", "project": "The drive", "workstream": "Drive tooling"}
-    tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL}, "goal": "research: the install lock"}}]})
+    said = tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL}, "goal": "research: the install lock"}}]})
+    assert "o1 filed 1 time, on the drive tooling backlog: start no job" in said
+    assert "job add: none, since o1 is drive tooling a session filed, which gets no reader" in said
+    jev.picks("o1")
     said = tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL_AGAIN}, "goal": "research: the install stall"}}]})
-    assert said.splitlines()[1].startswith("1 job add: none, since 1 readers started today on drive tooling orders no message of his asked for")
-    assert (state.load(meta)["orders"]["o2"]["jobs"], list(state.load(meta)["jobs"])) == ([], ["j1", "j2"])
-    with pytest.raises(DriveError, match="the most a day takes"):
-        tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": "o2", "goal": "research: the install stall"}}]})
+    assert "o1 filed 2 times, on the drive tooling backlog" in said
+    said = tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL_AGAIN}, "goal": "research: the install stall"}}]})
+    assert "o1 filed 3 times, promoted (filed 3 times in 24 hours): add its one builder now" in said
+    data = state.load(meta)
+    assert (list(data["orders"]), data["jobs"], len(data["orders"]["o1"]["tally"])) == (["o1"], {}, 3)
+    assert tools.run("job", meta, {"ops": [{"add": {"kind": "builder", "order": "o1", "goal": "fix the install lock stall"}}]}).startswith("1 job add: j1")
+    assert state.readers_piloted(state.load(meta), state.load(meta)["orders"]["o1"])
+
+
+def test_a_backlog_item_takes_a_builder_only_once_promoted(meta: str, jev: Jev) -> None:
+    assert cli.main(["order", "backlog", "on", "--drive", meta]) == 0
+    filed = {"title": "Install lock stall", "project": "The drive", "workstream": "Drive tooling"}
+    tools.run("order", meta, {"ops": [{"add": filed | {"words": LOCK_STALL}}]})
+    with pytest.raises(DriveError, match="waits on the drive tooling backlog, filed 1 time:"):
+        tools.run("job", meta, {"ops": [{"add": {"kind": "builder", "order": "o1", "goal": "fix the install lock stall"}}]})
+    assert cli.main(["order", "set", "o1", "--promote", "it held back his release", "--drive", meta]) == 0
+    assert state.load(meta)["orders"]["o1"]["promoted"]["why"] == "it held back his release"
+    assert tools.run("job", meta, {"ops": [{"add": {"kind": "builder", "order": "o1", "goal": "fix the install lock stall"}}]}).startswith("1 job add: j1")
+
+
+def test_the_daily_drain_promotes_the_most_filed_backlog_items_and_drops_those_no_repeat_reached_in_three_days(meta: str) -> None:
+    now = state.now()
     with state.edit(meta) as data:
-        data["orders"]["o2"]["priority"] = True
-    assert tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": "o2", "goal": "research: the install stall"}}]}).startswith("1 job add: j3")
+        data["tooling_backlog"] = True
+        for number, (filings, days_ago) in enumerate([(1, 0), (4, 0), (2, 1), (3, 0), (5, 4)], start=1):
+            order = state.new_order(f"{state.TOOLING} defect {number}", "terminal", None, {"defect": state.new_part()}, state.stamp(now - timedelta(days=days_ago, minutes=number)))
+            order["tally"] = [{"at": order["created"], "from": "terminal"} for _ in range(filings)]
+            data["orders"][f"o{number}"] = order
+        promoted, dropped = state.backlog_drain(data, now)
+    assert (promoted, dropped) == (["o2", "o4", "o3"], ["o5"])
+    data = state.load(meta)
+    assert [data["orders"][order_id]["state"] for order_id in ("o1", "o5")] == ["open", "dropped"]
+    assert not state.on_backlog(data, "o2") and state.on_backlog(data, "o1")
 
 
 def test_the_watch_closes_a_session_filed_repeat_once_the_order_it_joined_closes(meta: str, jev: Jev) -> None:
