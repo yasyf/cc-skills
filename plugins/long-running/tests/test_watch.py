@@ -2693,7 +2693,7 @@ def test_the_first_pass_of_a_standing_part_no_job_ever_held_starts_at_once_and_s
     with edit(demo) as data:
         standing_order(data, [])
     assert staged(watch.standing_lines, watcher(demo), T0) == [
-        f'STANDING j2 o2 "codex test box": no pass of it ran before; the watch added j2, a codex job on this Mac on its standing goal,'
+        'STANDING j2 o2 "codex test box": no pass of it ran before; the watch added j2, a codex job on this Mac on its standing goal,'
         " and the work queue starts its codex-ask run"
     ]
     brief_text = Path(state.load(demo)["jobs"]["j2"]["brief"]).read_text()
@@ -4858,22 +4858,24 @@ def test_a_staging_parts_gap_names_only_its_testers_never_a_job_running_its_rele
 
 
 @pytest.mark.parametrize("ran", [None, "/drive/scratch/j1/codex"], ids=["never-launched", "run-ended"])
-def test_a_freed_codex_job_is_launched_by_the_watch_itself_with_no_free_line_to_wake_a_session_whether_or_not_a_codex_ask_run_ended_since_its_launch(
+def test_a_freed_codex_job_is_launched_by_the_watch_or_its_queue_with_no_free_line_to_wake_a_session_whether_or_not_a_codex_ask_run_ended_since_its_launch(
     demo: str, monkeypatch: pytest.MonkeyPatch, ran: str | None
 ) -> None:
     serve(monkeypatch, {})
     detached = []
     monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or 0)
+    monkeypatch.setattr(place, "admission", lambda data, job_id, where, moment: None)
+    monkeypatch.setattr(place, "admitted_room", lambda where, moment, priority=False: 1)
     with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j2"] = job(goal="release the service")
-        data["jobs"]["j1"].update(kind="codex", codex_run=ran, state="waiting", said="WAITING j2", waits=["j2"], updated=state.stamp(T0 - timedelta(minutes=10)))
+        data["jobs"]["j1"].update(kind="codex", codex_run=ran, brief=str(Path(demo) / "j1.md"), state="waiting", said="WAITING j2", waits=["j2"], updated=state.stamp(T0 - timedelta(minutes=10)))
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
     with edit(demo) as data:
         data["jobs"]["j2"]["state"] = "done"
-    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
-    assert (watch.run_pass(watching, T0 + timedelta(seconds=60)), detached) == ([], [["job", "launch", "j1"]])
+    lines = [*watch.run_pass(watching, T0 + timedelta(seconds=5)), *watch.run_pass(watching, T0 + timedelta(seconds=60))]
+    assert ([line for line in lines if not line.startswith("WORK j1 ")], detached) == ([], [["job", "launch", "j1"]])
 
 
 def test_a_job_whose_wait_ends_is_freed_before_any_orphan_and_said_to_be_stranded_once_a_change_to_it_settles(

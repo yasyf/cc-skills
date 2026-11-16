@@ -87,6 +87,8 @@ def local_builders(data: dict, moment: datetime) -> dict[str, str]:
 
 
 def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
+    if job["kind"] == "codex" and job.get("codex_run") and job["state"] == "running":
+        return f"its codex-ask run at work in {job['codex_run']}"
     if moves_here(job):
         move = "move here from its Sprite" if on_sprite(job) else f"take over from its agent {job['agent']}"
         return f"its turn to {move} came at {when(slot, seconds=True)}, its lane here not started yet" if (slot := job.get("slot")) and moment - state.parse_time(slot) < watch.RELAUNCH else None

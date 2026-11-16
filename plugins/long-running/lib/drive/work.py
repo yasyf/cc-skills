@@ -545,8 +545,8 @@ def live_workers(data: dict, kind: str, where: str | None = None) -> list[str]:
 
 
 def unbriefed(data: dict, moment: datetime, settle: timedelta) -> list[str]:
-    """The items that would be ready but that no brief was written for settle after drive job add recorded them, so a session's own brief, written in the same call as its add, lands first, so the spawner writes each one's brief from what the drive holds, as drive job launch writes a first lane's, rather than leaving it to a session."""
-    return [job_id for job_id, job in data["jobs"].items() if not job.get("brief") and not job.get("brief_error") and moment - state.parse_time(job["created"]) >= settle and any(kind.ready(data, job_id, briefed=False) for kind in KIND.values())]
+    """A build, read, design or codex item, never a staging test or proof, whose brief their own steps write, that would be ready but that no brief was written for settle after drive job add recorded them, so a session's own brief, written in the same call as its add, lands first, so the spawner writes each one's brief from what the drive holds, as drive job launch writes a first lane's, rather than leaving it to a session."""
+    return [job_id for job_id, job in data["jobs"].items() if not job.get("brief") and not job.get("brief_error") and moment - state.parse_time(job["created"]) >= settle and any(kind.ready(data, job_id, briefed=False) for kind in KIND.values() if kind.name not in (STAGE_TEST, PROVE))]
 
 
 def item_of(data: dict, job: dict) -> Kind | None:
