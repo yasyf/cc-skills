@@ -45,7 +45,8 @@ def placed(data: dict, job: dict) -> str:
     """Where a worker runs an item: on this Mac, "local", when the lines its brief flags give it today declare a step only this Mac runs, by cli.mac_lines, the rule drive job launch places a lane by, such as a Mac box's or drive job prove's, else on a Sprite, "remote", which keeps this Mac's load down."""
     from drive import cli
 
-    return "local" if any(cli.mac_lines(data["name"], job, job.get("brief_flags") or {})) else "remote"
+    flags = dict.fromkeys(state.BRIEF_FLAGS) | (job.get("brief_flags") or {})
+    return "local" if any(cli.mac_lines(data["name"], job, flags)) else "remote"
 
 
 def rank(data: dict, job_id: str) -> tuple:
