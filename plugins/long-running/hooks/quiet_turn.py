@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -19,7 +20,8 @@ def block_reason(payload: dict) -> str | None:
     names = state.session_drives(session)
     if not names or state.session_role(state.saved(names[0]), session) != "communicator":
         return None
-    if unanswered := owed_threads(session):
+    posted = turn_threads(Path(path)) if (path := payload.get("transcript_path")) else set()
+    if unanswered := [thread for thread in owed_threads(session) if thread not in posted]:
         return (
             f"Refused on purpose: his message in thread {', '.join(unanswered)} has no post of yours in its thread yet, and a turn"
             " never ends leaving him with none: post the answer now with say in that thread, what it is, what you found and"
@@ -58,14 +60,42 @@ def owed_threads(session: str) -> list[str]:
     return list(dict.fromkeys(reply.get("thread_ts") or reply["ts"] for reply in held.get("replies") or [] if (reply.get("holder_session") or held.get("holder_session")) == session))
 
 
-def turn_text(transcript: Path) -> list[str]:
-    """The text the session wrote since the last message it was sent, read from the transcript's tail, since a drive's transcript runs to hundreds of megabytes."""
+SAID = re.compile(r"\b(?:POSTED|EDITED|CARD) (https://\S+?/archives/\w+/p(\d{10})(\d{6})\S*)")
+THREAD_TS = re.compile(r"[?&]thread_ts=(\d+\.\d+)")
+
+
+def turn_threads(transcript: Path) -> set[str]:
+    """The thread of each post say's POSTED, EDITED or CARD lines name in this turn's tool results, the drive's own record of what it posted, so a post Slack's owed list has not caught up with yet still counts, by meta's fix of 736132."""
+    threads: set[str] = set()
+    for line in tail(transcript):
+        entry = json.loads(line)
+        content = (entry.get("message") or {}).get("content")
+        if entry.get("type") != "user":
+            continue
+        if isinstance(content, str) or any(block.get("type") == "text" for block in content):
+            threads = set()
+            continue
+        for block in content:
+            if block.get("type") != "tool_result":
+                continue
+            said = block.get("content")
+            words = said if isinstance(said, str) else " ".join(part.get("text") or "" for part in said or [] if isinstance(part, dict))
+            for found in SAID.finditer(words):
+                threads.add(thread[1] if (thread := THREAD_TS.search(found[1])) else f"{found[2]}.{found[3]}")
+    return threads
+
+
+def tail(transcript: Path) -> list[str]:
     with transcript.open("rb") as handle:
         start = max(0, handle.seek(0, os.SEEK_END) - TAIL)
         handle.seek(start)
-        lines = handle.read().decode(errors="replace").splitlines()[1 if start else 0 :]
+        return handle.read().decode(errors="replace").splitlines()[1 if start else 0 :]
+
+
+def turn_text(transcript: Path) -> list[str]:
+    """The text the session wrote since the last message it was sent, read from the transcript's tail, since a drive's transcript runs to hundreds of megabytes."""
     texts: list[str] = []
-    for line in lines:
+    for line in tail(transcript):
         entry = json.loads(line)
         content = (entry.get("message") or {}).get("content")
         if entry.get("type") == "user" and (isinstance(content, str) or any(block.get("type") == "text" for block in content)):

@@ -518,6 +518,21 @@ def test_a_communicator_turn_ends_only_once_dm_owed_holds_no_message_of_his_it_o
     assert quiet_turn.block_reason(stop) is None
 
 
+def test_a_communicator_turn_that_said_in_his_thread_ends_though_slacks_owed_list_lags(communicator: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    session = os.environ["CLAUDE_CODE_SESSION_ID"]
+    stop = {"session_id": session, "hook_event_name": "Stop", "stop_hook_active": False, "last_assistant_message": "Sent."}
+    owed = {"holder_session": session, "replies": [{"ts": "1794857634.488009", "channel_id": "C0CJ378LSBT"}, {"ts": "1794857700.000100", "thread_ts": "1794857690.000001", "channel_id": "C2"}]}
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: owed)
+    posted = "POSTED https://acme.slack.com/archives/C0CJ378LSBT/p1794857701409899?thread_ts=1794857634.488009&cid=C0CJ378LSBT"
+    carded = "POSTED https://acme.slack.com/archives/C2/p1794857702000000 CARD https://acme.slack.com/archives/C2/p1794857703000000?thread_ts=1794857690.000001&cid=C2"
+    result = {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": [{"type": "text", "text": posted}]}]}}
+    card = {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t2", "content": carded}]}}
+    said_both = transcript(tmp_path / "said.jsonl", asked("his message"), called("say", text="x"), result, called("say", text="y"), card, said("Sent."))
+    assert quiet_turn.block_reason(stop | {"transcript_path": said_both}) is None
+    earlier = transcript(tmp_path / "earlier.jsonl", called("say", text="x"), result, asked("his next message"), said("Sent."))
+    assert "1794857634.488009" in quiet_turn.block_reason(stop | {"transcript_path": earlier})
+
+
 def bash_call(command: str, **fields: object) -> dict:
     return {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "tool_name": "Bash", "tool_input": {"command": command}, **fields}
 
