@@ -20,7 +20,7 @@ def restack(name: str, keys: list[str], seen: dict[str, tuple]) -> list[dict]:
     data = state.load(name)
     tries = []
     for repo in sorted({github.repo_of(key) for key in keys}):
-        rows = {key: data["prs"][key] for key in keys if github.repo_of(key) == repo and data["prs"][key]["default"]}
+        rows = {key: data["prs"][key] for key in keys if github.repo_of(key) == repo and data["prs"][key]["default"] and data["prs"][key]["head"]}
         merged = sum(1 for key, pr in data["prs"].items() if github.repo_of(key) == repo and pr["state"] == "merged")
         for root, members in stacks(rows):
             signature = (merged, *((key, rows[key]["head"]) for key in members))
