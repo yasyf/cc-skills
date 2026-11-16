@@ -22,12 +22,6 @@ def test_jev_picks_a_route_and_its_meaning_is_the_reason(jev: Jev) -> None:
     assert chosen == route.COMMUNICATOR and why.startswith("Jev picked communicator: The communicator answers")
 
 
-def test_the_request_keeps_the_newest_thread_rows_within_one_jev_request() -> None:
-    rows = "\n".join(f"row {number} " + "x" * 400 for number in range(60))
-    asked = route.request("status?", rows, {route.NEW: route.MEANINGS[route.NEW]})
-    assert settled.size(asked, {}) <= settled.REQUEST_CHARS and "60" in asked["thread"] and "1" not in asked["thread"]
-
-
 def test_content_tokens_drop_short_and_common_words() -> None:
     assert agents.tokens("Where is the memory staging test, and what about j6639?") == {"memory", "staging", "test", "j6639"}
 
@@ -36,3 +30,8 @@ def test_a_fresh_route_for_a_gone_handler_is_no_sticky_route() -> None:
     data = state.new_drive("demo", "coordinator", "s", "/tmp")
     data["routes"]["thread:1794380463.481959"] = {"handler": "h1", "at": state.stamp()}
     assert agents.sticky(data, ["thread:1794380463.481959"]) is None
+
+
+def test_the_router_reads_only_his_words_the_routes_and_the_newest_thread_rows() -> None:
+    asked = route.request("status?", "\n".join(f"row {number}" for number in range(1, 21)), {route.NEW: "x"})
+    assert set(asked) == {"message", "routes", "thread"} and list(asked["thread"]) == [str(number) for number in range(13, 21)]

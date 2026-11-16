@@ -905,11 +905,16 @@ def start_kept(name: str, handler: str) -> str:
         unstarted(name, handler)
         return f"{state.stamp()} dropped {handler}: a report's handler, {error}"
     except Exception as error:
+        brief = kept.read_text()
         if woken:
             rest(name, handler)
         else:
             unstarted(name, handler)
         line = f"BLOCKED handler {handler} did not start: {start_error(error)}; its brief is kept in {kept}: start it again with the handler tool"
+        if his_message(held := holds(brief)) and held["link"] and HIS_WORDS in brief:
+            from drive import route
+
+            line += f"; his message fell back to {route.on_it(name, held['link'], his_words(brief), held['thread'])}"
         reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"{beside(state.saved(name))[0]}@{name}", "--id", f"handler-start-{handler}", "--text", line], Path.cwd(), reads.posting())
         return line
     return f"{state.stamp()} started {handler}: began {began - kept.stat().st_mtime:.1f}s after its brief was kept, wrote its brief in {briefed - began:.1f}s, waited {admitted - briefed:.1f}s for its turn, its start took {time.time() - admitted:.1f}s"

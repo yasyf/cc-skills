@@ -16,6 +16,16 @@ SEAT = "seat:"
 HANDLER = "handler:"
 SEATS = 12
 SIMILAR = 0.5
+ROWS = 8
+ROW_CHARS = 300
+WORDS_CHARS = 2000
+FOLLOW_WINDOW = timedelta(minutes=30)
+ON_IT = "On it, working on this now."
+CONTRACT = (
+    "The router's Jev input holds exactly: `message.words`, his words cut to WORDS_CHARS; `routes`, one line per open route naming what"
+    " it holds; and `thread`, the newest ROWS of the drive's rows for his thread, each cut to ROW_CHARS, by line number. The follow-up"
+    " read holds exactly `message.words` and `earlier.words`, the two messages' words, each cut to WORDS_CHARS. Nothing else of the drive goes in."
+)
 KEPT = timedelta(days=7)
 LOG = "routes.log"
 ASK = (
@@ -23,6 +33,10 @@ ASK = (
     " `routes`, what each route holds now, read them? Pick the one whose work his words are about."
 )
 AWAY = settled.Noul("Do `message.words` say he is going to sleep, going offline or stepping away?")
+FOLLOWS = settled.Noul(
+    "Is `message.words` a follow-up to `earlier.words`, his message just before it in the same thread: adding to, narrowing, correcting or repeating the same request, so one reply should cover both?",
+    no="It asks or orders something new that stands on its own.",
+)
 MEANINGS = {
     NEW: (
         "A fresh handler, which reads, posts and records for him: his question the rows do not answer, a share, a card, a post or"
@@ -77,12 +91,10 @@ def routes(data: dict) -> dict[str, str]:
 
 
 def request(words: str, rows: str, options: dict[str, str]) -> dict:
-    """Jev's request: his message and the routes whole, then the thread's rows by whole lines, newest first, while the request stays within settled.REQUEST_CHARS."""
-    base = {"message": {"words": words}, "routes": options}
-    lines = rows.splitlines()
-    items = [({"thread": {str(number): line}}, {}) for number, line in reversed(list(enumerate(lines, 1))) if line.strip()]
-    filled, _, _ = settled.fill(base, {"route": settled.Pick(ASK, options), "away": AWAY}, items)
-    return filled
+    """Jev's request for the route, by CONTRACT alone: his words, the routes, and the thread's newest ROWS rows."""
+    lines = [line for line in rows.splitlines() if line.strip()]
+    newest = list(enumerate(lines, 1))[-ROWS:]
+    return {"message": {"words": cut(words, WORDS_CHARS)}, "routes": options, "thread": {str(number): cut(line, ROW_CHARS) for number, line in newest}}
 
 
 def picked(data: dict, words: str, rows: str) -> tuple[str, str, bool, float]:
@@ -95,6 +107,26 @@ def picked(data: dict, words: str, rows: str) -> tuple[str, str, bool, float]:
         return NEW, f"Jev gave no reading, so a fresh handler takes it: {failure}", False, time.monotonic() - began
     route = str(read["route"])
     return route, f"Jev picked {route}: {cut(options[route], 160)}", settled.reading(float(read["away"])) is True, time.monotonic() - began
+
+
+def followed(data: dict, ts: str, thread: str, words: str) -> tuple[str, str, bool, float] | None:
+    """The route of his message just before this one in the same thread, while that one still waits on a real reply, cc-slack owing it, and Jev reads this one as its follow-up, with why, so it goes where the first went and one reply covers both; None otherwise."""
+    from drive import slack
+
+    earlier = [(kept["at"], key, kept) for key, kept in data["routed"].items() if key != ts and kept.get("route") and kept.get("thread") == thread and state.now() - state.parse_time(kept["at"]) <= FOLLOW_WINDOW]
+    if not earlier:
+        return None
+    _, key, kept = max(earlier)
+    if key not in {reply["ts"] for reply in slack.owed(agents.beside(data)[1]["session"])}:
+        return None
+    began = time.monotonic()
+    try:
+        follows = settled.reading(float(settled.jev({"message": {"words": cut(words, WORDS_CHARS)}, "earlier": {"words": cut(kept["words"], WORDS_CHARS)}}, {"follows": FOLLOWS})["follows"]))
+    except settled.Unheard:
+        return None
+    if not follows:
+        return None
+    return (f"{HANDLER}{kept['handler']}" if kept.get("handler") else kept["route"]), f"Jev read it as a follow-up to his message {key}, still unanswered, so it goes where that one went", False, time.monotonic() - began
 
 
 def held_route(data: dict, brief: str, words: str) -> tuple[str, str, bool, float] | None:
@@ -121,11 +153,14 @@ def route(name: str, brief: str, answer: str | None = None, away: bool = False) 
 
     data = state.load(name)
     rows = rows_answer.thread_rows(data, channel, thread or ts)
-    chosen, why, said_away, jev_seconds = held_route(data, brief, words) or picked(data, words, rows)
+    chosen, why, said_away, jev_seconds = followed(data, ts, thread or ts, words) or held_route(data, brief, words) or picked(data, words, rows)
     away = away or said_away
     watch.hear(name, state.now(), away)
-    went = take(name, chosen, brief, link, words, thread or ts, answer)
-    found = {"link": link, "at": state.stamp(), "route": chosen, "why": why, "away": away, "jev_ms": round(jev_seconds * 1000), "ms": round((time.monotonic() - began) * 1000)} | went
+    try:
+        went = take(name, chosen, brief, link, words, thread or ts, answer)
+    except Exception as error:
+        went = on_it(name, link, words, thread or ts) | {"fell": f"the {chosen} route raised: {cut(str(error), 300)}"}
+    found = {"link": link, "thread": thread or ts, "words": cut(words, 500), "at": state.stamp(), "route": chosen, "why": why, "away": away, "jev_ms": round(jev_seconds * 1000), "ms": round((time.monotonic() - began) * 1000)} | went
     with state.edit(name) as data:
         data["routed"][ts] = found
         data["routed"] = {key: kept for key, kept in data["routed"].items() if state.now() - state.parse_time(kept["at"]) <= KEPT}
@@ -149,6 +184,17 @@ def take(name: str, chosen: str, brief: str, link: str, words: str, thread: str,
         except state.DriveError as error:
             return handled(name, brief, None, answer) | {"fell": f"the owner record was refused: {cut(str(error), 300)}"}
     return handled(name, brief, chosen.removeprefix(HANDLER) if chosen.startswith(HANDLER) and chosen != NEW else None, answer)
+
+
+def on_it(name: str, link: str, words: str, thread: str) -> dict:
+    """His message's last fallback, so nothing he sends ends silently: the communicator's answer from the rows, else a line in his thread saying the drive is on it, which names no message as answered, so cc-slack still owes it and the watch hands it to a handler."""
+    from drive import answer as rows_answer
+    from drive import talk
+
+    found = rows_answer.answer(name, link, words)
+    if found["answered"]:
+        return {"answered": found["answered"]}
+    return {"on_it": talk.posted(name, {"text": ON_IT, "thread_ts": thread})["permalink"]}
 
 
 def handled(name: str, brief: str, prefer: str | None, answer: str | None) -> dict:
