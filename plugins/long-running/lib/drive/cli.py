@@ -1820,7 +1820,7 @@ def started_release(name: str, job_id: str, command: str) -> list[str]:
 
 
 def job_release(args: argparse.Namespace) -> int:
-    """Start the release a job's --release names, in the process drive job add starts for it, by release_start, once more RELEASE_RETRY_SECONDS on when the first start failed on a GitHub 5xx, by GITHUB_5XX; `ci release` names the build it started, by release_answer, which the job keeps as its release_build in a save holding nothing else, so a later step that fails leaves it kept, before the designs it carries and each failed job it replaces end and its brief is written, and then kicks off the prebuild of a staging or sandbox start's commit, by prebuild; a start naming none leaves the job with no build, its wait on this process ending on what it said, which the watch's FREE line names, and tells the coordinator and the session holding its order at once, by release_start_failed."""
+    """Start the release a job's --release names, in the process drive job add starts for it, by release_start, once more RELEASE_RETRY_SECONDS on when the first start failed on a GitHub 5xx, by GITHUB_5XX; `ci release` names the build it started, by release_answer, which the job keeps as its release_build in a save holding nothing else, so a later step that fails leaves it kept, before the designs it carries and each failed job it replaces end and its brief is written, and then kicks off the prebuild of a staging or sandbox start's commit, by prebuild; a start naming none leaves the job with no build, its wait on this process ending on what it said, which the watch's FREE line names, that wait taking the place of the starting call's own wait on itself in the same write when started_release has not swapped it yet, so the watch never ends the job's wait on that call first and loses why, and tells the coordinator and the session holding its order at once, by release_start_failed."""
     name = state.resolve(args.drive)
     command = state.load(name)["jobs"][args.id]["brief_flags"]["release"]
     [words] = simple_commands(command)
@@ -1832,8 +1832,11 @@ def job_release(args: argparse.Namespace) -> int:
         answer, failure = release_start(name, words, manual, args.session)
     if failure:
         why = f"its release did not start: {failure}"
+        mine, starter = state.pid_waits(f"pid:{os.getpid()}"), state.pid_waits(f"pid:{os.getppid()}")
         def job_release_write3(data: dict):
-            state.drop_waits(data, args.id, dict.fromkeys(state.pid_waits(f"pid:{os.getpid()}"), f"{why}; drive job set {args.id} --state stopped ends it"))
+            job = data["jobs"][args.id]
+            job["waits"] = [kept for wait in job["waits"] for kept in (mine if wait in starter else [wait])]
+            state.drop_waits(data, args.id, dict.fromkeys(mine, f"{why}; drive job set {args.id} --state stopped ends it"))
 
         state.update(name, None, job_release_write3)
         release_start_failed(name, args.id, command, failure)
