@@ -3586,6 +3586,8 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
     scratch = Path(flags["scratch"]).expanduser() if flags["scratch"] else state.drive_dir(name) / "scratch" / job_id
     staged = any(state.STAGING_PART.fullmatch(part) for part in job["parts"])
     mac, release = mac_lines(name, job, flags)
+    boxed = staging_mac_box(name, data, job) if staged else ""
+    mac = mac or (boxed and boxed.removeprefix("; "))
     fields = {
         "Order (his words)": order["text"] + carried,
         "Its parts (his words)": [part for part in job["parts"] if his_part(part) and part not in order["text"] and part != order["title"]],
@@ -3610,8 +3612,9 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         "Researched": found and found[0],
         "Answer": answers and answer_first(name, order, job["order"], job_id),
         "Staging": staged
-        and STAGING_FIRST.format(drive=name, attrs=json.dumps(state.thread_attr(data, order) | {"order": job["order"], "job": job_id, "progress": "true", "incident": "true"}))
-        + staging_mac_box(name, data, job)
+        and STAGING_MAC.format(drive=name) + ". "
+        + STAGING_FIRST.format(drive=name, attrs=json.dumps(state.thread_attr(data, order) | {"order": job["order"], "job": job_id, "progress": "true", "incident": "true"}))
+        + boxed
         + staging_taps(data, job),
         "Native": flags["native"],
         "Interactions": flags["interactions"],
@@ -4073,9 +4076,9 @@ def deliver(args: argparse.Namespace, name: str, text: str | None = None) -> int
 
 
 def mac_lines(name: str, job: dict, flags: dict) -> tuple[str | None, str | None]:
-    """The Mac: and Release: lines a job's brief flags give it, as rewrite_brief writes them and declared_step reads them: its mac flag, which write_brief fills for a staging tester from its builder's newest return holding a Mac: line, else STAGING_MAC when a part of its is a staging test, or EXCEPTION_MAC for a tester asking his exception, by state.EXCEPTED, and its release flag."""
+    """The Mac: and Release: lines a job's brief flags give it, as rewrite_brief writes them and declared_step reads them: its mac flag, which write_brief fills for a staging tester from its builder's newest return holding a Mac: line, else EXCEPTION_MAC for a tester asking his exception, by state.EXCEPTED, and its release flag; a staging tester's slot claim runs from a Sprite lane too, so it goes on the Staging line, never the Mac: line, and rewrite_brief adds its Mac box cases there."""
     staged = any(state.STAGING_PART.fullmatch(part) for part in job["parts"])
-    return flags["mac"] or ((EXCEPTION_MAC if state.EXCEPTED.match(job["goal"]) else STAGING_MAC.format(drive=name)) if staged else None), flags["release"]
+    return flags["mac"] or (EXCEPTION_MAC if staged and state.EXCEPTED.match(job["goal"]) else None), flags["release"]
 
 
 def declared_step(name: str, job: dict) -> str | None:
@@ -4085,7 +4088,7 @@ def declared_step(name: str, job: dict) -> str | None:
     if not (flags := job.get("brief_flags")):
         return place.mac_step(Path(job["brief"]).read_text())
     mac, release = mac_lines(name, job, flags)
-    return (None if mac == STAGING_MAC.format(drive=name) else mac) or release
+    return mac or release
 
 
 def live_end(job: dict) -> orca.LaneEnd:

@@ -6688,7 +6688,8 @@ def test_a_builders_pushed_naming_a_monorepo_pr_on_its_staging_test_gives_its_on
     assert [event["line"] for event, _ in state.read_events("demo") if event["kind"] == state.RETURNED and tester_id in event["line"]] == [f'{tester_id} builder on "{part}": the watch starts its agent on its brief {tester["brief"]}, so start no agent for it; drive job resume reaches it']
     assert run("job", "brief", tester_id)[0] == 0
     written = Path(state.load("demo")["jobs"][tester_id]["brief"]).read_text()
-    assert (f"Mac: {cli.STAGING_MAC.format(drive='demo')}" in written, "`drive slot claim plat-usw2-staging --job" in written, "staging-slots" in written) == (True, True, False)
+    assert (f"Staging: {cli.STAGING_MAC.format(drive='demo')}" in written, "\nMac:" in written, "`drive slot claim plat-usw2-staging --job" in written, "staging-slots" in written) == (True, False, True, False)
+    assert place.mac_step(written) is None
     assert ('"incident": "true"' in written, "Researched:" in written) == (True, False)
 
 
@@ -8699,7 +8700,7 @@ def test_declared_step_reads_the_mac_step_a_jobs_next_brief_renders_from_its_fla
     job = state.load(demo)["jobs"]["j1"]
     assert (code, place.mac_step(written.read_text()), place.mac_step(resumed.read_text()), cli.declared_step(demo, job)) == (0, step, None, step)
     staged = job | {"parts": [state.STAGING_TEST.format(number=42)], "brief_flags": job["brief_flags"] | {"mac": None}}
-    assert cli.declared_step(demo, staged) == cli.STAGING_MAC.format(drive=demo)
+    assert cli.declared_step(demo, staged) is None
 
 
 def test_job_brief_writes_each_after_install_command_in_order_refuses_one_that_is_no_drive_command_and_drops_them_given_an_empty_value(
