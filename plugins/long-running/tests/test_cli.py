@@ -9494,6 +9494,19 @@ def test_a_change_job_added_on_a_part_another_unfinished_one_carries_folds_into_
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"], data["jobs"]["j1"]["handed_to"]) == ("stopped", "handed to j3", "j3")
 
 
+def test_a_change_job_added_on_a_part_a_job_between_runs_carries_is_a_new_job_beside_it_never_folded_into_it(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test the app on a Mac", "--parts", "mac test pass")
+    run("job", "add", "codex", "--order", "o1", "--goal", "test the app on your own Mac box", "--part", "mac test pass")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(state="waiting", said="WAITING mac-box j1-prod is up", session="s1", worker_started=state.stamp(), codex_run={"pid": 1})
+    code, out = run("job", "add", "builder", "--order", "o1", "--goal", "build the production sign-in", "--part", "mac test pass")
+    assert (code, out.splitlines()[0]) == (0, "j2")
+    assert 'j1 carries "mac test pass" and has worked, between runs or at work, so this add left it as it is and added j2 beside it on the same parts' in out
+    data = state.load("demo")
+    assert (data["jobs"]["j1"]["kind"], data["jobs"]["j1"]["goal"], data["jobs"]["j1"]["state"]) == ("codex", "test the app on your own Mac box", "waiting")
+    assert (data["jobs"]["j2"]["kind"], data["jobs"]["j2"]["parts"]) == ("builder", ["mac test pass"])
+
+
 def test_a_change_job_added_on_one_part_of_a_returned_job_takes_that_part_and_its_pr_and_stops_the_job_only_once_it_is_left_no_part(run: Run, demo: str) -> None:
     url, key = "https://github.com/acme/app/pull/56", "acme/app#56"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "watch the search worker", "--parts", "search watch", "search alerts")

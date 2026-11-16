@@ -1712,7 +1712,8 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             raise DriveError(f"refused, no job added: {refused}")
         order["owner"] = order["owner"] or state.session_role(data, session)
         took = []
-        folds = held and state.untaken(held[1])
+        folds = held and state.never_worked(held[1])
+        sibling = held and not folds and state.untaken(held[1])
         if folds:
             job_id, job, shared = held
             job.update({field: value for field, value in given.items() if value is not None}, updated=created)
@@ -1723,7 +1724,9 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             job_id = state.next_id(data["jobs"], "j")
             job = data["jobs"][job_id] = fresh | given | {"where": given["where"] or "local", "waits": waits}
             order["jobs"].append(job_id)
-        if held and not folds:
+        if sibling:
+            took.append(f"{held[0]} carries {held[2]} and has worked, between runs or at work, so this add left it as it is and added {job_id} beside it on the same parts")
+        elif held and not folds:
             took.append(state.hand_over(data, held, job_id, args.order, parts, created, args.branch, args.repo))
         slotted = ""
         if args.release:

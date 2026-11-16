@@ -2391,6 +2391,14 @@ def untaken(job: dict) -> bool:
     return job["state"] in ("running", "waiting") and not (job["agent"] or job.get("dispatch") or job["prs"])
 
 
+WORKED = ("session", "bg", "worker_started", "codex_run", "returned")
+
+
+def never_worked(job: dict) -> bool:
+    """Whether no worker ever took a live job: untaken, and no session, background start, worker, codex-ask run or return of it was ever recorded, so drive job add may fold into it; a job between runs, holding a Mac box or a lane, has worked."""
+    return untaken(job) and not any(job.get(field) for field in WORKED)
+
+
 def unstarted(job: dict) -> bool:
     """Whether an untaken job is still the one drive job add recorded, waiting, not started, which only state.start runs once a worker records itself."""
     return job["said"] == NOT_STARTED and untaken(job)
