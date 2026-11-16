@@ -5058,15 +5058,19 @@ def update[T](name: str, rows: tuple[Row, ...] | None, change: Callable[[dict], 
 
 
 def committed(name: str, base: bytes, mine: dict) -> None:
-    """Save a write's changes, mine, made on the drive as base held it, holding no lock while it merges: mine laid over the drive as it stands now, by merged, which raises Raced at the first field both changed differently, saved as the records that merge changed by rows_saved, which keeps them only while each still reads as that load held it, and merged again over the drive as it then stands each time another write committed one first, up to UPDATE_TRIES times."""
+    """Save a write's changes, mine, made on the drive as base held it, holding no lock while it merges: a drive an older install kept in drive.json moved into its database first, under the drive's lock, by moved; mine laid over a copy of the drive as it stands now, by merged, which raises Raced at the first field both changed differently, saved as the records that merge changed by rows_saved, which keeps them only while no other write committed one of them, the drive's bindings, or the order of a job the save finishes since that load, and merged again over the drive as it then stands each time another write did, up to UPDATE_TRIES times."""
+    if not database_path(name).exists():
+        with locked(name):
+            moved(name)
     was = marshal.loads(base)
     for _ in range(UPDATE_TRIES):
         now = load(name)
-        saved = merged(was, mine, now)
+        since = LOADED_REV.get()
+        saved = marshal.loads(marshal.dumps(merged(was, mine, now)))
         if not (written := tuple(sorted(written_rows(now, saved)))):
             return
         try:
-            rows_saved(name, {row: row_of(now, row) for row in written}, now, saved, written)
+            rows_saved(name, {row: row_of(now, row) for row in written}, now, saved, written, since, frozenset(("", field) for field in BINDINGS))
             return
         except Raced:
             continue
