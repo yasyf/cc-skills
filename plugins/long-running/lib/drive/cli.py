@@ -4953,6 +4953,9 @@ def slot_queue(args: argparse.Namespace) -> int:
         hold = f"; held for {slot['hold']['for']} until {slot['hold']['until']}: {slot['hold']['reason']}" if slot.get("hold") else ""
         lines.append(f"{env}: {said}{hold}")
         lines += [f"  {place}. {each['job']} for {each['minutes']} minutes, queued {each['at']}" for place, each in enumerate(slot["queue"], 1)]
+        if env == work.ENV and work.enabled(data, work.STAGE_TEST):
+            ready, waiting = work.STAGE.line(data), [job_id for job_id, job in data["jobs"].items() if work.STAGE.queued(data, job) and not work.STAGE.ready(data, job_id)]
+            lines.append(f"  work queue, which packs these into its own cuts: {len(ready)} ready in order ({', '.join(ready) or 'none'}); {len(waiting)} waiting ({', '.join(waiting) or 'none'}); drive work show says why no cut of it starts")
     return emit(args, "\n".join(lines) or "no staging slot is held or queued", {"slots": shown})
 
 
