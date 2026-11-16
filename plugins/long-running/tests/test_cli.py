@@ -8294,6 +8294,22 @@ def test_a_pr_built_on_an_open_incidents_fix_is_an_incident_fix_with_no_tap_no_s
     assert not state.queued_by_lander(data, "Forge-AI/monorepo#42")
 
 
+def test_a_hotfix_of_an_open_incidents_pr_names_with_only_just_the_components_that_pr_reaches(with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"releases": ["api", "rsw-cp", "rsw-dp"]} for key in keys})
+    command = "tools/ci release hotfix 42 --order 14e8441"
+    with edit("demo") as data:
+        data["orders"]["o1"]["incident"] = True
+    data = state.load("demo")
+    wide = brief.incident_scope(command, {"hotfix": ("42",), "order": ("14e8441",)}, data)
+    assert wide and f"hotfixes the open incident's {with_pr} with no --only" in wide and "api, rsw-cp, rsw-dp" in wide
+    beyond = brief.incident_scope(f"{command} --only api,platy", {"hotfix": ("42",), "only": ("api", "platy")}, data)
+    assert beyond and f"names platy in --only, which {with_pr} does not reach" in beyond
+    assert brief.incident_scope(f"{command} --only api", {"hotfix": ("42",), "only": ("api",)}, data) is None
+    with edit("demo") as data:
+        data["orders"]["o1"]["incident"] = False
+    assert brief.incident_scope(command, {"hotfix": ("42",)}, state.load("demo")) is None
+
+
 def test_pr_set_never_leaves_a_forge_ai_pr_with_neither_his_tap_nor_an_exempt_class(
     run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]
 ) -> None:

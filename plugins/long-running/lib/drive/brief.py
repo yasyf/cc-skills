@@ -249,6 +249,24 @@ def release_refusal(command: str, data: dict, reading: str | None = None) -> str
         return f"--release `{command}` deploys `--local`, whose plan and apply run in the shell that starts it and start no build its job could follow, so no job starts it: a `--manual` or regular start names the build its job follows"
     if not flags.get("order") and not reading and not rehearsal(command, data):
         return f"--release names no --order. {RELEASE_APPROVAL}"
+    return incident_scope(command, flags, data)
+
+
+INCIDENT_SCOPE_WORDS = "Of only llm-gateway or api or whatever the thing we need here is"
+
+
+def incident_scope(command: str, flags: dict[str, tuple[str, ...]], data: dict) -> str | None:
+    """Why a hotfix of an open incident's fix may not start: it names no `--only`, so the release tool picks every component and partner the fix's commit reaches, or one its `--only` names that none of the PRs it hotfixes reaches, by the release provider's components read, by his words INCIDENT_SCOPE_WORDS; None for any other start, and for one naming only components its PRs reach, which of them his words name being the session's reading."""
+    from drive import cli
+
+    keys = [key for number in flags.get("hotfix", ()) if (key := f"{state.home(data)}#{number}") in data["prs"] and state.open_incidents(data, list(state.served_orders(data, data["prs"][key])))]
+    if not keys:
+        return None
+    reached = sorted({component for reach in cli.release_reach(data["name"], data, keys).values() for component in reach["releases"]})
+    if not (only := flags.get("only")):
+        return f'--release `{command}` hotfixes the open incident\'s {", ".join(keys)} with no --only, so it ships whatever the release tool pairs with it, by his words "{INCIDENT_SCOPE_WORDS}": name with --only the components it needs, of the ones it reaches, {", ".join(reached) or "none"}, narrowed to what his words name'
+    if wider := sorted(set(only) - set(reached)):
+        return f'--release `{command}` names {", ".join(wider)} in --only, which {", ".join(keys)} does not reach: it reaches {", ".join(reached) or "none"}, by his words "{INCIDENT_SCOPE_WORDS}"'
     return None
 
 

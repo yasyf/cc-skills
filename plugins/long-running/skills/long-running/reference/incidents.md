@@ -267,11 +267,15 @@ check's verdict, or from the order when none ran.
   makes that thread the incident's own.
 - Accept a reviewer-bot finding with the repository's accept command, its why reading
   `incident: <why the fix is right>`, unless it says the fix is wrong.
-- Nothing stands between the merged fix and its build: no dry run, no read of what the cut covers,
-  no question. The job shipping the fix returns `WAITING release` naming the start at the fix
-  commit, and the top coordinator starts it with `drive job add --release`. The release's own
-  approve hold is the one check, and every other read runs while it builds.
-- Every release a drive job starts, an incident's included, starts the regular way at the merged
+- Nothing stands between the merged fix and its build: no dry run and no question. The job
+  shipping the fix returns `WAITING release` naming the hotfix of its PR, and the top coordinator
+  starts it with `drive job add --release`. The release's own approve hold is the one check, and
+  every other read runs while it builds.
+- An incident's hotfix ships only what the fix needs. His ruling: "Of only llm-gateway or api or
+  whatever the thing we need here is". `drive job add --release` refuses a hotfix of an open
+  incident's PR that names no `--only`, and refuses an `--only` component the PR does not reach.
+  The refusal lists the components the PR reaches. Which of them his words name is your reading.
+- Every other release a drive job starts starts the regular way at the merged
   fix or the default branch's head a first check proved, a release start of its target from that commit, whose footers decide what ships with
   it, so it is not narrowed to leave out a partner they name. The job it started on does not cancel it, however wide its plan reads: a job that
   would decline it at approve returns with it held for the coordinator, and the `landing_guard`
