@@ -4453,10 +4453,10 @@ def kept_hold(name: str, held: float, waited: float, lock: str = "") -> None:
 
 
 def kept_write(name: str, waited: float, held: float, how: str) -> None:
-    """Log each hold of the drive's lock to writes.log, one tab-separated line: when, the drive code that held it, whether it saved the whole drive or a write's rows alone, how long it waited and how long it held, so each verb's write latency reads from every write, not only the slow ones locks.log names."""
+    """Log each hold of the drive's lock to writes.log, one tab-separated line: when, the drive code that held it, whether it saved the whole drive or a write's rows alone, how long it waited and how long it held, the pid and the install it ran, so each verb's write latency reads from every write, not only the slow ones locks.log names, and a hold of the whole drive names whether a current install or an older one took it."""
     holder = next(frame for frame in reversed(traceback.extract_stack()[:-1]) if Path(frame.filename).name not in ("state.py", "contextlib.py"))
     with open(drive_dir(name) / "writes.log", "a") as log:
-        log.write(f"{stamp()}\t{holder.name}\t{how}\t{waited:.3f}\t{held:.3f}\n")
+        log.write(f"{stamp()}\t{holder.name}\t{how}\t{waited:.3f}\t{held:.3f}\t{os.getpid()}\t{VERSION}\n")
 
 
 def kept_stack(name: str, thread: int) -> None:
