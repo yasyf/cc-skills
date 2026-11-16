@@ -187,7 +187,7 @@ def turns(data: dict, moment: datetime) -> tuple[list[str], int]:
 
 def promised(data: dict, job: dict) -> str | None:
     """The earliest time promised him on an order the job serves, its own or one it carries."""
-    return min((due for order_id in [job["order"], *job["carries"]] if (due := data["orders"][order_id]["due"])), key=state.parse_time, default=None)
+    return min((held["due"] for order_id in [job["order"], *job["carries"]] for held in data["orders"][order_id]["promises"]), key=state.parse_time, default=None)
 
 
 def due_first(data: dict, job: dict) -> tuple[bool, datetime]:

@@ -119,16 +119,18 @@ his words "your messages need to be way shorter rewrite this for a human".
   out, so name a PR he has nothing to tap in a line that waits on nothing.
 - Only cards have buttons, so anything that asks for his action or decision is a card: "Anything that
   says waiting on me you always need to embed the card with the buttons".
-- When a post in an order's thread promises him his next line by a clock time, such as "Next line
-  by 9:45", the post's record (`say` or `drive order posted`) makes that time the order's
-  due from the words Slack holds for the post, a time with no AM or PM read as the one nearest the
-  post, and any other time in it, such as "due by 2:37", sets nothing, so the
+- When a post to him names a clock time after "by" or "before", in any words, such as "Next line
+  by 9:45" or "its count of cards comes by 2:58 PM", the post's record (`say` or `drive order
+  posted`) makes the earliest such time still to come a line the order owes him in that post's own
+  thread, from the words Slack holds for the post, a time with no AM or PM read as the one nearest
+  the post, so the
   watch holds the drive to it from Slack's own record, not a session's memory, and no `--due` follows
   the line. `drive order add --due` counts from when the order is added, and `drive order set --due`
   from the next line in the order's thread. A time can name its day, such as "Next line by 10:00 AM
-  tomorrow". From that time the watch writes the report owing the line and starts the handler that
-  posts it, as it does for a quiet thread, every 10 minutes while he is here, until a drive post
-  is in that thread, each report calling the line late once he read present 10 minutes past the time,
+  tomorrow". Five minutes before that time while he is here, and at it otherwise, the watch writes
+  the report owing the line and starts the handler that posts it, as it does for a quiet thread,
+  then every 10 minutes, until a drive post is in that same thread, a post in any other thread of
+  the order keeping nothing, each report calling the line late once he read present 10 minutes past the time,
   never counting the minutes he was away; an order with no thread gets one `DUE` line instead. A time
   that falls while he is away is owed at his return: no report owes it while he is away, `drive status`
   prints its order's time as waiting on his return, and the first pass after he is heard writes the

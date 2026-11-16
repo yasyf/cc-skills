@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from drive import slack
-from drive.state import AWAY_HOLD, CLOCKS, DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owed, owed_at_return, owner_away, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, present, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
+from drive.state import AWAY_HOLD, CLOCKS, DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owed, owed_at, owed_at_return, owing, owner_away, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, present, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -428,7 +428,7 @@ def prs_by_job(drive: dict) -> dict[str, list[str]]:
 
 
 def order_line(drive: dict, order_id: str, order: dict, limit: int = 120, thread: tuple[str, str] | None = None) -> str:
-    due = f" due {when(order['due'])}{', waiting on his return' if owed_at_return(drive, order, now()) else ''}" if owed(order) else ""
+    due = f" due {when(owed_at(order))}{', waiting on his return' if any(owed_at_return(drive, held, now()) for held in owing(order)) else ''}" if owed(order) else ""
     where = f", its lines go in {thread[0]} thread {thread[1]}" if thread else ""
     return f"{order_id} {order['state']}{' incident' if order['incident'] else ''}{due}{where}{reporter_said(drive, order)}: {cut(order['text'], limit)}"
 

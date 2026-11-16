@@ -269,7 +269,7 @@ def test_a_jobs_call_shows_its_own_order_alone_most_overdue_first_a_thread_lined
     waited_on(range(3, 4), timedelta(minutes=30))
     with state.edit("demo") as data:
         data["jobs"]["j3"]["state"] = "done"
-        state.promise(data["orders"]["o3"], state.stamp(state.now() - timedelta(minutes=10)), state.now() - timedelta(minutes=40))
+        state.promise(data["orders"]["o3"], state.promise_thread(data["orders"]["o3"]), state.stamp(state.now() - timedelta(minutes=10)), state.now() - timedelta(minutes=40))
     lines = overdue_at_call(monkeypatch, capsys, {"session_id": coordinator})
     assert [line.split(":")[0] for line in lines[1:]] == ["- o3 Fix 3", "- o1 Fix 1", "- o2 Fix 2"]
     assert (lines[1].endswith(", 10 min past due"), lines[2].endswith(", 3 min past due"), lines[3].endswith(", not past due")) == (True, True, True)

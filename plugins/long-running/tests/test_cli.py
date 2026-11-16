@@ -675,9 +675,9 @@ def test_order_add_allocates_ids_and_stores_words_verbatim(run: Run, demo: str) 
     assert orders["o1"]["thread"] == ["D123", "1.2"]
     assert orders["o2"]["thread"] == ["D123", "1.3"]
     assert orders["o1"]["state"] == "open"
-    assert orders["o1"]["due"] is None
+    assert orders["o1"]["promises"] == []
     assert orders["o2"]["from"] == "terminal"
-    assert state.parse_time(orders["o2"]["due"]) > state.now()
+    assert state.parse_time(orders["o2"]["promises"][0]["due"]) > state.now()
 
 
 def test_an_orders_thread_is_refused_unless_slack_reads_it_as_a_thread_where_its_lines_go(
@@ -794,7 +794,7 @@ def test_an_order_he_gives_in_a_thread_a_teammate_started_takes_that_thread_as_i
     orders = data["orders"]
     assert orders["o1"]["reporters"] == [state.reporter(f"slack:C0BUGS1/{report}")]
     assert (orders["o1"]["thread"], state.promise_thread(orders["o1"]), state.thread_attr(orders["o1"])) == (["C0BUGS1", report], None, {})
-    assert orders["o1"]["due"] and limits.his_words(orders["o1"]) == "fix this"
+    assert orders["o1"]["promises"][0]["due"] and limits.his_words(orders["o1"]) == "fix this"
     assert [(orders[order_id]["reporters"], state.own_thread(orders[order_id]), state.promise_thread(orders[order_id])) for order_id in ("o2", "o3")] == [([], ("C0BUGS1", report), None)] * 2
     slack_thread.messages[0] |= {"from_bot": True}
     assert run(*filed, "unpause the release", "--from", f"slack:C0BUGS1/{report}/{reply}") == (0, "o4")
@@ -806,7 +806,7 @@ def test_order_set_due_on_an_order_with_no_thread_stores_the_drives_own_time_whi
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "wait on the release")
     code, out = run("order", "set", "o1", "--due", "+30m")
-    first = state.load("demo")["orders"]["o1"]["due"]
+    first = state.load("demo")["orders"]["o1"]["promises"][0]["due"]
     said = (
         f"stored {render.when(first)} as the drive's own time: o1 has no thread, so no line to him keeps it, and the watch"
         " says DUE once then; a time promised to him needs --thread <its permalink>"
@@ -814,8 +814,9 @@ def test_order_set_due_on_an_order_with_no_thread_stores_the_drives_own_time_whi
     assert (code, out.splitlines()[-1]) == (0, said)
     assert run("order", "set", "o1", "--due", "+60m")[0] == 0
     order = state.load("demo")["orders"]["o1"]
-    assert (state.parse_time(order["due"]) > state.parse_time(first), state.owed_at(order), order["kept"]) == (True, order["due"], None)
-    monkeypatch.setattr(slack, "order_posts", lambda data, order_id, order: pytest.fail("closing an order with no thread reads none"))
+    [held] = order["promises"]
+    assert (state.parse_time(held["due"]) > state.parse_time(first), state.owed_at(order), held["kept"]) == (True, held["due"], None)
+    monkeypatch.setattr(slack, "thread_posts", lambda held: pytest.fail("closing an order with no thread reads none"))
     assert run("order", "set", "o1", "--state", "dropped")[0] == 0
 
 
@@ -947,18 +948,18 @@ def test_order_set_due_says_it_stored_the_time_and_what_it_waits_on_or_why_it_st
     past = "2026-01-01T09:00:00-08:00"
     assert cli.main(["order", "set", "o1", "--due", past, "--thread", "1.2"]) == 2
     assert f"o1: refused, no time stored: {render.when(past)} is already past" in capsys.readouterr().err
-    assert state.load("demo")["orders"]["o1"]["due"] is None
+    assert state.load("demo")["orders"]["o1"]["promises"] == []
     first = run("order", "set", "o1", "--due", "+30m", "--thread", "1.2")[1].splitlines()[-1]
-    due = render.when(state.load("demo")["orders"]["o1"]["due"])
+    due = render.when(state.load("demo")["orders"]["o1"]["promises"][0]["due"])
     assert first == (
         f"stored {due}: it waits on the next drive post in D123 thread 1.2, which tells him the time; from that post he is owed a line by {due}"
     )
     later = run("order", "set", "o1", "--due", "+2h")[1].splitlines()
-    order = state.load("demo")["orders"]["o1"]
-    assert render.when(order["due"]) in later[0]
+    [held] = state.load("demo")["orders"]["o1"]["promises"]
+    assert render.when(held["due"]) in later[0]
     assert later[-1] == (
-        f"stored {render.when(order['next_due'])} behind the line already owed for {due}: the watch keeps starting a handler on that line until the next"
-        f" drive post in D123 thread 1.2 lands, which tells him {render.when(order['next_due'])} and makes it the time owed"
+        f"stored {render.when(held['next_due'])} behind the line already owed for {due}: the watch keeps starting a handler on that line until the next"
+        f" drive post in D123 thread 1.2 lands, which tells him {render.when(held['next_due'])} and makes it the time owed"
     )
 
 
@@ -9767,6 +9768,29 @@ def test_setting_parts_keeps_what_a_kept_part_recorded(
     assert parts == {"why": state.new_part() | {"posted": answer}, "what": state.new_part()}
 
 
+def test_a_line_promising_a_time_after_by_in_any_words_owes_it_in_its_own_thread_and_a_post_in_another_thread_keeps_none_of_it(
+    run: Run, demo: str, slack_thread: "Thread"
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "count the cards", "--thread", "1794200000.000100")
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    card = "1794200600.000200"
+    moment = state.now()
+    due = (moment + timedelta(hours=1)).replace(second=0, microsecond=0)
+
+    def in_card(at: datetime, **fields: object) -> str:
+        return slack_thread.post(at, from_claude=True, thread_ts=card, **fields).replace("thread_ts=1794200000.000100", f"thread_ts={card}")
+
+    assert run("order", "posted", "o1", in_card(moment, text=f"Its count of cards comes by {due:%-I:%M %p}."))[0] == 0
+    assert run("order", "posted", "o1", slack_thread.post(moment + timedelta(minutes=1), from_claude=True))[0] == 0
+    [held] = state.load("demo")["orders"]["o1"]["promises"]
+    assert (held["thread"], state.parse_time(held["due"]), held["kept"]) == (["D123", card], due, None)
+    assert run("order", "posted", "o1", in_card(moment + timedelta(minutes=2)))[0] == 0
+    assert not state.owed(state.load("demo")["orders"]["o1"])
+
+
 def test_a_post_naming_no_part_of_an_order_of_several_is_a_progress_line_that_keeps_its_promised_time(
     run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -9776,12 +9800,12 @@ def test_a_post_naming_no_part_of_an_order_of_several_is_a_progress_line_that_ke
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     run("order", "set", "o1", "--due", "+40m")
-    promised = state.load("demo")["orders"]["o1"]
+    [promised] = state.load("demo")["orders"]["o1"]["promises"]
     assert promised["due"] != promised["next_due"]
     line = slack_thread.post(state.now() + timedelta(seconds=1), from_claude=True)
     assert run("order", "posted", "o1", line) == (0, f"o1 progress line, no part delivered: {line}")
     order = state.load("demo")["orders"]["o1"]
-    assert (order["due"], order["kept"]) == (promised["next_due"], None)
+    assert [(held["due"], held["kept"]) for held in order["promises"]] == [(promised["next_due"], None)]
     assert order["last_line"] == state.stamp(slack.sent_at(slack_thread.messages[-1]))
     assert [part["posted"] for part in order["parts"].values()] == [None, None, None]
     report_records(monkeypatch, {"661300": {"part": "rollback"}, "661301": {"part": "fix"}})
@@ -9929,7 +9953,7 @@ def test_a_line_in_the_thread_of_the_incident_an_alert_joined_is_its_last_line_a
     line = slack_thread.post(state.now() + timedelta(seconds=1), from_claude=True)
     assert run("order", "posted", "o2", line) == (0, f"o2 progress line, no part delivered: {line}")
     alert_order = state.load("demo")["orders"]["o2"]
-    assert (alert_order["kept"], state.owed(alert_order), alert_order["last_line"]) == (None, False, state.stamp(slack.sent_at(slack_thread.messages[-1])))
+    assert (alert_order["promises"][0]["kept"], state.owed(alert_order), alert_order["last_line"]) == (None, False, state.stamp(slack.sent_at(slack_thread.messages[-1])))
 
 
 def test_an_alert_saved_before_joins_was_kept_loads_joined_to_the_incident_its_owner_job_carries_it_for(run: Run, demo: str) -> None:
@@ -9981,7 +10005,7 @@ def test_only_his_own_message_withdraws_a_promised_line(run: Run, demo: str, sla
     assert run("order", "set", "o1", "--state", "dropped", "--withdrawn", ours)[0] == 2
     assert run("order", "set", "o1", "--state", "dropped", "--withdrawn", his)[0] == 0
     order = state.load("demo")["orders"]["o1"]
-    assert (order["state"], order["withdrawn"]) == ("dropped", his)
+    assert (order["state"], order["withdrawn"], order["promises"]) == ("dropped", his, [])
 
 
 def test_the_line_a_closing_report_posts_keeps_the_time_owed_even_when_it_was_the_line_that_told_him_that_time(
@@ -10009,23 +10033,23 @@ def test_the_line_a_closing_report_posts_keeps_the_time_owed_even_when_it_was_th
     run("order", "set", "o2", "--due", "+28m")
     done = slack_thread.post(moment + timedelta(minutes=1), from_claude=True)
     run("order", "posted", "o1", done)
-    told = state.load("demo")["orders"]["o1"]
-    assert (told["promised"], state.owed(told)) == (slack.sent_at(slack_thread.messages[-1]).isoformat(), True)
+    [told] = state.load("demo")["orders"]["o1"]["promises"]
+    assert (told["promised"], told["kept"]) == (slack.sent_at(slack_thread.messages[-1]).isoformat(), None)
     assert cli.main(["order", "set", "o1", "--state", "done", "--record", "22"]) == 2
     assert (
-        f"o1 owes him the line promised for {render.when(told['due'])}, and no drive post is in its thread since"
+        f"o1 owes him the line promised for {render.when(told['due'])} in D123 thread 1794200000.000100, and no drive post is in that thread since"
         f" {render.when(told['promised'], seconds=True)}: post it there first with say(record=22)"
     ) in capsys.readouterr().err
     assert run("order", "set", "o1", "--state", "done", "--record", "21")[0] == 0
     closed = state.load("demo")["orders"]["o1"]
-    assert (closed["state"], closed["kept"], closed["due"]) == ("done", told["promised"], told["due"])
-    due = state.load("demo")["orders"]["o2"]["due"]
+    assert (closed["state"], closed["promises"][0]["kept"], closed["promises"][0]["due"]) == ("done", told["promised"], told["due"])
+    due = state.load("demo")["orders"]["o2"]["promises"][0]["due"]
     assert run("order", "posted", "o2", done, "--record", "23") == (
         0,
         f"o2 closing line, no part delivered: {done}, its close keeps the line promised for {render.when(due)}",
     )
     kept = state.load("demo")["orders"]["o2"]
-    assert (kept["kept"], kept["next_due"], state.owed(kept)) == (told["promised"], None, False)
+    assert (kept["promises"][0]["kept"], kept["promises"][0]["next_due"], state.owed(kept)) == (told["promised"], None, False)
 
 
 def test_a_handler_closes_only_an_order_its_report_record_closes(

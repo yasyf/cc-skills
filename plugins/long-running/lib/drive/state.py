@@ -30,6 +30,7 @@ from drive.pr_graph import PrGraph
 ORDER_STATES = ("open", "working", "waiting", "done", "dropped")
 ORDER_KINDS = ("answer", "build")
 CLOSED_ORDER_STATES = ("done", "dropped")
+OLDER_INSTALL_PROMISE = ("due", "promised", "kept", "due_said", "next_due", "next_set")
 JOB_KINDS = ("builder", "reader", "design", "codex")
 REPORT_REPLY = "report_"
 RETURNED = "returned"
@@ -982,9 +983,6 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             order["parts"] = {whole: new_part()}
             for job_id in order["jobs"]:
                 data["jobs"][job_id].setdefault("parts", [whole])
-        if "promised" not in order:
-            order.update(promised=order.get("due") and order["updated"], next_due=None, kept=None, withdrawn=None)
-        order.setdefault("next_set", None)
         order.setdefault("incident", False)
         order.pop("milestone", None)
         order.setdefault("project", None)
@@ -1036,6 +1034,12 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order["owner"] = "meta" if order["text"].startswith(TOOLING) else order.get("owner")
         if "from_thread" in order or isinstance(order.get("thread", ""), str):
             order["thread"] = saved_thread(data, order)
+        order.setdefault("promises", [])
+        if order.get("due") and not order.get("withdrawn"):
+            where = promise_thread(order | {"threads": order.get("threads", [])})
+            new_promise(order, where, order["due"], order.get("promised") or order["updated"]).update({field: order[field] for field in ("kept", "due_said", "next_due", "next_set") if field in order})
+        order.update({field: None for field in OLDER_INSTALL_PROMISE if field in order})
+        order.setdefault("withdrawn", None)
         order["parts"] = {part.strip(): held for part, held in order["parts"].items()}
         for part in order["parts"].values():
             part.pop("kind", None)
@@ -3579,12 +3583,8 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "threads": [],
         "claims": {},
         "state": "open",
-        "due": None,
-        "due_said": None,
-        "promised": None,
-        "next_due": None,
-        "next_set": None,
-        "kept": None,
+        "promises": [],
+        **dict.fromkeys(OLDER_INSTALL_PROMISE),
         "withdrawn": None,
         "jobs": [],
         "alerts": [],
@@ -4878,8 +4878,8 @@ def present(data: dict, since: datetime, moment: datetime) -> timedelta:
 
 
 def timed(data: dict, job: dict, moment: datetime) -> bool:
-    """Whether a time is set to come for the job: its own clock from drive job set --due, or a due time of an order it serves."""
-    dues = [job["due"], *(data["orders"][order_id]["due"] for order_id in [job["order"], *job["carries"]])]
+    """Whether a time is set to come for the job: its own clock from drive job set --due, or a time an order it serves promised him in one of its threads."""
+    dues = [job["due"], *(held["due"] for order_id in [job["order"], *job["carries"]] for held in data["orders"][order_id]["promises"])]
     return any(due and parse_time(due) > moment for due in dues)
 
 
@@ -5059,47 +5059,68 @@ def incident_threads(data: dict, order_ids: list[str]) -> list[str]:
     return [where[1] for order_id in order_ids if (where := promise_thread(data["orders"][order_id]))]
 
 
+def promised_in(order: dict, thread: tuple[str, str] | list[str] | None) -> dict | None:
+    """The line an order owes him in one thread, kept or not, by the channel and thread its promise names; None in place of a thread names the drive's own time of an order with no thread."""
+    return next((held for held in order["promises"] if held["thread"] == (list(thread) if thread else None)), None)
+
+
+def owing(order: dict) -> list[dict]:
+    """The lines an order owes him for promised times, each in the thread whose line promised it: those no drive post in that thread has kept. An incident owes none, since the watch owes him its line five quiet minutes after its last once it has news, whatever that line promised."""
+    return [] if order["incident"] else [held for held in order["promises"] if not held["kept"]]
+
+
 def owed(order: dict) -> bool:
-    """Whether the order owes him a line for a promised time: no drive post in its thread has kept it, and he has not withdrawn it. An incident owes none, since the watch owes him its line five quiet minutes after its last once it has news, whatever that line promised."""
-    return bool(order["due"]) and not order["incident"] and not order["kept"] and not order["withdrawn"]
+    return bool(owing(order))
 
 
 def owed_at(order: dict) -> str:
-    return min((due for due in (order["due"], order["next_due"]) if due), key=parse_time)
+    """The earliest time an order owes him a line by, of every thread it owes one in."""
+    return min(map(due_at, owing(order)), key=parse_time)
 
 
-def owed_at_return(data: dict, order: dict, moment: datetime) -> bool:
-    """Whether the line an order promised him by a time already past is owed at his return: he reads away and the line goes in a thread, so the watch writes no report owing it until the first pass after he is heard, by his words "Just do less realtime more summary / batching, with a catch up post once I'm back"; an order whose lines have no thread keeps the drive's own time."""
-    return owner_away(data, moment) and owed(order) and parse_time(owed_at(order)) <= moment and bool(promise_thread(order))
+def due_at(held: dict) -> str:
+    return min((due for due in (held["due"], held["next_due"]) if due), key=parse_time)
 
 
-def promise(order: dict, due: str, moment: datetime) -> None:
-    """Promise a line by due, owed from the next line in the order's thread, the one that tells him the time; a time already owed holds until that line lands."""
-    if not owed(order):
-        order.update(due=due, promised=stamp(moment), kept=None, withdrawn=None, due_said=None)
-    order.update(next_due=due, next_set=stamp(moment))
+def owed_at_return(data: dict, held: dict, moment: datetime) -> bool:
+    """Whether the line promised him in a thread by a time already past is owed at his return: he reads away, so the watch writes no report owing it until the first pass after he is heard, by his words "Just do less realtime more summary / batching, with a catch up post once I'm back"; the drive's own time of an order with no thread keeps its time."""
+    return owner_away(data, moment) and not held["kept"] and parse_time(due_at(held)) <= moment and bool(held["thread"])
 
 
-def remind(order: dict, due: str, moment: datetime) -> None:
-    """Owe due from moment in place of any time owed or waiting before: the time a drive post made at moment promised in the order's thread, which the next post keeps, or the time an order with no thread wakes the drive at, which no post keeps, so it is said once."""
-    order.update(due=due, promised=moment.isoformat(), kept=None, withdrawn=None, due_said=None, next_due=None, next_set=None)
+def promise(order: dict, thread: tuple[str, str], due: str, moment: datetime) -> None:
+    """Promise a line by due in the thread, owed from the next line there, the one that tells him the time; a time already owed there holds until that line lands."""
+    held = promised_in(order, thread)
+    if not held or held["kept"]:
+        held = new_promise(order, thread, due, stamp(moment))
+    held.update(next_due=due, next_set=stamp(moment))
 
 
-def keep(order: dict, posts: list[datetime], announced: bool = True) -> None:
-    """Record the first drive post after the promise as keeping it; a post that lands before the next time starts that time from it."""
-    kept = next((post for post in posts if post > parse_time(order["promised"])), None)
+def remind(order: dict, thread: tuple[str, str] | None, due: str, moment: datetime) -> None:
+    """Owe due in the thread from moment in place of any time owed or waiting there before: the time a drive post made at moment promised in its own thread, which the next drive post in that thread keeps, or, with no thread, the time an order with none wakes the drive at, which no post keeps, so it is said once."""
+    new_promise(order, thread, due, moment.isoformat())
+
+
+def new_promise(order: dict, thread: tuple[str, str] | list[str] | None, due: str, promised: str) -> dict:
+    held = {"thread": list(thread) if thread else None, "due": due, "promised": promised, "kept": None, "due_said": None, "next_due": None, "next_set": None}
+    order["promises"] = [*(other for other in order["promises"] if other["thread"] != held["thread"]), held]
+    return held
+
+
+def keep(held: dict, posts: list[datetime], announced: bool = True) -> None:
+    """Record the first drive post in a promise's thread after the promise as keeping it; a post that lands before the next time starts that time from it."""
+    kept = next((post for post in posts if post > parse_time(held["promised"])), None)
     if kept is None:
         return
-    upcoming, set_at = order["next_due"], order["next_set"]
-    order.update(kept=kept.isoformat(), next_due=None, next_set=None)
+    upcoming, set_at = held["next_due"], held["next_set"]
+    held.update(kept=kept.isoformat(), next_due=None, next_set=None)
     if not announced or not upcoming or kept >= parse_time(upcoming):
         return
     if set_at and kept < parse_time(set_at):
-        order.update(due=upcoming, promised=set_at, kept=None, due_said=None, next_due=upcoming)
-        keep(order, posts)
+        held.update(due=upcoming, promised=set_at, kept=None, due_said=None, next_due=upcoming)
+        keep(held, posts)
         return
-    order.update(due=upcoming, promised=kept.isoformat(), kept=None, due_said=None)
-    keep(order, posts, announced=False)
+    held.update(due=upcoming, promised=kept.isoformat(), kept=None, due_said=None)
+    keep(held, posts, announced=False)
 
 
 def closed_orders(report: dict) -> list[str]:
@@ -5126,12 +5147,12 @@ def part_items(report: dict, order_id: str | None) -> list[tuple[str | None, str
     return [(on, part) for on, part in items if part]
 
 
-def keep_closing(order: dict, posts: list[datetime], written: datetime) -> None:
-    """Record the line of a report that closes the order as keeping every time it owes: the first drive post after the promise, or the post that told him the time when the report was written before it, since that post is also the order's last line."""
-    promised = parse_time(order["promised"])
+def keep_closing(held: dict, posts: list[datetime], written: datetime) -> None:
+    """Record the line of a report that closes the order as keeping the time it owes in that line's thread: the first drive post there after the promise, or the post that told him the time when the report was written before it, since that post is also the order's last line."""
+    promised = parse_time(held["promised"])
     kept = next((post for post in posts if post > promised or post == promised >= written), None)
     if kept is not None:
-        order.update(kept=kept.isoformat(), next_due=None, next_set=None)
+        held.update(kept=kept.isoformat(), next_due=None, next_set=None)
 
 
 def open_pr_keys(data: dict) -> list[str]:
