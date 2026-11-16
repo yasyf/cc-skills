@@ -114,6 +114,21 @@ def shown(drive: dict, pages: list[dict]) -> list[dict]:
     ]
 
 
+def lane_shown(lanes: list[dict], pages: list[dict]) -> list[dict]:
+    """Each page as Pages lists it on a live lane drive: live while any lane it shows is not parked, and titled by its first lane; a whole-drive page shows every lane."""
+    titled = {lane["id"]: lane for lane in lanes}
+    shown = []
+    for page in pages:
+        named = [lane_id for lane_id in page_lanes(page, titled) if lane_id in titled]
+        first = titled[named[0]] if named else None
+        shown.append(page | {"live": any(titled[lane_id]["state"] != "parked" for lane_id in named), "project": None, "workstream": None, "order_title": first["title"] if first else page.get("title", "")})
+    return shown
+
+
+def page_lanes(page: dict, lanes: dict) -> list[str]:
+    return list(lanes) if page.get("scope") == WHOLE_DRIVE else page.get("lanes") or []
+
+
 def file(name: str, slug: str, path: str) -> Path | None:
     """The file a page asks for by its path under the page, index.html for its own path, or None for one outside it or of a kind not served."""
     if not SLUG.fullmatch(slug):
@@ -135,7 +150,9 @@ def scope_orders(features: list[dict], page: dict) -> set[str]:
 
 
 def slice_of(model: dict, page: dict) -> dict:
-    """What a page sees of the board: its orders' features, the edges between them, and their open PRs, questions and story, or on a whole-drive scope every open PR, question and moment."""
+    """What a page sees of the board: its orders' features, the edges between them, and their open PRs, questions and story, or on a whole-drive scope every open PR, question and moment; on a live lane drive, its lanes' Now entries as its features, their PRs and their record."""
+    if "lanes" in model:
+        return lane_slice(model, page)
     features = [entry for group in model['status'] for entry in group['features']]
     orders = scope_orders(features, page)
     every = page.get('scope') == WHOLE_DRIVE
@@ -151,4 +168,24 @@ def slice_of(model: dict, page: dict) -> dict:
         'questions': [actable(entry, entry['answer'], entry['card']['options']) for entry in model['queue'] if entry['kind'] == 'question' and (every or orders.intersection(entry['tasks']))],
         'story': [entry for entry in model.get('history', []) if every or entry.get('feature') in orders][:30],
         'asked': None,
+    }
+
+
+def lane_slice(model: dict, page: dict) -> dict:
+    every = page.get("scope") == WHOLE_DRIVE
+    lanes = {lane["id"]: lane for lane in model["lanes"]["now"]}
+    named = set(page_lanes(page, lanes))
+
+    def actable(item: dict, answer: str, options: list[str]) -> dict:
+        return item | {"answer": answer, "options": options, "answered": None}
+
+    return {
+        "page": page,
+        "at": model["at"],
+        "features": [lane for lane_id, lane in lanes.items() if lane_id in named],
+        "edges": [],
+        "prs": [actable(entry, entry.get("answer") or f"tap:{entry['key']}", (entry.get("card") or {}).get("options", ["Approve", "Hold"])) for entry in model["review"] if every or entry["feature"] in named or entry["key"] in page.get("prs", [])],
+        "questions": [actable(entry, entry["answer"], entry["card"]["options"]) for entry in model["queue"] if entry["kind"] == "question" and (every or named.intersection(entry["tasks"]))],
+        "story": [entry for entry in model["lanes"]["history"] if every or entry["lane"] in named][:30],
+        "asked": None,
     }

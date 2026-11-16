@@ -751,3 +751,20 @@ def test_lane_next_keeps_the_plan_and_the_plain_sentence_his_page_shows(world: d
     (store.drive_dir(DRIVE) / store.LIVE).touch()
     shown = board.screens(DRIVE)
     assert (shown["now"][0]["says"], shown["now"][0]["next"], shown["work"][0]["doing"]) == ("Staging is testing the journal stack; results by 3:38 PM.", "wait staging_result:cut-1 then card", "Staging is testing the journal stack; results by 3:38 PM.")
+
+
+def test_his_board_on_a_live_lane_drive_reads_no_old_drive_state(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from drive import pages, slack, view
+
+    monkeypatch.setattr(slack, "dm", lambda: "D1")
+    opened("a", prs=[("acme/app", 7)])
+    world["prs"][("acme/app", 7)] = pull(head="h7", rollup="SUCCESS") | {"review": "APPROVED", "title": "Fix: seven"}
+    supervisor.run_pass(DRIVE)
+    (store.drive_dir(DRIVE) / store.LIVE).touch()
+    asked = {"asked": store.stamp(store.now() + timedelta(seconds=5)), "url": "https://x.slack.com/archives/C1/p1794870000000100", "question": "Ship it?", "options": ["Yes", "No"], "recommended": "Yes", "card": {"title": "Ship it?", "options": ["Yes", "No"]}}
+    model = view.lane_model(DRIVE, {"questions": [asked], "pr_cards": [], "closed": []}, "live", store.now())
+    assert [(item["kind"], item["title"]) for item in model["queue"]] == [("question", "Ship it?"), ("tap", "seven")]
+    assert [entry["key"] for entry in model["review"]] == ["acme/app#7"]
+    shown = pages.lane_shown(model["lanes"]["now"], [{"slug": "p", "lanes": ["a"], "title": "P"}, {"slug": "q", "lanes": [], "title": "Q"}])
+    assert [(page["slug"], page["live"]) for page in shown] == [("p", True), ("q", False)]
+    assert [entry["key"] for entry in pages.slice_of(model | {"pages": shown}, shown[0])["prs"]] == ["acme/app#7"]

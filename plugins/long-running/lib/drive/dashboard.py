@@ -221,7 +221,7 @@ def changes(name: str) -> Iterator[None]:
     queue = select.kqueue()
     watched: dict[Path, int] = {}
     while True:
-        for path in (state.drive_dir(name), state.database_path(name), state.wal_path(name), state.events_path(name), install.config_dir() / "plugins"):
+        for path in (state.drive_dir(name), state.database_path(name), state.wal_path(name), state.events_path(name), lane_store.drive_dir(name), install.config_dir() / "plugins"):
             if path in watched:
                 continue
             try:
@@ -336,6 +336,9 @@ class Board:
 
     def stamp(self) -> tuple[int, ...]:
         """What the board is built from, as it stands: the database's data_version on this board's own connection, which changes with each commit another connection makes, the time drive.json, his stored cards, the messages of his stored as owed an answer, the pages and the stories written for his cards, and the lane drive's folder, its lane files and the rank, queue and GitHub view beside them, last changed, and how many events of the board's history the events log holds, each new one read here, so an event the board never shows rebuilds nothing."""
+        if lane_store.live(self.name):
+            paths = (state.cards_path(self.name), state.owed_path(self.name), pages.pages_dir(self.name), self.stories.folder, self.composer.folder, lane_store.drive_dir(self.name))
+            return tuple(path.stat().st_mtime_ns if path.exists() else 0 for path in paths)
         if self.database is None and state.database_path(self.name).exists():
             self.database = state.connect(state.database_path(self.name))
         committed = self.database.execute("PRAGMA data_version").fetchone()[0] if self.database else 0
@@ -351,6 +354,8 @@ class Board:
                 self.events.append(event)
 
     def rebuild(self) -> None:
+        if lane_store.live(self.name):
+            return self.rebuild_lanes()
         started = time.thread_time()
         self.read_history()
         found, source = view.stored_cards(self.name)
@@ -384,6 +389,30 @@ class Board:
         built = time.thread_time()
         self.show(model)
         self.timings = {"prepare_ms": (prepared - started) * 1000, "load_ms": (loaded - prepared) * 1000, "model_ms": (built - loaded) * 1000, "publish_ms": (time.thread_time() - built) * 1000}
+        self.assistant.warm((entry["key"], entry["head"]) for entry in model["review"] if entry["group"] == "you")
+
+    def rebuild_lanes(self) -> None:
+        """Build the board of a live lane drive from the lane drive, his cards and his pages alone, never the old drive's state."""
+        started = time.thread_time()
+        found, source = view.stored_cards(self.name)
+        folder = pages.pages_dir(self.name)
+        if (listed_at := folder.stat().st_mtime_ns if folder.exists() else 0) != self.pages[0]:
+            self.pages = (listed_at, pages.listed(self.name))
+        prepared = time.thread_time()
+        model = view.lane_model(self.name, found, source, state.now())
+        model |= {
+            "code": CODE,
+            "site": site_stamp(),
+            "pid": os.getpid(),
+            "links": self.links,
+            "repo": home_repo(checkout) if (checkout := lane_store.config(self.name).get("checkout")) else None,
+            "pages": pages.lane_shown(model["lanes"]["now"], self.pages[1]),
+        }
+        self.stories.tell(model)
+        self.composer.tell(model)
+        built = time.thread_time()
+        self.show(model)
+        self.timings = {"prepare_ms": (prepared - started) * 1000, "load_ms": 0.0, "model_ms": (built - prepared) * 1000, "publish_ms": (time.thread_time() - built) * 1000}
         self.assistant.warm((entry["key"], entry["head"]) for entry in model["review"] if entry["group"] == "you")
 
     def hear(self) -> None:
@@ -739,7 +768,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
             except slack.SlackError as error:
                 self.answered(502, {"error": str(error)})
                 return
-            if under:
+            if under and not lane_store.live(board.name):
                 state.append_event(board.name, "asked", card=under, url=sent["permalink"])
             self.answered(200, sent)
 

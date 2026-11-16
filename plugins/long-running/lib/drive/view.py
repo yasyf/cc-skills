@@ -878,7 +878,7 @@ def lane_tap_item(tap: dict, found: dict, tracked: dict | None) -> dict:
         "stack_heads": {member["key"]: member["head"] for member in tap["stack"]},
         "lane": tap["lane"],
         "tasks": [tap["lane"]],
-        "title": tap["title"],
+        "title": kind_and_title(tap["title"])[1],
         "detail": f"{checks}, {'no Approve of yours yet' if tap['moved'] is None else 'approved on an older head'}{moved}{above}; lane {tap['lane_title']}",
         "pr": pr_url,
         "checks": tap["checks"],
@@ -886,7 +886,7 @@ def lane_tap_item(tap: dict, found: dict, tracked: dict | None) -> dict:
         "due": None,
         "url": card["url"] if card else pr_url,
         "links": [{"label": "Pull request", "url": pr_url}],
-        "prs": [{"title": member["title"], "url": member["url"], "state": "open", "checks": member["checks"], "review": "none", "tap": "wanted"} for member in tap["stack"]],
+        "prs": [{"title": kind_and_title(member["title"])[1], "url": member["url"], "state": "open", "checks": member["checks"], "review": "none", "tap": "wanted"} for member in tap["stack"]],
         "project": None,
         "workstream": None,
         "rank_why": f"{'incident hurting users, ' if tap['hurting'] else ''}lane {tap['lane_title']} is #{tap['position']} in the queue",
@@ -927,6 +927,67 @@ def queue(drive: dict, found: dict, moment: datetime, features: list[dict], answ
     ]
 
 
+def lane_model(name: str, found: dict, source: str, moment: datetime) -> dict:
+    """His dashboard's board on a live lane drive, read from the lane drive alone and never the old drive's state, so that state can be archived: the stacks ready for his tap and his open question cards asked since cutover in the queue, a review entry for each of their PRs, and the lanes' Now, Work and History; the old drive's features, jobs, incidents, bug reports, priorities and sweep are none."""
+    from lane import board as lane_board
+    from lane import store as lane_store
+
+    cutover = datetime.fromtimestamp((lane_store.drive_dir(name) / lane_store.LIVE).stat().st_mtime, moment.tzinfo)
+    lanes = lane_board.screens(name)
+    hurting = [lane for lane in lanes["now"] if lane["hurting"]]
+    taps = lane_tap_items(lane_board.taps(name), found, {})
+    questions = [lane_question_item(card) for card in found["questions"] if state.parse_time(card["asked"]) >= cutover]
+    items = [*(item for item in taps if item["reason"]["tone"] == "bad"), *sorted(questions, key=lambda item: item["since"]), *(item for item in taps if item["reason"]["tone"] != "bad")]
+    queued = [item | {"priority": {"rank": position, "answering": False, "incident": item["reason"]["tone"] == "bad", "weight": 0}} for position, item in enumerate(items, 1)]
+    return {
+        "drive": name,
+        "at": state.stamp(moment),
+        "counts": {"queue": len(queued), "jobs": len(lanes["work"]), "lanes": len(lanes["now"]), "merged_today": lanes["merged_today"]},
+        "queue": queued,
+        "status": [],
+        "cards": source,
+        "review": lane_reviews(queued, set()),
+        "lanes": lanes,
+        "incidents": [],
+        "bug_reports": [],
+        "priorities": [],
+        "history": [],
+        "work": [],
+        "edges": [],
+        "progress": {},
+        "sweep": {"rows": [], "owed": None},
+        "channel": slack.dm(),
+        "hurting": [lane["id"] for lane in hurting],
+    }
+
+
+def lane_question_item(card: dict) -> dict:
+    """One of his open question cards a lane's owner asked, as the queue draws a question."""
+    return {
+        "kind": "question",
+        "tasks": [],
+        "job": None,
+        "holds": 0,
+        "rail": {"held": []},
+        "blocks": [],
+        "built": [],
+        "title": card["question"],
+        "detail": f"Recommended: {card['recommended']}" if card.get("recommended") else " / ".join(card["options"]),
+        "recommended": card.get("recommended") or None,
+        "since": card["asked"],
+        "due": None,
+        "url": card["url"],
+        "links": [],
+        "card": card["card"],
+        "answer": card["url"],
+        "thread": card_thread(card["url"]),
+        "project": None,
+        "workstream": None,
+        "rank_why": "asked of you by a lane",
+        "reason": {"tone": "plain", "label": "A lane asks you", "text": card["question"]},
+    }
+
+
 def lane_reviews(queued: list[dict], known: set[str]) -> list[dict]:
     """A review entry for each PR of a lane tap item the old drive never tracked, so its pane draws: what the lane drive knows of it, its title, head, checks and the card it is on, and nothing of the old drive's stages, landers or jobs."""
     entries = []
@@ -944,6 +1005,18 @@ def lane_reviews(queued: list[dict], known: set[str]) -> list[dict]:
                 "card": item.get("card"), "answer": item.get("answer"), "thread": item.get("thread"),
             })
     return entries
+
+
+def lane_tap_items(lane_taps: list[dict], found: dict, tracked: dict) -> list[dict]:
+    """A tap item per ready lane stack, those on one card of his merged into one, so his tap there covers them all."""
+    carded: dict[str, dict] = {}
+    for item in (lane_tap_item(tap, found, tracked.get(tap["key"])) for tap in lane_taps):
+        if (same := carded.get(item["url"])) is not None:
+            same["prs"] += [pr for pr in item["prs"] if pr["url"] not in {kept["url"] for kept in same["prs"]}]
+            same["stack_heads"] |= item["stack_heads"]
+        else:
+            carded[item["url"]] = item
+    return list(carded.values())
 
 
 def lane_queue(drive: dict, found: dict, moment: datetime, features: list[dict], answering: dict[str, str], lane_taps: list[dict]) -> list[dict]:
@@ -964,14 +1037,7 @@ def lane_queue(drive: dict, found: dict, moment: datetime, features: list[dict],
         rank, item["rank_why"] = ranking(drive, item, item["tasks"], urgent, moment, answering.get(item.get("thread")))
         item["reason"] = reason(item, rank, urgent)
         questions.append((rank, item))
-    carded: dict[str, dict] = {}
-    for item in (lane_tap_item(tap, found, drive["prs"].get(tap["key"])) for tap in lane_taps):
-        if (same := carded.get(item["url"])) is not None:
-            same["prs"] += [pr for pr in item["prs"] if pr["url"] not in {kept["url"] for kept in same["prs"]}]
-            same["stack_heads"] |= item["stack_heads"]
-        else:
-            carded[item["url"]] = item
-    taps = list(carded.values())
+    taps = lane_tap_items(lane_taps, found, drive["prs"])
     items = [*(item for item in taps if item["reason"]["tone"] == "bad"), *(item for _, item in sorted(questions, key=lambda entry: entry[0])), *(item for item in taps if item["reason"]["tone"] != "bad")]
     return [item | {"priority": {"rank": position, "answering": False, "incident": item["reason"]["tone"] == "bad", "weight": 0}} for position, item in enumerate(items, 1)]
 

@@ -612,11 +612,22 @@ def resume_path(name: str, project: str | None = None) -> Path:
 
 
 def cards_path(name: str) -> Path:
-    return drive_dir(name) / "cards.json"
+    return kept_path(name, "cards.json")
+
+
+def kept_path(name: str, file: str) -> Path:
+    """Where the drive keeps his cards or the messages of his owed an answer: in the board folder beside its lanes on a live lane drive, never among the lane files the lane drive reads as lanes, so archiving this state keeps them, else here."""
+    from lane import store as lane_store
+
+    if not lane_store.live(name):
+        return drive_dir(name) / file
+    folder = lane_store.drive_dir(name) / "board"
+    folder.mkdir(exist_ok=True)
+    return folder / file
 
 
 def owed_path(name: str) -> Path:
-    return drive_dir(name) / "owed.json"
+    return kept_path(name, "owed.json")
 
 
 def replies_path(name: str, job_id: str) -> Path:
