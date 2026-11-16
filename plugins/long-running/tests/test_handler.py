@@ -321,7 +321,7 @@ def test_drive_handler_starts_the_handler_in_the_drives_checkout_while_the_commu
     behind, kept = tmp_path / "durable-agents", tmp_path / "drive-demo"
     with state.edit("demo") as data:
         data["roles"]["communicator"]["cwd"] = str(behind)
-    monkeypatch.setattr(orca, "checkout", lambda drive, clone: kept if (drive, clone) == ("demo", str(behind)) else pytest.fail(clone))
+    monkeypatch.setattr(orca, "checkout", lambda drive, clone, wait=0: kept if (drive, clone) == ("demo", str(behind)) else pytest.fail(clone))
     ran: list[tuple[list[str], Path]] = []
     monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: ran.append((argv, checkout)) or "")
     start(run, tmp_path)

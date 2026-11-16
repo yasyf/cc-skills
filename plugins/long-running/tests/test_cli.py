@@ -899,7 +899,7 @@ def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_kept_with_a_no
     (checkout / "tools" / "ci").chmod(0o755)
     answer.write_text(json.dumps({"components": ["executor", "cloudrunner-next", "sand-next", "k8s"], "touched": ["cloudrunner-next", "sand-next"], "dev": [], "releases": ["cloudrunner-next", "sand-next"], "staged": ["cloudrunner-next", "sand-next"]}))
     monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo" if cwd == str(clone) else pytest.fail(cwd))
-    monkeypatch.setattr(orca, "checkout", lambda name, cwd: checkout)
+    monkeypatch.setattr(orca, "checkout", lambda name, cwd, wait=0: checkout)
     monkeypatch.setattr(github, "files", lambda key: ["go/sand/next/cmd/main.go"] if key == "Forge-AI/monorepo#7" else pytest.fail(key))
     executor, staged = "release:executor:Forge-AI/monorepo#7", "release:runner-worker:Forge-AI/monorepo#7@plat-usw2-staging"
     assert cli.main(["job", "set", "j1", "--waits", executor]) == 0
@@ -932,7 +932,7 @@ def test_the_release_reach_sends_go_ci_a_prs_head_when_its_paths_change_the_carg
     answer.write_text(json.dumps({"components": ["dashboard", "sandsql"], "touched": ["sandsql"], "dev": [], "releases": ["sandsql"]}))
     changed = ["rust/Cargo.lock", "rust/crates/server/Cargo.toml"]
     monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo")
-    monkeypatch.setattr(orca, "checkout", lambda name, cwd: checkout)
+    monkeypatch.setattr(orca, "checkout", lambda name, cwd, wait=0: checkout)
     monkeypatch.setattr(github, "files", lambda key: changed)
     monkeypatch.setattr(github, "paths", lambda keys: {key: ("0123456789abcdef0123456789abcdef01234567", changed) for key in keys})
     reach = cli.release_reach("demo", {"roles": {"coordinator": {"cwd": str(clone)}}}, ["Forge-AI/monorepo#7"])
@@ -1379,7 +1379,7 @@ def test_incident_freeze_freezes_the_service_for_twelve_hours_from_the_drives_ch
     calls: list[list[str]] = []
     monkeypatch.setattr(cli.reads, "run", recorded(calls))
     checkout = tmp_path / "drive-demo"
-    monkeypatch.setattr(orca, "checkout", lambda name, cwd: checkout if cwd == str(tmp_path) else pytest.fail(cwd))
+    monkeypatch.setattr(orca, "checkout", lambda name, cwd, wait=0: checkout if cwd == str(tmp_path) else pytest.fail(cwd))
     run("incident", "open", "SandSQL release 60 failed on plat", "--release", *FILED)
     code, said = run("incident", "freeze", "o1", "sandsql")
     freeze = calls[-1]
@@ -7098,7 +7098,7 @@ def test_a_staging_testers_brief_runs_a_dashboard_prs_cases_on_a_mac_box_at_the_
         return pytest.fail(f"unexpected {cmd}")
 
     monkeypatch.setattr(github, "run", answered)
-    monkeypatch.setattr(orca, "checkout", lambda name, cwd: tmp_path)
+    monkeypatch.setattr(orca, "checkout", lambda name, cwd, wait=0: tmp_path)
     for touched, boxed, own in ((["api"], False, False), (["dashboard"], True, False), (["dashboard", "sand-next"], True, True), (["dashboard", "iris-desktop"], True, True)):
         monkeypatch.setattr(cli, "release_reach", lambda name, data, keys, touched=touched: {key: {"touched": touched} for key in keys})
         assert run("job", "brief", tester_id)[0] == 0

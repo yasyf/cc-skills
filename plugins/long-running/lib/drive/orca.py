@@ -116,6 +116,9 @@ KEPT_ANSWER = "drive answer kept on this Sprite: "
 DRIVE_STATUS = re.compile(r"drive exited \d+\n")
 CHECKOUT_LOCK = ".checkout.lock"
 CHECKOUT_SECONDS = 600
+CHECKOUT_WAIT = 300
+CHECKOUT_FRESH = 60
+CHECKOUT_MOVED = ".checkout.moved"
 SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
@@ -630,23 +633,38 @@ def tool(name: str) -> str:
     return str(Path(newest["installPath"]) / "bin" / name)
 
 
-def checkout(drive: str, clone: str) -> Path:
-    """The checkout every session of the drive runs in and each lane's launch, save and release runs the orca plugin's scripts in, so each tools/ci a session or its agents run and every Sprite claim, refill and cleanup run the code and the cc-remote, config and tool payload its repository's default branch pins now: the worktree of clone's repository in the folder drive-<drive>, which only the drive uses, detached at that branch's head with one fetch at each drive start, release start and freeze and before each launch, save and release, never a branch a lane checked out there at whatever commit and edits it carries. It holds no branch: the fetch writes no refs/remotes/origin/<branch>, so a branch moved there would read to the monorepo's Stop hook as commits past that stale ref, unpushed work no session there could end its turn on. git's worktree list finds it by its folder; the first call cuts the branch drive-<drive> at that head and makes it with ccx vcs worktree add, which checks an existing branch out as it stands, running none of its trunk fetch into refs/remotes/origin/<branch>, which loses that ref's lock to any other fetch of the shared clone, so it sits under ccx's worktree root, where its owner's mise trusts a worktree's mise.toml as the cc-remote shim needs. It is moved with no hook, since the monorepo's post-checkout hook warms node_modules that no launch reads, under the drive's checkout lock, since lanes launch at once; DriveError naming why it was not moved, or that the head holds no .orca.json."""
+def checkout(drive: str, clone: str, wait: float = CHECKOUT_WAIT) -> Path:
+    """The checkout every session of the drive runs in and each lane's launch, save and release runs the orca plugin's scripts in, so each tools/ci a session or its agents run and every Sprite claim, refill and cleanup run the code and the cc-remote, config and tool payload its repository's default branch pins now: the worktree of clone's repository in the folder drive-<drive>, which only the drive uses, detached at that branch's head with one fetch at each drive start, release start and freeze and before each launch, save and release, never a branch a lane checked out there at whatever commit and edits it carries. It holds no branch: the fetch writes no refs/remotes/origin/<branch>, so a branch moved there would read to the monorepo's Stop hook as commits past that stale ref, unpushed work no session there could end its turn on. git's worktree list finds it by its folder; the first call cuts the branch drive-<drive> at that head and makes it with ccx vcs worktree add, which checks an existing branch out as it stands, running none of its trunk fetch into refs/remotes/origin/<branch>, which loses that ref's lock to any other fetch of the shared clone, so it sits under ccx's worktree root, where its owner's mise trusts a worktree's mise.toml as the cc-remote shim needs. It is moved with no hook, since the monorepo's post-checkout hook warms node_modules that no launch reads, under the drive's checkout lock, since lanes launch at once; DriveError naming why it was not moved, or that the head holds no .orca.json. The move runs at most once each CHECKOUT_FRESH, by moved_lately, so the many verbs that start together share one fetch instead of queueing a fetch and checkout each under the lock, and a verb that waits wait seconds for another's move, CHECKOUT_WAIT unless it says, runs from the worktree as that move leaves it, so no holder holds every other verb, the watch's passes included, past that bound."""
     lane = f"drive-{drive}"
+    moved, at = state.drive_dir(drive) / CHECKOUT_MOVED, ""
     try:
-        branch = github.default_branch(github.checkout_repo(clone))
-        with state.flocked(state.drive_dir(drive) / CHECKOUT_LOCK):
-            sha = github.fetched(clone, branch)
-            if not (kept := worktree(clone, lane)):
-                github.run(["git", "-C", clone, "branch", "--force", lane, sha])
-                github.run(["ccx", "vcs", "worktree", "add", lane, "--jj", "none"], cwd=clone, timeout=CHECKOUT_SECONDS)
-                kept = worktree(clone, lane)
-            github.run(["git", "-C", str(kept), "-c", "core.hooksPath=/dev/null", "-c", "checkout.workers=0", "checkout", "-q", "--force", "--detach", sha], timeout=CHECKOUT_SECONDS)
+        if not (kept := moved_lately(clone, lane, moved)):
+            branch = github.default_branch(github.checkout_repo(clone))
+            with (state.drive_dir(drive) / CHECKOUT_LOCK).open("a") as handle:
+                if not state.taken(handle, wait):
+                    if not (kept := worktree(clone, lane)):
+                        raise DriveError(f"the drive's checkout, the worktree of {clone}'s repository on {lane}, is being made by another verb that held its lock past {wait:.0f}s, so nothing ran from it")
+                elif not (kept := moved_lately(clone, lane, moved)):
+                    sha = github.fetched(clone, branch)
+                    if not (kept := worktree(clone, lane)):
+                        github.run(["git", "-C", clone, "branch", "--force", lane, sha])
+                        github.run(["ccx", "vcs", "worktree", "add", lane, "--jj", "none"], cwd=clone, timeout=CHECKOUT_SECONDS)
+                        kept = worktree(clone, lane)
+                    github.run(["git", "-C", str(kept), "-c", "core.hooksPath=/dev/null", "-c", "checkout.workers=0", "checkout", "-q", "--force", "--detach", sha], timeout=CHECKOUT_SECONDS)
+                    moved.touch()
+                    at = f" at {branch} {sha[:12]}"
     except github.GithubError as error:
         raise DriveError(f"the drive's checkout, the worktree of {clone}'s repository on {lane}, was not moved to the head of its default branch, so nothing ran from it: {error}") from None
     if not (kept / ".orca.json").is_file():
-        raise DriveError(f"{kept}, the drive's checkout at {branch} {sha[:12]}, has no .orca.json, so no lane can be cloned from it")
+        raise DriveError(f"{kept}, the drive's checkout{at}, has no .orca.json, so no lane can be cloned from it")
     return kept
+
+
+def moved_lately(clone: str, lane: str, moved: Path) -> Path | None:
+    """The drive's checkout when a verb moved it to its default branch's head within CHECKOUT_FRESH, by the mark that move left, so a verb starting now runs from it unmoved; None once that mark is older or gone."""
+    if moved.exists() and time.time() - moved.stat().st_mtime < CHECKOUT_FRESH:
+        return worktree(clone, lane)
+    return None
 
 
 def holder(clone: str, branch: str) -> Path | None:
