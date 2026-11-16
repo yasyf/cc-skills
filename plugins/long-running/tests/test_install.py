@@ -1458,7 +1458,7 @@ def proving(config: Path, tmp_path: Path, git: FakeGit, exits: int) -> Path:
             "said": f"PUSHED {URL}",
             "prs": [URL],
             "repro": str(script),
-            "proof": {"pid": os.getpid(), "at": state.stamp(), "said": f"PUSHED {URL}", "version": state.VERSION},
+            "proof": {"child": state.born(os.getpid()), "state": "adopted", "at": state.stamp(), "said": f"PUSHED {URL}", "version": state.VERSION},
         }
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr(URL, "j1", "o1") | {"state": "merged", "merged_sha": SHA, "title": "Fix: prove each install"}
     return script
@@ -2268,7 +2268,7 @@ def test_a_staging_testers_done_on_a_brief_naming_user_stories_is_kept_for_drive
     data = state.load("demo")
     assert (data["jobs"]["j1"]["state"], install.done_unproven(data, "j1"), state.delivered(data, "o1", part)) == ("done", True, False)
     with state.edit("demo") as data:
-        data["jobs"]["j1"]["proof"] = {"pid": os.getpid(), "at": state.stamp(), "said": data["jobs"]["j1"]["said"], "version": state.VERSION}
+        data["jobs"]["j1"]["proof"] = {"child": state.born(os.getpid()), "state": "adopted", "at": state.stamp(), "said": data["jobs"]["j1"]["said"], "version": state.VERSION}
     install.prove("demo", "j1", 900)
     data = state.load("demo")
     assert (data["jobs"]["j1"]["state"], state.delivered(data, "o1", part)) == ("done" if delivered else "failed", delivered)
@@ -2819,7 +2819,7 @@ def test_a_proof_that_failed_runs_again_on_the_job_that_owns_it_once_its_cause_i
     monkeypatch.setattr(install, "proof_run", lambda *args: due.append(watch.proof_due(state.load("demo"), "j1")) or run(*args))
     install.prove("demo", "j1", 900)
     job = state.load("demo")["jobs"]["j1"]
-    assert (job["state"], job["said"], job["proof"]["pid"], due) == ("done", f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3", os.getpid(), [False])
+    assert (job["state"], job["said"], state.holder(job["proof"]), due) == ("done", f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3", os.getpid(), [False])
     assert [change.startswith(install.PROVEN) for _, change in proof_events()] == [False, True]
 
 

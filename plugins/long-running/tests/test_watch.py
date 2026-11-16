@@ -9248,7 +9248,11 @@ def test_a_merged_ready_job_keeping_a_proof_file_gets_one_proof_from_the_watch_a
     assert watch.run_pass(watching, T0) == []
     assert provers == ["j1"]
     said = f"READY {state.pr_url(YASYF)}"
-    assert state.load(demo)["jobs"]["j1"]["proof"] == {"pid": os.getpid(), "at": state.stamp(T0), "said": said, "version": state.VERSION}
+    proof = state.load(demo)["jobs"]["j1"]["proof"]
+    assert ({field: proof[field] for field in ("starter", "child", "state", "at", "said", "version")}, state.holder(proof)) == (
+        {"starter": state.born(os.getpid()), "child": state.born(os.getpid()), "state": "reserved", "at": state.stamp(T0), "said": said, "version": state.VERSION},
+        os.getpid(),
+    )
     assert watch.run_pass(watching, T0 + timedelta(minutes=31)) == []
     assert provers == ["j1"]
     assert not watch.wakes(f"PR {YASYF}: merged at ccc333ddd444; long-running@skills 1.0.4 installed [o1 j1]", state.load(demo), NO_CARDS)

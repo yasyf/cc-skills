@@ -5171,6 +5171,7 @@ def release_sprite(drive: str, job_id: str, job: dict, root: Path) -> str | None
 def job_prove(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     find(state.load(name)["jobs"], args.id, "job")
+    state.adopt_reserved(name, ("jobs", args.id, "proof"), args.reserved)
     line = install.prove(name, args.id, args.timeout, args.again)
     return emit(args, line, {"id": args.id, "line": line})
 
@@ -8569,6 +8570,7 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="run a proof whose last run failed though neither its long-running install, its merges nor its proof files changed since, for a cause fixed outside them, such as a merged fix in another repository; refused without it",
     )
+    verb.add_argument("--reserved", metavar="TOKEN", help="the token of the proof reservation the watch made for this run, adopted before anything else; the run ends doing nothing once that reservation is gone, cancelled or another run's")
     verb.set_defaults(run=job_prove)
     verb = job.add_parser("show", parents=both, help="drive status for these ids")
     verb.add_argument("ids", nargs="+", metavar="ID", help=f"what to read: {ID_FORMS}")
