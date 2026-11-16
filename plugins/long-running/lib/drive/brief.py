@@ -464,7 +464,7 @@ def away_job_refusal(cluster: str, data: dict, moment: datetime) -> str | None:
         return None
     return (
         f"refused: {away}, and a Job on {cluster}, a production cluster, writes a team's data, so it starts only while he is present, an incident's repair included,"
-        f" by his words {state.PRESENCE_WORDS}: return WAITING his word with the Job unstarted; the watch pages him for an open incident"
+        f" by his words {state.PRESENCE_WORDS}: return WAITING his word with the Job unstarted; the watch pages him for an open incident carrying a record of real users failing"
     )
 
 

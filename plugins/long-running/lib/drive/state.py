@@ -253,6 +253,11 @@ OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 AWAY_AFTER = timedelta(minutes=60)
 PRESENT_WITHIN = timedelta(minutes=15)
 PRESENCE_WORDS = '"merging or rleasing dangerous things should only be done wehn the human is present"'
+PAGE_WORDS = '"this is only cloud agents? No real users? Then shouldn\'t have paged me. If it\'s real users and it\'s impacting runs or local chats / agents page me"'
+PAGE_RULE = (
+    "he is paged only when a read, a cci record, shows real users' runs, or their local chats or agents, failing on production;"
+    " a failure only the drive's own callers or proofs hit opens the incident but never pages him, by his ruling 07937c4: " + PAGE_WORDS
+)
 TAKEN_BY_PASS = "its staging test passed after your Approve"
 STANDING_EVERY = timedelta(minutes=30)
 PART_CHARS = 80
@@ -1146,6 +1151,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
                 job_id = handoff.pop("job", None)
                 handoff["jobs"] = [job_id] if job_id else []
         order.setdefault("paged", None)
+        order.setdefault("users", None)
         if order.pop("fixed", None) and order["recovered"] and order["state"] not in CLOSED_ORDER_STATES:
             order.update(recovered=None, proof=None)
         order.setdefault("quiet", None)
@@ -4061,6 +4067,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "recovered": None,
         "prove_said": None,
         "paged": None,
+        "users": None,
         "quiet": None,
         "handoffs": [],
         "reporters": [],

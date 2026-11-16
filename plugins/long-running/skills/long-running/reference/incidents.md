@@ -298,7 +298,8 @@ check's verdict, or from the order when none ran.
   `drive break-glass` from this Mac. With no service account that can make it, its job returns
   `BLOCKED` naming the grant it needs while the root fix ships. That Job writes a team's data, so
   outside staging and sandbox the `landing_guard` hook refuses it while he is away or holds every
-  release. Its job then returns `WAITING his word` and the watch pages him.
+  release. Its job then returns `WAITING his word`, and the watch pages him when the incident carries
+  the record of real users failing.
 
 ## What he hears
 
@@ -308,10 +309,16 @@ alert's with `say(channel_id=<the alert's channel>, thread_ts=<its ts>)`, while 
 report on an open incident goes out when it is written: the one report per thread per turn that
 `record_lines` holds the coordinator and the meta session to does not hold it.
 
-He is paged only for a live production failure while he is away, not for news or a question. The
-watch pages his Datadog On-Call user once for each incident opened since he was last heard. A job
-that sees a production failure no incident holds yet runs
-`drive page-owner "<why>" --order <its order>`.
+He is paged only while he is away, and only when a read shows real users failing, by his words
+(ruling 07937c4): "this is only cloud agents? No real users? Then shouldn't have paged me. If it's
+real users and it's impacting runs or local chats / agents page me". That read is a cci record
+showing real users' runs, or their local chats or agents, failing on production. A failure only
+the drive's own callers or proofs hit opens the incident and its jobs work on, but nobody is paged,
+and news or a question never pages. Whether the record shows real users is the session's call
+against that rule. The coordinator puts that record on the incident with `--users <seq>` on
+`drive incident open` or `drive order set <o>`, and the watch then pages his Datadog On-Call user once for each incident opened since he
+was last heard whose order carries one. A job that reads real users failing where no incident holds
+it yet runs `drive page-owner "<why>" --users <seq> --order <its order>`.
 
 A report's `part` attr names only the first check or the cause, the answers a line delivers. The
 `fix` and every other part are work, which the proof file under `drive job prove` delivers, so

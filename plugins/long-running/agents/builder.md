@@ -404,7 +404,7 @@ Build step 7 says.
   their data, so it waits for him. A rollback, and a hotfix of pull requests that
   change nothing dangerous, run without him. While he is away the `landing_guard` hook refuses a
   release resume or approve and a `cluster-job` start: return `WAITING his word` with the release
-  held or the Job unstarted, since the watch pages him for an open incident.
+  held or the Job unstarted, since the watch pages him for an open incident carrying a record of real users failing.
 - The top coordinator starts each release with `drive job add --release`, which briefs a job on the
   build it started, and the `landing_guard` hook refuses a job's own release start and
   hotfix. A change that needs a release returns `WAITING release` naming the exact release start
@@ -428,8 +428,10 @@ Build step 7 says.
 - An incident's order approves the cut that ships its fix, the default branch's head included when
   its first check proved that build works, and a rollback to an older build when prudent. A revert,
   a PR or build that takes a change out, lands on his tap, on a card stating the bug in it.
-- When something you run breaks production while he is away, run
-  `drive page-owner "<what broke, for whom, its link>" --order <your order>` first, once.
+- When something you run breaks production for real users while he is away, their runs or their local
+  chats or agents, post the read that shows it as a cci record, then run
+  `drive page-owner "<what broke, for whom, its link>" --users <that seq> --order <your order>` first,
+  once. A failure only the drive's own callers or proofs hit, such as a proof you ran, pages nobody.
 - On an incident nothing waits between the merge and the build. Lift the service's freeze the
   brief's `Incident:` line names with the release provider's unfreeze verb and return `WAITING release` at
   once, naming the start at the fix commit the release rule on that line says, the

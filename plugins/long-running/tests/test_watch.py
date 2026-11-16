@@ -10452,7 +10452,7 @@ def test_o761s_incident_on_a_surface_he_uses_holds_its_live_line_with_one_prove_
     assert state.load(demo)["orders"]["o1"]["proof"] == f"{fixed}; {recording}"
 
 
-def test_an_incident_opened_while_he_is_away_pages_his_datadog_user_once_and_one_he_heard_of_or_one_while_he_is_here_pages_nobody(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_incident_opened_while_he_is_away_carrying_a_record_of_real_users_failing_pages_his_datadog_user_once_and_one_he_heard_of_one_while_he_is_here_or_one_only_the_drive_hit_pages_nobody(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
 
     class PagingRepo(providers.RepoProvider):
@@ -10466,14 +10466,16 @@ def test_an_incident_opened_while_he_is_away_pages_his_datadog_user_once_and_one
     monkeypatch.setattr(watch.orca, "checkout", lambda name, data, wait=0: DRIVE_CHECKOUT)
     with state.edit(demo) as data:
         data["owner"]["heard"] = state.stamp(T0)
-        data["orders"]["o1"].update(incident=True, title="SandSQL writes down", created=state.stamp(T0 + timedelta(minutes=5)))
-        data["orders"]["o2"] = order(text="raw_sql reads fail", incident=True, created=state.stamp(T0 - timedelta(minutes=5)))
+        data["orders"]["o1"].update(incident=True, title="SandSQL writes down", created=state.stamp(T0 + timedelta(minutes=5)), users=732569)
+        data["orders"]["o2"] = order(text="raw_sql reads fail", incident=True, created=state.stamp(T0 - timedelta(minutes=5)), users=732570)
+        data["orders"]["o3"] = order(text="the purpose proof fails its reads", incident=True, created=state.stamp(T0 + timedelta(minutes=6)))
     watching = watcher(demo)
     assert watch.owner_page_lines(watching, T0 + timedelta(minutes=10)) == []
     away = T0 + timedelta(minutes=20)
     assert watch.owner_page_lines(watching, away) == ["WATCH paged him for incident o1 while he is away: Paged Datadog user u-ym at high urgency: page p-1"]
     assert watch.owner_page_lines(watching, away + timedelta(minutes=1)) == []
     assert [argv[1:6] for argv in calls] == [["oncall", "page", "me", "--title", "o1 SandSQL writes down"]]
+    assert calls[0][-1].split("\n")[1] == "real users failing: record 732569"
     assert state.load(demo)["orders"]["o1"]["paged"] == state.stamp(away)
 
 

@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from drive import slack
-from drive.state import DRIVE_TOOLING, brief_path, communicator_lane, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
+from drive.state import DRIVE_TOOLING, PAGE_RULE, brief_path, communicator_lane, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -192,9 +192,10 @@ COORDINATOR_RULES = (
         " tap over 15 minutes old, since it can break customers' runs or lose their data. The lander holds a merge"
         " changing what the repository's root AGENTS.md calls dangerous until his next word, and the release gates"
         " and the landing_guard hook refuse a production start, resume or approve but a hotfix of PRs"
-        " changing nothing dangerous; a rollback runs whenever it is prudent. A production failure meanwhile pages"
-        " him: the watch pages once for each incident opened since he was last heard, and drive page-owner \"<why>\""
-        " pages for one no incident holds yet, never for news or a question."
+        " changing nothing dangerous; a rollback runs whenever it is prudent. Meanwhile "
+        f"{PAGE_RULE}. The watch pages once for each incident opened since he was last heard whose order carries"
+        " that record, by drive order set --users <seq>, and drive page-owner \"<why>\" --users <seq> pages for one no"
+        " incident holds yet, never for news or a question."
     ),
     (
         "Give each order to one background job that owns its deliverable end to end, since work in your own turn"

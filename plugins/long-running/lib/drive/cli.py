@@ -135,6 +135,11 @@ ALERT_HELP = (
     "the Datadog monitor or Sentry issue link of the alert it is, again for each: once its fix is live, the watch reads each"
     " monitor every minute and closes the incident once all read OK"
 )
+USERS_HELP = (
+    "the cci record whose read shows real users' runs, or their local chats or agents, failing on production: the watch pages him"
+    " for an incident opened while he is away only when its order carries one, and a failure only the drive's own callers or proofs"
+    " hit carries none"
+)
 REWORK_HELP = (
     "a PR his words rework, by its url or key, and the permalink of those words, as <PR>=<his permalink>, named only once its"
     " stack's His words, step by step read against them leave them unmet: it withdraws in the same call each open card of his"
@@ -523,6 +528,7 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
             "alerts": alerts,
             "reporters": reported,
             "watch": watched,
+            "users": args.users,
             "incident": args.incident or bool(joined and joined["incident"]),
             "kind": joined["kind"] if joined else "build" if args.incident else args.kind,
             "complex": args.complex,
@@ -1161,6 +1167,8 @@ def order_set(args: argparse.Namespace) -> int:
             order["fresh"] = None
         if args.reporter or unreported:
             order["reporters"] = reporters
+        if args.users is not None:
+            order["users"] = args.users
         unjoined = unjoined_lines(args.id, *state.unjoin(data, args.id)) if args.unjoin else []
         filed = [field for field in FILING if getattr(args, field) is not None]
         for field in filed:
@@ -6283,13 +6291,19 @@ def page_owner(args: argparse.Namespace) -> int:
     data = state.load(name)
     if args.order:
         find(data["orders"], args.order, "order")
+    users = args.users or (data["orders"][args.order]["users"] if args.order else None)
+    if not users:
+        raise DriveError(
+            f"refused, nobody paged: {state.PAGE_RULE}. Post the read showing real users failing as a cci record and pass its seq with"
+            " --users <seq>; with none, the incident stays open and its jobs work on without paging him"
+        )
     try:
-        paged = watch.page_owner(name, data, args.why, args.why)
+        paged = watch.page_owner(name, data, args.why, f"{args.why}\nreal users failing: record {users}")
     except reads.ReadError as error:
         raise DriveError(f"refused, nobody paged: {error}") from None
     if args.order:
         def page_owner_write(data: dict):
-            data["orders"][args.order]["paged"] = state.stamp()
+            data["orders"][args.order].update(paged=state.stamp(), users=users)
 
         state.update(name, None, page_owner_write)
     return emit(args, paged, {"paged": paged, "order": args.order})
@@ -7377,7 +7391,7 @@ def parser() -> argparse.ArgumentParser:
         help=f'the workstream inside its project the Now screen files this order under, reusing one in use where it fits; needed on his order, and on a "{state.TOOLING}" order default {TOOLING_FILING[1]}',
     )
     verb.add_argument("--title", metavar="WORDS", required=True, help=f"the few words, at most {TITLE_CHARS} characters and no link, the dashboard names this order by, since his words stay whole in its task")
-    verb.set_defaults(run=order_add)
+    verb.set_defaults(run=order_add, users=None)
     verb = order.add_parser("set", parents=[*both, dry_opt])
     verb.add_argument("id", help="the order")
     verb.add_argument(
@@ -7501,6 +7515,7 @@ def parser() -> argparse.ArgumentParser:
         metavar="SEQ",
         help="the report record the communicator posted; a close from the communicator's session needs it and closes only an order its close attr names",
     )
+    verb.add_argument("--users", type=int, metavar="SEQ", help=USERS_HELP)
     verb.set_defaults(run=rehearsed(order_set))
     verb = order.add_parser("unfiled", parents=both, help="each open order that names no project, workstream or title yet, then the project and workstream pairs in use")
     verb.set_defaults(run=order_unfiled)
@@ -7602,7 +7617,8 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--project", metavar="NAME", required=True, help="the project the dashboard's Now screen files it under")
     verb.add_argument("--workstream", metavar="NAME", required=True, help="the workstream inside its project the Now screen files it under")
     verb.add_argument("--title", metavar="WORDS", required=True, help=f"the few words, at most {TITLE_CHARS} characters and no link, the dashboard names it by and its evidence record is titled by")
-    verb.set_defaults(run=incident_open, incident=True, joins=None, kind=None, complex=False, options_only=False, once=False, every=0, owner=None, watch=None)
+    verb.add_argument("--users", type=int, metavar="SEQ", help=USERS_HELP)
+    verb.set_defaults(run=incident_open,incident=True, joins=None, kind=None, complex=False, options_only=False, once=False, every=0, owner=None, watch=None)
     verb = incident.add_parser(
         "stop",
         parents=both,
@@ -8477,13 +8493,18 @@ def parser() -> argparse.ArgumentParser:
         "page-owner",
         parents=both,
         help=(
-            "work you left running broke production, or a production failure no incident holds yet is live: page his own Datadog On-Call"
-            " user at high urgency through the repository's page command, never for news or a question; the watch pages once on its own for"
-            " each incident opened while he is away"
+            f"page his own Datadog On-Call user at high urgency through the repository's page command: {state.PAGE_RULE}; never for news or"
+            " a question. The watch pages once on its own for each incident opened while he is away whose order carries that record"
         ),
     )
     verb.add_argument("why", help="what broke, for whom, and its link")
     verb.add_argument("--order", help="the order the page is for, so the watch does not page him for it again")
+    verb.add_argument(
+        "--users",
+        type=int,
+        metavar="SEQ",
+        help="the cci record whose read shows real users' runs, or their local chats or agents, failing on production; the page names it, and with --order it stays on the order; default: the one --order carries",
+    )
     verb.set_defaults(run=page_owner)
     verb = verbs.add_parser(
         "answer-now",

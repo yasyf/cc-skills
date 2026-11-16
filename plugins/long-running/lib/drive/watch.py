@@ -1482,7 +1482,7 @@ def page_owner(name: str, data: dict, title: str, why: str) -> str:
 
 
 def owner_page_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Page him once for each incident order the watch hears that opened since he was last heard and is open while he is not present, by state.absence, the presence the landing gate reads, and by his words "if anything goes wrong while doing things autonomously, the agent should have a tool to use ddog to page its human"; one that fails is said as a failed read is and tried again next pass."""
+    """Page him once for each incident order the watch hears that opened since he was last heard, is open while he is not present, by state.absence, the presence the landing gate reads, and carries the cci record showing real users failing, by state.PAGE_RULE, so a failure only the drive's own callers or proofs hit pages nobody and one whose record lands later pages then; one that fails is said as a failed read is and tried again next pass."""
     data = state.load(watcher.name)
     if not state.absence(data, moment):
         return []
@@ -1490,13 +1490,13 @@ def owner_page_lines(watcher: Watcher, moment: datetime) -> list[str]:
     owed = [
         key
         for key in state.open_incidents(data, list(data["orders"]))
-        if not data["orders"][key]["paged"] and (not heard or state.parse_time(data["orders"][key]["created"]) > state.parse_time(heard)) and hears(watcher, data, key)
+        if data["orders"][key]["users"] and not data["orders"][key]["paged"] and (not heard or state.parse_time(data["orders"][key]["created"]) > state.parse_time(heard)) and hears(watcher, data, key)
     ]
     lines = []
     for key in owed:
         order = data["orders"][key]
         try:
-            paged = page_owner(watcher.name, data, f"{key} {order['title'] or order['text']}", render.order_line(data, key, order))
+            paged = page_owner(watcher.name, data, f"{key} {order['title'] or order['text']}", f"{render.order_line(data, key, order)}\nreal users failing: record {order['users']}")
         except (state.DriveError, reads.ReadError) as error:
             return lines + failed(watcher, "owner page", "page of his Datadog On-Call user", error, moment)
         watcher.failures.pop("owner page", None)
