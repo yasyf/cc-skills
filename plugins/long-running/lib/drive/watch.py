@@ -2658,7 +2658,7 @@ def digest_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
     midnight = moment.astimezone(view.ZONE).replace(hour=0, minute=0, second=0, microsecond=0)
     day = midnight.date().isoformat()
-    if (state.load(watcher.name)["slack"]["digest"] or {}).get("day") == day:
+    if (state.load(watcher.name, ("slack",))["slack"]["digest"] or {}).get("day") == day:
         return []
     old = sorted((shown for shown in watcher.cards["questions"] if shown["card"].get("waits") and moment - state.parse_time(shown["asked"]) > DIGEST_AGE), key=lambda shown: shown["asked"])
     folded = {"day": day, "message": None, "waits": [shown["card"]["waits"] for shown in old]}
@@ -4517,7 +4517,7 @@ def untracked_prs(watcher: Watcher, data: dict, heads: dict[str, set], moment: d
     except github.GithubError as error:
         return {}, read_failed(watcher, "github branches", error, moment)
     watcher.failures.pop("github branches", None)
-    tracked = state.load(watcher.name)["prs"]
+    tracked = state.load(watcher.name, ("prs",))["prs"]
     return {
         job_id: {key: pr for key, pr in found.items() if key not in tracked and (github.repo_of(key), pr["branch"]) in both}
         for job_id, both in resolved.items()
@@ -4787,7 +4787,7 @@ def first_starts(watcher: Watcher, moment: datetime) -> list[str]:
 
 def seated_first(watcher: Watcher) -> list[Watcher]:
     """The drive's watcher and each project's, each open priority order's seat first, so its pass runs before every other project's PASS_FOR."""
-    seats = {order["priority"] for order in state.open_orders(state.load(watcher.name)).values() if order["priority"]}
+    seats = {order["priority"] for order in state.open_orders(state.load(watcher.name, ("orders",))).values() if order["priority"]}
     return sorted([watcher, *watcher.others.values()], key=lambda one: one.project not in seats)
 
 
@@ -4814,7 +4814,7 @@ READS_PER_PASS = 12
 
 def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Hand on each staging slot, by state.slot_turns: end a lease whose job finished, extend once a lease that ran past its end and end it at its second, and give a free slot to the first job in its queue with a GO, packed with each later pass whose PRs change none of its files, up to six, each of those resumed with its RIDE line, every resume by `drive job resume`, so no session sequences or packs staging by hand; it reads the files of each queued pass whose files it has not read while the slot is held, so a pass is packed the moment the slot frees. Its lines go as evidence and wake nobody; a GO's resume that is refused reaches the session holding the job as its relaunch_refused event."""
-    if watcher.project or not (slots := state.load(watcher.name)["slots"]):
+    if watcher.project or not (slots := state.load(watcher.name, ("slots",))["slots"]):
         return []
     known = state.load(watcher.name)
     release = providers.of(known).release
@@ -5721,7 +5721,7 @@ def contained(watcher: Watcher, stage: functools.partial, moment: datetime) -> l
         print(f"{state.stamp()} {source} of {watcher.project or 'the drive'} raised {type(error).__name__}: {error} at {Path(where.filename).name}:{where.lineno}", flush=True)
         if said := failed(watcher, source, source, error, moment):
             try:
-                posted_record(watcher.name, "meta", "incident", said, Path(state.load(watcher.name)["roles"]["coordinator"]["cwd"]))
+                posted_record(watcher.name, "meta", "incident", said, Path(state.load(watcher.name, ("roles",))["roles"]["coordinator"]["cwd"]))
             except reads.ReadError as refusal:
                 print(f"{state.stamp()} {source}'s incident record to the meta session failed: {refusal}", flush=True)
         return []
@@ -6492,7 +6492,7 @@ def watched(name: str, project: str | None) -> Watcher:
 
 def handing_off(watcher: Watcher, ran: float) -> bool:
     """Whether the watch may end for a newer install at this pass boundary: once it ran HAND_OFF_EVERY with every project's pass at its last stage, so no install leaves a stage it cut short waiting on the next process and installs landing minutes apart hand it off at most that often; once it ran HAND_OFF_LATEST however many passes stand cut short, since keep_unposted holds each one's resume for the next process and five projects' long passes kept one cut short every boundary, which held a 1.0.1510 watch over fourteen installs for half an hour; or at once while an incident order is open, whose fix must not wait out the clock."""
-    data = state.load(watcher.name)
+    data = state.load(watcher.name, ("orders",))
     if ran >= HAND_OFF_LATEST.total_seconds() or state.open_incidents(data, list(data["orders"])):
         return True
     return ran >= HAND_OFF_EVERY.total_seconds() and not any(one.resume for one in [watcher, *watcher.others.values()])
