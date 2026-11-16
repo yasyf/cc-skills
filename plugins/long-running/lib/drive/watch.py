@@ -35,6 +35,7 @@ RELAY_JOIN_SECONDS = 10
 READ_EVERY = timedelta(seconds=60)
 SETTLED_READ_EVERY = timedelta(minutes=10)
 PASS_FOR = timedelta(minutes=5)
+HAND_OFF_EVERY = timedelta(minutes=10)
 STALL_FOR = timedelta(minutes=2)
 SLOW_STAGE = timedelta(minutes=1)
 BEAT_SECONDS = 15
@@ -5777,17 +5778,24 @@ def watched(name: str, project: str | None) -> Watcher:
     return Watcher(name, offset=state.watch_cursor(name, project), project=project, delivered=receiver.deliveries_end(), cards=view.live_cards(name), made=state.take_held_lines(name, project), resume=state.take_held_resume(name, project))
 
 
+def handing_off(watcher: Watcher, ran: float) -> bool:
+    """Whether the watch may end for a newer install at this pass boundary: once it ran HAND_OFF_EVERY, so installs landing minutes apart hand it off at most that often, or at once while an incident order is open, whose fix must not wait out the clock."""
+    data = state.load(watcher.name)
+    return ran >= HAND_OFF_EVERY.total_seconds() or bool(state.open_incidents(data, list(data["orders"])))
+
+
 def watching(watcher: Watcher) -> None:
     """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, each open priority order's seat first, by seated_first, then the drive's pass, then each other project's, by joined, each project the watch claims the pid file of, so a project an older install's watch still runs waits for it to end; and end once a newer long-running is installed, only at a pass boundary, never between two of a pass's stages, saying so in its log, so its launch agent starts the watch on that install within RESTART_SECONDS, and a watch reads no install until it has run one whole pass, so installs landing minutes apart never cut a pass short. A pass that runs past PASS_FOR ends before its next stage the same way, that stage kept as its resume, so one slow project holds the others' passes up no longer than that. A crash wakes the session the crashing pass posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     one = watcher
     passes = 0
+    began = monotonic()
     relays: set[str] = set()
     try:
         with relaying(watcher) as relay_for:
             for _ in rests(state.events_path(watcher.name)):
                 beat("pass")
-                if passes and (newer := upgraded()):
+                if passes and handing_off(watcher, monotonic() - began) and (newer := upgraded()):
                     print(f"ended on long-running {state.VERSION} for {newer}, before {watcher.resume or 'its next pass'}", flush=True)
                     break
                 handing = bool(watcher.made)
