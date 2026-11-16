@@ -676,3 +676,15 @@ def test_the_release_guard_reads_the_drives_own_checkout_never_a_removed_lane_wo
     monkeypatch.setattr(providers, "of", lambda data: providers.Providers(None, {}, release=drives))
     monkeypatch.setattr(providers, "default_head", lambda clone: pytest.fail(f"read the default head of {clone}"))
     assert landing_guard.release_guard(landing_guard.Shell(str(removed), {}, "s1", True, True), [demo]) is drives
+
+
+@pytest.mark.parametrize("folder", ["drive-durable-agents/$/lib", "worktrees/j7843-reslice"], ids=["an unexpanded $(drive --root)", "a removed worktree"])
+def test_a_folder_parsed_from_a_judged_commands_words_that_is_no_directory_judges_no_queue_landing_and_never_crashes_the_guard_as_734096_did(
+    tmp_path: Path, folder: str
+) -> None:
+    from drive import providers
+
+    missing = tmp_path / folder
+    with pytest.raises(providers.ProviderError):
+        providers.default_head(missing)
+    assert landing_guard.queue_landings(str(missing)) == ()

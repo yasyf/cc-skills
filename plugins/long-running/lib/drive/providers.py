@@ -362,7 +362,8 @@ HEAD_SECONDS = 60
 
 
 def git(clone: Path, *argv: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", *argv], cwd=clone, capture_output=True, text=True, check=False)
+    """Run git on the clone by -C, never as the process's working folder, so a folder a hook parsed from a command's words, such as `$(drive --root)/lib` unexpanded or a lane's worktree removed since, is a git error default_head turns into a ProviderError, never a FileNotFoundError that crashes the hook (733991, 734096)."""
+    return subprocess.run(["git", "-C", str(clone), *argv], capture_output=True, text=True, check=False)
 
 
 def default_head(clone: Path) -> str:
