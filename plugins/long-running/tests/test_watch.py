@@ -11594,10 +11594,83 @@ def test_a_wake_writes_the_marks_the_watch_asked_for_only_once_it_delivered_its_
         data["prs"][KEY]["objecting"] = {"head": "aaaaaaa111", "at": asked}
         data["mains"]["Forge-AI/monorepo"] = {"test_one": {"owner": KEY, "woke": None, "waking": asked, "run": "", "workflow": "", "since": asked}}
     assert (stage.waking(asked, T0 + stage.WAKE_GRACE - timedelta(seconds=1)), stage.waking(asked, T0 + stage.WAKE_GRACE)) == (True, False)
-    stage.mark_woken(demo, [f"stage:{KEY}", f"objected:{KEY}@aaaaaaa111", "main:Forge-AI/monorepo@test_one"], asked)
+    stage.mark_woken(demo, [f"stage:{KEY}@aaaaaaa111", f"objected:{KEY}@aaaaaaa111", "main:Forge-AI/monorepo@test_one"], asked)
     pr = state.load(demo)["prs"][KEY]
     assert ((pr["stage"]["woke"], pr["stage"]["waking"]), pr["objected"], pr["objecting"]) == ((asked, None), "aaaaaaa111", None)
     assert (state.load(demo)["mains"]["Forge-AI/monorepo"]["test_one"]["woke"], state.load(demo)["mains"]["Forge-AI/monorepo"]["test_one"]["waking"]) == (asked, None)
+
+
+def test_a_builders_staging_line_after_its_staging_test_passed_writes_no_wait_so_the_watch_says_free_once(demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]) -> None:
+    part = "staging test of #42 before it lands"
+    proof = "https://buildkite.com/forge/release/builds/16121"
+    with state.edit(demo) as data:
+        [change] = data["orders"]["o1"]["parts"]
+        data["orders"]["o1"]["parts"][part] = state.new_part()
+        data["jobs"]["j1"]["parts"] = [change, part]
+    waits_on(demo, f"o1:{part}")
+    waiting_job(demo)
+    with state.edit(demo) as data:
+        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}
+    serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    done = f"DONE {proof} passed every staging case of #42 at aaaaaaa111"
+    with state.edit(demo) as data:
+        state.take_result(data, "j1", done, f"{done}\nCHECK: {proof}\nCASE a rollback refused: pass {proof}\n")
+    said = [line for line in watch.run_pass(watching, T0 + timedelta(minutes=30)) if line.startswith("FREE ")]
+    waits = []
+    for n in range(1, 4):
+        with state.edit(demo) as data:
+            state.staging_testers(data, "j1", f"PUSHED {state.pr_url(KEY)}\nSTAGING: #42 a foreign-table read through the query route is refused for another principal\n")
+            waits.append(data["prs"][KEY]["waits"])
+        said += [line for line in watch.run_pass(watching, T0 + timedelta(minutes=30 + 2 * n)) if line.startswith("FREE ")]
+    assert (len(said), waits) == (1, [[], [], []])
+
+
+def test_a_proof_rerun_on_the_same_wait_line_says_nothing_on_its_prs_and_a_changed_one_is_said(demo: str) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j9"] = state.new_job("o1", "builder", "repair the staging-claim rule", [], state.stamp()) | {"state": "waiting", "repro": "/p.sh"}
+        data["orders"]["o1"]["jobs"].append("j9")
+    first = "WAIT his Approve on Forge-AI/monorepo#57038, the rule edit"
+    changed = "WAIT yasyf/cc-skills#5832 landing and installing"
+    for version, wait in (("1.0.1308", first), ("1.0.1308", first), ("1.0.1311", first), ("1.0.1312", changed)):
+        install.proof_kept(demo, "j9", f"BLOCKED j9's repair: /p.sh exits 1 on {version}: {wait}", f"checked the rule\n{wait}\n", version, 1, None)
+    proofs = [event["change"] for event, _ in state.read_events(demo) if event["kind"] == "proof" and event.get("job") == "j9"]
+    assert proofs == [f"{install.PROOF_WAITS}: j9's repair: /p.sh exits 1 on 1.0.1308: {first}", f"{install.PROOF_WAITS}: j9's repair: /p.sh exits 1 on 1.0.1312: {changed}"]
+
+
+def test_a_stage_wake_built_at_a_head_a_push_moved_the_pr_off_sends_nothing_and_writes_no_mark(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    from drive import tools
+
+    posted: list[dict] = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend(posts) or ["9"])
+    kept = {"name": "red", "owner": "j1", "why": "its required check test failed at bbbbbbb", "since": state.stamp(T0), "woke": None, "waking": state.stamp(T0)}
+    with state.edit(demo) as data:
+        data["prs"][KEY]["stage"] = dict(kept)
+    line = f"{KEY} red, owed by j1: its required check test failed at bbbbbbb [o1 j1]"
+    assert run("pr", "wake", state.pr_url(KEY), "--text", line, "--woke", f"stage:{KEY}@bbbbbbb222", "--woke-at", state.stamp(T0)) == (
+        0,
+        f"{KEY}: sent nothing, since its line was built at bbbbbbb and a push moved it to aaaaaaa; the watch's next pass reads its stage there",
+    )
+    assert (posted, state.load(demo)["prs"][KEY]["stage"]) == ([], kept)
+
+
+def test_a_github_read_ccxs_rate_limit_floor_refuses_is_said_once_and_no_read_is_tried_again_until_the_reset_it_names(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    refusal = f"could not read Forge-AI/monorepo's pull requests from GitHub: {FLOOR_4755.format(0)}"
+    calls = []
+
+    def refused(keys: list[str], into: dict[str, str] | None = None) -> tuple[dict[str, dict], github.GithubError | None]:
+        calls.append(keys)
+        return {}, github.GithubError(refusal)
+
+    monkeypatch.setattr(github, "fetch", refused)
+    remerging(monkeypatch, {})
+    watching = watcher(demo)
+    reset = datetime.fromisoformat("2026-11-15T01:55:01-08:00")
+    before = [watch.github_lines(watching, reset - timedelta(minutes=minutes)) for minutes in (16, 15, 1)]
+    after = [watch.github_lines(watching, reset + timedelta(minutes=minutes)) for minutes in (1, 2)]
+    assert before == [[f"WATCH ccx's GitHub rate-limit floor refused the watch's GitHub reads, so it reads none until {reset.isoformat()}, then each it owes: {refusal}"], [], []]
+    assert (after, calls) == ([[], []], [[KEY], [KEY], [KEY]])
 
 
 def test_a_lane_on_this_mac_with_no_transcript_since_its_worker_started_is_unprompted_once_the_bound_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

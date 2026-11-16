@@ -4842,6 +4842,8 @@ def wake_pr(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     key = state.pr_key(args.url)
     data = state.load(name)
+    if head := stage.left_head(data, args.woke):
+        return unsent_wake(args, key, head, data)
     target = args.job or data["prs"][key]["job"]
     held_job(data, target)
     if args.text is None and (cards := view.live_cards(name)) is None:
@@ -4851,6 +4853,8 @@ def wake_pr(args: argparse.Namespace) -> int:
     if job_id and data["jobs"][job_id].get("dispatch"):
         with state.job_locked(name, job_id, orca.LAUNCH_SECONDS):
             data = state.load(name)
+            if head := stage.left_head(data, args.woke):
+                return unsent_wake(args, key, head, data)
             job = data["jobs"][job_id]
             if job["state"] != "stopped":
                 step = declared_step(name, job)
@@ -4876,6 +4880,12 @@ def wake_pr(args: argparse.Namespace) -> int:
     topic = f"wake-{key}-{pr['head'][:10]}"
     tools.sent(name, "watch", [{"kind": "handoff", "to": [f"{lane}@{name}"], "topic": topic, "text": said}])
     return emit(args, f"{key}: sent to {lane}@{name} for {target}", {"key": key, "job": job_id, "how": f"handoff to {lane}"})
+
+
+def unsent_wake(args: argparse.Namespace, key: str, head: str, data: dict) -> int:
+    """Say that a watch wake built at a head the PR left goes unsent, since its line speaks of that head and the watch's next pass reads the PR's stage at the new one."""
+    now = data["prs"][key]["head"]
+    return emit(args, f"{key}: sent nothing, since its line was built at {head[:7]} and a push moved it to {now[:7]}; the watch's next pass reads its stage there", {"key": key, "job": None, "how": "unsent", "built": head, "head": now})
 
 
 def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False, lead: dict | None = None, parts: list[str] | None = None, waits: list[str] = ()) -> tuple[dict, list[str]]:
@@ -7775,7 +7785,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("url", help=f"the PR, as {PR_FORMS}")
     verb.add_argument("--text", help="the line to send, the PR's stage line when left out")
     verb.add_argument("--job", help="the job to wake in place of its builder, the one its waiting or blocked stage names as owing it")
-    verb.add_argument("--woke", action="append", default=[], help="a mark the watch writes once the line is delivered: stage:<PR>, objected:<PR>@<head> or main:<repo>@<test>")
+    verb.add_argument("--woke", action="append", default=[], help="a mark the watch writes once the line is delivered: stage:<PR>@<head>, objected:<PR>@<head> or main:<repo>@<test>")
     verb.add_argument("--woke-at", help="the moment of the watch's pass that asked for the wake, which each --woke mark is dated")
     verb.set_defaults(run=pr_wake)
 
