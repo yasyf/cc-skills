@@ -309,6 +309,7 @@ LOCK_POLL_SECONDS = 0.1
 HOLDER_CHARS = 200
 HOLDERS_SECONDS = 5
 DRIVE_LOCK_SECONDS = 300
+WAL_KEPT_BYTES = 64 << 20
 CHANGES_KEPT = 500
 ROW_MARSHAL = 2
 SLOW_HOLD_SECONDS = 2
@@ -1043,9 +1044,10 @@ def stored_json(name: str) -> dict:
 
 
 def connect(path: Path) -> sqlite3.Connection:
-    """A connection to a drive's database that begins each transaction itself, waiting up to DRIVE_LOCK_SECONDS for another's write."""
+    """A connection to a drive's database that begins each transaction itself, waiting up to DRIVE_LOCK_SECONDS for another's write, and cuts the WAL back to WAL_KEPT_BYTES each time a checkpoint resets it, which SQLite otherwise never shrinks from its largest burst."""
     db = sqlite3.connect(path, timeout=DRIVE_LOCK_SECONDS, isolation_level=None)
     db.execute("PRAGMA synchronous = NORMAL")
+    db.execute(f"PRAGMA journal_size_limit = {WAL_KEPT_BYTES}")
     return db
 
 
