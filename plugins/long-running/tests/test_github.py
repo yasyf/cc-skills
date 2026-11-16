@@ -875,6 +875,14 @@ def test_uncarried_finds_each_file_a_pr_changes_since_its_fork_among_a_builds_ow
     assert [github.uncarried(clone, cut, pr, "dev") for pr in (head, moved)] + [github.uncarried(clone, cut, stacked, "pr"), github.uncarried(clone, head, head, "dev")] == [[], [], [], []]
     assert github.uncarried(clone, bare, head, "dev") == ["app/defs/AGENTS.md", "cmd/AGENTS.md", "cmd/CLAUDE.md"]
     assert github.uncarried(clone, older, moved, "dev") == ["app/defs/AGENTS.md", "app/main.go"]
+    for gone in ("", None):
+        with pytest.raises(github.GithubError, match="no head or base read"):
+            github.uncarried(clone, cut, head, gone)
+    with pytest.raises(github.GithubError, match="no head or base read"):
+        github.uncarried(clone, cut, "", "dev")
+    with pytest.raises(github.MissingBranch, match="has no branch 'gone'"):
+        github.uncarried(clone, cut, head, "gone")
+    assert github.contains(clone)(older, head, head, "gone") is False
 
 
 @pytest.mark.parametrize(("page", "landed"), [(github.OWNERS_PER_BASE - 1, {"state": "merged", "into": None, "merged_sha": "fff000"}), (github.OWNERS_PER_BASE, None)])

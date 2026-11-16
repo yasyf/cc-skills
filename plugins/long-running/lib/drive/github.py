@@ -72,6 +72,10 @@ class GithubError(Exception):
     pass
 
 
+class MissingBranch(GithubError):
+    pass
+
+
 def run(cmd: list[str], cwd: str | None = None, timeout: int = 120, max_age: str = "0s", text: bool = True, stdin: str | None = None) -> str | bytes:
     """Run a command, given stdin when named, its output as text or, with text off, as the bytes it wrote; a gh one goes through ccx's GitHub gateway, which charges it to this drive verb or hook in the machine-wide ledger, refuses it under the rate-limit floor, retries a read that failed on a transient network error, and answers a read from its cache when the same read was answered within max_age. One still running at timeout is killed, its failure naming it by its words up to its first flag, never its arguments such as a GraphQL query, with what it wrote to stderr by then."""
     named = " ".join(takewhile(lambda word: not word.startswith("-"), cmd))
@@ -764,10 +768,10 @@ def saved_branches(repo: str, lane: str, every: bool = False) -> list[str]:
 
 
 def fetched(clone: str, branch: str) -> str:
-    """The sha of branch's head as origin holds it now, read with ls-remote and fetched by that sha into the clone's objects, writing no ref, so it never loses refs/remotes/origin/<branch>'s ref lock to another fetch of the shared clone, the lander's, a launch's or a session's, and needs no lock of its own; a branch origin lacks raises GithubError naming it. The fetch starts no git maintenance: its detached worktree-prune task deletes a .git/worktrees entry holding neither gitdir nor locked, as the worktree add each caller runs next holds its own for a moment, and that add then fails writing its locked file."""
+    """The sha of branch's head as origin holds it now, read with ls-remote and fetched by that sha into the clone's objects, writing no ref, so it never loses refs/remotes/origin/<branch>'s ref lock to another fetch of the shared clone, the lander's, a launch's or a session's, and needs no lock of its own; a branch origin lacks raises MissingBranch naming it. The fetch starts no git maintenance: its detached worktree-prune task deletes a .git/worktrees entry holding neither gitdir nor locked, as the worktree add each caller runs next holds its own for a moment, and that add then fails writing its locked file."""
     git = ["git", "-C", clone]
     if not (listed := run([*git, "ls-remote", "origin", f"refs/heads/{branch}"]).split()):
-        raise GithubError(f"origin of {clone} has no branch {branch!r}")
+        raise MissingBranch(f"origin of {clone} has no branch {branch!r}")
     sha = listed[0]
     run([*git, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--no-auto-maintenance", "origin", sha])
     return sha
@@ -805,7 +809,7 @@ def carrier(clone: str) -> Callable[[str, str, int], bool]:
 
 
 def contains(clone: str) -> Callable[[str, str, str, str | None], bool]:
-    """Whether a build's tree holds a PR's change by its net content: the merge sits in the build's history, else, for a build off the line such as a hotfix, every hunk of the PR's change since its fork from base reads in what the build serves, by net_held, so a copy on other context counts and a copy later reverted does not; with no base to read the fork from, only the merge counts."""
+    """Whether a build's tree holds a PR's change by its net content: the merge sits in the build's history, else, for a build off the line such as a hotfix, every hunk of the PR's change since its fork from base reads in what the build serves, by net_held, so a copy on other context counts and a copy later reverted does not; with no base to read the fork from, or a base branch origin no longer holds, only the merge counts."""
     git = ["git", "-C", clone]
 
     @functools.cache
@@ -814,7 +818,10 @@ def contains(clone: str) -> Callable[[str, str, str, str | None], bool]:
             fetch_commit(clone, sha)
         if not subprocess.run([*git, "merge-base", "--is-ancestor", merge, build], capture_output=True, check=False).returncode:
             return True
-        return bool(base) and net_held(clone, build, head, base)
+        try:
+            return bool(base) and net_held(clone, build, head, base)
+        except MissingBranch:
+            return False
 
     return holds
 
