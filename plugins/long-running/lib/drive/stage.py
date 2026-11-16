@@ -303,13 +303,13 @@ def red(data: dict, key: str) -> str:
             return f"it sits on {pr['base']}, which no open PR heads, so restack it onto {pr['default']}"
         built = "".join(f", the branch of {job_id}" for job_id in state.base_builders(data, pr)[:1])
         return f"it sits on {pr['base']}{built}, which no open PR heads and which holds {count} commit{'' if count == 1 else 's'} {pr['default']} lacks, so open {pr['base']}'s PR first: a restack onto {pr['default']} would drop them"
+    if pr["conflict"]:
+        restack = f": the watch restacks it, so a conflict left is a real one: resolve it with ccx vcs stack rebase onto {pr['trunk']}" if pr["trunk"] else ""
+        return f"it conflicts with {conflicts_with(pr)}{restack}"
     if pr["checks"] == "fail" and (own := land.own_red(pr)):
         return own
     if pr["checks"] == "fail" and not state.ships_untapped(data, key):
         return f"its checks fail at {head}: {', '.join(pr['failed_checks']) or 'see its checks'}"
-    if pr["conflict"]:
-        restack = f": restack the whole stack onto {pr['trunk']} with ccx vcs stack rebase" if pr["trunk"] else ""
-        return f"it conflicts with {conflicts_with(pr)}{restack}"
     if pr["draft"]:
         return "it is a draft"
     if pr["review"] == "changes":

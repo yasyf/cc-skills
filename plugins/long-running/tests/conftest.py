@@ -30,6 +30,7 @@ from drive import (
     place,
     public_check,
     receiver,
+    restack,
     served,
     settled,
     slack,
@@ -392,6 +393,15 @@ def meta(run: Callable[..., tuple[int, str]], demo: str) -> str:
     with state.edit(demo) as data:
         data["roles"]["coordinator"]["session"] = "elsewhere"
     return demo
+
+
+RESTACK = restack.restack
+
+
+@pytest.fixture(autouse=True)
+def restacks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No watch pass restacks a stack outside the tests that call RESTACK, since each would fetch its branches from GitHub."""
+    monkeypatch.setattr(restack, "restack", lambda name, keys, seen: [])
 
 
 @pytest.fixture(autouse=True)
