@@ -111,6 +111,9 @@ does. Leave out only the drive ids he cannot open: job, order and waits ids and 
    - Fix the cause. When a bug hurts someone now, its immediate fix ships at once on its own
      `immediate fix` part while the proper fix is built, and the proper fix replaces it: no pin,
      flag, header, cap, retry, timer or wait outlives the fix of the cause.
+   - An edge case that drops work, such as a rare race losing one edit, is accepted: build nothing
+     for it and ask him nothing. He ruled, Nov 16, 2026: "its ok for edge cases to drop stuff dont
+     build a bunch of complex shit for edge casews thats a rule we need to codify".
    - On a `Drive tooling: post feedback:` order, fix what let the post through, since the
      communicator already fixed the post: a rule in `cc-slack check-post` with its case in `check_post_test.py`,
      a check in `lib/drive/limits.py` or a hook, or the library that draws posts and cards,

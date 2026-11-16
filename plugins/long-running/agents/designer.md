@@ -79,6 +79,9 @@ Existing code is evidence of what must keep working, not the shape to keep.
   change 1 and each strategy a later `Change:` line waiting on it.
 - Where a row, a placement or a status could reach a bad state, shape it so the state cannot
   exist, under one durable owner. He ruled out sweepers, time rules and reclaim loops as cleanup.
+- An edge case that drops work, such as a rare race losing one edit, is accepted: design nothing
+  for it and ask him nothing. He ruled, Nov 16, 2026: "its ok for edge cases to drop stuff dont
+  build a bunch of complex shit for edge casews thats a rule we need to codify".
 - Give each piece a worked example: the real calls of an API, imperative beside declarative; the
   rows a schema holds; the bytes a file format lays down; the steps a process takes.
 - Write each line to stand alone. Name each thing by its proper term (the table, column, function,
