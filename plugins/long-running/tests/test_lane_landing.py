@@ -57,6 +57,11 @@ def test_a_hold_and_a_red_check_keep_a_pr_and_everything_above_it() -> None:
     assert landing.verdicts(lane(row(1, checks="fail")), None, NOW)[0].lands is False
 
 
+def test_a_pr_sitting_on_a_pr_outside_its_lane_never_lands_since_the_queue_would_land_that_one_too() -> None:
+    [verdict] = landing.verdicts(lane(row(57164, under=56866)), None, NOW)
+    assert (verdict.lands, verdict.why) == (False, "Forge-AI/monorepo#57164 sits on Forge-AI/monorepo#56866, outside this lane, which the merge queue would land with it")
+
+
 def test_a_pr_whose_stack_link_is_unread_never_lands() -> None:
     unlinked = {field: value for field, value in row(1).items() if field != "under"}
     assert landing.verdicts(lane(unlinked), None, NOW)[0].lands is False

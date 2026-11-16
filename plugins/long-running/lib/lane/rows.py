@@ -15,7 +15,7 @@ def view(drive: str) -> dict[str, dict]:
     heads = {(repo, pull["branch"]): f"{repo}#{number}" for (repo, number), pull in read.items() if pull["state"] == "OPEN"}
     found = {}
     for (repo, number), pull in read.items():
-        facts_of = {"head": pull["head"], "checks": CHECKS.get(pull["rollup"] or "", "pending"), "merged": pull["merged"]}
+        facts_of = {"head": pull["head"] if pull["state"] == "OPEN" or pull["merged"] else None, "checks": CHECKS.get(pull["rollup"] or "", "pending"), "merged": pull["merged"]}
         if pull["base"] == pull["default"]:
             facts_of["under"] = None
         elif below := heads.get((repo, pull["base"])):
@@ -36,13 +36,13 @@ def unjudged(lanes: dict[str, dict]) -> list[str]:
 
 def judge(drive: str, read: dict[str, dict]) -> int:
     """Read each unjudged head, as view() read it,'s changed files in one batched GitHub read and write its verdict, {head, classes}, by state.dangerous_in as the providers of the drive's checkout, its config's `checkout`, read the repository's [[dangerous]] tables and dangerous_paths; with no checkout configured nothing is judged, so nothing lands. The count written."""
-    from drive import github, providers, state
+    from drive import providers, state
 
     checkout = store.config(drive)["checkout"]
     if not checkout or not (waiting := unjudged({lane_id: seen(lane, read) for lane_id, lane in store.load_all(drive).items()})):
         return 0
     found = providers.at(Path(checkout))
-    verdicts = {key: {"head": head, "classes": state.dangerous_in(found.config, found.repo, paths)} for key, (head, paths) in github.paths(waiting).items()}
+    verdicts = {key: {"head": head, "classes": state.dangerous_in(found.config, found.repo, paths)} for key, (head, paths) in readable(waiting).items()}
 
     def written(lanes: dict[str, dict]) -> int:
         count = 0
@@ -67,3 +67,21 @@ def prove(drive: str, cut: str, stacks: dict[str, dict]) -> None:
                         row["staging"] = {"cut": cut, "head": result["head"], "result": result["result"], "target": result["target"]}
 
     store.transact(drive, proven)
+
+
+def readable(keys: list[str]) -> dict[str, tuple[str, list[str]]]:
+    """Each PR's head and changed files by github.paths, a batch GitHub refuses read again one PR at a time, so one PR whose files cannot be read, such as #49164's incomplete snapshot, stays unjudged and holds while the rest are judged."""
+    from drive import github
+
+    found: dict[str, tuple[str, list[str]]] = {}
+    for start in range(0, len(keys), github.PRS_PER_QUERY):
+        chunk = keys[start : start + github.PRS_PER_QUERY]
+        try:
+            found |= github.paths(chunk)
+        except github.GithubError:
+            for key in chunk:
+                try:
+                    found |= github.paths([key])
+                except github.GithubError:
+                    continue
+    return found

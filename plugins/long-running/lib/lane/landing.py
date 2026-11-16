@@ -57,6 +57,8 @@ def unready(row: dict) -> str | None:
 def stack_verdict(stack: list[dict], heard: datetime | None, moment: datetime) -> Verdict:
     """What lands of one stack, bottom first: the longest run from its bottom whose PRs are each ready, cut at a dangerous PR unless the stack's proof passed at its top head and he is present."""
     landing: list[str] = []
+    if below := stack[0].get("under"):
+        return Verdict((), False, f"{key(stack[0])} sits on {below}, outside this lane, which the merge queue would land with it")
     for row in stack:
         if row.get("merged"):
             continue

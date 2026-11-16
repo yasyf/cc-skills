@@ -3,12 +3,15 @@
 import json
 import re
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from functools import cache
 from pathlib import Path
 
 from lane import store
 
 DONE_ROLLUPS = ("SUCCESS", "FAILURE", "ERROR")
+PRS_PER_QUERY = 50
+READERS = 8
 CHANNEL_EVENT = re.compile(r"^(<@\w+> has (joined|left) the channel|set the channel (description|topic|purpose|name)|renamed the channel)")
 
 
@@ -26,10 +29,14 @@ def pr_keys(lanes: dict[str, dict]) -> set[tuple[str, int]]:
 
 
 def read_prs(keys: set[tuple[str, int]]) -> dict[tuple[str, int], dict]:
-    """Each pull request's state, merged flag, head, base and head branches, its repository's default branch, review decision and check rollup, in one GraphQL request."""
-    if not keys:
-        return {}
+    """Each pull request's state, merged flag, head, base and head branches, its repository's default branch, review decision and check rollup, in GraphQL requests of PRS_PER_QUERY run READERS at a time, since one request for the ~490 PRs of twelve lanes outran its 60 seconds."""
     ordered = sorted(keys)
+    chunks = [ordered[start : start + PRS_PER_QUERY] for start in range(0, len(ordered), PRS_PER_QUERY)]
+    with ThreadPoolExecutor(max_workers=READERS) as pool:
+        return {key: pull for read in pool.map(read_chunk, chunks) for key, pull in read.items()}
+
+
+def read_chunk(ordered: list[tuple[str, int]]) -> dict[tuple[str, int], dict]:
     parts = []
     for index, (repo, number) in enumerate(ordered):
         owner, name = repo.split("/", 1)

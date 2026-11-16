@@ -23,18 +23,20 @@ def hold(drive: str, lane_id: str, text: str) -> str:
     return text
 
 
-def merged(drive: str, lane: dict, keys: list[str], dangerous: bool) -> str:
-    """Queue one landing unit through the repository's merge queue from a fresh worktree at the queue's base: one preflight, `--check`, then, for a unit holding a dangerous PR, his presence read again at that moment, since a preflight can outlast the 15 minutes his word or tap allows, and a lapsed one holds the unit and says so in its lane, never merging; then `--watch`, which queues it."""
+def merged(drive: str, lane: dict, keys: list[str], dangerous: bool, dry_run: bool = False) -> str:
+    """Queue one landing unit through the repository's merge queue from a fresh worktree at the queue's base, cut from the drive's configured checkout: one preflight, `--check`, then, for a unit holding a dangerous PR, his presence read again at that moment, since a preflight can outlast the 15 minutes his word or tap allows, and a lapsed one holds the unit and says so in its lane, never merging; then `--watch`, which queues it."""
     from drive import github, providers
     from drive import land as old_land
 
-    worktree = Path(lane["worktree"])
+    worktree = Path(store.config(drive)["checkout"])
     script = providers.at(worktree).repo.queue().script
     repo = github.repo_of(keys[0])
     numbers = [key.rpartition("#")[2] for key in keys]
     with old_land.fresh(drive, worktree, repo, github.default_branch(repo)) as (checkout, sha):
         trusted = os.environ | {old_land.MISE_TRUST: str(checkout)}
         checked = subprocess.run([str(checkout / script), "--check", *numbers], cwd=checkout, env=trusted, capture_output=True, text=True)
+        if dry_run:
+            return f"would queue {', '.join(keys)} at base {sha[:12]}; --check exited {checked.returncode}: {old_land.said(checked.stdout + checked.stderr)}"
         if failed := old_land.unfinished(drive, "--check", keys, checked):
             return hold(drive, lane["id"], failed)
         if dangerous and not landing.present(heard(drive), store.now()):
@@ -68,9 +70,9 @@ def land(args: argparse.Namespace) -> None:
         by_key = {landing.key(row): row for row in lane["prs"]}
         for verdict in landing.verdicts(lane, heard(args.drive), moment):
             print(f"{lane['id']}: {'LANDS ' + ', '.join(verdict.keys) if verdict.lands else 'HOLDS'}; {verdict.why}")
-            if verdict.lands and stager.live(args.drive):
+            if verdict.lands and (stager.live(args.drive) or args.dry_run):
                 with reserved(args.drive, list(verdict.keys)) as mine:
-                    print(merged(args.drive, lane, list(verdict.keys), any(landing.dangerous(by_key[key]) for key in verdict.keys)) if mine else f"{verdict.keys[0]}: another lander holds it")
+                    print(merged(args.drive, lane, list(verdict.keys), any(landing.dangerous(by_key[key]) for key in verdict.keys), args.dry_run or not stager.live(args.drive)) if mine else f"{verdict.keys[0]}: another lander holds it")
 
 
 def spawn(drive: str) -> None:
@@ -105,6 +107,7 @@ def main() -> int:
     parser.add_argument("--drive", required=True)
     verbs = parser.add_subparsers(required=True)
     verb = verbs.add_parser("land", help="what his Approve lands now, queued only once live")
+    verb.add_argument("--dry-run", action="store_true", help="run the merge queue's --check for each landing unit and queue nothing")
     verb.set_defaults(run=land)
     verb = verbs.add_parser("candidates", help="dangerous stacks waiting on a proof, best ranked first")
     verb.add_argument("--reach", action="store_true", help="add changed files and release select's reach for the first few")

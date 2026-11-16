@@ -111,7 +111,7 @@ def reach(drive: str, candidates: list[dict]) -> None:
     """Add to the first REACH_READS candidates each PR's changed files and what its release select reaches, its components, releases and staged targets, from which the tester judges where the stack is tested and which stacks overlap."""
     from drive import cli, github, providers, state
 
-    found = providers.of(state.load(drive))
+    found = providers.at(Path(checkout)) if (checkout := store.config(drive)["checkout"]) else providers.of(state.load(drive))
     shown = candidates[:REACH_READS]
     keys = [key for stack in shown for key in stack["stack"]]
     paths = github.paths(keys)
@@ -121,7 +121,7 @@ def reach(drive: str, candidates: list[dict]) -> None:
 
 
 def candidates(drive: str, reached: bool) -> list[dict]:
-    found = lane_candidates(drive) if live(drive) else shadow_candidates(drive)
+    found = lane_candidates(drive) if (lanes_dir(drive) / RANK).exists() else shadow_candidates(drive)
     if reached:
         reach(drive, found)
     return found
