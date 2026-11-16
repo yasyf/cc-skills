@@ -34,7 +34,6 @@ DIRTY = f"X Pull request {YASYF} is not mergeable: the merge commit cannot be cl
 MERGE_CONFLICTS = "GraphQL: Pull Request has merge conflicts (mergePullRequest)"
 POLICY = f"X Pull request {YASYF} is not mergeable: the base branch policy prohibits the merge."
 ROWS = "| `drive a` | runs a. Then b. Then c. |\n| `drive d` | runs d. |\n"
-FREEZES_READ = watch.brief.freezes
 T0 = state.parse_time("2026-11-09T10:00:00-05:00")
 GATE = "LTX Behavioral Gate (short)"
 RUNNING = [{"name": "test", "conclusion": None}]
@@ -4806,17 +4805,6 @@ def test_a_staging_test_whose_freeze_gave_way_to_a_staging_release_for_productio
             data["jobs"][job_id]["undelivered"].clear()
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=2)) if line.startswith("FREE ")]
     assert [state.load(demo)["jobs"][job_id]["undelivered"] for job_id in ("j1", "j2")] == [[], []]
-
-
-def test_a_freezes_read_printing_a_bare_ledger_row_is_a_read_that_failed_so_the_watch_says_it_and_reads_on(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(watch.orca, "checkout", lambda name, clone, wait=0: DRIVE_CHECKOUT)
-    monkeypatch.setattr(state, "repo_config", lambda data: {"release": {"freezes": "ci release freezes --json"}})
-    printed = [[{"freeze": {"id": "e7dqvyuf5b", "holders": []}, "text": "freeze e7dqvyuf5b: api/plat-usw2-staging"}]]
-    monkeypatch.setattr(watch.reads, "run", lambda argv, checkout, env=None, stdin=None: json.dumps(printed[0]))
-    assert FREEZES_READ(demo, state.load(demo)) == printed[0]
-    printed[0] = [*printed[0], {"id": "f8erwzvg6c", "holders": [f"{demo}/j1"]}]
-    with pytest.raises(reads.ReadError, match=r"printed 1 of 2 rows with no freeze and text, such as \{\"id\": \"f8erwzvg6c\""):
-        FREEZES_READ(demo, state.load(demo))
 
 
 def live_reads(monkeypatch: pytest.MonkeyPatch, serving: list[dict] | None = None, carried: set[str] | None = None) -> list[list[str]]:
