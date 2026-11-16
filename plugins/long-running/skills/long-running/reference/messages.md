@@ -1105,10 +1105,9 @@ line keeps its bold line and two sentences, as the status lines above show.
   check-post that exits 1 naming no finding.
 - A handler's new line in his thread comes back until that handler has read the thread in the last
   10 minutes, so the line cannot miss what he said there since. Past that read every other check
-  runs. A post over its limit that Jev upholds the finding on comes back once, unposted, with every
-  finding, Jev's reason and what to fix; a post Jev holds on any other finding, such as one
-  check-post flags, one naming something he could open with no link there, or one asking a tap that
-  is not owed, is reworded in place once, from every finding, Jev's reason and what to fix.
+  runs. A post Jev holds on any finding, such as one over its limit, one check-post flags, one
+  naming something he could open with no link there, or one asking a tap that is not owed, comes
+  back once, unposted, with every finding, Jev's reason and what to fix.
 - Then read it as he will, on a phone, with no other context. Does he know what changed, whether he
   must act, and when he hears next? Does every number, term and reference make sense with nothing
   else open, and does each thing he could open carry its link right there?

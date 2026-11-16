@@ -574,7 +574,7 @@ def test_a_draw_of_his_card_under_the_waits_id_of_one_he_answered_posts_nothing_
     assert DRAW(demo, ["yasyf/cc-skills#7"]) == POSTED
 
 
-def test_a_line_over_his_card_that_check_post_flags_and_jev_reads_as_shorthand_posts_nothing_and_one_jev_cannot_read_goes_out(
+def test_a_line_over_his_card_that_check_post_flags_posts_nothing_unless_jev_clears_the_finding(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, checked: Checked, jev: Jev
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--owner", "coordinator")
@@ -590,7 +590,14 @@ def test_a_line_over_his_card_that_check_post_flags_and_jev_reads_as_shorthand_p
         DRAW(demo, ["yasyf/cc-skills#7"], again=True)
     assert (posts, said(demo)) == ([], [])
     assert jev.asked[-1]["state"] == {"post": {"text": line}, "findings": {"f1": {"rule": agents.PLAIN_WORDS_RULE, "found": checked.findings[0]}}}
+    jev.picks("holds", 0.5)
+    with pytest.raises(DriveError, match="nothing was posted: the line asking his tap again breaks the plain-words rule"):
+        DRAW(demo, ["yasyf/cc-skills#7"], again=True)
     jev.answer = None
+    with pytest.raises(DriveError, match="nothing was posted: Jev gave no reading"):
+        DRAW(demo, ["yasyf/cc-skills#7"], again=True)
+    assert (posts, said(demo)) == ([], [])
+    jev.picks("none")
     sent = slack.cc_slack
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: sent(*argv) | {"card_permalink": UNDER})
     assert DRAW(demo, ["yasyf/cc-skills#7"], again=True) == UNDER
