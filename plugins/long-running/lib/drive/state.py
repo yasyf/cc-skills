@@ -4160,6 +4160,18 @@ def death_on(job: dict, lane: str) -> dict | None:
     return next((death for death in reversed(job.get("deaths", [])) if lane in (death.get("workspace"), death["dispatch"])), None)
 
 
+def death_row(job_id: str, death: dict, field: str) -> tuple[str, ...]:
+    """The reservation member of a field of a lane death of the job: the death named by its dispatch, or for an agent's death on this Mac, which has none, by its agent."""
+    key = "dispatch" if death["dispatch"] else "agent"
+    return ("jobs", job_id, "deaths", item(key, death[key]), field)
+
+
+def death_member(job_id: str, job: dict, field: str, token: str | None) -> tuple[str, ...]:
+    """The reservation member a child started with --reserved token adopts: the lane death of the job whose field holds that token, by death_row, found by the token, never by which death is newest now, or the job's own field when no death holds it, whose adopt then fails."""
+    death = next((death for death in job.get("deaths", []) if isinstance(held := death.get(field), dict) and held.get("token") == token), None)
+    return ("jobs", job_id, field) if death is None else death_row(job_id, death, field)
+
+
 def seat_order(data: dict, seat: str | None) -> dict | None:
     """The order a priority seat holds, its newest when several have held it; None for a project or a seat no order holds."""
     return next((order for order in reversed(data["orders"].values()) if seat and order["priority"] == seat), None)

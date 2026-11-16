@@ -4837,14 +4837,14 @@ def release_lanes(watcher: Watcher, moment: datetime) -> list[str]:
     if not ending and not reclaiming:
         return lines
     log = state.watch_log_path(watcher.name, watcher.project).name
-    claim = {"pid": os.getpid(), "at": state.stamp(moment)}
+    at = state.stamp(moment)
 
-    def claim_lanes(data: dict) -> tuple[dict[str, state.Reservation], dict[tuple[str, str], object]]:
+    def claim_lanes(data: dict) -> tuple[dict[str, state.Reservation], dict[tuple[str, str], state.Reservation]]:
         ends, reclaims = {}, {}
         for job_id in ending:
             job = data["jobs"][job_id]
             if not in_flight(job.get("end"), moment) and (held := state.reserve(data, (("jobs", job_id, "end"),))):
-                job["end"] |= {"at": claim["at"]}
+                job["end"] |= {"at": at}
                 ends[job_id] = held
         for job_id, lane in reclaiming:
             job = data["jobs"][job_id]
@@ -4852,38 +4852,25 @@ def release_lanes(watcher: Watcher, moment: datetime) -> list[str]:
                 continue
             if state.on_mac(job) and lane == job.get("dispatch"):
                 state.lane_died(job, lane, RECLAIMED, moment)
-            reclaims[job_id, lane] = state.death_on(job, lane).get("reclaim")
-            state.death_on(job, lane)["reclaim"] = dict(claim)
+            if held := state.reserve(data, (state.death_row(job_id, state.death_on(job, lane), "reclaim"),)):
+                state.death_on(job, lane)["reclaim"] |= {"at": at}
+                reclaims[job_id, lane] = held
         return ends, reclaims
 
     ends, reclaims = state.write(watcher.name, claim_lanes, budget=state.WATCH_WRITE_SECONDS)
-    unlaunched = dict(ends)
-    spawned: dict[tuple[str, str], int] = {}
-
-    def own(data: dict) -> None:
-        for (job_id, lane), before in reclaims.items():
-            death = state.death_on(data["jobs"][job_id], lane)
-            if death.get("reclaim") != claim:
-                continue
-            if (job_id, lane) in spawned:
-                death["reclaim"] = claim | {"pid": spawned[job_id, lane]}
-            elif before is None:
-                death.pop("reclaim")
-            else:
-                death["reclaim"] = before
-
+    unlaunched: dict[object, state.Reservation] = {**ends, **reclaims}
     try:
         for job_id, held in ends.items():
             pid = end_lane(watcher.name, job_id, held.token)
             del unlaunched[job_id]
             state.settle(watcher.name, held, pid)
-        for job_id, lane in reclaims:
-            spawned[job_id, lane] = state.detach(watcher.name, ["job", "reclaim", job_id, lane], log)
+        for (job_id, lane), held in reclaims.items():
+            pid = state.detach(watcher.name, ["job", "reclaim", job_id, lane, "--reserved", held.token], log)
+            del unlaunched[job_id, lane]
+            state.settle(watcher.name, held, pid)
     finally:
         for held in unlaunched.values():
             state.cancel(watcher.name, held)
-        if reclaims:
-            state.write(watcher.name, own, patient=True)
     return lines
 
 

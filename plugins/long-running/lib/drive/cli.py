@@ -5341,6 +5341,7 @@ def job_reclaim(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
+    state.adopt_reserved(name, state.death_member(args.id, job, "reclaim", args.reserved), args.reserved)
     if not state.death_on(job, args.lane):
         raise DriveError(f"{args.id}: refused, nothing reclaimed: no death of its lanes records {args.lane}, so no lane of it left that")
     root = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
@@ -8542,6 +8543,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("id")
     verb.add_argument("lane", help="the cc-remote workspace of the Sprite, or the dispatch of the lane on this Mac, that a lane of the job left")
+    verb.add_argument("--reserved", metavar="TOKEN", help="the token of the reclaim the watch reserved on that lane's death for this run, adopted before anything else; the run ends doing nothing once that reservation is gone, cancelled, lapsed or another run's")
     verb.set_defaults(run=job_reclaim)
     verb = job.add_parser(
         "prove",

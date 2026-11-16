@@ -587,6 +587,31 @@ def landers(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
     return started
 
 
+def unreserved(args: list[str]) -> list[str]:
+    """A drive verb's argv as a launch started it, less the --reserved token, which is new on every reservation."""
+    return [arg for at, arg in enumerate(args) if arg != "--reserved" and (at == 0 or args[at - 1] != "--reserved")]
+
+
+def adopted_as(name: str, args: list[str], pid: int) -> int:
+    """Adopt, as the child the launch args start would on its first step, the reservation they name by --reserved, wherever the drive holds it, naming pid as that child, so a test reads the child's liveness by pid as a real launch's; pid."""
+    if "--reserved" not in args:
+        return pid
+    token = args[args.index("--reserved") + 1]
+
+    def found(value: object) -> None:
+        if isinstance(value, dict):
+            if value.get("token") == token:
+                value |= {"state": "adopted", "child": state.born(pid)}
+            for each in value.values():
+                found(each)
+        elif isinstance(value, list):
+            for each in value:
+                found(each)
+
+    state.write(name, found)
+    return pid
+
+
 @pytest.fixture(autouse=True)
 def provers(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     started: list[str] = []
