@@ -67,6 +67,7 @@ BUILT_BASE = "{built}, the change yours builds on, its PR held on his answer: cu
 LIVE_EVERY = timedelta(minutes=5)
 TELL_AFTER = timedelta(minutes=10)
 REACH_READS = 20
+REACH_SHOWN = 8
 WAKES = ("TAP ", "DUE ", "TELL ", "PROVE ", "PAGED ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STAGE ", "FREE ", "MOVED ", "WATCH stopped")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 STAGE_LINE = re.compile(r"STAGE (?P<key>\S+) (?P<name>\w+)\b")
@@ -528,7 +529,8 @@ def reach_lines(watcher: Watcher, moment: datetime) -> list[str]:
     lines = []
     for key, stopped in lifted.items():
         ended = f", and {', '.join(stopped)} stopped" if stopped else ""
-        lines.append(f"PR {key}: {state.UNDANGEROUS_MERGES.format(key=key)}{ended} {ids(data['prs'][key])}")
+        shown = ", ".join(read[key][:REACH_SHOWN]) + (f" and {len(read[key]) - REACH_SHOWN} more" if len(read[key]) > REACH_SHOWN else "")
+        lines.append(f"PR {key}: {state.UNDANGEROUS_MERGES.format(key=key)}; its files: {shown}{ended} {ids(data['prs'][key])}")
     return lines
 
 

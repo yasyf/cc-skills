@@ -427,7 +427,7 @@ def test_the_watch_takes_each_pr_the_retired_reach_staged_off_its_test_unless_it
     monkeypatch.setattr(github, "files", lambda key: asked.append(key) or changed[key])
     [line] = watch.reach_lines(watcher(demo), T0)
     data = state.load(demo)
-    assert line == f"PR {KEY}: {state.UNDANGEROUS_MERGES.format(key=KEY)}, and j2 stopped {watch.ids(data['prs'][KEY])}"
+    assert line == f"PR {KEY}: {state.UNDANGEROUS_MERGES.format(key=KEY)}; its files: dashboard/src/iris/components/Sidebar.tsx, and j2 stopped {watch.ids(data['prs'][KEY])}"
     assert (lifted in data["orders"]["o1"]["parts"], data["prs"][KEY]["waits"], data["prs"][KEY]["reached"], data["prs"][KEY]["tap"], data["jobs"]["j2"]["state"]) == (False, [], False, approve, "stopped")
     assert (kept in data["orders"]["o1"]["parts"], data["prs"][OTHER]["waits"], data["prs"][OTHER]["reached"]) == (True, [f"o1:{kept}"], False)
     assert (watch.reach_lines(watcher(demo), T0), asked) == ([], [KEY, OTHER])

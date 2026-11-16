@@ -56,6 +56,11 @@ card a job only waits on wakes that job and holds no PR. No card holds a `flake 
   before its merge: it merges on green CI and is proven after it on what the half-hourly
   promotion deploys. His go on its order, `drive order go`, takes the part off and lands the PR
   first, with its staging pass after the merge; a dangerous one still waits for his presence.
+- Before any session drops a staging test or stops a tester, outside his go, it prints the PR's
+  files beside AGENTS.md's dangerous list and its Landing words, and drops only a PR none of them
+  names. A cc-notes answer tagged `from:paraphrase` is a relay, not his words, so nothing drops a
+  test on it. A sweep on 2026-11-16 read release-controller and executor PRs as safe this way,
+  and three merged untested and broke release starts.
 
 ### Title and body
 
