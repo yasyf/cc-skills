@@ -7025,9 +7025,9 @@ def slot_release(data: dict, env: str, job_id: str) -> str:
 
 def holding(release: Any, data: dict, members: list[str], starter: str | None = None) -> str:
     """What a staging pass adds to its GO or RIDE line so the repository's freeze names every job of its cut, by the holder and join of release, the repository's release provider, each holder a job as <drive>/<job>: the starter runs its freeze and each staging command naming every job of the cut, and a pass riding it joins that freeze; nothing without a release provider or for one naming no holder."""
-    drive = data["name"]
-    if release is None or not (own := release.holder(f"{drive}/{members[0]}")):
+    if release is None or not (own := release.holder(f"{data['name']}/{members[0]}")):
         return ""
+    drive = data["name"]
     named = " ".join(release.holder(f"{drive}/{member}") for member in members)
     if starter is None:
         return f" Run your freeze and every staging command of this cut with `{named}`."
