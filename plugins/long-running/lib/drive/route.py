@@ -52,18 +52,29 @@ MEANINGS = {
 }
 
 
-def seats(data: dict) -> dict[str, str]:
-    """Each open order a coordinator seat below the top one works, a priority seat's own or a project sub-coordinator's, newest moved first, at most SEATS of them, as a route of its own beside what it means."""
+def seats(data: dict, project: str | None = None) -> dict[str, str]:
+    """Each open order a coordinator seat below the top one works, a priority seat's own or a project sub-coordinator's, only the project's orders for his message in that project's channel, newest moved first, at most SEATS of them, as a route of its own beside what it means."""
     held = [
         (order_id, order, seat)
         for order_id, order in state.open_orders(data).items()
-        if state.holder_lane(order) is None and (seat := state.coordinator_seat(data, order)) in data["subcoordinators"]
+        if state.holder_lane(order) is None and (seat := state.coordinator_seat(data, order)) in data["subcoordinators"] and project in (None, order["project"])
     ]
     held.sort(key=lambda found: state.parse_time(found[1]["updated"]), reverse=True)
     return {
         f"{SEAT}{order_id}": f'The coordinator seat "{seat}", working order {order_id} "{cut(order["title"] or order["text"], 120)}": his order, approval, rework or correction on that work.'
         for order_id, order, seat in held[:SEATS]
     }
+
+
+def channel_project(data: dict, channel: str) -> str | None:
+    """The project whose own channel of the drive his message is in, None for his DM, the drive's own channel or any other."""
+    return next((project for project, made in data["slack"]["channels"].items() if project and made["id"] == channel), None)
+
+
+def project_order(data: dict, project: str | None) -> str | None:
+    """The newest moved open order of the project its sub-coordinator works, which his words about his work in that project's channel go to, by his words "use it for better routing and prioritization"; None for no project or one with no sub-coordinator."""
+    held = [(order["updated"], order_id) for order_id, order in state.open_orders(data).items() if project and order["project"] == project and state.holder_lane(order) is None and state.coordinator_seat(data, order) == project and project in data["subcoordinators"]]
+    return max(held, key=lambda found: state.parse_time(found[0]))[1] if held else None
 
 
 def handlers(data: dict) -> dict[str, str]:
@@ -83,11 +94,11 @@ def holding(entry: dict) -> str:
     return said or ("nothing now, resting between items" if agents.resting(entry) else "its brief")
 
 
-def routes(data: dict) -> dict[str, str]:
-    """The routes his message may take, the fail-safe first, since Jev leans toward the first option: a fresh handler, then the communicator's answer, the coordinators while the drive holds a communicator whose words they hear, and each live handler."""
+def routes(data: dict, project: str | None = None) -> dict[str, str]:
+    """The routes his message may take, the fail-safe first, since Jev leans toward the first option: a fresh handler, then the communicator's answer, the coordinators while the drive holds a communicator whose words they hear, only the project's seats for his message in that project's channel, and each live handler."""
     found = {NEW: MEANINGS[NEW], COMMUNICATOR: MEANINGS[COMMUNICATOR]}
     if "communicator" in data["roles"]:
-        found |= {COORDINATOR: MEANINGS[COORDINATOR]} | seats(data)
+        found |= {COORDINATOR: MEANINGS[COORDINATOR]} | seats(data, project)
     return found | handlers(data)
 
 
@@ -98,9 +109,9 @@ def request(words: str, rows: str) -> dict:
     return {"message": {"words": cut(words, WORDS_CHARS)}, "thread": {str(number): cut(line, ROW_CHARS) for number, line in newest}}
 
 
-def picked(data: dict, words: str, rows: str) -> tuple[str, str, bool, float]:
+def picked(data: dict, words: str, rows: str, project: str | None = None) -> tuple[str, str, bool, float]:
     """The route Jev picks for his message and why, whether his words say he is going away, and how many seconds the call took; on no reading, the fail-safe fresh handler and why."""
-    options = routes(data)
+    options = routes(data, project)
     began = time.monotonic()
     try:
         read = settled.jev(request(words, rows), {"route": settled.Pick(ASK, options), "away": AWAY})
@@ -168,7 +179,10 @@ def route(name: str, brief: str, answer: str | None = None, away: bool = False) 
 
     data = state.load(name)
     rows = rows_answer.thread_rows(data, channel, thread or ts)
-    chosen, why, said_away, jev_seconds = followed(data, ts, thread or ts, words) or held_route(data, brief, words) or picked(data, words, rows)
+    project = channel_project(data, channel)
+    chosen, why, said_away, jev_seconds = followed(data, ts, thread or ts, words) or held_route(data, brief, words) or picked(data, words, rows, project)
+    if chosen == COORDINATOR and (order_id := project_order(data, project)):
+        chosen, why = f"{SEAT}{order_id}", f"{why}; his message is in the channel of {project}, whose sub-coordinator works order {order_id}"
     away = away or said_away
     watch.hear(name, state.now(), away)
     try:

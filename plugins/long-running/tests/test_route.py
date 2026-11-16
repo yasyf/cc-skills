@@ -35,3 +35,14 @@ def test_a_fresh_route_for_a_gone_handler_is_no_sticky_route() -> None:
 def test_the_router_reads_only_his_words_the_routes_and_the_newest_thread_rows() -> None:
     asked = route.request("status?", "\n".join(f"row {number}" for number in range(1, 21)))
     assert set(asked) == {"message", "thread"} and list(asked["thread"]) == [str(number) for number in range(13, 21)]
+
+
+def test_his_words_to_the_coordinator_in_a_projects_channel_go_to_the_newest_order_its_sub_coordinator_works() -> None:
+    data = state.new_drive("demo", "communicator", "c", "/tmp")
+    data["subcoordinators"]["Iris"] = {"session": "iris-1", "cwd": "/tmp", "started": state.stamp()}
+    data["slack"]["channels"] = {"": {"id": "C666", "name": "him-drive-demo"}, "Iris": {"id": "C777", "name": "him-drive-demo-iris"}}
+    data["orders"]["o1"] = state.new_order("ship the run page", "D123", None, {}, "2026-11-16T01:00:00-08:00") | {"project": "Iris"}
+    data["orders"]["o2"] = state.new_order("fix the router", "D123", None, {}, "2026-11-16T01:00:00-08:00") | {"project": "Platform"}
+    assert (route.channel_project(data, "C777"), route.channel_project(data, "C666"), route.channel_project(data, "D123")) == ("Iris", None, None)
+    assert (route.project_order(data, "Iris"), route.project_order(data, "Platform"), route.project_order(data, None)) == ("o1", None, None)
+    assert list(route.seats(data, "Iris")) == [f"{route.SEAT}o1"] and route.seats(data, "Platform") == {}
