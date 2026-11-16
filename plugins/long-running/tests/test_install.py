@@ -1922,6 +1922,31 @@ def test_a_product_merge_on_a_build_order_of_several_parts_with_no_reader_takes_
     assert (data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (None, None)
 
 
+def test_a_merge_adding_a_backfill_script_keeps_a_part_per_cluster_run_open_on_its_order_that_only_its_provers_read_back_delivers(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
+) -> None:
+    proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
+    product = "https://github.com/Forge-AI/monorepo/pull/9"
+    runs = [state.SCRIPT_RUN.format(script="deleteOldCloudAgents", cluster=cluster) for cluster in ("plat-usw2-prod", "plat-usw2-staging")]
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(said=f"READY {product}", prs=[product], repro=None)
+        data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(product, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210", "title": "New: delete old cloud agents"}
+        reach = {"Forge-AI/monorepo#9": {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"], "runs": runs}}
+        install.merged_done("demo", data, "j1")
+        builder_id = install.add_prover("demo", data, "j1", reach, {"o1": data["jobs"]["j1"]["parts"]}, set())
+    data = state.load("demo")
+    builder = data["jobs"][builder_id]
+    assert [part for part in builder["parts"] if part in runs] == runs
+    assert [state.delivered(data, "o1", part) for part in runs] == [False, False]
+    assert data["orders"]["o1"]["state"] not in state.CLOSED_ORDER_STATES
+    assert builder["brief_flags"]["handoff"].endswith(
+        f"; Forge-AI/monorepo#9 adds or changes a backfill script, so its order keeps a part for each run it owes: {'; '.join(runs)}."
+        " Start each run its cluster has not had as that cluster's service account, as agents/builder.md's rule on a pass over a team's data says,"
+        " and have your proof file read each run back, the rows it wrote and the rows it left, exiting nonzero while any run is unread or leaves a row,"
+        " since only that read-back delivers its part and the order stays open until then"
+    )
+
+
 def test_a_product_merge_of_paths_on_go_cis_dev_list_waits_on_no_release_owes_no_staging_pass_on_a_target_only_those_paths_touch_and_hands_its_prover_those_paths(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
 ) -> None:

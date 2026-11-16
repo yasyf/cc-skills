@@ -970,6 +970,31 @@ def test_the_release_reach_sends_go_ci_a_prs_head_when_its_paths_change_the_carg
         {"body": "", "paths": changed, "head": "0123456789abcdef0123456789abcdef01234567"},
     )
 
+def test_the_release_reach_names_a_run_per_api_cluster_of_each_backfill_script_a_pr_adds_or_changes_but_one_it_removes_or_a_test(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    clone, checkout = tmp_path / "clone", tmp_path / "drive-demo"
+    for root in (clone, checkout):
+        (root / "tools").mkdir(parents=True)
+    (clone / "tools" / "ci").write_text("")
+    request, answer = tmp_path / "request.json", tmp_path / "answer.json"
+    (checkout / "tools" / "ci").write_text(FAKE_SELECT.format(request=request, answer=answer))
+    (checkout / "tools" / "ci").chmod(0o755)
+    (checkout / cli.API_CLUSTERS).mkdir(parents=True)
+    for cluster in ("tnt-usw2-0ddq7rb", "plat-usw2-prod"):
+        (checkout / cli.API_CLUSTERS / f"{cluster}.yaml").write_text("")
+    answer.write_text(json.dumps({"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"]}))
+    scripts = "api/src/modules/backfillScripts/scripts"
+    changed = [f"{scripts}/deleteOldCloudAgents.ts", f"{scripts}/deleteOldCloudAgents.test.ts", f"{scripts}/retiredFill.ts", "api/src/modules/backfillScripts/backfillScriptRegistry.ts"]
+    monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo")
+    monkeypatch.setattr(orca, "checkout", lambda name, cwd, wait=0: checkout)
+    monkeypatch.setattr(github, "files", lambda key: changed)
+    monkeypatch.setattr(github, "removed", lambda key: {f"{scripts}/retiredFill.ts"})
+    reach = cli.release_reach("demo", {"roles": {"coordinator": {"cwd": str(clone)}}}, ["Forge-AI/monorepo#7"])
+    assert reach["Forge-AI/monorepo#7"]["runs"] == [
+        "run of the deleteOldCloudAgents backfill script on plat-usw2-prod read back with no rows left",
+        "run of the deleteOldCloudAgents backfill script on tnt-usw2-0ddq7rb read back with no rows left",
+    ]
+
+
 def test_order_set_due_says_it_stored_the_time_and_what_it_waits_on_or_why_it_stored_none(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
