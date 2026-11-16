@@ -3326,18 +3326,11 @@ def test_a_watch_that_finds_a_newer_install_between_two_stages_of_a_pass_runs_th
     newer: list[Path] = []
     monkeypatch.setattr(watch, "upgraded", lambda: newer[-1] if newer else None)
     ran = spied(monkeypatch, ("settle_lines", "release_lanes", "standing_lines"))
-    reads: list[None] = []
-
-    def second_read() -> None:
-        reads.append(None)
-        if len(reads) > 1:
-            newer.append(install)
-
-    mid_pass(monkeypatch, second_read)
+    mid_pass(monkeypatch, lambda: newer.append(install))
     monkeypatch.setattr(watch.time, "sleep", lambda seconds: None)
     launched(monkeypatch, demo)
     assert watch.main(demo) == 0
-    assert (ran, state.resume_path(demo).exists()) == (["settle_lines", "release_lanes", "standing_lines"] * 2, False)
+    assert (ran, state.resume_path(demo).exists()) == (["settle_lines", "release_lanes", "standing_lines"], False)
     assert f"ended on long-running {state.VERSION} for {install}, before its next pass" in capsys.readouterr().out.splitlines()
 
 
