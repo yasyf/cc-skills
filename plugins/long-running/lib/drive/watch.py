@@ -863,8 +863,8 @@ def build_lines(watcher: Watcher, moment: datetime) -> list[str]:
     if not (due := [link for link in held if silent or link not in watcher.builds or link in watcher.builds_heard]):
         return []
     try:
-        read = read_builds(orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"], wait=0), due)
-    except (state.DriveError, reads.ReadError) as error:
+        read = read_builds(Path(data["roles"]["coordinator"]["cwd"]), orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"], wait=0), due)
+    except (state.DriveError, reads.ReadError, json.JSONDecodeError) as error:
         return read_failed(watcher, "buildkite builds", error, moment)
     watcher.failures.pop("buildkite builds", None)
     watcher.builds |= read
@@ -872,12 +872,10 @@ def build_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return []
 
 
-def read_builds(checkout: Path, links: list[str]) -> dict[str, dict | None]:
-    """Each Buildkite build by its link, as one `tools/ci bk graphql` call run in the checkout reads it, spending go/ci's shared Buildkite budget: its BUILD_FIELDS, None for a build Buildkite answers none for."""
-    slugs = [f"{found['pipeline']}/{found['number']}" for found in map(github.BUILD.fullmatch, links)]
-    query = "{ " + " ".join(f"b{at}: build(slug: {json.dumps(slug)}) {{ {BUILD_FIELDS} }}" for at, slug in enumerate(slugs)) + " }"
-    read = json.loads(reads.run([str(checkout / "tools" / "ci"), "bk", "graphql", query], checkout))
-    return {link: read[f"b{at}"] for at, link in enumerate(links)}
+def read_builds(clone: Path, checkout: Path, links: list[str]) -> dict[str, dict | None]:
+    """Each build by its link, as the repository's BuildProvider reads it in the checkout with one read: its BUILD_FIELDS, None for a build its CI answers none for, and none for a link its build_url does not match."""
+    build = providers.at(clone, checkout).build
+    return build.builds([link for link in links if build.build_url and build.build_url.fullmatch(link)], BUILD_FIELDS)
 
 
 def release_end_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -898,7 +896,7 @@ def release_end_lines(watcher: Watcher, moment: datetime) -> list[str]:
         source = f"release {job['release_build']}"
         try:
             release_told(watcher, job_id, read, moment)
-        except (reads.ReadError, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
+        except (reads.ReadError, providers.ProviderError, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
             lines += failed(watcher, source, f"tell {job_id} its release {job['release_build']} reads {read['state']}", error, moment)
             continue
         watcher.failures.pop(source, None)
@@ -1007,7 +1005,7 @@ def release_card_lines(watcher: Watcher, moment: datetime) -> list[str]:
                         continue
                     try:
                         release_card_kept(watcher.name, job_id, link, step, moment)
-                    except (reads.ReadError, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
+                    except (reads.ReadError, providers.ProviderError, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
                         lines += failed(watcher, f"release card {link}", f"read of release {link} for his approve card", error, moment)
                         continue
                     carded.add(f"{link} {step}")
@@ -1249,7 +1247,7 @@ def build_line(watcher: Watcher, link: str) -> str:
     if link not in watcher.builds:
         return f"{link}: the watch holds no Buildkite read of it, as its read failed or the build is not held yet"
     read = watcher.builds[link]
-    return build_said(link, read) or f"{link} reads {read['state']} at the watch's last Buildkite read, which it makes again once a delivery of Buildkite's to the receiver's {receiver.BUILDKITE_PATH} route names it"
+    return build_said(link, read) or f"{link} reads {read['state']} at the watch's last Buildkite read, which it makes again once a delivery of its CI's to the receiver names it"
 
 
 def monitors(data: dict, order_id: str) -> dict[str, str]:

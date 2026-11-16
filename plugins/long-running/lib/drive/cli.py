@@ -1878,8 +1878,8 @@ def release_running(name: str, command: str) -> str | None:
     if not (builds := {job["release_build"]: job_id for job_id, job in same.items() if job["release_build"]}):
         return None
     try:
-        read = watch.read_builds(Path(data["roles"]["coordinator"]["cwd"]), list(builds))
-    except (DriveError, reads.ReadError) as error:
+        read = watch.read_builds(Path(data["roles"]["coordinator"]["cwd"]), state.drive_checkout(name, data["roles"]["coordinator"]["cwd"]), list(builds))
+    except (DriveError, reads.ReadError, json.JSONDecodeError) as error:
         return f"Buildkite did not say whether {', '.join(builds)}, started for the same release, still runs: {error}; send it again once Buildkite answers"
     return next(
         (f"{builds[link]} started the same release as {link}, which Buildkite reads {found['state']}: its job follows it, and this one starts once it ends" for link, found in read.items() if found and found["state"] not in watch.FOLLOW_ENDS),

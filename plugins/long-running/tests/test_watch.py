@@ -4890,13 +4890,12 @@ APPROVE_STEP = ":kubernetes: Approve starting the cluster job this build names"
 def buildkite_reads(monkeypatch: pytest.MonkeyPatch, answers: dict[str, dict | None]) -> list[list[str]]:
     calls = []
 
-    def run(argv: list[str], checkout: Path, env: dict | None = None, stdin: str | None = None) -> str:
-        assert (argv[:3], checkout) == ([str(DRIVE_CHECKOUT / "tools" / "ci"), "bk", "graphql"], DRIVE_CHECKOUT)
-        slugs = re.findall(r'build\(slug: "([^"]+)"\)', argv[3])
+    def builds(self: providers.BuildProvider, links: list[str], fields: str) -> dict[str, dict | None]:
+        slugs = [f"{found['pipeline']}/{found['number']}" for found in map(self.build_url.fullmatch, links)]
         calls.append(slugs)
-        return json.dumps({f"b{at}": answers[slug] for at, slug in enumerate(slugs)})
+        return {link: answers[slug] for link, slug in zip(links, slugs, strict=True)}
 
-    monkeypatch.setattr(watch.reads, "run", run)
+    monkeypatch.setattr(HomeBuild, "builds", builds)
     monkeypatch.setattr(watch.orca, "checkout", lambda name, clone, wait=0: DRIVE_CHECKOUT)
     return calls
 
@@ -9137,7 +9136,7 @@ def test_merges_of_two_orders_share_the_one_prover_of_the_next_release_cut_which
             "release_build": "https://buildkite.com/forge/release/builds/1",
         }
         data["orders"]["o1"]["jobs"].append("j20")
-    monkeypatch.setattr(watch, "read_builds", lambda checkout, links: dict.fromkeys(links))
+    monkeypatch.setattr(watch, "read_builds", lambda clone, checkout, links: dict.fromkeys(links))
     lines = watch.run_pass(watching, T0 + timedelta(minutes=31))
     job = state.load(demo)["jobs"][prover]
     assert (job["waits"], job["cut"]) == (["j20"], "j20")
@@ -11505,7 +11504,7 @@ def test_a_stalls_watchdog_is_handed_the_watchs_last_buildkite_read_of_each_buil
         watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
     [(brief, _)] = watchdogs
     assert [line for line in brief.splitlines() if line.startswith("Build:")] == [
-        f"Build: {RELEASE_BUILD} reads RUNNING at the watch's last Buildkite read, which it makes again once a delivery of Buildkite's to the receiver's /buildkite route names it"
+        f"Build: {RELEASE_BUILD} reads RUNNING at the watch's last Buildkite read, which it makes again once a delivery of its CI's to the receiver names it"
     ]
 
 

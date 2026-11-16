@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from drive import cli, dashboard, github, receiver, state
+from drive import cli, dashboard, github, providers, receiver, state
 
 REPO = "Forge-AI/monorepo"
 REAL_HOOK = receiver.hook
@@ -281,18 +281,31 @@ def test_a_burst_of_deliveries_is_taken_on_the_one_thread_that_accepts_them_and_
     assert (answered, len(threads), len(set(threads))) == ([200] * burst, burst, 1)
 
 
+class KiteBuild(providers.BuildProvider):
+    def webhook(self, headers, body: bytes, key: bytes) -> list[str] | None:
+        if not (event := headers.get("X-Buildkite-Event")):
+            return None
+        parts = dict(part.strip().split("=", 1) for part in (headers.get("X-Buildkite-Signature") or "").split(",") if "=" in part)
+        made = hmac.new(key, f"{parts.get('timestamp')}.".encode() + body, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(made, parts.get("signature", "")):
+            raise providers.ProviderError(f"buildkite {event}")
+        payload = json.loads(body)
+        return [payload["build"]["web_url"]] if "build" in payload else []
+
+
 def test_the_receiver_takes_only_buildkite_deliveries_signed_with_the_webhook_secret_over_their_timestamp_and_body(
     listening: tuple[str, list[tuple]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     address, _ = listening
     taken: list[tuple] = []
     monkeypatch.setattr(receiver, "took_builds", lambda event, links: taken.append((event, links)))
+    monkeypatch.setattr(receiver, "ci_builds", lambda: [KiteBuild(Path(), Path(), {})])
     body = json.dumps({"event": "build.finished", "build": {"web_url": BUILD, "state": "blocked"}}).encode()
     made = hmac.new(SECRET, b"1794640000." + body, hashlib.sha256).hexdigest()
     forged = hmac.new(b"another secret", b"1794640000." + body, hashlib.sha256).hexdigest()
     signatures = [None, f"timestamp=1794640000,signature={forged}", f"timestamp=1794649999,signature={made}", f"timestamp=1794640000,signature={made}"]
     assert [post(address, body, {"X-Buildkite-Event": "build.finished"} | ({"X-Buildkite-Signature": signature} if signature else {})) for signature in signatures] == [401, 401, 401, 200]
-    assert taken == [("build.finished", [BUILD])]
+    assert taken == [("ci", [BUILD])]
 
 
 def test_a_buildkite_delivery_is_logged_once_naming_its_builds_reading_no_drive_and_a_missed_one_names_every_build(home: None, unread: None, capsys: pytest.CaptureFixture[str]) -> None:

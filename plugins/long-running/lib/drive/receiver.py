@@ -20,13 +20,12 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
-from drive import dashboard, github, launchd, state
+from drive import dashboard, github, launchd, providers, state
 from drive.install import watch_upgraded as upgraded
 
 PORT = 40990
 FUNNEL_PORT = 8443
 FUNNEL_PATH = "/github"
-BUILDKITE_PATH = "/buildkite"
 EVENTS = ["pull_request", "pull_request_review", "check_run", "status", "push", "workflow_run", "release"]
 CARRYING = ("pull_request", "missed")
 MARKS = ("ci", "release")
@@ -285,11 +284,17 @@ def took_builds(event: str, links: list[str] | None) -> None:
     print(f"{moment()} buildkite {event}: {' '.join(links) if links is not None else 'every build a drive holds'}", flush=True)
 
 
-def buildkite_signed(key: bytes, header: str, body: bytes) -> bool:
-    """Whether a Buildkite delivery's X-Buildkite-Signature, `timestamp=<t>,signature=<hex>`, is the HMAC-SHA256 the webhook secret makes of `<t>.` and its body."""
-    parts = dict(part.strip().split("=", 1) for part in header.split(",") if "=" in part)
-    made = hmac.new(key, f"{parts.get('timestamp')}.".encode() + body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(made, parts.get("signature", ""))
+def ci_builds() -> list[providers.BuildProvider]:
+    """The BuildProvider of each repository a drive on this Mac works in, one a clone, which tell the receiver a CI delivery of theirs and the path it arrives on; a drive whose providers fail to load is said and left out."""
+    found: dict[str, providers.BuildProvider] = {}
+    for name in state.names():
+        try:
+            build = providers.of(state.saved(name)).build
+        except (providers.ProviderError, StopIteration) as error:
+            print(f"{moment()} read no CI provider of {name}: {error}", flush=True)
+            continue
+        found.setdefault(str(build.clone), build)
+    return list(found.values())
 
 
 def caught_up() -> None:
@@ -309,7 +314,7 @@ def caught_up() -> None:
 
 def funnel() -> None:
     """Open the receiver's public paths through Tailscale Funnel, which persists in tailscaled, each proxied to the receiver's root, which tells GitHub's deliveries from Buildkite's by their headers; the rest of this Mac's serve config stays on the tailnet."""
-    for path in (FUNNEL_PATH, BUILDKITE_PATH):
+    for path in (FUNNEL_PATH, *{build.receiver_path for build in ci_builds() if build.receiver_path}):
         done = subprocess.run(
             ["tailscale", "funnel", "--bg", "--yes", f"--https={FUNNEL_PORT}", f"--set-path={path}", f"http://{dashboard.LOOPBACK}:{PORT}"],
             capture_output=True,
@@ -334,8 +339,7 @@ def handler(key: bytes) -> type[BaseHTTPRequestHandler]:
 
         def do_POST(self) -> None:
             body = self.rfile.read(min(int(self.headers.get("Content-Length") or 0), MOST_BYTES))
-            if event := self.headers.get("X-Buildkite-Event"):
-                self.buildkite(event, body)
+            if not self.headers.get("X-GitHub-Event") and self.ci(body):
                 return
             signed = b"sha256=" + hmac.new(key, body, hashlib.sha256).hexdigest().encode()
             guid = self.headers.get("X-GitHub-Delivery")
@@ -347,14 +351,20 @@ def handler(key: bytes) -> type[BaseHTTPRequestHandler]:
             took(payload["repository"]["full_name"], int(self.headers["X-GitHub-Hook-ID"]), guid, self.headers["X-GitHub-Event"], payload)
             self.answer(200, "taken")
 
-        def buildkite(self, event: str, body: bytes) -> None:
-            if not buildkite_signed(key, self.headers.get("X-Buildkite-Signature") or "", body):
-                print(f"{moment()} refused buildkite {event}: not signed with the webhook secret", flush=True)
-                self.answer(401, "not signed with the webhook secret")
-                return
-            payload = json.loads(body)
-            took_builds(event, [payload["build"]["web_url"]] if "build" in payload else [])
-            self.answer(200, "taken")
+        def ci(self, body: bytes) -> bool:
+            """Whether a repository's BuildProvider takes the delivery as its CI's, answering it: taken with the builds it names, or refused when its signature fails."""
+            for build in ci_builds():
+                try:
+                    links = build.webhook(self.headers, body, key)
+                except providers.ProviderError as error:
+                    print(f"{moment()} refused {error}: not signed with the webhook secret", flush=True)
+                    self.answer(401, "not signed with the webhook secret")
+                    return True
+                if links is not None:
+                    took_builds(self.path.strip("/") or "ci", links)
+                    self.answer(200, "taken")
+                    return True
+            return False
 
         def answer(self, code: int, text: str) -> None:
             body = f"{text}\n".encode()
@@ -388,7 +398,7 @@ def main(inherited: int | None) -> int:
     if inherited is None or not deliveries_end():
         caught_up()
         took_builds("missed", None)
-    print(f"{moment()} receiving at {url()} and {url(BUILDKITE_PATH)} on long-running {state.VERSION}", flush=True)
+    print(f"{moment()} receiving at {', '.join(url(path) for path in (FUNNEL_PATH, *{build.receiver_path for build in ci_builds() if build.receiver_path}))} on long-running {state.VERSION}", flush=True)
     awake = time.time()
     while not (newer := upgraded()) and time.time() - awake < SLEPT_SECONDS:
         awake = time.time()
