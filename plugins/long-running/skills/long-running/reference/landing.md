@@ -656,7 +656,8 @@ PR checks that everyone hits".
   `--from <base>` is refused as already shipped and `--manual --stack … --commit <base>` plans every
   stack as already live and applies nothing.
 - **Its claim.** The test claims staging as the monorepo's `staging-claim` [repo rule](concepts.md) says,
-  which quotes his 33de0fc and 1e8a8d5 whole, in a claim whose `until` the watch's `DUE` line follows, by
+  which quotes his 33de0fc, 1e8a8d5 and 333e8ca whole, 333e8ca moving every claim post to
+  #releases-staging, in a claim whose `until` the watch's `DUE` line follows, by
   [the records page](records.md). Its freeze names its job, with `tools/ci release freeze --with-staging
   --holder <drive>/<job>` once on `dev`, by his pick e3c9bbd, "The freeze names its job; soak, Mac box proof, agent
   proof, pass-box run, cluster job and break-glass refuse another job's freeze". While another drive on

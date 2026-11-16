@@ -2520,7 +2520,7 @@ def held_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def claim_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Owe the thread of each claim whose end passed, such as a staging claim's in #platform-internal, its closing line: read from Slack, a drive post there after the post that set the end ends the claim, and with none the order's lane gets a DUE line naming the claim, again every ten minutes until one is there, by his words "this thread message saying we're done and what the result is was is good, we should always do that"; a line in that thread naming a new end moves it, which state.claim keeps. A thread that could not be read is said as a failed read is and tried again next pass."""
+    """Owe the thread of each claim whose end passed, such as a staging claim's in #releases-staging, its closing line: read from Slack, a drive post there after the post that set the end ends the claim, and with none the order's lane gets a DUE line naming the claim, again every ten minutes until one is there, by his words "this thread message saying we're done and what the result is was is good, we should always do that"; a line in that thread naming a new end moves it, which state.claim keeps. A thread that could not be read is said as a failed read is and tried again next pass."""
     data = state.load(watcher.name)
     due = [
         (order_id, ts, held)
@@ -2556,7 +2556,7 @@ def claim_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def claim_reply_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read once the thread of each claim posted 5 minutes ago, such as a staging claim's in #platform-internal, by his words "You then need to watch the thread for responses and if none within 5 mins you can proceed": the order's lane gets a DUE line saying the work it claims may start, or quoting each reply there from anyone but the drive and a bot for it to answer before that work starts. A thread that could not be read is said as a failed read is and tried again next pass."""
+    """Read once the thread of each claim posted 5 minutes ago, such as a staging claim's in #releases-staging, by his words "You then need to watch the thread for responses and if none within 5 mins you can proceed": the order's lane gets a DUE line saying the work it claims may start, or quoting each reply there from anyone but the drive and a bot for it to answer before that work starts. A thread that could not be read is said as a failed read is and tried again next pass."""
     data = state.load(watcher.name)
     due = [
         (order_id, ts, held)
