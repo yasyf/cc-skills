@@ -168,7 +168,7 @@ def verdict(name: str, key: str) -> str:
 def kept(name: str, key: str, result: dict) -> str:
     """Keep a check's outcome on each PR it judged, with the head, orders and binding answers it checked, but on a PR another check started on after this one, whose outcome is the one kept there; a pass makes a check event on each PR, a refusal none, since the watch's pass reads it from the PR's checker; an objection takes back the Approve the drive took on an open PR from his standing approval, so his card asks him, by his "given my constraints"; the outcome for key."""
     outcome = result["outcomes"][key]
-    with state.edit(name) as data:
+    with state.edit(name, ("checkers",)) as data:
         fresh = [
             member
             for member in result["heads"]
@@ -221,7 +221,7 @@ def start(name: str, keys: list[str]) -> None:
     """Start one check of each stack, or PR in none, that a PR in keys sits in and no check runs on, as its own process: each of its PRs is marked under the drive's lock as checked at its head by this process, so no second check starts there, the checks' processes start once that lock is let go, however many there are, and a second hold of it gives each mark its own check's process, but a mark a check already replaced with its outcome, which stands, and a mark whose process never started goes back to the check it replaced."""
     from drive import land
 
-    with state.edit(name) as data:
+    with state.edit(name, ("checkers",)) as data:
         stacks, at, marked = land.landing_stacks(data), state.stamp(), {}
         for key in keys:
             unit = stacks.get(key, (key,))
@@ -237,7 +237,7 @@ def start(name: str, keys: list[str]) -> None:
         for unit, (key, _) in marked.items():
             started[unit] = spawn(name, key)
     finally:
-        with state.edit(name) as data:
+        with state.edit(name, ("checkers",)) as data:
             for unit, (_, replaced) in marked.items():
                 for member, before in zip(unit, replaced, strict=True):
                     pr = data["prs"][member]
@@ -258,7 +258,7 @@ def carry(name: str, keys: list[str]) -> list[str]:
         return []
     reads = {key: change(key) for key in moved}
     carried = []
-    with state.edit(name) as data:
+    with state.edit(name, ("checkers",)) as data:
         for key, read in reads.items():
             pr = data["prs"][key]
             if read["head"] != pr["head"] or not unread(pr):

@@ -1450,7 +1450,7 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
     kept = functools.cache(lambda job_id: {reply["id"] for reply in state.replies(watcher.name, job_id)})
     asks = kept_asks(data, senders(watcher, data, delivered), messages, kept)
     if messages:
-        with state.edit(watcher.name) as data:
+        with state.edit(watcher.name, ("lane-mail", watcher.lane)) as data:
             sender = senders(watcher, data, delivered)
             kept.cache_clear()
             for message in messages:
@@ -3835,7 +3835,7 @@ def release_lanes(watcher: Watcher, moment: datetime) -> None:
     if not ending and not reclaiming:
         return
     log = state.watch_log_path(watcher.name, watcher.project).name
-    with state.edit(watcher.name) as data:
+    with state.edit(watcher.name, ("lane-ends",)) as data:
         for job_id in ending:
             data["jobs"][job_id]["end"] = {"pid": end_lane(watcher.name, job_id), "at": state.stamp(moment)}
         for job_id, lane in reclaiming:
@@ -3916,7 +3916,7 @@ def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: da
     if not deaths:
         return []
     lines = []
-    with state.edit(watcher.name) as data:
+    with state.edit(watcher.name, ("relaunches",)) as data:
         for job_id, (worker, why) in deaths.items():
             job = data["jobs"][job_id]
             if job["state"] in state.FINISHED_JOB_STATES or job.get("where") == "remote" and job["state"] == "waiting":
@@ -4237,7 +4237,7 @@ def finished(watcher: Watcher, moment: datetime) -> list[str]:
         merging, owed, reach, lines = [], [], {}, failed(watcher, "release select", "`tools/ci release select --pr` and `tools/ci release live` reads of the releases a merged PR reaches and the targets staging runs", error, moment)
     else:
         watcher.failures.pop("release select", None)
-    with state.edit(watcher.name) as data:
+    with state.edit(watcher.name, ("proofs",)) as data:
         for job_id, job in list(data["jobs"].items()):
             if not heard_job(watcher, data, job):
                 continue

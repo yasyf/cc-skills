@@ -360,7 +360,7 @@ def start(name: str, keys: list[str], cards: dict | None) -> list[tuple[str, ...
     failed = answer_picks(name, keys)
     started: list[tuple[str, ...]] = []
     if cards is not None and units(state.load(name), keys, cards):
-        with state.edit(name) as data:
+        with state.edit(name, ("landers",)) as data:
             started = units(data, keys, cards)
             for members in started:
                 mark(data, members, spawn(name, members))
@@ -405,7 +405,7 @@ def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
     away = {key: f"{AWAY}: {why}" for key in keys if landing(pr := data["prs"][key]) and not dequeuing(pr) and not stopping(data, key, cards) and (why := unattended(data, key, state.now()))}
     if not held_landings(data, keys, cards, away):
         return []
-    with state.edit(name) as data:
+    with state.edit(name, ("landers",)) as data:
         stopped = held_landings(data, keys, cards, away)
         under = unders(data)
         units = {tried: sorted((key for key, pr in data["prs"].items() if landing(pr) and (pr["lander"]["pid"], pr["lander"]["at"]) == tried), key=lambda key: len(chain(under, key))) for tried in stopped}

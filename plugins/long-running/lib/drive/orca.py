@@ -289,7 +289,7 @@ def kept_terminal(drive: str, key: str, title: str) -> str:
         if error.code == RUNTIME_DOWN:
             raise
     opened = request("terminal", "create", "--worktree", f"path:{loaded['roles']['coordinator']['cwd']}", "--title", f"{drive}-{title}")["terminal"]["handle"]
-    with state.edit(drive) as data:
+    with state.edit(drive, ("terminal", key)) as data:
         if data[key] == kept:
             data[key] = opened
         return data[key]

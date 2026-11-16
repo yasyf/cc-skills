@@ -921,7 +921,7 @@ def order_set(args: argparse.Namespace) -> int:
     if due and due <= moment:
         raise DriveError(f"{args.id}: refused, no time stored: {render.when(state.stamp(due))} is already past; promise a time to come")
     promised = ""
-    with state.edit(name) as data:
+    with state.edit(name, ("order", args.id)) as data:
         order = data["orders"][args.id]
         before = apart_from_filing(order)
         aimed = (order["kind"], order["thread"])
@@ -1360,7 +1360,7 @@ def claim_close(name: str, report: dict) -> list[str]:
     """Claim each order the report closes for it under the drive's lock, just before say posts it, so of two reports closing one order at once only the first posts and second_close refuses the other; the orders claimed, which a post that fails gives back, never one the watch's post of this report already marked."""
     if not state.closed_orders(report):
         return []
-    with state.edit(name) as data:
+    with state.edit(name, ("close-reports",)) as data:
         closes = [order_id for order_id in state.closed_orders(report) if order_id in data["orders"] and data["orders"][order_id]["closed_on"] != report["seq"]]
         if refused := next(filter(None, (state.second_close(data, order_id, report) for order_id in closes)), None):
             raise DriveError(f"nothing posted: {refused}")
@@ -1573,7 +1573,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
 def started_release(name: str, job_id: str, command: str) -> list[str]:
     """Start the release a job's --release names in a process of its own, drive job release, which outlives the call that added the job, so a call that times out or fails once it started keeps the job, and that process its build and brief, its start naming the session that added the job to go/ci as the call's own would; the job waits on it under the same save, so the watch frees the job once it ends."""
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    with state.edit(name) as data:
+    with state.edit(name, ("job", job_id)) as data:
         pid = state.detach(name, ["job", "release", job_id, *(["--session", session] if session else [])], RELEASES_LOG)
         data["jobs"][job_id]["waits"] += state.pid_waits(f"pid:{pid}")
     return [f"{job_id} starts `{command}` in process {pid}, which keeps the build it starts as {job_id}'s Release build: line and writes its brief, its lines in {state.drive_dir(name) / RELEASES_LOG}: start no agent for it until the watch's FREE line on {job_id} names that brief"]
@@ -1763,7 +1763,7 @@ def job_set(args: argparse.Namespace) -> int:
     reworks = heard_reworks(name, args.rework, args.id)
     shown = args.card and shown_card(name, args.card)
     lane = args.agent and args.agent.startswith(state.DISPATCH_PREFIX) and orca.receipt(args.agent)
-    with state.edit(name) as data:
+    with state.edit(name, ("job", args.id)) as data:
         job = find(data["jobs"], args.id, "job")
         job.update({field: value for field, value in changes.items() if value is not None})
         if args.branch:
@@ -2004,7 +2004,7 @@ def job_ask(args: argparse.Namespace) -> int:
 def drop_ask(name: str, job_id: str, file: Path) -> tuple[str | None, bool]:
     """Throw away a question the job kept with no card drawn for it, such as one refused for an answer of his that settles it: it leaves the job's questions, so nothing counts it open, and its file is deleted unless another of the job's questions keeps it; a question on a card is refused, since only his answer to that card closes it. A file of the job's whose question a later ask of the job replaced, as drive job ask printed its path, is deleted alone. A question a `Replaces:` line folded into the dropped one asks on its own again. Its title, and whether a later ask had replaced it."""
     asks = state.drive_dir(name) / "asks"
-    with state.edit(name) as data:
+    with state.edit(name, ("job", job_id)) as data:
         job = find(data["jobs"], job_id, "job")
         if (question := state.kept_in(job, file)) is None:
             if file.parent.resolve() != asks.resolve() or not file.name.startswith(f"{job_id}-") or not file.exists():
@@ -2263,7 +2263,7 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
         return keep_decided(name, job_id, text, fresh, asked, deciding)
     fresh.parent.mkdir(exist_ok=True)
     generic = superseded.generic(data)
-    with state.edit(name) as data:
+    with state.edit(name, ("job", job_id)) as data:
         job = data["jobs"][job_id]
         twins = [question for other, question in asking(data, asked.title) if other == job_id]
         targets = [other for other in {id(other): other for _, other in (replacing(data, ref) for ref in asked.replaces)}.values() if not any(other is twin for twin in twins)]
@@ -3012,7 +3012,7 @@ def take_report(name: str, job_id: str, whole: str) -> tuple[str, dict]:
     if job["kind"] == "builder" and state.REPORTED_LINE.match(line) and any(not served.named(cited) for cited in served.deciding(whole)):
         raise DriveError(f"{job_id}: refused, nothing kept: {served.NAMELESS}")
     if repro:
-        with state.edit(name) as data:
+        with state.edit(name, ("job", job_id)) as data:
             data["jobs"][job_id]["repro"] = keep_repro(name, job_id, job["kind"], str(repro))
     try:
         registered = register_named(name, job_id, line)
@@ -3301,7 +3301,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         written.write_text(text)
         return []
 
-    with state.edit(name) as data:
+    with state.edit(name, ("job", job_id)) as data:
         if data["jobs"][job_id].get("brief_flags") != over:
             return None
         state.after_save(name, kept)

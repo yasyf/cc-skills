@@ -558,7 +558,7 @@ def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str
     """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time: a brief for another record or another message of his, on that message, in that thread or on its record's re chain, is handed to that handler, which takes it at its next step, and a copy, the same record or the same message of his, is handed to it with nothing added, since that handler already holds it; the id of the handler at work on the brief, and whether it was handed. A record whose brief, attrs and re chain name no thread and reach no message of his is in the thread its order's lines go in, as the thread attr the drive stamps on its own records names it, and one whose post goes elsewhere than that thread or the thread of the message of his its chain reaches, at the root of a channel outside his DM such as a staging claim or in another thread its thread attr names, holds that place alone, so it waits on no handler of his messages there. A handler whose turn is over holds nothing, however it ended: it leaves the drive, and each brief handed to it that it never took goes to the handler this brief reaches, but one for the record this brief names; one that never started leaves its own brief with them, by forget. briefed writes the brief a new handler starts on from its id, recording what it adds; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool and the watch's hand of each message of his cc-slack owes run it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch's other stages start it in the call, so a start that fails is tried again at their next read. Owed, as the handler tool's and the watch's read's start on a `POST` report is, a report the drive owes no post is refused, naming the post or done record that carries it or his catch-up holding it, and one whose last handler ended posting nothing, died or never started starts on a brief closing on the line that handler ended on, checked in the same save that starts it, a handler that died or never started keeping DIED as its line, and the brief briefed writes closes on that line too. A brief for a record a post carries goes to no handler."""
     read = holds(brief)
     handler_id = uuid.uuid4().hex[:8]
-    with state.edit(name) as data:
+    with state.edit(name, ("handlers",)) as data:
         if owed and not owing(data, read["record"]):
             went = f"{post} carries it" if (post := data["carried"].get(read["record"])) else "its line is held for his return" if read["record"] in data["held"] else "the line its handler ended on carries it"
             raise Carried(f"refused, no handler started: POST report {read['record']} needs no handler, since {went}")
@@ -686,7 +686,7 @@ def start_handler(name: str, handler: str, prompt: str) -> None:
     settings = session_settings(env)
     argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} handler {handler}", prompt]
     session = launched(reads.run(argv, orca.checkout(name, held["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
-    with state.edit(name) as data:
+    with state.edit(name, ("handlers",)) as data:
         data["handlers"][handler]["session"] = session
 
 
@@ -835,7 +835,7 @@ def take_handed(name: str, handler: str) -> list[str]:
     """The briefs drive handler handed the handler since its last step, moved to the ones it took so each reaches it once and a restart hands them again."""
     if not state.saved(name)["handlers"][handler]["handed"]:
         return []
-    with state.edit(name) as data:
+    with state.edit(name, ("handlers",)) as data:
         entry = data["handlers"][handler]
         briefs, entry["handed"] = entry["handed"], []
         entry["took"] += briefs
@@ -851,7 +851,7 @@ def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | N
             return reason
         ending = state.saved(name)["handlers"][payload["agent_id"]]
         writers = {} if ending["posted"] else {seq: record["lane"] for seq in held_records(ending) if posting(name, record := shown(seq))}
-        with state.edit(name) as data:
+        with state.edit(name, ("handlers",)) as data:
             ended_handler = data["handlers"][payload["agent_id"]]
             if briefs := ended_handler["handed"]:
                 ended_handler["handed"] = []
@@ -971,7 +971,7 @@ def restart_handler(name: str, payload: dict) -> None:
     kept = brief_path(name, payload["agent_id"])
     kept.parent.mkdir(parents=True, exist_ok=True)
     kept.write_text(opening(Path(payload["agent_transcript_path"])))
-    with state.edit(name) as data:
+    with state.edit(name, ("handlers",)) as data:
         entry = data["handlers"][payload["agent_id"]]
         entry.update(session=None, started=state.stamp(), handed=[*entry["took"], *entry["handed"]], took=[])
     state.detach(name, ["handler-start", payload["agent_id"]], "handlers.log")
