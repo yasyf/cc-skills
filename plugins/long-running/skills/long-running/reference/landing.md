@@ -183,7 +183,7 @@ PR's run of it merged its head onto, failed every test the PR's run failed, as e
 job, so `main` failing one test under its name says nothing of another. A failed check whose log names
 no failing test, such as a lint step, is the PR's own.
 
-1. Ship with `ccx vcs ship` (jj in colocated repositories); the `open-pr` skill writes the body.
+1. Ship with `ccx vcs ship --no-watch` (jj in colocated repositories); the `open-pr` skill writes the body, and the watch follows its CI.
 2. Register it with `drive pr add <url> --job <j>`. Taking the builder's `READY` or `PUSHED`, which
    needs its proof file kept with `drive job set <j> --repro <file>`, makes its stage read `grading` while
    a check at its head still runs and `ready` once every one finished, except that the watch's read finding a check

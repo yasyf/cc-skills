@@ -109,7 +109,7 @@ and waits ids, record seqs), never a technical name.
    Options differing only in which branch, pin or commit holds a fix are never his. The moment the fork
    shows, even mid-build, keep an `ASK` with options from your evidence with `drive job ask`, which
    puts his card up and leaves your job running, then build its recommended option in the same run:
-   push the branch with `ccx vcs ship --no-pr`, open no PR and return
+   push the branch with `ccx vcs ship --no-pr --no-watch`, open no PR and return
    `BUILT <branch>, waits on <the card's waits id>`, by his words "build recommended options on
    branches until I select the option then build / turn my option into PRs". When `Decisions that
    bind` names an open card's option to build, build that one the same way. While an open card your
@@ -132,7 +132,7 @@ and waits ids, record seqs), never a technical name.
    against the recorded answers of his `ccn answer match` ranks nearest to it and those it cites,
    prints each option Opus reads his words as ruling out, and keeps the card unsettled on the one Opus
    reads any option it offers as breaking, its recommended option first, as `--unsettled` naming them does, a
-   mark that holds its PR on an incident too, so push with `ccx vcs ship --no-pr` and return `BUILT`, by his pick "Hold the PR
+   mark that holds its PR on an incident too, so push with `ccx vcs ship --no-pr --no-watch` and return `BUILT`, by his pick "Hold the PR
    until you answer; the drive finds each card against your recorded answers".
    When his words on an order the job carries tell it to ask him nothing, `drive job ask` refuses the
    card: build the recommended option and quote those words on `RULINGS:`. A card asking him to land
@@ -364,7 +364,7 @@ and waits ids, record seqs), never a technical name.
      test in its title, whatever files its cause is in, product code included, registered with
      `drive pr add <url> --job <your job id> --exempt "flake fix"`, in the same Bash call as the
      `ccx vcs ship` that opens it, since no design card holds a flake fix and the `bash_guard` hook reads
-     that registration: `ccx vcs ship ... && drive pr add "$(gh pr view --json url -q .url)" --job <your job id> --exempt "flake fix"`,
+     that registration: `ccx vcs ship --no-watch ... && drive pr add "$(gh pr view --json url -q .url)" --job <your job id> --exempt "flake fix"`,
      on a Sprite too. That PR serves 532cd3d, not your
      order: the watch's check judges it against 532cd3d read whole, so a `NOT READY` against your
      order's words is answered by that registration, never by closing it, emptying it or returning
@@ -373,7 +373,7 @@ and waits ids, record seqs), never a technical name.
    - Main fixes: a fix forward of the default branch's red CI that is no flake, such as a test a merge
      broke, goes up as its own PR registered with `--exempt "main fix"` in the same Bash call as the
      `ccx vcs ship` that opens it, as a flake fix is, so no card of his, one on your job's own work
-     included, holds it: `ccx vcs ship ... && drive pr add "$(gh pr view --json url -q .url)" --job <your job id> --exempt "main fix"`.
+     included, holds it: `ccx vcs ship --no-watch ... && drive pr add "$(gh pr view --json url -q .url)" --job <your job id> --exempt "main fix"`.
      `drive pr add` refuses the class when no workflow's newest run on the default branch failed. It
      serves your order and keeps the tap its PR would wait on. The first job to claim a failing test owns
      it until main passes it: before you build one, `drive job held <your job id> --exempt "main fix"` claims each test
@@ -544,7 +544,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   prints that it is kept for the drive to run, and the Mac then runs it with every check it meets on
   this Mac. One that refuses changes nothing and wakes you with a message naming the refusal; fix what
   it names and run it again. Any other verb still running 225 s after you asked is answered as
-  still running, and what it prints reaches you as a message once it ends: do not type it again. It runs `job report`, `job ask`,
+  still running, and what it prints reaches you as Orca mail once it ends: do not type it again. Wait for that mail with one `orca orchestration check --wait --timeout-ms 230000` run with `run_in_background: true`, then end your turn; its task notice wakes you, and you run it again while it times out. Never poll a file for the answer, and never `sleep` before `orca orchestration check`. It runs `job report`, `job ask`,
   `job set --repro`, `job replies`, `job held`, `pr add`, `pr set --flaky`, `plan search`, `datadog`, `fde-scan`, `manual`, `page-owner`, `status` and `wait` on your own
   drive, and refuses, running nothing, any other verb or drive. Its reads read any job as on this
   Mac, such as `drive job report <job>` and `drive job replies <job>` for a job your brief names,
@@ -600,7 +600,9 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   and `BLOCKED` the same way with `--outcome failed`. The next PR event starts a fresh lane.
 - Orca brings the coordinator's mail, his answer to your `ASK` included, by typing "You have N
   orchestration messages" into your terminal. Read it with `orca orchestration check` as that line
-  names it, which finds your terminal from `ORCA_TERMINAL_HANDLE`. Its one handle flag is
+  names it, which finds your terminal from `ORCA_TERMINAL_HANDLE`. To wait for mail you expect, run
+  `orca orchestration check --wait --timeout-ms 230000` with `run_in_background: true` and end your
+  turn, never a `sleep` or a loop around `orca orchestration check`. Its one handle flag is
   `--terminal <handle>`: it refuses the `--from <handle>` that your preamble gives `ask` and `send`.
 - Leave the Sprite as it is when you finish; the coordinator frees it.
 
@@ -623,7 +625,9 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 - Run a build, test, deploy or wait longer than that in the background and end your turn: a
   `Remote lane:` builder starts it with `run_in_background: true`, sends Orca nothing, and its notice
   wakes it, as his answer to an `ASK` does; a wait on a PR or a GitHub Actions run is `drive wait`.
-  Never hold a call open with a loop or a `sleep` you write, which the hooks flag.
+  Never write a `sleep`, or an `until` or `while` loop polling a file, a process, `gh` or
+  `orca orchestration check`, at any interval: each pass after 5 minutes re-reads your whole context,
+  and the hooks flag it.
 - A builder on this Mac has no idle turn, since its final message returns it, so it cuts a long step
   into calls of at most 240 s each through the step's own bounded wait, and calls it again while the
   step still runs:

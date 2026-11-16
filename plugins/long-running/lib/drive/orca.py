@@ -33,7 +33,7 @@ PLUGIN = Path(__file__).resolve().parents[2]
 AGENTS = PLUGIN / "agents"
 LANE_SECTIONS = ("## On a Sprite\n", "## Waits and reads\n")
 LANE_RULES = PLUGIN / "lane-rules" / "CLAUDE.md"
-LANE_ENV = " ".join([f"{state.REMOTE_LANE_ENV}=1", *(f"{key}={value}" for key, value in agents.ADVISOR_OFF.items())])
+LANE_ENV = " ".join([f"{state.REMOTE_LANE_ENV}=1", "CCX_SHIP_NO_WATCH=1", *(f"{key}={value}" for key, value in agents.ADVISOR_OFF.items())])
 LAUNCH_SECONDS = 1800
 RECLAIM_SECONDS = 300
 WAKE_SECONDS = 90

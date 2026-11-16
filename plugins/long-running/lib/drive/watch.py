@@ -91,7 +91,7 @@ CUT_OFF = (
 )
 TAKEN_LATER = "kept for the drive to run now; a refusal comes back to you as a message naming its fix, so carry on, or end your turn as after any report"
 REFUSED_LATER = "The drive refused `{command}`, answered as kept before it ran, and it changed nothing: {taken}. Fix what it names and run it again."
-STILL_RUNNING = "still running on the coordinator's Mac {seconds} s after you asked, so this answer stops your wait before your prompt cache lapses; what it prints comes back to you as a message once it ends, so do not run it again: carry on, or end your turn"
+STILL_RUNNING = "still running on the coordinator's Mac {seconds} s after you asked, so this answer stops your wait before your prompt cache lapses; what it prints comes back to you as Orca mail once it ends, so do not run it again: carry on, or wait for it with one `orca orchestration check --wait --timeout-ms 230000` run in the background and end your turn, never a sleep or a loop polling a file or Orca"
 LATE_ANSWER = "The answer to `{command}`, which ran past {seconds} s on the coordinator's Mac after you asked:\n{answer}"
 LIVE_JOB_STATES = ("running", "waiting")
 SAFEGUARDED = "stopped by its model's safeguards"
