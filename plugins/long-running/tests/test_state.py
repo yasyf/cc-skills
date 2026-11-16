@@ -466,6 +466,30 @@ def test_two_writes_adding_at_once_from_one_load_take_two_ids(state_root: Path) 
     assert (mine, theirs, sorted(state.load("demo")["orders"])) == ("o1", "o2", ["o1", "o2"])
 
 
+def test_a_batch_adding_a_job_keeps_it_and_its_brief_when_another_write_added_a_job_while_the_brief_was_written(state_root: Path) -> None:
+    make("demo")
+    created = state.stamp()
+    with state.edit("demo") as data:
+        data["orders"]["o1"] = state.new_order("order o1", "terminal", None, {"order o1": state.new_part()}, created)
+    with state.batch("demo"):
+        with state.edit("demo") as data:
+            mine = state.next_id(data["jobs"], "j")
+            data["jobs"][mine] = state.new_job("o1", "builder", "mine", ["order o1"], created)
+            data["orders"]["o1"]["jobs"].append(mine)
+        saved = state.stored("demo")
+        theirs = state.next_id(saved["jobs"], "j")
+        saved["jobs"][theirs] = state.new_job("o1", "builder", "theirs", ["order o1"], created)
+        saved["orders"]["o1"]["jobs"].append(theirs)
+        state.save("demo", saved)
+        with state.edit("demo") as data:
+            data["jobs"][mine]["brief"] = "jobs/j1.brief.md"
+    data = state.load("demo")
+    assert (data["orders"]["o1"]["jobs"], {job_id: (job["goal"], job.get("brief")) for job_id, job in data["jobs"].items()}) == (
+        ["j2", "j1"],
+        {"j1": ("mine", "jobs/j1.brief.md"), "j2": ("theirs", None)},
+    )
+
+
 def test_a_write_of_its_rows_saves_those_records_alone_with_the_ids_it_took_counted_in_the_database(state_root: Path) -> None:
     make("demo")
     created = state.stamp()
