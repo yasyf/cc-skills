@@ -652,7 +652,20 @@ def opening(drive: dict, role: str, project: str | None) -> list[str]:
             f" you at {lane}@{drive['name']}."
         ),
         hold_line(drive, role, project),
+        *([first_line_rule(drive, project, seated[0])] if seated else []),
     ]
+
+
+def first_line_rule(drive: dict, seat: str, order_id: str) -> str:
+    """A priority seat's rule for its first line to him, by his words when o2296's seat bound with no word to him for 20 minutes: "20 mins later no channel, no progress on this, very disappointing ... this is a huge failure"; the seat writes the words, the rule only says when and where they go."""
+    made = drive["slack"]["channels"].get(seat)
+    channel = f"#{made['name']} {made['id']}" if made else "your seat's channel, which drive channels --make makes when the drive keeps none yet"
+    return (
+        f"Within 2 minutes of binding, before any research, send him your first line on {order_id}: a POST report record to your"
+        f" communicator, posted in the thread his order came from, linking {channel}, saying what you are doing and your plan, in your own"
+        f" words. Then keep {order_id}'s lines in that channel: post its next update at the channel's root and run"
+        f" drive order set {order_id} --thread <that post's permalink>."
+    )
 
 
 def communicator_opening(drive: dict, project: str) -> list[str]:

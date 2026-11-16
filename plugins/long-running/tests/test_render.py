@@ -312,3 +312,13 @@ def test_every_block_sends_a_new_order_to_drive_order_unfiled_for_the_projects_a
         text = render.context(drive, role)
         assert render.FILED in text
         assert "SandSQL" not in text
+
+
+def test_a_priority_seats_sub_coordinator_is_told_to_send_its_first_line_within_two_minutes_linking_its_channel() -> None:
+    drive = sample()
+    drive["orders"]["o1"]["priority"] = state.priority_seat("o1")
+    drive["slack"]["channels"][state.priority_seat("o1")] = {"id": "C0PRIO", "name": "him-drive-demo-prio-end-to-end"}
+    lines = render.opening(drive, "coordinator", state.priority_seat("o1"))
+    assert lines[-1].startswith("Within 2 minutes of binding, before any research, send him your first line on o1: a POST report record to your communicator, posted in the thread his order came from, linking #him-drive-demo-prio-end-to-end C0PRIO,")
+    assert "drive order set o1 --thread <that post's permalink>" in lines[-1]
+    assert not any(line.startswith("Within 2 minutes") for line in render.opening(drive, "coordinator", "Iris"))
