@@ -74,6 +74,7 @@ PASS_DONE = (
     " pass, since drive status reads a pass's HANDOFF as stopped"
 )
 RELAUNCH_REFUSED = "relaunch_refused"
+START_AT_ONCE = 2
 READ_UNANSWERED = "read_unanswered"
 PROOFS_LOG = "proofs.log"
 POSTS_LOG = "posts.log"
@@ -4270,16 +4271,19 @@ def starts_itself(job: dict) -> bool:
 
 
 def start_jobs(watcher: Watcher, moment: datetime, first: bool = False) -> None:
-    """Start each heard job's first worker that nothing holds, so no session's Agent call or launch starts it and no root relays it: `drive job start` for a briefed builder or reader on this Mac, which starts its agent as its own claude --bg session past every check an Agent start meets, counting its builder slot or holding it waiting its turn, and `drive job launch` for one placed on a Sprite, each by start_verb once busy lets it and once a watch, so a refusal, which reaches the session holding the job as its relaunch_refused event, leaves the job to that session. A job no order of a coordinator or the meta session holds, such as a handler's, a stopped or finished one, one whose cards or waits hold it, by view.start_refusal, or one launching is left alone. With first, only a job drive job set --priority marks or one serving an open priority order, by state.first_in_line, which first_starts runs on every pass."""
-    data = state.load(watcher.name)
+    """Start each heard job's first worker that nothing holds, so no session's Agent call or launch starts it and no root relays it: `drive job start` for a briefed builder or reader on this Mac, which starts its agent as its own claude --bg session past every check an Agent start meets, counting its builder slot or holding it waiting its turn, and `drive job launch` for one placed on a Sprite, each by start_verb once busy lets it and once a watch, at most START_AT_ONCE a pass but for a priority order's, which first takes past that count, so a burst of freed jobs starts over several passes, and a refusal, which reaches the session holding the job as its relaunch_refused event, leaves the job to that session. A job no order of a coordinator or the meta session holds, such as a handler's, a stopped or finished one, one whose cards or waits hold it, by view.start_refusal, or one launching is left alone. With first, only a job drive job set --priority marks or one serving an open priority order, by state.first_in_line, which first_starts runs on every pass."""
+    data, room = state.load(watcher.name), START_AT_ONCE
     for job_id, job in data["jobs"].items():
         if first and not (job.get("priority") or state.first_in_line(data, job)):
             continue
+        if room <= 0 and not first:
+            return
         if not starts_itself(job) or job["state"] in (*state.FINISHED_JOB_STATES, "running") or job_id in watcher.started or not heard_job(watcher, data, job) or view.open_cards(job) or launching(job, moment):
             continue
         if state.holding_lane(data, data["orders"][job["order"]]) == "communicator" or view.start_refusal(data, job_id, False) or busy(watcher, job_id, moment):
             continue
         start_verb(watcher, job_id, ["job", "launch", job_id] if job.get("where") == "remote" else ["job", "start", job_id], moment)
+        room -= 1
 
 
 def first_starts(watcher: Watcher, moment: datetime) -> list[str]:
