@@ -53,6 +53,7 @@ RULING = "ruling"
 ON_THE_DRIVE = {RULING, "header:post-feedback", "header:drive-tooling"}
 PR_FORMS = "owner/repo#N, its URL, #N or its bare number"
 ID_FORMS = f"an order o<n>, a job j<n>, or a PR as {PR_FORMS}"
+ON_A_SPRITE = "starts on a Sprite"
 UNTRACKED_PRS = {("pr", "add"): "url", ("pr", "tapped"): "url", ("pr", "ci"): "url", ("job", "set"): "pr", ("job", "held"): "pr"}
 WAITS_CARD = re.compile(rf"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+|{state.ASK_WAITS.pattern}")
 WAITS_ARGS = ("waits", "redraws", "card", "via", "stands", "dropped", "settled", "superseded", "reopened")
@@ -3503,7 +3504,7 @@ def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
 
 
 def job_start(args: argparse.Namespace) -> int:
-    """Start a briefed builder's or reader's agent on this Mac as its own `claude --bg` session, as the watch does once nothing holds the job, so no session's Agent call starts it and no session relays its texts: under the job's own lock, refused as the agent_brief hook would refuse an Agent call of the session holding its order on its brief, which also stamps its launch, counts its builder slot or holds it waiting its turn, and refused while an earlier start of it is in flight or at work, by agents.gone on its bg entry, the start lock, or an agent of a session of the drive runs it; the job keeps the agent id every hook of that session binds as, by agents.seen, and the session `claude --bg` names, which state.own_session reads. A codex, design or Sprite job, or one with no brief, is refused, its starting left to the session holding it."""
+    """Start a briefed builder's or reader's agent on this Mac as its own `claude --bg` session, as the watch does once nothing holds the job, so no session's Agent call starts it and no session relays its texts: under the job's own lock, refused as the agent_brief hook would refuse an Agent call of the session holding its order on its brief, which also stamps its launch, counts its builder slot or holds it waiting its turn, and refused while an earlier start of it is in flight or at work, by agents.gone on its bg entry, the start lock, or an agent of a session of the drive runs it; the job keeps the agent id every hook of that session binds as, by agents.seen, and the session `claude --bg` names, which state.own_session reads. A codex, design or Sprite job, or one with no brief, is refused, its starting left to the session holding it. A start the hook holds waiting its turn for a builder slot, or sends to a Sprite, is no refusal: the first starts on the watch's FREE line as its turn comes, the second by drive job launch, run here, so neither wakes the session holding it."""
     name = state.resolve(args.drive)
     with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         data = state.load(name)
@@ -3521,6 +3522,11 @@ def job_start(args: argparse.Namespace) -> int:
         call = {"subagent_type": state.JOB_AGENTS[job["kind"]][0], "prompt": f"Read your brief first: {job['brief']}"}
         call = agents.shaped({"session_id": held["session"], "tool_input": call})
         if refused := start_refusal({"session_id": held["session"], "tool_input": call}):
+            if state.SLOT_WAIT in state.load(name)["jobs"][args.id]["waits"]:
+                return emit(args, f"{args.id} waits its turn for a builder slot on this Mac: {refused}", {"id": args.id, "how": "waits its turn"})
+            if ON_A_SPRITE in refused:
+                state.detach(name, ["job", "launch", args.id], watch.RELAUNCHES_LOG)
+                return emit(args, f"{args.id} starts on a Sprite, by drive job launch {args.id}: {refused}", {"id": args.id, "how": "launch"})
             raise DriveError(f"{args.id}: refused, not started: {refused}")
         agent, cwd = uuid.uuid4().hex[:17], orca.checkout(name, held["cwd"])
         with state.edit(name) as data:
