@@ -408,8 +408,9 @@ check's verdict, or from the order when none ran.
   decline it at approve returns with it held for the coordinator, since the `landing_guard` hook
   refuses a drive job's `tools/ci release cancel`. A fix cherry-picked onto the live commit on a
   pushed branch, only once a first check found the default branch's newest build fails too, starts
-  `tools/ci release start --manual sand-next --env core-usw2-auto --commit <sha> --emergency`, since
-  Platy refuses a commit off `dev`. `drive job brief` prints this rule on each incident builder's
+  `tools/ci release start --manual <target> --env core-usw2-auto --commit <sha> --emergency`, its
+  target the new tree's Sand CLI, `sand`'s new-tree twin in the monorepo's
+  `release/targets.generated.json`, since Platy refuses a commit off `dev`. `drive job brief` prints this rule on each incident builder's
   `Incident:` line, so each names the cut it returns in `WAITING release` this way.
 - The incident order's words approve starting its own release, while he is away only as a hotfix of fix
   PRs that change nothing dangerous, and its rollback at any hour, never the migrations,

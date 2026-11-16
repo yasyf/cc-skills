@@ -49,8 +49,8 @@ anything truly stick which can go read transcript etc".
   services its release waits wait on, with its id, the question he answered, and where he gave it.
   An answer settles all its words cover, never only the PR, cut or card he gave it on: one holding a
   component's releases, such as "Keep the hold: Macs get none of the fixes until you lift it" on a
-  card asking a sand-next exception, holds every release wait on that component, whichever PR it
-  names. A `NEXT` never puts to him what an answer of his settles, on an `Answered:` line or in any
+  card asking an exception for the new tree's Sand CLI, holds every release wait on that component,
+  whichever PR it names. A `NEXT` never puts to him what an answer of his settles, on an `Answered:` line or in any
   record you read: it names that answer by its id and link, says the wait stays held by it until he
   lifts it when it holds a release, with `WHO` nobody, and orders no card asking it.
 - An open `Card:` is answered only by his tap on it or his words on or under it, never by an answer
