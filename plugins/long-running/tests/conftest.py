@@ -1532,10 +1532,12 @@ def unrecorded(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 @pytest.fixture(autouse=True)
 def detached_in_the_call(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Run the handler start `drive handler` detaches and the order record `say` detaches in the test's own process, the record with no session as state.detach runs it, so a test reads the `claude --bg` it ran and say's line carries its record; every other detached verb is detached as before."""
+    """Run the handler start `drive handler` detaches and the order record `say` detaches in the test's own process, the record with no session as state.detach runs it, so a test reads the `claude --bg` it ran and say's line carries its record, and start no `drive job start` the watch's start_jobs detaches, which a test runs itself where it reads one; every other detached verb is detached as before."""
     detached = state.detach
 
     def detach(name: str, args: list[str], log: str) -> int:
+        if args[:2] == ["job", "start"]:
+            return 0
         if args[:1] == ["handler-start"]:
             agents.start_kept(name, args[1])
             return 0
