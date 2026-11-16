@@ -27,6 +27,7 @@ from conftest import (
     LIVE_WORKER,
     REAL_BINDER_TERMINAL,
     REAL_DRIVE_TERMINAL,
+    REAL_DRIVE_CHECKOUT,
     REAL_KEEP_LOGS,
     REAL_KEEP_TRANSCRIPTS,
     REAL_MAILBOX,
@@ -854,6 +855,24 @@ def test_a_first_launch_while_another_fetch_holds_the_clones_remote_tracking_ref
     (tmp_path / "clone" / ".git" / "refs" / "remotes" / "origin" / "main.lock").write_text(f"{head}\n")
     kept = orca.checkout(demo, state.load(demo)["roles"]["coordinator"]["cwd"])
     assert (kept, git_in(kept, "rev-parse", "HEAD"), (ccx_worktrees / "made").read_text()) == (ccx_worktrees / "drive-demo", head, "drive-demo\n")
+
+
+def test_a_drive_with_no_checkout_lists_its_clones_worktrees_once_a_process_and_runs_from_the_checkout_orca_checkout_makes_once_made(
+    demo: str, tmp_path: Path, ccx_worktrees: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(state, "drive_checkout", REAL_DRIVE_CHECKOUT)
+    monkeypatch.setattr(state, "DRIVE_CHECKOUTS", {})
+    clone = str(tmp_path / "clone")
+    cloned(tmp_path, demo)
+    listed: list[str] = []
+    worktree = orca.worktree
+    monkeypatch.setattr(orca, "worktree", lambda clone, folder: listed.append(folder) or worktree(clone, folder))
+    assert [state.drive_checkout(demo, clone) for _ in range(3)] == [Path(clone)] * 3
+    assert listed == ["drive-demo"]
+    kept = orca.checkout(demo, clone)
+    made = len(listed)
+    assert [state.drive_checkout(demo, clone) for _ in range(3)] == [kept] * 3 == [ccx_worktrees / "drive-demo"] * 3
+    assert len(listed) == made
 
 
 def test_the_drives_checkout_sits_detached_at_origins_default_branch_head_past_the_clones_stale_remote_tracking_ref_and_the_next_move_reuses_its_worktree(

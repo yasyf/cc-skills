@@ -725,6 +725,7 @@ def checkout(drive: str, clone: str, wait: float = CHECKOUT_WAIT) -> Path:
         raise DriveError(f"the drive's checkout, the worktree of {clone}'s repository on {lane}, was not moved to the head of its default branch, so nothing ran from it: {error}") from None
     if not (kept / ".orca.json").is_file():
         raise DriveError(f"{kept}, the drive's checkout{at}, has no .orca.json, so no lane can be cloned from it")
+    state.DRIVE_CHECKOUTS[(drive, clone)] = kept
     return kept
 
 

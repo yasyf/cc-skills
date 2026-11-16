@@ -75,6 +75,7 @@ DRIVE_TERMINAL = "term_drive"
 BINDER_TERMINAL = "term_binder"
 REAL_BINDER_TERMINAL = orca.binder_terminal
 REAL_DRIVE_TERMINAL = orca.drive_terminal
+REAL_DRIVE_CHECKOUT = state.drive_checkout
 REAL_KEEP_LOGS = orca.keep_logs
 REAL_SAVED_BRANCHES = github.saved_branches
 REAL_SESSION_OF = orca.session_of
