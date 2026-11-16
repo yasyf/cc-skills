@@ -6866,7 +6866,7 @@ def test_a_line_the_coordinator_acts_on_now_wakes_it_and_the_rest_wait_for_its_b
         "WAITING-ON-HIM demo:j1-7-a blocks j1, built on lane/built, since 9:00 AM, posted https://acme.slack.com/archives/D123/p1",
     ]
     watching = watcher(demo)
-    assert [watch.sent(watching, "root", [line], T0) for line in waking + batched] == [[]] * len(waking + batched)
+    assert [watch.sent(watching, "root", [line], T0 + n * watch.COALESCE) for n, line in enumerate(waking + batched)] == [[]] * len(waking + batched)
     assert posted(sent) == [("handoff", f"root@{demo}", line) for line in waking] + [("evidence", f"root@{demo}", "EVENT note")]
     assert len({argv[argv.index("--topic") + 1] for argv in sent}) == len(sent)
 
@@ -11837,3 +11837,18 @@ def test_a_coordinator_session_that_wrote_nothing_since_the_watchs_last_handoff_
 def test_a_watchdog_answer_whose_labels_open_lists_below_them_keeps_each_whole_block_as_one_line() -> None:
     text = "WHY:\n- his Approve on #56961\n- its staging test\nWHO: j154\nNEXT:\n- drive job resume j154\nUNREAD: none"
     assert stall.answer(text) == {"WHY": "- his Approve on #56961 - its staging test", "WHO": "j154", "NEXT": "- drive job resume j154", "UNREAD": "none"}
+
+
+def test_a_coordinator_hears_the_watch_at_most_once_every_ten_minutes_in_one_record_of_all_it_made_but_an_urgent_line_goes_at_once(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    sent = posts(monkeypatch)
+    watching = watcher(demo)
+    first, second, third = 'ORPHAN o1 "ship": no job', 'ORPHAN o1 "test": no job', 'ORPHAN o1 "land": no job'
+    assert watch.sent(watching, "root", [first], T0) == []
+    assert watch.sent(watching, "root", [second], T0 + timedelta(minutes=1)) == []
+    assert watch.sent(watching, "root", [third], T0 + timedelta(minutes=2)) == []
+    assert posted(sent) == [("handoff", f"root@{demo}", first)]
+    hold = f"TAP Hold {KEY} [o1 j1]"
+    watch.sent(watching, "root", [hold], T0 + timedelta(minutes=3))
+    assert [argv[argv.index("--text") + 1] for argv in sent[1:]] == ["3 lines: 2 ORPHAN, 1 TAP"]
+    assert watch.sent(watching, "meta", [first], T0 + timedelta(minutes=3)) == []
+    assert posted(sent)[-1] == ("handoff", f"meta@{demo}", first)

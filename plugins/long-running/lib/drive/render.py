@@ -209,7 +209,7 @@ FIRST_CALL = {
     ),
     "coordinator": (
         "The watch runs as its own process and posts the lines each stage of its pass makes for you over cci as one"
-        " record, a handoff when any line asks you to act now, else evidence that arrives with others at most every five minutes, and only lines that ask a step, each said once: a line your manual says Nothing for never reaches you; a record of"
+        " record, a handoff when any line asks you to act now, else evidence, at most one record every ten minutes holding all it made but his tap, a due time, a move of his orders or a stopped watch, which come at once, and only lines that ask a step, each said once: a line your manual says Nothing for never reaches you; a record of"
         " several lines counts them by kind and carries each in its body, read whole; arm no Monitor for it, and run"
         " no drive watch for a WATCH stopped line, since its launch agent starts it again. A compaction keeps"
         " every tool you loaded before it, even one the deferred-tools list names, so call Monitor, SendMessage, TaskStop and"

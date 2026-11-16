@@ -74,6 +74,8 @@ QUIET_LINES = ("CARD ", "WAITING-ON-HIM ", "STANDING ", "WATCH compacted", "WATC
 SAID_FILE = "said.json"
 SAID_FOR = timedelta(hours=24)
 EVERY_TIME = ("DOWN ",)
+COALESCE = timedelta(minutes=10)
+URGENT = ("TAP ", "DUE ", "MOVED ", "WATCH stopped", "DOWN ")
 TAP_EVENT = re.compile(rf"TAP (?P<label>\S+) (?P<key>\S+)(?P<stalled> {NOT_LANDED})?")
 LANE = "watch"
 READS_LOG = "reads.log"
@@ -210,6 +212,7 @@ class Watcher:
     passed_version: int | None = None
     passed_at: float = 0.0
     receiver_took: set[str] | None = None
+    posted: dict[str, datetime] = field(default_factory=dict)
     floor: datetime | None = None
 
     @property
@@ -5656,18 +5659,18 @@ def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
             kept.append(line)
     watcher.made = kept
     lanes = dict.fromkeys([*state.HOLDERS, *routed, *watcher.unsent])
-    failures = [failure for lane in lanes if lane != watcher.lane and (lane in routed or not lines) for failure in sent(watcher, lane, routed.get(lane, []), moment)]
+    failures = [failure for lane in lanes if lane != watcher.lane and (lane in routed or not lines or watcher.unsent.get(lane)) for failure in sent(watcher, lane, routed.get(lane, []), moment)]
     watcher.made = []
     return kept + failures
 
 
 def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> list[str]:
     """Post the lines owed the lane over cci as one record, by posted_record, a handoff when any of them asks a step now, by wakes, or the lane is the communicator's or the meta session's, else evidence, which reaches the lane with others at most every five minutes, the lander's own failures apart as one defect, which the meta session starts a fix from, so a pass that says many gaps reaches the lane as one record however many it says; but drop each line that needs_step, judging it as it posts, finds asks no step now, each one quiet() reads its row saying Nothing for, each one said to the lane already within SAID_FOR, by unsaid, and each one owed the communicator or the meta session that is a READY whose fix its builder owes, by fixing(), by his words "make everything less chatty", so a line held across a newer install's takeover or a failed post never hands work that ended meanwhile: each credential cci refuses is withheld from it, and a record that fails goes again when the next pass starts, sent with no lines, each line made meanwhile waiting behind it, so a pass tries a failing lane once and its third failure in a row is said. The lines stay among the watcher's unsent until their record posts, so a newer install that takes the watch over meanwhile gets them."""
-    if lines and watcher.unsent.get(lane):
+    if lines and watcher.unsent.get(lane) and lane in state.HOLDERS:
         watcher.unsent[lane] = list(dict.fromkeys(watcher.unsent[lane] + lines))
         return []
     owed = watcher.unsent[lane] = list(dict.fromkeys(watcher.unsent.get(lane, []) + lines))
-    if not owed:
+    if not owed or coalescing(watcher, lane, owed, moment):
         return []
     data = state.load(watcher.name)
     if untaken(watcher, data, lane):
@@ -5684,6 +5687,8 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
             unsent += said
             refusal = error
     keep_said(watcher.name, lane, [line for line in posting if line not in unsent], moment)
+    if posting and not unsent:
+        watcher.posted[lane] = moment
     watcher.unsent[lane] = unsent
     if kind == "handoff" and rest and not unsent:
         watcher.handed_at[lane] = moment
@@ -5693,6 +5698,12 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
         watcher.failures.pop(what, None)
         return []
     return failed(watcher, what, what, refusal, moment)
+
+
+def coalescing(watcher: Watcher, lane: str, owed: list[str], moment: datetime) -> bool:
+    """Whether a coordinator's lines wait for its next record: one went to it within COALESCE and none of them is URGENT, his tap, a promised time, a move of his orders, a stopped watch or a process gone, so a lane hears the watch at most once every COALESCE in one record of all it made, by his words "make everything less chatty"; the communicator and the meta session hear each line as it comes."""
+    at = watcher.posted.get(lane)
+    return lane not in state.HOLDERS and at is not None and moment - at < COALESCE and not any(line.startswith(URGENT) for line in owed)
 
 
 def quiet(line: str) -> bool:
