@@ -10,6 +10,7 @@ import shlex
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -61,12 +62,12 @@ def secret() -> str:
     path = home() / "secret"
     if not path.exists():
         home().mkdir(parents=True, exist_ok=True)
-        made = path.with_name(f"secret.{os.getpid()}")
-        made.touch(0o600)
-        made.write_text(secrets.token_hex(32))
+        handle, made = tempfile.mkstemp(prefix="secret.", dir=home())
+        with os.fdopen(handle, "w") as file:
+            file.write(secrets.token_hex(32))
         with contextlib.suppress(FileExistsError):
             os.link(made, path)
-        made.unlink()
+        os.unlink(made)
     return path.read_text()
 
 
