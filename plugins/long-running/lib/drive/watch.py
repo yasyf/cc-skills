@@ -4292,7 +4292,7 @@ def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     paths, stacks = unread[each["job"]]
                     each["paths"] = each["paths"] if paths is None else paths
                     each["stacks"] = each["stacks"] if stacks is None else stacks
-        moved = state.slot_turns(data, moment)
+        moved = state.slot_turns(data, moment, state.repo_config(data).get("release"))
         return moved
 
     moved = state.update(watcher.name, None, slot_lines_write)

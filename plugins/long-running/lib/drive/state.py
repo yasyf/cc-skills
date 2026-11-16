@@ -6722,7 +6722,7 @@ SLOT_GO_STEPS = (
 )
 
 
-def slot_claim(data: dict, env: str, job_id: str, minutes: int, prs: list[str], cases: str | None, moment: datetime, paths: list[str] | None = None, stacks: list[str] | None = None, starts: bool = False) -> str:
+def slot_claim(data: dict, env: str, job_id: str, minutes: int, prs: list[str], cases: str | None, moment: datetime, paths: list[str] | None = None, stacks: list[str] | None = None, starts: bool = False, release: dict | None = None) -> str:
     """Give a staging env's slot to the job when no job holds it, its lease ending minutes past the staging-claim rule's CLAIM_WAIT, else queue the job, first in first out but for a job jumps_queue reads as serving a priority order or an open incident, which goes behind only the jobs that jump too, by his ruling that they jump the line as their builders jump the builder-slot line; paths, the files its PRs change, and stacks, the components they reach, let slot_turns pack it into another pass's cut, while a start, the top coordinator's drive job add --release, whose release names its own branch, holds a cut of its own and is started by the watch's turn; the line saying which, refused for a job already holding, riding or queued on it."""
     slot = data["slots"].setdefault(env, {"holder": None, "queue": []})
     if job_id in slot_members(slot) or any(each["job"] == job_id for each in slot["queue"]):
@@ -6730,7 +6730,7 @@ def slot_claim(data: dict, env: str, job_id: str, minutes: int, prs: list[str], 
     asked = {"job": job_id, "prs": prs, "minutes": minutes, "cases": cases, "at": stamp(moment), "paths": paths, "stacks": stacks, "starts": starts}
     if slot["holder"] is None:
         slot["holder"] = leased(asked, moment, [])
-        return f"GO {job_id} holds the {env} slot until {slot['holder']['until']}: {SLOT_GO_STEPS.format(env=env, job=job_id)}"
+        return f"GO {job_id} holds the {env} slot until {slot['holder']['until']}: {SLOT_GO_STEPS.format(env=env, job=job_id)}{holding(release, data, [job_id])}"
     place = sum(1 for each in slot["queue"] if jumps_queue(data, each["job"])) if jumps_queue(data, job_id) else len(slot["queue"])
     slot["queue"].insert(place, asked)
     return f"QUEUED {job_id} for the {env} slot, place {place + 1}, behind {slot['holder']['job']}, whose lease ends {slot['holder']['until']}"
@@ -6793,7 +6793,21 @@ def slot_release(data: dict, env: str, job_id: str) -> str:
     raise DriveError(f"{job_id}: refused, it neither holds nor waits for the {env} slot")
 
 
-def slot_turns(data: dict, moment: datetime) -> list[tuple[str, str, str, str]]:
+def holding(release: dict | None, data: dict, members: list[str], starter: str | None = None) -> str:
+    """What a staging pass adds to its GO or RIDE line so the repository's freeze names every job of its cut, by the `holder` and `join` commands the [release] table of its .claude/long-running.toml names, `{holder}` a job as <drive>/<job> and `{freeze}` the freeze's id: the starter runs its freeze and each staging command naming every job of the cut, and a pass riding it joins that freeze; nothing for a repository naming no `holder`."""
+    if not (flag := (release or {}).get("holder")):
+        return ""
+    named = " ".join(flag.format(holder=f"{data['name']}/{member}") for member in members)
+    if starter is None:
+        return f" Run your freeze and every staging command of this cut with `{named}`."
+    drive = data["name"]
+    own = flag.format(holder=f"{drive}/{members[0]}")
+    join = (release or {}).get("join")
+    joined = f" Join {starter}'s freeze with `{join.format(freeze='<its freeze id>', holder=f'{drive}/{members[0]}')}` unless it names you, and run" if join else " Run"
+    return f"{joined} each staging command with `{own}`."
+
+
+def slot_turns(data: dict, moment: datetime, release: dict | None = None) -> list[tuple[str, str, str, str]]:
     """End each staging slot's lease once every pass of its cut finished, stopped, failed or gave the slot back, extend once by its minutes a lease whose end passed while a pass still runs, by his ruling that an overrunning lease extends once, and end it at its second end, then give each free slot to the first job in its queue that still runs or waits, dropping finished ones, packed with the later passes whose files never overlap, by packed, under one lease: the head starts the cut and each packed pass rides it; each (env, job, kind, line) of a slot that changed, kind freed, extended, go, its line the GO its job is resumed with, or start, for a start whose release the watch now starts."""
     moved = []
     for env, slot in data["slots"].items():
@@ -6811,8 +6825,9 @@ def slot_turns(data: dict, moment: datetime) -> list[tuple[str, str, str, str]]:
             slot["holder"] = leased(head, moment, riders)
             until = slot["holder"]["until"]
             carried = f" Your cut carries {', '.join(pr for rider in riders for pr in rider['prs'])} too, packed with yours since no two change one file: start it from a branch with each of their heads and yours cherry-picked onto what staging serves, under one freeze and one claim naming them all." if riders else ""
-            moved.append((env, head["job"], "start", f"SLOT {env} to {head['job']} until {until}: the watch starts its release") if head["starts"] else (env, head["job"], "go", f"GO staging {env} until {until}: {SLOT_GO_STEPS.format(env=env, job=head['job'])}.{carried}"))
-            moved += [(env, rider["job"], "go", RIDE_STEPS.format(env=env, until=until, starter=head["job"], prs=", ".join(rider["prs"]) or "your PR", job=rider["job"])) for rider in riders]
+            members = [head["job"], *(rider["job"] for rider in riders)]
+            moved.append((env, head["job"], "start", f"SLOT {env} to {head['job']} until {until}: the watch starts its release") if head["starts"] else (env, head["job"], "go", f"GO staging {env} until {until}: {SLOT_GO_STEPS.format(env=env, job=head['job'])}.{carried}{holding(release, data, members)}"))
+            moved += [(env, rider["job"], "go", RIDE_STEPS.format(env=env, until=until, starter=head["job"], prs=", ".join(rider["prs"]) or "your PR", job=rider["job"]) + "." + holding(release, data, [rider["job"]], head["job"])) for rider in riders]
     return moved
 
 

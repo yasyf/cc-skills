@@ -736,8 +736,12 @@ the patch.
   or a reader's choice. The repository names its release tool in the `[release]` table of its
   `.claude/long-running.toml`: `targets`, a command printing the JSON list of the platform's
   targets; `status`, a shell command with `{release}` printing a JSON object of that release's
-  `name`, `build`, `order`, `commit` and the targets it `carries`; and `whole`, the start's word
-  for every target. A target the job wants left out needs a failing test, drawn on his card as
+  `name`, `build`, `order`, `commit` and the targets it `carries`; `whole`, the start's word
+  for every target; `components`, a command with `{pr}` that reads a PR's changed paths on its
+  stdin and prints the JSON of the components it reaches, which staging slots pack passes by;
+  and `holder` and `join`, with `{holder}` a job as `<drive>/<job>` and `{freeze}` a freeze's
+  id, the flag naming a job as a freeze's holder and the command adding one to a freeze, which
+  a staging slot's `GO` and `RIDE` lines name for every job of a packed cut. A target the job wants left out needs a failing test, drawn on his card as
   `<target> fails: <the failing test>`; the `--without` rung above names each target it drops
   that way. A target his ruling excludes is written in the ASK as `<target> left out by his <id>:
   "<his words>"`, quoting his newest recorded ruling on a release. `drive job ask` refuses a card

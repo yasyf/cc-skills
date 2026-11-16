@@ -4472,7 +4472,7 @@ def slot_claim(args: argparse.Namespace) -> int:
     paths, stacks = watch.pass_reads(name, state.load(name), prs)
     def slot_claim_write(data: dict):
         find(data["jobs"], args.job, "job")
-        line = state.slot_claim(data, args.env, args.job, args.minutes, prs, args.cases, state.now(), paths, stacks)
+        line = state.slot_claim(data, args.env, args.job, args.minutes, prs, args.cases, state.now(), paths, stacks, release=state.repo_config(data).get("release"))
         return line
 
     line = state.update(name, None, slot_claim_write)
@@ -5156,9 +5156,9 @@ def unreached(name: str, data: dict, waits: list[str]) -> None:
 
 
 def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
-    """go/ci's own map of what each PR among keys reaches, `tools/ci release select --pr` run in the drive's checkout at the head of its default branch on the paths the PR changes, and on its head when they change rust/Cargo.lock, so go/ci reads a lockfile line as reaching only the crates that link its package: its answer's components, every one go/ci releases, touched, those the paths reach, dev, the paths on go/ci's dev list, which a checkout of dev runs, releases, those the paths reach through reads off that list, and staged, those of the releases with an env its infra/envs file marks `stage: staging`; a PR changing only tests or CI config, which no release ships though go/ci's map counts a test file's package, reaches none and reads tested. Nothing for a PR outside the repository of a coordinator checkout holding tools/ci."""
+    """The repository's own map of what each PR among keys reaches, the command the [release] table of its .claude/long-running.toml names as `components`, its `{pr}` the PR's number, run in the drive's checkout at the head of its default branch with the paths the PR changes on its stdin, and its head when they change rust/Cargo.lock, so the repository reads a lockfile line as reaching only the crates that link it; none for a repository naming no such command, or for a PR of another repository."""
     clone = data["roles"]["coordinator"]["cwd"]
-    if not (keys and (Path(clone) / GO_CI).is_file()):
+    if not (keys and (command := state.repo_config(data).get("release", {}).get("components"))):
         return {}
     repo = github.checkout_repo(clone).casefold()
     if not (ours := list(dict.fromkeys(key for key in keys if github.repo_of(key).casefold() == repo))):
@@ -5173,7 +5173,7 @@ def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
         request = {"body": "", "paths": paths}
         if CARGO_LOCK in paths:
             request["head"] = github.paths([key])[key][0]
-        reach[key] = json.loads(github.run([str(checkout / GO_CI), "release", "select", "--pr"], cwd=str(checkout), stdin=json.dumps(request)))
+        reach[key] = json.loads(github.run(shlex.split(command.format(pr=key.split("#")[1])), cwd=str(checkout), stdin=json.dumps(request)))
     return reach
 
 

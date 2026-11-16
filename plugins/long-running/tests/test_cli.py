@@ -904,6 +904,7 @@ def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_kept_with_a_no
     (clone / "tools" / "ci").write_text("")
     request, answer = tmp_path / "request.json", tmp_path / "answer.json"
     (checkout / "tools" / "ci").write_text(FAKE_SELECT.format(request=request, answer=answer))
+    monkeypatch.setattr(state, "repo_config", lambda data: {"release": {"components": "tools/ci release select --pr"}})
     (checkout / "tools" / "ci").chmod(0o755)
     answer.write_text(json.dumps({"components": ["executor", "cloudrunner-next", "sand-next", "k8s"], "touched": ["cloudrunner-next", "sand-next"], "dev": [], "releases": ["cloudrunner-next", "sand-next"], "staged": ["cloudrunner-next", "sand-next"]}))
     monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo" if cwd == str(clone) else pytest.fail(cwd))
@@ -936,6 +937,7 @@ def test_the_release_reach_sends_go_ci_a_prs_head_when_its_paths_change_the_carg
     (clone / "tools" / "ci").write_text("")
     request, answer = tmp_path / "request.json", tmp_path / "answer.json"
     (checkout / "tools" / "ci").write_text(FAKE_SELECT.format(request=request, answer=answer))
+    monkeypatch.setattr(state, "repo_config", lambda data: {"release": {"components": "tools/ci release select --pr"}})
     (checkout / "tools" / "ci").chmod(0o755)
     answer.write_text(json.dumps({"components": ["dashboard", "sandsql"], "touched": ["sandsql"], "dev": [], "releases": ["sandsql"]}))
     changed = ["rust/Cargo.lock", "rust/crates/server/Cargo.toml"]
@@ -12962,3 +12964,17 @@ def test_a_new_waiting_replaces_a_jobs_staging_waits_and_a_withdrawn_cut_frees_a
         data["jobs"]["j1"]["brief_flags"] = (data["jobs"]["j1"].get("brief_flags") or {}) | {"release": "tools/ci release start cloudrunner-next --from f668ee4966145471 --emergency --env plat-usw2-staging --order 23eefb9"}
         data["jobs"]["j1"]["state"] = "stopped"
     assert (view.holds(state.load("demo"), new, None), view.holds(state.load("demo"), old, None)) == (False, True)
+
+
+def test_a_slot_go_names_every_job_of_its_cut_as_a_freeze_holder_only_where_the_repository_names_the_holder_flag() -> None:
+    moment = datetime(2026, 11, 16, 1, 0, tzinfo=UTC)
+    data = {"name": "demo", "slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": []} for job_id in ("j0", "j1", "j2")}}
+    release = {"holder": "--holder {holder}", "join": "tools/ci release freeze join {freeze} --holder {holder}"}
+    assert state.slot_claim(data, "plat-usw2-staging", "j0", 20, [], None, moment, release=release).endswith("Run your freeze and every staging command of this cut with `--holder demo/j0`.")
+    for job_id, path, stack in (("j1", "a", "api"), ("j2", "b", "rsw-cp")):
+        state.slot_claim(data, "plat-usw2-staging", job_id, 15, [f"Forge-AI/monorepo#{job_id[1:]}"], None, moment, [path], [stack])
+    data["jobs"]["j0"]["state"] = "done"
+    goes = {job_id: line for _, job_id, kind, line in state.slot_turns(data, moment + timedelta(minutes=30), release) if kind == "go"}
+    assert goes["j1"].endswith("with `--holder demo/j1 --holder demo/j2`.")
+    assert goes["j2"].endswith("Join j1's freeze with `tools/ci release freeze join <its freeze id> --holder demo/j2` unless it names you, and run each staging command with `--holder demo/j2`.")
+    assert "--holder" not in state.slot_claim({"name": "demo", "slots": {}, "jobs": {"j9": {"state": "waiting", "order": "o1", "carries": []}}, "orders": data["orders"]}, "plat-usw2-staging", "j9", 20, [], None, moment)
