@@ -2908,13 +2908,20 @@ def stage_pr(data: dict, key: str, goal: str, session: str | None) -> str | None
     order_id, part = wait_on_staging(data, key)
     testing = data["jobs"][tester] if (tester := part_tester(data, order_id, part)) else None
     if testing and not (testing["state"] == "done" and testing["goal"] != goal and testing["goal"].startswith(DANGEROUS_GOAL.partition("{changes}")[0].format(key=key))):
-        if testing["goal"] != goal:
+        if testing["goal"] != goal and not given_case(data, tester, STAGING_CASE.format(key=key, goal=goal)):
             hold_text(testing, STAGING_CASE.format(key=key, goal=goal), None)
         return None
     tester_id = next_id(data["jobs"], "j")
     data["jobs"][tester_id] = new_job(order_id, "builder", goal, [part], stamp()) | {"session": session}
     data["orders"][order_id]["jobs"].append(tester_id)
     return tester_id
+
+
+def given_case(data: dict, job_id: str, case: str) -> bool:
+    """Whether a text the tester's workers were given already carries this staging case, by superseded.given_texts, so a PR whose cases did not change since sends its tester nothing."""
+    from drive import superseded
+
+    return any(case in path.read_text() for path, _ in superseded.given_texts(data, job_id))
 
 
 def unstage(data: dict, key: str, why: str, job_id: str) -> None:

@@ -1528,7 +1528,7 @@ def test_a_resume_with_no_text_from_another_session_posts_the_held_text_to_the_a
     assert state.load(demo)["jobs"]["j1"]["undelivered"] == []
 
 
-def test_the_watch_posts_a_staging_case_to_the_running_tester_its_session_started_at_once_rather_than_holding_it_for_its_next_worker(
+def test_the_watch_posts_a_staging_case_to_the_running_tester_its_session_started_at_once_but_holds_it_for_a_waiting_one(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     case = state.STAGING_CASE.format(key="Forge-AI/monorepo#42", goal="a run that resumes after the runner restarts")
@@ -1542,12 +1542,14 @@ def test_the_watch_posts_a_staging_case_to_the_running_tester_its_session_starte
     monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
     posted = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend((lane, post) for post in posts) or ["720380"])
+    assert (watch.case_lines(watch.Watcher(demo, offset=state.events_end(demo)), T0), posted) == ([], [])
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="running", waits=[])
     assert watch.case_lines(watch.Watcher(demo, offset=state.events_end(demo)), T0) == []
-    pointer = 'j1: owed, send it now: SendMessage a4e953525ff2a4e17 "Read cci record 720380 whole and act on it"'
-    assert [(lane, post["to"], post.get("body", post["text"])) for lane, post in posted] == [("j1", [f"peer:{top}/a4e953525ff2a4e17"], case), ("j1", [f"root@{demo}"], pointer)]
+    assert [(lane, post["to"], post.get("body", post["text"])) for lane, post in posted] == [("j1", [f"peer:{top}/a4e953525ff2a4e17", f"root@{demo}"], case)]
     assert [kept["request"] for kept in state.load(demo)["jobs"]["j1"]["undelivered"]] == ["req-other"]
     assert watch.case_lines(watch.Watcher(demo, offset=state.events_end(demo)), T0) == []
-    assert len(posted) == 2
+    assert len(posted) == 1
 
 
 STOPPED_TEXT ="API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup). This sometimes happens with safe, normal conversations."

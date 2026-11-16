@@ -2985,7 +2985,7 @@ def case_lines(watcher: Watcher, moment: datetime) -> list[str]:
     owed = [
         (job_id, lane, held)
         for job_id, job in data["jobs"].items()
-        if job["state"] not in state.FINISHED_JOB_STATES
+        if job["state"] not in (*state.FINISHED_JOB_STATES, "waiting")
         and any(held["words"].startswith(opens) for held in job["undelivered"])
         and heard_job(watcher, data, job)
         and (lane := state.agent_lane(data, job))
