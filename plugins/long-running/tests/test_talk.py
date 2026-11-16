@@ -71,6 +71,30 @@ def said(name: str) -> list[dict]:
     return [event for event, _ in state.read_events(name) if event["kind"] == "said"]
 
 
+@pytest.mark.parametrize(
+    ("post", "fields"),
+    [
+        ({"text": "An update"}, []),
+        ({"edit": POSTED, "text": "An updated line"}, []),
+        ({"channel_id": "U123", "job": "j1", "text": "A question"}, [("jobs",)]),
+        ({"tap_prs": [PR_URL], "text": "A PR card"}, [("prs",)]),
+        ({"channel_id": "C1", "card": {"title": "A question"}, "text": "A card"}, [("slack",)]),
+    ],
+)
+def test_post_validation_reads_only_addressed_collections(communicator: str, posts: list[tuple[str, ...]], post: dict, fields: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+    loaded = []
+    load = state.load
+
+    def selected(name: str, fields: tuple[str, ...] | None = None) -> dict:
+        loaded.append(fields)
+        return load(name, fields)
+
+    monkeypatch.setattr(state, "load", selected)
+    monkeypatch.setattr(slack, "operators", lambda: {"D123", "C1"})
+    talk.check(communicator, post)
+    assert loaded == fields
+
+
 def test_one_post_links_each_reference_the_way_slack_and_the_dashboard_each_show_it(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
     loaded = []
     load = state.load
