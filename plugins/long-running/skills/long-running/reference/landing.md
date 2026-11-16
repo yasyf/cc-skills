@@ -527,11 +527,18 @@ PR hits, and the repository hooks into the drive through its providers.
   dangerous paths and its `[[dangerous]]` classes, owes a test before it merges; every other PR
   merges on green CI and is proven after its merge on what the half-hourly promotion deploys,
   holding no staging slot. The promotion skips while a drive holds a staging stack, so until cuts
-  give the release train the env first, a hold stalls these passes too. When the release provider's components read names none of a dangerous
-  PR's releases as staged, and none is a client the Mac box provider signs in to staging, staging cannot test it
-  (such as CI, an identity account or monitoring). The tester then runs each stack's release dry run from this Mac and asks his
-  exception with the counts each preview plans. His yes drops the part and the PR lands on his
-  Approve.
+  give the release train the env first, a hold stalls these passes too.
+- **No staging, no test.** A dangerous PR owes no staging test, and gets no tester, when its stacks
+  have no staging or his answer frees its paths, by his answer b2ba5d3: "when a PR's stacks have
+  no staging, the drive records its pre-merge proof (tests plus a read-only dry run/probe against
+  prod) as the staging test, posts it on the PR, and the lander queues it." Its stacks have no
+  staging when the release provider's components read names none of its releases as staged and
+  none is a client the Mac box provider signs in to staging (such as CI, an identity account or
+  monitoring). Its builder posts that proof on the PR, and it lands on his tap or its exempt class.
+  `drive order unstaged <glob>... --answer <his answer>` frees, in one drive, every PR whose
+  dangerous paths all match those globs, as his ai-oncall answer 2e746be did: "no staging test
+  needed for ai-oncll stuff just merge it". A PR that narrows the dangerous list is never freed,
+  and a test a job already runs goes to its end.
 - **How it runs.** Short, aggressive and agent-led, exercising every scenario that could break on
   production, then a 2-hour soak after the merge. Changes touching different files share one cut,
   one freeze and one claim. The drive starts each test on staging with no card and no `--order`.
@@ -577,7 +584,7 @@ PR hits, and the repository hooks into the drive through its providers.
   - `drive pr add` and the watch, on each new head, read the changed files against the
     dangerous paths the repository's provider names (a class and its path
     globs, less test files and skipped globs) and give a matching PR the same part, wait and
-    tester before his card draws.
+    tester before his card draws, unless [no staging, no test](#staging-tests) frees it.
   - Every other PR owes no staging test before it merges: it merges on green CI, and its
     after-merge proof reads what the half-hourly promotion deploys, holding no staging slot.
 - A later `STAGING: #N` line reaches the running tester as held text. `STAGING: none: <why>` or

@@ -542,7 +542,7 @@ def test_a_schema_named_test_fixture_stores_no_data_while_a_migration_beside_it_
 def test_a_card_finds_a_migration_past_the_first_100_files_its_read_lists_in_the_paths_the_drive_kept_with_no_read_of_its_files(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     listed = tuple(f"lib/part{n}.py" for n in range(100))
     with edit("demo") as data:
-        assert state.mark_dangerous(data, "Forge-AI/monorepo#42", HEAD, [*listed, MIGRATION]) is None
+        assert state.mark_dangerous(data, "Forge-AI/monorepo#42", HEAD, [*listed, MIGRATION], None) is None
     monkeypatch.setattr(card, "run", answering(pr_json(files=listed) | {"changedFiles": 101}))
     monkeypatch.setattr(github, "files", lambda key: pytest.fail(f"drive card read the files of {key}"))
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]

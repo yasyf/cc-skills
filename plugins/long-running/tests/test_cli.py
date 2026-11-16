@@ -7181,8 +7181,8 @@ def test_a_builders_staging_line_reaches_the_tester_its_prs_changed_files_gave_i
     assert view.staging(data, key) == "Not on staging: its builder says AGENTS.md's dangerous rule misses it: it changes no path AGENTS.md calls dangerous"
     with edit("demo") as data:
         data["prs"][key]["paths_at"] = None
-        lifted = state.mark_dangerous(data, key, "abc", ["api/migrations/1700_add_runs.sql"])
-        marked = state.mark_dangerous(data, key, "def", ["api/migrations/1700_add_runs.sql"])
+        lifted = state.mark_dangerous(data, key, "abc", ["api/migrations/1700_add_runs.sql"], None)
+        marked = state.mark_dangerous(data, key, "def", ["api/migrations/1700_add_runs.sql"], None)
         data["jobs"][marked]["state"] = "done"
         restaged = state.staging_testers(data, "j1", f"PUSHED {PR}\nSTAGING: #42 {cases}\n")
     assert (lifted, bool(marked), [state.load("demo")["jobs"][job_id]["goal"] for job_id in restaged]) == (None, True, [cases])
@@ -7200,11 +7200,11 @@ def test_a_pr_whose_staging_part_an_order_already_holds_is_judged_at_each_head_k
     testers = sorted(job_id for job_id, job in state.load("demo")["jobs"].items() if state.builds_nothing(job))
     with edit("demo") as data:
         data["prs"][key] |= {"owes_staging": None, "paths_at": None}
-        marked = state.mark_dangerous(data, key, "def", ["api/migrations/1700_add_runs.sql"])
+        marked = state.mark_dangerous(data, key, "def", ["api/migrations/1700_add_runs.sql"], None)
     data = state.load("demo")
     assert (marked, data["prs"][key]["owes_staging"]["head"], sorted(job_id for job_id, job in data["jobs"].items() if state.builds_nothing(job)), part in data["orders"]["o1"]["parts"]) == (None, "def", testers, True)
     with edit("demo") as data:
-        unmarked = state.mark_dangerous(data, key, "ghi", ["docs/readme.md"])
+        unmarked = state.mark_dangerous(data, key, "ghi", ["docs/readme.md"], None)
     data = state.load("demo")
     assert (unmarked, part in data["orders"]["o1"]["parts"], data["prs"][key]["waits"], data["prs"][key]["owes_staging"]) == (None, False, [], None)
 
@@ -7226,12 +7226,67 @@ def test_a_builders_42_none_lifts_an_unowed_test_no_job_took_up_and_one_that_end
     assert (part in data["orders"]["o1"]["parts"], data["prs"][key]["waits"], data["jobs"][tester_id]["state"] != "stopped") == (False, [], True)
     with edit("demo") as data:
         data["prs"][key] |= {"unstaged": None, "paths_at": None, "head": "abc"}
-        tester_id = state.mark_dangerous(data, key, "abc", ["api/migrations/1700_add_runs.sql"])
+        tester_id = state.mark_dangerous(data, key, "abc", ["api/migrations/1700_add_runs.sql"], None)
         data["prs"][key]["owes_staging"] = None
         data["jobs"][tester_id] |= {"agent": "a1", "state": "failed"}
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 none: its failed test needs no rerun\n") == (0, "")
     data = state.load("demo")
     assert (part in data["orders"]["o1"]["parts"], data["prs"][key]["waits"]) == (False, [])
+
+
+def test_a_dangerous_pr_whose_stacks_have_no_staging_owes_no_staging_test_its_posted_proof_standing_by_his_answer_b2ba5d3_while_one_staging_runs_or_no_reach_was_read_keeps_it(
+    home_repo: None,
+    run: Run, demo: str, on_github: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    migration = ["api/migrations/1700_add_runs.sql"]
+    dangerous_repo(tmp_path, on_github, migration)
+    provide(monkeypatch, tmp_path, repo=HomeRepo, release=SelectRelease)
+    run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    run("pr", "add", PR, "--job", "j1", *LEAD)
+    key, part = "Forge-AI/monorepo#42", state.STAGING_TEST.format(number=42)
+    unstaged = {"components": ["api", "ci"], "touched": ["ci"], "dev": [], "releases": ["ci"], "staged": ["api"], "tested": None}
+    with edit("demo") as data:
+        lifted = state.mark_dangerous(data, key, "def", migration, unstaged)
+    data = state.load("demo")
+    assert (lifted, part in data["orders"]["o1"]["parts"], data["prs"][key]["waits"], data["prs"][key]["owes_staging"]) == (None, False, [], None)
+    assert data["prs"][key]["unstaged"] == {"why": state.UNSTAGED_STACKS, "ruled": True, "head": "def"}
+    assert view.staging(data, key) == f"Not on staging: none needed: {state.UNSTAGED_STACKS}"
+    with edit("demo") as data:
+        staged = state.mark_dangerous(data, key, "ghi", migration, unstaged | {"staged": ["ci"]})
+        narrowing = state.staging_free(data, {state.NARROWED: [state.REPO_RULES]}, unstaged)
+    provide(monkeypatch, tmp_path, repo=HomeRepo)
+    with edit("demo") as data:
+        unread = state.staging_free(data, {"a database migration": migration}, unstaged)
+    data = state.load("demo")
+    assert (bool(staged), data["prs"][key]["waits"], data["prs"][key]["owes_staging"]["head"], narrowing, unread) == (True, [f"o1:{part}"], "ghi", None, None)
+
+
+def test_his_unstaged_paths_free_a_pr_whose_every_dangerous_path_they_match_at_every_head_and_read_each_head_again_while_one_more_dangerous_path_keeps_its_test(
+    home_repo: None,
+    run: Run, demo: str, on_github: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    oncall, checker = "api/migrations/oncall/1700_add_mapper.sql", "go/sand/internal/checker/check.go"
+    dangerous_repo(tmp_path, on_github, [oncall])
+    run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    run("pr", "add", PR, "--job", "j1", *LEAD)
+    key, part = "Forge-AI/monorepo#42", state.STAGING_TEST.format(number=42)
+    answer = {"id": "2e746be6a66c66f9", "title": "Do ai-oncall PRs need a staging test before merge?", "body": "no staging test needed for ai-oncll stuff just merge it", "tags": []}
+    monkeypatch.setattr(settled, "shown", lambda answer_id, cwd: answer)
+    assert run("order", "unstaged", "api/migrations/oncall/*")[0] == 2
+    judged = state.classifier(state.load("demo"))
+    code, out = run("order", "unstaged", "api/migrations/oncall/*", "--answer", "2e746be")
+    data = state.load("demo")
+    assert (code, out, data["unstaged_paths"]) == (0, "api/migrations/oncall/* need no staging test, by his answer 2e746be: Do ai-oncall PRs need a staging test before merge?", {"globs": ["api/migrations/oncall/*"], "answer": answer["id"], "title": answer["title"]})
+    assert (state.classifier(data) != judged, state.unmarked(data)) == (True, [key])
+    with edit("demo") as data:
+        lifted = state.mark_dangerous(data, key, "def", [oncall], None)
+        kept = state.staging_free(data, state.dangerous(data, [oncall, checker]), None)
+    data = state.load("demo")
+    assert (lifted, kept, part in data["orders"]["o1"]["parts"], data["prs"][key]["waits"]) == (None, None, False, [])
+    assert data["prs"][key]["unstaged"] == {"why": "his answer 2e746be says api/migrations/oncall/* need no staging test", "ruled": True, "head": "def"}
+    assert (run("order", "unstaged")[0], state.load("demo")["unstaged_paths"]) == (0, None)
 
 
 def test_a_pr_of_a_dangerous_class_keeps_its_dangerous_tester_which_hears_its_cases(
