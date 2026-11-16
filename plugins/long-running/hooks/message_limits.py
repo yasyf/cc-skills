@@ -4,6 +4,7 @@ import json
 import re
 import sys
 from collections.abc import Callable
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -634,7 +635,8 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
         linked = linked_words(tool_input.get("asked"), dm)
     except slack.SlackError as error:
         return Warned(f"message_limits: this post goes out as written, unchecked: his thread could not be read to check it as a reply to his messages there: {error}.")
-    heard_him(drive, messages, linked)
+    with suppress(state.Refused):
+        heard_him(drive, messages, linked)
     long = over_length(payload, dm, thread_words(messages, drive["name"]), linked)
     return every(
         [

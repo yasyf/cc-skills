@@ -448,7 +448,7 @@ def github_lines(watcher: Watcher, moment: datetime, polled: bool = False) -> li
                 pr.update(conflict=conflict, updated=state.stamp(moment))
             return said, foreign, redraws, data
 
-        said, foreign, redraws, data = state.write(watcher.name, github_lines_write)
+        said, foreign, redraws, data = state.write(watcher.name, github_lines_write, budget=state.WATCH_WRITE_SECONDS)
         lines += said
     if reads:
         signed = github_reads(watcher)
@@ -492,7 +492,7 @@ def dangerous_lines(watcher: Watcher, moment: datetime) -> list[str]:
         added = {key: tester for key, (head, paths) in read.items() if key in data["prs"] and (tester := state.mark_dangerous(data, key, head, paths))}
         return added, data
 
-    added, data = state.write(watcher.name, dangerous_lines_write)
+    added, data = state.write(watcher.name, dangerous_lines_write, budget=state.WATCH_WRITE_SECONDS)
     return [f"PR {key}: {line} {ids(data['prs'][key])}" for key, tester in added.items() for line in render.builder_lines(watcher.name, data, [tester])]
 
 
@@ -514,7 +514,7 @@ def reach_lines(watcher: Watcher, moment: datetime) -> list[str]:
         data["reaches_narrowed"] = True
         return data, lifted
 
-    data, lifted = state.write(watcher.name, reach_lines_write)
+    data, lifted = state.write(watcher.name, reach_lines_write, budget=state.WATCH_WRITE_SECONDS)
     lines = []
     for key, stopped in lifted.items():
         ended = f", and {', '.join(stopped)} stopped" if stopped else ""
@@ -544,7 +544,7 @@ def release_lines(watcher: Watcher, moment: datetime) -> list[str]:
             lines.append(f"PR {key}: {state.RELEASE_LANDS.format(key=key, order=', '.join(orders))}{ended} {ids(data['prs'][key])}")
         return lines
 
-    return state.write(watcher.name, release_lines_write)
+    return state.write(watcher.name, release_lines_write, budget=state.WATCH_WRITE_SECONDS)
 
 
 def main_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -579,7 +579,7 @@ def main_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 data["mains"][repo][test]["waking"] = state.stamp(moment)
         return [(owner, main_fix(repo, owner, data["prs"][owner], data["mains"][repo], tests), [f"main:{repo}@{test}" for test in tests]) for repo, owner, tests in wakes]
 
-    for owner, text, marks in state.write(watcher.name, main_lines_write):
+    for owner, text, marks in state.write(watcher.name, main_lines_write, budget=state.WATCH_WRITE_SECONDS):
         stage.wake(watcher.name, owner, text, marks=marks, at=state.stamp(moment))
     return []
 
@@ -642,7 +642,7 @@ def refused_lines(watcher: Watcher, keys: list[str], moment: datetime) -> list[s
         def refused(data: dict) -> None:
             land.refuse(watcher.name, data, outcomes)
 
-        state.write(watcher.name, refused)
+        state.write(watcher.name, refused, budget=state.WATCH_WRITE_SECONDS)
     return []
 
 
@@ -672,7 +672,7 @@ def pushed_lines(watcher: Watcher, moment: datetime) -> list[str]:
             lines += [f"PR {key}: READY refused, its {why} [{job['order']} {job_id}]" for key, why in held]
         return lines
 
-    return state.write(watcher.name, pushed_lines_write)
+    return state.write(watcher.name, pushed_lines_write, budget=state.WATCH_WRITE_SECONDS)
 
 
 def settles(watcher: Watcher, data: dict, job_id: str) -> tuple[str, list[tuple[str, str]]] | None:
@@ -710,7 +710,7 @@ def dropped_lines(watcher: Watcher, foreign: dict[str, tuple[str, str, str]], mo
             for key in gone:
                 state.drop_pr(data, key)
 
-        state.write(watcher.name, dropped_lines_write)
+        state.write(watcher.name, dropped_lines_write, budget=state.WATCH_WRITE_SECONDS)
     return lines
 
 
@@ -805,7 +805,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 freed.append(f"FREE {key} {pr['job']} {pr['order']}: {ended}, nothing else holds it")
         return freed, moves, rebriefs, launches
 
-    freed, moves, rebriefs, launches = state.write(watcher.name, waits_lines_write)
+    freed, moves, rebriefs, launches = state.write(watcher.name, waits_lines_write, budget=state.WATCH_WRITE_SECONDS)
     lines += freed
     for job_id in moves:
         start_verb(watcher, job_id, ["job", "launch", job_id, "--local"], moment)
@@ -887,7 +887,7 @@ def gave_way(watcher: Watcher, data: dict, moment: datetime) -> tuple[bool, list
             reason = f"freeze {freeze['id']} it holds gave way to the staging release for production {notice['url']}"
             state.drop_waits(saved, job_id, {wait: reason for wait in job["waits"] if state.STAGING_WAIT.fullmatch(wait)})
 
-    state.write(watcher.name, gave)
+    state.write(watcher.name, gave, budget=state.WATCH_WRITE_SECONDS)
     return True, []
 
 
@@ -953,7 +953,7 @@ def release_end_lines(watcher: Watcher, moment: datetime) -> list[str]:
             def release_end_lines_write(kept: dict):
                 kept["jobs"][job_id]["release_heard"] = heard
 
-            state.write(watcher.name, release_end_lines_write)
+            state.write(watcher.name, release_end_lines_write, budget=state.WATCH_WRITE_SECONDS)
         if heard["told"] or not (read["state"] in FOLLOW_ENDS or read["state"] == "BLOCKED" and moment - state.parse_time(heard["since"]) >= RELEASE_BLOCKED_AFTER):
             continue
         source = f"release {job['release_build']}"
@@ -990,7 +990,7 @@ def release_told(watcher: Watcher, job_id: str, read: dict, moment: datetime) ->
             moving = kept["jobs"][job_id]
             moving.update(release_build=moved, release_heard=None, waits=[moved if wait == link else wait for wait in moving["waits"]])
 
-        state.write(watcher.name, release_told_write2)
+        state.write(watcher.name, release_told_write2, patient=True)
         print(f"{state.stamp(moment)} {job_id}'s release build {link} reads {read['state']} and started {moved}, which {job_id} follows now", flush=True)
         return
     text, body = release_words(data, job_id, link, read, record, moment)
@@ -1011,7 +1011,7 @@ def release_post(name: str, data: dict, job_id: str, text: str, body: str, recor
         kept(saved, seq)
         state.hold_addressed(saved, {"kind": "handoff", "text": text, "body": body, "to": [f"{lane}@{name}" for lane in to]}, LANE, seq, None)
 
-    state.write(name, release_post_write)
+    state.write(name, release_post_write, patient=True)
     return seq
 
 
@@ -1049,7 +1049,7 @@ def env_alert_lines(watcher: Watcher, moment: datetime) -> list[str]:
         def env_alert_write(saved: dict, env=env, newest=fresh[-1]["ts"]):
             saved["slack"]["env_alerts"][env]["seen"] = newest
 
-        state.write(watcher.name, env_alert_write)
+        state.write(watcher.name, env_alert_write, budget=state.WATCH_WRITE_SECONDS)
     return lines
 
 
@@ -1103,7 +1103,7 @@ def release_card_kept(name: str, job_id: str, link: str, step: str, moment: date
     def release_card_kept_write(data: dict):
         data["jobs"][job_id]["release_cards"][f"{link} {step}"] = entry
 
-    state.write(name, release_card_kept_write)
+    state.write(name, release_card_kept_write, budget=state.WATCH_WRITE_SECONDS)
 
 
 def release_card_settled(watcher: Watcher, job_id: str, key: str) -> list[str]:
@@ -1119,7 +1119,7 @@ def release_card_settled(watcher: Watcher, job_id: str, key: str) -> list[str]:
         def release_card_shown_write(data: dict):
             data["jobs"][job_id]["release_cards"][key]["shown"] = entry["result"]
 
-        state.write(watcher.name, release_card_shown_write)
+        state.write(watcher.name, release_card_shown_write, patient=True)
         return [f"CARD {entry['url']} closed in place: {entry['result']}"]
     if entry["build"] not in watcher.builds:
         return []
@@ -1133,7 +1133,7 @@ def release_card_settled(watcher: Watcher, job_id: str, key: str) -> list[str]:
         def release_card_posted_write(data: dict):
             data["jobs"][job_id]["release_cards"][key]["url"] = url
 
-        state.write(watcher.name, release_card_posted_write)
+        state.write(watcher.name, release_card_posted_write, patient=True)
         return [f"CARD {url} asks his Approve on release {entry['release']} {entry['build']} at its approve step \"{entry['step']}\""]
     result = f"Withdrawn: the build moved past \"{entry['step']}\" with no tap here, and reads {read['state'].lower() if read else 'as no build'}"
     if entry["url"]:
@@ -1141,7 +1141,7 @@ def release_card_settled(watcher: Watcher, job_id: str, key: str) -> list[str]:
     def release_card_withdrawn_write(data: dict):
         data["jobs"][job_id]["release_cards"][key].update(result=result, shown=result)
 
-    state.write(watcher.name, release_card_withdrawn_write)
+    state.write(watcher.name, release_card_withdrawn_write, patient=True)
     return [f"CARD {entry['url']} withdrawn: {result}"] if entry["url"] else []
 
 
@@ -1253,12 +1253,12 @@ def status(watcher: Watcher, order_id: str, order: dict, part: str, follow: dict
     def status_write(data: dict):
         data["orders"][order_id]["parts"][part]["follow"].update(kept)
 
-    state.write(watcher.name, status_write)
+    state.write(watcher.name, status_write, budget=state.WATCH_WRITE_SECONDS)
     if read["state"] in FOLLOW_ENDS:
         def status_write2(data: dict):
             data["orders"][order_id]["parts"][part]["follow"]["ended"] = state.stamp(moment)
 
-        state.write(watcher.name, status_write2)
+        state.write(watcher.name, status_write2, budget=state.WATCH_WRITE_SECONDS)
         end_line(watcher, order_id, order, part, follow | kept, read)
 
 
@@ -1470,7 +1470,7 @@ def proof_owed(watcher: Watcher, head: str, unseen: dict[str, str], fix: str, mo
         data["orders"][head]["prove_said"] = state.stamp(moment)
         return True
 
-    if not state.write(watcher.name, proof_owed_write):
+    if not state.write(watcher.name, proof_owed_write, budget=state.WATCH_WRITE_SECONDS):
         return []
     surfaces = " and ".join(dict.fromkeys(unseen.values()))
     goal = f"prove {fix.removesuffix(' live in production')} live on {surfaces} with a recording of it"
@@ -1513,7 +1513,7 @@ def owner_page_lines(watcher: Watcher, moment: datetime) -> list[str]:
         def owner_page_lines_write(edited: dict):
             edited["orders"][key]["paged"] = state.stamp(moment)
 
-        state.write(watcher.name, owner_page_lines_write)
+        state.write(watcher.name, owner_page_lines_write, budget=state.WATCH_WRITE_SECONDS)
         lines.append(f"WATCH paged him for incident {key} while he is away: {paged}")
     return lines
 
@@ -1528,7 +1528,7 @@ def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 data["orders"][order_id].update(close_report=None, state="done", updated=state.stamp(moment))
                 state.close_order_jobs(data, order_id, f"stopped: the watch closed its order {order_id} on its close report")
 
-        state.write(watcher.name, close_report_lines_write)
+        state.write(watcher.name, close_report_lines_write, budget=state.WATCH_WRITE_SECONDS)
     owed = {order_id: order["close_report"] for order_id, order in closing.items() if order_id not in unasked and "seq" not in order["close_report"]}
     if not owed:
         return proved_lines(watcher, moment)
@@ -1576,7 +1576,7 @@ def proved_lines(watcher: Watcher, moment: datetime) -> list[str]:
         def proved_lines_write(edited: dict):
             edited["orders"][order_id]["close_report"] = None
 
-        state.write(watcher.name, proved_lines_write)
+        state.write(watcher.name, proved_lines_write, budget=state.WATCH_WRITE_SECONDS)
     return lines
 
 
@@ -1593,7 +1593,7 @@ def reported(watcher: Watcher, records: list[dict]) -> list[str]:
                 if order["close_report"] and order["close_report"]["id"] == record.get("id"):
                     order["close_report"] = order["close_report"] | {"seq": seq} if state.watch_posts_itself(order) else None
 
-        state.write(watcher.name, reported_write)
+        state.write(watcher.name, reported_write, budget=state.WATCH_WRITE_SECONDS)
     return seqs
 
 
@@ -1613,7 +1613,7 @@ def closed(watcher: Watcher, head: str, links: list[str], fix: str, moment: date
             data["orders"][order_id]["proof"] = data["orders"][order_id]["proof"] or "; ".join([*([f"{read_ok} at {when(state.stamp(moment))}"] if links else []), fix])
         return data, group, incident, follow
 
-    data, group, incident, follow = state.write(watcher.name, proven)
+    data, group, incident, follow = state.write(watcher.name, proven, budget=state.WATCH_WRITE_SECONDS)
     facts = [
         f"Incident: {incident['text']}",
         *([f"Recovered: {read_ok}"] if links else []),
@@ -1636,7 +1636,7 @@ def closed(watcher: Watcher, head: str, links: list[str], fix: str, moment: date
         for order_id in group:
             data["orders"][order_id]["recovered"] = state.stamp(moment)
 
-    state.write(watcher.name, recovered_write)
+    state.write(watcher.name, recovered_write, budget=state.WATCH_WRITE_SECONDS)
     lines = []
     try:
         said = f"the drive posted its Live line: {talk.report_line(watcher.name, seq)}"
@@ -1789,7 +1789,7 @@ def objections(watcher: Watcher) -> None:
             told.setdefault((stage.owner_job(data, key) or pr["job"], pr["checker"]["outcome"]), (key, f"PR {key}: {pr['checker']['outcome']} {ids(pr)}", []))[2].append(f"objected:{key}@{pr['head']}")
         return told
 
-    for key, line, marks in state.write(watcher.name, objections_write).values():
+    for key, line, marks in state.write(watcher.name, objections_write, budget=state.WATCH_WRITE_SECONDS).values():
         stage.wake(watcher.name, key, line, marks=marks, at=state.stamp(moment))
 
 
@@ -1823,7 +1823,7 @@ def waiting_lines(watcher: Watcher, moment: datetime) -> list[str]:
         return cards
 
     lines = []
-    for url, entries in state.write(watcher.name, waiting_claimed).items():
+    for url, entries in state.write(watcher.name, waiting_claimed, budget=state.WATCH_WRITE_SECONDS).items():
         try:
             reply = talk.posted(watcher.name, {"text": PAUSED, "thread_ts": view.card_thread(url)})
         except (state.DriveError, slack.SlackError) as error:
@@ -1831,7 +1831,7 @@ def waiting_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 for entry in entries:
                     data["jobs"][entry["job"]]["waiting_claims"].pop(entry["wait"])
 
-            state.write(watcher.name, waiting_given_back)
+            state.write(watcher.name, waiting_given_back, patient=True)
             lines += failed(watcher, "waiting post", "built-and-paused reply", error, moment)
             continue
 
@@ -1841,7 +1841,7 @@ def waiting_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 job["waiting_claims"].pop(entry["wait"])
                 job["waiting_said"].append(entry["wait"])
 
-        state.write(watcher.name, waiting_said)
+        state.write(watcher.name, waiting_said, patient=True)
         watcher.failures.pop("waiting post", None)
         lines += [
             f"WAITING-ON-HIM {entry['wait']} blocks {entry['job']}, built on {entry['branch']}, since {when(entry['card']['asked'])}, posted {reply['permalink']}"
@@ -1989,7 +1989,7 @@ def posted_after(watcher: Watcher, data: dict, followed: dict[str, list[str]], m
                 words = f"{first['kind']} record {first['seq']} from {first['lane']}@{first['drive']}, the first on topic {anchor['topic']} after {anchor['seq']} that {job_id} waited on: {Path(body).read_text().strip() if (body := first['refs'].get('path')) else first['text']}"
                 state.hold_text(saved["jobs"][job_id], words, state.WATCH_SENDER, seq=str(first["seq"]))
 
-    state.write(watcher.name, posted_after_write)
+    state.write(watcher.name, posted_after_write, budget=state.WATCH_WRITE_SECONDS)
     return {wait: f"{first['lane']}@{first['drive']} posted {first['seq']} on {anchor['topic']}" for wait, (anchor, first) in firsts.items()}, []
 
 
@@ -2145,7 +2145,7 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 lines.append(mail_line(watcher.name, data, job_id, message, moment, asks.get(message["id"]), taken, owed))
             return data, lines, undelivered, owed, asked, unread, turned
 
-        data, lines, undelivered, owed, asked, unread, turned = state.write(watcher.name, mail_taken)
+        data, lines, undelivered, owed, asked, unread, turned = state.write(watcher.name, mail_taken, budget=state.WATCH_WRITE_SECONDS)
         watcher.mailbox_seen = messages[-1]["sequence"]
     for job_id in turned:
         state.detach(watcher.name, ["transcripts-keep", job_id], TRANSCRIPTS_LOG)
@@ -2238,7 +2238,7 @@ def queue_kept_reads(watcher: Watcher) -> None:
                 job.update(ask=None, state="running")
         return asked
 
-    for job_id, message_id in state.write(watcher.name, queue_kept_reads_write):
+    for job_id, message_id in state.write(watcher.name, queue_kept_reads_write, budget=state.WATCH_WRITE_SECONDS):
         spawn_reader(watcher.name, job_id, message_id)
 
 
@@ -2661,7 +2661,7 @@ def codex_takes(watcher: Watcher) -> None:
                 shippers[job_id] = builder_id
         return data, taken, shippers
 
-    data, taken, shippers = state.write(watcher.name, took)
+    data, taken, shippers = state.write(watcher.name, took, budget=state.WATCH_WRITE_SECONDS)
     for job_id in taken:
         state.returned(watcher.name, data, job_id, "; ".join(filter(None, [data["jobs"][job_id]["said"], *(codex_asks(watcher.name, job_id) if isinstance(ended[job_id], Answered) else []), *([fix_shipped(watcher.name, shippers[job_id])] if job_id in shippers else [])])))
 
@@ -2826,7 +2826,7 @@ def digest_lines(watcher: Watcher, moment: datetime) -> list[str]:
     def digest_lines_write(saved: dict):
         saved["slack"]["digest"] = folded
 
-    state.write(watcher.name, digest_lines_write)
+    state.write(watcher.name, digest_lines_write, budget=state.WATCH_WRITE_SECONDS)
     return [f"DIGEST {day}: {len(old)} of his question cards asked more than a day ago, linked in {folded['message']}"] if old else []
 
 
@@ -2851,7 +2851,7 @@ def waiting_post_lines(watcher: Watcher, moment: datetime) -> list[str]:
             def waiting_post_lines_write2(saved: dict):
                 saved["slack"]["waiting"][channel] = kept
 
-            state.write(watcher.name, waiting_post_lines_write2)
+            state.write(watcher.name, waiting_post_lines_write2, budget=state.WATCH_WRITE_SECONDS)
         if not kept or kept["pinned"]:
             continue
         try:
@@ -2863,7 +2863,7 @@ def waiting_post_lines(watcher: Watcher, moment: datetime) -> list[str]:
         def waiting_post_lines_write(saved: dict):
             saved["slack"]["waiting"][channel]["pinned"] = True
 
-        state.write(watcher.name, waiting_post_lines_write)
+        state.write(watcher.name, waiting_post_lines_write, budget=state.WATCH_WRITE_SECONDS)
     return lines
 
 
@@ -2911,7 +2911,7 @@ def named_lines(watcher: Watcher, data: dict, link: str, moment: datetime) -> li
         def named_write(saved: dict, seat=seat, renamed=renamed, purpose=purpose):
             saved["slack"]["channels"][seat] |= {"name": renamed["name"], "purpose": purpose}
 
-        state.write(watcher.name, named_write)
+        state.write(watcher.name, named_write, budget=state.WATCH_WRITE_SECONDS)
         if renamed["name"] != made["name"]:
             lines.append(f"WATCH #{made['name']} is now #{renamed['name']}")
     return lines
@@ -3080,7 +3080,7 @@ def claim_lines(watcher: Watcher, moment: datetime) -> list[str]:
             claims[ts]["said"] = state.stamp(moment)
             return True
 
-        if not state.write(watcher.name, claim_said):
+        if not state.write(watcher.name, claim_said, budget=state.WATCH_WRITE_SECONDS):
             continue
         lines.append(
             f"DUE {order_id} claim {held['link']} ended {when(held['until'])} with no closing line in its thread: once the work ends, free what it"
@@ -3117,7 +3117,7 @@ def claim_reply_lines(watcher: Watcher, moment: datetime) -> list[str]:
             claims[ts]["replies_read"] = state.stamp(moment)
             return True
 
-        if not state.write(watcher.name, replies_read):
+        if not state.write(watcher.name, replies_read, budget=state.WATCH_WRITE_SECONDS):
             continue
         if not replies:
             lines.append(f"DUE {order_id} claim {held['link']} is 5 minutes old with no reply in its thread: the work it claims may start, as the repository's staging-claim rule says")
@@ -3169,7 +3169,7 @@ def withdrawn_lines(watcher: Watcher, moment: datetime) -> list[str]:
         def withdrawn_lines_write(data: dict):
             state.answer_handoffs(data, [(seq, "withdraw", {}) for seq in withdrawn])
 
-        state.write(watcher.name, withdrawn_lines_write)
+        state.write(watcher.name, withdrawn_lines_write, budget=state.WATCH_WRITE_SECONDS)
     return []
 
 
@@ -3191,7 +3191,7 @@ def watched_lines(watcher: Watcher, moment: datetime) -> list[str]:
             def watched_lines_write(data: dict):
                 data["orders"][order_id]["watch"]["record"] = None
 
-            state.write(watcher.name, watched_lines_write)
+            state.write(watcher.name, watched_lines_write, budget=state.WATCH_WRITE_SECONDS)
     return lines
 
 
@@ -3221,7 +3221,7 @@ def watched_report(watcher: Watcher, order_id: str, order: dict) -> str | None:
     def watched_report_write(data: dict):
         data["orders"][order_id]["watch"].update(seen=max((message["ts"] for message in messages), key=float), record=seq)
 
-    state.write(watcher.name, watched_report_write)
+    state.write(watcher.name, watched_report_write, budget=state.WATCH_WRITE_SECONDS)
     return seq
 
 
@@ -3240,7 +3240,7 @@ def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
             data["owed_replies"] = marks
             return data
 
-        data = state.write(watcher.name, owed_lines_write)
+        data = state.write(watcher.name, owed_lines_write, budget=state.WATCH_WRITE_SECONDS)
     return communicators_wanted(watcher, data, replies, moment)
 
 
@@ -3258,7 +3258,7 @@ def communicators_wanted(watcher: Watcher, data: dict, replies: list[dict], mome
             for seat in heard & set(saved["communicators"]):
                 saved["communicators"][seat]["heard"] = state.stamp(moment)
 
-        state.write(watcher.name, communicators_wanted_write)
+        state.write(watcher.name, communicators_wanted_write, budget=state.WATCH_WRITE_SECONDS)
     return lines
 
 
@@ -3286,7 +3286,7 @@ def retire_communicator(name: str, seat: str) -> str:
         saved["communicators"].pop(seat)
         saved["launched"].pop(f"communicator {seat}", None)
 
-    state.write(name, retire_communicator_write)
+    state.write(name, retire_communicator_write, budget=state.WATCH_WRITE_SECONDS)
     print(f"{state.stamp()} retired the communicator for {seat}, session {session}, idle {minutes(COMMUNICATOR_IDLE)} minutes", flush=True)
     return f"retired the communicator for {seat}, session {session}: its channel #{data['slack']['channels'][seat]['name']} had no message of his owed for {minutes(COMMUNICATOR_IDLE)} minutes, so the drive's communicator holds it again until his next message there starts one"
 
@@ -3334,7 +3334,7 @@ def close_answered(watcher: Watcher, moment: datetime) -> None:
             if state.answered(data, order_id):
                 data["orders"][order_id].update(state="done", updated=state.stamp(moment))
 
-    state.write(watcher.name, close_answered_write)
+    state.write(watcher.name, close_answered_write, budget=state.WATCH_WRITE_SECONDS)
 
 
 def close_joined_repeats(watcher: Watcher, moment: datetime) -> None:
@@ -3347,7 +3347,7 @@ def close_joined_repeats(watcher: Watcher, moment: datetime) -> None:
             head = data["orders"][order["joins"]]
             order.update(state=head["state"], proof=head["proof"] if head["state"] == "done" else None, note=f"closed with {order['joins']}, the order it repeats", updated=state.stamp(moment))
 
-    state.write(watcher.name, close_joined_repeats_write)
+    state.write(watcher.name, close_joined_repeats_write, budget=state.WATCH_WRITE_SECONDS)
 
 
 def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -3376,7 +3376,7 @@ def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
             )
         return lines
 
-    return state.write(watcher.name, tell_said)
+    return state.write(watcher.name, tell_said, budget=state.WATCH_WRITE_SECONDS)
 
 
 def ran_out(job: dict, moment: datetime) -> bool:
@@ -3403,7 +3403,7 @@ def clock_lines(watcher: Watcher, moment: datetime) -> list[str]:
             job["due"] = None
         return lines
 
-    return state.write(watcher.name, ran_out_lines)
+    return state.write(watcher.name, ran_out_lines, budget=state.WATCH_WRITE_SECONDS)
 
 
 def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -3423,7 +3423,7 @@ def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
             lines.append(f'ANSWER undelivered {job_id}: {unreached(job_id, job, data, answer, locked.get(job_id), moment)} [{job["order"]} {job_id}]')
         return lines
 
-    return state.write(watcher.name, said_undelivered)
+    return state.write(watcher.name, said_undelivered, budget=state.WATCH_WRITE_SECONDS)
 
 
 def held_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -3535,7 +3535,7 @@ def hear_sent(name: str, job_ids: set[str]) -> dict:
                 superseded.hear(data, job_id, said, written)
         return data
 
-    data = state.write(name, hear_sent_write)
+    data = state.write(name, hear_sent_write, patient=True)
     return data
 
 
@@ -3573,7 +3573,7 @@ def stale_texts(watcher: Watcher, moment: datetime) -> list[str]:
                     data["jobs"][job_id]["undelivered"] = [entry for entry in data["jobs"][job_id]["undelivered"] if entry["request"] not in stale]
             return data
 
-        data = state.write(watcher.name, texts_read)
+        data = state.write(watcher.name, texts_read, budget=state.WATCH_WRITE_SECONDS)
     return []
 
 
@@ -3596,7 +3596,7 @@ def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
             data["answers"][answer_id]["said"] = state.stamp(moment)
         return data
 
-    data = state.write(watcher.name, said_answers)
+    data = state.write(watcher.name, said_answers, budget=state.WATCH_WRITE_SECONDS)
     try:
         owed = dict(superseded.standing(data, list(owed.items())))
     except state.DriveError as error:
@@ -3613,7 +3613,7 @@ def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     kept["jobs"][job_id] = {"mark": "sent"}
             return data
 
-        data = state.write(watcher.name, sent_answers)
+        data = state.write(watcher.name, sent_answers, budget=state.WATCH_WRITE_SECONDS)
     lines = []
     for answer_id, (keys, _) in owed.items():
         owners: dict[str, tuple[str | None, list[str]]] = {}
@@ -4292,7 +4292,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                         idle[job_id] = shown
             return idle, data
 
-        idle, data = state.write(watcher.name, taken_mail)
+        idle, data = state.write(watcher.name, taken_mail, budget=state.WATCH_WRITE_SECONDS)
     lines += unread_lines(watcher, finished, {job_id for job_id, job in finished.items() if job_id in deaths and job["state"] == "running"}, moment)
     lines += wake_lines(watcher, idle, moment)
     watcher.made += lines
@@ -4324,7 +4324,7 @@ def reaped_lines(watcher: Watcher, data: dict, read: set[str], lost: dict[str, s
             lines.append(f"LANE {job_id} {job['order']} {said}; its part's ORPHAN line names who starts its next worker")
         return lines
 
-    return state.write(watcher.name, reaped)
+    return state.write(watcher.name, reaped, budget=state.WATCH_WRITE_SECONDS)
 
 
 def unread_lines(watcher: Watcher, finished: dict[str, dict], relaunched: set[str], moment: datetime) -> list[str]:
@@ -4369,7 +4369,7 @@ def wake_lines(watcher: Watcher, idle: dict[str, tuple[dict, dict]], moment: dat
             def wake_lines_write(data: dict):
                 data["jobs"][job_id]["turn_open"] = True
 
-            state.write(watcher.name, wake_lines_write)
+            state.write(watcher.name, wake_lines_write, budget=state.WATCH_WRITE_SECONDS)
     return lines
 
 
@@ -4407,7 +4407,7 @@ def safeguard_lines(watcher: Watcher, refusals: dict[str, tuple[str, dict, str |
             steps.append((job_id, None))
         return steps, plans
 
-    steps, plans = state.write(watcher.name, claim_restarts)
+    steps, plans = state.write(watcher.name, claim_restarts, budget=state.WATCH_WRITE_SECONDS)
     restarted = safeguard_restart(watcher, plans, moment)
     return [line if line is not None else restarted[job_id] for job_id, line in steps]
 
@@ -4463,7 +4463,7 @@ def safeguard_restart(watcher: Watcher, plans: dict[str, dict], moment: datetime
             told[job_id] = f"{opening} The watch ran drive job launch {job_id} --local, which starts it again in a fresh Claude session{on} on this Mac with a handoff, its output in the drive's {RELAUNCHES_LOG}"
     finally:
         if claimed:
-            state.write(watcher.name, own)
+            state.write(watcher.name, own, patient=True)
     return told
 
 
@@ -4537,7 +4537,7 @@ def safeguard_restarted(watcher: Watcher, job_id: str, file: Path, moment: datet
         job.update(state="running", said=f"restarted on his tap, {SAFEGUARDED} {times(len(job['safeguarded']))}", safeguarded=[stop], updated=state.stamp(moment))
         return "", safeguard_claim(job_id, job, stop, moment)
 
-    said, plan = state.write(watcher.name, restart_claimed)
+    said, plan = state.write(watcher.name, restart_claimed, budget=state.WATCH_WRITE_SECONDS)
     if plan is None:
         return said
     return safeguard_restart(watcher, {job_id: plan}, moment)[job_id] + ", on his Restart tap on its safeguards card"
@@ -4592,7 +4592,7 @@ def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
             stalls[thing]["claim"] = claimer
         return steps, {thing: dict(stalls[thing]) for thing in steps}
 
-    steps, claims = state.write(watcher.name, claimed_steps)
+    steps, claims = state.write(watcher.name, claimed_steps, budget=state.WATCH_WRITE_SECONDS)
     lines = []
     for thing, step in steps.items():
         held = claims[thing]
@@ -4647,7 +4647,7 @@ def settle(name: str, thing: str, held: dict, done: dict) -> None:
         if (kept := data["stalls"].get(thing)) and kept["since"] == held["since"]:
             kept |= {"claim": None} | done
 
-    state.write(name, settled_stall)
+    state.write(name, settled_stall, patient=True)
 
 
 def claimed(claim: dict | None) -> bool:
@@ -4856,7 +4856,7 @@ def release_lanes(watcher: Watcher, moment: datetime) -> list[str]:
             state.death_on(job, lane)["reclaim"] = dict(claim)
         return ends, reclaims
 
-    ends, reclaims = state.write(watcher.name, claim_lanes)
+    ends, reclaims = state.write(watcher.name, claim_lanes, budget=state.WATCH_WRITE_SECONDS)
     unlaunched = dict(ends)
     spawned: dict[tuple[str, str], int] = {}
 
@@ -4952,7 +4952,7 @@ def adopt_sprites(watcher: Watcher, moment: datetime) -> list[str]:
             if job.get("workspace") != workspace and not state.death_on(job, workspace):
                 job.setdefault("deaths", []).append({"dispatch": None, "workspace": workspace, "why": ADOPTED, "at": state.stamp(moment)})
 
-    state.write(watcher.name, adopt_sprites_write)
+    state.write(watcher.name, adopt_sprites_write, budget=state.WATCH_WRITE_SECONDS)
     return []
 
 
@@ -5047,7 +5047,7 @@ def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: da
             )
         return lines, claims
 
-    lines, claims = state.write(watcher.name, claim_relaunches)
+    lines, claims = state.write(watcher.name, claim_relaunches, budget=state.WATCH_WRITE_SECONDS)
     spawned: dict[str, int] = {}
 
     def own(data: dict) -> None:
@@ -5066,7 +5066,7 @@ def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: da
             spawned[job_id] = relaunch(watcher, job_id, moment)
     finally:
         if claims:
-            state.write(watcher.name, own)
+            state.write(watcher.name, own, patient=True)
     return lines
 
 
@@ -5136,7 +5136,7 @@ def start_jobs(watcher: Watcher, moment: datetime, first: bool = False) -> None:
                 if state.unstarted(data["jobs"][job_id]):
                     place.queue_sprite(data["jobs"][job_id], moment)
 
-        state.write(watcher.name, start_jobs_write)
+        state.write(watcher.name, start_jobs_write, budget=state.WATCH_WRITE_SECONDS)
 
 
 def first_starts(watcher: Watcher, moment: datetime) -> list[str]:
@@ -5189,7 +5189,7 @@ def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
         waiters = state.queue_waiters(data, approved_only=any(slot.get("hold") for slot in data["slots"].values()))
         return waiters, state.slot_turns(data, moment, release)
 
-    waiters, moved = state.write(watcher.name, slot_lines_write)
+    waiters, moved = state.write(watcher.name, slot_lines_write, budget=state.WATCH_WRITE_SECONDS)
     lines = list(waiters)
     for env, job_id, kind, line in moved:
         if kind == "go":
@@ -5214,7 +5214,7 @@ def work_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 data["jobs"][job_id]["work_reads"] = {"paths": paths, "stacks": stacks}
         return work.spawned(data, moment)
 
-    lines, workers = state.write(watcher.name, work_lines_write)
+    lines, workers = state.write(watcher.name, work_lines_write, budget=state.WATCH_WRITE_SECONDS)
     for worker_id in workers:
         start_verb(watcher, worker_id, ["work", "start", worker_id], moment)
     return lines
@@ -5546,7 +5546,7 @@ def finished(watcher: Watcher, moment: datetime) -> list[str]:
             provers.setdefault(add_prover(watcher.name, data, job_id, reach, parts, watcher.staged or set()), []).append(job_id)
         return claims, known, provers
 
-    claims, known, provers = state.write(watcher.name, claim_proofs)
+    claims, known, provers = state.write(watcher.name, claim_proofs, budget=state.WATCH_WRITE_SECONDS)
     unlaunched = dict(claims)
     try:
         for job_id, held in claims.items():
@@ -5576,7 +5576,7 @@ def folded_lines(watcher: Watcher, moment: datetime) -> list[str]:
             folds.append((first, job_id))
         return folds
 
-    folds = state.write(watcher.name, folded)
+    folds = state.write(watcher.name, folded, budget=state.WATCH_WRITE_SECONDS)
     return [merged_said(watcher.name, first, f"took the parts of {job_id}, a duplicate now stopped") for first, job_id in folds]
 
 
@@ -5600,7 +5600,7 @@ def cut_lines(watcher: Watcher, moment: datetime) -> list[str]:
             said.append((first, f"took the parts of {job_id}, a prover of merges the next cut carries, now stopped"))
         return said
 
-    said = state.write(watcher.name, folded_cuts)
+    said = state.write(watcher.name, folded_cuts, budget=state.WATCH_WRITE_SECONDS)
     data = state.load(watcher.name)
     if not (waiting := cut_waiting(data)):
         return [merged_said(watcher.name, job_id, change) for job_id, change in said]
@@ -5622,7 +5622,7 @@ def cut_lines(watcher: Watcher, moment: datetime) -> list[str]:
             bound.append((job_id, f"bound to the release cut {cut} starts, {data['jobs'][cut]['release_build']}, which it waits on" if cut else "freed by a production release serving its merges"))
         return bound
 
-    said += state.write(watcher.name, bound_cuts)
+    said += state.write(watcher.name, bound_cuts, budget=state.WATCH_WRITE_SECONDS)
     return [merged_said(watcher.name, job_id, change) for job_id, change in said]
 
 
@@ -5800,7 +5800,7 @@ def standing_lines(watcher: Watcher, moment: datetime) -> list[str]:
             data["orders"][order_id]["parts"][part]["check"].update(ran=state.stamp(moment), exit=None, said=None)
         return checks, [(key, gap.last, added_pass(data, key, gap.last, moment)) for key, gap in gaps.items() if isinstance(gap, Restart) and not isinstance(gap, Recheck)]
 
-    checks, restarts = state.write(watcher.name, added_passes)
+    checks, restarts = state.write(watcher.name, added_passes, budget=state.WATCH_WRITE_SECONDS)
     for order_id, part in checks:
         state.detach(watcher.name, ["order", "check", order_id, "--part", part], STANDING_CHECKS_LOG)
     return [launched_pass(watcher.name, *restart) for restart in [*restarts, *unbriefed_passes(state.load(watcher.name), {job_id for *_, job_id in restarts})]]
@@ -5957,7 +5957,7 @@ def orphan_lines(watcher: Watcher, moment: datetime, said: type | tuple[type, ..
                 lines.append(f'ORPHAN {key[0]} "{cut(key[1], 80)}": {gap}')
         return lines
 
-    return state.write(watcher.name, orphaned)
+    return state.write(watcher.name, orphaned, budget=state.WATCH_WRITE_SECONDS)
 
 
 def hear(name: str, moment: datetime, away: bool = False) -> dict:
@@ -6014,7 +6014,7 @@ def sweep_lines(watcher: Watcher, moment: datetime) -> list[str]:
         promoted, dropped = state.backlog_drain(data, moment)
         return dropped, {order_id: data["orders"][order_id]["promoted"]["why"] for order_id in promoted}
 
-    dropped, drained = state.write(watcher.name, drained_backlog)
+    dropped, drained = state.write(watcher.name, drained_backlog, budget=state.WATCH_WRITE_SECONDS)
     print(f"{state.stamp(moment)} drive tooling backlog: dropped {', '.join(dropped) or 'none'}, no repeat in {state.BACKLOG_STALE.days} days", flush=True)
     return lines + [f"BACKLOG {order_id} promoted ({why}): add its one builder now, which researches inline with no reader" for order_id, why in drained.items()]
 
@@ -6049,7 +6049,7 @@ def untapped_lines(watcher: Watcher, moment: datetime) -> list[str]:
             data["prs"][key]["wants_tap"] = False
         return data
 
-    data = state.write(watcher.name, untapped_prs)
+    data = state.write(watcher.name, untapped_prs, budget=state.WATCH_WRITE_SECONDS)
     told = [f"PR {key}: waits on his tap no more, its flake fix changing only test and fixture code at {(pr := data['prs'][key])['head'][:7]}, which lands with no tap [{pr['order']} {pr['job']}]" for key in untapped]
     return told + redraw_lines(watcher, moment, set(untapped))
 
@@ -6175,10 +6175,13 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
 
 
 def contained(watcher: Watcher, stage: functools.partial, moment: datetime) -> list[str]:
-    """A stage's lines, or, when it raises, none: one traceback line in the watch's log each pass it raises, so every later stage of the pass still runs, and one incident record to the meta session once it raises FAILURES_BEFORE_SAYING passes in a row, at most every FAILURE_EVERY."""
+    """A stage's lines, or, when a write of it is refused within its budget, WATCH_WRITE_SECONDS, the stage skipped to the next pass, said once by failed after FAILURES_BEFORE_SAYING refused passes in a row; or, when it raises otherwise, none: one traceback line in the watch's log each pass it raises, so every later stage of the pass still runs, and one incident record to the meta session once it raises FAILURES_BEFORE_SAYING passes in a row, at most every FAILURE_EVERY."""
     source = f"stage {stage.func.__name__}"
     try:
         lines = stage() or []
+    except state.Refused as refused:
+        print(f"{state.stamp()} {source} of {watcher.project or 'the drive'} skipped this pass, its write refused: {refused}", flush=True)
+        return failed(watcher, source, f"{source}'s write", refused, moment)
     except Exception as error:
         where = traceback.extract_tb(error.__traceback__)[-1]
         print(f"{state.stamp()} {source} of {watcher.project or 'the drive'} raised {type(error).__name__}: {error} at {Path(where.filename).name}:{where.lineno}", flush=True)
@@ -6327,7 +6330,7 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
             uncarded, lines = quiet_draws(data, watcher.cards, units, acts, moment)
         return data, acts, moved, uncarded, lines
 
-    data, acts, moved, uncarded, lines = state.write(watcher.name, staged)
+    data, acts, moved, uncarded, lines = state.write(watcher.name, staged, budget=state.WATCH_WRITE_SECONDS)
     for key, now, entered, line in acts:
         if now.name != "uncarded":
             lines += acted(watcher, key, now, entered, line, moment)
@@ -6362,7 +6365,7 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 for key in keys:
                     data["prs"][key]["stage"] = None
 
-            state.write(watcher.name, stage_lines_write)
+            state.write(watcher.name, stage_lines_write, budget=state.WATCH_WRITE_SECONDS)
             if said := failed(watcher, "card draw", f"draw of his card on {', '.join(keys)}", error, moment):
                 lines += sent(watcher, "meta", said, moment)
             continue
@@ -6419,7 +6422,7 @@ def unscheduled_questions(watcher: Watcher, moment: datetime) -> list[str]:
         def unscheduled_questions_write(edited: dict):
             state.question_in(edited["jobs"][job_id], question)["card"] = None
 
-        state.write(watcher.name, unscheduled_questions_write)
+        state.write(watcher.name, unscheduled_questions_write, budget=state.WATCH_WRITE_SECONDS)
         withdrawn.append(f"CARD {card} withdrawn: {job_id} waits on {', '.join(steps)}, work he has not scheduled, and the card asks him again under {question['waits']} once he schedules it")
     if withdrawn:
         view.refresh_cards(watcher.name)
@@ -6470,7 +6473,7 @@ def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str
                     data["prs"][key]["stage"] = None
                     return data
 
-                data = state.write(watcher.name, acted_write2)
+                data = state.write(watcher.name, acted_write2, budget=state.WATCH_WRITE_SECONDS)
     if now.name == "behind":
         return said
     job_id = now.owner if now.owner in data["jobs"] else None
@@ -6487,14 +6490,14 @@ def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str
                 data["prs"][key]["review_asked"] = pr["head"]
                 return data
 
-            data = state.write(watcher.name, acted_write3)
+            data = state.write(watcher.name, acted_write3, budget=state.WATCH_WRITE_SECONDS)
     elif now.name == "unlanded" or not entered:
         said.append(f"STAGE {line}")
         def acted_write(data: dict):
             if kept := data["prs"][key]["stage"]:
                 kept["said"] = state.stamp(moment)
 
-        state.write(watcher.name, acted_write)
+        state.write(watcher.name, acted_write, budget=state.WATCH_WRITE_SECONDS)
     return said
 
 
@@ -6803,7 +6806,7 @@ def retire_seat(name: str, seat: str) -> str:
         data["subcoordinators"].pop(seat)
         data["launched"].pop(f"sub-coordinator {seat}", None)
 
-    state.write(name, retire_seat_write)
+    state.write(name, retire_seat_write, budget=state.WATCH_WRITE_SECONDS)
     install.forget_reloads(name, f"sub-coordinator {seat}")
     return f"retired the seat {seat}: no open order holds it, so its alias {alias} is removed from cci and nothing starts session {session} again, `claude stop` ends it now when it runs in the background, else it ends at its own exit, and its binding is dropped"
 
