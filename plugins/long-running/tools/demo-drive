@@ -36,7 +36,6 @@ for n, (kind, job_state) in enumerate(itertools.product(state.JOB_KINDS, state.J
     data["jobs"][f"j{n}"] = state.new_job("o1", kind, "demo goal", [], state.stamp()) | {"state": job_state}
     order["jobs"].append(f"j{n}")
 
-data["work"]["kinds"].append("stage-test")
 staged = {f"staging test of #{number} before it lands": state.new_part() for number in (1, 2)}
 data["orders"]["o2"] = tests = state.new_order("demo staging tests", "owner", None, staged, state.stamp())
 testers = {"t1": ("staging test of #1 before it lands", ["staging:demo/demo-staging@abc1234"]), "t2": ("staging test of #2 before it lands", [])}
