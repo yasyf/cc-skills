@@ -277,8 +277,8 @@ def test_a_record_links_what_it_measured_under_the_words_after_its_bar_or_draws_
 ) -> None:
     notebook = "https://app.datadoghq.com/notebook/1"
     shown = {
-        "661194": {"kind": "report", "text": "sandsql-server ran out of memory at its 32 GiB limit, 3 times since 9:40 PM", "refs": {"url": notebook}},
-        "661195": {"kind": "report", "text": "the write lock is held across the whole call", "refs": {}},
+        "661194": {"kind": "report", "lane": "root", "text": "sandsql-server ran out of memory at its 32 GiB limit, 3 times since 9:40 PM", "refs": {"url": notebook}},
+        "661195": {"kind": "report", "lane": "root", "text": "the write lock is held across the whole call", "refs": {}},
     }
     asked: list[list[str]] = []
     monkeypatch.setattr(reads, "run", lambda argv, checkout: asked.append(argv) or json.dumps(shown[argv[2]]))
@@ -291,7 +291,7 @@ def test_a_record_links_what_it_measured_under_the_words_after_its_bar_or_draws_
 def test_712711_a_bare_record_is_refused_naming_the_words_of_its_own_it_would_have_drawn(
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    merged = {"kind": "report", "text": "PR #55865 merged at 4:10 AM, its checks green", "refs": {}}
+    merged = {"kind": "report", "lane": "root", "text": "PR #55865 merged at 4:10 AM, its checks green", "refs": {}}
     monkeypatch.setattr(reads, "run", lambda argv, checkout: json.dumps(merged))
     with pytest.raises(DriveError) as refused:
         talk.say(demo, {"text": "Its fix is in, {record:712709}."})

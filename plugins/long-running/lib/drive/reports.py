@@ -79,6 +79,10 @@ VAGUE_WAIT = (
     " the test job running since {started:<job>}\": name the job doing X as {started:<job>} or the record the wait began on as {at:<seq>},"
     " whose stamp say fills, so no time is typed; add both"
 )
+UNHELD_RECORD = (
+    "refused: a line naming a cause cites the read that measured it, a record cci holds, and {error}: cite the seq the post of that"
+    " read returned, never one guessed before it"
+)
 DM_URL = (
     "refused: a report's --url is the link of what it measured, such as a trace, notebook, log or build, which {{record:<seq>|…}}"
     " links in his posts, and {url} is a message in his DM, which --attr thread={thread} names; drop --url, or put that link there"
@@ -138,6 +142,7 @@ def report_refusals(payload: dict, drive: dict, records: list[dict], index: int)
     yield misnamed_part(drive, record)
     yield plain_incident(drive, record)
     yield unfinished(drive, record) if posting else None
+    yield self_cited(drive, state.session_lane(drive, payload.get("session_id")), record) if posting else None
     yield not_thread(record)
     yield not_until(record)
     yield agents.Ruled(UNCARDED, UNCARDED_RULE) if ON_HIM.search(text) and not attrs(record).get("waits") and not CARD_NAMED.search(f"{text}\n{record.get('body') or ''}") else None
@@ -157,6 +162,18 @@ def unprevented(drive: dict, record: dict) -> str | None:
     if not (lines := refs.unprevented(told := f"{text}\n{record.get('body') or ''}", refs.records(drive["name"], told), refs.subject(drive, state.report_order(drive, attrs(record))))):
         return None
     return UNPREVENTED.format(lines="\n".join(lines))
+
+
+def self_cited(drive: dict, lane: str | None, record: dict) -> str | None:
+    """Why a POST report's line naming a cause stands on no read that measured it: its {record:} names a record cci does not hold, such as a seq guessed before the post holding it returned one, or one the report's own lane wrote, such as its go record to another session restating a tester's message."""
+    told = "\n".join(refs.causes(f"{record.get('text') or ''}\n{record.get('body') or ''}"))
+    try:
+        found = refs.records(drive["name"], told)
+    except state.DriveError as error:
+        return agents.Unjudged(UNHELD_RECORD.format(error=error))
+    if not (lines := refs.self_cited(told, found, lane)):
+        return None
+    return agents.Unjudged(refs.SELF_CITED.format(lane=lane, lines=" | ".join(lines)))
 
 
 def dm_url(drive: dict, record: dict) -> str | None:

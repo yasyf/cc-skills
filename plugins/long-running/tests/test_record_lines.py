@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import record_lines
 from conftest import CAP_RULING, SHORT_ASK, Answers, Jev
-from drive import agents, limits, reads, reports, settled, slack, state, view
+from drive import agents, limits, reads, refs, reports, settled, slack, state, view
 
 SESSION = "session-under-test"
 ALERT = "1794413465.441409"
@@ -378,10 +378,36 @@ def test_a_post_report_telling_him_the_drive_failed_goes_out_warning_the_session
     assert record_lines.decision(coordinator(turn, kind="report", text=prevented, to=TO, attrs={"close": "o1", "thread": THREAD})) is None
     old_pod = "POST j1 merged; the check that this pod still runs the agent compares writer, so an old pod is refused"
     assert record_lines.decision(coordinator(turn, kind="report", text=old_pod, to=TO, attrs={"close": "o1", "thread": THREAD}))["additionalContext"].endswith(f"```\n{old_pod}\n```")
-    monkeypatch.setattr(reads, "run", lambda argv, checkout: json.dumps({"kind": "defect", "text": "check-post refused a status table", "refs": {}}))
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: json.dumps({"kind": "defect", "lane": "watch", "text": "check-post refused a status table", "refs": {}}))
     cited = "POST j1 merged; tables post as Slack tables again, {record:671981}"
     warned = record_lines.decision(coordinator(turn, kind="report", text=cited, to=TO, attrs={"close": "o1", "thread": THREAD}))
     assert warned["additionalContext"].endswith(f"```\n{cited}\n```")
+
+
+def test_718857_a_post_reports_cause_line_citing_its_own_lanes_record_or_one_cci_does_not_hold_is_refused_while_one_citing_a_jobs_record_goes(
+    run: Callable[..., tuple[int, str]], demo: str, turn: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["thread"] = ["D123", THREAD]
+    kept = {
+        "718719": {"kind": "handoff", "lane": "root", "text": "go: the tester saw no writer, so the handoff code is already on dev", "refs": {}},
+        "718700": {"kind": "evidence", "lane": "j6301", "text": "sandsql-inbox logged no writer from 9:31:02 to 9:31:53", "refs": {}},
+    }
+
+    def cci(argv: list[str], checkout: Path) -> str:
+        if argv[1] == "show" and argv[2] not in kept:
+            raise reads.ReadError(f"no record {argv[2]}")
+        return json.dumps(kept.get(argv[2], {}))
+
+    monkeypatch.setattr(reads, "run", cci)
+    caused = "POST sandsql-inbox had no writer for 51 seconds because the handoff code is already on dev, {{record:{}|the read}}"
+    report = lambda seq, text=caused: coordinator(turn, kind="report", text=text.format(seq), to=TO, attrs={"close": "o1", "thread": THREAD})
+    assert refusal(record_lines.decision(report("718719"))) == refs.SELF_CITED.format(lane="root", lines=caused.format("718719"))
+    assert refusal(record_lines.decision(report("718715"))) == reports.UNHELD_RECORD.format(error="{record:718715} could not be read: no record 718715")
+    assert "permissionDecision" not in (record_lines.decision(report("718700")) or {})
+    assert "permissionDecision" not in (record_lines.decision(report("718719", "POST the tester's message is in, {{record:{}|its words}}")) or {})
+    assert refs.self_cited(caused.format("718719"), {"{record:718719|the read}": {"writer": "root"}}, "j6301") == []
 
 
 def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_order_closes_it(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:

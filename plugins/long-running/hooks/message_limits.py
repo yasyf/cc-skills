@@ -467,6 +467,16 @@ def unbacked(payload: dict, said: str) -> str | None:
     )
 
 
+def self_cited(payload: dict, drive: dict, report: dict, said: str, found: dict[str, dict]) -> agents.Unjudged | None:
+    """Why a say post's line naming a cause stands on no read that measured it: its {record:} names a record written by the lane whose words the post carries, the writer of the report it posts, else the posting session's own, which restates that lane's own reading, a handler's post listing claims included, since Jev reads such a record as backing the very words it restates."""
+    if payload["tool_name"] != SAY:
+        return None
+    lane = report.get("writer") or state.session_lane(drive, payload.get("session_id"))
+    if not (lines := refs.self_cited(said, found, lane)):
+        return None
+    return agents.Unjudged(refs.SELF_CITED.format(lane=lane, lines=" | ".join(lines)))
+
+
 def unprevented(said: str, found: dict[str, dict], subject: set[str]) -> agents.Ruled | None:
     """Why a line of a post to him, in its writer's own words, reads as a failure, refusal or gap of the drive's own, a line of it late included, or cites its defect record, while the post has no word on how it is prevented, the order it goes to and that order's PRs, subject, never counting as that word: each line one finding Jev weighs by PREVENTION_RULE, so a line on what the product or a PR's own tests did passes. A post drawing a PR card carries the PR that prevents it."""
     if not (lines := refs.unprevented(said, found, subject)):
@@ -668,6 +678,7 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
             unswitched(tool_input, drive),
             *unchecked(tool_input, messages, linked, drive, report, order_id),
             unbacked(payload, said),
+            self_cited(payload, drive, report, said, found),
             None if tool_input.get("tap_prs") else unprevented(said, found, refs.subject(drive, talk.posted_order(drive, tool_input, order_id))),
             unordered(said),
             corrected(tool_input, drive),
