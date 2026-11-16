@@ -1931,13 +1931,15 @@ def queue_kept_reads(watcher: Watcher) -> None:
     data = state.load(watcher.name)
     if not any(kept_read(job) for job in live_lanes(watcher, data).values()):
         return
-    asked = []
-    with state.edit(watcher.name) as data:
+    def queue_kept_reads_write(data: dict) -> list[tuple[str, str]]:
+        asked = []
         for job_id, job in live_lanes(watcher, data).items():
             if kept_read(job):
                 asked.append((job_id, job["ask"]))
                 job.update(ask=None, state="running")
-    for job_id, message_id in asked:
+        return asked
+
+    for job_id, message_id in state.update(watcher.name, None, queue_kept_reads_write):
         spawn_reader(watcher.name, job_id, message_id)
 
 
