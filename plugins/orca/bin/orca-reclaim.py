@@ -669,7 +669,7 @@ class CcRemote:
     def sprite(self, workspace: str) -> Sprite | None:
         if found := self.task(workspace):
             return found[1]
-        if not (self.state / "workspaces" / f"{workspace}.json").is_file():
+        if (self.state / "orca" / f"{workspace}.json").exists() or not (self.state / "workspaces" / f"{workspace}.json").is_file():
             return None
         config = Path(os.environ["CC_REMOTE_CONFIG"]).read_text()
         return Sprite(workspace, "", "", f"/home/sprite/{CONFIG_REPOSITORY.search(config)[1]}", "")
@@ -720,7 +720,7 @@ class CcRemote:
         try:
             return subprocess.run(command, input=given, capture_output=True, text=True, timeout=STEP_S)
         except subprocess.TimeoutExpired:
-            return subprocess.CompletedProcess(command, 255, "", f"cc-remote step on {sprite.workspace} gave no answer in {STEP_S} s")
+            return subprocess.CompletedProcess(command, 255, "", f"cc-remote step on {sprite.workspace} timed out after {STEP_S} s")
 
     def remote(self, slug: str) -> Remote:
         return Remote(GitHubTips(slug), GitHubPullHeads(slug), GitHubTrunk(slug))

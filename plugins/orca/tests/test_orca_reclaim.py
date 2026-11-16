@@ -1349,7 +1349,7 @@ class SaveTest(unittest.TestCase):
         [(script, given)] = cc_remote.sent
         self.assertEqual(given, "ghs_lent\n")
         self.assertNotIn("ghs_lent", script)
-        self.assertIn("push --quiet https://github.com/acme/repo.git ", script)
+        self.assertIn(" push https://github.com/acme/repo.git $pushed", script)
 
     def test_a_save_never_pushes_onto_a_saved_branch_another_writer_holds_and_its_retry_passes(self):
         sprite, base, _, tips = self.sprite_holding_work()
@@ -1429,15 +1429,19 @@ class SaveTest(unittest.TestCase):
         self.assertEqual(orca_gc.save("pool-abc", "demo-j1", cc_remote), f"{gone} left on pool-abc, as git cannot read it")
         self.assertEqual(cc_remote.sent, [])
 
-    def test_a_failed_push_leaves_each_commit_on_a_local_saved_branch_so_the_sprite_still_reads_as_holding_it(self):
+    def test_a_refused_push_keeps_each_commit_on_a_local_saved_branch_and_bundles_them_on_this_mac(self):
         sprite, base, held, tips = self.sprite_holding_work()
-        root = base / "repo"
-        with mock.patch.object(orca_gc, "github_token", return_value="ghs_lent"), self.assertRaisesRegex(orca_gc.Unsaved, r"^the save on pool-abc failed: fatal: .*does not appear to be a git repository"):
-            orca_gc.save("pool-abc", "demo-j1", SavingCcRemote(sprite, held, base / "gone.git"))
+        root, bundles = base / "repo", base / "bundles"
+        with mock.patch.object(orca_gc, "github_token", return_value="ghs_lent"), mock.patch.object(orca_gc, "BUNDLES", bundles):
+            said = orca_gc.save("pool-abc", "demo-j1", SavingCcRemote(sprite, held, base / "gone.git"))
+        bundle = bundles / "pool-abc-demo-j1.bundle"
+        self.assertEqual(said, f"GitHub refused the push, so the commits on no remote are bundled at {bundle}")
         kept = dict(line.split() for line in git_in(root, "for-each-ref", "--format=%(refname:lstrip=2) %(objectname)", "refs/heads/saved/").splitlines())
         lane_head = git_in(root, "rev-parse", "lane")
         self.assertEqual((len(kept), kept[f"saved/demo-j1/other-{tips['other'][:10]}"], kept[f"saved/demo-j1/lane-{lane_head[:10]}"]), (3, tips["other"], lane_head))
         self.assertEqual(git_in(base / "github.git", "for-each-ref", "refs/heads/saved/"), "")
+        bundled = dict(line.split()[::-1] for line in git_in(root, "bundle", "list-heads", str(bundle)).splitlines())
+        self.assertEqual(bundled, {f"refs/heads/{ref}": tip for ref, tip in kept.items()})
 
     def test_save_of_a_sprite_holding_nothing_or_unknown_runs_nothing_on_it_and_says_which(self):
         cc_remote = SavingCcRemote(SPRITE, checkout(SPRITE.root), Path("/nonexistent"))
@@ -1790,7 +1794,10 @@ class OrcaArgvTest(unittest.TestCase):
             for kind in ("orca", "workspaces"):
                 (Path(state) / kind).mkdir()
                 (Path(state) / kind / "pool-mute.json").write_text(json.dumps(task))
-            with mock.patch.object(orca_gc, "SSH_CONNECT_S", 1), mock.patch.object(orca_gc, "SPRITE_CLI", "false"), self.assertRaisesRegex(orca_gc.Unsaved, r"^ssh to pool-mute could not read /home/sprite/repo: .*timed out, and reviving it failed: sprite checkpoint create: exit 1$"):
+            hanging = Path(state) / "cc-remote"
+            hanging.write_text("#!/bin/sh\nexec sleep 30\n")
+            hanging.chmod(0o755)
+            with mock.patch.object(orca_gc, "SSH_CONNECT_S", 1), mock.patch.object(orca_gc, "STEP_S", 1), mock.patch.object(orca_gc, "CC_REMOTE", str(hanging)), mock.patch.object(orca_gc, "SPRITE_CLI", "false"), self.assertRaisesRegex(orca_gc.Unsaved, r"^ssh to pool-mute could not read /home/sprite/repo: cc-remote step on pool-mute timed out after 1 s, and reviving it failed: sprite checkpoint create: exit 1$"):
                 orca_gc.save("pool-mute", "demo-j1", orca_gc.CcRemote(Path(state)))
 
     def test_a_sprite_whose_ssh_gives_no_answer_is_revived_from_a_fresh_checkpoint_and_read_again(self):
@@ -1804,6 +1811,8 @@ class OrcaArgvTest(unittest.TestCase):
             argv.append(command)
             if command[0] == "ssh":
                 return orca_gc.subprocess.CompletedProcess(command, *next(answers))
+            if command[0] == orca_gc.CC_REMOTE:
+                raise orca_gc.subprocess.TimeoutExpired(command, orca_gc.STEP_S)
             if command[0] == "sprite":
                 return orca_gc.subprocess.CompletedProcess(command, 0, "\u2713 Checkpoint v14 created\n" if command[1] == "checkpoint" else "\u2713 Restored to checkpoint v14\n", "")
             return orca_gc.subprocess.CompletedProcess(command, 0, '{"default_branch": "dev", "status": "behind"}', "")
@@ -1815,7 +1824,7 @@ class OrcaArgvTest(unittest.TestCase):
             found = orca_gc.CcRemote(Path("/nonexistent")).checkout(orca_gc.Sprite("pool-abc", "pool-abc", str(config), "/home/sprite/repo", "env_abc"))
         self.assertEqual(found.head, "a" * 40)
         self.assertEqual([command for command in argv if command[0] == "sprite"], [["sprite", "checkpoint", "create", "-o", "acme-org", "-s", "pool-abc"], ["sprite", "restore", "-o", "acme-org", "-s", "pool-abc", "v14"]])
-        self.assertEqual([command[0] for command in argv[:4]], ["ssh", "sprite", "sprite", "ssh"])
+        self.assertEqual([command[0] for command in argv[:5]], ["ssh", orca_gc.CC_REMOTE, "sprite", "sprite", "ssh"])
 
     def test_an_ssh_read_that_exits_0_printing_nothing_is_no_read(self):
         original = orca_gc.subprocess.run
