@@ -4232,7 +4232,7 @@ def test_job_ask_hands_jev_his_order_from_his_slack_message_and_his_thread_words
 
 
 def handed(*requests: dict) -> dict[str, dict]:
-    """Each of his words or rulings a card's requests hand Jev, by its id, as the `words` slot its Nouls name holds it, in whichever request `settled.batched` put it."""
+    """Each of his words or rulings a card's requests hand Jev, by its id, as the `words` slot its Nouls name holds it, in whichever request holds it."""
     return {key.partition(".")[2]: request["state"]["words"][found[1]] for request in requests for key, noul in request["questions"].items() if (found := re.search(r"`words\.(w\d+)\.", noul.ask))}
 
 

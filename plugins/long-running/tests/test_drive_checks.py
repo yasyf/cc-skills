@@ -66,8 +66,7 @@ def test_a_handlers_claim_goes_to_jev_beside_its_reads_whole_output_and_holds_un
     }
     assert jev.asked[-1] == {
         "state": {
-            "post": {"written": CLAIM["claim"]},
-            "claims": {"c1": {"claim": CLAIM["claim"], "read": "read:1"}},
+            "claims": {"c1": {"claim": CLAIM["claim"]}},
             "reads": {"read:1": {"call": CALL_READ, "result": RESULT}},
         },
         "questions": {"c1.backed": settled.asking(settled.BACKED, read="read:1", claim="c1")},
@@ -107,7 +106,7 @@ def test_a_sentence_no_claim_holds_whole_goes_to_jev_beside_every_claim_so_a_lea
     settled.post_verdict(handled(text, [READ | {"quote": 'none: no call of the handler\'s own holds "cloudrunner/inbox.go"'}]))
     assert jev.asked == [
         {
-            "state": {"post": {"written": text, "sentences": {"0": "*Live: the inbox reader skips the cache.*"}}, "claims": {"c1": {"claim": CLAIM["claim"]}}},
+            "state": {"post": {"sentences": {"0": "*Live: the inbox reader skips the cache.*"}}, "claims": {"c1": {"claim": CLAIM["claim"]}}},
             "questions": {"s0.fact": settled.asking(settled.FACT, index=0)},
         }
     ]
@@ -211,7 +210,7 @@ def test_jev_reads_the_typed_words_once_and_asks_no_fact_of_a_sentence_that_is_a
     post = {"text": f"{CLAIM['claim']}\n{drawn}", "written": f"{CLAIM['claim']}\n{card}", "claims": [CLAIM]}
     jev.picks("backed", 0.9)
     assert settled.post_verdict({"post": post, "reads": [READ], "his_words": []}) == {"verdict": "pass", "note": ""}
-    assert jev.asked[-1]["state"]["post"] == {"written": post["written"]}
+    assert "post" not in jev.asked[-1]["state"]
     assert list(jev.asked[-1]["questions"]) == ["c1.backed"]
 
 
@@ -302,8 +301,7 @@ def test_a_claim_naming_a_drive_pr_stands_on_the_drives_line_for_it_when_its_own
     assert settled.post_verdict(output)["verdict"] == "hold"
     assert jev.asked[-1] == {
         "state": {
-            "post": {"written": owed["claim"]},
-            "claims": {"c1": owed},
+            "claims": {"c1": {"claim": owed["claim"]}},
             "reads": {"read:1": {"call": CALL_READ, "result": RESULT}, "stage:1": {"call": call, "result": line}},
         },
         "questions": {"c1.backed": settled.asking(settled.BACKED, read="read:1", claim="c1"), "c1.backed.stage:1": settled.asking(settled.BACKED, read="stage:1", claim="c1")},

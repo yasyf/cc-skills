@@ -39,7 +39,7 @@ REQUEST_CHARS = 10_000
 DECIDE_SECONDS = 20
 REFUSAL_SECONDS = 3
 OPUS_SECONDS = 120
-REPEATS_ASKED = 30
+REPEATS_ASKED = 8
 ALONE = r" (?:ships?|shipping|deploys?|deploying) (?:only|just) (?:the )?{component} | {component} (?:(?:stack|component|service) )?(?:alone|only) "
 NUMBERED = re.compile(r"(?<!\S)(\d+)\)\s+")
 EVERY = re.compile(r"\s*all\b(?:\s+(\d+)\b)?", re.IGNORECASE)
@@ -1093,7 +1093,7 @@ def decided(title: str, words: str, older: dict[str, dict]) -> set[str]:
 
 
 def repeats(data: dict, words: str, tooling: bool) -> str | None:
-    """The open order new drive tooling words join unasked, by his pick 3caa184 "Jev joins a repeat to its open order: one card per fault": the open tooling build order Jev reads them as asking for again, the same defect or change, by REPEATS, surest at YES or more, in one request against the REPEATS_ASKED open build orders on their side whose title and words share the most rare words with them, one Noul an order, the orders filled whole in that order, refused when Jev gives no answer. His order joins none but by its --joins, so for it Jev reads the open build orders of his work by FEATURE and names on stderr the surest at NO or more for --joins, and a read Jev gives none of is said there and adds the order alone; on either side an order in the band between NO and YES is named for --joins. An incident joins only by its --joins, and an answer order is no feature."""
+    """The open order new drive tooling words join unasked, by his pick 3caa184 "Jev joins a repeat to its open order: one card per fault": the open tooling build order Jev reads them as asking for again, the same defect or change, by REPEATS, surest at YES or more, in one request holding only his words and the REPEATS_ASKED open build orders on their side whose title and words share the most rare words with them, each order's title and words whole, one Noul an order, refused when Jev gives no answer. His order joins none but by its --joins, so for it Jev reads the open build orders of his work by FEATURE and names on stderr the surest at NO or more for --joins, and a read Jev gives none of is said there and adds the order alone; on either side an order in the band between NO and YES is named for --joins. An incident joins only by its --joins, and an answer order is no feature."""
     said = rare(words)
     orders = [
         (order_id, order)
@@ -1102,12 +1102,11 @@ def repeats(data: dict, words: str, tooling: bool) -> str | None:
     ]
     closest = sorted(orders, key=lambda item: len(said & rare(f'{item[1]["title"] or ""} {item[1]["text"]}')), reverse=True)[:REPEATS_ASKED]
     question = REPEATS if tooling else FEATURE
-    items = (({"open": {order_id: " — ".join(filter(None, [order["title"], order["text"]]))}}, {f"repeats.{order_id}": asking(question, slot=order_id)}) for order_id, order in closest)
-    state_read, questions, _ = fill({"order": words[:BODY_CHARS]}, {}, items)
-    if not questions:
+    if not closest:
         return None
+    questions = {f"repeats.{order_id}": asking(question, slot=order_id) for order_id, _ in closest}
     try:
-        read = jev(state_read, questions)
+        read = jev({"order": words[:BODY_CHARS], "open": {order_id: " — ".join(filter(None, [order["title"], order["text"]])) for order_id, order in closest}}, questions)
     except Unheard as failure:
         if not tooling:
             print(f"drive order add: Jev did not read these words against the {len(questions)} open orders of his work sharing the most words with them ({failure}); name the order they are on with --joins <o> when one is", file=sys.stderr)
@@ -1132,7 +1131,7 @@ def repeats(data: dict, words: str, tooling: bool) -> str | None:
 
 
 def same_changes(data: dict, order_id: str, part: str) -> list[str]:
-    """Each undelivered part of another open order, as `<order>:<part>`, and each open drive PR, by its key, that Jev reads at YES or more as already making the change a new part of the order names, against the REPEATS_ASKED of them whose part name with its order's title, or PR title, shares the most rare words with the part's name, none sharing none, one Noul each, every one read in as many requests as batched needs, so a likelier one never pushes the right one out of a full request; Unheard when Jev gives no reading."""
+    """Each undelivered part of another open order, as `<order>:<part>`, and each open drive PR, by its key, that Jev reads at YES or more as already making the change a new part of the order names, against the REPEATS_ASKED of them whose part name with its order's title, or PR title, shares the most rare words with the part's name, none sharing none, one Noul each, all in one request holding only the part's name, its order's title and words and each of them; Unheard when Jev gives no reading."""
     said = rare(part)
     open_work = [
         *(
@@ -1146,9 +1145,13 @@ def same_changes(data: dict, order_id: str, part: str) -> list[str]:
     ]
     closest = sorted((item for item in open_work if said & rare(item[1])), key=lambda item: len(said & rare(item[1])), reverse=True)[:REPEATS_ASKED]
     slots = {f"c{number}": key for number, (key, _) in enumerate(closest, 1)}
-    items = (({"open": {slot: text}}, {f"same.{slot}": asking(SAME_CHANGE, slot=slot)}) for slot, (_, text) in zip(slots, closest, strict=True))
+    if not closest:
+        return []
     order = data["orders"][order_id]
-    read = jev_all(batched({"part": {"name": part, "order": " — ".join(filter(None, [order["title"], order["text"][:BODY_CHARS]]))}, "open": {}}, {}, items))
+    read = jev(
+        {"part": {"name": part, "order": " — ".join(filter(None, [order["title"], order["text"][:BODY_CHARS]]))}, "open": {slot: text for slot, (_, text) in zip(slots, closest, strict=True)}},
+        {f"same.{slot}": asking(SAME_CHANGE, slot=slot) for slot in slots},
+    )
     return [slots[key.partition(".")[2]] for key, sure in read.items() if sure >= YES]
 
 
@@ -1584,17 +1587,6 @@ def fill(state: dict, questions: dict[str, Noul | Pick], items: Iterable[tuple[d
     return state, questions, left
 
 
-def batched(state: dict, questions: dict[str, Noul], items: Iterable[tuple[dict, dict[str, Noul]]], chars: int = REQUEST_CHARS) -> list[tuple[dict, dict[str, Noul]]]:
-    """Requests holding every item whole, as many as they need within the characters given each: the first holds the state and questions given, as fill fills it, and each after it the state alone beside the items still left, so none goes unread for want of room; an item too big for a request of its own is said on stderr, never dropped unsaid."""
-    requests = [fill(state, questions, items, chars)]
-    while left := requests[-1][2]:
-        if len(left) == len((request := fill(state, {}, left, chars))[2]):
-            print(f"drive: {len(left)} item(s) too big for one Jev request of {chars} characters go unread: {', '.join(key for _, asked in left for key in asked) or 'context alone'}", file=sys.stderr)
-            break
-        requests.append(request)
-    return [(request, asked) for request, asked, _ in requests]
-
-
 def jev_all(requests: list[tuple[dict, dict[str, Noul]]]) -> dict[str, float]:
     """Jev's reads of every request asking anything, at once, merged by question id; Unheard when any one gives none."""
     if not (asking := [request for request in requests if request[1]]):
@@ -1739,14 +1731,15 @@ def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
 
 
 def asked(output: dict) -> tuple[dict, list[tuple[str, tuple[dict, dict[str, Noul]]]], list[tuple[dict, dict[str, Noul]]]]:
-    """What Jev's requests on a post hold, the one builder `requests` packs and `unfit` sizes, so a post that passes `unfit` reaches Jev with every item it must weigh whole: the state each request opens with, the post's typed words once, since Slack's copy of them repeats each word beside its links, and each time say drew from the drive's stamps; each item Jev cannot weigh the post without, beside the words naming it, each read whole beside every claim naming it as `backed` gives each, and the drive's line for each PR a claim names beside that claim as `staged` gives it, one item, or one item a part of it when `parted` finds it too long for a request, since no claim is weighed without its read and a read goes to Jev once, each sentence no claim holds whole beside the post's claims and one Noul whether it states a fact standing only on a read beyond what they say, and the first line of the card his question in that thread is under, beside his question and one Noul whether the post answering it leaves a term of that line unexplained, and his words in the thread of his DM holding orders it goes in, beside one Noul whether the post tells him of the whole drive's work and one whether those words name a wider subject, neither reading the thread's work, whose strays code finds, so a thread holding much work still has its posts judged, when they fit a request beside the post, else left out and only warned of; then the items that go in as room allows, in a request of their own, each finding beside the rule it stands for, one Noul whether the rule holds and one whether his words lift it, and his words, the checks' own picks first, then newest first."""
+    """What Jev's requests on a post hold, the one builder `requests` packs and `unfit` sizes, so a post that passes `unfit` reaches Jev with every item it must weigh whole and each request holds only what its Nouls name: the post's typed words once, since Slack's copy of them repeats each word beside its links, which the findings request opens with and the card and thread items carry, the only Nouls naming them; each item Jev cannot weigh the post without, beside the words naming it, each read whole beside every claim naming it as `backed` gives each, and the drive's line for each PR a claim names beside that claim as `staged` gives it, one item, or one item a part of it when `parted` finds it too long for a request, since no claim is weighed without its read and a read goes to Jev once, each sentence no claim holds whole beside the post's claims, each time say drew from the drive's stamps and one Noul whether it states a fact standing only on a read beyond what they say, and the first line of the card his question in that thread is under, beside his question and one Noul whether the post answering it leaves a term of that line unexplained, and his words in the thread of his DM holding orders it goes in, beside one Noul whether the post tells him of the whole drive's work and one whether those words name a wider subject, neither reading the thread's work, whose strays code finds, so a thread holding much work still has its posts judged, when they fit a request beside the post, else left out and only warned of; then the items that go in as room allows, in a request of their own, each finding beside the rule it stands for, one Noul whether the rule holds and one whether his words lift it, and his words, the checks' own picks first, then newest first."""
     post = output["post"]
     reads = {item["id"]: item for item in output.get("reads") or []}
     words = output.get("his_words") or []
-    base = {"post": {"written": post.get("written") or post.get("text") or ""} | ({"stamps": post["stamps"]} if post.get("stamps") else {})}
+    base = {"post": {"written": post.get("written") or post.get("text") or ""}}
+    stamps = {"stamps": post["stamps"]} if post.get("stamps") else {}
     shared: dict[str, list[tuple[dict, dict[str, Noul]]]] = {}
     scope = output.get("thread_scope")
-    scoped = ({"thread": {"asked": scope["asked"]}}, {"scope": SCOPE, "wider": WIDER}) if scope else None
+    scoped = (base | {"thread": {"asked": scope["asked"]}}, {"scope": SCOPE, "wider": WIDER}) if scope else None
     for number, claim in enumerate(post.get("claims") or [], 1):
         if not unmatched(reads, claim):
             for item in [backed(reads, number, claim), *(staged(stage, number, claim) for stage in reads.values() if number in stage.get("claims", ()))]:
@@ -1755,14 +1748,14 @@ def asked(output: dict) -> tuple[dict, list[tuple[str, tuple[dict, dict[str, Nou
         *(
             (f'{read} {json.dumps(reads[read]["read"], ensure_ascii=False)} beside {"the claim" if len(items) == 1 else f"the {len(items)} claims"} naming it', part)
             for read, items in shared.items()
-            for part in parted(base, together(items))
+            for part in parted(together(items))
         ),
         *(
-            (f'sentence "{sentence}"', ({"post": {"sentences": {str(index): sentence}}, "claims": {f"c{number}": {"claim": claim["claim"]} for number, claim in enumerate(post.get("claims") or [], 1)}}, {f"s{index}.fact": asking(FACT, index=index)}))
+            (f'sentence "{sentence}"', ({"post": {"sentences": {str(index): sentence}} | stamps, "claims": {f"c{number}": {"claim": claim["claim"]} for number, claim in enumerate(post.get("claims") or [], 1)}}, {f"s{index}.fact": asking(FACT, index=index)}))
             for index, sentence in uncovered(output)
         ),
-        *((f'the card "{card["title"]}" his question is under', ({"card": card}, {"card": CARD})) for card in [output.get("thread_card")] if card),
-        *([("his words in the thread it goes in", scoped)] if scoped and size(*together([(base, {}), scoped])) <= REQUEST_CHARS else []),
+        *((f'the card "{card["title"]}" his question is under', (base | {"card": {"asked": card["asked"], "title": card["title"]}}, {"card": CARD})) for card in [output.get("thread_card")] if card),
+        *([("his words in the thread it goes in", scoped)] if scoped and size(*scoped) <= REQUEST_CHARS else []),
     ]
     rest = [
         *(
@@ -1775,7 +1768,7 @@ def asked(output: dict) -> tuple[dict, list[tuple[str, tuple[dict, dict[str, Nou
 
 
 def requests(output: dict) -> list[tuple[dict, dict[str, Noul]]]:
-    """Jev's requests on a post, each within REQUEST_CHARS by his words "jev should be getting like 10k chars at most for any call" and each opening with the state `asked` gives: every item Jev cannot weigh the post without, whole, in the first request with room for it, so reads too long for one request together go to Jev in several, and one too long for a request alone in the parts `parted` cuts it into, never dropped or read as unbacked, then the findings beside his words in one request as room allows; only a request asking Jev something."""
+    """Jev's requests on a post, each within REQUEST_CHARS by his words "jev should be getting like 10k chars at most for any call": every item Jev cannot weigh the post without, whole, in the first request with room for it, so reads too long for one request together go to Jev in several, and one too long for a request alone in the parts `parted` cuts it into, never dropped or read as unbacked, then the findings beside his words in one request as room allows; only a request asking Jev something."""
     base, weighs, rest = asked(output)
     packed: list[tuple[dict, dict[str, Noul]]] = []
     for _, item in weighs:
@@ -1784,7 +1777,7 @@ def requests(output: dict) -> list[tuple[dict, dict[str, Noul]]]:
                 packed[at] = merged
                 break
         else:
-            packed.append(together([(base, {}), item]))
+            packed.append(item)
     return [request for request in [*packed, fill(base, {}, rest)[:2]] if request[1]]
 
 
@@ -1816,7 +1809,7 @@ def backed(reads: dict[str, dict], number: int, claim: dict) -> tuple[dict, dict
     call, _, result = held["quote"].partition("\n")
     key = f"c{number}"
     spans = {f"{key}.spans": asking(SPANS, read=held["id"], claim=key)} if SET_WORDS.search(claim["claim"]) else {}
-    return {"claims": {key: {"claim": claim["claim"], "read": held["id"]}}, "reads": {held["id"]: {"call": call, "result": result}}}, {f"{key}.backed": asking(BACKED, read=held["id"], claim=key), **spans}
+    return {"claims": {key: {"claim": claim["claim"]}}, "reads": {held["id"]: {"call": call, "result": result}}}, {f"{key}.backed": asking(BACKED, read=held["id"], claim=key), **spans}
 
 
 def staged(stage: dict, number: int, claim: dict) -> tuple[dict, dict[str, Noul]]:
@@ -1826,9 +1819,9 @@ def staged(stage: dict, number: int, claim: dict) -> tuple[dict, dict[str, Noul]
     return {"claims": {key: {"claim": claim["claim"]}}, "reads": {stage["id"]: {"call": call, "result": result}}}, {f"{key}.backed.{stage['id']}": asking(BACKED, read=stage["id"], claim=key)}
 
 
-def parted(base: dict, item: tuple[dict, dict[str, Noul]]) -> list[tuple[dict, dict[str, Noul]]]:
-    """A read's item, its claims beside it, as Jev's requests take it: whole when it fits one request beside the post's own words, else in parts by whole lines in order, each as many lines as a request holds beside the claims, the read's call and how many lines its output holds, each line under its number, blank lines aside, and each claim asked BACKED_LINES of each part, so a read too long for one request, such as a report's whole body, reaches Jev whole across several, by his words "jev should be getting like 10k chars at most for any call" and his pick f9e9302 "Jev checks each claim against that read, whole", and a claim stands on the part backing it most; a question on the call alone, such as SPANS, goes with the first part."""
-    if size(*together([(base, {}), item])) <= REQUEST_CHARS:
+def parted(item: tuple[dict, dict[str, Noul]]) -> list[tuple[dict, dict[str, Noul]]]:
+    """A read's item, its claims beside it, as Jev's requests take it: whole when it fits one request, else in parts by whole lines in order, each as many lines as a request holds beside the claims, the read's call and how many lines its output holds, each line under its number, blank lines aside, and each claim asked BACKED_LINES of each part, so a read too long for one request, such as a report's whole body, reaches Jev whole across several, by his words "jev should be getting like 10k chars at most for any call" and his pick f9e9302 "Jev checks each claim against that read, whole", and a claim stands on the part backing it most; a question on the call alone, such as SPANS, goes with the first part."""
+    if size(*item) <= REQUEST_CHARS:
         return [item]
     state, questions = item
     [(read, held)] = state["reads"].items()
@@ -1842,23 +1835,23 @@ def parted(base: dict, item: tuple[dict, dict[str, Noul]]) -> list[tuple[dict, d
         )
 
     parts: list[dict[str, str]] = [{}]
-    room = REQUEST_CHARS - size(*together([(base, {}), part(1, {})]))
+    room = REQUEST_CHARS - size(*part(1, {}))
     for number, line in enumerate(lines, 1):
         if not line.strip():
             continue
         entry = len(json.dumps({str(number): line}, ensure_ascii=False))
         if parts[-1] and entry > room:
             parts.append({})
-            room = REQUEST_CHARS - size(*together([(base, {}), part(len(parts), {})]))
+            room = REQUEST_CHARS - size(*part(len(parts), {}))
         parts[-1][str(number)] = line
         room -= entry
     return [part(index, numbered) for index, numbered in enumerate(parts, 1)]
 
 
 def unfit(output: dict) -> tuple[int, list[tuple[str, int]]]:
-    """The characters the post's own words take in each of Jev's requests, and each item `asked` names that no request holds whole beside them within REQUEST_CHARS, by his words "jev should be getting like 10k chars at most for any call", beside the words naming it and the characters the request holding it alone takes, largest first, such as a part of a read holding one line longer than a request, so the refusal names what to narrow; none when each fits, so no claim, sentence or card is ever read as unbacked for want of room."""
+    """The characters the post's own words take in the requests naming them, and each item `asked` names that no request holds whole within REQUEST_CHARS, by his words "jev should be getting like 10k chars at most for any call", beside the words naming it and the characters the request holding it alone takes, largest first, such as a part of a read holding one line longer than a request, so the refusal names what to narrow; none when each fits, so no claim, sentence or card is ever read as unbacked for want of room."""
     base, weighs, _ = asked(output)
-    alone = ((named, size(*together([(base, {}), item]))) for named, item in weighs)
+    alone = ((named, size(*item)) for named, item in weighs)
     return size(base, {}), sorted(((named, chars) for named, chars in alone if chars > REQUEST_CHARS), key=lambda pair: -pair[1])
 
 
