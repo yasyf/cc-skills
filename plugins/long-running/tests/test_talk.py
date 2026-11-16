@@ -6,6 +6,7 @@ import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from conftest import HELD_RELEASES, STANDING_FREEZE, Answers, Checked, Jev, Thread, edit
@@ -592,6 +593,35 @@ def test_a_channel_thread_post_naming_a_pr_by_its_github_link_links_its_open_car
     assert refs.slack(refs.carded(communicator, text), found, "1794830614.862999").count(f"<{card}|") == 2
     monkeypatch.setattr(view, "head_card", lambda pr, cards: None)
     assert refs.carded(communicator, text) == text
+
+
+def test_a_report_sent_back_to_its_writer_counts_as_handled_so_no_has_no_post_defect_follows(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[list[dict]] = []
+    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {}, "thread": None})
+    monkeypatch.setattr(agents, "shown", lambda seq: {"lane": "root"})
+    monkeypatch.setattr(talk, "report_line", lambda name, seq: (_ for _ in ()).throw(DriveError("{release:18149} names no release post")))
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append(records) or ["1"])
+    with state.edit(demo) as data:
+        data["carried"]["734916"] = agents.DRIVE_CLAIM
+        data["posts"]["claimed"] = {"734916": state.stamp(state.now() - agents.UNPOSTED_AFTER - timedelta(minutes=1))}
+    assert talk.report_post(demo, "734916").startswith("report 734916 sent back to root@demo")
+    assert state.load(demo, ("carried",))["carried"]["734916"] == "sent back to root@demo"
+    agents.unposted(demo, state.now())
+    assert [record["kind"] for records in sent for record in records] == ["refused"]
+
+
+def test_a_release_still_running_with_no_post_links_the_build_a_job_started_and_its_post_once_one_exists(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    build = "https://buildkite.com/forge/release/builds/18149"
+    posted: dict[str, str] = {}
+    monkeypatch.setattr(providers, "of", lambda data: SimpleNamespace(release=SimpleNamespace(post=posted.get)))
+    with state.edit(demo) as data:
+        data["jobs"]["j9"] = state.new_job("o1", "builder", "cut release 3", [], state.stamp()) | {"release_build": build}
+    data = state.load(demo)
+    assert refs.release(data, "18149")["url"] == build
+    posted["18149"] = "https://acme.slack.com/archives/C9/p1794840000000100"
+    assert refs.release(data, "18149")["url"] == posted["18149"]
+    with pytest.raises(DriveError, match="names no release post"):
+        refs.release(data, "18150")
 
 
 def test_say_posts_the_words_its_hook_judged_and_checks_none_of_them_again(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:

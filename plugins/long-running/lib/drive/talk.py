@@ -190,6 +190,13 @@ def report_post(name: str, seq: str) -> str:
         made = {"kind": "defect", "to": [f"meta@{name}"]} if writer == "watch" else {"kind": "refused", "re": [seq], "to": [f"{writer}@{name}"]}
         said = f"report {seq} is not posted, by the drive or the communicator, as the drive's carried posts read: {error}"
         tools.sent(name, "watch", [limits.shortened(made | {"text": said}) or made | {"text": said}])
+        sent_back = f"sent back to {made['to'][0]}"
+
+        def sent_back_write(data: dict) -> None:
+            data["carried"][seq] = sent_back
+            data["posts"].get("claimed", {}).pop(seq, None)
+
+        state.write(name, sent_back_write)
         return f"report {seq} sent back to {made['to'][0]}: {error}"
 
 

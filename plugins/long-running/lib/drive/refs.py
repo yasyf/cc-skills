@@ -272,10 +272,15 @@ def order(name: str, data: dict, order_id: str) -> dict:
 
 
 def release(data: dict, key: str) -> dict:
-    """A release under its name, linked to the post his repository's release provider names as its own, by its post method, never its build page, by his words "no one looks at those"; one the provider names no post for refuses the post."""
-    if not (url := providers.of(data).release.post(key)):
-        raise DriveError(f"{{release:{key}}} names no release post the repository's release provider finds by that name or build number")
+    """A release under its name, linked to the post his repository's release provider names as its own, by its post method, never its build page, by his words "no one looks at those"; a running release a job started, with no post yet, links its build until the post exists; any other the provider names no post for refuses the post."""
+    if not (url := providers.of(data).release.post(key) or running_build(data, key)):
+        raise DriveError(f"{{release:{key}}} names no release post the repository's release provider finds by that name or build number, nor a release build a job of the drive started")
     return {"kind": "release", "title": key, "url": url, "board": url}
+
+
+def running_build(data: dict, key: str) -> str | None:
+    """The build link of a release a job of the drive started, by its build number, for a release still running that has no release post yet; the post takes its place once the provider finds one."""
+    return next((build for job in data["jobs"].values() if (build := job.get("release_build")) and build.rstrip("/").endswith(f"/builds/{key}")), None)
 
 
 def record(name: str, seq: str, label: str) -> dict:
