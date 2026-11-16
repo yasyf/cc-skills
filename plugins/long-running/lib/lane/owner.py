@@ -136,7 +136,7 @@ def brief(drive: str, lane: dict, woke: str) -> str:
 
 def settings(drive: str, lane_id: str, token: str) -> dict:
     token_file = store.token_path(drive, lane_id)
-    env = {"LANE_OWNER": f"{drive}/{lane_id}", "LONG_RUNNING_LANE": f"{drive}/{lane_id}", "LANE_TOKEN": token, "LANE_TOKEN_FILE": str(token_file), "LANE_NOTE_FILE": str(store.note_path(drive, lane_id))}
+    env = {"LANE_OWNER": f"{drive}/{lane_id}", "LONG_RUNNING_LANE": f"{drive}/{lane_id}", "LANE_TOKEN": token, "LANE_TOKEN_FILE": str(token_file), "LANE_NOTE_FILE": str(store.note_path(drive, lane_id)), "LANE_ASKS_FILE": str(store.asks_path(drive, lane_id))}
     if explicit := os.environ.get("LONG_RUNNING_STATE"):
         env["LONG_RUNNING_STATE"] = explicit
     fence = '[ -z "$LANE_TOKEN_FILE" ] || { read -r held < "$LANE_TOKEN_FILE" 2>/dev/null; [ "$held" = "$LANE_TOKEN" ] || { echo "This lane has a new owner or none; you are fenced off. End your turn now." >&2; exit 2; }; }'
@@ -147,7 +147,7 @@ def settings(drive: str, lane_id: str, token: str) -> dict:
             "PreToolUse": [
                 {"matcher": "Bash|Edit|Write|NotebookEdit", "hooks": [{"type": "command", "command": fence}]},
                 {"matcher": "Bash", "hooks": [{"type": "command", "command": f"{shlex.quote(str(store.launcher(drive)))} hook bash"}]},
-                {"matcher": "", "hooks": [{"type": "command", "command": f'[ ! -s "$LANE_NOTE_FILE" ] || exec {shlex.quote(str(store.launcher(drive)))} hook note'}]},
+                {"matcher": "", "hooks": [{"type": "command", "command": f'[ ! -s "$LANE_NOTE_FILE" ] && [ ! -e "$LANE_ASKS_FILE" ] || exec {shlex.quote(str(store.launcher(drive)))} hook note'}]},
             ],
         },
     }

@@ -777,3 +777,30 @@ def test_a_stray_json_file_in_the_lanes_folder_never_stops_a_pass(world: dict, c
     assert store.lane_ids(DRIVE) == ["a"]
     supervisor.run_pass(DRIVE)
     assert "skipped broken.json, cards.json" in capsys.readouterr().err
+
+
+def test_his_word_to_a_running_lane_reaches_its_owner_at_every_tool_call_until_answered(world: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    import io
+
+    from lane import command
+
+    opened("a")
+    answered("a")
+    assert not store.asks_path(DRIVE, "a").exists()
+    verbs.message(DRIVE, "a", "Why is #57589 not merged yet?", "https://x.slack.com/archives/C1/p1794872633408209", "1794872633.408209")
+    assert store.load(DRIVE, "a")["state"] == store.RUNNING and store.asks_path(DRIVE, "a").exists()
+    monkeypatch.setenv("LANE_OWNER", f"{DRIVE}/a")
+    monkeypatch.setenv("LANE_TOKEN", token_of("a"))
+
+    def called(payload: dict) -> str:
+        monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+        assert command.note_hook(DRIVE, "a") == 0
+        return capsys.readouterr().out
+
+    assert called({"agent_id": "builder-1"}) == ""
+    for _ in range(2):
+        shown = json.loads(called({}))["hookSpecificOutput"]["additionalContext"]
+        assert "Why is #57589 not merged yet?" in shown and "lane say" in shown
+    answered("a")
+    assert not store.asks_path(DRIVE, "a").exists()
+    assert called({}) == ""

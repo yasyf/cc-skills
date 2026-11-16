@@ -268,6 +268,11 @@ def write_lane(drive: str, lane: dict) -> None:
     fresh = path.with_name(f".{lane['id']}.{os.getpid()}.tmp")
     fresh.write_text(json.dumps(lane, indent=1, ensure_ascii=False) + "\n")
     fresh.replace(path)
+    asks = asks_path(drive, lane["id"])
+    if lane["state"] == RUNNING and (waiting := unreplied(lane)):
+        asks.write_text(f"{len(waiting)}\n")
+    else:
+        asks.unlink(missing_ok=True)
     token = token_path(drive, lane["id"])
     if owner := lane.get("owner"):
         if not token.is_file() or token.read_text().strip() != owner["token"]:
@@ -327,6 +332,11 @@ def launcher(drive: str) -> Path:
         fresh.symlink_to(target)
         fresh.replace(path)
     return path
+
+
+def asks_path(drive: str, lane_id: str) -> Path:
+    """The mark a running owner's hook reads to show his unanswered words at its next tool call, present exactly while its lane runs with an ask of his unreplied: every lane write keeps it."""
+    return drive_dir(drive) / f"{lane_id}.asks"
 
 
 def note_path(drive: str, lane_id: str) -> Path:

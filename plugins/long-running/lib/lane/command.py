@@ -70,15 +70,22 @@ def bash_hook() -> int:
 
 
 def note_hook(drive: str, lane_id: str) -> int:
-    """Show a running owner the handover set while it runs, once, as context beside its next tool call, while it still holds the lane."""
-    json.load(sys.stdin)
+    """Show a running owner, beside its own next tool call and never a builder's, each word of his to the lane not yet answered, whole and verbatim, at every call until it replies with `lane say`, and the handover set while it runs, once; only while it still holds the lane."""
+    if json.load(sys.stdin).get("agent_id"):
+        return 0
     path = store.note_path(drive, lane_id)
     lane = store.load(drive, lane_id)
-    if (lane.get("owner") or {}).get("token") != token() or not path.is_file():
+    if (lane.get("owner") or {}).get("token") != token():
         return 0
-    text = path.read_text()
-    path.unlink()
-    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": f"Handover for lane {lane_id}, set while you run; it is no ask of his and wants no reply:\n{text}"}}))
+    shown = []
+    if waiting := store.unreplied(lane):
+        said = "\n\n".join(f"[{ask['at']}{', ' + ask['link'] if ask.get('link') else ''}]\n{ask['words']}" for ask in waiting)
+        shown.append(f"He wrote to lane {lane_id} while you run, and it is not answered yet. Reply now with `lane say \"<your answer>\"`, before your next step; this shows at every tool call until you do:\n\n{said}")
+    if path.is_file():
+        shown.append(f"Handover for lane {lane_id}, set while you run; it is no ask of his and wants no reply:\n{path.read_text()}")
+        path.unlink()
+    if shown:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "\n\n".join(shown)}}))
     return 0
 
 
