@@ -94,6 +94,12 @@ def unhooked(repos: set[str]) -> list[str]:
     return sorted(repo for repo in repos if (kept.get(repo) or {}).get("events") != EVENTS)
 
 
+def silent(repos: set[str]) -> list[str]:
+    """The repositories of repos GitHub tells the receiver nothing of: no hook of the receiver's sends EVENTS, and no hook, such as one an admin of the repository made, ever delivered to it."""
+    kept = hooks()
+    return [repo for repo in unhooked(repos) if not (kept.get(repo) or {}).get("last")]
+
+
 def url(path: str = FUNNEL_PATH) -> str:
     """A public address of the receiver: its Tailscale Funnel path on this Mac's tailnet name, /github for GitHub's hooks and /buildkite for Buildkite's notification service."""
     if not (net := dashboard.tailnet()):
