@@ -760,6 +760,21 @@ def held_by_rework(known: dict[str, tuple[str, dict]], members: list[str], reads
     return held
 
 
+def held_by_him(known: dict[str, tuple[str, dict]], members: list[str], reads: dict[str, dict]) -> dict[str, str]:
+    """Each member his Hold tap keeps, and each on its branch above it, which none of his Approves may carry, with why: his Hold is his word, never a drive gate, so the card draws the rest, by his words "give me approves to get next on v3 but not delete the old one til cutover I've said this like 5 times" (answer 1439da5)."""
+    if len(members) < 2:
+        return {}
+    branches = ends(known, members, reads)
+    kept: dict[str, str] = {}
+    for key in members:
+        if tap_label(known[key][1]) == "Hold":
+            tap = known[key][1]["tap"]
+            kept[key] = f"{key} is under your Hold of {when(tap['at'])}, your word, so no Approve carries it until you lift it" + (f" ({tap['source']})" if str(tap.get("source") or "").startswith("https://") else "")
+        elif below := next((held for held in kept if branches[key][1] and branches[key][1] == branches[held][0]), None):
+            kept[key] = f"{key} is left out: it sits on {below}, which your Hold keeps"
+    return kept
+
+
 def foreign(drives: dict[str, dict], known: dict[str, tuple[str, dict]], members: list[str]) -> str:
     """Why no card is drawn for the members: one of them is someone else's PR that no order of his it serves names, which the drive never cards."""
     return "; ".join(why for key in members if (why := state.foreign_pr(drives[known[key][0]], key)))
@@ -806,6 +821,11 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
             members = [key for key in members if key not in held]
             if not members:
                 continue
+        if kept := held_by_him(known, members, reads):
+            skipped += [skip(key, why) for key, why in kept.items()]
+            members = [key for key in members if key not in kept]
+            if not members:
+                continue
         fresh = not redraw and not on_his_card(known, founds, reads, members)
         if fresh and not reason and (off := untapped(drives, known, reads, members)):
             skipped += [skip(key, off) for key in members]
@@ -820,6 +840,8 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
             [member(drives[known[key][0]], founds[known[key][0]], reads[key], known[key][1], drawings[key]) for key in members],
             siblings(known, members, reads),
         )
+        if kept:
+            card |= {"title": f"{card['title']} · left out under your Hold: {', '.join('#' + key.rpartition('#')[2] for key in kept)}"}
         remember(known, members, changes)
         drawn(known, {key: (*undrawn, *unsaid_storage(reads[key], known[key][1])) for key, (_, undrawn) in drawings.items()}, at, changes)
         repo, number = members[0].split("#")

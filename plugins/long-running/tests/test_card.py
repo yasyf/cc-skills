@@ -1566,25 +1566,29 @@ def test_a_stack_card_reads_github_once_per_25_prs_and_records_its_stack_in_a_pr
     assert len(receipts) == 1
 
 
-def test_one_approve_on_a_stack_card_lifts_his_hold_of_a_pr_on_it_and_starts_landing_the_whole_card(
+def test_the_run_page_stack_card_leaves_out_the_pr_under_his_hold_and_its_approve_carries_the_rest(
     stacked: list[list[str]], native_stacks: dict[str, list[tuple[str, str]]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    keys = [f"Forge-AI/monorepo#{n}" for n in (41, 42, 43, 44, 45)]
-    held_at = "2026-11-14T20:22:52-08:00"
+    branches = {53810: ("run-page-call-tallies", "run-page-next-fill"), 53833: ("run-page-next-fill", "run-page-next-v3"), 54225: ("run-page-next-v3", "run-page-old-v3"), 54428: ("run-page-old-v3", "run-page-cutover")}
+    keys = [f"Forge-AI/monorepo#{n}" for n in branches]
+    held_at = "2026-11-12T12:34:17-08:00"
     with edit("demo") as data:
-        data["prs"][keys[4]] = {**kept_entry(), "url": state.pr_url(keys[4])}
-        data["prs"][keys[0]]["tap"] = state.new_tap("Approve", HEAD, "slack", "1794700000.000100")
-        data["prs"][keys[1]]["tap"] = state.new_tap("Hold", HEAD, HIS_TAPS, at=held_at)
+        for key in keys:
+            data["prs"][key] = {**kept_entry(), "url": state.pr_url(key)}
+        data["prs"][keys[3]]["tap"] = state.new_tap("Hold", HEAD, HIS_TAPS, at=held_at)
     for key in keys:
         native_stacks[key] = [(member, "open") for member in keys]
-    [drawn] = ask(asks(41, 42, 43, 44, 45))["cards"]
-    asked = f"merge:42.43.44.45:{state.ask_hash(' '.join([f'{HEAD}@{held_at}', HEAD, HEAD, HEAD]))}"
-    assert (drawn["card"]["status"], drawn["card"]["options"], drawn["card"]["waits"]) == ("needs_you", ["Approve", "Hold"], asked)
+    monkeypatch.setattr(card, "run", changed_reads(card.run, lambda number, node: node | {"baseRefName": branches[number][0], "headRefName": branches[number][1]} if number in branches else node))
+    reply = ask(asks(53810, 53833, 54225, 54428))
+    [drawn] = reply["cards"]
+    assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(n) for n in (53810, 53833, 54225)]
+    assert drawn["card"]["options"] == ["Approve", "Hold"] and drawn["card"]["title"].endswith("left out under your Hold: #54428")
+    assert [(skipped["number"], skipped["reason"].startswith("Forge-AI/monorepo#54428 is under your Hold of")) for skipped in reply["skipped"]] == [(54428, True)]
     started: list[list[str]] = []
     monkeypatch.setattr(land, "start", lambda name, members, cards: started.append(members))
-    ask({"answer": {"repo": "Forge-AI/monorepo", "number": 41, "waits": asked, "label": "Approve", "heads": {}, "action_ts": "1794772411.000100", "source": "slack"}})
+    ask({"answer": {"repo": "Forge-AI/monorepo", "number": 53810, "waits": drawn["card"]["waits"], "label": "Approve", "heads": {}, "action_ts": "1794772411.000100", "source": "slack"}})
     prs = state.load("demo")["prs"]
-    assert ([prs[key]["tap"]["label"] for key in keys], prs[keys[0]]["tap"]["action_ts"], started) == (["Approve"] * 5, "1794700000.000100", [keys[1:]])
+    assert [prs[key]["tap"]["label"] for key in keys] == ["Approve", "Approve", "Approve", "Hold"]
 
 
 def test_a_stack_with_one_pr_reworked_to_his_words_draws_the_prs_below_it_alone_and_no_card_on_it_or_above_a_redraw_included_until_its_builders_ready_meets_them(
