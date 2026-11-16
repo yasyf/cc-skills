@@ -5,6 +5,7 @@ import re
 import shlex
 import subprocess
 from collections.abc import Callable
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -1007,3 +1008,77 @@ def test_a_check_that_objects_takes_back_the_approve_his_standing_approval_gave_
     result = {"heads": {KEY: "head2"}, "at": state.stamp(), "orders": {KEY: ["o1"]}, "answers": {KEY: []}, "outcomes": {KEY: "NOT READY"}, "against": "his words o1", "checked": {}, "carried": None, "pid": os.getpid()}
     served.kept(demo, KEY, result)
     assert (state.load(demo)["prs"][KEY]["tap"] is None) == taken
+
+
+LIMIT = "judging Forge-AI/monorepo#42 against his words failed: You've hit your weekly limit · resets Nov 17 at 11pm (America/Los_Angeles); run this again"
+
+
+@pytest.mark.parametrize(
+    ("raised", "outcome", "faulted", "uncited"),
+    [
+        (
+            served.Uncited('could not read his answer 5b20a61: not-found: entity not found: no answer matches "5b20a61"', [("answer", "5b20a61")], ["Forge-AI/monorepo#42"]),
+            served.NOT_READY,
+            ["Forge-AI/monorepo#42"],
+            [["answer", "5b20a61"]],
+        ),
+        (DriveError(LIMIT), served.FAILED, [], []),
+    ],
+    ids=["a citation naming no answer", "a usage limit"],
+)
+def test_a_check_refused_on_a_citation_naming_no_answer_is_not_ready_to_its_builder_and_a_limit_keeps_its_reset(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, raised: DriveError, outcome: str, faulted: list[str], uncited: list[list[str]]
+) -> None:
+    clocks(run)
+    [key] = stacked(run, demo, [42], "main", CLOCKS)
+
+    def refused(name: str, unit: tuple[str, ...], bound: list[str]) -> dict:
+        raise raised
+
+    monkeypatch.setattr(served, "check", refused)
+    assert served.verdict(demo, key).startswith(outcome)
+    checker = state.load(demo)["prs"][key]["checker"]
+    assert (checker["faulted"], checker["uncited"], bool(checker["against"]), bool(checker["until"])) == (faulted, uncited, bool(faulted), outcome == served.FAILED)
+    moment = state.parse_time(checker["at"])
+    assert served.tried(demo, state.load(demo), key, (key,), moment + served.RETRY * 2) == (outcome == served.NOT_READY)
+
+
+def test_a_not_ready_on_a_card_still_asking_him_stands_until_his_answer_ends_it(run: Callable[..., tuple[int, str]], demo: str) -> None:
+    clocks(run)
+    [key] = stacked(run, demo, [42], "main", CLOCKS)
+    waits = "demo:j1-679400"
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, ASKED, state.stamp()) | {"waits": waits})
+        pr = data["prs"][key]
+        pr["checker"] = {
+            "head": pr["head"], "pid": 100, "at": state.stamp(), "orders": state.served_orders(data, pr), "answers": served.binds(demo, data, pr),
+            "outcome": f"{served.NOT_READY}: {waits} is not his answer: its card still asks him", "against": "", "faulted": [], "uncited": [["card", waits]], "until": None,
+        }
+    moment = state.parse_time(state.stamp()) + served.RETRY * 3
+    assert served.tried(demo, state.load(demo), key, (key,), moment)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["questions"][-1]["closed"] = state.new_close("answered", "Land it whole", None)
+    assert not served.tried(demo, state.load(demo), key, (key,), moment)
+
+
+def test_a_check_a_usage_limit_stopped_waits_for_its_reset_while_one_check_a_retry_tries_the_limit_and_a_later_verdict_lifts_it(
+    run: Callable[..., tuple[int, str]], demo: str
+) -> None:
+    clocks(run)
+    keys = stacked(run, demo, [42, 43], "main", CLOCKS)
+    started = state.parse_time(state.stamp())
+    until = started + timedelta(days=2)
+    with state.edit(demo) as data:
+        for minutes, key in enumerate(keys):
+            pr = data["prs"][key]
+            pr["checker"] = {
+                "head": pr["head"], "pid": 100 + minutes, "at": state.stamp(started + timedelta(minutes=minutes)), "orders": [], "answers": [], "outcome": f"{served.FAILED}: {LIMIT}",
+                "against": "", "faulted": [], "uncited": [], "until": state.stamp(until),
+            }
+    later = started + served.RETRY * 2
+    data = state.load(demo)
+    assert [served.tried(demo, data, key, (key,), later) for key in keys] == [True, False]
+    assert [served.tried(demo, data, key, (key,), until) for key in keys] == [False, False]
+    with state.edit(demo) as data:
+        data["prs"][keys[1]]["checker"] |= {"outcome": f"{served.CHECKED} against the words of o1", "until": None}
+    assert served.tried(demo, state.load(demo), keys[0], (keys[0],), started + timedelta(minutes=5)) is False
