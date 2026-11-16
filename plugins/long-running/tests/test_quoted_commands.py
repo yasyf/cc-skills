@@ -156,7 +156,7 @@ def test_only_the_top_coordinator_runs_fable_and_every_other_root_runs_opus_with
 
 
 def test_drive_manual_fills_each_session_start_with_every_lane_variable_and_one_valid_settings(capsys: pytest.CaptureFixture[str]) -> None:
-    assert cli.manual(argparse.Namespace(page="start", row=None)) == 0
+    assert cli.manual(argparse.Namespace(page="start", row=None, drive=None)) == 0
     starts = session_starts(capsys.readouterr().out)
     assert starts
     lane = json.loads(LANE_SPEC.read_text())
@@ -208,7 +208,7 @@ def test_the_meta_session_drive_start_opens_runs_the_lines_start_or_resume_print
     monkeypatch.setattr(orca, "request", lambda *args: created.append(args) or {"terminal": {"handle": "term_meta"}})
     assert START_SESSION("demo", "meta", None, "/w/demo", None) == "term_meta"
     assert created == [("terminal", "create", "--worktree", "path:/w/demo", "--title", "demo-meta", "--command", "cci session attach demo-meta")]
-    assert cli.manual(argparse.Namespace(page="start", row=None)) == 0
+    assert cli.manual(argparse.Namespace(page="start", row=None, drive=None)) == 0
     [quoted] = [line for line in session_starts(capsys.readouterr().out) if line.startswith("cci session register <drive>-meta ")]
     assert registered == [(shlex.split(quoted.replace("<drive>", "demo").replace("<worktree>", "/w/demo")), Path("/w/demo"))]
 
@@ -217,7 +217,7 @@ def test_drive_start_registers_the_session_it_binds_by_its_line_in_start_or_resu
     registered: list[list[str]] = []
     monkeypatch.setattr(reads, "run", lambda argv, checkout: registered.append(argv) or "demo-iris registered\n")
     assert REAL_REGISTER("demo", "coordinator", "Iris", "/w/demo", "iris-1") == "demo-iris registered"
-    assert cli.manual(argparse.Namespace(page="start", row=None)) == 0
+    assert cli.manual(argparse.Namespace(page="start", row=None, drive=None)) == 0
     [quoted] = [line for line in session_starts(capsys.readouterr().out) if line.startswith("cci session register <drive>-<lane> ")]
     filled = quoted.replace("<drive>", "demo").replace("<lane>", "iris").replace("<project>", "Iris").replace("<worktree>", "/w/demo")
     assert registered == [shlex.split(filled.replace(" --new ", " --session iris-1 "))]

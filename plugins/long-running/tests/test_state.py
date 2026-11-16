@@ -378,6 +378,8 @@ def test_a_batch_holds_no_lock_while_its_writes_run_and_its_one_save_keeps_what_
 
 def test_a_write_of_its_rows_holds_no_drive_lock_while_its_body_runs_and_keeps_what_another_write_saved_meanwhile(state_root: Path) -> None:
     make("demo")
+    with state.edit("demo"):
+        pass
     with state.edit("demo", (("", "terminal"),)) as data:
         data["terminal"] = "term-1"
         with open(state.drive_dir("demo") / ".lock", "a") as free:
@@ -391,6 +393,8 @@ def test_a_write_of_its_rows_holds_no_drive_lock_while_its_body_runs_and_keeps_w
 
 def test_a_write_of_its_rows_is_refused_keeping_nothing_once_another_write_changed_one_of_them(state_root: Path) -> None:
     make("demo")
+    with state.edit("demo"):
+        pass
     with pytest.raises(DriveError, match=r"refused, nothing kept: another write changed terminal while this ran, so send it again$"):
         with state.edit("demo", (("", "terminal"), ("", "binder"))) as data:
             data["binder"] = "mine"
@@ -470,6 +474,8 @@ def test_two_writes_adding_at_once_from_one_load_take_two_ids(state_root: Path) 
 
 def test_a_write_of_its_rows_saves_those_records_alone_with_the_ids_it_took_counted_in_the_database(state_root: Path) -> None:
     make("demo")
+    with state.edit("demo"):
+        pass
     created = state.stamp()
     with state.edit("demo", (("orders", "o1"),)) as data:
         data["orders"][state.next_id(data["orders"], "o")] = state.new_order("mine", "terminal", None, {"mine": state.new_part()}, created)
@@ -2932,3 +2938,12 @@ def test_a_tester_waiting_on_a_cut_with_no_slot_place_is_queued_at_its_waiting_t
     [(_, freed, kind, line), (_, given, go, _)] = state.slot_turns(data, moment + timedelta(minutes=60))
     assert (freed, kind, "which never started, so j1 went back to their places in its queue" in line, given) == ("j1", "freed", True, "j4862")
     assert [each["job"] for each in data["slots"]["plat-usw2-staging"]["queue"]] == ["j1", "j2"]
+
+
+def test_while_a_slot_hold_stands_only_a_tester_whose_pr_has_his_approve_is_queued(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(state, "staging_parts", lambda data, job: [("o1", "staging test")])
+    monkeypatch.setattr(state, "tested_prs", lambda data, job: [f"Forge-AI/monorepo#{job['goal']}"])
+    job = lambda number: {"state": "waiting", "order": "o1", "carries": [], "goal": number, "waits": ["staging:api/plat-usw2-staging@abc1234"], "updated": "2026-11-15T06:00:00+00:00"}
+    data = {"slots": {}, "jobs": {"j1": job("1"), "j2": job("2")}, "prs": {"Forge-AI/monorepo#1": {"state": "open", "tap": {"label": "Approve"}}, "Forge-AI/monorepo#2": {"state": "open", "tap": None}}}
+    assert [line.split(" queued ")[1].split(",")[0] for line in state.queue_waiters(data, approved_only=True)] == ["j1"]
+    assert [line.split(" queued ")[1].split(",")[0] for line in state.queue_waiters(data)] == ["j2"]

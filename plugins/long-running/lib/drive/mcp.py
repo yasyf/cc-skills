@@ -203,6 +203,14 @@ SAY = {
                     " them to the communicator to post in the job's order's thread"
                 ),
             },
+            "in_thread": {
+                "type": "boolean",
+                "description": (
+                    "In a drive channel, a project's or a priority seat's, keep a post that answers no message of his in the thread_ts it names,"
+                    " as a follow-up on that thread's own subject; without it such a post goes at the channel's root, since a new update,"
+                    " release step or decision there is a channel message, and only an answer to his message, which asked names, stays in his thread"
+                ),
+            },
             "blocks": {
                 "type": "array",
                 "items": {"type": "object"},

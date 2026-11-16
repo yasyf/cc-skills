@@ -3550,7 +3550,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
     mac, release = mac_lines(name, job, flags)
     fields = {
         "Order (his words)": order["text"] + carried,
-        "Its parts (his words)": [part for part in job["parts"] if his_part(part) and part not in order["text"]],
+        "Its parts (his words)": [part for part in job["parts"] if his_part(part) and part not in order["text"] and part != order["title"]],
         "From": order["from"],
         "Linked messages": linked_messages(job_id, [order["text"], *(data["orders"][order_id]["text"] for order_id in job["carries"])], flags["handoff"]),
         "Serves": flags["serves"],
@@ -3942,24 +3942,25 @@ def held_to_starter(args: argparse.Namespace, name: str, job: dict, lane: str) -
 
 
 def starter_post(name: str, job_id: str, job: dict, lane: str, text: str, at: str, held: str | None = None) -> tuple[str, str]:
-    """Post a text to an agent on this Mac that a session of the drive started and still holds, once superseded.fresh_builder sends no PR event to a builder that returned: whole, at once, from the resuming session's lane as one handoff record to the agent's own cci address, peer:<session>/<agent>, kept by sent_kept dated `at`, when it was held, so each answer of his it carries reads sent and the text the job holds under the request id held leaves the job, then one line under 120 characters to the starter's lane naming the SendMessage that points the agent at that record, since only the starter's SendMessage reaches the agent and a starter that may not read cci, such as the communicator, relays that line as it stands; a starter resuming its own agent gets the line as the verb's output. The record's seq and the line the verb prints."""
+    """Post a text to an agent on this Mac that a session of the drive started and still holds, once superseded.fresh_builder sends no PR event to a builder that returned: whole, at once, from the resuming session's lane as one handoff record to the agent's own cci address, peer:<session>/<agent>, kept by sent_kept dated `at`, when it was held, so each answer of his it carries reads sent and the text the job holds under the request id held leaves the job, addressed to the starter's lane too, its sendmessage attr naming the agent, as one record, by his words "make everything less chatty", since only the starter's SendMessage reaches the agent, which points it at that record's seq; a starter resuming its own agent gets the line as the verb's output. The record's seq and the line the verb prints."""
     from drive import tools
 
     data = state.load(name)
     if fresh := superseded.fresh_builder(data, job_id, job, text, "this text"):
         raise DriveError(f"{job_id}: refused, nothing posted: {fresh[1]}")
     sender = state.session_lane(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) or job_id
-    attrs = {"order": job["order"], "job": job_id}
-    record = {"kind": "handoff", "to": [state.agent_address(job)], "attr": attrs, "text": text}
+    session = state.own_session(job)
+    starter = [] if session or lane == sender else [f"{lane}@{name}"]
+    attrs = {"order": job["order"], "job": job_id} | ({"sendmessage": job["agent"]} if starter else {})
+    record = {"kind": "handoff", "to": [state.agent_address(job), *starter], "attr": attrs, "text": text}
     [seq] = tools.sent(name, sender, [limits.shortened(record) or record])
     sent_kept(name, job_id, {"words": text, "request": seq, "held": held, "at": at, "ask": job.get("ask")})
-    if session := state.own_session(job):
+    if session:
         return seq, own_post(name, job_id, session, seq)
     line = f'{job_id}: owed, send it now: SendMessage {job["agent"]} "{superseded.POINTER.format(seq)}"'
-    if lane == sender:
+    if not starter:
         return seq, line
-    tools.sent(name, sender, [{"kind": "handoff", "to": [f"{lane}@{name}"], "attr": attrs, "text": line}])
-    return seq, f"{job_id}: posted to agent {job['agent']}'s cci address as handoff record {seq}, and to {lane}@{name}, whose SendMessage alone reaches it: {line}"
+    return seq, f"{job_id}: posted to agent {job['agent']}'s cci address and to {lane}@{name} as handoff record {seq}, its sendmessage attr naming the agent whose SendMessage alone reaches it: {line}"
 
 
 def own_post(name: str, job_id: str, session: str, seq: str) -> str:

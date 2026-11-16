@@ -2056,7 +2056,8 @@ def test_a_watch_that_crashes_mid_pass_has_posted_the_lines_its_earlier_stages_m
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
     serve(monkeypatch, {KEY: read(state="MERGED", mergeCommit="ccc333")})
-    mid_pass(monkeypatch, lambda: state.load("gone"))
+    beat = watch.beat
+    monkeypatch.setattr(watch, "beat", lambda step, staged=False: state.load("gone") if step == "lane_lines" else beat(step, staged))
     sent = posts(monkeypatch)
     run_landing_loop(demo, monkeypatch)
     launched(monkeypatch, demo)
@@ -6406,7 +6407,7 @@ def test_replayed_55571_a_red_pr_whose_builder_waits_on_its_own_open_question_wa
         (40, "blocked", stage.HIM, []),
         (42, "held", stage.HIM, []),
         (44, "blocked", stage.HIM, []),
-        (46, "red", stage.BUILDER, [red_pr]),
+        (46, "blocked", stage.HIM, []),
         (48, "blocked", stage.HIM, []),
         (50, "red", stage.BUILDER, [red_pr]),
     ]

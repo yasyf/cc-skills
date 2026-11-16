@@ -6812,14 +6812,14 @@ def staged_waiter(job: dict, env: str) -> bool:
     return job["state"] == "waiting" and any((found := STAGING_WAIT.fullmatch(wait)) and found["env"] == env for wait in job["waits"])
 
 
-def queue_waiters(data: dict) -> list[str]:
-    """Give a place in its env's slot queue, dated when it began waiting, to each staging tester whose WAITING names staging serving its cut while it holds, rides and waits in no slot, as a tester that rode a packed cut or a packer's ask did, so packing sees it, but for one a cut of the top coordinator's holding or queued for a slot names in its goal, which rides that cut, or one whose tested PRs are all merged or closed; the place goes once the job waits on no staging cut there; the line of each queued."""
+def queue_waiters(data: dict, approved_only: bool = False) -> list[str]:
+    """Give a place in its env's slot queue, dated when it began waiting, to each staging tester whose WAITING names staging serving its cut while it holds, rides and waits in no slot, as a tester that rode a packed cut or a packer's ask did, so packing sees it, but for one a cut of the top coordinator's holding or queued for a slot names in its goal, which rides that cut, or one whose tested PRs are all merged or closed, and with approved_only, as while a slot hold keeps a rehearsal, only a tester one of whose PRs has his Approve, the rest queued behind priority work once no hold stands; the place goes once the job waits on no staging cut there; the line of each queued."""
     lines = []
     carried = {named for slot in data["slots"].values() for member in [*slot_members(slot), *(each["job"] for each in slot["queue"] if each["starts"])] for named in JOB_ID.findall(data["jobs"][member]["goal"])}
     for job_id, job in data["jobs"].items():
         if job["state"] != "waiting" or job_id in carried or starts_cut(job) or not staging_parts(data, job):
             continue
-        if not (prs := [key for key in tested_prs(data, job) if key in data["prs"] and data["prs"][key]["state"] == "open"]):
+        if not (prs := [key for key in tested_prs(data, job) if key in data["prs"] and data["prs"][key]["state"] == "open"]) or approved_only and not any((data["prs"][key]["tap"] or {}).get("label") == "Approve" for key in prs):
             continue
         for env in dict.fromkeys(found["env"] for wait in job["waits"] if (found := STAGING_WAIT.fullmatch(wait))):
             slot = data["slots"].setdefault(env, {"holder": None, "queue": [], "hold": None})

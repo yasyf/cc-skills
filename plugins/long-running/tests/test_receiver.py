@@ -217,7 +217,7 @@ def test_a_receiver_handed_the_socket_by_an_install_that_kept_no_deliveries_log_
 
 def test_a_delivery_is_logged_once_as_its_own_facts_and_kept_as_its_hooks_last_reading_no_drive(home: None, unread: None, capsys: pytest.CaptureFixture[str]) -> None:
     receiver.took(REPO, 9, "g1", "check_run", {"check_run": {"head_sha": "aaa", "pull_requests": [{"number": 42}]}})
-    receiver.took(REPO, 9, "g2", "status", {"sha": "bbb", "branches": [{"name": "stacked"}]})
+    receiver.took(REPO, 9, "g2", "status", {"sha": "bbb", "branches": [{"name": "stacked"}], "repository": {"default_branch": "main"}})
     receiver.took(REPO, 9, "g3", "push", {"ref": "refs/heads/fix-it"})
     receiver.took(REPO, 9, "g4", "ping", {"zen": "Keep it logically awesome."})
     assert (delivered(), receiver.hooks()) == (
@@ -393,8 +393,8 @@ RUN_LINK = f"https://github.com/{REPO}/actions/runs/77"
         (f"{REPO}#42", "pull_request", {"pull_request": {"number": 42}}, True),
         (f"{REPO}#42", "pull_request", {"pull_request": {"number": 43}}, False),
         (f"https://github.com/{REPO}/pull/42", "check_run", {"check_run": {"head_sha": "zzz", "pull_requests": [{"number": 42}]}}, True),
-        (f"{REPO}#42", "status", {"sha": "aaa", "branches": []}, True),
-        (f"{REPO}#43", "status", {"sha": "aaa", "branches": []}, False),
+        (f"{REPO}#42", "status", {"sha": "aaa", "branches": [], "repository": {"default_branch": "main"}}, True),
+        (f"{REPO}#43", "status", {"sha": "aaa", "branches": [], "repository": {"default_branch": "main"}}, False),
         (f"{REPO}#42", "missed", None, True),
         (RUN_LINK, "workflow_run", {"action": "in_progress", "workflow_run": {"id": 77, "head_sha": "ccc", "head_branch": "fix-it"}, "repository": {"default_branch": "main"}}, False),
         (RUN_LINK, "workflow_run", {"action": "completed", "workflow_run": {"id": 78, "head_sha": "ccc", "head_branch": "fix-it"}, "repository": {"default_branch": "main"}}, False),

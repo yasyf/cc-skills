@@ -158,7 +158,7 @@ def test_a_ninth_builder_here_starts_on_a_sprite_at_once_and_only_one_whose_brie
         refused = agent_brief.deny_reason(briefed("long-running:builder", f"{mac}order {order_id}, job {job_id}"))
     assert refused.startswith(
         f"refused: 8 builders already run on this Mac, its cap of 8 on builders that compile here, where a staging tester, a merged PR's prover or another builder marked --builds-nothing holds no slot ({counted}), so j1 waits its turn for a builder slot on this Mac, 1 of 3 in line."
-        " The watch's FREE line names each job waiting its turn as a slot opens, earliest due first: j1 \"fix the watch\"; j10 \"tidy the docs\"; j11 \"fix the card\"."
+        " The watch's FREE line names each job waiting its turn as a slot opens, oldest first: j1 \"fix the watch\"; j10 \"tidy the docs\"; j11 \"fix the card\"."
     )
     assert "j12" not in refused
     assert "j13" not in refused

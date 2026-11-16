@@ -116,7 +116,7 @@ def test_a_log_question_from_a_lane_on_the_old_builder_rules_gets_the_rule_that_
     question = reads.request("LOG https://buildkite.com/forge/test/builds/129091")
     said = reads.answer(question, tmp_path, "demo", "j982")
     assert said.startswith("LOG https://buildkite.com/forge/test/builds/129091: this Mac reads no build log for a lane; read it on your Sprite")
-    assert "tools/ci bk log <pipeline> <build> <job>" in said
+    assert "<ci> bk log <pipeline> <build> <job>" in said
     assert "ccx vcs job-log <job> -R <owner/repo> --budget 1000000" in said
     assert said.endswith("return BLOCKED naming the read and its command.")
 

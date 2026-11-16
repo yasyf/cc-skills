@@ -31,7 +31,6 @@ from drive import (
     public_check,
     receiver,
     restack,
-    route,
     served,
     settled,
     slack,
@@ -444,6 +443,13 @@ def real_drive(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every test's drive takes a real drive's paths, its sessions, watch, webhooks and dashboard each stubbed, though its state root is the test's own folder, which state.scratch reads as a script's drive; each launch agent it would load reads as loaded already, so none is; a test of a scratch drive puts back REAL_SCRATCH."""
     monkeypatch.setattr(state, "scratch", lambda: False)
     monkeypatch.setattr(launchd, "kept", lambda label: True)
+    monkeypatch.setattr(launchd, "launchctl", lambda *args: None)
+
+
+@pytest.fixture(autouse=True)
+def session_clone_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test's repository settings come from the session's own clone, as they do while no drive checkout exists, so no settings read runs git to list a test folder's worktrees."""
+    monkeypatch.setattr(state, "drive_checkout", lambda name, clone: Path(clone))
 
 
 @pytest.fixture(autouse=True)
@@ -711,8 +717,6 @@ def unanswered(monkeypatch: pytest.MonkeyPatch) -> None:
     """The drive's own answer of his message escalates and the watch reads each owed message as claimed, unless a test says otherwise, so no test calls a model, adds eyes in Slack or detaches an answer."""
     monkeypatch.setattr(answer, "answer", lambda name, link, words, dry_run=False: {"answered": None, "why": "escalated in tests"})
     monkeypatch.setattr(answer, "claim_path", lambda name, ts: Path(__file__))
-    monkeypatch.setattr(route, "owed_ts", lambda data: set())
-    monkeypatch.setattr(route, "on_it", lambda name, link, words, thread: {"on_it": "escalated in tests"})
 
 
 @pytest.fixture(autouse=True)
