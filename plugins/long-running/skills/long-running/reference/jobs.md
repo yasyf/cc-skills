@@ -216,6 +216,13 @@ Waits a first line sets, and what ends them:
 - A `READY` or `PUSHED` first line turns each of these it names into a wait: a drive PR,
   `release:<service>:<owner>/<repo>#<n>[@<env>]`, `staging:<target>/<env>@<commit>`,
   `<order>:<part>` and a CI build link, the build a `--release` job started included.
+- A `READY` says one PR's checks are green and never that a stack is ready. It names, on a
+  `CALLERS:` line, the caller outside tests of each route, service, record or writer the change
+  adds, or says it has none and why. A stack assembled from several PRs is ready only once its tip
+  boots in the real topology, in the repository's sandbox or on a box running as its service
+  account, and that boot succeeds. Until then the coordinator plans no release leg on it and tells
+  him `checks pass, boot not run`, never `green`. For example, 60 PRs that each passed the full
+  test build still booted with a route nothing served and a record no writer wrote.
 - A `WAITING` first line does the same for each that still holds, and also takes `pid:<n>` for a
   process on this Mac that still runs (not on a Sprite), `reply:<the question's permalink>` for a
   teammate's reply, `reply:cci:<the seq of its record the job waits after>` for another drive's next

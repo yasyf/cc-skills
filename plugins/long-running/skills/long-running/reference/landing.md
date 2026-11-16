@@ -604,6 +604,14 @@ whether his order, his pick on a card or his plain words cover a release, starts
 one line what it started and why. His next word steers it. Nobody waits for a quote, a second
 session's confirmation or a card first. A change no words of his cover rides the next release.
 
+A stack is ready to release only after a real boot of its tip succeeds. Boot the assembled tip in
+the real topology, in the repository's sandbox or on a box running as its service account, with
+the boot the release provider's text names, and read that every piece the stack adds is reached:
+its routes answer, its writers write, its records are read. Green CI alone is never `ready`: plan
+no release leg on it and do not tell him the stack is green before that boot. For example, a
+stack of 60 PRs passed its full test build while the release tool called a route the service did
+not serve, so its first real request failed.
+
 - **How it starts.** One call from the top coordinator:
   `drive job add builder --order <order> --goal "<goal>" --release "<the release start at <commit>> --order <his answer>"`, the start as the
   repository's page text writes it.
