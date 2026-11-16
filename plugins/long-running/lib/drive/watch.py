@@ -2494,7 +2494,7 @@ def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
     """Take each ended codex-ask run, by codex_takes, start the disk check once DISKS_EVERY is due, by check_disks, hand on each staging slot whose lease ended or whose turn came, by slot_lines, tell him once of each Claude usage limit this Mac hit, by limit_lines, then start the handler on each POST report that needs one, by post_lines, so none of these clocks waits on a main pass that runs minutes; the lanes' reads are respond_pass's."""
     clocks_drawn(watcher)
     codex_takes(watcher)
-    return limit_lines(watcher, moment) + page_lines(watcher, moment) + check_disks(watcher, moment) + slot_lines(watcher, moment) + post_lines(watcher, moment)
+    return limit_lines(watcher, moment) + applet_lines(watcher, moment) + check_disks(watcher, moment) + slot_lines(watcher, moment) + post_lines(watcher, moment)
 
 
 CLOCKS_DRAWN: dict[str, int] = {}
@@ -2901,7 +2901,7 @@ def take_deliveries(watcher: Watcher) -> list[str] | None:
     return named
 
 
-def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
+def applet_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Send him each applet page made or changed for him since he was last sent it, by applet.unannounced, by his words "a link to one has never been sent to me": one line through milestone in the channel of the page's first order, its seat's by state.channel_seat_of, else his DM, the page's title linked on its words and its glance, once per material change and never per recompose; a post that fails is tried again next pass."""
     from drive import applet
 
