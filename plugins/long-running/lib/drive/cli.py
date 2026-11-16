@@ -5705,7 +5705,8 @@ def with_cards(name: str, data: dict, within: dict | None = None) -> dict:
         question["card_state"] = view.question_card_words(found, source, question)
     for pr in marked["prs"].values():
         pr["card_state"] = view.pr_card_words(found, source, pr) if pr["state"] == "open" else None
-    stage.shown(data, found, state.open_pr_keys(marked))
+    with state.indexed(data):
+        stage.shown(data, found, state.open_pr_keys(marked))
     return data
 
 
