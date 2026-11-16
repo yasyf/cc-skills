@@ -2198,6 +2198,7 @@ def landing_pass(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
     else:
         later = owed_reads(watcher, moment)
     for stage in later:
+        beat(f"landing {stage.func.__name__}", True)
         yield stage() or []
 
 
