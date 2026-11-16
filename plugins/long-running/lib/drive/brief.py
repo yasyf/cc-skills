@@ -315,7 +315,7 @@ def release_record(release: str, data: dict) -> dict | None:
     if not (command := state.repo_config(data).get("release", {}).get("status")):
         return None
     done = subprocess.run(command.replace("{release}", shlex.quote(release)), shell=True, cwd=data["roles"]["coordinator"]["cwd"], capture_output=True, text=True, timeout=settled.RELEASE_COMMAND_SECONDS)
-    return json.loads(done.stdout) if done.returncode == 0 else None
+    return json.loads(done.stdout) if done.returncode == 0 and done.stdout.strip() else None
 
 
 def recorded_job(record: dict, data: dict) -> dict | None:

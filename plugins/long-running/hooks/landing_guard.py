@@ -526,7 +526,7 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
         return None
     data = state.load(drives[0])
     briefed = Path(data["jobs"][codex]["brief"]).read_text() if codex else agents.brief(shell.caller)
-    record = verb in RELEASE_CUTS - {*brief.RELEASE_STARTS, "api"} and (named := brief.followed(words, verb)) and brief.release_record(named, data)
+    record = verb in RELEASE_CUTS - {*brief.RELEASE_STARTS, "api"} and not release_write(words) and (named := brief.followed(words, verb)) and brief.release_record(named, data)
     job = record and brief.recorded_job(record, data)
     release = release_of(words, briefed, data["jobs"].values(), job and job["brief_flags"]["release"])
     said = "\n".join([briefed, *([job["goal"], Path(job["brief"]).read_text() if job.get("brief") else ""] if job else [])])
