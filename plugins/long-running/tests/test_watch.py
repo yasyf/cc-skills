@@ -11032,6 +11032,38 @@ def test_23_staging_waits_of_4_jobs_on_one_env_make_one_stall_one_watchdog_and_o
     ]
 
 
+@pytest.mark.parametrize("count", [2, 16])
+def test_stall_projection_indexes_questions_and_release_cuts_once_per_pass(demo: str, monkeypatch: pytest.MonkeyPatch, count: int) -> None:
+    wait = staged_on("api", "6d44e8728ec1")
+    with state.edit(demo) as data:
+        data["jobs"] = {f"j{n}": job(state="waiting", waits=[wait]) for n in range(1, count + 1)}
+        data["orders"]["o1"]["jobs"] = list(data["jobs"])
+    scans = []
+    unindexed = []
+    scanned_cuts, drawn_on = state.scanned_cuts, view.drawn_on
+
+    def cuts(data: dict) -> list[tuple[str, str]]:
+        scans.append(len(data["jobs"]))
+        return scanned_cuts(data)
+
+    def questions(data: dict, *cards: str) -> list[tuple[str, dict]]:
+        if state.index_of(data) is None:
+            unindexed.append(cards)
+        return drawn_on(data, *cards)
+
+    monkeypatch.setattr(state, "scanned_cuts", cuts)
+    monkeypatch.setattr(view, "drawn_on", questions)
+    watching = watcher(demo)
+    watching.cards = NO_CARDS
+    for minute in (0, 1):
+        assert watch.stall_lines(watching, T0 + timedelta(minutes=minute)) == []
+        assert scans == [count] * (minute + 1)
+        assert unindexed == []
+    kept = state.load(demo)["stalls"]
+    assert list(kept) == [f"staging:{state.STAGING_ENV}"]
+    assert kept[f"staging:{state.STAGING_ENV}"]["since"] == state.stamp(T0)
+
+
 def test_release_waits_fold_into_one_stall_per_pr_and_env_and_staging_waits_into_one_per_env(demo: str) -> None:
     with state.edit(demo) as data:
         data["orders"]["o1"]["jobs"] = ["j1", "j2"]
