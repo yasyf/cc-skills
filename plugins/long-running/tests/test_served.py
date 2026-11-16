@@ -60,7 +60,7 @@ def test_a_restack_that_moves_the_hunks_and_the_lines_around_them_carries_the_ch
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     run("pr", "add", URL, "--job", "j1", *LEAD)
-    stamp = {"head": "head1", "read": "head1", "orders": ["o1"], "lines": served.digests(SMALL), "beside": {}, "carried": None}
+    stamp = {"head": "head1", "read": "head1", "orders": ["o1"], "lines": served.digests(SMALL), "beside": {}}
     with state.edit(demo) as data:
         data["prs"][KEY] |= {"head": "head2", "checked": stamp}
     restacked = SMALL.replace(b"@@ -10,3 +10,3 @@ export function run() {", b"@@ -14,3 +14,3 @@ export function start() {").replace(b"1111111111aa", b"3333333333cc")
@@ -477,7 +477,7 @@ def test_the_judge_reads_each_prs_files_at_its_head_from_a_tree_of_its_own_delet
         heads[key] = git_in(clone, "rev-parse", "HEAD")
     with state.edit(demo) as data:
         data["roles"]["coordinator"]["cwd"] = str(clone)
-    met = {"changed": [], "against": [], "carried": []}
+    met = {"changed": [], "against": []}
     seen: dict[str, object] = {}
     real = subprocess.run
 
@@ -494,7 +494,7 @@ def test_the_judge_reads_each_prs_files_at_its_head_from_a_tree_of_its_own_delet
     monkeypatch.setattr(served, "fetched", lambda clone, key, head: fetched.append((clone, key, head)))
     monkeypatch.setattr(served.subprocess, "run", claude)
     changes = {key: {"title": "Fix", "body": "", "head": head, "diff": SMALL} for key, head in heads.items()}
-    assert JUDGE(demo, "his words", changes, 0) == met
+    assert JUDGE(demo, "his words", changes) == met
     root = seen["root"]
     assert fetched == [(str(clone), key, head) for key, head in heads.items()]
     assert seen["dirs"] == [str(root)] and seen["tools"] == "Read,Grep,Glob" and not root.exists()
@@ -569,7 +569,7 @@ def test_a_pr_added_naming_its_part_is_judged_on_that_part_alone_and_one_naming_
     with state.edit(demo) as data:
         data["prs"][KEY]["head"] = "head1"
     assert served.verdict(demo, KEY).startswith(served.CHECKED)
-    assert f"this change delivers: [1] {CLOCKS[0]}\n  other changes deliver: {'; '.join(CLOCKS[1:])}" in judge.asked[-1][0]
+    assert f"this change delivers: {CLOCKS[0]}\n  other changes deliver: {'; '.join(CLOCKS[1:])}" in judge.asked[-1][0]
     other = "https://github.com/Forge-AI/monorepo/pull/43"
     assert cli.main(["pr", "add", other, "--job", "j1", "--part", "a part nobody ordered", *LEAD]) == 2
     assert "Forge-AI/monorepo#43: refused, nothing added: its job j1 delivers no part a part nobody ordered" in capsys.readouterr().err
@@ -588,7 +588,7 @@ def moved_check(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pyt
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     run("pr", "add", URL, "--job", "j1", *LEAD)
     monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: run", "head": "head2", "diff": SMALL})
-    return {"head": "head2", "checked": {"head": "head1", "read": "head1", "orders": ["o1"], "lines": served.digests(SMALL), "beside": {}, "carried": None}}
+    return {"head": "head2", "checked": {"head": "head1", "read": "head1", "orders": ["o1"], "lines": served.digests(SMALL), "beside": {}}}
 
 
 @pytest.mark.parametrize("stored", list(STORED_TAPS))
@@ -714,8 +714,8 @@ REPLAYS = {
 @pytest.mark.parametrize("key", list(REPLAYS))
 def test_the_judge_refuses_dashed_uuidv7_ids_and_a_picked_option_built_as_whole_copies_and_passes_the_32_hex_fix_and_a_fix_his_words_need(key: str, demo: str) -> None:
     order, parts, answered, near, refused_in = REPLAYS[key]
-    said, numbered = served.words({"orders": {"o1": order | {"parts": {part: {"posted": None} for part in parts}}}, "jobs": {"j1": {"order": "o1", "parts": parts, "carries": {}, "prs": []}}}, [{"job": "j1", "parts": []}], ["o1"], answered, near, [], [], [])
-    found = JUDGE(demo, said, {key: READ_CHANGE(key)}, len(numbered))["against"]
+    said = served.words({"orders": {"o1": order | {"parts": {part: {"posted": None} for part in parts}}}, "jobs": {"j1": {"order": "o1", "parts": parts, "carries": {}, "prs": []}}}, [{"job": "j1", "parts": []}], ["o1"], answered, near, [], [], [])
+    found = JUDGE(demo, said, {key: READ_CHANGE(key)})["against"]
     assert any(refused_in in item["change"] for item in found) if refused_in else found == [], found
 
 
@@ -727,12 +727,12 @@ REGRESSION_TEST = "https://github.com/Forge-AI/monorepo/pull/56227"
     ("job_prs", "lines"),
     [
         ([REGRESSION_TEST], f"  other changes deliver: fix, which {TEAMMATES_FIX} merged; stop; cause"),
-        ([TEAMMATES_FIX, REGRESSION_TEST], "  this change delivers: [1] fix\n  other changes deliver: stop; cause"),
+        ([TEAMMATES_FIX, REGRESSION_TEST], "  this change delivers: fix\n  other changes deliver: stop; cause"),
     ],
 )
 def test_a_part_a_merged_pr_outside_the_job_delivered_is_left_to_other_changes_naming_that_pr_and_one_its_own_pr_delivered_stays_its_own(job_prs: list[str], lines: str) -> None:
     order = {"created": "2026-11-13T18:40:00-08:00", "text": "fix the stuck chats", "parts": {"fix": {"posted": TEAMMATES_FIX}, "stop": {"posted": None}, "cause": {"posted": None}}}
-    said, _ = served.words({"orders": {"o1": order}, "jobs": {"j1": {"order": "o1", "parts": ["fix"], "carries": {}, "prs": job_prs}}}, [{"job": "j1", "parts": []}], ["o1"], [], [], [], [], [])
+    said = served.words({"orders": {"o1": order}, "jobs": {"j1": {"order": "o1", "parts": ["fix"], "carries": {}, "prs": job_prs}}}, [{"job": "j1", "parts": []}], ["o1"], [], [], [], [], [])
     assert said == f'o1, 2026-11-13T18:40:00-08:00: "fix the stuck chats"\n{lines}'
 
 
@@ -837,8 +837,8 @@ FLAKE_FIXES = {
 @pytest.mark.parametrize("case", list(FLAKE_FIXES))
 def test_the_judge_passes_each_flake_fix_the_drive_turned_away_against_his_ruling_532cd3d_alone_and_refuses_a_retry_and_a_timeout_bump(case: str, demo: str) -> None:
     key, read = FLAKE_FIXES[case]
-    said, numbered = served.words({"orders": {}, "jobs": {"j1": {"order": "o1", "parts": [], "carries": {}, "prs": []}}}, [{"job": "j1", "parts": []}], [], [FLAKE_RULING], [], [], [], [])
-    found = JUDGE(demo, said, {key: read or READ_CHANGE(key)}, len(numbered))["against"]
+    said = served.words({"orders": {}, "jobs": {"j1": {"order": "o1", "parts": [], "carries": {}, "prs": []}}}, [{"job": "j1", "parts": []}], [], [FLAKE_RULING], [], [], [], [])
+    found = JUDGE(demo, said, {key: read or READ_CHANGE(key)})["against"]
     assert {item["file"] for item in found} == {"dashboard/e2e/irisServe.e2e.ts"} if read else found == [], found
 
 

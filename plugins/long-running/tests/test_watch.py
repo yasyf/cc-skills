@@ -16,7 +16,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import DRIVE_TERMINAL, HELD_RELEASES, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, UNFROZEN, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, carrying, codex_reply, commit_files, git_in, said_lines, staged
+from conftest import DRIVE_TERMINAL, HELD_RELEASES, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, UNFROZEN, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged
 from drive import agents, card, cli, codex, github, install, land, launchd, limits, orca, place, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -482,7 +482,6 @@ def test_a_ready_waits_on_the_pr_it_names_and_its_job_takes_done_once_that_produ
     serve(monkeypatch, {KEY: read(state="MERGED", mergeCommit="ccc333")})
     with state.edit(demo) as data:
         state.take_result(data, "j1", f"READY {state.pr_url(KEY)}")
-        data["prs"][KEY]["checker"] = carrying("aaaaaaa111", {"o1": ["ship the watch"]})
     assert state.load(demo)["jobs"]["j1"]["waits"] == [KEY]
     watching = watcher(demo)
     said = watch.run_pass(watching, T0) + watch.run_pass(watching, T0 + timedelta(seconds=61))
@@ -505,7 +504,6 @@ def test_a_pr_merged_into_another_open_prs_branch_reads_folded_holding_its_wait_
     fetch(read(headRefName="the-base"))
     with state.edit(demo) as data:
         state.take_result(data, "j1", f"READY {state.pr_url(KEY)}")
-        data["prs"][KEY]["checker"] = carrying("aaaaaaa111", {"o1": ["ship the watch"]})
     watching = watcher(demo)
     fold = f"PR {KEY}: merged into the-base (#43), not main [o1 j1]"
     assert fold in watch.run_pass(watching, T0)
@@ -2999,7 +2997,6 @@ def test_a_watch_that_crashes_mid_pass_has_posted_the_lines_its_earlier_stages_m
 ) -> None:
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
-        data["prs"][KEY]["checker"] = carrying("aaaaaaa111", {"o1": ["ship the watch"]})
     serve(monkeypatch, {KEY: read(state="MERGED", mergeCommit="ccc333")})
     mid_pass(monkeypatch, lambda: state.load("gone"))
     sent = posts(monkeypatch)
@@ -3766,11 +3763,11 @@ def test_due_names_every_part_nothing_carries(demo: str, monkeypatch: pytest.Mon
     assert watch.run_pass(watching, T0 + timedelta(minutes=11)) == ['ORPHAN o2 "stack 2": no job']
 
 
-def merged_carrying(job_id: str, order_id: str, carried: dict[str, list[str]]) -> dict:
-    return state.new_pr(state.pr_url(OTHER), job_id, order_id) | {"state": "merged", "merged_sha": "c0ffee1234", "head": "bbbbbbb222", "checker": carrying("bbbbbbb222", carried)}
+def merged_other(job_id: str, order_id: str) -> dict:
+    return state.new_pr(state.pr_url(OTHER), job_id, order_id) | {"state": "merged", "merged_sha": "c0ffee1234", "head": "bbbbbbb222"}
 
 
-def test_a_part_another_orders_builder_carries_is_delivered_only_by_the_proof_of_that_builders_done_where_the_checked_diff_of_its_merged_pr_carries_it_and_its_own_part_by_the_proof_alone(
+def test_a_part_another_orders_builder_carries_is_delivered_by_the_passing_proof_of_that_builders_done_as_its_own_part_is(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path
 ) -> None:
     serve(monkeypatch, {})
@@ -3787,7 +3784,7 @@ def test_a_part_another_orders_builder_carries_is_delivered_only_by_the_proof_of
         state.take_result(data, "j1", "DONE carried it")
     assert not state.delivered(state.load(demo), "o2", "stack 2")
     with state.edit(demo) as data:
-        data["prs"][OTHER] = merged_carrying("j1", "o1", {"o2": ["stack 2"]})
+        data["prs"][OTHER] = merged_other("j1", "o1")
         data["jobs"]["j1"]["prs"].append(state.pr_url(OTHER))
         state.take_result(data, "j1", f"DONE {state.pr_url(OTHER)} merged")
         data["orders"]["o2"]["updated"] = state.stamp(T0)
@@ -3801,7 +3798,7 @@ def test_a_part_another_orders_builder_carries_is_delivered_only_by_the_proof_of
     assert [state.delivered(data, order_id, part) for order_id, part in (("o2", "stack 2"), ("o2", "stack 1"), ("o1", "ship the watch"))] == [True, False, True]
 
 
-def test_a_passing_proof_naming_no_pr_delivers_its_own_orders_part_and_never_one_it_carries_for_another_order(demo: str) -> None:
+def test_a_passing_proof_naming_no_pr_delivers_its_own_orders_part_and_the_one_it_carries_for_another_order(demo: str) -> None:
     with state.edit(demo) as data:
         files_order(data)
         data["orders"]["o2"]["jobs"].append("j1")
@@ -3809,7 +3806,7 @@ def test_a_passing_proof_naming_no_pr_delivers_its_own_orders_part_and_never_one
     with state.edit(demo) as data:
         proven(data)
     data = state.load(demo)
-    assert [state.delivered(data, order_id, part) for order_id, part in (("o1", "ship the watch"), ("o2", "stack 2"))] == [True, False]
+    assert [state.delivered(data, order_id, part) for order_id, part in (("o1", "ship the watch"), ("o2", "stack 2"))] == [True, True]
 
 
 def test_a_job_on_the_part_heals_the_orphan_once_its_handover_is_done(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -4013,7 +4010,7 @@ def test_each_o1_spike_part_its_done_builders_delivered_names_their_undelivered_
     for part, jobs in held.items():
         listed = ", ".join(f"{kind} {job_id} {job_state}" for job_id, kind, job_state in jobs)
         finished = " and ".join(job_id for job_id, kind, job_state in jobs if kind != "reader" and job_state == "done")
-        assert gaps[part].startswith(f"{NO_BUILDER}{listed}; {finished} merged no PR whose checked diff carries it: start one with drive job add builder --order o1 --part {shlex.quote(part)} "), part
+        assert gaps[part].startswith(f"{NO_BUILDER}{listed}; {finished} done with no passing proof delivering it: start one with drive job add builder --order o1 --part {shlex.quote(part)} "), part
 
 
 def test_a_part_sorted_as_an_answer_is_delivered_by_its_post_and_one_a_builder_works_on_is_never_sorted(
@@ -4267,7 +4264,7 @@ def test_an_open_incident_with_no_fix_part_whose_jobs_ended_with_no_pr_card_or_p
         data["jobs"]["j5"] = job(order="o2", kind="reader", goal="read the queue", state="done", parts=[stopped], created=state.stamp(T0 - timedelta(minutes=5)), updated=earlier)
     assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) == idle
     unbuilt = (
-        f"{NO_BUILDER}builder j2 done, builder j3 done, codex j4 done, reader j5 done; j2 and j3 and j4 merged no PR whose checked diff carries it:"
+        f"{NO_BUILDER}builder j2 done, builder j3 done, codex j4 done, reader j5 done; j2 and j3 and j4 done with no passing proof delivering it:"
         f" start one with drive job add builder --order o2 --part '{stopped}' --goal '<what it builds>', or add it to a builder with drive job set <builder> --part '{stopped}',"
         f" adding --carries o2 for another order's builder; when it asks only for an answer, drive order set o2 --kind answer --part '{stopped}'"
     )
@@ -5313,7 +5310,7 @@ def test_a_pr_he_approved_that_waits_on_a_staging_test_is_owed_by_him_while_its_
     assert jobs == [(KEY, "j4")]
 
 
-def test_a_pr_he_approved_that_waits_on_a_part_of_an_order_lands_only_once_a_proof_delivers_it_by_a_merged_pr_whose_checked_diff_carries_it_never_on_a_done_at_its_merge_or_of_its_own(
+def test_a_pr_he_approved_that_waits_on_a_part_of_an_order_lands_only_once_a_proof_delivers_it_never_on_a_done_at_its_merge_or_of_its_own(
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     with state.edit(demo) as data:
@@ -5332,7 +5329,7 @@ def test_a_pr_he_approved_that_waits_on_a_part_of_an_order_lands_only_once_a_pro
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=30)) if line.startswith("FREE ")]
     assert state.load(demo)["prs"][KEY]["waits"] == ["o2:stack 1"]
     with state.edit(demo) as data:
-        data["prs"][OTHER] = merged_carrying("j2", "o2", {"o2": ["stack 1"]})
+        data["prs"][OTHER] = merged_other("j2", "o2")
         data["jobs"]["j2"]["prs"].append(state.pr_url(OTHER))
         state.take_result(data, "j2", f"DONE {state.pr_url(OTHER)} merged, stack 1 ran on every cluster")
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=45)) if line.startswith("FREE ")]
@@ -5538,7 +5535,7 @@ def test_a_job_waiting_on_a_codex_job_holds_through_its_handoff_a_pointer_report
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=6)) if line.startswith("FREE ")]
     assert [state.load(demo)["jobs"][job_id]["waits"] for job_id in ("j1", "j4")] == [["j3"], ["j2"]]
     with state.edit(demo) as data:
-        data["prs"][OTHER] = merged_carrying("j3", "o2", {"o2": ["page kit"]})
+        data["prs"][OTHER] = merged_other("j3", "o2")
         data["jobs"]["j3"]["prs"].append(state.pr_url(OTHER))
         codex.take(demo, data, "j3", completed_run(tmp_path / "codex-ask.2", codex_reply("DONE", f"built the page kit in {state.pr_url(OTHER)}, merged")))
     assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=8)) if line.startswith("FREE ")] == ["FREE j1 o1: j3 answered or done, nothing else holds it"]
@@ -6335,7 +6332,7 @@ def test_a_check_names_every_pr_its_job_and_the_job_it_was_handed_from_carry_wit
     delivered = f'its job\'s merged PRs already deliver their share of these orders: {merged} "Fix: a Sprite lane gets the wasm toolchain"'
     told: list[str] = []
     wasm = {"order": "o1", "words": "ship the watch", "file": "", "change": "no PR gives Sprites the wasm toolchain"}
-    monkeypatch.setattr(served, "judged", lambda name, said, changes, parts: told.append(said) or {"against": [] if delivered in said else [wasm], "carried": []})
+    monkeypatch.setattr(served, "judged", lambda name, said, changes: told.append(said) or {"against": [] if delivered in said else [wasm]})
     assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
     [said] = told
     assert f'{delivered}\nits job\'s other open PRs, each judged on its own, deliver their share of these orders: {OTHER} "Fix: the stack\'s top"' in said
@@ -6352,7 +6349,7 @@ def test_a_check_whose_judge_failed_is_said_nowhere_and_tried_again_ten_minutes_
         data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
         data["prs"][KEY] |= {"wants_tap": True, "checked": None}
 
-    def failing(name: str, said: str, changes: dict, parts: int) -> dict:
+    def failing(name: str, said: str, changes: dict) -> dict:
         raise state.DriveError("the judge timed out")
 
     monkeypatch.setattr(served, "judged", failing)
@@ -9329,7 +9326,7 @@ def test_a_ready_on_a_yasyf_pr_whose_builder_owes_its_fix_wakes_that_builder_and
 def merged_ready(name: str, key: str, repro: str | None) -> None:
     with state.edit(name) as data:
         data["prs"][KEY]["state"] = "merged"
-        data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged", "merged_sha": "ccc333ddd444eee", "checker": carrying("", {"o1": data["jobs"]["j1"]["parts"]})}
+        data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged", "merged_sha": "ccc333ddd444eee"}
         data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(key)}", prs=[state.pr_url(key)], repro=repro, updated=state.stamp(T0 - timedelta(hours=1)))
 
 
@@ -9372,7 +9369,7 @@ def test_a_merged_ready_job_beside_a_product_merge_hands_it_and_the_parts_it_car
     merged_ready(demo, YASYF, proof_file(tmp_path))
     with state.edit(demo) as data:
         parts = data["jobs"]["j1"]["parts"]
-        data["prs"][KEY] |= {"merged_sha": "fff666aaa777bbb", "checker": carrying(data["prs"][KEY]["head"], {"o1": parts})}
+        data["prs"][KEY] |= {"merged_sha": "fff666aaa777bbb"}
         data["jobs"]["j1"].update(said=f"READY {state.pr_url(YASYF)} {state.pr_url(KEY)}", prs=[state.pr_url(YASYF), state.pr_url(KEY)])
     watching = watcher(demo)
     lines = watch.run_pass(watching, T0)
@@ -9451,84 +9448,19 @@ def test_a_merged_ready_product_job_takes_done_at_its_merge_and_the_watch_adds_t
     assert provers == []
 
 
-def test_a_merged_ready_job_whose_merged_diff_no_check_has_judged_starts_one_check_and_takes_done_only_once_it_lands_adding_no_prover_for_a_diff_carrying_none_of_its_parts(
-    demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], judge: Judge, tmp_path: Path
+@pytest.mark.parametrize("outcome", [None, f"{served.FAILED}: the judge timed out", f"{served.CHECKED} against the words of o1"], ids=["ended with no outcome", "failed", "passed"])
+def test_a_merged_pr_starts_no_check_at_its_merged_head_whatever_its_last_check_found_and_its_job_takes_done_at_its_merge(
+    demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], tmp_path: Path, outcome: str | None
 ) -> None:
     serve(monkeypatch, {})
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
     merged_ready(demo, OTHER, proof_file(tmp_path))
     with state.edit(demo) as data:
-        data["prs"][OTHER]["checker"] = None
-    watching = watcher(demo)
-    assert (watch.run_pass(watching, T0), checkers) == ([], [OTHER])
-    assert (watch.run_pass(watching, T0 + timedelta(minutes=1)), checkers, state.load(demo)["jobs"]["j1"]["state"]) == ([], [OTHER], "waiting")
-    judge.carried = []
-    assert cli.main(["pr", "check", state.pr_url(OTHER), "--drive", demo]) == 0
-    watch.run_pass(watching, T0 + timedelta(minutes=2))
-    data = state.load(demo)
-    assert data["jobs"]["j1"]["said"].startswith(f"DONE {state.pr_url(OTHER)} merged: ")
-    assert (state.carried(data["prs"][OTHER]), state.delivered(data, "o1", "ship the watch"), "j2" in data["jobs"]) == ({}, False, False)
-
-
-@pytest.mark.parametrize(
-    "checker",
-    [
-        {"outcome": f"{served.FAILED}: the judge timed out", "carried": None},
-        {"outcome": None, "carried": None},
-        {"outcome": f"{served.CHECKED} against the words of o1", "carried": None},
-    ],
-    ids=["failed", "ended with no outcome", "kept before checks named parts"],
-)
-def test_a_merged_pr_whose_check_already_ran_at_its_merged_head_starts_no_check_on_any_pass_after_it_or_an_install_and_its_job_goes_on(
-    demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], tmp_path: Path, checker: dict
-) -> None:
-    serve(monkeypatch, {})
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
-    merged_ready(demo, OTHER, proof_file(tmp_path))
-    with state.edit(demo) as data:
-        data["prs"][OTHER]["checker"] |= checker | {"pid": 999999999, "at": state.stamp(T0 - timedelta(hours=1))}
+        data["prs"][OTHER]["checker"] = {"head": "", "pid": 999999999, "at": state.stamp(T0 - timedelta(hours=1)), "outcome": outcome, "orders": None, "answers": None, "against": ""}
     watching = watcher(demo)
     for moment in (T0, T0 + served.RETRY + timedelta(minutes=1)):
         watch.run_pass(watching, moment)
-    data = state.load(demo)
-    assert (checkers, data["jobs"]["j1"]["said"].startswith(f"DONE {state.pr_url(OTHER)} merged: ")) == ([], True)
-    rerun = f"j1 merged no PR whose checked diff carries it, the check at its merged head naming no parts, so drive pr check {state.pr_url(OTHER)} judges it again"
-    assert rerun in watch.unbuilt(data, "o1", "ship the watch", state.part_jobs(data, "o1", "ship the watch"))
-
-
-def test_a_proven_done_on_a_merged_pr_delivers_its_own_orders_part_by_its_proof_whatever_the_check_found_and_a_carried_part_of_another_order_only_once_the_check_names_it(
-    demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], judge: Judge
-) -> None:
-    serve(monkeypatch, {})
-    proof = f"{state.pr_url(YASYF)} live: repro/j1.sh exits 0 on long-running@skills 1.0.3"
-    carried = "page kit"
-    with state.edit(demo) as data:
-        data["prs"][KEY]["state"] = "merged"
-        data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j1", "o1") | {"state": "merged", "merged_sha": "ccc333ddd444eee", "head": "bbbbbbb222"}
-        data["orders"]["o2"] = order(text=carried, jobs=["j1"], parts={carried: state.new_part()})
-        data["jobs"]["j1"].update(state="done", said=f"DONE {proof}", prs=[state.pr_url(YASYF)], carries={"o2": [carried]}, updated=state.stamp(T0 - timedelta(hours=1)))
-    with state.edit(demo) as data:
-        state.deliver_proven(data, "j1", proof)
-    watching = watcher(demo)
-
-    def orphans(moment: datetime) -> list[str]:
-        return [line for line in watch.run_pass(watching, moment) if line.startswith("ORPHAN")]
-
-    data = state.load(demo)
-    assert (data["orders"]["o1"]["parts"]["ship the watch"]["posted"], state.delivered(data, "o2", carried)) == (proof, False)
-    assert (orphans(T0), checkers) == ([], [YASYF])
-    judge.carried = []
-    assert cli.main(["pr", "check", state.pr_url(YASYF), "--drive", demo]) == 0
-    data = state.load(demo)
-    assert (state.carried(data["prs"][YASYF]), data["orders"]["o1"]["parts"]["ship the watch"]["posted"], state.delivered(data, "o2", carried)) == ({}, proof, False)
-    assert ([line.startswith(f'ORPHAN o2 "{carried}": ') for line in orphans(T0 + timedelta(minutes=1))], checkers) == ([True], [YASYF])
-    with state.edit(demo) as data:
-        data["prs"][YASYF].update(checker=None, checked=None)
-    judge.carried = None
-    assert cli.main(["pr", "check", state.pr_url(YASYF), "--drive", demo]) == 0
-    data = state.load(demo)
-    assert (state.carried(data["prs"][YASYF])["o2"], data["orders"]["o2"]["parts"][carried]["posted"]) == ([carried], proof)
-    assert (orphans(T0 + timedelta(minutes=2)), checkers) == ([], [YASYF])
+    assert (checkers, state.load(demo)["jobs"]["j1"]["said"].startswith(f"DONE {state.pr_url(OTHER)} merged: ")) == ([], True)
 
 
 def test_a_done_at_its_merge_delivers_no_part_so_the_part_is_owed_until_the_builder_proving_it_live_returns_done(
@@ -9549,7 +9481,7 @@ def test_a_done_at_its_merge_delivers_no_part_so_the_part_is_owed_until_the_buil
     assert state.delivered(state.load(demo), "o1", "ship the watch")
 
 
-def test_an_old_merge_never_proven_live_across_two_parts_has_its_merged_diff_checked_then_gets_one_prover_starting_at_once_for_the_parts_it_carries_and_a_second_pass_adds_none(
+def test_an_old_merge_never_proven_live_across_two_parts_gets_one_prover_starting_at_once_for_the_parts_it_carries_and_a_second_pass_adds_none(
     demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], checkers: list[str]
 ) -> None:
     serve(monkeypatch, {})
@@ -9562,9 +9494,6 @@ def test_an_old_merge_never_proven_live_across_two_parts_has_its_merged_diff_che
         data["orders"]["o2"] = order(text=carried, jobs=["j1"], parts={carried: state.new_part()}, updated=earlier)
         data["jobs"]["j1"].update(state="done", said=f"DONE {state.pr_url(KEY)} merged: {merged}", carries={"o2": [carried]}, updated=earlier)
     watching = watcher(demo)
-    assert ([line for line in watch.run_pass(watching, T0 - timedelta(minutes=1)) if line.startswith(("JOB ", "ORPHAN "))], checkers) == ([], [KEY])
-    with state.edit(demo) as data:
-        data["prs"][KEY]["checker"] = carrying("aaaaaaa111", {"o1": ["ship the watch"], "o2": [carried]})
     lines = watch.run_pass(watching, T0)
     data = state.load(demo)
     builder = data["jobs"]["j2"]
@@ -9575,7 +9504,7 @@ def test_an_old_merge_never_proven_live_across_two_parts_has_its_merged_diff_che
     assert (builder["kind"], builder["state"], builder["waits"], builder["parts"], builder["carries"]) == ("builder", "waiting", [], ["ship the watch"], {"o2": [carried]})
     assert f"Handoff: {merged} merged: install it by the INSTALL: line of j1's return, in reports/j1.md, write its PROVE: line as a proof file, keep it with drive job set <your job> --repro <file> and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part" in Path(builder["brief"]).read_text()
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=31)) if line.startswith("JOB ")]
-    assert (list(state.load(demo)["jobs"]), asked, provers) == (["j1", "j2"], [[], [KEY]], [])
+    assert (list(state.load(demo)["jobs"]), asked, provers, checkers) == (["j1", "j2"], [[KEY]], [], [])
 
 
 def test_a_merged_product_job_over_several_prs_gets_one_prover_said_in_one_line_waiting_on_no_release(demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str]) -> None:
@@ -9584,7 +9513,7 @@ def test_a_merged_product_job_over_several_prs_gets_one_prover_said_in_one_line_
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"]}, OTHER: {"components": ["web"], "touched": ["web"], "dev": [], "releases": ["web"]}})
     merged_ready(demo, OTHER, None)
     with state.edit(demo) as data:
-        data["prs"][KEY] |= {"merged_sha": "aaa111bbb222ccc", "checker": carrying("aaaaaaa111", {"o1": ["ship the watch"]})}
+        data["prs"][KEY] |= {"merged_sha": "aaa111bbb222ccc"}
         data["jobs"]["j1"].update(said=f"READY {state.pr_url(KEY)} {state.pr_url(OTHER)}", prs=[state.pr_url(KEY), state.pr_url(OTHER)])
     lines = watch.run_pass(watcher(demo), T0)
     data = state.load(demo)
@@ -9648,7 +9577,6 @@ def test_a_merged_product_job_whose_own_order_is_done_takes_done_at_its_merge_an
         data["orders"]["o1"]["state"] = "done"
         data["orders"]["o2"] = order(text=carried, jobs=["j1"], parts={carried: state.new_part()})
         data["jobs"]["j1"]["carries"] = {"o2": [carried]}
-        data["prs"][OTHER]["checker"] = carrying("", {"o1": data["jobs"]["j1"]["parts"], "o2": [carried]})
     lines = watch.run_pass(watcher(demo), T0)
     data = state.load(demo)
     prover = data["jobs"]["j2"]
@@ -9751,7 +9679,7 @@ def test_an_old_merge_whose_prover_failed_or_stopped_gets_no_second_and_its_part
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
     earlier = state.stamp(T0 - timedelta(days=2))
     with state.edit(demo) as data:
-        data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee", "checker": carrying("aaaaaaa111", {"o1": ["ship the watch"]})}
+        data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee"}
         data["jobs"]["j1"].update(state="done", said=f"DONE {state.pr_url(KEY)} merged: {KEY} at ccc333ddd444", updated=earlier)
         data["orders"]["o1"]["jobs"].append("j2")
         data["jobs"]["j2"] = state.new_job("o1", "builder", f"prove {KEY} live", data["jobs"]["j1"]["parts"], earlier) | {"state": ended, "builds_nothing": True, "updated": earlier}
@@ -9781,7 +9709,7 @@ def test_an_old_merge_whose_unstarted_prover_holds_one_of_its_parts_widens_that_
     earlier, second = state.stamp(T0 - timedelta(days=2)), "ship the dashboard"
     handoff = f"{KEY} at ccc333ddd444 merged: install it by the INSTALL: line of j1's return, in reports/j1.md, write its PROVE: line as a proof file, keep it with drive job set <your job> --repro <file> and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part"
     with state.edit(demo) as data:
-        data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee", "checker": carrying("aaaaaaa111", {"o1": ["ship the watch", second]})}
+        data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee"}
         data["orders"]["o1"]["parts"][second] = state.new_part()
         data["jobs"]["j1"].update(state="done", said=f"DONE {state.pr_url(KEY)} merged: {KEY} at ccc333ddd444", parts=["ship the watch", second], updated=earlier)
         data["orders"]["o1"]["jobs"].append("j2")
@@ -9805,8 +9733,8 @@ def test_a_merge_sharing_a_pr_with_an_unstarted_prover_widens_it_to_its_parts_an
     earlier, carried = state.stamp(T0 - timedelta(days=2)), "ship the dashboard"
     first = f"{KEY} at ccc333ddd444 merged: install it by the INSTALL: line of j1's return, in reports/j1.md, write its PROVE: line as a proof file, keep it with drive job set <your job> --repro <file> and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part"
     with state.edit(demo) as data:
-        data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee", "checker": carrying("aaaaaaa111", {"o1": ["ship the watch"], "o2": [carried]})}
-        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j3", "o2") | {"state": "merged", "merged_sha": "aaa111bbb222ccc", "checker": carrying("", {"o2": [carried]})}
+        data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee"}
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j3", "o2") | {"state": "merged", "merged_sha": "aaa111bbb222ccc"}
         data["orders"]["o2"] = order(text=carried, jobs=["j3"], parts={carried: state.new_part()}, updated=earlier)
         data["jobs"]["j1"].update(state="done", said=f"DONE {state.pr_url(KEY)} merged: {KEY} at ccc333ddd444", updated=earlier)
         data["orders"]["o1"]["jobs"].append("j2")
@@ -9984,7 +9912,6 @@ def test_a_merged_ready_product_job_on_an_open_incidents_fix_takes_done_at_its_m
     with state.edit(demo) as data:
         data["orders"]["o1"].update(incident=True, parts={"fix": state.new_part()})
         data["jobs"]["j1"]["parts"] = ["fix"]
-        data["prs"][OTHER]["checker"] = carrying("", {"o1": ["fix"]})
     lines = watch.run_pass(watcher(demo), T0)
     data = state.load(demo)
     assert [line for line in lines if line.startswith(f"JOB j2 o1 added, proves {OTHER}")]
@@ -10021,6 +9948,17 @@ def test_a_jobs_own_done_taken_before_the_drives_own_done_proofs_since_gets_no_f
     data = state.load(demo)
     assert (install.done_unproven(data, "j1"), install.done_before_proofs(data, "j1")) == (bool(started), not started)
     assert (watch.run_pass(watcher(demo), T0 + timedelta(hours=2)), provers) == ([], started)
+
+
+def test_a_done_builder_owing_work_whose_said_line_an_older_install_kept_without_its_done_reads_its_newest_return_so_one_opening_done_is_done_before_proofs(demo: str) -> None:
+    said, returned = "#53689 live: tools/ci db-read --json waited 1:03 for its build, printed rows, exit 0", T0 - timedelta(hours=1)
+    with state.edit(demo) as data:
+        data["own_done_proofs_since"] = state.stamp(T0)
+        data["jobs"]["j1"].update(state="done", said=said, returned=state.stamp(returned), updated=state.stamp(returned))
+    state.keep_report(demo, "j1", f"BLOCKED {said}", f"BLOCKED {said}", returned - timedelta(minutes=5))
+    assert not install.done_before_proofs(state.load(demo), "j1")
+    state.keep_report(demo, "j1", f"DONE {said}", f"DONE {said}\nPROVE: tools/ci db-read --json", returned)
+    assert install.done_before_proofs(state.load(demo), "j1")
 
 
 
