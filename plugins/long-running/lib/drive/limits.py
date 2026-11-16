@@ -333,7 +333,7 @@ SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|(?<=[.!?][*_~)\]])\s+|\n+")
 BACKTICKED = re.compile(r"`[^`\n]*`")
 SOURCE_LINK = re.compile(r"https?://|\{record:")
 SOURCED_LINE = re.compile(rf"^.*(?:{SOURCE_LINK.pattern}).*$", re.MULTILINE)
-QUOTED_START = "<https://buildkite.com/forge/release/builds/15020|the release build> started `11:30 AM`"
+QUOTED_START = "<https://ci.example.com/release/builds/15020|the release build> started `11:30 AM`"
 SOURCED_TIME = "From 1:35 to 1:55 AM, <https://app.datadoghq.com/notebook/1|the Datadog notebook> shows the upstream failures"
 VAGUE = re.compile(
     r"\b(?:the|this|that|these|those|your|our)\s+(?:\w+\s+)?(?:change|fix|pick|copy|thing|work|issue|problem|bug|approach|code|path)s?\b"
@@ -369,7 +369,7 @@ UNMEASURED = re.compile(rf"https?://\S+|<[^<>\n]*>|{CODE_PATH.pattern}|{PR_NUMBE
 DESCRIPTION_SHAPE = (
     f"one plain-text line under it, indented two spaces and at most {LINE_WORDS} words, which his card draws under that option and"
     " which says in prose what the option is: what runs and when, where its data lives, and what it requires touching or building,"
-    " by name, with any cost every user pays, such as SandSQL's write path for every table"
+    " by name, with any cost every user pays, such as a database's write path for every table"
 )
 DESCRIBED_RULING = (
     'his Nov 12 7:43 AM words "each option just having a plain-text shot concise but clear and comprehensive description of what it'
@@ -442,7 +442,7 @@ OFF_AWS_SIGN_IN = re.compile(r"\bcookiesync\b|\bbrowser(?:['’]s)?\s+(?:sign[- 
 FACT_NOUN = r"(?:ids?|keys?|tokens?|secrets?|urls?|names?|numbers?|values?|address(?:es)?|passwords?|emails?|credentials?|handles?|endpoints?|hosts?)"
 TOLD_WORDS = {
     "id": "ruling:e10ccc1",
-    "asked": "Should the production release start before production's SandSQL finishes the migration the drive's mistaken dry run started?",
+    "asked": "Should the production release start before production's database finishes the migration the drive's mistaken dry run started?",
     "said": "explain more why all these DBs are being created and what’s happening use proper English",
     "rule": (
         "Each thing the card's summary, Root cause or Interim fix line says happened or is happening says in plain words how it"

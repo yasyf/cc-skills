@@ -114,7 +114,7 @@ HELD = {WEIGHS: json.dumps({"verdict": "hold", "note": ""})}
 PASSED = {WEIGHS: json.dumps({"verdict": "pass", "note": ""})}
 GUESSED = "The cloud's inbox reader queries Postgres straight."
 GUESSED_CLAIMS = [{"claim": GUESSED, "read": "cloudrunner/inbox.go"}]
-CLOUD_READ = 'ccx_code_read {"path": "go/sand/next/internal/cloudrunner/inbox.go"}\n57  rows, err := r.postgres.Query(ctx, selectInbox, agentID)'
+CLOUD_READ = 'ccx_code_read {"path": "internal/cloudrunner/inbox.go"}\n57  rows, err := r.postgres.Query(ctx, selectInbox, agentID)'
 NOT_READ = 'none: no call of the handler\'s own holds "cloudrunner/inbox.go"'
 HELD_BACK = "Jev held back this post: claim \"The cloud's inbox reader queries Postgres straight.\" does not stand on its read."
 UNSURE = "message_limits: this post goes out as written; Jev is unsure of whether it reaches past the work of his thread: if one is wrong, reword the post in place."

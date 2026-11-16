@@ -276,10 +276,12 @@ class AccessProvider(Provider):
 
 
 class DataProvider(Provider):
-    """What holds a team's data in this repository, which a guard refuses any session reading or writing where it runs."""
+    """What holds a team's data in this repository, which a guard refuses any session reading or writing where it runs: staff_routes, the words in a reader's tool calls that show it took one of the repository's staff routes to a refused read, and staff_note, the text naming those routes and where a team's data is read, which the reader ending on a refused read is told."""
 
     team_area: re.Pattern | None = None
     namespaces: frozenset[str] = frozenset()
+    staff_routes: frozenset[str] = frozenset()
+    staff_note: str = ""
 
     def buckets(self) -> set[str] | None:
         """Each bucket or bucket folder, as `<bucket>/` or `<bucket>/<prefix>/`, the repository's default branch lists as holding a team's data; None when its tree holds no such list, which refuses every bucket but its outputs()."""

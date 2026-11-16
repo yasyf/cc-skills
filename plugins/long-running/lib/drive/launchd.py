@@ -39,7 +39,7 @@ def agent_path() -> str:
 
 
 def session_env() -> dict[str, str]:
-    """The `env` block of this Mac's Claude user settings, which Claude Code puts into every session's processes, such as the BUILDKITE_API_TOKEN `tools/ci bk` reads: what the watch its launch agent started takes into its own environment at each start, since its plist holds none of those keys."""
+    """The `env` block of this Mac's Claude user settings, which Claude Code puts into every session's processes, such as a CI token the repository's tools read: what the watch its launch agent started takes into its own environment at each start, since its plist holds none of those keys."""
     return json.loads((config_dir() / "settings.json").read_text()).get("env", {})
 
 

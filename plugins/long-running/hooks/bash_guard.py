@@ -235,7 +235,7 @@ def reran(found: list[list[str]], cwd: str, watchdog: bool = False) -> str | Non
             continue
         try:
             rerun = rerun_target(words, cwd)
-        except providers.ProviderError as error:
+        except (providers.ProviderError, state.DriveError) as error:
             return RERUN_UNREAD.format(step=" ".join(verb(words)[:3]), error=error)
         if rerun is None:
             continue
@@ -279,12 +279,16 @@ def rerun_target(words: list[str], cwd: str) -> tuple[str, Callable[[], tuple[st
 
 
 def own_build(cwd: str) -> providers.BuildProvider:
-    """The BuildProvider of the repository at the folder's default branch, the base class, which reruns nothing of its own, when the folder is no clone."""
+    """The BuildProvider of the repository at the folder's default branch, or of the drive the session's environment names, as the watchdog's does, when that folder is no clone or its repository builds nothing of its own; the base class, which reruns nothing of its own, when neither names one."""
     try:
         providers.default_head(Path(cwd))
     except providers.ProviderError:
-        return providers.BuildProvider(Path(), Path(), {})
-    return providers.at(Path(cwd)).build
+        found = providers.BuildProvider(Path(), Path(), {})
+    else:
+        found = providers.at(Path(cwd)).build
+    if type(found) is providers.BuildProvider and (name := os.environ.get(state.DRIVE_ENV)):
+        return providers.of(state.load(name)).build
+    return found
 
 
 def rerun_read(path: tuple[str, ...], args: list[str], values: dict[str, str], cwd: str) -> tuple[str, Callable[[], tuple[str, str]]] | None:

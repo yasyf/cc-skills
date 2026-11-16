@@ -979,3 +979,11 @@ def test_a_repository_guarding_no_data_refuses_no_bucket_or_kubectl_call(demo: s
     monkeypatch.setattr(providers, "at", lambda clone, checkout=None: providers.Providers(None))
     reader = {"agent_id": "a-1", "agent_type": "long-running:reader"}
     assert [bash_guard.deny_reason(bash(command, **reader)) for command in (f"aws s3 ls {BLOBS}", "kubectl proxy --port 8001")] == [None, None]
+
+
+def test_the_watchdogs_rerun_in_a_folder_holding_no_clone_is_read_by_its_drives_build_provider(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(state.DRIVE_ENV, demo)
+    monkeypatch.setattr(providers, "default_head", lambda clone: (_ for _ in ()).throw(providers.ProviderError(f"{clone} has no origin/HEAD")))
+    assert type(bash_guard.own_build("/")) is HOME["build"]
+    monkeypatch.delenv(state.DRIVE_ENV)
+    assert type(bash_guard.own_build("/")) is providers.BuildProvider
