@@ -7488,7 +7488,7 @@ def test_a_job_waits_on_another_drives_next_record_after_one_on_a_topic_and_neve
 
 
 def test_a_waiting_waits_only_on_what_its_first_line_names_that_still_holds_never_its_body_as_j3122s_codex_reply_citing_merged_prs_did(
-    named_repo: None,
+    home_repo: None,
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "read each table's stored slot")
