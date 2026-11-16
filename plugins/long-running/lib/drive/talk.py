@@ -335,6 +335,22 @@ def released(name: str, post: str, seq: str, amended: dict[str, dict[str, list[s
     return line
 
 
+def unhandled(name: str, read: dict) -> str | None:
+    """Why the record a handler's brief holds needs no handler, settled here by say's own rules on the words its handler would post, so no session starts only to return NOTHING: a correction of a report held for his return is carried by the line carrying that report, as held_refusal refuses its post; a watch's quiet report, read whole with its body, that held_away holds while he is away is marked held by it, as the handler's post of it would be. A report whose post its handler shapes, its place, card or asked, or whose words name a clock time still to come or WAITING-ON-HIM, a due line and a catch-up all start their handler; None for each of those."""
+    report, attrs, seq = read["report"], read["attrs"], read["record"]
+    data = state.load(name)
+    if report["kind"] == "correction" and (corrected := str(report.get("re"))) in data["held"]:
+        with state.edit(name) as data:
+            data["carried"].setdefault(seq, f"held report {corrected}")
+        return f"it corrects report {corrected}, held for his return, whose line at his return carries it"
+    if report["lane"] != "watch" or attrs.get("quiet") != "true" or attrs.get("due") or attrs.get("catch_up") or read["message"] or not state.owner_away(data, state.now()):
+        return None
+    body = Path(path).read_text() if (path := (report.get("refs") or {}).get("path")) and Path(path).is_file() else ""
+    post = {"record": seq, "text": f"{report['text']}\n{body}", "thread_ts": attrs.get("thread")}
+    facts = attrs | {"seq": seq, "kind": report["kind"], "writer": report["lane"], "written": report["at"]}
+    return "its line is held for his return" if held_away(name, data, post, facts, state.report_order(data, attrs)) else None
+
+
 def held_refusal(data: dict, seq: str | None, report: dict) -> str | None:
     """Why a report's or a correction's post goes nowhere: the report is held for his return, as the away check marks it whatever Jev then reads, or the report a correction corrects is, since the line carrying it at his return carries the correction with it, or went out in a post, its own or one carrying it, which the correction rewords; a report its handlers gave up, which only a done record carries, leaves its correction to post as its own line."""
     if seq in data["held"]:

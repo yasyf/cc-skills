@@ -624,6 +624,25 @@ def test_the_post_reports_of_one_thread_inside_a_minute_go_to_one_handler_and_a_
     assert (settings["autoMemoryEnabled"], [Path(path).name for path in settings["claudeMdExcludes"]]) == (False, ["CLAUDE.md", "CLAUDE.md", "AGENTS.md"])
 
 
+def test_while_he_is_away_the_watchs_quiet_report_is_marked_held_by_says_rule_and_a_correction_of_it_carried_with_no_handler_started_on_either(
+    communicator: str, tmp_path: Path, started: list[list[str]], cci_records: dict[str, dict], posts_to_communicator: list[str]
+) -> None:
+    quiet = {"kind": "report", "lane": "watch", "to": ["communicator@demo"], "at": "2026-11-15T10:00:00Z", "text": "POST order o1 has news since the thread's last line: post what changed there"}
+    cci_records["720100"] = quiet | {"seq": 720100, "fields": {"attrs": {"order": "o1", "progress": "true", "quiet": "true"}}}
+    cci_records["720101"] = {"seq": 720101, "kind": "correction", "lane": "watch", "re": 720100, "text": "POST the PR is #2, not #1", "fields": {"attrs": {}}}
+    cci_records["720102"] = quiet | {"seq": 720102, "text": "POST order o1 owes him the line it promised by 9:15 PM", "fields": {"attrs": {"quiet": "true", "due": "2026-11-15T21:15:00-08:00"}}}
+    cci_records["720103"] = quiet | {"seq": 720103, "lane": "root", "fields": {"attrs": {"quiet": "true"}}}
+    with state.edit("demo") as data:
+        data["owner"] = {"heard": (heard := state.stamp()), "away": heard, "absence": None}
+    posts_to_communicator += ["720100", "720101", "720102", "720103"]
+    assert watch.post_lines(watch.Watcher("demo", offset=state.events_end("demo")), state.now()) == []
+    data = state.load("demo")
+    assert (list(data["held"]), data["carried"]) == (["720100"], {"720101": "held report 720100"})
+    assert [argv[-1].split()[1] for argv in started if argv[:2] == ["claude", "--bg"]] == ["720102", "720103"]
+    with pytest.raises(state.DriveError, match="refused, no handler started: POST report 720100 needs no handler, since its line is held for his return"):
+        tools.run("handler", "demo", {"brief": f"Record: 720100 Drive: demo Scratch: {tmp_path / 'handler-720100'}"})
+
+
 def test_a_post_reports_handler_that_ends_posting_nothing_leaves_it_owed_for_a_fresh_handler_naming_its_line_and_a_second_such_end_gives_it_up_to_its_writer(
     communicator: str, tmp_path: Path, started: list[list[str]], cci_records: dict[str, dict], posts_to_communicator: list[str], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
