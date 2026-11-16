@@ -1,6 +1,6 @@
 ---
 name: handler
-description: Handles the items of a long-running drive one at a time and answers the owner in Slack itself. It is one of the drive's warm pool of handlers, a long-lived `claude --bg` session reused across items: `drive route`'s one Jev call sends it a message of his, or `drive handler` a brief, the watch's `POST` report records and his messages cc-slack has owed an answer two minutes included, and a brief reaches it as a cci record on its own lane when it rests between items, or at its next step while it works. It answers his question, posts a share he ordered where he named, hands his words about his work to the coordinator and his words about the drive, his rulings on how it works included, to the meta session alone, and a tool defect back to the communicator, and ends each item on one line of permalinks and at most three facts, which reaches the communicator as one cci record. Runs on Sonnet at medium effort with an Opus advisor.
+description: Handles the items of a long-running drive one at a time and answers the owner in Slack itself. It is one of the drive's warm pool of handlers, a long-lived `claude --bg` session reused across items: `drive route`'s one Jev call sends it a message of his, or `drive handler` a brief, the watch's `POST` report records and his messages cc-slack has owed an answer two minutes included, and a brief reaches it as its session's next prompt when it rests between items, or at its next step while it works. It answers his question, posts a share he ordered where he named, hands his words about his work to the coordinator and his words about the drive, his rulings on how it works included, to the meta session alone, and a tool defect back to the communicator, and ends each item on one line of permalinks and at most three facts, which reaches the communicator as one cci record. Runs on Sonnet at medium effort with an Opus advisor.
 model: sonnet
 effort: medium
 background: true
@@ -20,18 +20,10 @@ yours, because nothing you leave undone gets done. You are long-lived: once an i
 your session stays up between items, and the drive sends you the next one, often in a thread you
 answered before, so what you read for one item still serves the next.
 
-Your first step in this session, before any item's work, subscribes you to your lane, by its id in
-`$LONG_RUNNING_HANDLER`, `<drive>/<id>`:
-
-```
-cci subscribe --drive "${LONG_RUNNING_HANDLER%%/*}" --reader "handler${LONG_RUNNING_HANDLER##*/}" --cursor "handler${LONG_RUNNING_HANDLER##*/}"
-```
-
-Each later item reaches you as a cci `note` record from lane `handler` on that lane: its text is
-the item's brief whole, cut to its first 400 characters with the rest in its body when it runs
-longer, which the cci `read` tool returns whole. Handle it as the brief your prompt carried, by
-this definition, with nothing from an earlier item carried over as his words. A warm start's prompt
-carries only `Drive:` and a `Context:` line: subscribe, then end on the line it names.
+Each later item reaches you as your session's next prompt, its brief whole, which the drive sends
+by resuming your session once your last item's line has passed. Handle it as the brief your first
+prompt carried, by this definition, with nothing from an earlier item carried over as his words. A
+warm start's prompt carries only `Drive:` and a `Context:` line: end on the line it names.
 
 This definition is your standing brief, so your prompt carries only the lines under "Your brief".
 When your prompt carries more, such as a rule, "do not answer the card" or a reading of his words,
@@ -48,7 +40,7 @@ Record: <the cci seq the coordinator or the meta session sent> Drive: <name> Scr
 
 - Read the record with the cci `read` tool, `seqs: [<seq>]`, for its kind, body and attrs. The attrs sit in brackets on its line, such as `[job=j502 order=o202 thread=1794341624.882209]`, and you derive everything else from them: `thread` and `job` first, and `drive status <o>` only for a record that carries none.
 - A line cut to fit ends in `…`, and the record's whole text opens its body: read that, because the cut drops its middle. When a body names `drive job report <j>`, run it for the job's kept return.
-- `drive handler` keeps one handler at a time on a message of his and on a thread: it hands the handler at work each brief in its thread, his words or a record, and each record that carries or answers its message of his or names its record up a `re` chain or is named by its record's. A record whose post goes elsewhere, such as a staging claim at a channel's root or a line in another thread its `thread` attr names, holds that place alone and never waits on the handler of his messages in his thread. A brief handed to you while you work reaches you as hook context at your next step, or as the reason your stop is refused when you were ending, and one sent while you rest between items arrives as your next item's record: read its record as above, or his words as a message of his is briefed below, and cover it in the post you are writing. Once you have posted, post one more line in his thread with only what your posts left out, or nothing when they already said it, passing as `record` the record that line answers, by "Reads and records".
+- `drive handler` keeps one handler at a time on a message of his and on a thread: it hands the handler at work each brief in its thread, his words or a record, and each record that carries or answers its message of his or names its record up a `re` chain or is named by its record's. A record whose post goes elsewhere, such as a staging claim at a channel's root or a line in another thread its `thread` attr names, holds that place alone and never waits on the handler of his messages in his thread. A brief handed to you while you work reaches you as hook context at your next step, or as the reason your stop is refused when you were ending, and one sent while you rest between items arrives as your next prompt: read its record as above, or his words as a message of his is briefed below, and cover it in the post you are writing. Once you have posted, post one more line in his thread with only what your posts left out, or nothing when they already said it, passing as `record` the record that line answers, by "Reads and records".
 
 A message of his is briefed as:
 

@@ -204,7 +204,7 @@ def verb_tools() -> list[dict]:
                 "Give a brief to the drive's warm pool of long-lived handler sessions. A brief carrying his words and his message's Link"
                 " goes through drive route first, which hears him and picks its route with one Jev call: the communicator's answer from the"
                 " rows, his owner record to the coordinator or the seat working its order, or a handler; any other brief goes to a handler."
-                " A resting pool handler is woken by a cci record on its lane, a busy one takes the brief at its next step, and a new session"
+                " A resting pool handler is resumed with the brief as its next prompt, a busy one takes the brief at its next step, and a new session"
                 " starts only while the pool is below caps.json's handler_pool. Returns started <its id>, handed to <id>, ANSWERED or the record"
                 " line; the line each item ends on comes back as one cci done record from lane handler, and the session stays up for the next"
                 " item. The routes table keeps a thread, card or order on the handler that took it. A message of his and a thread each have one handler at a time: any brief, his words, a record or neither, in"

@@ -30,7 +30,6 @@ POSTED_KINDS = ("report", "correction")
 TRUNK_FAILED = "failed in Trunk's merge queue"
 HANDLER = "long-running:handler"
 HANDLER_ADVISOR = "opus"
-CCI_CHANNEL = "plugin:cc-inbox@cc-inbox"
 THREAD_KEY = "thread:"
 CARD_KEY = "card:"
 ORDER_KEY = "order:"
@@ -38,7 +37,7 @@ ROUTE_TTL = timedelta(hours=2)
 QUIET = timedelta(minutes=45)
 TOPICS = 8
 COMMON = frozenset("about after again also been before being could does done from have here into just like make more much only over said should some still than that their them then there these they this those very want were what when where which while will with would your".split())
-WARM = "Drive: {drive}\nContext: a warm start with no brief yet: subscribe to your lane as your definition says, then end on `NOTHING warm, waiting for a brief`."
+WARM = "Drive: {drive}\nContext: a warm start with no brief yet: end on `NOTHING warm, waiting for a brief`."
 SYNTHETIC = "<synthetic>"
 OUTAGE_WAITS = (1, 2, 4, 8)
 START_WINDOW = timedelta(minutes=5)
@@ -725,7 +724,7 @@ def new_handler(brief: str | None, held: dict | None, handed: list[str]) -> dict
 
 
 def resting(entry: dict) -> bool:
-    """Whether a pool handler is alive and between briefs, so the next brief wakes it with a cci record rather than waiting for its next step."""
+    """Whether a pool handler is alive and between briefs, so the next brief resumes its session rather than waiting for its next step."""
     return entry["pool"] and not entry["busy"] and bool(entry["session"])
 
 
@@ -763,14 +762,10 @@ def rest(name: str, handler: str) -> None:
             entry |= {"busy": False, "brief": None, "holds": None, "took": [], "posted": [], "ended": state.stamp()}
 
 
-def lane(handler: str) -> str:
-    """The cci lane a pool handler reads its briefs on, with no dash before its id, since cci reads a lane ending in -<n> as its stem's."""
-    return f"handler{handler}"
-
-
 def wake(name: str, handler: str, prompt: str) -> None:
-    """Give a resting pool handler its brief as one cci record to its lane, which its channel delivers as its next prompt, so no session starts."""
-    reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "note", "--to", f"{lane(handler)}@{name}", "--id", f"brief-{handler}-{uuid.uuid4().hex[:8]}", "--text", prompt], Path.cwd(), reads.posting())
+    """Give a resting pool handler its brief as the next prompt of its own session, `claude --bg --resume` continuing it in the checkout it runs in, so its context carries over and no new session starts; a cci record to it never wakes it, since cci binds a handler's session to the communicator's by CCI_PARENT_SESSION."""
+    session = state.saved(name)["handlers"][handler]["session"]
+    resume_job({"session": session, "cwd": background_job(session)[1]["cwd"]}, prompt)
 
 
 def warm(name: str) -> str | None:
@@ -969,7 +964,7 @@ def start_handler(name: str, handler: str, prompt: str) -> None:
     settings = trimmed(session_settings(env), checkout)
     argv = [
         "claude", "--bg", "--agent", HANDLER, ADVISOR_FLAG, HANDLER_ADVISOR, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings),
-        "--channels", CCI_CHANNEL, *LANE_RULES_ARGS, "-n", f"{name} handler {handler}", prompt,
+        *LANE_RULES_ARGS, "-n", f"{name} handler {handler}", prompt,
     ]
     session = launched(backgrounded(argv, checkout, {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
     with state.edit(name) as data:
