@@ -48,16 +48,16 @@ const usageStr = "usage: codex-ask [-m sol|luna|astra] [--effort low|medium|high
 var appVersion = "dev"
 
 var removedSubcommands = map[string]string{
-	"tools":         "1.16.4",
-	"channel":       "1.16.4",
-	"daemon":        "1.16.5",
-	"stop":          "1.16.5",
-	"agent-start":   "1.16.5",
-	"agent-inject":  "1.16.5",
-	"agent-stop":    "1.16.5",
-	"agent-report":  "1.16.5",
-	"direct":        "1.16.5",
-	"supervise":     "1.16.5",
+	"tools":        "1.16.4",
+	"channel":      "1.16.4",
+	"daemon":       "1.16.5",
+	"stop":         "1.16.5",
+	"agent-start":  "1.16.5",
+	"agent-inject": "1.16.5",
+	"agent-stop":   "1.16.5",
+	"agent-report": "1.16.5",
+	"direct":       "1.16.5",
+	"supervise":    "1.16.5",
 }
 
 var terminal = []string{"completed", "failed", "no-run"}

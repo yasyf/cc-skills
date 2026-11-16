@@ -1031,4 +1031,3 @@ func TestChannelCheckAnOlderSessionsStopHookRunsExitsZeroSilently(t *testing.T) 
 		t.Fatalf("codex-ask channel-check printed stdout %q stderr %q", stdout.String(), stderr.String())
 	}
 }
-
