@@ -360,6 +360,17 @@ def test_a_drive_job_with_a_long_final_message_is_sent_back_to_keep_it_in_its_re
     run("job", "set", "j1", "--agent", "a-7")
     long = "WAITING CI on the PR\nPR: https://github.com/yasyf/cc-skills/pull/1\nCHECK: build 12"
     run("pr", "add", "https://github.com/yasyf/cc-skills/pull/1", "--job", "j1", *LEAD)
+    loaded = []
+    load = state.load
+
+    def selected(name: str, fields: tuple[str, ...] | None = None) -> dict:
+        loaded.append(fields)
+        return load(name, fields)
+
+    with monkeypatch.context() as reading:
+        reading.setattr(state, "load", selected)
+        assert "Your final message is 3 lines" in one_line_result.block_reason(agent_stop(long))
+    assert loaded == [("name", "roles", "subcoordinators", "communicators", "jobs", "orders")]
     output = json.loads(hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop(long))))
     assert (output["decision"], output["judged"]) == ("block", False)
     assert output["reason"].startswith("Your final message is 3 lines and 82 characters")
@@ -378,6 +389,14 @@ def test_a_drive_job_with_a_long_final_message_is_sent_back_to_keep_it_in_its_re
 def test_a_drive_agent_is_held_to_one_line_and_other_sessions_are_left_alone(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", "demo", "--role", "communicator")
+
+    def unneeded(name: str, fields: tuple[str, ...] | None = None) -> dict:
+        pytest.fail("a role stop without an agent must not materialize drive collections")
+
+    with monkeypatch.context() as reading:
+        reading.setattr(state, "load", unneeded)
+        assert one_line_result.block_reason(agent_stop("DONE", "talker", agent_id=None)) is None
+        assert "lands whole in the communicator's context" in one_line_result.block_reason(agent_stop("a\nb", "talker", agent_id=None))
     reason = one_line_result.block_reason(agent_stop("POSTED https://acme.slack.com/archives/D1/p1\nI posted it", "talker"))
     assert "lands whole in the communicator's context" in reason
     assert "drive job report" not in reason
