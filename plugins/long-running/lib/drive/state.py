@@ -351,6 +351,10 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
 CREATE TABLE rows (collection TEXT NOT NULL, key TEXT NOT NULL, place INTEGER NOT NULL, body TEXT, PRIMARY KEY (collection, key)) WITHOUT ROWID;
 """
 PENDING_OWNER_PAGES = "collection = 'orders' AND json_extract(body, '$.incident') = 1 AND json_extract(body, '$.state') NOT IN ('done', 'dropped') AND ((json_extract(body, '$.paged') IS NULL AND json_extract(body, '$.users') > 0) OR (json_extract(body, '$.paged') IS NOT NULL AND json_type(body, '$.page_post') = 'object' AND json_extract(body, '$.page_post.link') IS NULL))"
+RUNNING_REACTION_JOBS = "collection = 'jobs' AND json_extract(body, '$.state') = 'running'"
+OPEN_REACTION_ORDERS = "collection = 'orders' AND json_array_length(body, '$.thread') > 0 AND json_extract(body, '$.state') NOT IN ('done', 'dropped')"
+CLOSED_REACTION_ORDERS = "collection = 'orders' AND json_array_length(body, '$.thread') > 0 AND json_extract(body, '$.state') IN ('done', 'dropped')"
+REACTION_THREADS = "collection = 'orders' AND json_array_length(body, '$.thread') > 0"
 LISTED = (
     "CREATE TABLE IF NOT EXISTS changed (rev INTEGER PRIMARY KEY, collection TEXT NOT NULL, key TEXT NOT NULL)",
     "CREATE TRIGGER IF NOT EXISTS row_inserted AFTER INSERT ON rows BEGIN INSERT INTO changed (collection, key) VALUES (NEW.collection, NEW.key); END",
@@ -359,6 +363,10 @@ LISTED = (
     "CREATE INDEX IF NOT EXISTS pending_outboxes ON rows (collection, place) WHERE collection = 'jobs' AND json_array_length(body, '$.outbox') > 0",
     "CREATE INDEX IF NOT EXISTS pending_close_reports ON rows (collection, place) WHERE collection = 'orders' AND json_type(body, '$.close_report') = 'object' AND json_extract(body, '$.state') NOT IN ('done', 'dropped')",
     f"CREATE INDEX IF NOT EXISTS pending_owner_pages ON rows (collection, place) WHERE {PENDING_OWNER_PAGES}",
+    f"CREATE INDEX IF NOT EXISTS running_reaction_jobs ON rows (collection, json_extract(body, '$.order')) WHERE {RUNNING_REACTION_JOBS}",
+    f"CREATE INDEX IF NOT EXISTS open_reaction_orders ON rows (collection, place) WHERE {OPEN_REACTION_ORDERS}",
+    f"CREATE INDEX IF NOT EXISTS closed_reaction_orders ON rows (collection, julianday(json_extract(body, '$.updated')), place) WHERE {CLOSED_REACTION_ORDERS}",
+    f"CREATE INDEX IF NOT EXISTS reaction_threads ON rows (collection, json_extract(body, '$.thread[0]'), json_extract(body, '$.thread[1]'), place) WHERE {REACTION_THREADS}",
 )
 VERSION = json.loads((Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json").read_text())["version"]
 
@@ -834,6 +842,30 @@ def has_owner_pages(name: str) -> bool:
     """Whether an open incident needs a page or a retry of its page's channel post, read through its pending index."""
     with closing(connect(database_path(name).resolve(strict=True))) as db:
         return db.execute(f"SELECT 1 FROM rows WHERE {PENDING_OWNER_PAGES} ORDER BY place LIMIT 1").fetchone() is not None
+
+
+def running_reaction_orders(db: sqlite3.Connection) -> set[str]:
+    """Order IDs owning a running job, read from the partial running-job index."""
+    return {row[0] for row in db.execute(f"SELECT DISTINCT json_extract(body, '$.order') FROM rows WHERE {RUNNING_REACTION_JOBS} ORDER BY json_extract(body, '$.order')")}
+
+
+def reaction_snapshot(name: str, since: datetime) -> tuple[dict[str, dict], set[str]]:
+    """Only threaded open orders, recently closed orders and running job owners needed for reaction selection, read in one indexed snapshot."""
+    columns = "place, key, json_extract(body, '$.state'), json_extract(body, '$.thread'), json_extract(body, '$.last_line')"
+    with closing(connect(database_path(name).resolve(strict=True))) as db, db:
+        db.execute("BEGIN")
+        running = running_reaction_orders(db)
+        orders = {key: {"state": status, "thread": json.loads(thread), "last_line": line} for _, key, status, thread, line in db.execute(f"SELECT {columns} FROM rows WHERE {OPEN_REACTION_ORDERS} UNION ALL SELECT {columns} FROM rows WHERE {CLOSED_REACTION_ORDERS} AND julianday(json_extract(body, '$.updated')) >= julianday(?) ORDER BY place", (since.isoformat(),))}
+    return orders, running
+
+
+def reaction_thread(name: str, channel: str, ts: str) -> tuple[dict[str, dict], set[str]]:
+    """Only this thread's orders and which own a running job, including closed orders an answer can acknowledge immediately."""
+    with closing(connect(database_path(name).resolve(strict=True))) as db, db:
+        db.execute("BEGIN")
+        running = running_reaction_orders(db)
+        orders = {key: {"state": status, "last_line": line} for key, status, line in db.execute(f"SELECT key, json_extract(body, '$.state'), json_extract(body, '$.last_line') FROM rows WHERE {REACTION_THREADS} AND json_extract(body, '$.thread[0]') = ? AND json_extract(body, '$.thread[1]') = ? ORDER BY place", (channel, ts))}
+    return orders, running
 
 
 def owed(name: str, job_id: str) -> list[dict]:

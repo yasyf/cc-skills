@@ -1,4 +1,5 @@
-from datetime import UTC, datetime
+from contextlib import closing
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from conftest import edit
@@ -9,27 +10,49 @@ ASKED = "2026-11-16T11:00:00-08:00"
 
 
 @pytest.mark.parametrize("operation", ["moved", "answered"])
-def test_reaction_calculation_visits_each_job_once(demo: str, monkeypatch: pytest.MonkeyPatch, operation: str) -> None:
-    data = state.load(demo)
-    for order_id in ("o1", "o2", "o3"):
-        data["orders"][order_id] = state.new_order(f"order {order_id}", "terminal", None, {}, ASKED) | {"thread": ["C1", "1.1"], "last_line": ASKED}
-    visited = []
+def test_reaction_calculation_uses_indexed_rows_without_loading_the_drive(demo: str, monkeypatch: pytest.MonkeyPatch, operation: str) -> None:
+    with edit(demo) as data:
+        for order_id in ("o1", "o2", "o3"):
+            data["orders"][order_id] = state.new_order(f"order {order_id}", "terminal", None, {}, ASKED) | {"thread": ["C1", "1.1"], "last_line": ASKED}
+        data["jobs"]["j9"] = state.new_job("o3", "builder", "build it", [], ASKED) | {"state": "running"}
+    connect = state.connect
+    statements = []
 
-    class Jobs(dict):
-        def values(self):
-            for key, value in self.items():
-                visited.append(key)
-                assert len(visited) <= len(self)
-                yield value
+    def traced(path, seconds=None):
+        db = connect(path, seconds)
+        db.set_trace_callback(statements.append)
+        return db
 
-    data["jobs"] = Jobs(j1={"order": "o1", "state": "done"}, j2={"order": "o3", "state": "running"})
-    monkeypatch.setattr(state, "load", lambda *args: data)
+    monkeypatch.setattr(state, "connect", traced)
+    monkeypatch.setattr(state, "load", lambda *args: pytest.fail("reaction calculation must not load the drive"))
+    monkeypatch.setattr(state, "stored", lambda *args: pytest.fail("reaction calculation must not read whole collections"))
     monkeypatch.setattr(slack, "cc_slack", lambda *args: {})
     if operation == "moved":
         assert reactions.moved(demo, datetime.now(UTC)) == ["his message C1/1.1 now carries construction"]
     else:
         assert reactions.answered(demo, "C1", "1.1") == "construction"
-    assert visited == ["j1", "j2"]
+    with closing(connect(state.database_path(demo))) as db:
+        plans = [row[3] for statement in statements if statement.startswith("SELECT") for row in db.execute("EXPLAIN QUERY PLAN " + statement)]
+    expected = ("running_reaction_jobs", "open_reaction_orders", "closed_reaction_orders") if operation == "moved" else ("reaction_threads", "running_reaction_jobs")
+    for index in expected:
+        assert any(f"USING INDEX {index}" in step for step in plans), plans
+
+
+def test_reaction_snapshot_keeps_only_eligible_orders_and_current_work_in_stored_order(demo: str) -> None:
+    moment = datetime.now(UTC)
+    with edit(demo) as data:
+        for order in data["orders"].values():
+            order["thread"] = None
+        for order_id, status, updated in (("o1", "done", moment - timedelta(days=2)), ("o2", "working", moment - timedelta(days=2)), ("o3", "done", moment), ("o4", "dropped", moment)):
+            data["orders"][order_id] = state.new_order(f"order {order_id}", "terminal", None, {}, ASKED) | {"thread": ["C1", order_id], "state": status, "updated": state.stamp(updated)}
+        for job in data["jobs"].values():
+            job["state"] = "done"
+        data["jobs"]["j9"] = state.new_job("o2", "builder", "build it", [], ASKED) | {"state": "running"}
+    orders, running = state.reaction_snapshot(demo, moment - reactions.RECENT)
+    assert list(orders) == ["o2", "o3", "o4"]
+    assert running == {"o2"}
+    assert state.reaction_thread(demo, "C1", "o1") == ({"o1": {"state": "done", "last_line": None}}, {"o2"})
+    assert state.reaction_thread(demo, "C1", "missing") == ({}, {"o2"})
 
 
 def test_his_messages_reaction_follows_its_orders_state_and_moves_once_each_change(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
