@@ -31,6 +31,8 @@ from drive.render import cut, when
 POLL_SECONDS = 5
 RELAY_SECONDS = 2
 PROJECT_RELAY_IDLE = 10
+POSTS_IDLE = 30
+POSTS_FOR = "10m"
 RESPOND_SECONDS = 5
 RELAY_JOIN_SECONDS = 10
 RELAY = "--relay"
@@ -2202,9 +2204,40 @@ def clocks_drawn(watcher: Watcher) -> None:
     CLOCKS_DRAWN[watcher.name] = state.drive_rev(watcher.name)
 
 
+@dataclass
+class Heard:
+    process: subprocess.Popen
+    arrived: threading.Event
+    at: float
+
+
+HEARD_POSTS: dict[str, Heard] = {}
+
+
+def posts_due(name: str) -> bool:
+    """Whether the relay reads the drive's POST reports now: at its first pass, once the `cci watch` it keeps on reports and corrections to the communicator printed a record, POSTS_IDLE after its last read, so a report held back for a later read is read again, or once that watch ended, which starts it again."""
+    heard = HEARD_POSTS.get(name)
+    if heard is None or heard.process.poll() is not None:
+        HEARD_POSTS[name] = posts_heard(name)
+        return True
+    if not heard.arrived.is_set() and monotonic() - heard.at < POSTS_IDLE:
+        return False
+    heard.arrived.clear()
+    heard.at = monotonic()
+    return True
+
+
+def posts_heard(name: str) -> Heard:
+    """Start `cci watch` on the drive's reports and corrections to the communicator for POSTS_FOR, a thread setting arrived at each record it prints, and nothing else."""
+    process = subprocess.Popen(["cci", "watch", "--drive", name, "--to", "communicator", "--kind", "report", "--kind", "correction", "--json", "--for", POSTS_FOR], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    heard = Heard(process, threading.Event(), monotonic())
+    threading.Thread(target=lambda: [heard.arrived.set() for _ in process.stdout], daemon=True).start()
+    return heard
+
+
 def post_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Start the handler on each `POST` report to communicator@<drive> that answers a message of his, an incident's, a watched thread's or a channel root's, once, by agents.start_posts, and carry every other as progress; a start that fails is said as a failed read is."""
-    if watcher.project:
+    """Start the handler on each `POST` report to communicator@<drive> that answers a message of his, an incident's, a watched thread's or a channel root's, once, by agents.start_posts, and carry every other as progress; a start that fails is said as a failed read is. It reads cci only once posts_due says a report or correction to the communicator arrived or POSTS_IDLE went by, so the relay runs no cci tail every RELAY_SECONDS."""
+    if watcher.project or not posts_due(watcher.name):
         return []
     try:
         agents.start_posts(watcher.name, moment)

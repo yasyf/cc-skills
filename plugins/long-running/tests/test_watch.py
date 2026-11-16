@@ -11697,3 +11697,20 @@ def test_the_relay_passes_a_project_again_only_once_the_drive_moved_or_its_idle_
     assert watch.due_again(project)
     project.passed_version, project.passed_at = 7, watch.monotonic() - watch.PROJECT_RELAY_IDLE
     assert watch.due_again(project)
+
+
+def test_the_relay_reads_post_reports_at_its_first_pass_then_only_once_cci_watch_prints_one_or_its_idle_time_ran_out(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    class Running:
+        def poll(self) -> None:
+            return None
+
+    heard = watch.Heard(Running(), threading.Event(), watch.monotonic())
+    monkeypatch.setattr(watch, "HEARD_POSTS", {})
+    monkeypatch.setattr(watch, "posts_heard", lambda name: heard)
+    assert watch.posts_due(demo)
+    assert not watch.posts_due(demo)
+    heard.arrived.set()
+    assert watch.posts_due(demo)
+    assert not watch.posts_due(demo)
+    heard.at = watch.monotonic() - watch.POSTS_IDLE
+    assert watch.posts_due(demo)
