@@ -201,10 +201,13 @@ def verb_tools() -> list[dict]:
         {
             "name": "handler",
             "description": (
-                "Start a long-running:handler on its brief as its own claude --bg session, recording that he wrote when the"
-                " brief carries his words, so his message takes the ack and this one call. Returns started <its id>; the"
-                " line it ends on comes back as one cci done record from lane handler when it ends, and its session ends"
-                " with it. A message of his and a thread each have one handler at a time: any brief, his words, a record or neither, in"
+                "Give a brief to the drive's warm pool of long-lived handler sessions. A brief carrying his words and his message's Link"
+                " goes through drive route first, which hears him and picks its route with one Jev call: the communicator's answer from the"
+                " rows, his owner record to the coordinator or the seat working its order, or a handler; any other brief goes to a handler."
+                " A resting pool handler is woken by a cci record on its lane, a busy one takes the brief at its next step, and a new session"
+                " starts only while the pool is below caps.json's handler_pool. Returns started <its id>, handed to <id>, ANSWERED or the record"
+                " line; the line each item ends on comes back as one cci done record from lane handler, and the session stays up for the next"
+                " item. The routes table keeps a thread, card or order on the handler that took it. A message of his and a thread each have one handler at a time: any brief, his words, a record or neither, in"
                 " a live handler's thread, a record's own thread, else the thread its brief's Link or Thread: line names, else its order's thread, on the message of his it"
                 " holds, or naming its record up a re chain or named by its record's, returns handed to <that handler's id>,"
                 " which takes it at its next step and covers it in its post, a copy of the same record or the same message of his"
