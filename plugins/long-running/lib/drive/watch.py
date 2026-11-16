@@ -639,8 +639,10 @@ def refused_lines(watcher: Watcher, keys: list[str], moment: datetime) -> list[s
         return failed(watcher, "trunk", "Trunk queue read", error, moment)
     watcher.failures.pop("trunk", None)
     if outcomes:
-        with state.edit(watcher.name) as data:
+        def refused(data: dict) -> None:
             land.refuse(watcher.name, data, outcomes)
+
+        state.update(watcher.name, None, refused)
     return []
 
 
