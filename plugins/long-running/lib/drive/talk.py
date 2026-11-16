@@ -306,7 +306,7 @@ def waiting_posts(name: str, data: dict, found: dict, moment: datetime) -> dict[
     held = data["slack"]["channels"]
     here: dict[str, list[dict]] = {channel: [] for channel in sorted({slack.dm(), *(made["id"] for made in held.values())})}
     for item in sorted(queued, key=lambda item: not any(state.hurts_now(data, data["orders"][order_id]) for order_id in item["tasks"] if order_id in data["orders"])):
-        here[slack.project_channel(data, item["project"])].append(item)
+        here[slack.project_channel(data, project(data, {}, [], next((order_id for order_id in item["tasks"] if order_id in data["orders"]), None)) or item["project"])].append(item)
     board = dashboard.link(name)
     projects = {made["id"]: project for project, made in held.items() if project}
     words = {
@@ -620,10 +620,10 @@ def channel_for(name: str, data: dict, project: str | None) -> str:
 
 
 def project(data: dict, post: dict, stack: list[str], order: str | None) -> str | None:
-    """The project a post at the root is about: its order's, else that of the order of the job its card asks for, else that of the first order its PRs serve that names one, else for a card the drive's tooling project, so a card of no project asks in the drive's own operator channel."""
+    """The sub-coordinator seat a post at the root is about, by state.coordinator_seat, so a priority order's goes in its seat's own channel once that seat is bound, by his pick "1 but also 1 per sub communicator including priority ones and then one central one for the drive": its order's, else that of the order of the job its card asks for, else that of the first order its PRs serve that names one, else for a card the drive's tooling project, so a card of no project asks in the drive's own operator channel."""
     waits = (post.get("card") or {}).get("waits")
     orders = [order] if order else [data["jobs"][job]["order"]] if waits and (job := state.waits_job(data, waits)) in data["jobs"] else [each for key in stack for each in state.served_orders(data, data["prs"][key])]
-    return next((data["orders"][each]["project"] for each in orders if each in data["orders"] and data["orders"][each]["project"]), cli.TOOLING_FILING[0] if post.get("card") or stack else None)
+    return next((seat for each in orders if each in data["orders"] and (seat := state.coordinator_seat(data, data["orders"][each]))), cli.TOOLING_FILING[0] if post.get("card") or stack else None)
 
 
 def places(data: dict, post: dict, stack: list[str]) -> list[tuple[str, str | None]]:

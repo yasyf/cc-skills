@@ -192,29 +192,45 @@ def start(args: argparse.Namespace) -> int:
     held = fresh["roles"][args.role]
     registered = "" if state.scratch() else f"{agents.register(args.name, args.role, args.project, held['cwd'], held['session'])}\n"
     seen = orca_places({args.role: held}, run_show)[args.role]
-    meta = "" if "meta" in data["roles"] else meta_started(args.name, held["cwd"], data["launched"].get("meta"))
+    opened = channel_opened(args.name, data)
+    siblings = "".join(sibling_started(args.name, role, held["cwd"], data["launched"].get(role)) for role in SIBLINGS if role not in data["roles"])
     watched = f"{watch.ensure(args.name)}\n" if args.role == "coordinator" else ""
     seat = f"sub-coordinator for {args.project}" if args.project else args.role
     elsewhere = "" if Path.cwd() == kept.resolve() else f"this session runs in {Path.cwd()} until it next exits, when cci resumes it in the drive's checkout {kept}\n"
-    text = f"{render.context(data, args.role, args.project)}\n\n{registered}{meta}{watched}{elsewhere}{seat}: session {held['session']}, {seen}"
+    text = f"{render.context(data, args.role, args.project)}\n\n{registered}{opened}{siblings}{watched}{elsewhere}{seat}: session {held['session']}, {seen}"
     return emit(args, text, {**data, "orca": {seat: seen}})
 
 
-def meta_started(name: str, worktree: str, earlier: str | None) -> str:
-    """Start the meta session in an Orca terminal of its own while none is bound, by his words "have the skill always start a meta root as a sibling to coordinator and communicator"; the line saying so, or nothing for a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves."""
-    if state.scratch():
+def channel_opened(name: str, data: dict) -> str:
+    """Make the drive's own private channel by open_channel while it keeps none, so every drive talks to him in its channel from its first start, by his pick of the card whose option reads "drive start creates the private channel drive-<name>, invites him, keeps its id on the drive and opens that drive's own communicator"; the line saying it was not made, or nothing, as for a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves."""
+    if state.scratch() or "" in data["slack"]["channels"]:
         return ""
     try:
-        handle = orca.start_session(name, "meta", None, worktree, earlier)
-    except orca.OrcaError as error:
-        return f"the meta session, which holds drive tooling, did not start: {error}; drive manual start prints its commands\n"
-    if handle is None:
-        return f"the meta session starts in Orca terminal {earlier}, which an earlier drive start opened\n"
-    def meta_started_write(data: dict):
-        data["launched"]["meta"] = handle
+        open_channel(name, None)
+    except slack.SlackError as error:
+        return f"the drive's own channel was not made: {error}; drive channels makes it\n"
+    return ""
 
-    state.update(name, None, meta_started_write)
-    return f"started the meta session, which holds drive tooling, in Orca terminal {handle}\n"
+
+SIBLINGS = {"meta": ("the meta session", "which holds drive tooling"), "communicator": ("the communicator", "which holds the drive's Slack channels")}
+
+
+def sibling_started(name: str, role: str, worktree: str, earlier: str | None) -> str:
+    """Start the meta session or the communicator in an Orca terminal of its own while none is bound, by his words "have the skill always start a meta root as a sibling to coordinator and communicator", so no drive runs without the communicator holding its channels; the line saying so, or nothing for a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves."""
+    if state.scratch():
+        return ""
+    who, holds = SIBLINGS[role]
+    try:
+        handle = orca.start_session(name, role, None, worktree, earlier)
+    except orca.OrcaError as error:
+        return f"{who}, {holds}, did not start: {error}; drive manual start prints its commands\n"
+    if handle is None:
+        return f"{who} starts in Orca terminal {earlier}, which an earlier drive start opened\n"
+    def sibling_started_write(data: dict):
+        data["launched"][role] = handle
+
+    state.update(name, None, sibling_started_write)
+    return f"started {who}, {holds}, in Orca terminal {handle}\n"
 
 
 def seats_retired(name: str) -> dict[str, str]:
@@ -6688,7 +6704,7 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--root", action=Root, nargs=0, help="print the folder of the long-running install this drive runs, the newest installed, whose hooks/ and lib/ a proof file imports")
     verbs = root.add_subparsers(dest="verb", required=True)
 
-    verb = verbs.add_parser("start", parents=[json_opt], help="create the drive or bind one of its two roles to this session")
+    verb = verbs.add_parser("start", parents=[json_opt], help="create the drive or bind one of its roles to this session, make the drive's own channel while it keeps none, and start its meta session and communicator in Orca while none is bound")
     verb.add_argument("name")
     verb.add_argument(
         "--role", required=True, choices=state.ROLES, help="communicator talks to him; coordinator runs his orders and jobs; meta holds drive tooling: its fixes, skill rewrites and installs"
