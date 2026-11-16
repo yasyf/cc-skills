@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -9804,6 +9805,22 @@ def test_card_dispatches_stdin_and_stdout(run: Run, monkeypatch: pytest.MonkeyPa
     fake_module(monkeypatch, "card", lambda stdin, stdout: calls.append((stdin, stdout)) or 3)
     assert run("card")[0] == 3
     assert calls == [(sys.stdin, sys.stdout)]
+
+
+def test_card_under_cc_slacks_daemon_path_finds_claude_in_the_user_bin_folder_the_drives_launch_agents_run_with(
+    state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    claude = tmp_path / "home" / ".local" / "bin" / "claude"
+    claude.parent.mkdir(parents=True)
+    claude.write_text("#!/bin/sh\n")
+    claude.chmod(0o755)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("PATH", str(tmp_path / "daemon-bin"))
+    assert shutil.which("claude") is None
+    found: list[str | None] = []
+    monkeypatch.setattr(card, "main", lambda stdin, stdout: found.append(shutil.which("claude")) or 0)
+    assert cli.main(["card"]) == 0
+    assert found == [str(claude)]
 
 
 def test_card_with_no_request_on_stdin_names_card_command_and_what_stdin_held(
