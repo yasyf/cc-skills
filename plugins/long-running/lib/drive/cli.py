@@ -4513,10 +4513,9 @@ def deliver(args: argparse.Namespace, name: str, text: str | None = None) -> int
 
 
 def mac_lines(name: str, job: dict, flags: dict) -> tuple[str | None, str | None]:
-    """The Mac: and Release: lines a job's brief flags give it, as rewrite_brief writes them and declared_step reads them: its mac flag, which write_brief fills for a staging tester from its builder's newest return holding a Mac: line, else the staging provider's exception steps for a tester asking his exception, by state.EXCEPTED, else its mac_only, the step every staging test takes that a Sprite cannot, for any other tester, so no tester starts where staging is out of reach, and its release flag; a staging tester's slot claim runs from a Sprite lane too, so it goes on the Staging line, never the Mac: line, and rewrite_brief adds its Mac box cases there."""
+    """The Mac: and Release: lines a job's brief flags give it, as rewrite_brief writes them and declared_step reads them: its mac flag, which write_brief fills for a staging tester from its builder's newest return holding a Mac: line, else the staging provider's exception steps for a tester asking his exception, by state.EXCEPTED, and its release flag; a staging tester's slot claim runs from a Sprite lane too, so it goes on the Staging line, never the Mac: line, and rewrite_brief adds its Mac box cases there."""
     staged = any(state.STAGING_PART.fullmatch(part) for part in job["parts"])
-    staging = providers.of(state.load(name)).staging
-    return flags["mac"] or (staging.exception_steps() if staged and state.EXCEPTED.match(job["goal"]) else staging.mac_only() if staged else None), flags["release"]
+    return flags["mac"] or (providers.of(state.load(name)).staging.exception_steps() if staged and state.EXCEPTED.match(job["goal"]) else None), flags["release"]
 
 
 def declared_step(name: str, job: dict) -> str | None:
