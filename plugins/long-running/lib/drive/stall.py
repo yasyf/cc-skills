@@ -196,6 +196,13 @@ def starts(stalls: dict[str, dict], moment: datetime) -> tuple[int, int]:
     return running, sum(1 for kept in held if moment - state.parse_time(kept["agent"]["at"]) < timedelta(hours=1))
 
 
+def taker_add(data: dict, job_id: str, parts: list[tuple[str, str]]) -> str:
+    """The drive job add that starts the job taking the parts of the first order a stopped job leaves no other job carrying, by uncarried, since drive job resume refuses a stopped job."""
+    job, order_id = data["jobs"][job_id], parts[0][0]
+    flags = " ".join(f"--part {shlex.quote(part)}" for held_order, part in parts if held_order == order_id)
+    return f"drive job add {job['kind']} --order {order_id} --goal {shlex.quote(job['goal'])} {flags}"
+
+
 def cause(data: dict, thing: str, held: dict) -> dict[str, str] | None:
     """The WHY, WHO and NEXT lines of a stall whose cause the drive's own rows name, so no watchdog agent is started to read it: a builder or Sprite turn this Mac's caps hold, a stopped job leaving a part no other job carries, by uncarried, which drive job resume refuses, so its NEXT names the drive job add of that part's order, kind and goal that takes it on, a job whose Sprite lane died, which drive job resume restarts on a fresh one, an open card of his a member is or a job member waits on, or an open PR of a job member asking his Approve; None for any other, a staging env or release whose wait may never free included, which only an agent reads."""
     if turns := [member for member in held["members"] if member in state.TURN_WAITS]:
@@ -203,13 +210,10 @@ def cause(data: dict, thing: str, held: dict) -> dict[str, str] | None:
     jobs = [data["jobs"][member] for member in held["members"] if member in data["jobs"]]
     if stopped := [(member, parts) for member in held["members"] if member in data["jobs"] and data["jobs"][member]["state"] == "stopped" and (parts := uncarried(data, member))]:
         job_id, parts = stopped[0]
-        job, order_id = data["jobs"][job_id], parts[0][0]
-        named = [part for held_order, part in parts if held_order == order_id]
-        flags = " ".join(f"--part {shlex.quote(part)}" for part in named)
         return {
             "WHY": f"{job_id} stopped, and no job carries its {'parts' if len(parts) > 1 else 'part'} {'; '.join(f'{part!r} of {held_order}' for held_order, part in parts)}",
             "WHO": "the session holding its order",
-            "NEXT": f"drive job add {job['kind']} --order {order_id} --goal {shlex.quote(job['goal'])} {flags} takes it on",
+            "NEXT": f"{taker_add(data, job_id, parts)} takes it on",
         }
     if dead := [member for member in held["members"] if member in data["jobs"] and data["jobs"][member].get("where") == "remote" and state.lane_death(data["jobs"][member], "dispatch")]:
         return {"WHY": f"{', '.join(dead)}'s Sprite lane died", "WHO": "the session holding its order", "NEXT": f"drive job resume {dead[0]} restarts it on a fresh Sprite"}

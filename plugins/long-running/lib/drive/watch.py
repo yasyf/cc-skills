@@ -4375,6 +4375,17 @@ def claimed(claim: dict | None) -> bool:
     return bool(claim) and started(claim["pid"]) == claim["started"]
 
 
+def next_worker(data: dict, job_id: str) -> str:
+    """Who starts the next worker on an ended lane's job, as a watchdog brief names it: for a stopped job, which drive job resume refuses, the jobs carrying its parts, by stall.successors, else the drive job add taking the parts no job carries, by stall.taker_add, or that none starts once it leaves no part owed; for any other, the holder's drive job resume."""
+    if data["jobs"][job_id]["state"] != "stopped":
+        return f"only the holder's drive job resume {job_id} starts its next worker"
+    if parts := stall.uncarried(data, job_id):
+        return f"{job_id} is stopped, so drive job resume refuses it: {stall.taker_add(data, job_id, parts)} takes its work on"
+    if carriers := [other for other in stall.successors(data, job_id) if other != job_id]:
+        return f"{job_id} is stopped and {', '.join(carriers)} carries its parts, so its next step is theirs"
+    return f"{job_id} is stopped and leaves no part owed, so no worker of it starts again"
+
+
 def watchdog_brief(watcher: Watcher, data: dict, thing: str, found: dict, held: dict, moment: datetime) -> str:
     """The brief a watchdog agent starts on: the stall, each job and PR waiting on it, their chains to it, the session holding the order of the first of them, which its STUCK line reaches and which alone takes the next step, with how a job's agent on this Mac is woken, or that the job's lane or agent ended, by state.lane_death, so no wake reaches it, what to read, first the newest records naming the stall's jobs, orders and PRs, newest first, then the drive's rows of everything in the chains, the job's returns and its agent's transcript, the holding session's transcript since the thing last moved, and each PR in the chains as GitHub holds it now, merged or not and the checks at its head, then what the chains' releases and builds rest on, which the agent reads nowhere else: a Release line per release wait in them, what the watch's own read of that wait last found, a Staging line per service a staging wait in them awaits on its env, by staging_line, a Build line per Buildkite build they wait on, what the watch's last Buildkite read of it found, a Card line per open card of his on the chains or naming a service they wait on, and an Answered line per recorded answer of his ccn ranks nearest the job's goal and those services, so it names the answer that settles what it would ask him and orders no card asking it again."""
     job_id, order_id = stall.owner(data, found["subjects"][0])
@@ -4391,7 +4402,7 @@ def watchdog_brief(watcher: Watcher, data: dict, thing: str, found: dict, held: 
         reading.append(f"cc-transcript {agent_transcript(runs_in, job, data)}")
         wake = f"; {job_id} runs on this Mac as agent {job['agent']} of session {runs_in['session']}; to wake it: {superseded.delivery(data, job_id, job, '', 'the message')[1]}"
     if ended := state.lane_death(job):
-        wake = f"; {job_id}'s lane ended at {when(ended['at'])}: {state.why_died(ended['why'], ended.get('cause'))}, so neither drive job wake nor SendMessage reaches it, and only the holder's drive job resume {job_id} starts its next worker"
+        wake = f"; {job_id}'s lane ended at {when(ended['at'])}: {state.why_died(ended['why'], ended.get('cause'))}, so neither drive job wake nor SendMessage reaches it, and {next_worker(data, job_id)}"
     if holding:
         reading.append(f"cc-transcript {session_transcript(holding)}, from {when(held['since'])} on")
     reading += [f"gh pr view {state.pr_url(key)} --json state,mergedAt,headRefOid,statusCheckRollup" for key in named if key in data["prs"]]
