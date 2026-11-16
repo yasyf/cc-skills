@@ -6926,7 +6926,7 @@ def test_a_test_a_yasyf_merges_own_run_broke_on_main_wakes_its_builder_until_mai
     monkeypatch.setattr(install, "head_failures", lambda repo, head: {test: {"run": run, "workflow": 1}})
     monkeypatch.setattr(install, "merged_at", lambda repo, sha: since)
     monkeypatch.setattr(install, "main_failures", lambda repo, workflow, created: [] if created == f"<{since}" else main["after"])
-    monkeypatch.setattr(install, "base_failures", lambda repo, workflow, merged: [])
+    monkeypatch.setattr(land, "base_failures", lambda repo, run: [])
     serve(monkeypatch, {})
     watching, passes = watcher(demo), []
     for minutes, mark, after in ((0, "m1", None), (10, "m1", None), (30, "m1", None), (31, "m2", [])):
@@ -6944,7 +6944,7 @@ def test_a_merge_owns_only_the_tests_its_own_run_failed_that_main_passed_before_
     monkeypatch.setattr(install, "head_failures", lambda repo, head: {test: {"run": run, "workflow": 1} for test in ("t.py::old", "t.py::fixed", "t.py::new")})
     monkeypatch.setattr(install, "merged_at", lambda repo, sha: "2026-11-09T14:50:00Z")
     monkeypatch.setattr(install, "main_failures", lambda repo, workflow, created: ["t.py::old"] if created.startswith("<") else ["t.py::old", "t.py::new"])
-    monkeypatch.setattr(install, "base_failures", lambda repo, workflow, merged: [])
+    monkeypatch.setattr(land, "base_failures", lambda repo, run: [])
     pr = state.new_pr(state.pr_url("yasyf/cc-skills#5"), "j3", "o3") | {"state": "merged", "head": "bbbbbbb222", "merged_sha": "ccc333ddd444"}
     assert watch.broken("yasyf/cc-skills", pr | {"checks": "fail"}) == {"t.py::new": {"run": run, "workflow": 1, "since": "2026-11-09T14:50:00Z"}}
     assert watch.broken("yasyf/cc-skills", pr | {"checks": "pass"}) == {}
@@ -6955,9 +6955,32 @@ def test_a_merge_over_a_red_main_owns_no_test_mains_run_at_its_base_already_fail
     monkeypatch.setattr(install, "head_failures", lambda repo, head: {test: {"run": run, "workflow": 1} for test in ("t.py::red_at_base", "t.py::new")})
     monkeypatch.setattr(install, "merged_at", lambda repo, sha: "2026-11-16T11:40:00Z")
     monkeypatch.setattr(install, "main_failures", lambda repo, workflow, created: [] if created.startswith("<") else ["t.py::red_at_base", "t.py::new"])
-    monkeypatch.setattr(install, "base_failures", lambda repo, workflow, merged: ["t.py::red_at_base"])
+    monkeypatch.setattr(land, "base_failures", lambda repo, run: ["t.py::red_at_base"])
     pr = state.new_pr(state.pr_url("yasyf/cc-skills#6056"), "j6739", "o1") | {"state": "merged", "head": "c8248da507", "merged_sha": "8e1f00aa", "checks": "fail"}
     assert list(watch.broken("yasyf/cc-skills", pr)) == ["t.py::new"]
+
+
+@pytest.mark.parametrize(("main", "owned"), [("FAILURE", ["t.py::new"]), ("SUCCESS", ["t.py::new", "t.py::red_at_base"])], ids=["main-below-the-skip-ci-base-fails-it", "main-below-the-skip-ci-base-passes-it"])
+def test_a_merge_owns_no_test_main_failed_below_the_skip_ci_base_its_run_merged_onto_as_6057_was_handed_8_of_636fe7701s_reds(monkeypatch: pytest.MonkeyPatch, main: str, owned: list[str]) -> None:
+    run, base = f"{CC_SKILLS_RUNS}/43864078576", "7b4ec2094b0572bbd7e07a803ace1bd8442f72ff"
+    answers = {
+        "repos/yasyf/cc-skills/actions/runs/43864078576/jobs?filter=latest&per_page=100": json.dumps({"id": 1, "workflow_name": "long-running CI"}),
+        "repos/yasyf/cc-skills/actions/jobs/1/logs": f"2026-11-16T12:10:31.0000000Z HEAD is now at b8b201b Merge a33a3441c{'0' * 31} into {base}\n{pytest_failed('t.py::red_at_base', 't.py::new')}",
+        "repos/yasyf/cc-skills/actions/jobs/2/logs": pytest_failed("t.py::red_at_base") if main == "FAILURE" else "",
+    }
+
+    def gh(cmd: list[str], **_: object) -> str:
+        if cmd[2] == "graphql":
+            assert f'object(oid: "{base}")' in cmd[-1]
+            return branch_history([("skip ci", None), ("ran", main)])
+        return answers[cmd[2]]
+
+    monkeypatch.setattr(github, "run", gh)
+    monkeypatch.setattr(install, "head_failures", lambda repo, head: {test: {"run": run, "workflow": 366540480} for test in ("t.py::red_at_base", "t.py::new")})
+    monkeypatch.setattr(install, "merged_at", lambda repo, sha: "2026-11-16T12:29:44Z")
+    monkeypatch.setattr(install, "main_failures", lambda repo, workflow, created: [] if created.startswith("<") else ["t.py::red_at_base", "t.py::new"])
+    pr = state.new_pr(state.pr_url("yasyf/cc-skills#6057"), "j339", "o125") | {"state": "merged", "head": "a33a3441c8", "merged_sha": "55970ea8d", "checks": "fail"}
+    assert sorted(watch.broken("yasyf/cc-skills", pr)) == owned
 
 
 def test_a_merge_owns_no_test_while_mains_last_run_before_it_names_none_as_6041_was_handed_the_166_main_failed_already(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -6965,7 +6988,7 @@ def test_a_merge_owns_no_test_while_mains_last_run_before_it_names_none_as_6041_
     monkeypatch.setattr(install, "head_failures", lambda repo, head: {test: {"run": run, "workflow": 1} for test in ("t.py::old", "t.py::new")})
     monkeypatch.setattr(install, "merged_at", lambda repo, sha: "2026-11-16T09:19:59Z")
     monkeypatch.setattr(install, "main_failures", lambda repo, workflow, created: None if created.startswith("<") else ["t.py::old", "t.py::new"])
-    monkeypatch.setattr(install, "base_failures", lambda repo, workflow, merged: [])
+    monkeypatch.setattr(land, "base_failures", lambda repo, run: [])
     pr = state.new_pr(state.pr_url("yasyf/cc-skills#6041"), "j334", "o36") | {"state": "merged", "head": "55b16b5a9f47", "merged_sha": "323748450b82", "checks": "fail"}
     assert watch.broken("yasyf/cc-skills", pr) == {}
 
@@ -6993,7 +7016,7 @@ def test_a_test_main_fails_has_one_fixer_the_first_job_to_claim_it_and_every_oth
     monkeypatch.setattr(install, "head_failures", lambda repo, head: failing)
     monkeypatch.setattr(install, "merged_at", lambda repo, sha: "2026-11-09T14:50:00Z")
     monkeypatch.setattr(install, "main_failures", lambda repo, workflow, created: [] if created.startswith("<") else [test])
-    monkeypatch.setattr(install, "base_failures", lambda repo, workflow, merged: [])
+    monkeypatch.setattr(land, "base_failures", lambda repo, run: [])
     watching = watcher(demo)
     for minutes in (0, 31, 62):
         watch.main_lines(watching, T0 + timedelta(minutes=minutes))
