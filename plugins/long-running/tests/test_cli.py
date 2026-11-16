@@ -8612,6 +8612,23 @@ def test_pr_add_refuses_a_title_his_card_cannot_name_the_kind_of(run: Run, demo:
         assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
 
 
+def test_pr_add_keeps_the_head_and_base_github_reads_on_a_row_holding_none_and_refuses_a_read_giving_none_as_j8271s_add_of_57751_kept_none(
+    run: Run, demo: str, on_github: dict, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "move the strip")
+    run("job", "add", "builder", "--order", "o1", "--goal", "move it")
+    on_github["headRefOid"] = ""
+    assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD]) == 2
+    assert capsys.readouterr().err.strip() == "drive: Forge-AI/monorepo#42: refused, nothing added: GitHub's read gave it no head or base"
+    assert state.load("demo")["prs"] == {}
+    on_github["headRefOid"] = "abc"
+    assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
+    state.write("demo", lambda data: data["prs"]["Forge-AI/monorepo#42"].update(head="", base=None))
+    assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
+    pr = state.load("demo")["prs"]["Forge-AI/monorepo#42"]
+    assert (pr["head"], pr["base"]) == ("abc", "main")
+
+
 def test_pr_add_refuses_once_naming_its_unkinded_title_each_undrawn_picture_and_its_lead_keeping_nothing_drawing_no_card(
     run: Run, demo: str, on_github: dict, chrome: Chrome, images: Images, draws: Draws, capsys: pytest.CaptureFixture[str]
 ) -> None:

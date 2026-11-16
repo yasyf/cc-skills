@@ -764,9 +764,11 @@ def saved_branches(repo: str, lane: str, every: bool = False) -> list[str]:
 
 
 def fetched(clone: str, branch: str) -> str:
-    """The sha of branch's head as origin holds it now, read with ls-remote and fetched by that sha into the clone's objects, writing no ref, so it never loses refs/remotes/origin/<branch>'s ref lock to another fetch of the shared clone, the lander's, a launch's or a session's, and needs no lock of its own. The fetch starts no git maintenance: its detached worktree-prune task deletes a .git/worktrees entry holding neither gitdir nor locked, as the worktree add each caller runs next holds its own for a moment, and that add then fails writing its locked file."""
+    """The sha of branch's head as origin holds it now, read with ls-remote and fetched by that sha into the clone's objects, writing no ref, so it never loses refs/remotes/origin/<branch>'s ref lock to another fetch of the shared clone, the lander's, a launch's or a session's, and needs no lock of its own; a branch origin lacks raises GithubError naming it. The fetch starts no git maintenance: its detached worktree-prune task deletes a .git/worktrees entry holding neither gitdir nor locked, as the worktree add each caller runs next holds its own for a moment, and that add then fails writing its locked file."""
     git = ["git", "-C", clone]
-    sha = run([*git, "ls-remote", "origin", f"refs/heads/{branch}"]).split()[0]
+    if not (listed := run([*git, "ls-remote", "origin", f"refs/heads/{branch}"]).split()):
+        raise GithubError(f"origin of {clone} has no branch {branch!r}")
+    sha = listed[0]
     run([*git, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--no-auto-maintenance", "origin", sha])
     return sha
 
@@ -857,7 +859,9 @@ def fetch_commit(clone: str, sha: str) -> None:
 
 
 def uncarried(clone: str, build: str, head: str, base: str) -> list[str]:
-    """Each file a PR at head changes since its fork from base, its merge-base with base's head as origin holds it now, by fetched, that a build's commit does not carry: its blob there differs from head's and the lines the PR removes and adds in it are not all among those the build's own commits since that fork remove and add in it, by changed_lines, so a shared cut on an older line of the default branch that cherry-picks, squashes or replays the PR on other context carries it as one built on its branch does, whatever its patch ids, and a file no build ships, by shipped, may differ, as when a cut keeps another member's AGENTS.md or the PR's head moved on only in its tests; each commit the clone lacks fetched first, by fetch_commit."""
+    """Each file a PR at head changes since its fork from base, its merge-base with base's head as origin holds it now, by fetched, that a build's commit does not carry: its blob there differs from head's and the lines the PR removes and adds in it are not all among those the build's own commits since that fork remove and add in it, by changed_lines, so a shared cut on an older line of the default branch that cherry-picks, squashes or replays the PR on other context carries it as one built on its branch does, whatever its patch ids, and a file no build ships, by shipped, may differ, as when a cut keeps another member's AGENTS.md or the PR's head moved on only in its tests; each commit the clone lacks fetched first, by fetch_commit; a PR with no head or base read raises GithubError naming it."""
+    if not head or not base:
+        raise GithubError(f"no head or base read for the PR at {head or 'no head'} on {base or 'no base'}")
     for sha in (build, head):
         fetch_commit(clone, sha)
     git = ["git", "-C", clone, "--literal-pathspecs", "-c", "core.quotePath=false"]

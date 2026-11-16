@@ -4016,6 +4016,9 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
             else:
                 said.append(f"{build} deployed nothing to staging, passing no apply step on an env the release provider places on staging and no {signed_in} step of a Mac box proof")
         for key in freed:
+            if not data["prs"][key]["head"] or not data["prs"][key]["base"]:
+                lacking[key] = [f"{key} holds no head or base GitHub read for it, so no build can be checked for its changes; read them with drive pr add {data['prs'][key]['url']} --job {data['prs'][key]['job']}, then send this report again"]
+                continue
             misses = []
             for build in (build for build in runs[key] if build in deployed):
                 commit, envs = deployed[build]
@@ -4026,7 +4029,7 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
                 lacking[key] = misses
         if lacking:
             reach = cli.release_reach(data["name"], data, list(lacking))
-            for key in [key for key in lacking if key in reach and not reach[key]["releases"]]:
+            for key in [key for key in lacking if key in reach and not reach[key]["releases"] and data["prs"][key]["head"] and data["prs"][key]["base"]]:
                 head = data["prs"][key]["head"]
                 commits = [found["sha"] for proof in named[key] if (found := COMMIT_LINK.fullmatch(proof)) and found["repo"].casefold() == github.repo_of(key).casefold()]
                 if any(not github.uncarried(clone, commit, head, data["prs"][key]["base"]) for commit in commits):

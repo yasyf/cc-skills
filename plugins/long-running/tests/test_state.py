@@ -2211,7 +2211,12 @@ def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_tha
         " such as staging:<target>/<env>@<commit> while staging does not run it yet"
     )
     assert [done("j2", "16086"), done("j2", "16203", "16086"), done("j2", "16302"), done("j1", "16203")] == [None, None, None, None]
-    tested = {key: state.STAGING_TEST.format(number=key.rsplit("#", 1)[1]) for key in keys}
+    data["prs"][keys[1]] |= {"head": "", "base": None}
+    unread = done("j2", "16086")
+    assert unread.startswith("j2's DONE frees Forge-AI/monorepo#4202 from waiting on its staging test")
+    assert f"Forge-AI/monorepo#4202 holds no head or base GitHub read for it, so no build can be checked for its changes; read them with drive pr add {data['prs'][keys[1]]['url']} --job j1, then send this report again" in unread
+    data["prs"][keys[1]] |= {"head": tip, "base": "dev"}
+    tested ={key: state.STAGING_TEST.format(number=key.rsplit("#", 1)[1]) for key in keys}
     data["orders"]["o1"]["parts"] |= {each: state.new_part() for each in tested.values()}
     data["jobs"]["j2"]["parts"] = [part, *tested.values()]
 
