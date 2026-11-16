@@ -185,6 +185,7 @@ def read(**overrides: object) -> dict:
         "default": "main",
         "landing_bases": [],
         "under": None,
+        "base_ahead": None,
         "base_pr": None,
     }
     return {**base, **overrides}
@@ -10115,7 +10116,7 @@ def test_replayed_56856_a_pr_on_j94s_built_branch_reads_behind_j94_owed_by_him_t
     )
 
 
-def test_replayed_56907_a_pr_on_a_running_builders_branch_reads_behind_that_builder_wakes_only_its_own_builder_for_its_own_red_and_restacks_once_that_builder_is_done(
+def test_replayed_56907_a_pr_on_a_running_builders_branch_reads_behind_that_builder_wakes_only_its_own_builder_for_its_own_red_and_once_that_builder_is_done_opens_its_branchs_pr_while_that_branch_holds_commits_dev_lacks(
     demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], draws: Draws
 ) -> None:
     with state.edit(demo) as data:
@@ -10142,6 +10143,20 @@ def test_replayed_56907_a_pr_on_a_running_builders_branch_reads_behind_that_buil
     assert (REPLAYED_56907 in stall.chains(data, NO_CARDS, False, T0 + timedelta(minutes=93)), state.asks_tap(data, data["prs"][REPLAYED_56907])) == (False, False)
     with state.edit(demo) as data:
         data["jobs"]["j6258"]["state"] = "done"
+    reads[REPLAYED_56907] = read(checks=GREEN, base_ahead=10, **stacked)
+    for minute in (94, 95):
+        watch.run_pass(watching, T0 + timedelta(minutes=minute))
+    red = state.load(demo)["prs"][REPLAYED_56907]["stage"]
+    assert ((red["name"], red["owner"], red["why"]), draws.keys) == (
+        (
+            "red",
+            stage.BUILDER,
+            f"it sits on {RUNNING_J6258}, the branch of j6258, which no open PR heads and which holds 10 commits dev lacks, so open {RUNNING_J6258}'s PR first: a restack onto dev would drop them",
+        ),
+        [[REPLAYED_56907]],
+    )
+    reads[REPLAYED_56907] = read(checks=GREEN, base_ahead=0, **stacked)
+    watch.run_pass(watching, T0 + timedelta(minutes=96))
     assert stage.red(state.load(demo), REPLAYED_56907) == f"it sits on {RUNNING_J6258}, which no open PR heads, so restack it onto dev"
 
 

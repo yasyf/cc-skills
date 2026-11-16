@@ -230,11 +230,13 @@ no failing test, such as a lint step, is the PR's own.
    reads `behind` that job once nothing at its own head is red, owed by him while that job waits on his
    cards and by that job otherwise, with no deadline and no wake, and his card offers no Approve on it
    until that job's PR opens under it; one on any other branch that is no landing base and that no open
-   PR heads reads `red`, for its builder to restack onto the default branch; and the lander refuses one
-   on a base that is no landing base. A landing base is a branch the repository lands PRs on: its
-   default branch, or one the `[landing]` table of the `.claude/long-running.toml` on its default
-   branch names in its `bases`, such as a release line kept beside it, which the watch reads with each
-   PR; a PR on one lands there and never reads as stacked on a PR heading it. Read the checks once they
+   PR heads reads `red`, for its builder to open that branch's PR, naming the job that built it, while
+   the branch holds commits the default branch lacks, which a restack would drop, and to restack onto
+   the default branch once it holds none; and the lander refuses one on a base that is no landing
+   base. A landing base is a branch the repository lands PRs on: its default branch, or one the
+   `[landing]` table of the `.claude/long-running.toml` on its default branch names in its `bases`,
+   such as a release line kept beside it, which the watch reads with each PR; a PR on one lands there
+   and never reads as stacked on a PR heading it. Read the checks once they
    finish and fix one that fails
    after the merge forward in a follow-up PR.
 3. Install by hand only what the lander does not, from the merge sha

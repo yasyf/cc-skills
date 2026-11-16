@@ -64,7 +64,7 @@ def stored(head: str = "abc", failed: list[str] | None = None) -> dict:
 
 
 def pr_read(rollup: list[dict], **overrides: object) -> dict:
-    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "baseRefName": "main", "headRefName": "lane", "title": "T", "author": "yasyf", "labels": [], "native": [], "trunk": None, "required_checks": [], "required_reviews": 0, "merge_method": "squash", "permission": "ADMIN", "mergeCommit": None, "default": "main", "landing_bases": [], "under": None, "base_pr": None, **overrides}
+    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "baseRefName": "main", "headRefName": "lane", "title": "T", "author": "yasyf", "labels": [], "native": [], "trunk": None, "required_checks": [], "required_reviews": 0, "merge_method": "squash", "permission": "ADMIN", "mergeCommit": None, "default": "main", "landing_bases": [], "under": None, "base_ahead": None, "base_pr": None, **overrides}
 
 
 def test_query_names_one_repository_aliased_r0_with_one_pull_per_number_and_refuses_the_prs_of_two() -> None:
@@ -180,6 +180,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "default": "main",
             "landing_bases": [],
             "under": None,
+            "base_ahead": None,
             "base_pr": None,
         },
         "a/one#2": {
@@ -211,6 +212,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "default": "main",
             "landing_bases": [],
             "under": None,
+            "base_ahead": None,
             "base_pr": None,
         },
     }
@@ -405,6 +407,34 @@ def test_fetch_reads_a_pr_merged_into_a_landing_base_merged_at_its_own_commit_wi
     assert (refused, len(sent), github.landing(reads["Forge-AI/litestream#36"])) == (None, 1, {"state": "merged", "into": None, "merged_sha": "fff000"})
 
 
+@pytest.mark.parametrize(
+    ("base", "ref", "found", "ahead", "queries"),
+    [
+        ("lane-4", {"associatedPullRequests": {"nodes": []}}, {"b0": {"compare": {"behindBy": 10}}}, 10, 2),
+        ("lane-4", {"associatedPullRequests": {"nodes": []}}, {"b0": {"compare": {"behindBy": 0}}}, 0, 2),
+        ("lane-4", None, {"b0": None}, None, 2),
+        ("lane-4", {"associatedPullRequests": {"nodes": [{"number": 4}]}}, {}, None, 1),
+        ("main", {"associatedPullRequests": {"nodes": []}}, {}, None, 1),
+    ],
+)
+def test_fetch_reads_how_many_commits_a_base_no_open_pr_heads_holds_that_the_default_branch_lacks_and_compares_no_other_base(
+    monkeypatch: pytest.MonkeyPatch, base: str, ref: dict | None, found: dict, ahead: int | None, queries: int
+) -> None:
+    asked = []
+
+    def fake(cmd: list[str], **_: object) -> str:
+        asked.append(cmd[-1])
+        if "compare(" in cmd[-1]:
+            return json.dumps({"data": {"r0": found}})
+        return json.dumps({"data": {"r0": {**ALLOWED, "defaultBranchRef": UNRULED, "p1": node(baseRefName=base, baseRef=ref)}}})
+
+    monkeypatch.setattr(github, "run", fake)
+    reads, refused = FETCH(["a/one#1"])
+    assert (refused, reads["a/one#1"]["base_ahead"], len(asked)) == (None, ahead, queries)
+    if queries == 2:
+        assert 'b0: ref(qualifiedName: "refs/heads/lane-4") { compare(headRef: "main") { behindBy } }' in asked[1]
+
+
 def test_fetch_names_an_unreadable_reply(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(github, "run", lambda cmd, **_: "<html>bad gateway</html>")
     reads, refused = FETCH(["a/one#1"])
@@ -427,6 +457,7 @@ def test_live_maps_a_read_onto_the_stored_vocabulary() -> None:
         "base": "main",
         "branch": "lane",
         "under": None,
+        "base_ahead": None,
         "title": "T",
         "author": "yasyf",
         "hold_label": False,
