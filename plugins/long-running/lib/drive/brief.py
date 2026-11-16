@@ -129,6 +129,10 @@ RELEASE_HELD = (
     " approve, rerun or rollback reads from its brief's `Release:` line; a release on those two places alone runs with none."
     " Once he says releases can go again, his answer saying so supersedes the hold: `ccn answer supersede {hold} --by <id>`"
 )
+UNCARRIED = (
+    'refused: `--order {order}` names his answer to the card asking "{asked}", which names {named}, and {why}: start it from a commit'
+    " holding each merged pull request that card names, such as `--from {newest}`, the newest of their merge commits, or name each in `--landed`"
+)
 JOB_HELD = (
     'refused: he holds every release, by his words "{said}" ({where}), and only he grants an exception, so the {cronjob} Job on {cluster},'
     " a production cluster, starts only on an answer of his recorded since that orders that Job there now: {why}. Start, unblock and rerun"
@@ -270,6 +274,45 @@ def approval_refusal(command: str, data: dict) -> str | None:
         return f"refused: Jev did not say whether his answer {answer_id} approves this release ({failure}); run it again once Jev answers. {RELEASE_APPROVAL}"
     asked, said = cut(answer["title"], 200), cut(settled.his(answer["body"]), settled.QUOTED_CHARS)
     return f'refused: `--order {answer_id}` names his answer to "{asked}", "{said}", and {why}. {RELEASE_APPROVAL}'
+
+
+def uncarried_refusal(command: str, data: dict) -> str | None:
+    """Why the one release a command starts may not start from its commit: the card his `--order` answer answers, by settled.answered_card, names a merged PR of the drive's checkout's repository, in a link of its words or by link or #N on its `Holds:` line, that its `--landed` does not name, and its `--from` or `--commit` lacks that PR's merge commit, as contained() reads it once each commit the checkout lacks is fetched by its sha, or it names no commit, so go/ci picks one; refused naming the newest of those merge commits to pass as `--from`, and naming the read when GitHub or git could not read one. A hotfix or rollback, a PR the card names that has not merged, and an answer no kept card holds pass."""
+    from drive import github
+
+    [flags] = map(settled.shipped, started(command))
+    cwd = data["roles"]["coordinator"]["cwd"]
+    if {"hotfix", "rollback"} & flags.keys() or not (asked := settled.answered_card(data, settled.shown(flags["order"][-1], cwd))):
+        return None
+    holds = asked.holds or ""
+    linked = [state.pr_key(found["link"] or found[0]) for found in limits.PR_LINK.finditer("\n".join([asked.title, *asked.summary, asked.cause, *asked.options, *asked.hints.values(), *asked.show_me, holds]))]
+    numbered = limits.PR_NUMBER.findall(holds)
+    if not linked and not numbered:
+        return None
+    try:
+        repo = github.checkout_repo(cwd)
+        keys = [key for key in dict.fromkeys([*linked, *(f"{repo}#{number[1:]}" for number in numbered)]) if key.rpartition("#")[0].casefold() == repo.casefold()]
+        reads, refused = github.fetch(keys) if keys else ({}, None)
+        if unread := [f"#{key.rpartition('#')[2]}" for key in keys if key not in reads]:
+            raise github.GithubError(f"GitHub did not read {', '.join(unread)}" + (f": {refused}" if refused else ""))
+        landed = flags.get("landed", ())
+        merges = {f"#{number}": pull["merged_sha"] for key, read in reads.items() if (pull := github.landing(read))["state"] == "merged" and (number := key.rpartition("#")[2]) not in landed}
+        if not merges:
+            return None
+        for sha in merges.values():
+            github.fetch_commit(cwd, sha)
+        newest = github.run(["git", "-C", cwd, "log", "--no-walk", "--format=%H", *merges.values()]).split()[0]
+        if commit := (flags.get("from") or (None,))[-1]:
+            github.fetch_commit(cwd, commit)
+            found = [contained(cwd, number, sha, commit) for number, sha in merges.items()]
+            if all(held for held, _ in found):
+                return None
+            why = f"at `{commit}` it {'; '.join(said for held, said in found if not held)}"
+        else:
+            why = "this start names no `--from` or `--commit`, so go/ci picks the commit it ships, which may lack one"
+    except github.GithubError as error:
+        return f"refused: whether this release's commit holds each merged pull request the card his `--order` answer answers names could not be read: {error}; run it again"
+    return UNCARRIED.format(order=flags["order"][-1], asked=cut(asked.title, 200), named=", ".join(merges), why=why, newest=newest)
 
 
 def away_refusal(verb: str, release: str, data: dict, moment: datetime) -> str | None:
