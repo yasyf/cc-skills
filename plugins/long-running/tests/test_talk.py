@@ -420,7 +420,7 @@ def test_say_posts_no_word_that_a_release_may_start_unless_it_names_each_freeze_
 ) -> None:
     freezes.append(STANDING_FREEZE)
     recorded.listed = [HELD_RELEASES]
-    stands = f'{STANDING_FREEZE["text"]}; his hold 15c4de1 on every release reaching past plat-usw2-staging and plat-usw2-sandbox stands: "no releases until I say we can again"'
+    stands = f'{STANDING_FREEZE["text"]}; his hold 15c4de1 on every release reaching past the rehearsal envs of the release provider stands: "no releases until I say we can again"'
     for claim in ("Platy shows the release freeze lifted at 11:06 AM, so the api cut can start now.", "Releases can go again."):
         with pytest.raises(DriveError) as refused:
             talk.say(demo, {"text": claim, "dry_run": True})
