@@ -50,6 +50,7 @@ SITE = Path(__file__).resolve().parent / "site"
 DRIVE_BIN = Path(__file__).resolve().parents[2] / "bin" / "drive"
 CHANGE_POLL_SECONDS = 2
 REBUILD_GAP_SECONDS = 3
+REBUILD_SHARE = 0.25
 HEARD_SINCE = "1d"
 FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
@@ -428,14 +429,16 @@ class Board:
             self.changed.notify_all()
 
     def follow(self) -> Path:
-        """Rebuild on a change to the drive's stored state, at most once every REBUILD_GAP_SECONDS, so a burst of writes, as a busy drive commits about twice a second, costs one rebuild and a change inside the gap shows at the first wake after it, until a newer long-running is installed; then return that install's drive, so this code never reads a drive it saved."""
+        """Rebuild on a change to the drive's stored state, at most once every REBUILD_GAP_SECONDS and never more than REBUILD_SHARE of one core, the gap after a slow rebuild growing to match, so a burst of writes, as a busy drive commits about twice a second, costs one rebuild and a change inside the gap shows at the first wake after it, until a newer long-running is installed; then return that install's drive, so this code never reads a drive it saved."""
         built, due = None, 0.0
         for _ in changes(self.name):
             if newer := install.upgraded():
                 return newer
             if time.monotonic() >= due and (stamp := self.stamp()) != built:
-                built, due = stamp, time.monotonic() + REBUILD_GAP_SECONDS
+                started = time.monotonic()
                 self.rebuild()
+                took = time.monotonic() - started
+                built, due = stamp, time.monotonic() + max(REBUILD_GAP_SECONDS, took * (1 / REBUILD_SHARE - 1))
 
     def after(self, version: int) -> tuple[int, bytes]:
         """The summary once it is newer than version, waiting for the next change when it is not."""
