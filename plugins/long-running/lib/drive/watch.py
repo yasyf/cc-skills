@@ -3221,21 +3221,29 @@ def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
     owed = {answer_id: left for answer_id, left in owed.items() if any(left)}
     if not owed:
         return []
-    with state.edit(watcher.name) as data:
+
+    def said_answers(data: dict) -> dict:
         for answer_id in owed:
             data["answers"][answer_id]["said"] = state.stamp(moment)
+        return data
+
+    data = state.update(watcher.name, None, said_answers)
     try:
         owed = dict(superseded.standing(data, list(owed.items())))
     except state.DriveError as error:
         return failed(watcher, "cc-notes supersedes", "read of which answers of his cc-notes marks superseded", error, moment)
     watcher.failures.pop("cc-notes supersedes", None)
     if any(jobs for _, jobs in owed.values()):
-        with state.edit(watcher.name) as data:
+
+        def sent_answers(data: dict) -> dict:
             for answer_id, (_, jobs) in owed.items():
                 kept = data["answers"][answer_id]
                 for job_id in jobs:
                     state.hold_text(data["jobs"][job_id], f'His answer {answer_id}, verbatim: "{kept["words"]}"', state.WATCH_SENDER)
                     kept["jobs"][job_id] = {"mark": "sent"}
+            return data
+
+        data = state.update(watcher.name, None, sent_answers)
     lines = []
     for answer_id, (keys, _) in owed.items():
         owners: dict[str, tuple[str | None, list[str]]] = {}
