@@ -1094,12 +1094,15 @@ class Copy:
         """Take these rows read from or written to the database, each its place and body or None once deleted, keeping each collection in place order."""
         for collection, changed in rows.items():
             held = self.rows.setdefault(collection, {})
+            moved = False
             for key, row in changed.items():
                 if row is None:
                     held.pop(key, None)
                 else:
+                    moved |= key not in held or held[key][0] != row[0]
                     held[key] = (row[0], None if row[1] is None else marshal.dumps(json.loads(row[1]), ROW_MARSHAL))
-            self.rows[collection] = dict(sorted(held.items(), key=lambda item: item[1][0]))
+            if moved:
+                self.rows[collection] = dict(sorted(held.items(), key=lambda item: item[1][0]))
             self.shaped = {}
 
 

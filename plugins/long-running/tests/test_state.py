@@ -313,6 +313,27 @@ def test_outbox_replay_reads_only_pending_messages_through_its_index(state_root:
     assert any("USING INDEX pending_outboxes" in row[3] for row in plan)
 
 
+
+def test_row_cache_updates_and_deletions_do_not_sort_unchanged_positions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    copy = state.Copy(tmp_path / "drive.db")
+    with closing(copy.watcher):
+        copy.patch({"jobs": {"j2": (2, '{"value": 2}'), "j1": (1, '{"value": 1}')}})
+        monkeypatch.setattr(state, "sorted", lambda *args, **kwargs: pytest.fail("unchanged row positions must not sort the collection"), raising=False)
+        copy.patch({"jobs": {"j1": (1, '{"value": 3}')}})
+        assert copy.built_back() == {"jobs": {"j1": {"value": 3}, "j2": {"value": 2}}}
+        copy.patch({"jobs": {"j1": None}})
+        assert copy.built_back() == {"jobs": {"j2": {"value": 2}}}
+
+
+@pytest.mark.parametrize("changed, expected", [({"j3": (0, "{}")}, ["j3", "j1", "j2"]), ({"j2": (0, "{}")}, ["j2", "j1"]), ({"j1": None, "j2": (1, "{}")}, ["j2"])])
+def test_row_cache_reorders_inserted_or_moved_rows(tmp_path: Path, changed: dict, expected: list[str]) -> None:
+    copy = state.Copy(tmp_path / "drive.db")
+    with closing(copy.watcher):
+        copy.patch({"jobs": {"j2": (2, "{}"), "j1": (1, "{}")}})
+        copy.patch({"jobs": changed})
+        assert list(copy.built_back()["jobs"]) == expected
+
+
 def other_process_save() -> None:
     subprocess.run([sys.executable, "-c", OTHER_PROCESS_SAVE, str(Path(state.__file__).resolve().parents[1])], check=True, timeout=30)
 
