@@ -384,8 +384,8 @@ Record any other class with `drive pr set <url> --exempt "<class>"` and clear it
   `drive pr set <url> --fundamental "<what changed>"`, which clears the tap and any exemption and
   puts the PR back on his card with that line. Fold two PRs that carry out one decision of his into
   one, so he gets one card.
-- His Approve is one field on every PR of the landing unit his card drew. His Hold clears it, and
-  so does any reply of his in the card's thread, after which the card draws Approve again.
+- His Approve is one field on every PR of the landing unit his card drew. His Hold clears it. A
+  reply of his in the card's thread leaves it, and the card stays answered.
 - It lands what the card he pressed listed then, whole, bottom first: the PRs of his card that
   share a stack (a native GitHub stack, or PRs each on the one below's head branch), with every PR
   under them, once each is ready. A PR that joined the card after his press holds nothing below it

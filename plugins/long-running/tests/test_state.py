@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 from conftest import LEAD, REAL_DOWN_MAC_BOXES, REAL_SCRATCH, provide
-from drive import card, cli, github, install, picture, providers, reads, render, served, settled, stage, state
+from drive import cli, github, install, picture, providers, reads, render, served, settled, stage, state
 from drive.state import DriveError
 
 REFERENCE = datetime(2026, 11, 9, 14, 0).astimezone()
@@ -2197,7 +2197,7 @@ def test_a_drive_saved_with_approves_a_staging_pass_took_back_gives_each_open_pr
     data["prs"] = {key: state.new_pr(state.pr_url(key), "j1", "o1") | {"fundamental": taken} for key in (restored, held, worded, merged)}
     data["prs"][merged] |= {"state": "merged", "merged_sha": "fedcba9876543210"}
     state.create(data)
-    for key, label in ((restored, "Hold"), (restored, "Approve"), (held, "Approve"), (held, "Hold"), (worded, "Approve"), (worded, card.WORDS), (merged, "Approve")):
+    for key, label in ((restored, "Hold"), (restored, "Approve"), (held, "Approve"), (held, "Hold"), (worded, "Approve"), (worded, "Words"), (merged, "Approve")):
         repo, number = key.split("#")
         state.append_event("demo", "tap", repo=repo, number=int(number), label=label, head="aaaaaaa111", source="pressed the button", action_ts="1794762137.637881", lane="root")
     data = state.load("demo")
