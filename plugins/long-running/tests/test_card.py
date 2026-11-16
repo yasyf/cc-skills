@@ -1583,13 +1583,33 @@ def test_the_run_page_stack_card_leaves_out_the_pr_under_his_hold_and_its_approv
     reply = ask(asks(53810, 53833, 54225, 54428))
     [drawn] = reply["cards"]
     assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(n) for n in (53810, 53833, 54225)]
-    assert drawn["card"]["options"] == ["Approve", "Hold"] and drawn["card"]["title"].endswith("left out under your Hold: #54428")
+    assert drawn["card"]["options"] == ["Approve", "Hold"] and drawn["card"]["title"].endswith("left out, held by your word: #54428")
     assert [(skipped["number"], skipped["reason"].startswith("Forge-AI/monorepo#54428 is under your Hold of")) for skipped in reply["skipped"]] == [(54428, True)]
     started: list[list[str]] = []
     monkeypatch.setattr(land, "start", lambda name, members, cards: started.append(members))
     ask({"answer": {"repo": "Forge-AI/monorepo", "number": 53810, "waits": drawn["card"]["waits"], "label": "Approve", "heads": {}, "action_ts": "1794772411.000100", "source": "slack"}})
     prs = state.load("demo")["prs"]
     assert [prs[key]["tap"]["label"] for key in keys] == ["Approve", "Approve", "Approve", "Hold"]
+
+
+def test_a_stack_card_leaves_out_a_pr_his_recorded_answer_holds_as_one_jev_read_of_his_answers_judges(stacked: list[list[str]], jev: Jev) -> None:
+    with edit("demo") as data:
+        data["answers"]["1439da5aeb4b97bfdd6d3211d0ac770f67e22253"] = {
+            "words": "give me approves to get next on v3 but not delete the old one til cutover",
+            "link": "https://acme.slack.com/archives/C0CJ378LSBT/p1794860661896029",
+            "at": "2026-11-16T12:26:10-08:00",
+            "said": "2026-11-16T12:26:10-08:00",
+            "cards": {},
+            "jobs": {"j1": {"mark": "untouched"}},
+            "approves": None,
+        }
+    jev.ruled = {"held": ("43", 0.9)}
+    reply = ask(asks(41, 42, 43))
+    [drawn] = reply["cards"]
+    assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(41), stack_url(42)]
+    assert drawn["card"]["title"].endswith("left out, held by your word: #43")
+    assert [(skipped["number"], "1439da5" in skipped["reason"]) for skipped in reply["skipped"]] == [(43, True)]
+    assert [answer["answer"] for answer in jev.asked[-1]["state"]["answers"]] == ["1439da5"]
 
 
 def test_a_stack_with_one_pr_reworked_to_his_words_draws_the_prs_below_it_alone_and_no_card_on_it_or_above_a_redraw_included_until_its_builders_ready_meets_them(

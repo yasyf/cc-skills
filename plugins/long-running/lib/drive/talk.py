@@ -215,7 +215,8 @@ def unexplained_refusal(name: str, text: str, nearby: list[dict], channel: str |
     return gate.gate(name, f"unexplained {channel or 'dm'}/{thread or ''}", [f"its post calls an event unexplained, citing none of the records from within two minutes of it, nor saying none applies: {listed}"])
 
 
-EDIT_KEEPS = 0.6
+EDIT_KEEPS_RULE = "Does `edit`, the new words of `post`, drop or change any part of `post` that `correction` does not name?"
+EDIT_SECONDS = 5
 
 
 def post_words(link: str) -> str:
@@ -231,12 +232,18 @@ def post_words(link: str) -> str:
     return "\n".join(block_words(((message or {}).get("raw") or {}).get("blocks") or [])) or (message or {}).get("text") or ""
 
 
-def dropped_lines(now_reads: str, shown: dict) -> list[str]:
-    """The lines of a post as it reads now that its edit would drop, when the edit keeps less than EDIT_KEEPS of them, as 736473's edit replaced a whole status with its correction; none otherwise."""
-    old = [line.strip() for line in now_reads.splitlines() if line.strip()]
+def dropped_lines(now_reads: str, correction: str, shown: dict) -> list[str]:
+    """What an edit of a post drops or changes beyond what its correction names, as one Jev read of the post as it reads now, the correction and the new words judges, by his push for rules over hard-coded thresholds, as 736473's edit replaced a whole status with its correction; none when the read finds nothing, gives no answer, or the post cannot be read."""
+    from drive import settled
+
     new = "\n".join([shown.get("text") or "", *block_words(shown.get("blocks") or [])])
-    gone = [line for line in old if line not in new]
-    return gone if old and len(gone) > (1 - EDIT_KEEPS) * len(old) else []
+    if not now_reads.strip():
+        return []
+    try:
+        said = settled.jev({"post": now_reads, "correction": correction, "edit": new}, {"edit.keeps": settled.Noul(EDIT_KEEPS_RULE)}, EDIT_SECONDS, "edit-keeps")
+    except settled.Unheard:
+        return []
+    return [line for line in now_reads.splitlines() if line.strip() and line.strip() not in new] or [now_reads.splitlines()[0]] if said.get("edit.keeps", 0) >= settled.YES else []
 
 
 def gate_edit(name: str, link: str, dropped: list[str]) -> str | None:
@@ -305,7 +312,7 @@ def report_line(name: str, seq: str) -> str:
     if made.get("place") == "edit" or report["kind"] == "correction" and state.CARD_LINK.search(corrected):
         if not corrected.startswith("https://"):
             raise DriveError(f"it corrects report {report.get('re')}, which went out in no post")
-        if not (dropped := dropped_lines(now_reads, shown)) or gate_edit(name, corrected, dropped) is None:
+        if not (dropped := dropped_lines(now_reads, words, shown)) or gate_edit(name, corrected, dropped) is None:
             return spoken(name, shown | {"edit": corrected, "record": seq}, known)
         made = made | {"place": "thread"}
     place = {"channel_id": channel} if channel else {}

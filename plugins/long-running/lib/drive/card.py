@@ -760,19 +760,70 @@ def held_by_rework(known: dict[str, tuple[str, dict]], members: list[str], reads
     return held
 
 
-def held_by_him(known: dict[str, tuple[str, dict]], members: list[str], reads: dict[str, dict]) -> dict[str, str]:
-    """Each member his Hold tap keeps, and each on its branch above it, which none of his Approves may carry, with why: his Hold is his word, never a drive gate, so the card draws the rest, by his words "give me approves to get next on v3 but not delete the old one til cutover I've said this like 5 times" (answer 1439da5)."""
+HELD_BY_ANSWER = (
+    "Does one of `answers`, his own recorded words, hold back PR {key}, `prs.{number}`, from his Approve now, such as by saying"
+    " not now or not until a later step like a cutover, while no later answer among them lifts that?"
+)
+ANSWERS_WEIGHED = 25
+ANSWER_TERM = re.compile(r"[a-z0-9]{4,}")
+ANSWER_SECONDS = 8
+
+
+def held_by_him(drives: dict[str, dict], known: dict[str, tuple[str, dict]], members: list[str], reads: dict[str, dict]) -> dict[str, str]:
+    """Each member his Hold tap or a recorded answer of his keeps, and each on its branch above it, which none of his Approves may carry, with why: his Hold and his answers are his word, never a drive gate, so the card draws the rest, by his words "give me approves to get next on v3 but not delete the old one til cutover I've said this like 5 times" (answer 1439da5)."""
     if len(members) < 2:
         return {}
+    answered = held_by_answers(drives, known, members, reads)
     branches = ends(known, members, reads)
     kept: dict[str, str] = {}
     for key in members:
         if tap_label(known[key][1]) == "Hold":
             tap = known[key][1]["tap"]
             kept[key] = f"{key} is under your Hold of {when(tap['at'])}, your word, so no Approve carries it until you lift it" + (f" ({tap['source']})" if str(tap.get("source") or "").startswith("https://") else "")
+        elif key in answered:
+            kept[key] = answered[key]
         elif below := next((held for held in kept if branches[key][1] and branches[key][1] == branches[held][0]), None):
-            kept[key] = f"{key} is left out: it sits on {below}, which your Hold keeps"
+            kept[key] = f"{key} is left out: it sits on {below}, which your word keeps"
     return kept
+
+
+def weighed_answers(data: dict, keys: list[str], reads: dict[str, dict]) -> list[dict]:
+    """The recorded answers of his that the one Jev read weighs a card's PRs against: those on the jobs, cards or threads of the PRs' orders, and those sharing words with the PRs' titles and branches, newest first, at most ANSWERS_WEIGHED; the read, not these words, judges which hold a PR."""
+    orders = {data["prs"][key]["order"] for key in keys}
+    jobs = {job_id for job_id, job in data["jobs"].items() if job["order"] in orders}
+    threads = {tuple(data["orders"][order]["thread"] or ()) for order in orders if order in data["orders"]}
+    terms = set(ANSWER_TERM.findall(" ".join(f"{reads[key].get('title', '')} {reads[key].get('headRefName', '')}".lower().replace("-", " ") for key in keys)))
+    picked = [
+        {"answer": answer_id[:7], "words": answer["words"], "at": answer["at"], "link": answer["link"]}
+        for answer_id, answer in data["answers"].items()
+        if jobs & set(answer.get("jobs") or {})
+        or any(card.split(":")[-1].split("-")[0] in jobs for card in answer.get("cards") or {})
+        or (found := state.slack_message(answer.get("link") or "")) and (found[0], found[2] or found[1]) in threads
+        or len(terms & set(ANSWER_TERM.findall(answer["words"].lower()))) >= 2
+    ]
+    return sorted(picked, key=lambda answer: answer["at"], reverse=True)[:ANSWERS_WEIGHED]
+
+
+def held_by_answers(drives: dict[str, dict], known: dict[str, tuple[str, dict]], members: list[str], reads: dict[str, dict]) -> dict[str, str]:
+    """Each member a recorded answer of his holds back from his Approve, as one Jev read of his answers judges, never a match of his words; none when the read gives no answer, so a card still draws."""
+    from drive import settled
+
+    by_drive: dict[str, list[str]] = {}
+    for key in members:
+        by_drive.setdefault(known[key][0], []).append(key)
+    held: dict[str, str] = {}
+    for name, keys in by_drive.items():
+        if not (answers := weighed_answers(drives[name], keys, reads)):
+            continue
+        prs = {key.rpartition("#")[2]: {"pr": key, "title": reads[key].get("title"), "branch": reads[key].get("headRefName")} for key in keys}
+        asked = {f"held.{number}": settled.Noul(HELD_BY_ANSWER.format(key=pr["pr"], number=number)) for number, pr in prs.items()}
+        try:
+            said = settled.jev({"answers": answers, "prs": prs}, asked, ANSWER_SECONDS, "card-held")
+        except settled.Unheard:
+            continue
+        cited = ", ".join(f"{answer['answer']} ({answer['link']})" for answer in answers[:2])
+        held |= {prs[key.partition(".")[2]]["pr"]: f"{prs[key.partition('.')[2]]['pr']} is held by your recorded words, such as {cited}, so no Approve carries it until you lift them" for key, chance in said.items() if chance >= settled.YES}
+    return held
 
 
 def foreign(drives: dict[str, dict], known: dict[str, tuple[str, dict]], members: list[str]) -> str:
@@ -821,7 +872,7 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
             members = [key for key in members if key not in held]
             if not members:
                 continue
-        if kept := held_by_him(known, members, reads):
+        if kept := held_by_him(drives, known, members, reads):
             skipped += [skip(key, why) for key, why in kept.items()]
             members = [key for key in members if key not in kept]
             if not members:
@@ -841,7 +892,7 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
             siblings(known, members, reads),
         )
         if kept:
-            card |= {"title": f"{card['title']} · left out under your Hold: {', '.join('#' + key.rpartition('#')[2] for key in kept)}"}
+            card |= {"title": f"{card['title']} · left out, held by your word: {', '.join('#' + key.rpartition('#')[2] for key in kept)}"}
         remember(known, members, changes)
         drawn(known, {key: (*undrawn, *unsaid_storage(reads[key], known[key][1])) for key, (_, undrawn) in drawings.items()}, at, changes)
         repo, number = members[0].split("#")

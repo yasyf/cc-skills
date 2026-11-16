@@ -789,7 +789,7 @@ def test_a_report_post_calling_an_event_unexplained_gets_the_records_beside_it_a
     assert talk.report_line(demo, "736259") == "POSTED https://acme.slack.com/archives/C1/p1"
 
 
-def test_a_correction_whose_edit_would_drop_the_rest_of_its_post_goes_beside_it_once_and_its_writer_starts_from_the_post_as_it_reads(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_correction_whose_edit_drops_what_it_does_not_name_goes_beside_its_post_once_as_jev_judges_and_its_writer_starts_from_the_post_as_it_reads(demo: str, jev: Jev, monkeypatch: pytest.MonkeyPatch) -> None:
     from drive import answer
 
     posted = "https://acme.slack.com/archives/C0CHZM7A478/p1794859107344309?thread_ts=1794830198.687629&cid=C0CHZM7A478"
@@ -804,8 +804,10 @@ def test_a_correction_whose_edit_would_drop_the_rest_of_its_post_goes_beside_it_
     monkeypatch.setattr(slack, "post_findings", lambda text, draws_card, asked="": [])
     spoken: list[tuple[dict, bool]] = []
     monkeypatch.setattr(talk, "spoken", lambda name, post, known, recorded_first=False, beside=False: spoken.append((post, beside)) or "POSTED x")
+    jev.ruled = {"edit": ("keeps", 0.9)}
     talk.report_line(demo, "736349")
     assert "*Production* untouched" in asked[0]
+    assert jev.asked[-1]["state"]["post"] == status and "test's own delete" in jev.asked[-1]["state"]["correction"]
     assert "edit" not in spoken[0][0] and spoken[0][0]["thread_ts"] == "1794830198.687629" and spoken[0][1]
     talk.report_line(demo, "736349")
     assert spoken[1][0]["edit"] == posted
