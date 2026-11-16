@@ -1380,7 +1380,7 @@ def test_a_resume_from_another_session_posts_the_text_to_the_session_that_starte
     posted = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend((lane, post) for post in posts) or ["7"])
     text = "From j3904: the staging dry run it started, build 15531, passed\nits log is scratch/j3904/b15531.log"
-    pointer = 'j1: SendMessage a0b74915bac29cf3e "Read cci record 7 whole and act on it"'
+    pointer = 'j1: owed, send it now: SendMessage a0b74915bac29cf3e "Read cci record 7 whole and act on it"'
     assert run("job", "resume", "j1", text) == (
         0,
         f"j1: posted to agent a0b74915bac29cf3e's cci address as handoff record 7, and to platform@{demo}, whose SendMessage alone reaches it: {pointer}",
@@ -1413,7 +1413,7 @@ def test_a_resume_of_an_agent_the_communicator_started_posts_his_words_whole_to_
     monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a live agent's job starts no second worker"))
     posted = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend((lane, post) for post in posts) or ["8"])
-    pointer = 'j1: SendMessage a3c1d2e4f5a6b7c8d "Read cci record 8 whole and act on it"'
+    pointer = 'j1: owed, send it now: SendMessage a3c1d2e4f5a6b7c8d "Read cci record 8 whole and act on it"'
     assert run("job", "resume", "j1", words) == (
         0,
         f"j1: posted to agent a3c1d2e4f5a6b7c8d's cci address as handoff record 8, and to communicator@{demo}, whose SendMessage alone reaches it: {pointer}",
@@ -1450,7 +1450,7 @@ def test_a_resume_with_no_text_posts_each_text_an_agent_its_session_started_hold
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend((lane, post) for post in posts) or [next(seqs)])
     assert run("job", "resume", "j1") == (
         0,
-        'j1: SendMessage a4e953525ff2a4e17 "Read cci record 720371 whole and act on it"\nj1: SendMessage a4e953525ff2a4e17 "Read cci record 720372 whole and act on it"',
+        'j1: owed, send it now: SendMessage a4e953525ff2a4e17 "Read cci record 720371 whole and act on it"\nj1: owed, send it now: SendMessage a4e953525ff2a4e17 "Read cci record 720372 whole and act on it"',
     )
     assert [(lane, post["kind"], post["to"], post.get("body", post["text"])) for lane, post in posted] == [
         ("root", "handoff", [f"peer:{top}/a4e953525ff2a4e17"], joined),
@@ -1477,7 +1477,7 @@ def test_a_resume_with_no_text_from_another_session_posts_the_held_text_to_the_a
     monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a live agent's job starts no second worker"))
     posted = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend((lane, post) for post in posts) or ["8"])
-    pointer = 'j1: SendMessage a3c1d2e4f5a6b7c8d "Read cci record 8 whole and act on it"'
+    pointer = 'j1: owed, send it now: SendMessage a3c1d2e4f5a6b7c8d "Read cci record 8 whole and act on it"'
     assert run("job", "resume", "j1") == (
         0,
         f"j1: posted to agent a3c1d2e4f5a6b7c8d's cci address as handoff record 8, and to communicator@{demo}, whose SendMessage alone reaches it: {pointer}",
@@ -1859,7 +1859,7 @@ def test_a_job_whose_agent_on_this_mac_works_or_ended_its_own_turn_keeps_its_age
     assert capsys.readouterr().err == "drive: j1 runs on this Mac as agent a1; resume it with SendMessage\n"
     posted = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend(post["to"] for post in posts) or ["8"])
-    assert run("job", "resume", "j1", "PR #54870: checks failed") == (0, 'j1: SendMessage a1 "Read cci record 8 whole and act on it"')
+    assert run("job", "resume", "j1", "PR #54870: checks failed") == (0, 'j1: owed, send it now: SendMessage a1 "Read cci record 8 whole and act on it"')
     job = state.load(demo)["jobs"]["j1"]
     assert (launched, job["agent"], posted) == ([], "a1", [[f"peer:{job['session']}/a1"]])
 
