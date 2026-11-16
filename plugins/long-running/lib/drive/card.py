@@ -786,9 +786,7 @@ ANSWER_SECONDS = 8
 
 
 def held_by_him(drives: dict[str, dict], known: dict[str, tuple[str, dict]], members: list[str], reads: dict[str, dict]) -> dict[str, str]:
-    """Each member his Hold tap or a recorded answer of his keeps, and each on its branch above it, which none of his Approves may carry, with why: his Hold and his answers are his word, never a drive gate, so the card draws the rest, by his words "give me approves to get next on v3 but not delete the old one til cutover I've said this like 5 times" (answer 1439da5)."""
-    if len(members) < 2:
-        return {}
+    """Each member his Hold tap or a recorded answer of his keeps, and each on its branch above it, which none of his Approves may carry, with why: his Hold and his answers are his word, never a drive gate, so the card draws the rest, by his words "give me approves to get next on v3 but not delete the old one til cutover I've said this like 5 times" (answer 1439da5); a PR alone in its stack is kept too, since a held PR on another base, as #54428 sits on run-page-old-v3, groups alone and drew its own Approve card."""
     answered = held_by_answers(drives, known, members, reads)
     branches = ends(known, members, reads)
     kept: dict[str, str] = {}

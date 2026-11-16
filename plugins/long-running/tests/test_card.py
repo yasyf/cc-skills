@@ -1567,6 +1567,17 @@ def test_a_stack_card_reads_github_once_per_25_prs_and_records_its_stack_in_a_pr
     assert len(receipts) == 1
 
 
+def test_a_pr_under_his_hold_alone_in_its_stack_draws_no_approve_card(native_stacks: dict[str, list[tuple[str, str]]]) -> None:
+    key = "Forge-AI/monorepo#54428"
+    with edit("demo") as data:
+        data["prs"][key] = {**kept_entry(), "url": state.pr_url(key)}
+        data["prs"][key]["tap"] = state.new_tap("Hold", HEAD, HIS_TAPS, at="2026-11-16T12:39:25-08:00")
+    native_stacks[key] = [(key, "open")]
+    reply = ask(asks(54428))
+    assert reply["cards"] == []
+    assert [(skipped["number"], skipped["reason"].startswith(f"{key} is under your Hold of")) for skipped in reply["skipped"]] == [(54428, True)]
+
+
 def test_the_run_page_stack_card_leaves_out_the_pr_under_his_hold_and_its_approve_carries_the_rest(
     stacked: list[list[str]], native_stacks: dict[str, list[tuple[str, str]]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
