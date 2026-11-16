@@ -196,6 +196,21 @@ def carry_handed(data: dict, seq: str, link: str) -> None:
             kept["told"] = link
 
 
+REPORT_POST_TRIES = 3
+SLACK_TIMED_OUT = ("deadline exceeded", "timed out", "timeout")
+
+
+def timed_out_again(name: str, seq: str) -> str:
+    """report_line, tried again while cc-slack times out and the report has no post yet, so a slow Slack read never drops his post, as 735671's thread read did."""
+    for attempt in range(REPORT_POST_TRIES):
+        try:
+            return report_line(name, seq)
+        except slack.SlackError as error:
+            if attempt + 1 == REPORT_POST_TRIES or not any(words in str(error) for words in SLACK_TIMED_OUT) or str(state.load(name)["carried"].get(seq) or "").startswith("https://"):
+                raise
+    raise AssertionError(REPORT_POST_TRIES)
+
+
 def report_post(name: str, seq: str) -> str:
     """`drive report-post`: hand a report posting in a channel outside the drive's, such as a staging claim to its members, to the communicator as one note, since cc-slack posts there only on the ticket a session's permission hook names; post any other by report_line, or send why it posted nothing back to the session that wrote it, as a refused record re the report, so that session sends it again fixed; one the watch wrote goes to the meta session as a defect."""
     from drive import tools
@@ -210,7 +225,7 @@ def report_post(name: str, seq: str) -> str:
         agents.handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'post-{seq}'} Where: {target}, a channel outside the drive's, whose members read it and where cc-slack posts only on the ticket a session's permission hook names, so post it there yourself with say naming record {seq}, which marks it posted so the drive posts it never again")
         return f"report {seq} handed to the communicator: it posts in {target}, outside the drive's channels"
     try:
-        return f"report {seq} posted by the drive: {report_line(name, seq)}"
+        return f"report {seq} posted by the drive: {timed_out_again(name, seq)}"
     except (DriveError, slack.SlackError) as error:
         if (link := state.load(name)["carried"].get(seq) or "").startswith("https://"):
             return f"report {seq} posted at {link}, then: {error}"

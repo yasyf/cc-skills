@@ -437,7 +437,7 @@ def start_posts(name: str, moment: datetime) -> None:
             continue
         carried[seq] = DRIVE_CLAIM
         try:
-            state.detach(name, ["report-post", seq], "posts.log")
+            take_post(name, seq, "taken")
         except OSError as error:
             errors.append(f"POST report {seq}'s post did not start: {start_error(error)}")
     def marked(data: dict) -> None:
@@ -453,9 +453,16 @@ def start_posts(name: str, moment: datetime) -> None:
         raise state.DriveError("; ".join(errors))
 
 
+def take_post(name: str, seq: str, how: str) -> None:
+    """Start `drive report-post` on one report, logging that it was taken first, so posts.log shows every report the watch took, whatever the process does after."""
+    with (state.drive_dir(name) / "posts.log").open("a") as log:
+        log.write(f"{render.when(state.stamp())} report {seq} {how} by the watch\n")
+    state.detach(name, ["report-post", seq], "posts.log")
+
+
 def unposted(name: str, moment: datetime) -> None:
-    """Tell the meta session, once, of each POST report the drive took to post that still has no permalink in carried UNPOSTED_AFTER after it took it, so a post path that goes silent shows within one cycle, as report-post skipping every report for two hours on the drive's own claim mark did not."""
-    from drive import tools
+    """Act once on each POST report the drive took to post that still has no permalink in carried UNPOSTED_AFTER after it took it: start report-post on it once more, since a process that died or hung leaves no outcome; and when that try too leaves no post, owe its post on its order as a step past due, which the owed items chase, or tell the meta session for a report naming no order, by meta's rule that every POST the watch takes reaches report-post and ends in a recorded outcome."""
+    from drive import owing, tools
 
     data = state.load(name, ("posts", "carried"))
     claimed = data["posts"].get("claimed") or {}
@@ -463,12 +470,24 @@ def unposted(name: str, moment: datetime) -> None:
     late = [seq for seq, at in claimed.items() if seq not in posted and moment - state.parse_time(at) > UNPOSTED_AFTER]
     if not posted and not late:
         return
-    if late:
-        tools.sent(name, "watch", [{"kind": "defect", "to": [f"meta@{name}"], "text": f"POST reports {', '.join(late)} have no post: the drive took each to post over {int(UNPOSTED_AFTER.total_seconds() // 60)} minutes ago and carried holds no permalink for it; read posts.log for each and post it with drive report-post <seq>"}])
+    retaken = data["posts"].get("retaken") or []
+    again = [seq for seq in late if seq not in retaken]
+    for seq in again:
+        take_post(name, seq, "taken again, with no post after its first try,")
+    owed = {seq: answered(seq)["attrs"].get("order") for seq in late if seq in retaken}
+    orphans = [seq for seq, order in owed.items() if not order]
+    if orphans:
+        tools.sent(name, "watch", [{"kind": "defect", "to": [f"meta@{name}"], "text": f"POST reports {', '.join(orphans)} have no post after two tries of report-post, and name no order to owe it on; read posts.log for each and post it with drive report-post <seq>"}])
 
     def unposted_write(data: dict) -> None:
-        for seq in [*posted, *late]:
+        for seq in [*posted, *owed]:
             data["posts"]["claimed"].pop(seq, None)
+        for seq in again:
+            data["posts"]["claimed"][seq] = state.stamp(moment)
+        data["posts"]["retaken"] = [seq for seq in [*data["posts"].get("retaken", []), *again] if seq in data["posts"]["claimed"]]
+        for seq, order in owed.items():
+            if order and order in data["orders"]:
+                owing.add(data, order, owing.STEP, f"the post of report {seq}, which report-post tried twice", moment, {"post_on": order}, "watch", moment)
 
     state.write(name, unposted_write, patient=True)
 

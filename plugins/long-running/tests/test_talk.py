@@ -533,18 +533,44 @@ def test_a_report_the_drive_only_took_to_post_counts_as_unposted_and_one_with_a_
     assert talk.report_post(demo, "700") == "report 700 already posted at https://acme.slack.com/archives/C1/p2: nothing posted again"
 
 
-def test_a_post_report_the_drive_took_and_never_posted_is_flagged_to_meta_once_after_fifteen_minutes(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_post_report_the_drive_took_and_never_posted_is_taken_again_then_owed_on_its_order_past_due(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     sent: list[list[dict]] = []
+    taken: list[list[str]] = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append(records) or ["1"])
+    monkeypatch.setattr(state, "detach", lambda name, args, log: taken.append(args) or 1)
+    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {"order": "o1"} if seq == "700" else {}, "thread": None})
     took = state.now() - agents.UNPOSTED_AFTER - timedelta(minutes=1)
     with edit(demo) as data:
-        data["carried"] |= {"700": agents.DRIVE_CLAIM, "701": "https://acme.slack.com/archives/C1/p1"}
-        data["posts"]["claimed"] = {"700": state.stamp(took), "701": state.stamp(took)}
+        data["orders"]["o1"] = state.new_order("ship release 3", "terminal", None, {}, ASKED)
+        data["carried"] |= {"700": agents.DRIVE_CLAIM, "701": "https://acme.slack.com/archives/C1/p1", "702": agents.DRIVE_CLAIM}
+        data["posts"]["claimed"] = {"700": state.stamp(took), "701": state.stamp(took), "702": state.stamp(took)}
     agents.unposted(demo, state.now())
-    assert [record["text"].split(":")[0] for records in sent for record in records] == ["POST reports 700 have no post"]
-    assert state.load(demo, ("posts",))["posts"]["claimed"] == {}
+    assert taken == [["report-post", "700"], ["report-post", "702"]] and not sent
+    assert "report 700 taken again" in (state.drive_dir(demo) / "posts.log").read_text()
+    assert sorted(state.load(demo, ("posts",))["posts"]["claimed"]) == ["700", "702"]
     agents.unposted(demo, state.now())
-    assert len(sent) == 1
+    assert len(taken) == 2
+    agents.unposted(demo, state.now() + agents.UNPOSTED_AFTER + timedelta(minutes=1))
+    assert len(taken) == 2
+    assert [record["text"].split(";")[0] for records in sent for record in records] == ["POST reports 702 have no post after two tries of report-post, and name no order to owe it on"]
+    data = state.load(demo)
+    assert data["posts"]["claimed"] == {} and data["posts"]["retaken"] == []
+    assert [item["what"] for item in data["orders"]["o1"]["owed"]] == ["the post of report 700, which report-post tried twice"]
+
+
+def test_a_report_post_tries_again_while_cc_slack_times_out_and_the_report_has_no_post(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    tries: list[str] = []
+
+    def timing_out(name: str, seq: str) -> str:
+        tries.append(seq)
+        if len(tries) < talk.REPORT_POST_TRIES:
+            raise slack.SlackError("cc-slack thread: context deadline exceeded")
+        return "POSTED https://acme.slack.com/archives/C1/p1"
+
+    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {}, "thread": None})
+    monkeypatch.setattr(talk, "report_line", timing_out)
+    assert talk.report_post(demo, "735671") == "report 735671 posted by the drive: POSTED https://acme.slack.com/archives/C1/p1"
+    assert len(tries) == talk.REPORT_POST_TRIES
 
 
 def test_a_seat_communicators_say_marks_its_seat_active_so_the_watch_never_retires_it_as_idle(communicator: str) -> None:
