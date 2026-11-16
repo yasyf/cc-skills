@@ -1157,20 +1157,7 @@ button.task-row { cursor: pointer; }
 .ap-beats .n { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--ink); color: #fff; font-size: 11px; font-weight: 650; }
 .ap-beats b { font-size: 13px; }
 .ap-beats p { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.6; }
-.ap-decisions { display: grid; gap: 18px; }
-.ap-decision { display: grid; gap: 10px; padding: 18px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel-2); }
-.ap-decision h3 { margin: 0; font-size: 16px; line-height: 1.35; }
-.ap-decision > p { margin: 0; color: var(--ink-2); font-size: 13px; line-height: 1.6; }
-.ap-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
-.ap-option { display: grid; gap: 6px; align-content: start; padding: 14px; border: 1px solid var(--line-2); border-radius: 10px; background: var(--paper); color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: border-color .15s, transform .15s; }
-.ap-option:hover:not(:disabled) { border-color: var(--accent); transform: translateY(-1px); }
-.ap-option:disabled { opacity: .55; cursor: default; }
-.ap-option.recommended { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
-.ap-option strong { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13.5px; }
-.ap-option em, .ap-choice em { padding: 2px 7px; border-radius: 5px; background: var(--soft); color: var(--accent); font-size: 10px; font-style: normal; font-weight: 650; }
-.ap-option small { color: var(--ink-2); font-size: 12px; line-height: 1.55; }
-.ap-decision .answered { margin: 0; color: var(--accent); font-weight: 600; }
-.ap-decision .linkish { justify-self: start; font-size: 12px; }
+.ap-choice em { padding: 2px 7px; border-radius: 5px; background: var(--soft); color: var(--accent); font-size: 10px; font-style: normal; font-weight: 650; }
 .ap-approve { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .ap-approve li { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border: 1px solid var(--line); border-radius: 10px; }
 .ap-approve label { display: flex; flex: 1; align-items: flex-start; gap: 12px; min-width: 0; cursor: pointer; }
@@ -1348,12 +1335,6 @@ button.task-row { cursor: pointer; }
 .ap-tabpanel > .ap-block { border: 0; padding: 0; margin: 0; box-shadow: none; }
 .ap-stepper { display: flex; flex-wrap: wrap; gap: 6px 4px; margin: 0 0 12px; }
 .ap-step-body { min-height: 3.5em; }
-.ap-waits { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.ap-wait { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--paper); }
-.ap-wait-kind { font: var(--caps); letter-spacing: 1px; color: var(--muted); }
-.ap-wait-body { display: grid; gap: 2px; min-width: 0; }
-.ap-wait-body small { color: var(--muted); font-size: 12px; }
-.ap-wait-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .ap-risk { display: flex; gap: 12px; align-items: flex-start; border-left: 4px solid var(--warm); }
 .ap-risk.bad { border-left-color: var(--bad); }
 .ap-risk p { margin: 4px 0 0; }
@@ -1367,5 +1348,11 @@ button.task-row { cursor: pointer; }
 .ap-progress small { color: var(--muted); }
 .ap-spark svg { width: 100%; height: 36px; }
 .ap-spark polyline { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
-@media (max-width: 700px) { .ap-glance { grid-template-columns: 1fr; } .ap-wait { grid-template-columns: 1fr; } .ap-wait-acts { justify-content: flex-start; } .ap-progress { grid-auto-flow: row; grid-auto-columns: auto; } }
+@media (max-width: 700px) { .ap-glance { grid-template-columns: 1fr; } .ap-progress { grid-auto-flow: row; grid-auto-columns: auto; } }
 .card-glance { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 6px 0 0; font-size: 13px; color: var(--ink-2); }
+.ap-cards { display: grid; gap: 12px; }
+.ap-cards-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.ap-cards-head .linkish { font-size: 12px; }
+.ap-card-list > summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.ap-card-list .queue-list { position: static; max-height: 360px; margin-top: 8px; }
+.ap-card-list button.qrow-main { width: 100%; border: 0; background: none; font: inherit; text-align: left; cursor: pointer; }

@@ -10,11 +10,10 @@ The dashboard reads the page's live slice and has a Claude session compose it fr
 
 | Block | Draws |
 |---|---|
-| `waits` | each decision and PR waiting on him, with its recommended pick or Approve one tap away |
+| `waits` | each decision and PR waiting on him as the queue's own card, the same one the priority queue draws, stepped one at a time with a list of them all and a link opening the queue filtered to them |
 | `story` | two to four steps he walks one at a time: why the goal exists, where it stands, what is at stake |
 | `progress` | a stage bar of steps toward the goal, marking the step it is on |
 | `risk` | the one risk he must weigh, for whom, and what guards against it |
-| `decide` | each decision live as its own applet, with its paths and their consequences, answered as the queue answers |
 | `approve` | PRs he approves together or one by one, each with its plain status and what Approve does |
 | `stack` | a stack bottom first, each change with what it does and where it stands |
 | `staging` | where each PR was tested: passed, running, queued, failed or no test |
@@ -27,7 +26,7 @@ The dashboard reads the page's live slice and has a Claude session compose it fr
 | `metrics` | a strip of live counts with a sparkline of changes landed each day |
 | `callout` | one line he must not miss |
 
-Each page opens on a glance: where the goal stands, what changed, and the one thing he does next and why. Any block can be folded behind its one-line summary, and blocks that show one thing several ways share a group and draw as tabs. The composer's guidance in `applet.py` asks for the fewest blocks that answer "what does he do next, and why", and judges each page against the owner's gold-standard Slack post.
+Each page opens on a glance: where the goal stands, what changed, and the one thing he does next and why. A card he acts on is drawn only by `waits`, which embeds the queue's own card, so no other block restates a decision's paths or a PR's story. A link from a page into the queue opens `#/queue/<filter>?page=<slug>`, the queue filtered to the cards that page draws under a chip naming the page, with Show all beside it. Any block can be folded behind its one-line summary, and blocks that show one thing several ways share a group and draw as tabs. The composer's guidance in `applet.py` asks for the fewest blocks that answer "what does he do next, and why", and judges each page against the owner's gold-standard Slack post.
 
 The watch sends him a page's link in the channel of its first order once it is first composed under the current guidance. It sends it again only when a compose says something changed for him, never for a recompose that only rewords it.
 

@@ -633,10 +633,10 @@ function decisionChapters(item, key, story, state, cause) {
   return `${nav}<section class="ch-body ch-${parts[at][0]}">${parts[at][2]}</section>`;
 }
 
-function decisionCard(item, at, total) {
+function decisionCard(item, at, total, embedded = false) {
   const key = item.answer;
   const story = item.told?.story;
-  if (!story) return `<div class="queue-layout story-layout"><article class="focus-card decision-story" aria-labelledby="item-title" tabindex="-1"><div class="card-content"><div class="card-top"><span class="type-label">Decision</span>${counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(decisionPlain(item.card.title))}</h2>${item.told ? `${untold(item.told)}${choices(item, true)}` : notRead(slice(`/api/card?${new URLSearchParams({ answer: key })}`))}</div></article>${decisionRail(item)}</div>`;
+  if (!story) return `<div class="queue-layout story-layout"><article class="focus-card decision-story" aria-labelledby="item-title" tabindex="-1"><div class="card-content"><div class="card-top"><span class="type-label">Decision</span>${embedded ? '' : counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(decisionPlain(item.card.title))}</h2>${item.told ? `${untold(item.told)}${choices(item, true)}` : notRead(slice(`/api/card?${new URLSearchParams({ answer: key })}`))}</div></article>${decisionRail(item)}</div>`;
   if (!decisionStates.has(key)) decisionStates.set(key, { selected: Math.max(0, item.card.options.indexOf(item.card.recommended)), step: 0, compare: false, chapter: 0 });
   const state = decisionStates.get(key);
   const showing = picked?.card === key ? picked.index : state.selected;
@@ -652,7 +652,7 @@ function decisionCard(item, at, total) {
   const action = given?.done ? `<p class="answered">✓ ${esc(given.label)}</p>` : `<div class="story-action"><button class="btn" data-story-review="${esc(key)}"${given && !given.error ? ' disabled' : ''}>Review this choice <kbd>↵</kbd></button><small>Choose first. Review before sending.</small>${given?.error ? `<p role="alert">${esc(given.error)}</p>` : ''}</div>`;
   const lab = `<div class="story-lab">${options}${action}${outcome}<button class="linkish" data-story-compare="${esc(key)}" aria-expanded="${state.compare}">${state.compare ? 'Close comparison' : 'Compare every path'}</button>${state.compare ? table([['Path', 'What changes', ...story.options[0].metrics.map((metric) => metric.label)], ...story.options.map((choice) => [choice.title, choice.consequence, ...choice.metrics.map((metric) => metric.value)])]) : ''}</div>`;
   const interview = `<div class="story-interview"><div class="story-steps" aria-label="Step ${state.step + 1} of 2"><span class="on">1 · Your priority</span><span class="${state.step ? 'on' : ''}">2 · Your path</span></div>${state.step ? `<button class="linkish" data-story-back="${esc(key)}">← Change my priority</button>${outcome}${action}` : `<h3>${esc(story.ask)}</h3><div class="story-options">${story.options.map((choice, i) => `<button class="story-option" data-story-priority="${i}" data-story-card="${esc(key)}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.priority)}</strong><small>${esc(choice.title)}</small></span><span aria-hidden="true">→</span></button>`).join('')}</div>`}</div>`;
-  return `<div class="queue-layout story-layout"><article class="focus-card decision-story ${story.format}" aria-labelledby="item-title" tabindex="-1" data-story="${esc(key)}" data-format="${story.format}"><div class="card-content"><div class="card-top"><span class="type-label">${{ cockpit: 'Decision', lab: 'Decision: compare the paths', interview: 'Decision: what matters most' }[story.format]}</span>${counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(story.headline)}</h2>${story.needs_him || story.waits ? `<p class="card-glance">${story.needs_him ? `<b>${esc(NEEDS_LABEL.get(story.needs_him))}</b>` : ''}${story.needs_him && story.waits ? ' · ' : ''}${story.waits ? esc(story.waits) : ''}</p>` : ''}${decisionChapters(item, key, story, state, cause)}${restored.has(key) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : ''}<h3 class="eyebrow ch-call">Your call</h3>${story.format === 'lab' ? lab : story.format === 'interview' ? interview : `<div class="story-cockpit">${options}<div>${outcome}${action}</div></div>`}</div></article>${decisionRail(item)}</div>`;
+  return `<div class="queue-layout story-layout"><article class="focus-card decision-story ${story.format}" aria-labelledby="item-title" tabindex="-1" data-story="${esc(key)}" data-format="${story.format}"><div class="card-content"><div class="card-top"><span class="type-label">${{ cockpit: 'Decision', lab: 'Decision: compare the paths', interview: 'Decision: what matters most' }[story.format]}</span>${embedded ? '' : counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(story.headline)}</h2>${story.needs_him || story.waits ? `<p class="card-glance">${story.needs_him ? `<b>${esc(NEEDS_LABEL.get(story.needs_him))}</b>` : ''}${story.needs_him && story.waits ? ' · ' : ''}${story.waits ? esc(story.waits) : ''}</p>` : ''}${decisionChapters(item, key, story, state, cause)}${restored.has(key) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : ''}<h3 class="eyebrow ch-call">Your call</h3>${story.format === 'lab' ? lab : story.format === 'interview' ? interview : `<div class="story-cockpit">${options}<div>${outcome}${action}</div></div>`}</div></article>${decisionRail(item)}</div>`;
 }
 
 function reviewDecision(key) {
@@ -916,12 +916,16 @@ function queueList(list, at, filter) {
   const grouped = filter === 'question';
   return `<ol class="queue-list" aria-label="${grouped ? 'Your decisions, by why each needs you' : 'Everything here, most urgent first'}">${list.map((item, i) => {
     const head = grouped && (i === 0 || list[i - 1].needs !== item.needs) ? `<li class="qgroup" aria-hidden="true">${esc(NEEDS_LABEL.get(item.needs) ?? 'Still being written up')} <span>${list.filter((each) => each.needs === item.needs).length}</span></li>` : '';
-    const why = item.reason.tone === 'bad' ? `<span class="qrow-why">${esc(item.reason.text)}</span>` : '';
-    return `${head}<li class="qrow${i === at ? ' on' : ''} ${esc(item.reason.tone)}" data-rank="${item.priority.rank}">
-      <a class="qrow-main" href="${esc(queueHref(filter, item))}" data-queue="${esc(noticeKey(item))}"${i === at ? ' aria-current="true"' : ''}>${priorityChips(item)}<span class="qrow-kind">${LABEL[item.kind]} · ${esc(fileName(fileKey(item.project)))}</span><span class="qrow-title">${esc(item.headline ?? bare(item.title))}</span>${why}${grouped ? '' : needsChip(item)}${itemStatus(item)}</a>
+    return `${head}${queueRow(item, i === at, grouped, `a class="qrow-main" href="${esc(queueHref(filter, item))}" data-queue="${esc(noticeKey(item))}"`, 'a')}`;
+  }).join('')}</ol>`;
+}
+
+function queueRow(item, on, grouped, open, tag) {
+  const why = item.reason.tone === 'bad' ? `<span class="qrow-why">${esc(item.reason.text)}</span>` : '';
+  return `<li class="qrow${on ? ' on' : ''} ${esc(item.reason.tone)}" data-rank="${item.priority.rank}">
+      <${open}${on ? ' aria-current="true"' : ''}>${priorityChips(item)}<span class="qrow-kind">${LABEL[item.kind]} · ${esc(fileName(fileKey(item.project)))}</span><span class="qrow-title">${esc(item.headline ?? bare(item.title))}</span>${why}${grouped ? '' : needsChip(item)}${itemStatus(item)}</${tag}>
       ${item.kind === 'question' ? '' : `<span class="qrow-acts">${rowActions(item)}</span>`}
     </li>`;
-  }).join('')}</ol>`;
 }
 
 function rowActions(item) {
@@ -1084,6 +1088,7 @@ const BLOCK_DEFAULTS = { title: '', text: '', tone: 'plain', fold: false, group:
 const appletSteps = new Map();
 const appletTabs = new Map();
 const appletPicks = new Map();
+const appletCards = new Map();
 const TOLD_MOMENTS = new Set(['order', 'answer', 'answered', 'tap', 'merged', 'live', 'failed']);
 
 function defaultLayout(page, shown) {
@@ -1152,6 +1157,20 @@ function blockPRs(shown, keys) {
   return keys.map((key) => shown.prs.find((entry) => entry.key === key)).filter(Boolean);
 }
 
+function blockCards(shown, block) {
+  return new Set([...block.questions, ...blockPRs(shown, block.prs).filter((entry) => entry.group === 'you').map((entry) => entry.answer)]);
+}
+
+function embeddedCards(page, block, items) {
+  const key = `${page.slug}:${block.title}`;
+  const at = Math.max(0, items.findIndex((item) => noticeKey(item) === appletCards.get(key)));
+  const item = items[at];
+  const step = (delta, label, glyph) => `<button data-ap-card="${esc(key)}" data-item="${esc(noticeKey(items[at + delta] ?? item))}" aria-label="${label}"${items[at + delta] ? '' : ' disabled'}>${glyph}</button>`;
+  const head = `<div class="ap-cards-head"><div class="counter"><span>${at + 1} of ${items.length}</span>${step(-1, 'Previous', '‹')}${step(1, 'Next', '›')}</div><a class="linkish" href="${esc(queueHref('all', item, scopeQuery(null, null, null, page.slug)))}">Open ${items.length === 1 ? 'it' : `these ${items.length}`} in the queue ›</a></div>`;
+  const list = items.length > 1 ? `<details class="ap-card-list"><summary>Every one, most urgent first</summary><ol class="queue-list">${items.map((each, i) => queueRow(each, i === at, false, `button type="button" class="qrow-main" data-ap-card="${esc(key)}" data-item="${esc(noticeKey(each))}"`, 'button')).join('')}</ol></details>` : '';
+  return `<div class="ap-cards">${head}${list}${{ question: decisionCard, tap: prCard }[item.kind](opened(item), at, items.length, true)}</div>`;
+}
+
 function appletBlock(page, shown, block) {
   const draw = APPLET_BLOCKS[block.kind];
   return draw ? draw(page, shown, block) : '';
@@ -1180,21 +1199,9 @@ const APPLET_BLOCKS = {
     return blockShell({ ...block, text: '' }, 'story', `<nav class="ch-nav ap-stepper">${dots}</nav><div class="ap-step-body"><p class="ch-lead">${esc(beat.text)}</p></div>${foot}`);
   },
   waits(page, shown, block) {
-    const asks = block.questions.map((key) => shown.questions.find((item) => item.answer === key)).filter((item) => item && !answers.get(item.answer)?.done);
-    const prs = blockPRs(shown, block.prs).filter((entry) => entry.group === 'you' && !(answers.get(entry.answer)?.label && !answers.get(entry.answer)?.error));
-    if (!asks.length && !prs.length) return blockShell(block, 'waits', '<p class="ap-empty">✓ Nothing here waits on you now.</p>');
-    const ask = (item) => {
-      const told = opened(model.queue.find((each) => each.answer === item.answer) ?? item).told?.story;
-      const pick = Math.max(0, item.card.options.indexOf(item.card.recommended));
-      const label = told?.options[pick]?.title ?? decisionPlain(optionParts(item.card.options[pick])[0]);
-      const acts = told ? `data-ap-decide="${esc(item.answer)}" data-index="${pick}"` : `data-card="${esc(item.answer)}" data-label="${esc(item.card.options[pick])}"`;
-      return `<li class="ap-wait"><span class="ap-wait-kind">Decision</span><span class="ap-wait-body"><b>${esc(told?.headline ?? item.headline ?? decisionPlain(item.title))}</b>${told?.waits ? `<small>${esc(told.waits)}</small>` : ''}</span><span class="ap-wait-acts"><button class="mini go" ${acts}>Pick: ${esc(label)}</button><a class="linkish" href="${esc(item.href)}">Weigh the paths ›</a></span></li>`;
-    };
-    const tap = (entry) => {
-      const status = prWord(entry);
-      return `<li class="ap-wait"><span class="ap-wait-kind">PR</span><span class="ap-wait-body"><b>${esc(sentence(entry.headline ?? bare(entry.title)))}</b><small>${dot(status)} ${esc(status.word)} · ${esc(entry.approve_plain)}</small></span><span class="ap-wait-acts">${entry.answer ? `<button class="mini go" data-card="${esc(entry.answer)}" data-label="Approve">Approve</button>` : ''}<button class="linkish" data-pr="${esc(entry.key)}">Review ›</button></span></li>`;
-    };
-    return blockShell(block, 'waits', `<ul class="ap-waits">${asks.map(ask).join('')}${[...new Map(prs.map((entry) => [entry.answer, entry])).values()].map(tap).join('')}</ul>`);
+    const keys = blockCards(shown, block);
+    const items = shownQueue('all', null, null, null, null).filter((item) => keys.has(answerKey(item)));
+    return blockShell(block, 'waits', items.length ? embeddedCards(page, block, items) : '<p class="ap-empty">✓ Nothing here waits on you now.</p>');
   },
   risk(page, shown, block) {
     return block.text ? `<section class="ap-block wide ap-risk ${esc(block.tone === 'bad' ? 'bad' : 'warn')}"><span class="ap-risk-mark" aria-hidden="true">!</span><div>${block.title ? `<b>${esc(block.title)}</b>` : '<b>The risk</b>'}<p>${esc(block.text)}</p></div></section>` : '';
@@ -1208,22 +1215,6 @@ const APPLET_BLOCKS = {
       const state = done === step.entries.length ? 'done' : i === on ? 'now' : step.entries.some((entry) => entry.state === 'blocked') ? 'bad' : '';
       return `<li class="${state}"><i style="--done:${Math.round((done / step.entries.length) * 100)}%"></i><b>${esc(step.label)}</b><small>${done} of ${step.entries.length}</small></li>`;
     }).join('')}</ol>`);
-  },
-  decide(page, shown, block) {
-    const items = block.questions.map((key) => shown.questions.find((item) => item.answer === key)).filter(Boolean);
-    if (!items.length) return '';
-    return blockShell(block, 'decide', `<div class="ap-decisions">${items.map((item) => {
-      const full = opened(model.queue.find((each) => each.answer === item.answer) ?? item);
-      const told = full.told?.story;
-      const given = answers.get(item.answer);
-      const options = item.card.options.map((label, i) => {
-        const path = told?.options[i];
-        const recommended = label === item.card.recommended;
-        const acts = told ? `data-ap-decide="${esc(item.answer)}" data-index="${i}"` : `data-card="${esc(item.answer)}" data-label="${esc(label)}"`;
-        return `<button class="ap-option${recommended ? ' recommended' : ''}" ${acts}${given && !given.error ? ' disabled' : ''}><strong>${esc(path?.title ?? decisionPlain(optionParts(label)[0]))}${recommended ? '<em>Recommended</em>' : ''}</strong>${path?.consequence ? `<small>${esc(path.consequence)}</small>` : ''}</button>`;
-      }).join('');
-      return `<article class="ap-decision"><h3>${esc(told?.headline ?? item.headline ?? decisionPlain(item.title))}</h3>${told?.beats?.[0] ? `<p>${esc(told.beats[0].text)}</p>` : ''}<div class="ap-options">${options}</div>${given?.done || given?.label ? `<p class="answered">✓ ${esc(given.label)}</p>` : ''}<a class="linkish" href="${esc(item.href)}">Open its full story in the queue ›</a></article>`;
-    }).join('')}</div>`);
   },
   approve(page, shown, block) {
     const entries = blockPRs(shown, block.prs).filter((entry) => !answers.get(entry.answer)?.label || answers.get(entry.answer)?.error);
@@ -1319,7 +1310,7 @@ function pageCards(page) {
   if (seen?.model === model) return seen.keys;
   const shown = pageSlice(page);
   const composed = page.layout?.composed ?? defaultLayout(page, shown);
-  const keys = new Set(composed.blocks.filter((block) => block.kind === 'waits').flatMap((block) => [...(block.questions ?? []), ...blockPRs(shown, block.prs ?? []).filter((entry) => entry.group === 'you').map((entry) => entry.answer)]));
+  const keys = new Set(composed.blocks.filter((block) => block.kind === 'waits').flatMap((block) => [...blockCards(shown, { ...BLOCK_DEFAULTS, ...block })]));
   pageCardsSeen.set(page.slug, { model, keys });
   return keys;
 }
@@ -3125,10 +3116,11 @@ document.addEventListener('click', (event) => {
   }
   const pr = event.target.closest('button[data-pr]');
   if (pr) return openPR(pr.dataset.pr);
-  const deciding = event.target.closest('button[data-ap-decide]');
-  if (deciding) {
-    decisionStates.set(deciding.dataset.apDecide, { selected: Number(deciding.dataset.index), step: 0, compare: false });
-    return reviewDecision(deciding.dataset.apDecide);
+  const carding = event.target.closest('button[data-ap-card]');
+  if (carding) {
+    appletCards.set(carding.dataset.apCard, carding.dataset.item);
+    carding.closest('details.ap-card-list')?.removeAttribute('open');
+    return render();
   }
   const approving = event.target.closest('button[data-ap-approve]');
   if (approving) {

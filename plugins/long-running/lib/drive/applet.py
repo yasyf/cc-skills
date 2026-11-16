@@ -23,11 +23,10 @@ SLICE_MOMENTS = 20
 TOLD_MOMENTS = {"order", "answer", "answered", "tap", "merged", "live", "failed"}
 DONE_STATES = {"merged", "live"}
 BLOCKS = {
-    "waits": "what waits on him, each decision in questions with its recommended path one tap away and each PR in prs with its own Approve, so he acts without leaving the page",
+    "waits": "the decisions in questions and the PRs in prs that wait on him, each drawn as the queue's own card, its whole story, paths and Approve, one at a time with a list of them all, so he acts without leaving the page",
     "story": "the story in two to four steps he walks one at a time: why this goal exists, where it stands, what is at stake",
     "progress": "a stage bar of steps toward the goal, each naming its orders, showing which step it is on and how many of each step's orders are done",
     "risk": "the one risk he must weigh, in text: what could go wrong, for whom, and what guards against it; tone warn or bad",
-    "decide": "the decisions in questions, each drawn live as its own decision applet with its paths and their consequences",
     "approve": "the PRs in prs as one list he approves together or one by one, each with its plain status",
     "stack": "the PRs in prs as one stack, bottom first, each with what it does and where it stands",
     "diff": "the code change of each PR in prs, at most three, file by file with its hunks, each file folding open, the reviewer bot's comments and his own on the lines they name",
@@ -86,7 +85,7 @@ SCHEMA = {
     },
     "required": ["headline", "summary", "glance", "changed_for_him", "blocks"],
 }
-COMPOSE_VERSION = 2
+COMPOSE_VERSION = 3
 RULES = f"""You compose one page of the drive's dashboard for its owner. Think of it as the note a sharp colleague would leave him about one goal: what he must know or do first, then the story, with everything else one tap away. His words: "each one should almost feel like a mini applet focused on helping you make the clearest and easiest possible decisoin, with no distractions amd things gradually revealed as you need them", and on a page that failed him: "it's just a plain dashboard with an overwhelming amount of info, not a story, not helping make things easier at a glance, and certainly not thinking about how to make my life easier".
 
 <page> holds the page's goal and title; <slice> its live orders, PRs, decisions and newest moments, each under its `key`; <before> the glance the page showed last, or nothing for a new page.
@@ -111,7 +110,7 @@ Rules:
 - headline: the goal in plain words, at most 90 characters. summary: who this page is for and what it helps him do, one sentence.
 - When <before> holds a glance and the one thing he must do next is the same, repeat its `next` word for word and keep its `tone`, however the counts moved.
 - changed_for_him: compare the glance with <before>. One line naming what changed for him when his next step is a different thing to do, or the goal turned blocked, unblocked or done; empty when only wording or counts moved, such as one more PR joining the many already waiting on his approval. For a new page, one line on why it exists.
-- When the slice holds decisions or PRs waiting on him, the first block is a waits block holding them. A code review approving a PR is not his approval: say "code review approved" for one, and "needs your approval" for what waits on him.
+- When the slice holds decisions or PRs waiting on him, the first block is a waits block holding them. A waits block draws each as the queue's own card, so no other block restates a card: never tell a decision's paths in a compare block, a PR's story in a story block, or either's status in a callout; a story, risk or callout names what the cards add up to. A code review approving a PR is not his approval: say "code review approved" for one, and "needs your approval" for what waits on him.
 - prs, questions and orders hold only keys the slice gives, exactly; a block's other fields not used by its kind stay empty ("", [] or false).
 - Use the slice's facts only, never add one it does not hold.
 - A callout's or risk's text never repeats its title; leave the title empty when the line says it all.
