@@ -853,6 +853,18 @@ def disk_read(root: Path, workspace: str) -> tuple[int, dict[str, list[str]]]:
     return errors, {disk: read(f"/sys/block/{disk}/stat").split() for disk in SPRITE_DISKS}
 
 
+MEMORY_SNAPSHOT = "ps -eo pid,rss,etime,args --sort=-rss | head -n 16 | cut -c1-200; free -m; dmesg 2>/dev/null | tail -n 30 | cut -c1-200"
+
+
+def memory_snapshot(drive: str, workspace: str) -> str | None:
+    """The top 15 processes by RSS, free and the kernel log's tail on the Sprite at workspace, by one on_sprite call of at most CALL_SECONDS, kept on a lane's death before a restore reboots what drove it away; None when its exec gives no answer."""
+    try:
+        done = on_sprite(drive, workspace, MEMORY_SNAPSHOT, b"", CALL_SECONDS)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return done.stdout.decode(errors="replace") or None
+
+
 def revive(root: Path, workspace: str) -> str:
     """Checkpoint the Sprite at workspace and restore that checkpoint, rebooting it off a wedged disk, then reconnect Orca to it, by the reclaimer's --revive; OrcaError when either step fails."""
     return reclaimer(root, "--revive", workspace, seconds=RECLAIM_SECONDS)

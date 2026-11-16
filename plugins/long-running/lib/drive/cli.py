@@ -7123,13 +7123,14 @@ def disks_check(args: argparse.Namespace) -> int:
             job = state.load(name)["jobs"][job_id]
             if job.get("workspace") != workspace or state.lane_death(job, "dispatch"):
                 continue
+            snapshot = orca.memory_snapshot(name, workspace)
             try:
                 orca.revive(root, workspace)
             except orca.OrcaError as error:
                 lines.append(f"{job_id}: Sprite {workspace}'s disk wedged ({why}), and its checkpoint-restore failed: {error}")
                 continue
             end = orca.LaneEnd(f"its Sprite {workspace}'s disk wedged ({why}), and the disk check checkpoint-restored it", job.get("branch"), None)
-            orca.died(name, job_id, job["dispatch"], end, restored=state.stamp())
+            orca.died(name, job_id, job["dispatch"], end, restored=state.stamp(), snapshot=snapshot)
         lines.append(f"{job_id}: Sprite {workspace}'s disk wedged ({why}); checkpoint-restored, so its next lane resumes its Claude session there")
     return emit(args, "\n".join(lines) or f"no disk of the {len(reads)} Sprites read of {len(lanes)} is wedged", {"read": len(reads), "lanes": len(lanes), "wedged": wedged})
 

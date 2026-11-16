@@ -5599,6 +5599,7 @@ def test_a_disk_check_restores_a_sprite_whose_ext4_counted_errors_or_whose_reque
     disks = {"pool-one": (0, {"nbd0": idle, "loop0": stuck}), "pool-two": (0, {"nbd0": idle, "loop0": idle})}
     monkeypatch.setattr(orca, "disk_read", lambda root, workspace: disks[workspace])
     revived = []
+    monkeypatch.setattr(orca, "memory_snapshot", lambda drive, workspace: f"top RSS on {workspace}" if workspace == "pool-one" else None)
     monkeypatch.setattr(orca, "revive", lambda root, workspace: revived.append(workspace) or f"revived {workspace}")
     assert run("disks-check") == (0, "no disk of the 2 Sprites read of 2 is wedged")
     disks["pool-two"] = (2, disks["pool-two"][1])
@@ -5608,7 +5609,8 @@ def test_a_disk_check_restores_a_sprite_whose_ext4_counted_errors_or_whose_reque
         "j2: Sprite pool-two's disk wedged (ext4 counted 2 errors on it); checkpoint-restored, so its next lane resumes its Claude session there",
     )
     assert revived == ["pool-one", "pool-two"]
-    assert state.lane_death(state.load(remote)["jobs"]["j1"], "dispatch")["restored"]
+    deaths = {job_id: state.lane_death(state.load(remote)["jobs"][job_id], "dispatch") for job_id in ("j1", "j2")}
+    assert (bool(deaths["j1"]["restored"]), deaths["j1"]["snapshot"], deaths["j2"]["snapshot"]) == (True, "top RSS on pool-one", None)
 
 
 def test_the_watch_frees_each_finished_lane_once_a_sprite_by_destroy_and_a_quiet_one_on_this_mac_by_its_dispatch_never_one_a_live_job_shares(
