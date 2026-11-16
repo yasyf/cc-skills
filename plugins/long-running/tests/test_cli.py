@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shlex
+import sqlite3
 import subprocess
 import sys
 import types
@@ -5390,6 +5391,48 @@ def test_a_github_proof_link_refused_under_ccxs_rate_limit_floor_waits_for_the_r
     assert READ_LINK("https://github.com/yasyf/cc-skills/pull/404") == "could not read https://github.com/yasyf/cc-skills/pull/404 from GitHub: HTTP 404"
     assert slept == [121, 121, 121]
     assert f"waiting 121 s for ccx's GitHub rate-limit floor to lift before reading {PR} again: could not read {PR} from GitHub: {floor}" in capsys.readouterr().err
+
+
+
+def test_github_proof_pages_reuse_success_by_api_across_uncached_readers_until_expiry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "proof-cache"
+    monkeypatch.setenv("LONG_RUNNING_STATE", str(root))
+    read: list[list[str]] = []
+    monkeypatch.setattr(github, "run", lambda cmd, **kwargs: read.append(cmd) or "")
+    moment = [100000.0]
+    monkeypatch.setattr(brief.time, "time", lambda: moment[0])
+    page = "https://github.com/yasyf/cc-skills/pull/5075"
+    assert READ_LINK(page) is None
+    assert READ_LINK(page + "#discussion_r1") is None
+    assert len(read) == 1
+    moment[0] += brief.OPENED_AGE - 1
+    assert READ_LINK(page) is None
+    assert len(read) == 1
+    moment[0] += 1
+    assert READ_LINK(page) is None
+    assert len(read) == 2
+    with sqlite3.connect(root / "github-proof-pages.sqlite3") as db:
+        assert db.execute("SELECT COUNT(*) FROM pages").fetchone() == (1,)
+
+
+def test_failed_github_proof_reads_are_not_stored(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LONG_RUNNING_STATE", str(tmp_path / "proof-cache"))
+    read: list[list[str]] = []
+
+    def answered(cmd: list[str], **kwargs: object) -> str:
+        read.append(cmd)
+        if len(read) == 1:
+            raise github.GithubError("HTTP 404")
+        return ""
+
+    monkeypatch.setattr(github, "run", answered)
+    page = "https://github.com/yasyf/cc-skills/pull/5075"
+    assert "HTTP 404" in READ_LINK(page)
+    assert READ_LINK(page) is None
+    assert READ_LINK(page) is None
+    assert len(read) == 2
 
 
 def keep(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], job_id: str, text: str) -> tuple[int, str]:
