@@ -1,18 +1,17 @@
 import json
 import os
 import re
-import subprocess
 import sys
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from fnmatch import fnmatchcase
-from functools import cache, partial, reduce
+from functools import partial, reduce
 from itertools import pairwise
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, brief, github, install, land, limits, orca, reports, state
+from drive import agents, brief, github, install, land, limits, orca, providers, reports, state
 from drive.orca import OrcaError
 from drive.shell import KEYWORDS, Case, Function, Loop, expanded, grouped, literal, runnable, simple_commands, spread
 
@@ -42,9 +41,9 @@ RETRY_PATH = re.compile(r"(?:^|/)(?:organizations/(?P<org>[\w-]+)/)?pipelines/(?
 FAILED = frozenset({"failed", "canceled", "timed_out", "expired", *(conclusion.lower() for conclusion in github.FAILED)})
 FLAKE = "--flake"
 FIX_THE_CAUSE = (
-    f"a check that fails is fixed at its cause, never retried past with {FLAKE} or a rerun. Read the failed job's own output"
-    " with `tools/ci bk log '<job URL>'`, or `gh run view <run> --log-failed` on GitHub Actions, fix the cause and push the"
-    " fix; a test that flakes gets a flake fix of its own"
+    "a check that fails is fixed at its cause, never retried past with {flake} or a rerun. Read the failed job's own output"
+    "{tip} with `gh run view <run> --log-failed` on GitHub Actions, fix the cause and push the fix; a test that flakes gets"
+    " a flake fix of its own"
 )
 RERUN_FAILED = (
     "refused: `{step}` reruns {target}, which reads `{state}`, and the watchdog reruns only a build that failed, by his pick"
@@ -66,9 +65,6 @@ UNSEEN_PROMPT = (
     " run nothing and return BLOCKED naming it. Any other tool that asks, such as computer use's `request_access`, gets"
     " no answer either: reach what it does another way, or return BLOCKED naming the call"
 )
-TEAM_BUCKETS = "origin/dev:release/team-buckets.generated.json"
-BUILD_OUTPUTS = ("tools/artifacts.json", "infra/ci/src/pipelines/identity.ts", "infra/ci/src/contract/")
-NAMED_BUCKET = re.compile(r'(?:"bucket":\s*|export const \w*_BUCKET = )"([^"]+)"')
 STORAGE_TOOLS = {"aws", "s5cmd", "gsutil", "gcloud", "rclone", "azcopy", "az"}
 SERVICES = {"aws": ("s3",), "gcloud": ("storage",), "az": ("storage",)}
 S3API_OBJECTS = re.compile(r"object|upload|part")
@@ -90,53 +86,13 @@ FOLLOWED_DEPTH = 4
 FIRST_LINE_LIMIT = 512
 SCRIPT_FOLDER = re.compile(r'\$\(cd "\$\(dirname "(?:\$0|\$\{BASH_SOURCE\[0\]\})"\)([^"]*)" && pwd\)')
 JSON_FIELD = re.compile(r"\$\(jq -r '?((?:\.\w+)+)'? (\S+)\)")
-TEAM_AREA = re.compile(r"iris/teams/([^/\s]+)/([^/\s]+)")
-BOX_ROUTE = (
-    "Run the step on a pass box of the team's env where Forge-AI/monorepo grants that box the step, as"
-    " `PASS_BOX_OPERATOR_ENVS` in `infra/rows/identity/pass-box-operator.ts` and `PASS_BOX_OPERATOR_RULES` in"
-    " `infra/rows/sandsql/workload.ts` do for a SandSQL namespace and `kubectl auth can-i` on the box confirms: launch it"
-    " with `AWS_PROFILE=<env profile> tools/ci pass-box launch --purpose <job> --type <instance type> --delete-after"
-    " <YYYY-MM-DD>`, run the script there with `AWS_PROFILE=<env profile> tools/ci pass-box run --purpose <job> <script>`,"
-    " print counts and summaries and copy no team data back; docs/pass-boxes.md in Forge-AI/monorepo has each step. A pass"
-    f" no box is granted {limits.CLUSTER_JOB}, and any other read or write {limits.UNMADE}."
-)
-TEAM_DATA = (
-    "refused: this reads or writes `{location}` where the job runs, and " + limits.TEAM_DATA_RULE + ". " + BOX_ROUTE + " {route}"
-    + " It holds a team's data, as its key is under `iris/teams/` or Forge-AI/monorepo's `release/team-buckets.generated.json`"
-    " at origin/dev, which infra writes from each bucket's grants and rows, lists it or its folder. A box's binary goes"
-    " under `pass-box/<purpose>/` in its env's MicroVM artifacts bucket, which that list leaves out"
-)
-UNLISTED = (
-    "refused: this reads or writes `{location}` where the job runs, and `{folder}`, the folder its session runs in, holds no"
-    " `release/team-buckets.generated.json` at origin/dev to say whether that bucket holds a team's data, so it is refused"
-    " as one that does. Until that list is on origin/dev, only the buckets Forge-AI/monorepo's own code names there as its"
-    " build, release and infra output pass, and only from a session in its checkout: CI's cache in `tools/artifacts.json`,"
-    " the release buckets in `infra/ci/src/pipelines/identity.ts`, and each bucket `infra/ci/src/contract/` gives go/ci's"
-    " `contract.C`, such as its Pulumi state. A `cd` in the command changes nothing, since both are read where the session"
-    " runs. " + BOX_ROUTE
-)
-SANDSQL_NAMESPACES = {"sandsql", "sandsql-system", "sandsql-inbox"}
-SANDSQL_REACHES = {"exec", "port-forward", "attach", "cp", "debug"}
+NAMESPACE_REACHES = {"exec", "port-forward", "attach", "cp", "debug"}
 SECRETS = {"secret", "secrets"}
 KIND_READS = {"get", "describe", "edit"}
 ALL_NAMESPACES = {"-A", "--all-namespaces", "--all-namespaces=true"}
-EVERY_NAMESPACE = "in every namespace, SandSQL's among them,"
+EVERY_NAMESPACE = "in every namespace, those holding a team's data among them,"
 KUBECTL_NAMESPACE = re.compile(r"(?:-n=?|--namespace=)(?P<namespace>.+)")
 KUBECTL_VALUED = {"-n", "--namespace", "--context", "--cluster", "--user", "--kubeconfig", "-c", "--container", "-o", "--output", "-l", "--selector", "-f", "--filename", "--address", "-s", "--server", "--as", "--raw"}
-SANDSQL_DATA = (
-    "refused: {step} {where} opens a team's SandSQL databases where the job runs, and with them every read and write of"
-    " their rows, and " + limits.TEAM_DATA_RULE + ". " + BOX_ROUTE
-)
-RUNS_ROUTE = (
-    "A team's `iris/teams/<team>/runs/` is read on the box under a `runs_read` grant, which a plat-prod box's script loads"
-    ' first with `eval "$(./ci runs-reader grant --team {team})"`; a grant that refuses returns `BLOCKED` naming the'
-    " prefix, the team and its refusal."
-)
-NO_ROUTE = (
-    "No service account reads `{prefix}`, as the runs reader's grant reaches `iris/teams/<team>/runs/` alone: return"
-    " `BLOCKED` naming the prefix and the team, which leaves him to pick the service account that reads it, never a"
-    " person's grant such as `tools/ci pass-box-creds`, which mints under your own sand session."
-)
 
 DATADOG_CLI = "pup"
 DATADOG_READ = (
@@ -276,8 +232,8 @@ def shell_after_claude(scripts: list[list[list[str]]]) -> str | None:
 def reran(found: list[list[str]], cwd: str, watchdog: bool = False) -> str | None:
     """Why a call retries past a failing check, or reruns what the watchdog may not: `stack-enqueue --flake` requeues a PR past its failed verification; a drive session reruns what it judges a rerun remedies, a release job its tool names the rerun for included, and the watchdog only one that reads failed, by his pick that it reruns a failed build, waiting while that state could not be read."""
     for words in found:
-        if verb(words)[0] == "stack-enqueue" and any(word == FLAKE or word.startswith(f"{FLAKE}=") for word in words):
-            return f"refused: `stack-enqueue {FLAKE}` retries past a failing check, and {FIX_THE_CAUSE}"
+        if any(word == FLAKE or word.startswith(f"{FLAKE}=") for word in words) and (retry := flake_retry(words, cwd)):
+            return retry
         if not watchdog or (rerun := rerun_target(words, cwd)) is None:
             continue
         step, read = rerun
@@ -288,6 +244,20 @@ def reran(found: list[list[str]], cwd: str, watchdog: bool = False) -> str | Non
         if reads not in FAILED:
             return RERUN_FAILED.format(step=step, target=target, state=reads, command=" ".join(words))
     return None
+
+
+def flake_retry(words: list[str], cwd: str) -> str | None:
+    """Why a run of the repository's merge-queue script with --flake must not run: it requeues a PR past its failed verification; a refusal naming the error when the providers that name that script fail to load."""
+    try:
+        made = providers.at(Path(cwd))
+    except providers.ProviderError as error:
+        return f"refused: `{FLAKE}` may retry past a failing check, and the providers that name this repository's merge queue failed to load: {error}"
+    queue = made.repo.queue()
+    if queue is None or verb(words)[0] != Path(queue.script).name:
+        return None
+    tip = made.build.log_tip("<job URL>")
+    cause = FIX_THE_CAUSE.format(flake=FLAKE, tip=f" with {tip}, or" if tip else "")
+    return f"refused: `{verb(words)[0]} {FLAKE}` retries past a failing check, and {cause}"
 
 
 def rerun_target(words: list[str], cwd: str) -> tuple[str, Callable[[], tuple[str, str]]] | None:
@@ -611,9 +581,9 @@ def bucket_locations(words: list[str]) -> list[str]:
     return [location for word in after if (location := remote_location(tool, word))]
 
 
-def sandsql_reach(words: list[str]) -> tuple[str, str] | None:
-    """The `kubectl` step through which a command reaches a team's SandSQL databases, and where: a `kubectl proxy`, which serves every namespace, a `--raw` call on a secrets path a SandSQL namespace or every namespace holds, or on a path it cannot expand, or, in a namespace that may be a SandSQL fleet's, an exec, attach, copy, debug session or port-forward, a step naming Secret, such as a read of the blobstore's root key, or a get, describe or edit of a kind the guard cannot read, as an unexpanded word or `xargs` input is."""
-    if Path(words[0]).name != "kubectl":
+def namespace_reach(words: list[str], namespaces: frozenset[str]) -> tuple[str, str] | None:
+    """The `kubectl` step through which a command reaches a namespace holding a team's data, and where: none when the repository names no such namespace, else a `kubectl proxy`, which serves every namespace, a `--raw` call on a secrets path such a namespace or every namespace holds, or on a path it cannot expand, or, in a namespace that may be one, an exec, attach, copy, debug session or port-forward, a step naming Secret, such as a read of the blobstore's root key, or a get, describe or edit of a kind the guard cannot read, as an unexpanded word or `xargs` input is."""
+    if not namespaces or Path(words[0]).name != "kubectl":
         return None
     flags = words[: words.index("--")] if "--" in words else words
     named, rest = [], iter(flags[1:])
@@ -626,11 +596,11 @@ def sandsql_reach(words: list[str]) -> tuple[str, str] | None:
         return None
     if named[0] == "proxy":
         return "`kubectl proxy`", EVERY_NAMESPACE
-    if (raw := option(flags, "--raw")) and (where := raw_secrets(raw)):
+    if (raw := option(flags, "--raw")) and (where := raw_secrets(raw, namespaces)):
         return f"`kubectl {named[0]} --raw` on a secrets path, or one the guard cannot read,", where
-    if not (where := sandsql_where(kubectl_namespace(flags), bool(ALL_NAMESPACES & set(flags)))):
+    if not (where := namespace_where(kubectl_namespace(flags), bool(ALL_NAMESPACES & set(flags)), namespaces)):
         return None
-    if named[0] in SANDSQL_REACHES:
+    if named[0] in NAMESPACE_REACHES:
         return f"`kubectl {named[0]}`", where
     if any(names_secret(word) for word in named[1:]):
         return f"`kubectl {named[0]} secret`", where
@@ -651,24 +621,24 @@ def kubectl_namespace(flags: list[str]) -> str | None:
     return named
 
 
-def sandsql_where(namespace: str | None, every: bool) -> str | None:
-    """Where a `kubectl` step reaches a SandSQL fleet, as its refusal says it: every namespace, a SandSQL namespace, or one the guard cannot expand, which may be one; None for any other namespace, or none, the context's default."""
+def namespace_where(namespace: str | None, every: bool, namespaces: frozenset[str]) -> str | None:
+    """Where a `kubectl` step reaches a namespace holding a team's data, as its refusal says it: every namespace, one of namespaces, or one the guard cannot expand, which may be one; None for any other namespace, or none, the context's default."""
     if every:
         return EVERY_NAMESPACE
-    if namespace in SANDSQL_NAMESPACES:
+    if namespace in namespaces:
         return f"in the `{namespace}` namespace"
     if namespace and not literal(namespace):
         return f"in the `{namespace}` namespace, which the guard cannot expand,"
     return None
 
 
-def raw_secrets(path: str) -> str | None:
-    """Where a `kubectl --raw` API path reaches a SandSQL fleet's secrets: the secrets of a namespace `sandsql_where` reads as one, or of every namespace when it names none or the guard cannot expand it."""
+def raw_secrets(path: str, namespaces: frozenset[str]) -> str | None:
+    """Where a `kubectl --raw` API path reaches the secrets of a namespace holding a team's data: the secrets of one `namespace_where` reads as such, or of every namespace when it names none or the guard cannot expand it."""
     segments = path.split("?")[0].strip("/").split("/")
     if literal(path) and "secrets" not in segments:
         return None
     namespace = segments[segments.index("namespaces") + 1] if "namespaces" in segments[:-1] else None
-    return sandsql_where(namespace, namespace is None)
+    return namespace_where(namespace, namespace is None, namespaces)
 
 
 def names_secret(word: str) -> bool:
@@ -685,42 +655,37 @@ def remote_location(tool: str, word: str) -> str | None:
     return found[1] if found and found[1] else None
 
 
-def team_data(command: str, cwd: str) -> agents.Unjudged | None:
-    """Why a drive job's call must not run, refused by its shape alone: it, a script it runs, or a command it starts through `drive break-glass` or `xargs`, reads or writes a team's data, a key under `iris/teams/`, or a bucket or folder Forge-AI/monorepo's `release/team-buckets.generated.json` lists at origin/dev of the folder its session runs in, whatever folder the command `cd`s to, or a location holding one, any bucket but those `build_outputs` reads there, when that folder holds no such list, or it opens a team's SandSQL databases through `kubectl`."""
+def team_data(command: str, cwd: str, drives: list[str]) -> agents.Unjudged | None:
+    """Why a drive job's call must not run, refused by its shape alone: it, a script it runs, or a command it starts through `drive break-glass` or `xargs`, reads or writes a team's data, a location the repository's DataProvider calls a team's area or lists among its team buckets, read from the default branch of the folder its session runs in whatever folder the command `cd`s to, or any bucket but its build outputs when that branch holds no such list, or it reaches a namespace holding a team's data through `kubectl`. The folder's providers judge it unless they guard no data, when its drive's do; a refusal naming the error when they fail to load."""
+    data = None
     for words in reached(command, Place(Path(cwd))):
-        for location in bucket_locations(words):
-            if TEAM_AREA.search(location):
-                return agents.Unjudged(TEAM_DATA.format(location=location, route=team_route(location)))
-            listed = shown(Path(cwd), TEAM_BUCKETS)
-            if listed is None and location.split("/")[0] not in build_outputs(Path(cwd)):
-                return agents.Unjudged(UNLISTED.format(location=location, folder=cwd))
+        locations = bucket_locations(words)
+        if not locations and Path(words[0]).name != "kubectl":
+            continue
+        if data is None:
+            try:
+                data = data_guard(cwd, drives)
+            except providers.ProviderError as error:
+                return agents.Unjudged(f"refused: this may reach a team's data where the job runs, and {limits.TEAM_DATA_RULE}; the providers that say whose data it is failed to load, so it is refused as one that does: {error}")
+        for location in locations:
+            if data.team_area and data.team_area.search(location):
+                return agents.Unjudged(data.refusal("team", location=location, rule=limits.TEAM_DATA_RULE))
+            listed = data.buckets()
+            if listed is None and location.split("/")[0] not in data.outputs():
+                return agents.Unjudged(data.refusal("unlisted", location=location, folder=cwd, rule=limits.TEAM_DATA_RULE))
             if any(f"{location.rstrip('/')}/".startswith(entry) or entry.startswith(f"{location.rstrip('/')}/") for entry in listed or ()):
-                return agents.Unjudged(TEAM_DATA.format(location=location, route=team_route(location)))
-        if reach := sandsql_reach(words):
-            return agents.Unjudged(SANDSQL_DATA.format(step=reach[0], where=reach[1]))
+                return agents.Unjudged(data.refusal("team", location=location, rule=limits.TEAM_DATA_RULE))
+        if reach := namespace_reach(words, data.namespaces):
+            return agents.Unjudged(data.refusal("namespace", step=reach[0], where=reach[1], rule=limits.TEAM_DATA_RULE))
     return None
 
 
-@cache
-def build_outputs(cwd: Path) -> set[str]:
-    """The buckets Forge-AI/monorepo's own code names, as a string, at origin/dev of the checkout a folder is in as its build, release and infra output: CI's cache in `tools/artifacts.json`, the release-artifacts bucket and the desktop auto-updater's release origin in `infra/ci/src/pipelines/identity.ts`, and the buckets `infra/ci/src/contract/` gives go/ci's `contract.C`, such as the Pulumi state the release resolver reads."""
-    done = subprocess.run(["git", "-C", str(cwd), "grep", "-h", "-e", '"bucket"', "-e", "_BUCKET = ", "origin/dev", "--", *BUILD_OUTPUTS], capture_output=True, text=True, check=False)
-    return set(NAMED_BUCKET.findall(done.stdout))
-
-
-@cache
-def shown(cwd: Path, spec: str) -> list | dict | None:
-    """The JSON a Forge-AI/monorepo file holds at origin/dev of the checkout a folder is in, None when it holds no such file."""
-    done = subprocess.run(["git", "-C", str(cwd), "show", spec], capture_output=True, text=True, check=False)
-    return None if done.returncode else json.loads(done.stdout)
-
-
-def team_route(location: str) -> str:
-    """The grant a pass box reads a team's bucket prefix under: `runs_read` for a team's `runs/`, and none, so `BLOCKED`, for every other prefix."""
-    found = TEAM_AREA.search(location)
-    if found and found[2] == "runs":
-        return RUNS_ROUTE.format(team=found[1])
-    return NO_ROUTE.format(prefix=f"{found[0]}/" if found else location)
+def data_guard(cwd: str, drives: list[str]) -> providers.DataProvider:
+    """The DataProvider of the repository at the folder's default branch, or of the session's drive when that one guards no data, as a meta job's checkout of a tool repository holding no team's data."""
+    found = providers.at(Path(cwd)).data
+    if type(found) is providers.DataProvider and drives:
+        return providers.of(state.load(drives[0])).data
+    return found
 
 
 def datadog_cli(command: str, cwd: str) -> str | None:
@@ -815,7 +780,7 @@ def mid_answer(found: list[list[str]]) -> str | None:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session's or drive agent's call must not run: it, or an Orca lane's, reads or writes a team's bucket, blobs or SandSQL databases where it runs, it reads Datadog through `pup` rather than the Datadog MCP, a designer pushes, a builder, on this Mac or a Sprite, opens its PR while his open cards hold its job, a read takes a stale version's cached skill page, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check or reruns a build, job or run that did not pass, or a watchdog agent runs anything but its reads and two acts or reruns one that did not fail; why any session's call restarts the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's or an Orca lane's call to any tool gets a refusal rather than an answer nobody gives."""
+    """Why a drive session's or drive agent's call must not run: it, or an Orca lane's, reads or writes a team's buckets, blobs or databases where it runs, it reads Datadog through `pup` rather than the Datadog MCP, a designer pushes, a builder, on this Mac or a Sprite, opens its PR while his open cards hold its job, a read takes a stale version's cached skill page, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check or reruns a build, job or run that did not pass, or a watchdog agent runs anything but its reads and two acts or reruns one that did not fail; why any session's call restarts the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's or an Orca lane's call to any tool gets a refusal rather than an answer nobody gives."""
     call = payload["tool_input"]
     session = payload.get("session_id") or ""
     drives = state.session_drives(session)
@@ -830,7 +795,7 @@ def deny_reason(payload: dict) -> str | None:
         return busy
     if os.environ.get(state.WATCHDOG_ENV):
         return watchdog_call(found) or reran(found, cwd, watchdog=True)
-    if (drives or kind.startswith(AGENTS) or os.environ.get(state.REMOTE_LANE_ENV)) and (touched := team_data(call["command"], cwd)):
+    if (drives or kind.startswith(AGENTS) or os.environ.get(state.REMOTE_LANE_ENV)) and (touched := team_data(call["command"], cwd, drives)):
         return touched
     if not drives and os.environ.get(state.REMOTE_LANE_ENV):
         return cci_chatter(found) or lane_held(found)

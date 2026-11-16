@@ -1,6 +1,8 @@
+import functools
 import io
 import json
 import plistlib
+import re
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -8,7 +10,7 @@ from pathlib import Path
 import bash_guard
 import pytest
 from conftest import SESSION, commit_files, git_in
-from drive import agents, github, install, land, limits, orca, reports, settled, state
+from drive import agents, github, install, land, limits, orca, providers, reports, settled, state
 from drive.orca import OrcaError
 
 Run = Callable[..., tuple[int, str]]
@@ -24,6 +26,103 @@ IDENTITY = (
     'export const DESKTOP_RELEASE_BUCKET = "frg-plat-usw2-prod-desktop-release-origin"\n'
 )
 STATE = 'export const STATE_BUCKET = "frg-core-usw2-root-pulumi-state"\n\nexport const STATE_BUCKET_ARN = `arn:aws:s3:::${STATE_BUCKET}`\n'
+
+TEAM_BUCKET_LIST = "origin/dev:release/team-buckets.generated.json"
+BUILD_OUTPUTS = ("tools/artifacts.json", "infra/ci/src/pipelines/identity.ts", "infra/ci/src/contract/")
+NAMED_BUCKET = re.compile(r'(?:"bucket":\s*|export const \w*_BUCKET = )"([^"]+)"')
+CLUSTER_JOB = (
+    "runs as a Job in the team's cluster, started from its suspended CronJob with `tools/ci cluster-job --cluster"
+    ' <release env> --cronjob <name> --reason "<why>"`'
+)
+UNMADE = "returns `BLOCKED` naming it and the team, which leaves him to pick the service account that makes it"
+BOX_ROUTE = (
+    "Run the step on a pass box of the team's env where Forge-AI/monorepo grants that box the step, as"
+    " `PASS_BOX_OPERATOR_ENVS` in `infra/rows/identity/pass-box-operator.ts` and `PASS_BOX_OPERATOR_RULES` in"
+    " `infra/rows/sandsql/workload.ts` do for a SandSQL namespace and `kubectl auth can-i` on the box confirms: launch it"
+    " with `AWS_PROFILE=<env profile> tools/ci pass-box launch --purpose <job> --type <instance type> --delete-after"
+    " <YYYY-MM-DD>`, run the script there with `AWS_PROFILE=<env profile> tools/ci pass-box run --purpose <job> <script>`,"
+    " print counts and summaries and copy no team data back; docs/pass-boxes.md in Forge-AI/monorepo has each step. A pass"
+    f" no box is granted {CLUSTER_JOB}, and any other read or write {UNMADE}."
+)
+TEAM_DATA = (
+    "refused: this reads or writes `{location}` where the job runs, and {rule}. " + BOX_ROUTE + " {route}"
+    + " It holds a team's data, as its key is under `iris/teams/` or Forge-AI/monorepo's `release/team-buckets.generated.json`"
+    " at origin/dev, which infra writes from each bucket's grants and rows, lists it or its folder. A box's binary goes"
+    " under `pass-box/<purpose>/` in its env's MicroVM artifacts bucket, which that list leaves out"
+)
+UNLISTED = (
+    "refused: this reads or writes `{location}` where the job runs, and `{folder}`, the folder its session runs in, holds no"
+    " `release/team-buckets.generated.json` at origin/dev to say whether that bucket holds a team's data, so it is refused"
+    " as one that does. Until that list is on origin/dev, only the buckets Forge-AI/monorepo's own code names there as its"
+    " build, release and infra output pass, and only from a session in its checkout: CI's cache in `tools/artifacts.json`,"
+    " the release buckets in `infra/ci/src/pipelines/identity.ts`, and each bucket `infra/ci/src/contract/` gives go/ci's"
+    " `contract.C`, such as its Pulumi state. A `cd` in the command changes nothing, since both are read where the session"
+    " runs. " + BOX_ROUTE
+)
+SANDSQL_DATA = (
+    "refused: {step} {where} opens a team's SandSQL databases where the job runs, and with them every read and write of"
+    " their rows, and {rule}. " + BOX_ROUTE
+)
+RUNS_ROUTE = (
+    "A team's `iris/teams/<team>/runs/` is read on the box under a `runs_read` grant, which a plat-prod box's script loads"
+    ' first with `eval "$(./ci runs-reader grant --team {team})"`; a grant that refuses returns `BLOCKED` naming the'
+    " prefix, the team and its refusal."
+)
+NO_ROUTE = (
+    "No service account reads `{prefix}`, as the runs reader's grant reaches `iris/teams/<team>/runs/` alone: return"
+    " `BLOCKED` naming the prefix and the team, which leaves him to pick the service account that reads it, never a"
+    " person's grant such as `tools/ci pass-box-creds`, which mints under your own sand session."
+)
+
+
+class TeamData(providers.DataProvider):
+    team_area = re.compile(r"iris/teams/([^/\s]+)/([^/\s]+)")
+    namespaces = frozenset({"sandsql", "sandsql-system", "sandsql-inbox"})
+
+    @functools.cache
+    def buckets(self) -> set[str] | None:
+        """Each bucket or folder `release/team-buckets.generated.json` lists at origin/dev of the clone, which infra writes from each bucket's grants and rows; None when it holds no such file."""
+        done = subprocess.run(["git", "-C", str(self.clone), "show", TEAM_BUCKET_LIST], capture_output=True, text=True, check=False)
+        return None if done.returncode else set(json.loads(done.stdout))
+
+    @functools.cache
+    def outputs(self) -> set[str]:
+        """The buckets this repository's own code names, as a string, at origin/dev of the clone as its build, release and infra output: CI's cache in `tools/artifacts.json`, the release-artifacts bucket and the desktop auto-updater's release origin in `infra/ci/src/pipelines/identity.ts`, and the buckets `infra/ci/src/contract/` gives go/ci's `contract.C`, such as the Pulumi state the release resolver reads."""
+        done = subprocess.run(["git", "-C", str(self.clone), "grep", "-h", "-e", '"bucket"', "-e", "_BUCKET = ", "origin/dev", "--", *BUILD_OUTPUTS], capture_output=True, text=True, check=False)
+        return set(NAMED_BUCKET.findall(done.stdout))
+
+    def refusal(self, kind: str, **fields: str) -> str:
+        if kind == "team":
+            return TEAM_DATA.format(location=fields["location"], rule=fields["rule"], route=self.team_route(fields["location"]))
+        if kind == "unlisted":
+            return UNLISTED.format(location=fields["location"], folder=fields["folder"])
+        return SANDSQL_DATA.format(step=fields["step"], where=fields["where"], rule=fields["rule"])
+
+    def team_route(self, location: str) -> str:
+        """The grant a pass box reads a team's bucket prefix under: `runs_read` for a team's `runs/`, and none, so `BLOCKED`, for every other prefix."""
+        found = self.team_area.search(location)
+        if found and found[2] == "runs":
+            return RUNS_ROUTE.format(team=found[1])
+        return NO_ROUTE.format(prefix=f"{found[0]}/" if found else location)
+
+class TrunkRepo(providers.RepoProvider):
+    def queue(self) -> providers.Queue:
+        return providers.Queue(".agents/skills/submit-pr/scripts/stack-enqueue", ((("stack-enqueue",), frozenset(), ("check", "status", "dequeue")),), "")
+
+
+class LoggedBuild(providers.BuildProvider):
+    def log_tip(self, job_url: str) -> str:
+        return f"`tools/ci bk log '{job_url}'`"
+
+
+def guarded(clone: Path, checkout: Path | None = None) -> providers.Providers:
+    return providers.Providers(None, {}, repo=TrunkRepo(clone, clone, {}), build=LoggedBuild(clone, clone, {}), data=TeamData(clone, clone, {}))
+
+
+@pytest.fixture(autouse=True)
+def team_data(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every folder's providers guard Forge-AI/monorepo's team data, read from its own origin/dev as that repository's DataProvider reads it."""
+    monkeypatch.setattr(providers, "at", guarded)
 
 
 @pytest.fixture(autouse=True)
@@ -755,10 +854,10 @@ def test_a_drive_job_reads_no_sandsql_secret_or_team_blob_however_the_shell_spel
     ("command", "step", "where"),
     [
         ("kubectl -n $ns get secrets", "`kubectl get secret`", "in the `$ns` namespace, which the guard cannot expand,"),
-        ("kubectl get secrets -A", "`kubectl get secret`", "in every namespace, SandSQL's among them,"),
-        ("kubectl proxy --port 8001", "`kubectl proxy`", "in every namespace, SandSQL's among them,"),
-        ("kubectl get --raw /api/v1/secrets", "`kubectl get --raw` on a secrets path, or one the guard cannot read,", "in every namespace, SandSQL's among them,"),
-        ('kubectl get --raw "$p"', "`kubectl get --raw` on a secrets path, or one the guard cannot read,", "in every namespace, SandSQL's among them,"),
+        ("kubectl get secrets -A", "`kubectl get secret`", "in every namespace, those holding a team's data among them,"),
+        ("kubectl proxy --port 8001", "`kubectl proxy`", "in every namespace, those holding a team's data among them,"),
+        ("kubectl get --raw /api/v1/secrets", "`kubectl get --raw` on a secrets path, or one the guard cannot read,", "in every namespace, those holding a team's data among them,"),
+        ('kubectl get --raw "$p"', "`kubectl get --raw` on a secrets path, or one the guard cannot read,", "in every namespace, those holding a team's data among them,"),
         ("ls | xargs kubectl -n sandsql describe", "`kubectl describe` of a kind the guard cannot read, which may be Secret,", "in the `sandsql` namespace"),
     ],
 )
@@ -775,7 +874,7 @@ def test_a_namespace_or_kind_the_guard_reads_as_another_passes() -> None:
         'kubectl -n sandsql get pod "$p" -o yaml',
         "kubectl -n sandsql logs sandsql-primary-0 | xargs echo",
     ]
-    assert [bash_guard.team_data(command, "/work") for command in passed] == [None] * len(passed)
+    assert [bash_guard.team_data(command, "/work", []) for command in passed] == [None] * len(passed)
 
 
 STAGING_CASES = (
@@ -870,3 +969,22 @@ def test_a_cci_post_from_a_drive_agent_that_is_chatter_is_refused_as_the_post_ho
     fanned = "cci post --drive demo --kind handoff --to root --to meta --text 'box j6 is free'"
     assert bash_guard.deny_reason(bash(fanned, **builder)) == reports.FANNED.format(lanes="root, meta")
     assert bash_guard.deny_reason(bash("cci post --drive demo --kind handoff --to root --text 'box j6 is free'", **builder)) is None
+
+
+def test_providers_that_fail_to_load_refuse_a_bucket_or_kubectl_call_and_nothing_else(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(clone: Path, checkout: Path | None = None) -> providers.Providers:
+        raise providers.ProviderError(".claude/long-running/providers.py at 0123456789ab failed to load: SyntaxError: bad")
+
+    monkeypatch.setattr(providers, "at", broken)
+    reader = {"agent_id": "a-1", "agent_type": "long-running:reader"}
+    for command in (CI_POINTER, "kubectl -n forge get pods"):
+        reason = bash_guard.deny_reason(bash(command, **reader))
+        assert reason.startswith("refused: this may reach a team's data where the job runs"), command
+        assert reason.endswith("SyntaxError: bad"), command
+    assert bash_guard.deny_reason(bash("ls && git status", **reader)) is None
+
+
+def test_a_repository_guarding_no_data_refuses_no_bucket_or_kubectl_call(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(providers, "at", lambda clone, checkout=None: providers.Providers(None))
+    reader = {"agent_id": "a-1", "agent_type": "long-running:reader"}
+    assert [bash_guard.deny_reason(bash(command, **reader)) for command in (f"aws s3 ls {BLOBS}", "kubectl proxy --port 8001")] == [None, None]
