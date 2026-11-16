@@ -440,7 +440,7 @@ def test_an_incident_hurts_users_by_its_facts_until_its_fix_is_live(world: dict,
 
 def test_a_handover_note_reaches_the_owner_brief_and_is_no_ask(world: dict) -> None:
     opened("a")
-    verbs.handover(DRIVE, "a", "old job j1 runs on branch b in /w with #7")
+    verbs.handover(DRIVE, "a", "old job j1 runs on branch b in /w with #7", "drive-redesign")
     lane = store.load(DRIVE, "a")
     assert "old job j1 runs on branch b" in owners.brief(DRIVE, lane, "woken")
     assert len(lane["asks"]) == 1
@@ -495,10 +495,44 @@ def test_a_handover_set_while_the_owner_runs_reaches_it_once(world: dict, monkey
     from lane import command
 
     opened("a")
-    verbs.handover(DRIVE, "a", "team-lead's lane builds the parity view; do not")
+    verbs.handover(DRIVE, "a", "team-lead's lane builds the parity view; do not", "team-lead")
     monkeypatch.setenv("LANE_OWNER", f"{DRIVE}/a")
     monkeypatch.setenv("LANE_TOKEN", token_of("a"))
     monkeypatch.setattr("sys.stdin", __import__("io").StringIO("{}"))
     assert command.note_hook(DRIVE, "a") == 0
     assert "parity view" in json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
     assert not store.note_path(DRIVE, "a").exists()
+
+
+def test_handover_entries_append_signed_and_clear_together(world: dict) -> None:
+    opened("a")
+    with pytest.raises(store.Refused, match="names its writer"):
+        verbs.handover(DRIVE, "a", "no writer")
+    verbs.handover(DRIVE, "a", "PR list: #7, #8", "drive-redesign")
+    verbs.handover(DRIVE, "a", "old drives are stopped", "team-lead")
+    kept = store.load(DRIVE, "a")["handover"]
+    assert "#7, #8" in kept and "old drives are stopped" in kept and "from drive-redesign" in kept and "from team-lead" in kept
+    verbs.handover(DRIVE, "a", None)
+    assert store.load(DRIVE, "a")["handover"] is None
+
+
+def test_an_owner_with_live_builders_stays_running(world: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    from lane import command
+
+    opened("a")
+    answered("a")
+    monkeypatch.setattr(owners, "in_flight", lambda owner: 2)
+    with pytest.raises(store.Refused, match="still run"):
+        verbs.end_turn(DRIVE, "a", token_of("a"), [{"kind": "his_reply"}], "1h", "builders run")
+    monkeypatch.setenv("LANE_TOKEN", token_of("a"))
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO("{}"))
+    assert command.stop_hook(DRIVE, "a") == 0
+    assert capsys.readouterr().out == ""
+    assert store.load(DRIVE, "a")["state"] == store.RUNNING
+
+
+def test_wake_fires_a_waiting_lane_now(world: dict) -> None:
+    opened("a")
+    ended("a", ["his_reply"], "6h")
+    verbs.wake(DRIVE, "a", "its builders died with its turn")
+    assert store.load(DRIVE, "a")["state"] == store.RUNNING

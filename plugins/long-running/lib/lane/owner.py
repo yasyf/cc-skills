@@ -90,6 +90,13 @@ def lease(owner: dict, moment: datetime, grace_seconds: int) -> str:
     return "held" if flight.get("tasks") or flight.get("queued") else "lapsed"
 
 
+def in_flight(owner: dict) -> int:
+    """How many background agents and tasks the owner's own session runs now, from its job's record."""
+    job = record(config_dir() / "jobs" / owner["job"] / "state.json") if owner.get("job") else None
+    flight = (job or {}).get("inFlight") or {}
+    return (flight.get("tasks") or 0) + (flight.get("queued") or 0)
+
+
 def located(owner: dict) -> dict:
     """The owner with the pid and process start of its session, once its session record exists."""
     if owner.get("pid") or not owner.get("session"):

@@ -159,6 +159,10 @@ def end_turn(drive: str, lane_id: str, token: str, on: list[dict], until: str, w
         raise store.Refused(f"the bound {store.stamp(bound)} is past the drive's longest wait of {shape['max_wait_hours']}h")
     lane = store.load(drive, lane_id)
     store.fenced(lane, token)
+    from lane import owner as owners
+
+    if flying := owners.in_flight(lane["owner"]):
+        raise store.Refused(f"{flying} background agents or tasks of yours still run, and ending your turn on a wait would stop them: stay running, end your turn without end-turn, and their return wakes you; the Stop hook lets you idle while they run")
     prs = facts.read_prs({facts.pr_ref(event["ref"]) for event in on if event["kind"] in ("pr_merged", "check")})
     if held := [event for event in on if event["kind"] != "his_reply" and facts.holds(drive, lane, event, prs)]:
         raise store.Refused(f"already true, act on it instead of waiting: {held}")
@@ -337,15 +341,38 @@ def adopt(drive: str, paths: list[str], rulings_only: bool = False) -> list[str]
     return said
 
 
-def handover(drive: str, lane_id: str, text: str | None) -> None:
-    """Set or clear the note every owner of the lane reads at its start, such as the old jobs still running on its work, which is no ask of his and wants no reply; an owner running now is shown it at its next tool call."""
+def handover(drive: str, lane_id: str, text: str | None, writer: str | None = None) -> None:
+    """Add one entry, stamped and signed by its writer, to the note every owner of the lane reads at its start, such as the old jobs still running on its work, which is no ask of his and wants no reply; an owner running now is shown the entry at its next tool call. With no text, clear every entry, which is the owner's call once it has adopted them."""
+    if text is not None and not writer:
+        raise store.Refused("a handover entry names its writer: --from")
 
     def setting(lane: dict) -> None:
-        lane["handover"] = text
-        store.note(lane, "handover cleared" if text is None else "handover set")
-        if text and lane["state"] == store.RUNNING:
-            fresh = store.note_path(drive, lane_id).with_name(f".{lane_id}.note.tmp")
-            fresh.write_text(text)
-            fresh.replace(store.note_path(drive, lane_id))
+        if text is None:
+            lane["handover"] = None
+            store.note(lane, "handover cleared")
+            return
+        entry = f"[{store.stamp()} from {writer}]\n{text.strip()}"
+        lane["handover"] = f"{lane['handover']}\n\n{entry}" if lane.get("handover") else entry
+        store.note(lane, f"handover entry from {writer}")
+        if lane["state"] == store.RUNNING:
+            path = store.note_path(drive, lane_id)
+            fresh = path.with_name(f".{lane_id}.note.tmp")
+            fresh.write_text(f"{path.read_text()}\n\n{entry}" if path.is_file() else entry)
+            fresh.replace(path)
 
     store.update(drive, lane_id, setting)
+
+
+def wake(drive: str, lane_id: str, why: str) -> None:
+    """Fire a waiting lane's wait now, so the next pass starts its owner: for a wait the drive's operators find was set on a fact that cannot fire."""
+
+    def waking(lane: dict) -> None:
+        if lane["state"] != store.WAITING:
+            raise store.Refused(f"lane {lane_id} is {lane['state']}, not waiting")
+        woken(lane, why)
+        store.note(lane, f"woken: {why}")
+
+    store.update(drive, lane_id, waking)
+    from lane import supervisor
+
+    supervisor.run_pass(drive, only={lane_id}, read_outside=False)

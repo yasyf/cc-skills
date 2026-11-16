@@ -6,6 +6,7 @@ import os
 import sys
 from pathlib import Path
 
+from lane import owner as owners
 from lane import queue, store, supervisor, verbs, voice
 
 STOP_BLOCKS = 3
@@ -43,11 +44,13 @@ def show(lane: dict) -> str:
 
 
 def stop_hook(drive: str, lane_id: str) -> int:
-    """Block an owner's stop while its lane still runs under its token, telling it the one way out; after STOP_BLOCKS blocks let it stop, and its lapsed lease restarts the lane."""
+    """Block an owner's stop while its lane still runs under its token, telling it the one way out; an owner whose own background agents or tasks still run may stop, since their return resumes it and its lease stays held only while they run; after STOP_BLOCKS blocks let it stop, and its lapsed lease restarts the lane."""
     json.load(sys.stdin)
     held = token()
     lane = store.load(drive, lane_id)
     if lane["state"] != store.RUNNING or (lane.get("owner") or {}).get("token") != held:
+        return 0
+    if owners.in_flight(lane["owner"]):
         return 0
     blocks = store.update(drive, lane_id, lambda lane: lane["owner"].__setitem__("stop_blocks", lane["owner"].get("stop_blocks", 0) + 1) or lane["owner"]["stop_blocks"])
     if blocks > STOP_BLOCKS:
@@ -117,6 +120,10 @@ def main(argv: list[str] | None = None) -> int:
     handing.add_argument("--lane")
     handing.add_argument("--file")
     handing.add_argument("--clear", action="store_true")
+    handing.add_argument("--from", dest="writer", help="who writes this entry")
+    waking = verbs_parser.add_parser("wake", help="fire a waiting lane's wait now, for a wait set on a fact that cannot fire")
+    waking.add_argument("lane")
+    waking.add_argument("--why", required=True)
     adopting = verbs_parser.add_parser("adopt", help="write lane files of the first shape, such as the rebuild's, into the drive in the agreed shape")
     adopting.add_argument("paths", nargs="+")
     adopting.add_argument("--rulings-only", action="store_true", help="replace only each lane's rulings and the shared ones, keeping the rest of each lane")
@@ -208,7 +215,9 @@ def run(args: argparse.Namespace) -> int:
             drive, lane_id = where(args)
             if args.clear == bool(args.file):
                 raise store.Refused("give --file or --clear")
-            verbs.handover(drive, lane_id, None if args.clear else Path(args.file).read_text())
+            verbs.handover(drive, lane_id, None if args.clear else Path(args.file).read_text(), args.writer)
+        case "wake":
+            verbs.wake(*where(args), args.why)
         case "worktree":
             verbs.set_worktree(*where(args), args.path)
         case "unpark":
