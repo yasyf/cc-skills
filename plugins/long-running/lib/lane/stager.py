@@ -117,7 +117,7 @@ def reach(drive: str, candidates: list[dict]) -> None:
     paths = github.paths(keys)
     for stack in shown:
         stack["paths"] = {key: paths[key][1] for key in stack["stack"] if key in paths}
-        stack["reach"] = {key: {field: read[field] for field in ("releases", "staged", "touched")} for key in stack["stack"] if (read := cli.pr_reach(key, found))}
+        stack["reach"] = {key: {field: value for field, value in read.items() if field in ("releases", "staged", "touched")} for key in stack["stack"] if (read := cli.pr_reach(key, found))}
 
 
 def candidates(drive: str, reached: bool) -> list[dict]:
