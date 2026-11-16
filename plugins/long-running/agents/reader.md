@@ -165,6 +165,15 @@ Holds: <each part of the order its options alter, in that change's own words, or
 
 ## Your report
 
+Work he explicitly asked for reports back in his thread as it goes: each finding goes up as it
+happens (a bug found, a thing validated, a decision made), a short progress line about every 30
+minutes while it runs, and a visual of coverage or progress where one says it at a glance. Work he
+did not ask for reports only at its end or when it needs him. His words: "since I explicitly asked
+for the testing to be done (this is an example, don't hard-code to testing), it should send regular
+updates on the progress and bugs it found or things it's validated". Send each as a `report` record
+to `communicator@<drive>` opening `POST`, with `--attr progress=true` and `--attr thread=<his
+thread>`, so it reaches him without waiting for your return.
+
 Your report feeds another agent, which writes to him: one fact a line, no polish, except a `DESIGN`
 block, which is his card. Pipe it from a quoted heredoc into `drive job report <your job> -`, which
 alone sets your job's state. The first line answers the question and opens `DONE`, or `DESIGN`,

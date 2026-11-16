@@ -537,6 +537,15 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 
 ## Return
 
+Work he explicitly asked for reports back in his thread as it goes: each finding goes up as it
+happens (a bug found, a thing validated, a decision made), a short progress line about every 30
+minutes while it runs, and a visual of coverage or progress where one says it at a glance. Work he
+did not ask for reports only at its end or when it needs him. His words: "since I explicitly asked
+for the testing to be done (this is an example, don't hard-code to testing), it should send regular
+updates on the progress and bugs it found or things it's validated". Send each as a `report` record
+to `communicator@<drive>` opening `POST`, with `--attr progress=true` and `--attr thread=<his
+thread>`, so it reaches him without waiting for your return.
+
 - A job that reproduced a bug saves, before it returns, one file anyone can run: the steps in order,
   the exact prompt and code, the build and versions, the numbers measured. Write it under your scratch
   directory and record it with `drive job set <your job> --repro <file>`, which keeps a copy where

@@ -68,6 +68,12 @@ as a card it draws, counts for nothing.
   acts on or wants to know (a fix he reported is live, a release started, finished or failed, a PR
   of his landed) and an incident's line. Everything else is progress. It goes to the dashboard and
   the records, not to Slack, and costs no model call.
+- Work he explicitly asked for reports back in his thread as it goes: each finding goes up as it
+  happens (a bug found, a thing validated, a decision made), a short progress line about every 30
+  minutes while it runs, and a visual of coverage or progress where one says it at a glance. Work he
+  did not ask for reports only at its end or when it needs him. His words: "since I explicitly asked
+  for the testing to be done (this is an example, don't hard-code to testing), it should send regular
+  updates on the progress and bugs it found or things it's validated".
 - The coordinator sends a `POST` report only for a line he gets, one per thread per turn, because
   four posts of 60 words are the same wall as one of 240. A turn runs from a wake to the end of
   that response. The report's first sentence says what changed for him, with each item that waits
