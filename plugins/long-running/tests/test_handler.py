@@ -1225,3 +1225,21 @@ def test_a_lane_session_the_drive_starts_on_this_mac_runs_with_no_advisor_at_hig
     assert (flags, settings["env"][agents.COMPACT_ENV], settings["env"]["CLAUDE_CODE_DISABLE_ADVISOR_TOOL"]) == ((*agents.LANE_RULES_ARGS, "--effort", "high"), lane["env"][agents.COMPACT_ENV], "1")
     assert (settings["claudeMdExcludes"], settings["env"]["CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD"]) == ([str(install.config_dir() / "CLAUDE.md")], "1")
     assert (Path(agents.LANE_RULES_ARGS[1]) / "CLAUDE.md").is_file()
+
+
+def test_a_handler_whose_claude_bg_cannot_reach_the_background_service_starts_on_a_later_try(
+    communicator: str, run: Run, tmp_path: Path, launched_sessions: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tries: list[list[str]] = []
+
+    def answered(argv: list[str], checkout: Path, env: dict | None = None) -> str:
+        tries.append(argv)
+        if argv[:2] == ["claude", "--bg"] and len([one for one in tries if one[:2] == ["claude", "--bg"]]) < 3:
+            raise reads.ReadError("claude --bg --agent exited 1: Couldn't reach the background service (timed out)")
+        return ""
+
+    monkeypatch.setattr(reads, "run", answered)
+    monkeypatch.setattr(agents.time, "sleep", lambda seconds: None)
+    handler = start(run, tmp_path)
+    assert state.load("demo")["handlers"][handler]["session"] == launched_sessions[0]
+    assert len([one for one in tries if one[:2] == ["claude", "--bg"]]) == 3

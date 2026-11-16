@@ -20,6 +20,8 @@ LINK = re.compile(r"^Link:\s*(\S+)", re.MULTILINE)
 THREAD = re.compile(r"^Thread:[ \t]*(?:\S+[ \t]+)?(\d+\.\d+)", re.MULTILINE)
 SAY_RESULT = re.compile(r"\b(POSTED|EDITED|CARD)((?:\s+https://[^\s;]+)+)\s*;?\s*")
 RE_HOPS = 8
+BACKGROUND_WAITS = (5, 15, 30)
+BACKGROUND_UNREACHED = "Couldn't reach the background service"
 AMENDING = ("correction", "withdraw")
 AMENDMENT_BYTES = 1 << 20
 TRUNK_DRIVE = "trunk"
@@ -787,9 +789,21 @@ def start_handler(name: str, handler: str, prompt: str) -> None:
     checkout = orca.checkout(name, held["cwd"])
     settings = trimmed(session_settings(env), checkout)
     argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), *LANE_RULES_ARGS, "-n", f"{name} handler {handler}", prompt]
-    session = launched(reads.run(argv, checkout, {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
+    session = launched(backgrounded(argv, checkout, {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
     with state.edit(name) as data:
         data["handlers"][handler]["session"] = session
+
+
+def backgrounded(argv: list[str], checkout: Path, env: dict[str, str]) -> str:
+    """What `claude --bg` printed, run again after BACKGROUND_WAITS seconds each time it could not reach Claude Code's background service, as it times out on a loaded Mac, so a handler on his message never fails on that alone, as his 11:00 PM message's did; any other failure raises at once."""
+    for wait in BACKGROUND_WAITS:
+        try:
+            return reads.run(argv, checkout, env)
+        except reads.ReadError as error:
+            if BACKGROUND_UNREACHED not in str(error):
+                raise
+        time.sleep(wait)
+    return reads.run(argv, checkout, env)
 
 
 def trimmed(settings: dict, checkout: Path) -> dict:

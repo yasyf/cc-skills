@@ -41,8 +41,10 @@ Contents:
   the 1-minute load average is over the core count times `load_per_core` or under `free_memory`
   percent of memory is free. A builder here then waits its turn on `builder-slot`, or starts
   on a Sprite when its brief declares no step only this Mac runs; a reader or designer the
-  `agent_brief` hook refuses starts on a Sprite; a handler's `drive handler-start` waits for its
-  turn; a stall's watchdog waits for a later pass. A first lane on a Sprite past the `sprite` cap
+  `agent_brief` hook refuses starts on a Sprite; a report's or digest's handler waits for its
+  turn, while a handler on a message of his starts at once past every cap and gate, and its
+  `claude --bg` tries again at 5, 15 and 30 seconds when Claude Code's background service does not
+  answer; a stall's watchdog waits for a later pass. A first lane on a Sprite past the `sprite` cap
   waits its turn on `sprite-slot`, and the watch's `FREE` line names it, earliest due first, as a
   lane frees. Work on a priority or open incident order, or an `immediate fix` part, starts past
   both caps and the gate. Queued work waits; it never fails.
