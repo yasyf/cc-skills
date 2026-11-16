@@ -294,6 +294,7 @@ NAMED: ContextVar[frozenset[str]] = ContextVar("named", default=frozenset())
 LOADED_VERSION: ContextVar[int | None] = ContextVar("loaded_version", default=None)
 LOADED_REV: ContextVar[int | None] = ContextVar("loaded_rev", default=None)
 ATTEMPT: ContextVar["Attempt | None"] = ContextVar("attempt", default=None)
+BATCHING: ContextVar[str | None] = ContextVar("batching", default=None)
 EDITING: ContextVar[str | None] = ContextVar("editing", default=None)
 TAKEN_IDS: ContextVar[list[tuple[str, str, int]] | None] = ContextVar("taken_ids", default=None)
 PTHREADS = ctypes.CDLL(None, use_errno=True)
@@ -5018,7 +5019,7 @@ class ReadCollection(dict):
 
 
 class Attempt(NamedTuple):
-    """One run of a write's change: the drive it writes, that drive as the change reads it, each row it read, and each effect it left to run once its commit lands, by after_save, which a run refused or raced drops with it."""
+    """One run of a write's change: the drive it writes, that drive as the change reads it, each row it read, and each effect it left to run once its commit lands, by after, which a run refused or raced drops with it."""
 
     name: str
     data: dict
@@ -5110,7 +5111,7 @@ def handled_lock(name: str, budget: Budget) -> Iterator[None]:
 
 
 def write[T](name: str, change: Callable[[dict], T], *, budget: float | None = None, patient: bool = False) -> T:
-    """The one way to change a drive: apply change, a function of the drive that only reads and changes data and leaves each effect outside the drive to after_save, to the drive as it loads, holding no lock while it runs, recording each row it reads, by ReadDrive, and every row once it loads the drive again itself, since those reads go untracked, and save each record it changed in one short transaction, refused when another write committed one of those rows or one it read since the load, by rows_saved's since, or, on a database no install gave a changed table yet, when the database no longer holds each record it changed as that load read it, unshaped; each effect it left runs once its save commits, the effects of a refused run dropped with it. A refused run runs change again on the drive as it then stands, at once for UPDATE_TRIES runs and then after a growing random pause, until budget, DRIVE_LOCK_SECONDS unless named, passes, counting each wait on the drive's lock or database against it, then refuses as Refused, which locks.log names, or as Busy once a wait ran it out; a patient write, or one under waiting_out_lock, which records an outside action already done, waits and runs again for good. Inside a batch it runs change once on the batch's copy, its effects waiting for the batch's save; a drive still in drive.json moves into its database first. A write of a drive inside the change of another write of that drive raises, since its commit would race the outer one's on every run."""
+    """The one way to change a drive: apply change, a function of the drive that only reads and changes data and leaves each effect outside the drive to after, to the drive as it loads, holding no lock while it runs, recording each row it reads, by ReadDrive, and every row once it loads the drive again itself, since those reads go untracked, and save each record it changed in one short transaction, refused when another write committed one of those rows or one it read since the load, by rows_saved's since, or, on a database no install gave a changed table yet, when the database no longer holds each record it changed as that load read it, unshaped; each effect it left runs once its save commits, the effects of a refused run dropped with it. A refused run runs change again on the drive as it then stands, at once for UPDATE_TRIES runs and then after a growing random pause, until budget, DRIVE_LOCK_SECONDS unless named, passes, counting each wait on the drive's lock or database against it, then refuses as Refused, which locks.log names, or as Busy once a wait ran it out; a patient write, or one under waiting_out_lock, which records an outside action already done, waits and runs again for good. Inside a batch it runs change once on the batch's copy, its effects waiting for the batch's save; a drive still in drive.json moves into its database first. A write of a drive inside the change of another write of that drive raises, since its commit would race the outer one's on every run."""
     if (running := ATTEMPT.get()) is not None and running.name == name:
         raise DriveError(f"refused, nothing kept: a write of {name} ran inside the change of another write of it, whose commit it would race on every run, so fold it into that change or run it after that write")
     if name in BATCHED:
@@ -5162,8 +5163,7 @@ def write[T](name: str, change: Callable[[dict], T], *, budget: float | None = N
         if tried >= UPDATE_TRIES:
             with open(drive_dir(name) / "locks.log", "a") as log:
                 log.write(f"{stamp()} pid {os.getpid()} saved after {tried + 1} runs over {time.monotonic() - waits.asked:.1f}s, since {why}: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
-        for effect in attempt.effects:
-            effect()
+        ran(attempt.effects, [])
         return done
     with open(drive_dir(name) / "locks.log", "a") as log:
         log.write(f"{stamp()} pid {os.getpid()} refused after {seconds:g}s, since {why}: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
@@ -5197,20 +5197,20 @@ def committed(name: str, base: bytes, mine: dict) -> None:
 
 @contextmanager
 def batch(name: str, dry: bool = False) -> Iterator[list[str]]:
-    """Run a call of several writes on one copy of the drive in memory, each load and edit inside it reading and changing that copy, with no lock held, so a model call, process or network read the call makes holds no writer of the drive behind it; saved once when the call ends and never when it raises, so a refused write leaves the drive as it was. The save holds no lock, merging the call's changes into the drive as it stands then and keeping the records they change, by committed, and that save tells each session the call took open orders from; a field another write changed differently meanwhile refuses the call, keeping nothing and naming each command the call started that does more than read, by WENT. What a write does outside the drive runs after that save, its lines added to the list it yields, each such effect running even when one before it failed, and the failures raised together once all have run, after the lines of the rest. A batch opened inside one joins it. A dry batch, a dry run's, runs every check its writes make and keeps none: it saves nothing, drops what its writes would do outside the drive, and stops at Rehearsed each command they start that does more than read."""
+    """Run a call of several writes on one copy of the drive in memory, each load and edit inside it reading and changing that copy, with no lock held, so a model call, process or network read the call makes holds no writer of the drive behind it; saved once when the call ends and never when it raises, so a refused write leaves the drive as it was. The save holds no lock, merging the call's changes into the drive as it stands then and keeping the records they change, by committed, and that save tells each session the call took open orders from; a field another write changed differently meanwhile refuses the call, keeping nothing and naming each command the call started that does more than read, by WENT. What a write does outside the drive runs after that save, its lines added to the list it yields, each such effect running even when one before it failed, and the failures raised together once all have run, after the lines of the rest. A batch is weaker than a write: its save merges what its writes changed into the drive as it then stands and checks only the rows that merge writes and the drive's bindings, never a row its writes only read, so another write changing such a row meanwhile leaves the batch's save standing; a write that must not commit past a row it read changed runs alone, by write. A batch opened inside one joins it. A dry batch, a dry run's, runs every check its writes make and keeps none: it saves nothing, drops what its writes would do outside the drive, and stops at Rehearsed each command they start that does more than read."""
     if name in BATCHED:
         yield []
         return
-    after: list[str] = []
+    lines: list[str] = []
     BATCHED[name] = base = marshal.dumps(load(name))
     AFTER_SAVE[name] = []
     taken: list[tuple[str, str, int]] = []
-    tokens = EDITING.set(name), TAKEN_IDS.set(taken)
+    tokens = EDITING.set(name), TAKEN_IDS.set(taken), BATCHING.set(name)
     WENT.clear()
     if dry:
         REHEARSING.add(name)
     try:
-        yield after
+        yield lines
         mine, effects = load(name), AFTER_SAVE[name]
     except BaseException:
         released(taken)
@@ -5220,6 +5220,7 @@ def batch(name: str, dry: bool = False) -> Iterator[list[str]]:
         REHEARSING.discard(name)
         EDITING.reset(tokens[0])
         TAKEN_IDS.reset(tokens[1])
+        BATCHING.reset(tokens[2])
     if dry:
         return
     try:
@@ -5230,14 +5231,19 @@ def batch(name: str, dry: bool = False) -> Iterator[list[str]]:
             f"refused, nothing kept: another write changed {'.'.join(raced.args[0])} differently while this call ran, so send it again"
             + (f" once you have checked what it started as it ran: {', '.join(dict.fromkeys(WENT))}" if WENT else "")
         ) from None
+    ran(effects, lines)
+
+
+def ran(effects: list[Callable[[], list[str]]], lines: list[str]) -> None:
+    """Run each effect a committed write or batch left, in the order it left them, adding the lines each prints to lines, every one running even when one before it failed, since the drive keeps the commit whatever they do, so none runs the change again or says nothing was kept; the failures raised together once all ran, after the lines of the rest."""
     failed: list[str] = []
     for effect in effects:
         try:
-            after += effect()
+            lines += effect()
         except DriveError as error:
             failed.append(str(error))
     if failed:
-        raise DriveError("\n".join([*after, *failed]))
+        raise DriveError("\n".join([*lines, *failed]))
 
 
 def merged(base: object, mine: object, now: object, path: tuple[str, ...] = ()) -> object:
@@ -5259,15 +5265,23 @@ def unrehearsed(name: str, run: Callable[[], str], stand_in: str) -> str:
     return stand_in if name in REHEARSING else run()
 
 
-def after_save(name: str, effect: Callable[[], list[str]]) -> list[str]:
-    """Run what a write does outside the drive, such as withdrawing a card of his: now, or inside a batch once its save lands, or inside a write's change once its commit lands, by write; the lines it prints now."""
-    if name in AFTER_SAVE:
-        AFTER_SAVE[name].append(effect)
-        return []
+def after(effect: Callable[[], list[str]]) -> list[str]:
+    """Run what a write does outside the drive, such as withdrawing a card of his: inside a write's change once that run's commit lands, by write, dropped with a run refused or raced, else inside a batch once its save lands, or now outside both; the lines it prints now, none when it waits, since a deferred effect's lines go to the batch's list or nowhere. Effects run in the order one write left them, but in no order across processes, since another write may commit and run its own between this one's commit and its effects."""
     if (attempt := ATTEMPT.get()) is not None:
         attempt.effects.append(effect)
         return []
+    if (batched := BATCHING.get()) is not None:
+        AFTER_SAVE[batched].append(effect)
+        return []
     return effect()
+
+
+def after_save(name: str, effect: Callable[[], list[str]]) -> list[str]:
+    """Run what a write does outside the drive by after, but for a batch of name open outside any write's change, which keeps it for its save; each call moves to after."""
+    if ATTEMPT.get() is None and name in AFTER_SAVE:
+        AFTER_SAVE[name].append(effect)
+        return []
+    return after(effect)
 
 
 def update_or_create[T](name: str, fresh: dict, change: Callable[[dict], T]) -> T:
