@@ -4665,6 +4665,16 @@ def test_a_job_waiting_on_a_codex_job_holds_through_its_handoff_a_pointer_report
     ]
 
 
+def test_a_full_cap_gives_turns_to_the_workstream_he_moved_last_and_pauses_the_one_he_touched_longest_ago(demo: str) -> None:
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text="fix the card", jobs=["j10"]) | {"project": "Iris", "workstream": "Run page", "updated": state.stamp(T0 - timedelta(days=2))}
+        data["orders"]["o3"] = order(text="fix the watch", jobs=["j11"]) | {"project": "Iris", "workstream": "Search", "updated": state.stamp(T0)}
+        for job_id, order_id in (("j10", "o2"), ("j11", "o3")):
+            data["jobs"][job_id] = job(order=order_id, session="session-under-test", created=state.stamp(T0 - timedelta(minutes=10)))
+            place.queue(data["jobs"][job_id], T0)
+    assert place.positions(state.load(demo)) == {"j11": "1 of 2 in line", "j10": "2 of 2 in line, Iris / Run page paused behind Iris / Search until a slot frees"}
+
+
 def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_the_earliest_due_once_as_each_slot_opens_while_old_held_work_holds_none(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
