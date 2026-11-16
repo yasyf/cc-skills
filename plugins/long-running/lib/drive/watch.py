@@ -135,7 +135,6 @@ BOX_SWEEP = timedelta(hours=1)
 BOX_LIST_SECONDS = 120
 LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
-OWED_HAND = timedelta(minutes=10)
 COMMUNICATOR_IDLE = timedelta(hours=2)
 REPLY_READ = 100
 SETTLING = ""
@@ -1244,9 +1243,9 @@ def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
         if state.watch_posts_itself(closing[order_id]):
             continue
         try:
-            agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'reporter-{seq}'}")
-        except state.DriveError as error:
-            lines += failed(watcher, f"reporter {order_id}", f"hand-off of the line {order_id}'s reporters get once its fix is live", error, moment)
+            state.detach(watcher.name, ["report-post", seq], POSTS_LOG)
+        except OSError as error:
+            lines += failed(watcher, f"reporter {order_id}", f"post of the line {order_id}'s reporters get once its fix is live", error, moment)
     return lines + proved_lines(watcher, moment)
 
 
@@ -1331,11 +1330,11 @@ def closed(watcher: Watcher, head: str, links: list[str], fix: str, moment: date
     try:
         said = talk.watch_line(watcher.name, live)
     except (slack.SlackError, state.DriveError) as error:
-        lines = failed(watcher, f"live line {head}", f"Live line of {head}, left to the communicator", error, moment)
+        lines = failed(watcher, f"live line {head}", f"Live line of {head}, posted from its record instead", error, moment)
         try:
-            agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'live-{seq}'}")
-        except state.DriveError as failure:
-            lines += failed(watcher, f"live hand-off {head}", f"hand-off of the Live line of {head}", failure, moment)
+            state.detach(watcher.name, ["report-post", seq], POSTS_LOG)
+        except OSError as failure:
+            lines += failed(watcher, f"live post {head}", f"post of the Live line of {head} from its record", failure, moment)
     with state.edit(watcher.name) as data:
         for order_id in group:
             data["orders"][order_id]["recovered"] = state.stamp(moment)
@@ -2849,7 +2848,7 @@ def watched_report(watcher: Watcher, order_id: str, order: dict) -> str | None:
 
 
 def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Get each message of his answered that `cc-slack dm-owed` lists, in his DM and each operator channel, since no post answering it named it as asked, as an ack never does, while the session this drive's handlers run beside holds his DM, so the drive owes it: at once, `drive route` detached on each no route or answer claimed yet, whose one Jev call sends it to the coordinator, a seat, a handler or the communicator's answer from the drive's rows; two minutes on, the watch hands it as a message of his to the live handler holding its thread each read until it starts one of its own on it, which it does once, and ten minutes on writes one report for the handler in its thread to say there what the answer waits on. Each handler starts detached, as the handler tool starts one, so a read owing many messages hands and reports each in seconds, never waiting on one `claude --bg` launch after another while the messages after it go stale. An open order the message started is left to that order's own lines. The drive keeps each message's marks while cc-slack owes it, so a watch restart hands nothing twice. A failed read or write is said as a failed read is and tried again next read; a launch that fails tells the session the handlers run beside, as the handler tool's does."""
+    """Keep each message of his `cc-slack dm-owed` lists, in his DM and each operator channel, while the session holding his DM owes it, as the drive's owed replies a communicator's compaction and reload wait on, and start the seat communicator his message in its channel wants; the communicator already holds each such message from cc-slack, so none is handed to it again. A failed read is said as a failed read is and tried again next read."""
     if watcher.project:
         return []
     data = state.load(watcher.name)
@@ -2864,30 +2863,7 @@ def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
             return data
 
         data = state.update(watcher.name, None, owed_lines_write)
-    lines = communicators_wanted(watcher, data, replies, moment)
-    data = state.load(watcher.name)
-    for reply in replies:
-        channel, ts, thread = state.slack_message(reply["permalink"])
-        owed_for = moment - slack.sent_at(reply)
-        mark = marks[ts]
-        if owed_for < OWED_HAND or state.started_order(data, channel, ts) in state.open_orders(data):
-            continue
-        source = f"owed {ts}"
-        seat = state.channel_seat(data, channel)
-        lane = state.communicator_lane(seat) if seat in data["communicators"] else "communicator"
-        try:
-            if not mark["handed"]:
-                agents.handle(watcher.name, owed_brief(watcher.name, reply, channel, thread), lane)
-
-                def owed_lines_write2(saved: dict):
-                    saved["owed_replies"][ts]["handed"] = True
-
-                state.update(watcher.name, None, owed_lines_write2)
-        except (reads.ReadError, state.DriveError) as error:
-            lines += failed(watcher, source, f"answer of his message {reply['permalink']}, owed {minutes(owed_for)} minutes", error, moment)
-            continue
-        watcher.failures.pop(source, None)
-    return lines
+    return communicators_wanted(watcher, data, replies, moment)
 
 
 def communicators_wanted(watcher: Watcher, data: dict, replies: list[dict], moment: datetime) -> list[str]:
@@ -2932,14 +2908,6 @@ def retire_communicator(name: str, seat: str) -> str:
 
     state.update(name, None, retire_communicator_write)
     return f"retired the communicator for {seat}, session {session}: its channel #{data['slack']['channels'][seat]['name']} had no message of his owed for {minutes(COMMUNICATOR_IDLE)} minutes, so the drive's communicator holds it again until his next message there starts one"
-
-
-def owed_brief(name: str, reply: dict, channel: str, thread: str) -> str:
-    scratch = state.drive_dir(name) / "scratch" / f"owed-{reply['ts']}"
-    return (
-        f"Message (his words): {reply['text']}\nLink: {reply['permalink']}\nThread: {channel} {thread}\nDrive: {name}\nScratch: {scratch}\n"
-        f"Context: cc-slack has owed him an answer to this message since {when(state.stamp(slack.sent_at(reply)))}, since no post answering it named it as asked"
-    )
 
 
 def incident_pr_lines(name: str, group: list[str]) -> list[str]:

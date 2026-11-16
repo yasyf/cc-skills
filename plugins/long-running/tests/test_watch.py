@@ -1467,52 +1467,17 @@ def owed_reply(moment: datetime, text: str, thread: str | None = HIS_THREAD) -> 
     return {"ts": ts, "thread_ts": thread or ts, "text": text, "permalink": f"{link}?thread_ts={thread}&cid=D123" if thread else link}
 
 
-def owed_brief(demo: str, reply: dict) -> str:
-    return (
-        f"Message (his words): {reply['text']}\nLink: {reply['permalink']}\nThread: D123 {reply['thread_ts']}\nDrive: {demo}\n"
-        f"Scratch: {state.drive_dir(demo) / 'scratch' / f'owed-{reply['ts']}'}\n"
-        f"Context: cc-slack has owed him an answer to this message since {watch.when(state.stamp(slack.sent_at(reply)))}, since no post answering it named it as asked"
-    )
-
-
-def test_a_message_of_his_cc_slack_owes_is_handed_to_the_communicator_once_ten_minutes_on_and_is_forgotten_once_answered(
-    demo: str, monkeypatch: pytest.MonkeyPatch, owed_replies: list[dict]
-) -> None:
+def test_a_message_of_his_cc_slack_owes_is_kept_while_owed_and_sends_the_communicator_nothing(demo: str, monkeypatch: pytest.MonkeyPatch, owed_replies: list[dict]) -> None:
     calls = catching_up(monkeypatch, demo)
     asked = owed_reply(T0, "why did the release stop?")
     owed_replies.append(asked)
     watching = watcher(demo)
-    assert REAL_OWED(watching, T0 + timedelta(minutes=9, seconds=59)) == []
-    assert calls == []
-    assert REAL_OWED(watching, T0 + timedelta(minutes=10)) == []
-    [(start, _)] = calls
-    assert start[-1] == "ANSWER THIS: " + owed_brief(demo, asked)
-    assert REAL_OWED(watching, T0 + timedelta(minutes=11)) == []
-    assert len(calls) == 1
     assert REAL_OWED(watching, T0 + timedelta(minutes=30)) == []
-    assert len(calls) == 1
-    assert state.load(demo)["owed_replies"] == {asked["ts"]: {"handed": True, "lined": None}}
+    assert calls == []
+    assert state.load(demo)["owed_replies"] == {asked["ts"]: {"handed": False, "lined": None}}
     owed_replies.clear()
     assert REAL_OWED(watching, T0 + timedelta(minutes=31)) == []
     assert state.load(demo)["owed_replies"] == {}
-
-
-def test_a_message_of_his_that_started_an_open_order_is_left_to_its_lines_and_handed_once_the_order_ends_still_owed(
-    demo: str, monkeypatch: pytest.MonkeyPatch, owed_replies: list[dict]
-) -> None:
-    calls = catching_up(monkeypatch, demo)
-    asked = owed_reply(T0, "ship the watch")
-    owed_replies.append(asked)
-    with state.edit(demo) as data:
-        data["orders"]["o1"]["from"] = f"slack:D123/{asked['ts']}"
-    watching = watcher(demo)
-    assert REAL_OWED(watching, T0 + timedelta(minutes=30)) == []
-    assert calls == []
-    with state.edit(demo) as data:
-        data["orders"]["o1"]["state"] = "done"
-    assert REAL_OWED(watching, T0 + timedelta(minutes=31)) == []
-    [(start, _)] = calls
-    assert start[-1] == "ANSWER THIS: " + owed_brief(demo, asked)
 
 
 def test_a_dm_owed_read_that_fails_is_said_from_its_third_failure_in_a_row_and_a_project_watch_reads_none(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -65,25 +65,6 @@ def watch_line(name: str, post: dict) -> str:
     return spoken(name, post, state.load(name))
 
 
-REPORT_SYSTEM = """You turn a report a session of a software drive wrote into the one Slack post its owner reads. You get the report's words, which may carry notes to whoever posts it, such as where it goes or what to do if a post is refused.
-
-Reply with exactly one of these two shapes and nothing else:
-
-ANSWER
-<the post>
-
-ESCALATE <a few words on why>
-
-Escalate when the report asks the poster to decide or do something besides posting, such as answer a teammate, close or open work, or pick between places, or when it holds no news for him.
-
-The post:
-- the report's own facts, never one it does not state; drop every note to the poster, such as where the post goes;
-- opens with one plain sentence saying what changed for him; past about 60 words, short parts under bold headings such as *What changed:*, *What happens next:*, *What needs you:*; lists as bullets; no paragraph over three sentences;
-- every link in Slack form <url|plain words saying what it opens>, using only links the report prints; keep each {record:…|…}, {pr:…}, {card:…} and {order:…} reference exactly as the report writes it;
-- times as the report writes them in Pacific, never a UTC stamp;
-- no job or order id such as j7059 or o1339, no record seq, and none of the drive's own words: handler, record, lane, job, order, builder, reader, POST."""
-
-
 def report_words(report: dict) -> str:
     """A report's whole words: its text, or the blob cci keeps of a text past 400 characters, which holds all of it."""
     path = (report.get("refs") or {}).get("path")
@@ -91,44 +72,43 @@ def report_words(report: dict) -> str:
 
 
 def report_line(name: str, seq: str) -> str:
-    """Post a `POST` report the drive's watch keeps for him, from a process of its own the watch starts, so no message of his waits behind the communicator posting it: one stateless Sonnet call, answer.ask, turns the report's words into the post, dropping its notes to the poster, then each mechanical `cc-slack check-post` fix is made by fixes.mended and the post goes out through say, citing the report, in the thread its thread attr names or the thread of his message it answers, else where say puts a post of its order. A correction, which rewords an earlier post, a report answering teammates in a thread an order watches, a post at the root or in a thread of a channel outside his DM, the operator channels and the channels the drive keeps, a report the model escalates, a link the report does not print and words check-post still finds fault with go to the communicator, as this refusal says."""
-    from drive import answer, fixes
+    """Post a `POST` report for him from the drive itself, a scripted say from a process the watch starts, so no session posts it and no message of his waits behind one: the report's own words, its POST taken off, each mechanical `cc-slack check-post` fix made by fixes.mended, citing the report, in the thread its thread attr names or the thread of his message it answers, else where say puts a post of its order; a correction rewords the post its report went out in; then each order its close attr names closes on it. A report check-post still finds fault with posts nothing, and its refusal goes back to the session that wrote it, by report_post."""
+    from drive import fixes
 
     read = agents.answered(seq)
     attrs, report = read["attrs"], read["report"]
-    if report["kind"] == "correction" or attrs.get("watch") == "true" or agents.rooted(attrs):
-        raise DriveError(f"nothing posted: report {seq} is a correction, an answer to teammates in a watched thread or a post at another channel's root, which the communicator writes")
     known = state.load(name)
-    place = {}
-    if thread := attrs.get("thread") or read["thread"]:
-        if channel := outside(known, thread):
-            raise DriveError(f"nothing posted: report {seq}'s line goes in a thread of {channel}, which cc-slack's Slack permission hook judges for a say call")
-        place = {"thread_ts": thread} | ({"channel_id": channel} if (channel := attrs.get("channel") or kept_in(known, thread)) else {})
-    words = report_words(report)
-    said, _ = answer.ask(words, f"Turn report {seq} into his post.", REPORT_SYSTEM, "ask")
-    head, _, rest = said.partition("\n")
-    if head.strip().rstrip(":") != answer.ANSWER:
-        raise DriveError(f"nothing posted: the post of report {seq} was not written: {said.removeprefix(answer.ESCALATE).strip()}")
-    text = rest.strip()
-    if strays := [url for url in answer.URL.findall(text) if url not in words]:
-        raise DriveError(f"nothing posted: the post of report {seq} links {strays[0]}, which the report does not print")
+    text = report_words(report).removeprefix("POST").strip()
     if f"{{record:{seq}|" not in text:
         text = f"{text} ({{record:{seq}|its facts}})"
     if findings := slack.post_findings(text, False):
         text = fixes.mended(text, findings, state.now())
         if findings := slack.post_findings(text, False):
-            raise DriveError(f"nothing posted: `cc-slack check-post` still finds in the post of report {seq}: {' | '.join(findings)}")
+            raise DriveError(f"`cc-slack check-post` still finds in its words: {' | '.join(findings)}; send the post's words again with each fixed")
+    if report["kind"] == "correction":
+        if not (link := known["carried"].get(str(report.get("re") or "")) or "").startswith("https://"):
+            raise DriveError(f"it corrects report {report.get('re')}, which went out in no post")
+        return spoken(name, {"edit": link, "text": text}, known)
+    place = {}
+    if thread := attrs.get("thread") or read["thread"]:
+        place = {"thread_ts": thread} | ({"channel_id": channel} if (channel := attrs.get("channel") or kept_in(known, thread) or outside(known, thread)) else {})
+    elif attrs.get("channel"):
+        place = {"channel_id": attrs["channel"]}
     line = spoken(name, {"text": text, "record": seq} | place, known)
     return line + "".join(closed(name, order_id, seq) for order_id in state.closed_orders(attrs) if state.load(name)["orders"][order_id]["state"] not in state.CLOSED_ORDER_STATES)
 
 
 def report_post(name: str, seq: str) -> str:
-    """`drive report-post`: post the report by report_line, or hand it to the communicator with why the watch could not, as one ANSWER THIS note."""
+    """`drive report-post`: post the report by report_line, or send why it posted nothing back to the session that wrote it, as a refused record re the report, so that session sends it again fixed; one the watch wrote goes to the meta session as a defect."""
+    from drive import tools
+
     try:
-        return f"report {seq} posted by the watch: {report_line(name, seq)}"
-    except Exception as error:
-        agents.handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'post-{seq}'} Why the watch did not post it: {error}")
-        return f"report {seq} handed to the communicator: {error}"
+        return f"report {seq} posted by the drive: {report_line(name, seq)}"
+    except (DriveError, slack.SlackError) as error:
+        writer = agents.shown(seq)["lane"]
+        made = {"kind": "defect", "to": [f"meta@{name}"]} if writer == "watch" else {"kind": "refused", "re": [seq], "to": [f"{writer}@{name}"]}
+        tools.sent(name, "watch", [limits.shortened(made | {"text": f"report {seq} posted nothing: {error}"}) or made | {"text": f"report {seq} posted nothing: {error}"}])
+        return f"report {seq} sent back to {made['to'][0]}: {error}"
 
 
 def hook_refusal(name: str, data: dict, post: dict) -> str | None:

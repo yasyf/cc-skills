@@ -18,7 +18,7 @@ FANNED = (
     " or blocker whose words name each lane's step goes to several. Pick the lane that acts, or post one record per lane that has its own step"
 )
 OPENING = re.compile(r"(?:POST|FYI)\b")
-UNOPENED = "refused: a report's text opens `POST`, for the communicator to post, or `FYI`, kept as context; add the one it is"
+UNOPENED = "refused: a report's text opens `POST`, for the drive to post as its words stand, or `FYI`, kept as context; add the one it is"
 UNFINISHED = (
     "record_lines: this POST report goes out naming nothing its post finishes, so the communicator closes no order; `--attr close=<o,…>`"
     " names each order it finishes{about}, `--attr part=<o>:<part>` the part it delivers{parts}, and `--attr progress=true` a progress line"

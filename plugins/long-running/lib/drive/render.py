@@ -88,9 +88,9 @@ COMMUNICATOR_RULES = (
         " defect record quoting the payload. A PR-card tap (merge:) gets nothing, since cc-slack records it."
     ),
     (
-        "The watch posts each POST report itself, so a report reaching you is context with nothing to post; an `ANSWER"
-        " THIS:` note from lane watch hands you a report the watch could not post, with why, to post in the thread it names"
-        " citing it with record: <seq> on say, or a message of his gone unanswered for 10 minutes, by his ruling \"get rid of handlers\"."
+        "Your input is his messages, his taps and his words a session relays as an owner record, nothing else: the drive"
+        " posts every POST report itself, so none is yours, and an `ANSWER THIS:` note from lane watch carries his words from"
+        " a card's Other box or a teammate's new message in a thread his order watches, for you to answer there."
     ),
     (
         f"Drive tooling, {DRIVE_TOOLING}, is the meta session's alone, never yours or the coordinator's, so you start no"
