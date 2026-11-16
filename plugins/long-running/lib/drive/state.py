@@ -1070,7 +1070,7 @@ def connect(path: Path) -> sqlite3.Connection:
 def bound(data: dict) -> dict:
     """The drive's bindings brought up to the fields this install reads."""
     if "driver" in data:
-        data["roles"] = {"coordinator": data.pop("driver")}
+        data["roles"] = {"coordinator": data.pop("driver")} | data.get("roles", {})
     data.setdefault("subcoordinators", {})
     data.setdefault("communicators", {})
     data.setdefault("launched", {})
@@ -1991,6 +1991,9 @@ def migrate(name: str) -> None:
     """Make each one-time change to the drive's files that an older install's drive still owes, each skipped once its mark exists; `drive install` runs it from the new install before any session reloads onto it and `drive start` on the drive it makes, and two at once take turns, the second finding each mark written."""
     with flocked(drive_dir(name) / ".migrate.lock"):
         data = load(name)
+        if "driver" in stored(name, ("driver",)):
+            with writing(name):
+                save(name, load(name))
         if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
             picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
         if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():

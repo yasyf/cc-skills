@@ -18,7 +18,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import HomeBuild, HomeRepo, SelectRelease, provide, ACME_CUT, CARD_BODY, card_reads, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, Redraws, SessionLaunches, Thread, WatchProcess, Withdrawals, own_time
+from conftest import HomeBuild, HomeRepo, SelectRelease, provide, ACME_CUT, CARD_BODY, card_reads, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SEEDED_READER, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, Redraws, SessionLaunches, Thread, WatchProcess, Withdrawals, own_time
 from drive import (
     agents,
     brief,
@@ -661,17 +661,17 @@ def test_context_refuses_a_session_with_no_role(run: Run, demo: str, monkeypatch
     assert run("context")[0] == 2
 
 
-def test_start_holds_the_lock_across_its_existence_check(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    unpatched = state.locked
+def test_a_start_whose_drive_another_start_made_while_it_built_one_joins_that_drive(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    unpatched = state.built
 
-    def rival_starts_while_this_one_waits(name: str):
-        monkeypatch.setattr(state, "locked", unpatched)
+    def rival_starts_while_this_one_builds(name: str, data: dict) -> Path:
+        monkeypatch.setattr(state, "built", unpatched)
         rival = state.new_drive(name, "communicator", "rival-session", "/rival")
         rival["orders"]["o1"] = {"text": "the rival's order", "state": "open", "due": None, "jobs": []}
         state.create(rival)
-        return unpatched(name)
+        return unpatched(name, data)
 
-    monkeypatch.setattr(state, "locked", rival_starts_while_this_one_waits)
+    monkeypatch.setattr(state, "built", rival_starts_while_this_one_builds)
     assert run("start", "demo", "--role", "coordinator")[0] == 0
     data = state.load("demo")
     assert data["orders"]["o1"]["text"] == "the rival's order"
@@ -9076,11 +9076,9 @@ def test_status_reads_the_prs_from_the_drive_and_never_from_github(run: Run, wit
 def test_an_urgent_part_starts_its_design_past_the_caps_and_a_design_waiting_30_minutes_after_its_reader_is_flagged(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     part = "Every blob goes through blobstore to one folder"
     run("order", "add", "--title", "Blobs", "--project", "The drive", "--workstream", "Drive tooling", "every blob through blobstore", "--parts", part)
-    run("job", "add", "reader", "--order", "o1", "--part", part, "--goal", "research the blob writers")
     run("job", "add", "design", "--order", "o1", "--part", part, "--goal", "design the move")
     data = state.load(demo)
-    design = next(job_id for job_id, job in data["jobs"].items() if job["kind"] == "design")
-    reader = next(job_id for job_id, job in data["jobs"].items() if job["kind"] == "reader")
+    design, reader = next(job_id for job_id, job in data["jobs"].items() if job["kind"] == "design"), SEEDED_READER
     assert place.preempts(data, data["jobs"][design]) is False
     assert run("order", "set", "o1", "--urgent")[0] != 0
     assert run("order", "set", "o1", "--part", part, "--urgent")[0] == 0
