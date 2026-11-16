@@ -436,7 +436,7 @@ def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
         return []
     at = state.stamp()
 
-    def stop_landings(data: dict) -> tuple[dict[object, list[str]], dict[tuple[str, ...], tuple[state.Reservation, state.Reservation, str]], dict[tuple[str, ...], tuple[state.Reservation, str]]]:
+    def stop_landings(data: dict) -> tuple[dict[object, list[str]], dict[tuple[str, ...], tuple[state.Reservation | int, state.Reservation, str]], dict[tuple[str, ...], tuple[state.Reservation, str]]]:
         stopped = held_landings(data, keys, cards, away)
         under = unders(data)
         units = {tried: sorted((key for key, pr in data["prs"].items() if landing(pr) and attempt(pr["lander"]) == tried), key=lambda key: len(chain(under, key))) for tried in stopped}
@@ -447,7 +447,8 @@ def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
                 if stop := state.reserve(data, tuple(("prs", key, "lander", "stop") for key in unit)):
                     for key in unit:
                         data["prs"][key]["lander"]["stop"] |= {"at": at}
-                    kills[tuple(unit)] = (state.Reservation(lander["token"], tuple(map(tuple, lander["members"]))), stop, stopped[tried])
+                    target = state.Reservation(lander["token"], tuple(map(tuple, lander["members"]))) if "token" in lander else lander["pid"]
+                    kills[tuple(unit)] = (target, stop, stopped[tried])
                 continue
             if dequeuer := state.reserve(data, tuple(("prs", key, "lander", "dequeue") for key in unit)):
                 for key in unit:
@@ -468,11 +469,15 @@ def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
 
     unlaunched = {unit: dequeuer for unit, (dequeuer, _) in dequeues.items()}
     try:
-        for unit, (reservation, stop, _) in kills.items():
+        for unit, (target, stop, _) in kills.items():
             if not state.adopt(name, stop.members[0], stop.token):
                 continue
-            if (child := state.cancel(name, reservation)) and state.lives(child):
-                os.killpg(child[0], signal.SIGTERM)
+            if isinstance(target, state.Reservation):
+                if (child := state.cancel(name, target)) and state.lives(child):
+                    os.killpg(child[0], signal.SIGTERM)
+            # TODO: delete the pid branch once no lander an install before reservations started still runs
+            elif state.alive(target):
+                os.killpg(target, signal.SIGTERM)
             signalled.add(unit)
         for unit, (dequeuer, why) in dequeues.items():
             pid = unqueue(name, list(unit), why, dequeuer.token)
