@@ -291,7 +291,9 @@ LOADED_VERSION: ContextVar[int | None] = ContextVar("loaded_version", default=No
 EDITING: ContextVar[str | None] = ContextVar("editing", default=None)
 HELD_SCOPES: set[tuple[int, Path]] = set()
 PTHREADS = ctypes.CDLL(None, use_errno=True)
-PTHREADS.qos_class_self.restype = ctypes.c_uint
+QOS = sys.platform == "darwin"
+if QOS:
+    PTHREADS.qos_class_self.restype = ctypes.c_uint
 QOS_USER_INTERACTIVE = 0x21
 QOS_DEFAULT = 0x15
 BATCHED: dict[str, bytes] = {}
@@ -4346,7 +4348,10 @@ def locked(name: str) -> Iterator[None]:
 
 @contextmanager
 def foremost() -> Iterator[None]:
-    """Run this thread at macOS's user-interactive QoS while it holds the drive's lock, then at the QoS it ran at before, so on a Mac whose cores every session's processes keep busy the scheduler runs the one holder every writer of the drive waits on first, instead of sharing its cores evenly with the processes that wait."""
+    """Run this thread, on macOS alone, whose libc has QoS classes, at its user-interactive QoS while it holds the drive's lock, then at the QoS it ran at before, so on a Mac whose cores every session's processes keep busy the scheduler runs the one holder every writer of the drive waits on first, instead of sharing its cores evenly with the processes that wait."""
+    if not QOS:
+        yield
+        return
     was = PTHREADS.qos_class_self()
     PTHREADS.pthread_set_qos_class_self_np(QOS_USER_INTERACTIVE, 0)
     try:
