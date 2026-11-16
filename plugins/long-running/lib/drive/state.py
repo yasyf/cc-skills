@@ -2037,15 +2037,24 @@ def record_lane_worktrees(name: str, data: dict) -> None:
     from drive import orca
 
     if unrecorded := [job_id for job_id, job in data["jobs"].items() if on_mac(job) and job.get("dispatch") and not job["worktree"] and job["state"] not in FINISHED_JOB_STATES and not lane_death(job)]:
-        with edit(name) as data:
-            for job_id in unrecorded:
-                job = data["jobs"][job_id]
-                try:
-                    job["worktree"] = orca.worktree_path(orca.worker(job["dispatch"])["worker"]["startOptions"]["worktree"])
-                except orca.OrcaError as error:
-                    if not (why := orca.gone(error)):
-                        raise
-                    lane_died(job, job["dispatch"], why, now())
+        found: dict[str, tuple[str, str | None, str | None]] = {}
+        for job_id in unrecorded:
+            dispatch = data["jobs"][job_id]["dispatch"]
+            try:
+                found[job_id] = (dispatch, orca.worktree_path(orca.worker(dispatch)["worker"]["startOptions"]["worktree"]), None)
+            except orca.OrcaError as error:
+                if not (why := orca.gone(error)):
+                    raise
+                found[job_id] = (dispatch, None, why)
+
+        def lanes_recorded(data: dict) -> None:
+            for job_id, (dispatch, worktree, why) in found.items():
+                if why:
+                    lane_died(data["jobs"][job_id], dispatch, why, now())
+                else:
+                    data["jobs"][job_id]["worktree"] = worktree
+
+        update(name, None, lanes_recorded)
     (drive_dir(name) / LANE_WORKTREES).touch()
 
 
