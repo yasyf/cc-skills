@@ -44,6 +44,7 @@ OWN_FAILURE = "the lander could not"
 NO_ENQUEUE = f"{OWN_FAILURE} finish the merge queue's script"
 NO_DEQUEUE = f"{OWN_FAILURE} take"
 ENQUEUE_FAILED = 5
+FAILED_LINE = re.compile(r"\b(?:error|errno|fatal|failed|failure|refused|denied|panic|traceback|exit(?:ed)?(?: with)?(?: code| status)? \d+)\b", re.IGNORECASE)
 NETWORK_BLIP = re.compile(r"timed out|Recv failure|unable to access|Could not resolve host|Failed to connect|Connection (?:refused|reset|closed)", re.IGNORECASE)
 HELD = "not landed while he holds it"
 WAITED = "not landed while it waits"
@@ -796,7 +797,11 @@ def halted(signum: int, frame: object) -> None:
 
 
 def said(output: str) -> str:
-    return cut("; ".join([line for line in output.splitlines() if line.strip()][-SAID_LINES:]), SAID_CHARS)
+    """What a command's output says to quote: its last line naming an error or an exit code, the line that failed, whole as SAID_CHARS allows, since a script prints its steps after or around it; else its last SAID_LINES lines."""
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    if failed := next((line for line in reversed(lines) if FAILED_LINE.search(line)), None):
+        return cut(failed, SAID_CHARS)
+    return cut("; ".join(lines[-SAID_LINES:]), SAID_CHARS)
 
 
 def enqueued(name: str, coordinator: Path, enqueue: str, keys: list[str], prs: dict, asked: dict[str, str], dry_run: bool = False, flake: bool = False) -> str:

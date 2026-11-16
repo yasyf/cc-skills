@@ -12581,3 +12581,11 @@ def test_a_retired_seat_communicator_is_told_its_seat_is_retired_and_how_to_reac
     watch.retire_communicator(demo, "Priority o9")
     assert sent == [(watch.LANE, [{"kind": "note", "to": [f"{state.communicator_lane('Priority o9')}@{demo}"], "text": watch.RETIRED_SEAT}])]
     assert "Priority o9" not in state.load(demo, ("communicators",))["communicators"]
+
+
+def test_a_landers_failure_quotes_the_line_that_failed_never_the_steps_its_script_printed_around_it_as_734994_did() -> None:
+    failed = "stack-enqueue failed: git ls-remote failed with exit 128: fatal: unable to access 'https://github.com/Forge-AI/monorepo/': Recv failure: Operation timed out"
+    steps = [f"#56314 CHECK 758efba032 merge preflight 758efba032 with dev f9e87ddafa: {step}" for step in ("bun install --cwd infra --frozen-lockfile", "bun infra/generate.ts", "infra/ci/node_modules/.bin/tsc --noEmit -p infra/ci/tsconfig.json")]
+    quoted = land.said("\n".join([*steps, failed, *steps[:1]]))
+    outcome = f"{land.NO_ENQUEUE} --check on {KEY}, which exited 5 on a failure of its own: {quoted}"
+    assert (quoted, land.blip(outcome), land.said("\n".join(steps))) == (failed, True, land.cut("; ".join(steps), land.SAID_CHARS))
