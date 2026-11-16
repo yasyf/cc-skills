@@ -1085,11 +1085,8 @@ def unit_done(data: dict, job_id: str, order_id: str) -> bool:
 def said_on_prs(name: str, data: dict, job_id: str, keys: list[str], change: str) -> None:
     order_id = data["jobs"][job_id]["order"]
     lane = state.heard_lane(data, order_id)
-    if not keys:
-        state.append_event(name, "proof", job=job_id, order=order_id, change=change, lane=lane)
-    for key in keys:
-        merged_in, number = key.split("#")
-        state.append_event(name, "proof", repo=merged_in, number=int(number), change=change, lane=lane)
+    events = [{"repo": merged_in, "number": int(number)} for merged_in, number in (key.split("#") for key in keys)] or [{"job": job_id, "order": order_id}]
+    state.after_save(name, lambda: [state.append_event(name, "proof", **event, change=change, lane=lane) for event in events] and [])
 
 
 def merged_done(name: str, data: dict, job_id: str) -> None:
@@ -1422,7 +1419,8 @@ def unit_kept(name: str, job_id: str, order_id: str, repro: str, code: int | str
     kept = state.proof_path(name, job_id, order_id)
     kept.parent.mkdir(exist_ok=True)
     kept.write_text(output)
-    with state.edit(name) as data:
+
+    def kept_unit(data: dict) -> None:
         job = data["jobs"][job_id]
         keys = [key for key in proved_prs(data, job_id) if data["prs"][key].get("order") == order_id]
         units = job.setdefault("units", {})
@@ -1441,7 +1439,9 @@ def unit_kept(name: str, job_id: str, order_id: str, repro: str, code: int | str
         else:
             units[order_id] = {"failed": f"exits {code} on {versions}: {quoted(output)}", "at": state.stamp()}
             change = f"{PROOF_FAILED}: {order_id}'s {repro} exits {code} on {versions}, its output {kept}: {quoted(output)[:SAID_CHARS]}"
-    said_on_prs(name, data, job_id, keys, change)
+        said_on_prs(name, data, job_id, keys, change)
+
+    state.update(name, None, kept_unit)
 
 
 def after_steps(name: str, steps: list[str], path: str, timeout: int) -> tuple[str, tuple[str, str] | None]:
