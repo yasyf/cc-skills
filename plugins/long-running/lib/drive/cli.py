@@ -1407,7 +1407,7 @@ def owed_list(args: argparse.Namespace) -> int:
 def owed_due(args: argparse.Namespace) -> int:
     """Name a new due for an owed item, keeping its misses, so moving a due never resets who is woken next."""
     name = state.resolve(args.drive)
-    by = state.parse_time(args.by)
+    by = state.parse_due(args.by)
 
     def due_write(data: dict) -> str:
         order_id, item = owing.find(data, args.id)
@@ -1427,8 +1427,8 @@ def owed_add(args: argparse.Namespace) -> int:
         if args.card not in data["jobs"]:
             raise DriveError(f"--card {args.card}: no job has that id")
         order_id = data["jobs"][args.card]["order"]
-        item_id = owing.add(data, order_id, owing.CARD, args.what, state.parse_time(args.due), {"card": args.card}, args.source, state.now(), args.card)
-        return f"{item_id} on {order_id}: card \"{args.what}\" from {args.card}, due {render.when(args.due)}"
+        item_id = owing.add(data, order_id, owing.CARD, args.what, due := state.parse_due(args.due), {"card": args.card}, args.source, state.now(), args.card)
+        return f"{item_id} on {order_id}: card \"{args.what}\" from {args.card}, due {render.when(state.stamp(due))}"
 
     return emit(args, state.write(name, add_write), {"card": args.card})
 
@@ -1440,7 +1440,7 @@ def owed_revert(args: argparse.Namespace) -> int:
     def revert_write(data: dict) -> str:
         if args.answer not in data["answers"]:
             raise DriveError(f"{args.answer}: no answer of his has that id")
-        opened = owing.reverted(data, args.answer, args.link, state.parse_time(args.due), state.now(), [])
+        opened = owing.reverted(data, args.answer, args.link, state.parse_due(args.due), state.now(), [])
         return f"{args.answer} undone: " + (", ".join(opened) + " owed" if opened else "no job acted on it, so nothing is owed")
 
     return emit(args, state.write(name, revert_write), {"answer": args.answer})
@@ -7883,18 +7883,18 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=owed_list)
     verb = owed.add_parser("due", parents=both, help="name a new due for an owed item; its misses stay, so the coordinator and then he still hear of the next")
     verb.add_argument("id", help="the owed item, as w<n>")
-    verb.add_argument("--by", required=True, help="the RFC 3339 time it is now due")
+    verb.add_argument("--by", required=True, help="when it is now due: a clock time such as 12:05 PM, +20m, or RFC 3339")
     verb.set_defaults(run=owed_due)
     verb = owed.add_parser("add", parents=both, help="owe a card: ask another session to raise a card of his on its job, met once that job draws one")
     verb.add_argument("--card", required=True, help="the job whose card is asked for")
     verb.add_argument("--what", required=True, help="the card asked for, in a few words")
-    verb.add_argument("--due", required=True, help="the RFC 3339 time the card should be up")
+    verb.add_argument("--due", required=True, help="when the card should be up: a clock time, +20m, or RFC 3339")
     verb.add_argument("--source", required=True, help="the record or post that asked for it")
     verb.set_defaults(run=owed_add)
     verb = owed.add_parser("revert", parents=both, help="his undo of an answer: a revert owed on each job that acted on it")
     verb.add_argument("answer", help="the answer he undid")
     verb.add_argument("--link", required=True, help="the message of his undoing it")
-    verb.add_argument("--due", required=True, help="the RFC 3339 time each revert should be done")
+    verb.add_argument("--due", required=True, help="when each revert should be done: a clock time, +20m, or RFC 3339")
     verb.set_defaults(run=owed_revert)
     verb = owed.add_parser("done", parents=both, help="end an owed item by hand")
     verb.add_argument("id", help="the owed item, as w<n>")

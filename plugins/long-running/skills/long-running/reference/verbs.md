@@ -74,7 +74,7 @@ How verbs run:
 | `drive slot queue [<env>]` | Each staging env's cut, the work queue's or a release's, and when its lease ends; each release waiting to go before the next cut, the train; and the queue's stage-test items for it |
 | `drive mac-box handed <job> <box>` | `--host <host>`. Called by the drive's Mac box pool once it hands a job a box: each `mac-box:<box>` or `mac-box:any` wait of the job ends, so the watch frees it on its next pass. Refused for a job waiting on no box |
 | `drive owed list` | `--order <o>`. Each open order's open owed items, overdue first. |
-| `drive owed due <w>` | `--by <RFC 3339 time>`. Names a new due. Its misses stay, so the next miss still goes to the coordinator, then to him. |
+| `drive owed due <w>` | `--by <time>`, a clock time such as `12:05 PM`, `+20m` or RFC 3339. Names a new due. Its misses stay, so the next miss still goes to the coordinator, then to him. |
 | `drive owed add` | `--card <job> --what "<card>" --due <time> --source <record>`. One session asks another to raise a card of his on a job. The item closes once that job draws one of his cards or ends. |
 | `drive owed revert <answer>` | `--link <his message> --due <time>`. Records his undo of an answer made in words and owes a revert on each job that acted on it. His Undo tap on a card does the same by itself, each revert due 15 minutes on. A job carries the answer through every hand-off. Each revert closes on a post naming it with `outcome=<w>`, or by hand. |
 | `drive owed done <w>` | `--because "<why>"`. Ends an owed item by hand. |
