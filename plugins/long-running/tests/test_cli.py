@@ -6119,7 +6119,7 @@ def test_a_design_that_kept_a_question_is_kept_with_no_fork_line_and_its_builder
     data = state.load("demo")
     assert view.open_cards(data["jobs"]["j1"]) == [card]
     holding = f", building his recommended option with no PR until he answers {card}" if held else ""
-    assert capsys.readouterr().out.splitlines()[-1] == f'j2 builder on "Short title": start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j2"]["brief"]}"{holding}'
+    assert capsys.readouterr().out.splitlines()[-1] == f'j2 builder on "Short title": the watch starts its agent on its brief {data["jobs"]["j2"]["brief"]}, so start no agent for it; drive job resume reaches it{holding}'
     assert (data["jobs"]["j1"]["said"], data["jobs"]["j2"]["state"], data["jobs"]["j2"]["waits"]) == ("carried by builder j2", "waiting", [])
     assert (view.start_refusal(data, "j2", True), land.ship_held(data, "j2")) == (None, [card] if held else [])
 
@@ -6381,8 +6381,8 @@ def test_a_design_of_several_changes_makes_each_a_part_of_its_order_with_a_build
     said = capsys.readouterr().out.splitlines()[-3:]
     data = state.load("demo")
     assert said == [
-        f'j2 builder on "the moved-table interface": start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j2"]["brief"]}"',
-        f'j3 builder on "the reads through it": start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j3"]["brief"]}"',
+        f'j2 builder on "the moved-table interface": the watch starts its agent on its brief {data["jobs"]["j2"]["brief"]}, so start no agent for it; drive job resume reaches it',
+        f'j3 builder on "the reads through it": the watch starts its agent on its brief {data["jobs"]["j3"]["brief"]}, so start no agent for it; drive job resume reaches it',
         'j4 builder on "the writes through it" waits on j2, j3: start no agent for it until the watch\'s FREE line says its last wait ended',
     ]
     assert data["jobs"]["j4"]["brief"]
@@ -6440,7 +6440,7 @@ def test_a_builders_done_leaving_a_piece_of_its_design_to_a_follow_up_is_refused
     jev.named = {"the moved-table index"}
     monkeypatch.setattr("sys.stdin", io.StringIO(f"{done}{left}\nUNBUILT: the moved-table index\n"))
     assert cli.main(["job", "report", "j4", "-"]) == 0
-    assert capsys.readouterr().out.splitlines()[-1] == f'j7 builder on "the moved-table index": start its agent now, run_in_background, on the prompt "Read your brief first: {state.load("demo")["jobs"]["j7"]["brief"]}"'
+    assert capsys.readouterr().out.splitlines()[-1] == f'j7 builder on "the moved-table index": the watch starts its agent on its brief {state.load("demo")["jobs"]["j7"]["brief"]}, so start no agent for it; drive job resume reaches it'
     read = [asked for asked in jev.asked if "leaves.l1" in asked["questions"]][-1]
     assert list(read["state"]["parts"].values()) == ["the moved-table index", "copy one store", "the reads through it", "the writes through it"]
     jev.named.clear()
@@ -6465,7 +6465,7 @@ def test_a_follow_up_piece_a_builder_names_on_an_unbuilt_line_of_an_undesigned_o
     kept_proof(tmp_path, "j2")
     monkeypatch.setattr("sys.stdin", io.StringIO(returned))
     assert cli.main(["job", "report", "j2", "-"]) == 0
-    assert capsys.readouterr().out.splitlines()[-1] == f'j3 builder on "retry each stalled copy": start its agent now, run_in_background, on the prompt "Read your brief first: {state.load("demo")["jobs"]["j3"]["brief"]}"'
+    assert capsys.readouterr().out.splitlines()[-1] == f'j3 builder on "retry each stalled copy": the watch starts its agent on its brief {state.load("demo")["jobs"]["j3"]["brief"]}, so start no agent for it; drive job resume reaches it'
     data = state.load("demo")
     assert (data["orders"]["o1"]["parts"]["retry each stalled copy"]["design"], data["jobs"]["j1"]["parts"]) == ("j2", ["the copy"])
     code, out = run("job", "brief", "j3", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
@@ -6485,7 +6485,7 @@ def test_a_builder_of_a_change_a_built_builder_left_unbuilt_starts_on_that_build
     capsys.readouterr()
     monkeypatch.setattr("sys.stdin", io.StringIO(f"BUILT j1-copy, waits on {card}\nUNBUILT: retry each stalled copy\n"))
     assert cli.main(["job", "report", "j1", "-"]) == 0
-    assert any(line.startswith('j2 builder on "retry each stalled copy": start its agent now') for line in capsys.readouterr().out.splitlines())
+    assert any(line.startswith('j2 builder on "retry each stalled copy": the watch starts its agent') for line in capsys.readouterr().out.splitlines())
     code, out = run("job", "brief", "j2", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
     written = Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
     assert (code, "\nResearched: j1\n" in written, '\nPlan: j1\'s return, change "retry each stalled copy": drive job report j1; stack on j1\'s branch j1-copy\n' in written) == (0, True, True)
@@ -6507,7 +6507,7 @@ def test_j5896_a_follow_up_builder_split_off_work_a_readers_open_card_holds_is_h
     capsys.readouterr()
     monkeypatch.setattr("sys.stdin", io.StringIO(f"BUILT j2-copy, waits on {card}\nUNBUILT: retry each stalled copy\n"))
     assert cli.main(["job", "report", "j2", "-"]) == 0
-    assert f'j3 builder on "retry each stalled copy": start its agent now, run_in_background, on the prompt "Read your brief first: {state.load("demo")["jobs"]["j3"]["brief"]}", building his recommended option with no PR until he answers {card}' in capsys.readouterr().out.splitlines()
+    assert f'j3 builder on "retry each stalled copy": the watch starts its agent on its brief {state.load("demo")["jobs"]["j3"]["brief"]}, so start no agent for it; drive job resume reaches it, building his recommended option with no PR until he answers {card}' in capsys.readouterr().out.splitlines()
     held = "the copy; retry each stalled copy, which j3 builds"
     data = state.load("demo")
     assert (data["jobs"]["j1"]["questions"][-1]["holds"], state.part_cards(data, "j3"), land.ship_held(data, "j3")) == (held, [card], [card])
@@ -6547,7 +6547,7 @@ def test_a_builders_pushed_whose_unbuilt_line_adds_a_builder_writes_the_line_sta
     kept_proof(tmp_path, "j2")
     pushed = "PUSHED https://github.com/yasyf/cc-skills/pull/1\nSERVES: drive tooling\nREUSES: calls store_copy_at for each store\nUNBUILT: retry each stalled copy\n"
     assert keep(monkeypatch, capsys, "j2", pushed) == (0, "")
-    started = f'j3 builder on "retry each stalled copy": start its agent now, run_in_background, on the prompt "Read your brief first: {state.load("demo")["jobs"]["j3"]["brief"]}"'
+    started = f'j3 builder on "retry each stalled copy": the watch starts its agent on its brief {state.load("demo")["jobs"]["j3"]["brief"]}, so start no agent for it; drive job resume reaches it'
     assert [event["line"] for event, _ in state.read_events("demo") if event["kind"] == state.RETURNED and event["job"] == "j2"] == [started]
 
 
@@ -6621,7 +6621,7 @@ def test_an_unbuilt_line_restating_in_new_words_a_piece_the_same_builders_earlie
     asked = len(jev.asked)
     monkeypatch.setattr("sys.stdin", io.StringIO(f"{done}UNBUILT: retry each stalled copy\nUNBUILT: copy the blobs in batches\n"))
     assert cli.main(["job", "report", "j2", "-"]) == 0
-    assert capsys.readouterr().out.splitlines()[-1] == f'j4 builder on "copy the blobs in batches": start its agent now, run_in_background, on the prompt "Read your brief first: {state.load("demo")["jobs"]["j4"]["brief"]}"'
+    assert capsys.readouterr().out.splitlines()[-1] == f'j4 builder on "copy the blobs in batches": the watch starts its agent on its brief {state.load("demo")["jobs"]["j4"]["brief"]}, so start no agent for it; drive job resume reaches it'
     assert not [key for request in jev.asked[asked:] for key in request["questions"] if key.startswith("restates.")]
     assert sorted(state.load("demo")["jobs"]) == ["j1", "j2", "j3", "j4"]
 
@@ -7070,7 +7070,7 @@ def test_a_builders_pushed_naming_a_monorepo_pr_on_its_staging_test_gives_its_on
     (tester_id, tester), = [(job_id, job) for job_id, job in data["jobs"].items() if state.builds_nothing(job)]
     assert (data["prs"][key]["waits"], data["prs"]["Forge-AI/monorepo#43"]["waits"], tester_id in data["orders"]["o1"]["jobs"]) == ([f"o1:{part}"], [], True)
     assert (tester["kind"], tester["goal"], tester["parts"], tester["where"]) == ("builder", cases, [part], "local")
-    assert [event["line"] for event, _ in state.read_events("demo") if event["kind"] == state.RETURNED and tester_id in event["line"]] == [f'{tester_id} builder on "{part}": start its agent now, run_in_background, on the prompt "Read your brief first: {tester["brief"]}"']
+    assert [event["line"] for event, _ in state.read_events("demo") if event["kind"] == state.RETURNED and tester_id in event["line"]] == [f'{tester_id} builder on "{part}": the watch starts its agent on its brief {tester["brief"]}, so start no agent for it; drive job resume reaches it']
     assert run("job", "brief", tester_id)[0] == 0
     written = Path(state.load("demo")["jobs"][tester_id]["brief"]).read_text()
     assert (f"Mac: {cli.STAGING_MAC.format(drive='demo')}" in written, "`root@demo` on topic `staging-slots`" in written, "`tools/ci release start" in written) == (True, True, False)
@@ -7162,7 +7162,7 @@ def test_a_tester_a_builders_staging_line_adds_is_briefed_on_its_builders_mac_st
     data = state.load("demo")
     (tester_id, tester), = [(job_id, job) for job_id, job in data["jobs"].items() if state.builds_nothing(job)]
     part, at = state.STAGING_TEST.format(number=42), render.when(data["prs"][with_pr]["tap"]["at"])
-    assert f'{tester_id} builder on {json.dumps(part)}: start its agent now, run_in_background, on the prompt "Read your brief first: {tester["brief"]}"' in out
+    assert f'{tester_id} builder on {json.dumps(part)}: the watch starts its agent on its brief {tester["brief"]}, so start no agent for it; drive job resume reaches it' in out
     written = Path(tester["brief"]).read_text()
     assert (f"\nMac: {mac}\n" in written, cli.STAGING_MAC in written, tester["brief_flags"]["mac"]) == (True, False, mac)
     assert f"; he tapped Approve on {with_pr} at {at}, head 3fd9f47986fa{cli.STAGING_APPROVED}\n" in written
@@ -7214,7 +7214,7 @@ def test_pr_set_staging_stages_a_monorepo_pr_in_one_save_as_its_builders_staging
     code, out = run("pr", "set", PR, "--staging", cases)
     data = state.load("demo")
     (tester_id, tester), = [(job_id, job) for job_id, job in data["jobs"].items() if state.builds_nothing(job)]
-    assert (code, f'{tester_id} builder on {json.dumps(part)}: start its agent now, run_in_background, on the prompt "Read your brief first: {tester["brief"]}"' in out) == (0, True)
+    assert (code, f'{tester_id} builder on {json.dumps(part)}: the watch starts its agent on its brief {tester["brief"]}, so start no agent for it; drive job resume reaches it' in out) == (0, True)
     assert (data["prs"][with_pr]["waits"], part in data["orders"]["o1"]["parts"], tester_id in data["orders"]["o1"]["jobs"]) == ([f"o1:{part}"], True, True)
     assert (tester["kind"], tester["goal"], tester["parts"]) == ("builder", cases, [part])
     assert run("pr", "set", PR, "--staging", cases)[0] == 0
@@ -7912,7 +7912,7 @@ def test_a_design_job_ends_once_the_builder_its_return_or_his_pick_adds_takes_it
     assert keep(monkeypatch, capsys, "j1", DESIGNED) == (0, "")
     assert cli.main(["job", "set", "j1", "--state", "done"]) == 2
     assert "drive: j1: refused, nothing changed: --state sets only stopped" in capsys.readouterr().err
-    assert run("order", "set", "o1", "--no-options-only")[1].splitlines()[-1] == f'j2 builder on "Short title": start its agent now, run_in_background, on the prompt "Read your brief first: {state.load("demo")["jobs"]["j2"]["brief"]}"'
+    assert run("order", "set", "o1", "--no-options-only")[1].splitlines()[-1] == f'j2 builder on "Short title": the watch starts its agent on its brief {state.load("demo")["jobs"]["j2"]["brief"]}, so start no agent for it; drive job resume reaches it'
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store list")
     assert keep(monkeypatch, capsys, "j3", DESIGNED) == (0, "")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "move the tables", "--parts", "move the tables", "the old copy")

@@ -592,7 +592,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     f", its codex-ask run ended: drive job launch {job_id} starts its next"
                     if job["kind"] == "codex" and job.get("codex_run")
                     else f", not started yet: drive job launch {job_id} starts it"
-                    if job["kind"] == "codex" or (job.get("where") == "remote" and not job.get("dispatch"))
+                    if job["kind"] == "codex" or (job.get("where") == "remote" and not job.get("dispatch") and not starts_itself(job))
                     else ""
                 )
                 unstarted = brief_first(job)
@@ -1378,8 +1378,10 @@ def minutes(span: timedelta) -> int:
 
 
 def brief_first(job: dict) -> str:
-    """The prompt an agent starts an untaken job on, its brief, when the job is no codex job, which drive job launch starts."""
-    return f"; Read your brief first: {job['brief']}" if job["kind"] != "codex" and job.get("brief") and not job.get("agent") and not job.get("dispatch") else ""
+    """What starts an untaken job: for a briefed builder or reader, the watch, by start_jobs, so the line names no prompt for a session to start an agent on; for a design job, the prompt an agent starts it on, its brief; a codex job's drive job launch is named apart."""
+    if job["kind"] == "codex" or not job.get("brief") or job.get("agent") or job.get("dispatch"):
+        return ""
+    return f"; {render.start_now(job['brief'])}" if starts_itself(job) else f"; Read your brief first: {job['brief']}"
 
 
 def first_line(text: str) -> str:
@@ -3995,6 +3997,22 @@ def send_held(watcher: Watcher, job_id: str, moment: datetime) -> int:
     return start_verb(watcher, job_id, ["job", "resume", job_id], moment)
 
 
+def starts_itself(job: dict) -> bool:
+    """Whether the watch starts a job's first worker itself, by start_jobs: a briefed builder or reader no agent, lane or start took yet, on this Mac by drive job start, or on a Sprite by drive job launch when it was placed there."""
+    return job["kind"] in ("builder", "reader") and bool(job.get("brief")) and not (job.get("agent") or job.get("dispatch") or job.get("bg"))
+
+
+def start_jobs(watcher: Watcher, moment: datetime) -> None:
+    """Start each heard job's first worker that nothing holds, so no session's Agent call or launch starts it and no root relays it: `drive job start` for a briefed builder or reader on this Mac, which starts its agent as its own claude --bg session past every check an Agent start meets, counting its builder slot or holding it waiting its turn, and `drive job launch` for one placed on a Sprite, each by start_verb once busy lets it and once a watch, so a refusal, which reaches the session holding the job as its relaunch_refused event, leaves the job to that session. A job no order of a coordinator or the meta session holds, such as a handler's, a stopped or finished one, one whose cards or waits hold it, by view.start_refusal, or one launching is left alone."""
+    data = state.load(watcher.name)
+    for job_id, job in data["jobs"].items():
+        if not starts_itself(job) or job["state"] in (*state.FINISHED_JOB_STATES, "running") or job_id in watcher.started or not heard_job(watcher, data, job) or view.open_cards(job) or launching(job, moment):
+            continue
+        if state.holding_lane(data, data["orders"][job["order"]]) == "communicator" or view.start_refusal(data, job_id, False) or busy(watcher, job_id, moment):
+            continue
+        start_verb(watcher, job_id, ["job", "launch", job_id] if job.get("where") == "remote" else ["job", "start", job_id], moment)
+
+
 def carry_held(watcher: Watcher, moment: datetime) -> None:
     """Carry the texts each heard job holds, his answers among them, with no session's turn, once his cards ask nothing of the job: `drive job resume` for a lane on a Sprite or this Mac whose job returned, its worker ended or not, which sends them to a worker that takes messages and hands them to the next worker of one that finished, and `drive job launch` for an agent on this Mac that returned and that no session reaches by state.agent_lane, whose job it hands to a lane on a Sprite, and for a job no agent or lane started once its waits end, which it briefs and launches with them under His answers since:, on this Mac when its brief declares a step only this Mac runs. Each runs by start_verb once busy lets it, for each new text and again every ten minutes while one stays held."""
     data = state.load(watcher.name)
@@ -4011,6 +4029,8 @@ def carry_held(watcher: Watcher, moment: datetime) -> None:
 
 def carrier(job_id: str, job: dict, data: dict, cards: dict | None) -> list[str] | None:
     """The drive command that carries a job's held texts, by carry_held; None while its worker runs, which agent_lines sends them to, while the session that started its agent on this Mac reaches it, by state.agent_lane, whose ANSWER undelivered line names the drive job resume that posts each held text to that agent and prints the SendMessage pointing it there, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once", while its codex-ask run goes, whose next launch carries them in its brief, while a wait holds it, builder-slot included for a lane started, whose move here the watch's turn starts with them in its handoff, but a wait on a PR of its own, by view.start_waits, or for an adopted PR's job no builder started, which starts only on a PR event."""
+    if state.own_session(job):
+        return ["job", "resume", job_id]
     started = job.get("agent") or job.get("dispatch") or job.get("codex_run")
     if job["state"] == "running" and started or job["prs"] and not started or state.agent_lane(data, job):
         return None
@@ -4701,6 +4721,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
                     build_lines,
                     status_lines,
                     waits_lines,
+                    start_jobs,
                     folded_lines,
                     finished,
                     recovered_lines,

@@ -249,7 +249,10 @@ def typed_time(text: str, data: dict) -> Ruled | None:
 
 
 def seen(payload: dict) -> dict:
-    """A hook's payload as the drive's checks read it: a handler's own `claude --bg` session reads as an agent of the communicator's session, as a handler ran before it had a session of its own, so every check on a handler binds it unchanged; on a drive whose roles hold no communicator, it reads as an agent of its own session, which holds the communicator's role by its handler's id."""
+    """A hook's payload as the drive's checks read it: a handler's own `claude --bg` session reads as an agent of the communicator's session, as a handler ran before it had a session of its own, so every check on a handler binds it unchanged; on a drive whose roles hold no communicator, it reads as an agent of its own session, which holds the communicator's role by its handler's id. A job's agent `drive job start` started as its own session reads, from the JOB_ENV its launch set, as the agent it was recorded as of the session holding its order then, as an Agent start of that session's would, so every check on a job's agent binds it unchanged, with no read of the drive."""
+    if not payload.get("agent_id") and (started := os.environ.get(state.JOB_ENV)):
+        _, _, agent, session = started.split("/")
+        return payload | {"session_id": session, "agent_id": agent, "agent_transcript_path": payload["transcript_path"], "job_session": payload["session_id"]}
     if payload.get("agent_id") or payload.get("agent_type") != HANDLER or not (names := state.session_drives(payload["session_id"])):
         return payload
     data = state.saved(names[0])
@@ -746,6 +749,30 @@ def trimmed(checkout: Path) -> dict:
     }
 
 
+def start_job(name: str, job_id: str, agent: str, call: dict, held: dict, cwd: Path) -> str:
+    """Start a builder's or reader's agent as its own `claude --bg` session on the Agent call its starter would make, its type, model and prompt, in cwd, the drive's checkout at the head of its default branch, as a handler starts, JOB_ENV naming the drive, the job, the agent id it is recorded as and the session holding its order, by which seen binds every hook of it as that session's agent, `CCI_PARENT_SESSION` naming that session, so cci posts from it as that session's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive; the session `claude --bg` names."""
+    env = {state.JOB_ENV: f"{name}/{job_id}/{agent}/{held['session']}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name}
+    settings = session_settings(env)
+    model = ["--model", call["model"]] if call.get("model") else []
+    argv = ["claude", "--bg", "--agent", call["subagent_type"], *model, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} {job_id}", call["prompt"]]
+    return launched(reads.run(argv, cwd, {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
+
+
+def resume_job(bg: dict, text: str) -> None:
+    """Continue a job's own `claude --bg` session whose turn ended on text, in the background under the same session and in the checkout it started in, as `claude --bg --resume` continues one, so a text to an agent the watch started wakes it with no SendMessage."""
+    reads.run(["claude", "--bg", "--resume", bg["session"], text], Path(bg["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"})
+
+
+def take_pointed(name: str, job_id: str) -> list[str]:
+    """Take the pointer lines a job's own session has not been handed yet, each naming a cci record a resume posted to its address while its turn ran, for its next step or its stop to hand it."""
+    if not (state.saved_row(name, "jobs", job_id).get("bg") or {}).get("pointed"):
+        return []
+    with state.edit(name) as data:
+        bg = data["jobs"][job_id]["bg"]
+        pointed, bg["pointed"] = bg["pointed"], []
+    return pointed
+
+
 def watchdog(name: str, brief: str, cwd: str, out: Path) -> int:
     """Start a watchdog agent on a stall's brief as its own `claude -p` process on its agent definition, which sets its model and tools, in the drive's checkout, its answer written to out and its spend capped at WATCHDOG_USD; its environment names the drive and marks it the watchdog, by which the bash_guard hook lets it run WATCHDOG_RUNS alone, the reads and the two acts of his pick "Report, plus two safe acts, rerunning a failed build and messaging the owning job"; its pid."""
     settings = session_settings({state.WATCHDOG_ENV: name, state.DRIVE_ENV: name})
@@ -857,6 +884,11 @@ def advised(name: str, lane: str, command: list[str]) -> NoReturn:
         except state.DriveError as error:
             print(f"drive advised: the meta session was not told: {error}", file=sys.stderr, flush=True)
     os.execvp(command[0], command)
+
+
+def pointed(lines: list[str]) -> str:
+    """What a job's agent running as its own session reads of the texts a resume posted to its cci address while it worked: each pointer line, in the order posted, to act on as a SendMessage from its starter would have it act."""
+    return f"Texts for your job reached your cci address while you worked, as your starter's SendMessage would hand them: {' | '.join(lines)}"
 
 
 def handed(briefs: list[str]) -> str:

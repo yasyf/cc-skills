@@ -150,6 +150,7 @@ REPO_RULES = ".claude/long-running.toml"
 HOLDERS = ("communicator", "meta")
 ORDERS_MOVED = "orders_moved"
 HANDLER_ENV = "LONG_RUNNING_HANDLER"
+JOB_ENV = "LONG_RUNNING_JOB"
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
 OWN_JOB_ENV = "LONG_RUNNING_OWN_JOB"
 REMOTE_LANE_ENV = "LONG_RUNNING_REMOTE_LANE"
@@ -4421,10 +4422,10 @@ def handler_id(data: dict, session: str | None) -> str | None:
 
 
 def own_transcript(data: dict, job: dict) -> str | None:
-    """The transcript of a job a handler holds, its own claude --bg session's rather than one beside the communicator's: the handler's session's while it runs, once Claude Code has written it, the job's own once it ended."""
+    """The transcript of a job a handler holds, or one whose agent `drive job start` started, its own claude --bg session's rather than one beside the communicator's or its starter's: that session's while it runs, once Claude Code has written it, the job's own once it ended."""
     from drive import install
 
-    session = (data["handlers"].get(job.get("agent")) or {}).get("session")
+    session = (data["handlers"].get(job.get("agent")) or {}).get("session") or own_session(job)
     return job.get("transcript") or (session and next(map(str, (install.config_dir() / "projects").glob(f"*/{session}.jsonl")), None))
 
 
@@ -4832,8 +4833,13 @@ def job_addressed(drives: dict[str, dict], to: list[str], drive: str | None) -> 
 
 
 def agent_address(job: dict) -> str:
-    """The cci address of the agent on this Mac a job runs as, which that agent reads once its starter's SendMessage points it at a record there."""
-    return f"peer:{job['session']}/{job['agent']}"
+    """The cci address of the agent on this Mac a job runs as, which that agent reads once its starter's SendMessage points it at a record there, or for one the watch started as its own `claude --bg` session, that session's own, whose next step or resume points it there."""
+    return f"peer:{session}" if (session := own_session(job)) else f"peer:{job['session']}/{job['agent']}"
+
+
+def own_session(job: dict) -> str | None:
+    """The `claude --bg` session `drive job start` started a job's agent as, once that launch named it; None for an agent running beside its starter's session."""
+    return (job.get("bg") or {}).get("session") if (job.get("bg") or {}).get("agent") == job.get("agent") else None
 
 
 def tooling(order: dict) -> bool:

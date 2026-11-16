@@ -1971,9 +1971,9 @@ def test_a_product_merge_whose_paths_reach_no_release_says_its_prover_in_one_lin
     asked, merged = install.merged_said("demo", asking, "added"), install.merged_said("demo", merging, "added")
     data = state.load("demo")
     assert (asking, merging, data["jobs"][asking]["waits"], data["jobs"][merging]["waits"]) == ("j3", "j4", [], [])
-    started = "waits on no release: start its agent now, run_in_background, on the prompt"
-    assert asked == f'JOB j3 o1 added, proves Forge-AI/monorepo#10, {started} "Read your brief first: {data["jobs"]["j3"]["brief"]}"'
-    assert merged == f'JOB j4 o1 added, proves Forge-AI/monorepo#9, {started} "Read your brief first: {data["jobs"]["j4"]["brief"]}"'
+    started = "waits on no release: the watch starts its agent on its brief"
+    assert asked == f'JOB j3 o1 added, proves Forge-AI/monorepo#10, {started} {data["jobs"]["j3"]["brief"]}, so start no agent for it; drive job resume reaches it'
+    assert merged == f'JOB j4 o1 added, proves Forge-AI/monorepo#9, {started} {data["jobs"]["j4"]["brief"]}, so start no agent for it; drive job resume reaches it'
     assert "Handoff: Forge-AI/monorepo#10 at 0123456789ab merged: install it by the INSTALL: line of j2's return" in Path(data["jobs"]["j3"]["brief"]).read_text()
     assert [data["jobs"][job_id]["state"] for job_id in ("j1", "j2", "j3", "j4")] == ["done", "done", "waiting", "waiting"]
     assert (data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (None, None)
@@ -2008,10 +2008,10 @@ def test_a_merge_with_no_staging_test_reaching_a_target_staging_runs_gets_a_prov
         f" then install it by the INSTALL: line of j2's return, in reports/j2.md, write its PROVE: line as a proof file, keep it with drive job set <your job> --repro <file>"
         " and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part"
     )
-    assert released == f'JOB j3 o1 added, proves Forge-AI/monorepo#9, waits on no release: start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j3"]["brief"]}"'
+    assert released == f'JOB j3 o1 added, proves Forge-AI/monorepo#9, waits on no release: the watch starts its agent on its brief {data["jobs"]["j3"]["brief"]}, so start no agent for it; drive job resume reaches it'
     assert passed == (
         "JOB j4 o1 added, proves Forge-AI/monorepo#10, owes its after-merge staging pass first:"
-        f' start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j4"]["brief"]}"'
+        f' the watch starts its agent on its brief {data["jobs"]["j4"]["brief"]}, so start no agent for it; drive job resume reaches it'
     )
     assert [data["jobs"][job_id]["state"] for job_id in ("j3", "j4")] == ["waiting", "waiting"]
 

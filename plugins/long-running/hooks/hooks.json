@@ -17,7 +17,7 @@
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "[ -z \"$LONG_RUNNING_HANDLER\" ] || . \"${CLAUDE_PLUGIN_ROOT}/hooks/python.sh\"; [ -z \"$LONG_RUNNING_HANDLER\" ] || exec \"$python\" -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" one_line_result.py" }
+          { "type": "command", "command": "[ -z \"$LONG_RUNNING_HANDLER$LONG_RUNNING_JOB\" ] || . \"${CLAUDE_PLUGIN_ROOT}/hooks/python.sh\"; [ -z \"$LONG_RUNNING_HANDLER$LONG_RUNNING_JOB\" ] || exec \"$python\" -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" one_line_result.py" }
         ]
       }
     ],
@@ -31,7 +31,7 @@
     "PreToolUse": [
       {
         "hooks": [
-          { "type": "command", "command": "[ -z \"$LONG_RUNNING_HANDLER\" ] || . \"${CLAUDE_PLUGIN_ROOT}/hooks/python.sh\"; [ -z \"$LONG_RUNNING_HANDLER\" ] || exec \"$python\" -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" handed_records.py" }
+          { "type": "command", "command": "[ -z \"$LONG_RUNNING_HANDLER$LONG_RUNNING_JOB\" ] || . \"${CLAUDE_PLUGIN_ROOT}/hooks/python.sh\"; [ -z \"$LONG_RUNNING_HANDLER$LONG_RUNNING_JOB\" ] || exec \"$python\" -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" handed_records.py" }
         ]
       }
     ],

@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -162,6 +163,8 @@ def main() -> None:
     payload = agents.seen(payload)
     if "handler_session" in payload:
         reason = agents.end_handler(payload, block_reason)
+    elif "job_session" in payload and (pointed := agents.take_pointed(*os.environ[state.JOB_ENV].split("/")[:2])):
+        reason = agents.Unjudged(f"Refused on purpose: {agents.pointed(pointed)}")
     else:
         agents.hold(payload)
         reason = block_reason(payload)

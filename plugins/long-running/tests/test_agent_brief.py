@@ -464,3 +464,33 @@ def test_a_relaunch_or_takeover_waits_its_turn_in_its_own_process_until_the_spri
     place.await_admission(demo, "j1", "sprite")
     assert capsys.readouterr().err.startswith("j1: waits its turn for a Sprite lane: 30 Sprite lanes run across this Mac's drives, at its cap of 30")
     assert next(reads, None) is None
+
+
+def test_drive_job_start_starts_a_briefed_reader_as_its_own_session_bound_as_the_agent_of_its_orders_session_and_starts_no_second_beside_it(
+    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Restores", "restores copy one store", "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
+    kept = state.drive_dir(demo) / "jobs" / "j1.brief.md"
+    kept.write_text("Order (his words): restores copy one store\nGoal: research the copy\nDrive: demo, order o1, job j1\n")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["brief"] = str(kept)
+    launches: list[tuple[str, str, dict]] = []
+    monkeypatch.setattr(agents, "start_job", lambda name, job_id, agent, call, held, cwd: launches.append((job_id, agent, call)) or "bg-session")
+    monkeypatch.setattr(orca, "checkout", lambda name, cwd: tmp_path)
+    monkeypatch.setattr(place, "admission", lambda *args, **kwargs: None)
+    assert run("job", "start", "j1")[0] == 0
+    [(job_id, agent, call)] = launches
+    assert (job_id, call["subagent_type"], call["prompt"]) == ("j1", "long-running:reader", f"Read your brief first: {kept}")
+    assert state.load(demo)["jobs"]["j1"]["bg"] | {"started": None} == {"agent": agent, "session": "bg-session", "started": None, "cwd": str(tmp_path), "pointed": []}
+    monkeypatch.setattr(agents, "gone", lambda entry: False)
+    assert run("job", "start", "j1")[0] == 2
+    assert len(launches) == 1
+    assert agent_brief.deny_reason(started("long-running:reader", f"Read your brief first: {kept}")).startswith("refused: the watch started j1 as its own claude --bg session bg-session")
+    monkeypatch.setenv(state.JOB_ENV, f"demo/j1/{agent}/{os.environ['CLAUDE_CODE_SESSION_ID']}")
+    bound = agents.seen({"session_id": "bg-session", "transcript_path": "/bg-session.jsonl", "agent_type": "long-running:reader"})
+    assert (bound["session_id"], bound["agent_id"], bound["agent_transcript_path"]) == (os.environ["CLAUDE_CODE_SESSION_ID"], agent, "/bg-session.jsonl")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(agent=agent, where="local", session=os.environ["CLAUDE_CODE_SESSION_ID"], state="running")
+    assert state.agent_address(state.load(demo)["jobs"]["j1"]) == "peer:bg-session"
+    assert watch.carrier("j1", state.load(demo)["jobs"]["j1"], state.load(demo), None) == ["job", "resume", "j1"]

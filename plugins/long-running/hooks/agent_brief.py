@@ -158,6 +158,14 @@ def unadmitted(name: str, data: dict, text: str) -> str | None:
     return None
 
 
+def started_alone(data: dict, text: str) -> str | None:
+    """Why no Agent starts on a job whose agent `drive job start` started as its own session: that start is in flight or at work, by agents.gone on its bg entry, so a second agent would run beside it."""
+    match = brief.BRIEF_JOB.search(text)
+    if not (match and (bg := (data["jobs"].get(match[1]) or {}).get("bg")) and not agents.gone(bg)):
+        return None
+    return agents.Unjudged(f"refused: the watch started {match[1]} as its own claude --bg session {bg['session'] or '(starting)'} at {bg['started']}, so start no agent for it: drive job resume {match[1]} \"<text>\" reaches it")
+
+
 def line(data: dict) -> str:
     waiting = "; ".join(in_line(data, job_id) for job_id in place.waiting_builders(data))
     return (
@@ -194,6 +202,8 @@ def deny_reason(payload: dict) -> str | None:
     if kind in BRIEFED and (refused := unbriefed(names[0], data, prompt, kind)):
         return refused
     text = brief.carried(prompt)
+    if kind in BRIEFED and (refused := started_alone(data, text)):
+        return refused
     if kind == BUILDER and role not in (None, "meta") and brief.SERVES_TOOLING.search(text):
         return tooling_refusal(names[0], data, text, role)
     if kind == BUILDER:

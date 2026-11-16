@@ -1129,7 +1129,7 @@ def test_a_readers_return_briefs_the_builder_waiting_on_it_so_its_free_line_laun
     assert (code, out.splitlines()[1], jobs["j4"].get("brief")) == (0, f"j2: Read your brief first: {jobs['j2']['brief']}", None)
     brief = Path(jobs["j2"]["brief"]).read_text()
     assert ("Serves: his order\n" in brief, "Researched: j1\n" in brief, "Done when:" in brief) == (True, True, False)
-    assert watch.waits_lines(watch.Watcher(demo, offset=state.events_end(demo)), T0) == [f"FREE j2 o1: j1 answered or done, nothing else holds it; Read your brief first: {jobs['j2']['brief']}"]
+    assert watch.waits_lines(watch.Watcher(demo, offset=state.events_end(demo)), T0) == [f"FREE j2 o1: j1 answered or done, nothing else holds it; the watch starts its agent on its brief {jobs['j2']['brief']}, so start no agent for it; drive job resume reaches it"]
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
     fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
     monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
@@ -7565,7 +7565,7 @@ def test_a_lanes_pushed_whose_unbuilt_line_adds_a_builder_says_only_the_line_sta
     deliver(monkeypatch, [message("worker_done", f"PUSHED {url}\n{UNSTAGED}\nUNBUILT: retry each stalled copy\n")])
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     said = said_lines(watch.lane_lines, watching, T0)
-    assert said == [f'JOB j1 o1 j2 builder on "retry each stalled copy": start its agent now, run_in_background, on the prompt "Read your brief first: {state.load(remote)["jobs"]["j2"]["brief"]}"']
+    assert said == [f'JOB j1 o1 j2 builder on "retry each stalled copy": the watch starts its agent on its brief {state.load(remote)["jobs"]["j2"]["brief"]}, so start no agent for it; drive job resume reaches it']
 
 
 def test_the_inbox_turns_each_message_into_one_event_even_one_a_consuming_check_took_first(
