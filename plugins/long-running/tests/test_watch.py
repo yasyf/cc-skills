@@ -2816,6 +2816,26 @@ def test_a_job_only_carrying_an_order_and_its_pr_owe_that_orders_thread_no_line_
     assert "Moved since the thread's last line or the watch's last report on it: j1. At work: no job." in body.splitlines()
 
 
+def test_replaying_j3376_a_running_prover_only_carrying_an_order_owes_its_thread_no_line_and_a_running_builder_carrying_its_part_owes_one(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    threaded(demo)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["state"] = "waiting"
+        data["orders"]["o2"] = order(text="prove the dashboard live", jobs=["j2"])
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["jobs"]["j2"] = job(order="o2", goal=f"prove {KEY} live", carries={"o1": ["ship the watch"]})
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    hour = T0 + timedelta(hours=1)
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=1)) == []
+    assert watch.quiet_lines(watching, hour) == []
+    assert calls == []
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["goal"] = "ship the dashboard and the watch"
+    assert watch.quiet_lines(watching, hour + timedelta(seconds=5)) == []
+    [(_, body), _] = calls
+    assert "Moved since the thread's last line or the watch's last report on it: nothing. At work: j2." in body.splitlines()
+
+
 @pytest.mark.parametrize("incident", [False, True])
 def test_a_handoff_asking_for_a_job_owes_its_thread_one_line_five_quiet_minutes_after_the_line_promising_it_whatever_was_answered_naming_each_record_re_it_until_a_job_of_its_order_is_made_or_a_job_it_names_works(
     demo: str, monkeypatch: pytest.MonkeyPatch, incident: bool
