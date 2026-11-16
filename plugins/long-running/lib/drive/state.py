@@ -4118,7 +4118,7 @@ def may_tell(data: dict, order_id: str) -> bool:
         return all(held["posted"] for held in order["parts"].values())
     if not fix_proof(data, order):
         return False
-    if order["proof"] and not brief.unseen(data, order, order["proof"]):
+    if order["proof"] and not brief.unseen(data, order, order["proof"]) or order["fix_live"]:
         return True
     return all(delivered(data, order_id, part) or part_proven(data, order_id, part) for reporter in order["reporters"] for part in reported_parts(order, reporter))
 
@@ -4134,11 +4134,13 @@ def reported_parts(order: dict, reporter: dict) -> list[str]:
 
 
 def fix_proof(data: dict, order: dict) -> str | None:
-    """The proof that an order's fix is live: the order's own, from where he sees it when it builds something he uses, by brief.unseen, else the passing drive job prove of a job of the order, or of an order sharing one of its jobs, on a PR a job of the order opened, as a release follower's proof of the fix it carries is."""
+    """The proof that an order's fix is live: the order's own, from where he sees it when it builds something he uses, by brief.unseen, else the watch's read of an incident's every merged fix PR running in production, its fix_live, else the passing drive job prove of a job of the order, or of an order sharing one of its jobs, on a PR a job of the order opened, as a release follower's proof of the fix it carries is."""
     from drive import brief
 
     if order["proof"] and not brief.unseen(data, order, order["proof"]):
         return order["proof"]
+    if order["fix_live"]:
+        return order["fix_live"]
     fixes = {pr_key(ref) for job_id in order["jobs"] for ref in data["jobs"][job_id]["prs"]}
     near = dict.fromkeys(other for job_id in order["jobs"] for held in [data["jobs"][job_id]["order"], *data["jobs"][job_id]["carries"]] for other in data["orders"][held]["jobs"])
     return next(
@@ -4281,6 +4283,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "alerts": [],
         "recovered": None,
         "prove_said": None,
+        "fix_live": None,
         "paged": None,
         "paged_by": None,
         "page_post": None,

@@ -1354,7 +1354,7 @@ def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
         if (found := state.RELEASE_WAIT.fullmatch(wait)) and data["prs"][found["pr"]]["merged_sha"] and state.home_repo(data, github.repo_of(found["pr"]))
     ]
     soaks = {wait: found for wait in followed(watcher, data) if (found := state.STAGING_WAIT.fullmatch(wait))}
-    fixes = sorted({key for keys in incident_fixes(watcher, data).values() for key in keys})
+    fixes = sorted({key for keys in incident_fixes(watcher, data, finished=False).values() for key in keys})
     if not merged and not soaks and not fixes and not cut_waiting(data):
         watcher.serving, watcher.fix_waits = {}, {}
         return []
@@ -1427,8 +1427,8 @@ def live_renewed(name: str, release: providers.ReleaseProvider) -> None:
     LIVE_COPIES[name] = (monotonic(), rows)
 
 
-def incident_fixes(watcher: Watcher, data: dict) -> dict[str, list[str]]:
-    """The fix PRs of each open incident the watch hears, by its head order, once no job on a fix part of its orders still works, no PR of one is open and each is a merged PR of the home repository."""
+def incident_fixes(watcher: Watcher, data: dict, finished: bool = True) -> dict[str, list[str]]:
+    """The fix PRs of each open incident the watch hears, by its head order, once no PR of a fix part of its orders is open and each is a merged PR of the home repository, and with finished once no job on such a part still works, as closing it needs; reading where its fixes run and telling its reporters needs no more than the merged PRs, so a staging tester or prover still on its fix part never holds the fix-live note."""
     fixes = {}
     for head in state.open_incidents(data, list(data["orders"])):
         if data["orders"][head]["joins"] or data["orders"][head]["recovered"] or not hears(watcher, data, head):
@@ -1438,7 +1438,7 @@ def incident_fixes(watcher: Watcher, data: dict) -> dict[str, list[str]]:
         if (
             prs
             and all(data["prs"][key]["state"] == "merged" and state.home_repo(data, key.split("#")[0]) for key in prs)
-            and all(job["state"] in state.FINISHED_JOB_STATES for job in jobs.values())
+            and (not finished or all(job["state"] in state.FINISHED_JOB_STATES for job in jobs.values()))
         ):
             fixes[head] = prs
     return fixes
@@ -1448,6 +1448,7 @@ def recovered_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Close each open incident the watch hears once its fix is live, every Datadog monitor recorded on it reads OK, one with no monitor on its fix alone, and each of its orders that builds something he uses keeps a proof from there, by brief.unseen, or else say so once by proof_owed: what is left of it moves to a plain order, and a POST report hands the communicator the Live line for its thread, whose handler closes each order of it. Its fix is live when incident_fixes names its PRs and the watch's last release live read, by serving_lines, has it in production for each component it touches, by in_production, one touching none live at its merge; a fix PR outside the home repository has no such read, so the coordinator closes its incident. The monitors of the incidents whose fix is live are read in one search."""
     if not watcher.fix_waits:
         return []
+    fix_live(watcher, state.load(watcher.name), moment)
     data = state.load(watcher.name)
     fixes = incident_fixes(watcher, data)
     landed = {head: monitors(data, head) for head, keys in fixes.items() if all(key in watcher.fix_waits and all(in_production(watcher, wait) for wait in watcher.fix_waits[key]) for key in keys)}
@@ -1471,6 +1472,31 @@ def recovered_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         lines += closed(watcher, head, list(found.values()), fix, moment)
     return lines
+
+
+def fix_live(watcher: Watcher, data: dict, moment: datetime) -> bool:
+    """Keep on each open order of an incident, once every merged fix PR of it runs on each production cluster of each component it releases, by in_production, the line saying so as its fix_live, which state.fix_proof takes as the fix's proof, so the pass that reads the release live wakes the order's holder with its TELL line for each reporter, whoever ran the release and whatever job still works on its fix part; never on an order building what he uses on a surface the production read cannot see, by brief.unseen, whose proof stays the recording from there; whether it kept one."""
+    live = {
+        head: keys
+        for head, keys in incident_fixes(watcher, data, finished=False).items()
+        if all(watcher.fix_waits.get(key) and all(in_production(watcher, wait) for wait in watcher.fix_waits[key]) for key in keys)
+    }
+    said = {head: f"{', '.join(map(state.pr_url, keys))} live in production, read {render.when(state.stamp(moment))}" for head, keys in live.items()}
+    owed = {
+        order_id: said[head]
+        for head in live
+        for order_id in state.open_incidents(data, state.feature_orders(data, head))
+        if not data["orders"][order_id]["fix_live"] and not brief.unseen(data, data["orders"][order_id], said[head])
+    }
+    if not owed:
+        return False
+
+    def fix_live_write(data: dict) -> None:
+        for order_id, line in owed.items():
+            data["orders"][order_id]["fix_live"] = line
+
+    state.write(watcher.name, fix_live_write, budget=state.WATCH_WRITE_SECONDS)
+    return True
 
 
 def in_production(watcher: Watcher, wait: str) -> bool:
@@ -3405,7 +3431,7 @@ def owed_reporters(data: dict, order_id: str, moment: datetime) -> list[dict]:
     """Each reporter whose record the order keeps and whose thread is owed its note and the watch has not said so: a bug report's once its fix is proven live, a question's once its answer is posted, nothing moved on it for ten minutes, the drive's last line on an answer order counting as a move since posting its answer moves nothing else, and no note is recorded; a record another order keeps is that order's to owe."""
     order = data["orders"][order_id]
     moved = (order["last_line"] if order["kind"] == "answer" else None) or order["updated"]
-    if not (state.may_tell(data, order_id) and moment - state.parse_time(moved) >= TELL_AFTER):
+    if not (state.may_tell(data, order_id) and (order["fix_live"] or moment - state.parse_time(moved) >= TELL_AFTER)):
         return []
     return [held for held in order["reporters"] if "kept_by" not in held and not held["told"] and not held["tell_said"]]
 
@@ -3437,7 +3463,7 @@ def close_joined_repeats(watcher: Watcher, moment: datetime) -> None:
 
 
 def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each open order proven live, or whose answer is posted, with a reporter's thread that has not heard it ten minutes on, said once for each thread."""
+    """Each open order proven live, or whose answer is posted, with a reporter's thread that has not heard it ten minutes on, or at once when the watch read an incident's fix live in production, said once for each thread."""
     data = state.load(watcher.name)
     if not (owing := [order_id for order_id, order in heard_orders(watcher, data).items() if owed_reporters(data, order_id, moment)]):
         return []
@@ -3456,7 +3482,7 @@ def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
             )
             threads = f"the thread {asked}, has not heard {heard}" if len(owed) == 1 else f"the threads {asked}, have not heard {heard}"
             lines.append(
-                f"TELL {order_id}: {happened} and nothing moved on it for 10 minutes, but {' and '.join(held['link'] for held in owed)}, {threads}:"
+                f"TELL {order_id}: {happened}{'' if data['orders'][order_id]['fix_live'] and not answered else ' and nothing moved on it for 10 minutes'}, but {' and '.join(held['link'] for held in owed)}, {threads}:"
                 f" send its report with --attr close={order_id}, which the communicator posts {note} {'there' if len(owed) == 1 else 'in each'} and records it with"
                 f" drive order told {order_id} <its permalink>; done refuses until then"
             )

@@ -10882,6 +10882,29 @@ def test_an_incident_with_no_monitor_held_by_its_open_fix_pr_closes_with_no_data
     assert [argv[1:] for argv in calls if argv[1:3] == ["release", "live"]] == [["release", "live", "--json"]]
 
 
+def test_an_incident_whose_fix_release_reads_live_wakes_its_holder_with_its_reporters_tell_line_once_in_that_pass_while_a_tester_still_runs_on_its_fix_as_o2304_did_not(
+    home_repo: None,
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    serve(monkeypatch, {})
+    incident_reads(monkeypatch, {}, {"42": True}, tmp_path)
+    with edit(demo) as data:
+        data["orders"]["o1"].update(incident=True, parts={"fix": state.new_part()}, jobs=["j1", "j2"], reporters=[state.reporter(REPORTED)], updated=state.stamp(T0))
+        data["prs"][KEY].update(state="merged", merged_sha="abc123")
+        data["jobs"]["j1"].update(parts=["fix"], state="done")
+        data["jobs"]["j2"] = job(parts=["fix"], state="waiting", said="WAITING staging-slot:j2", goal="staging test of the fix")
+    watching = watcher(demo)
+    told = [line for minute in range(3) for line in watch.run_pass(watching, T0 + timedelta(minutes=minute)) if line.startswith(("TELL", "RECOVERED"))]
+    fixed = f"{state.pr_url(KEY)} live in production, read {render.when(state.stamp(T0))}"
+    assert told == [
+        f"TELL o1: its fix is proven live by {fixed}, but {REPORTED}, the thread its bug was reported in,"
+        " has not heard it is fixed: send its report with --attr close=o1, which the communicator posts the fix-live note there and records it with"
+        " drive order told o1 <its permalink>; done refuses until then"
+    ]
+    data = state.load(demo)
+    assert (data["orders"]["o1"]["fix_live"], data["orders"]["o1"]["state"], state.may_tell(data, "o1")) == (fixed, "working", True)
+
+
 def test_o761s_incident_on_a_surface_he_uses_holds_its_live_line_with_one_prove_line_until_a_builders_done_keeps_a_recording_from_there(
     home_repo: None,
     demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]], tmp_path: Path
