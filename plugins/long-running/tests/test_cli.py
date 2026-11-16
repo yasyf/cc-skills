@@ -6945,6 +6945,36 @@ def test_a_staging_testers_brief_runs_a_dashboard_prs_cases_on_a_mac_box_at_the_
     assert ("`tools/ci mac-box prove <box> --commit <that commit>`" in staging, "lists no passed sand-next release" in staging) == (True, True)
 
 
+def test_a_staging_testers_mac_box_step_counts_a_pr_its_mac_box_provider_reads_as_affected_by_its_paths_though_no_component_it_touches_is_as_o2304_needed(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from conftest import HomeMacBox
+
+    class PrincipalBoxes(HomeMacBox):
+        def affected_paths(self, paths: list[str]) -> bool:
+            return any(path.startswith("llm-gateway/") for path in paths)
+
+        def live_commit(self) -> str:
+            return "6c751b8b10"
+
+        def case_steps(self, tested: str, live: str) -> str:
+            return f"; {tested} on a Mac box at {live}"
+
+    provide(monkeypatch, Path(), repo=HomeRepo, mac_box=PrincipalBoxes)
+    monkeypatch.setattr(github, "files", lambda key: ["llm-gateway/auth.go"] if key.endswith("#42") else ["docs/x.md"])
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"touched": ["api"]} for key in keys})
+    monkeypatch.setattr(orca, "checkout", lambda name, cwd, wait=0: Path())
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test #42 and #43 on staging")
+    run("job", "add", "builder", "--order", "o1", "--goal", "test #42 and #43 on staging")
+    parts = [state.STAGING_TEST.format(number=number) for number in (42, 43)]
+    with edit(demo) as data:
+        for part in parts:
+            data["orders"]["o1"]["parts"][part] = state.new_part()
+        data["jobs"]["j1"]["parts"] = parts
+    data = state.load(demo)
+    assert cli.staging_mac_box(demo, data, data["jobs"]["j1"]) == "; Forge-AI/monorepo#42 on a Mac box at 6c751b8b10"
+
+
 def test_pr_set_staging_stages_a_monorepo_pr_in_one_save_as_its_builders_staging_line_does_and_a_wait_on_its_unlisted_staging_part_names_it(
     home_repo: None,
     run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]

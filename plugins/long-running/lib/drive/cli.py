@@ -6073,19 +6073,24 @@ def pr_reach(key: str, found: providers.Providers) -> dict:
 
 
 def staging_mac_box(name: str, data: dict, job: dict) -> str:
-    """What a staging tester's Staging line adds for each PR its `staging test of #N before it lands` parts name whose paths reach the dashboard, by release_reach: its cases run on a Mac box signed in to staging against the commit the Mac box provider's live_commit reads as live, and again at its own head when its paths reach one of that provider's builds too, which its prove step builds from the commit it names, so a control calling a route the released build lacks fails on staging rather than for him; nothing when none reaches the dashboard. A live commit that could not be read leaves the brief kept, its line naming the read its tester makes first."""
+    """What a staging tester's Staging line adds for each PR its `staging test of #N before it lands` parts name that the Mac box provider reads as affected, by the components release_reach reads it touching or by the paths it changes, which are read only when the provider defines affected_paths: its cases run on a Mac box signed in to staging against the commit the Mac box provider's live_commit reads as live, and again at its own head when its paths reach one of that provider's builds too, which its prove step builds from the commit it names, so a control calling a route the released build lacks fails on staging rather than for him; nothing when none is affected. A live commit that could not be read leaves the brief kept, its line naming the read its tester makes first."""
     keys = state.tested_prs(data, job)
     reach = release_reach(name, data, keys)
     found = providers.of(data)
-    if not (dashboard := [key for key in keys if key in reach and found.mac_box.affected(reach[key]["touched"])]):
+    by_paths = type(found.mac_box).affected_paths is not providers.MacBoxProvider.affected_paths
+    if not (
+        boxed := [
+            key for key in keys if key in reach and (found.mac_box.affected(reach[key]["touched"]) or (by_paths and found.mac_box.affected_paths(github.files(key))))
+        ]
+    ):
         return ""
     try:
         orca.checkout(name, data["roles"]["coordinator"]["cwd"])
         live, unread = found.mac_box.live_commit(), ""
     except (DriveError, github.GithubError) as error:
         live, unread = "<that commit>", found.staging.unread(str(error))
-    own = [key for key in dashboard if found.mac_box.builds & set(reach[key]["touched"])]
-    return found.mac_box.case_steps(", ".join(dashboard), live) + unread + (found.mac_box.rebuild_steps(", ".join(own)) if own else "")
+    own = [key for key in boxed if found.mac_box.builds & set(reach[key]["touched"])]
+    return found.mac_box.case_steps(", ".join(boxed), live) + unread + (found.mac_box.rebuild_steps(", ".join(own)) if own else "")
 
 
 def required_cases(data: dict, job: dict) -> dict[str, list[str]]:
