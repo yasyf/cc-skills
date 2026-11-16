@@ -14,7 +14,7 @@ from drive.pr_graph import chains
 from drive.render import cut, when
 
 FIELDS = (
-    "title body author { login } state isDraft headRefOid baseRefName headRefName reviewDecision labels(first: 100) { nodes { name } } url additions deletions changedFiles"
+    "title body author { __typename login } state isDraft headRefOid baseRefName headRefName reviewDecision labels(first: 100) { nodes { name } } url additions deletions changedFiles"
     " files(first: 100) { nodes { path } } comments(last: 100) { nodes { body } }"
 )
 READ_AGE = "60s"
@@ -522,7 +522,7 @@ def github_reads(entries: dict[str, dict | None]) -> dict[str, dict]:
 
 def card_fields(node: dict) -> dict:
     """A PR's node in GitHub's reply to FIELDS shaped as `gh pr view --json` reads it, the shape the copy kept on disk holds."""
-    return node | {"author": node["author"] or {"login": github.DELETED_AUTHOR}, "labels": node["labels"]["nodes"], "files": node["files"]["nodes"], "comments": node["comments"]["nodes"]}
+    return node | {"author": {"login": github.author_login(node["author"])}, "labels": node["labels"]["nodes"], "files": node["files"]["nodes"], "comments": node["comments"]["nodes"]}
 
 
 def drawn_reads(known: dict[str, tuple[str, dict]], keys: list[str]) -> dict[str, dict]:

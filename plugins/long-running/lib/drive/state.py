@@ -151,6 +151,7 @@ GUARDED_OWNER = "forge-ai"
 HIS_LOGIN = "yasyf"
 UPSTREAM_PERMISSIONS = ("READ", "TRIAGE")
 NO_TAP_OWNER = HIS_LOGIN
+BOT_SUFFIX = "[bot]"
 FOREIGN_RULING = '5815316 on a teammate\'s PRs: "Don\'t touch old tree or his PRs"'
 TOOLING_RULING = 'de88d49: "Block in a fucking tooling question for core work is not fucnigbbacceotbale"'
 MONOREPO = "Forge-AI/monorepo"
@@ -6173,8 +6174,8 @@ def asked_line(question: dict, about: str) -> str:
 
 
 def foreign(key: str, author: str | None, words: Iterable[str]) -> str | None:
-    """Why the drive may not track, card, tap or land a PR: someone other than him opened it on GitHub, and none of his words on the orders it serves, as `his_words_on` reads them, names it by link, key or #N; None for his own, one his words name, or one whose author no GitHub read has given since this install, which the watch's next read does."""
-    if author is None or author.casefold() == HIS_LOGIN or any(names_pr(said, key) for said in words):
+    """Why the drive may not track, card, tap or land a PR: a teammate other than him opened it on GitHub, and none of his words on the orders it serves, as `his_words_on` reads them, names it by link, key or #N; None for his own, one his words name, one a bot or GitHub App opened, such as ai-oncall's incident fix, which is no teammate's work his ruling guards, or one whose author no GitHub read has given since this install, which the watch's next read does, since a gate that cannot decide lets the work through."""
+    if author is None or author.casefold() == HIS_LOGIN or author.startswith(github.BOT_PREFIX) or author.endswith(BOT_SUFFIX) or any(names_pr(said, key) for said in words):
         return None
     return (
         f"{key} was opened on GitHub by {author}, not {HIS_LOGIN}, and neither an order of his it serves nor a question card of that order he answered names it by link or #N: the drive"

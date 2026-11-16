@@ -193,12 +193,12 @@ def test_jev_holds_a_post_counting_the_whole_drives_cards_in_a_works_thread_and_
     assert settled.post_verdict({"post": {"text": rewrite}, "his_words": [], "thread_scope": scope}) == PASSES
 
 
-def test_a_post_in_a_works_thread_naming_another_orders_pr_or_card_holds_unless_his_words_there_name_more(jev: Jev) -> None:
+def test_a_post_in_a_works_thread_naming_another_orders_pr_or_card_goes_out_with_a_warning_unless_his_words_there_name_more(jev: Jev) -> None:
     strays = ["{pr:yasyf/cc-skills#8}", "{card:demo:j2-1}"]
     output = {"post": {"text": "Also waiting on you: {pr:yasyf/cc-skills#8} and {card:demo:j2-1}."}, "his_words": [], "thread_scope": {"asked": "what else is waiting on me for this work", "strays": strays}}
     assert settled.post_verdict(output) == {
-        "verdict": "hold",
-        "note": "Jev held back this post: it names {pr:yasyf/cc-skills#8}, {card:demo:j2-1}, work of orders other than its thread's, which his words in this thread never asked about: answer from the orders its In his thread lines list, with each card and PR their jobs wait on, and leave the rest of the drive out. So fix each, then call say again.",
+        "verdict": "warn",
+        "note": f"{settled.GOES_OUT} Jev is unsure of whether {{pr:yasyf/cc-skills#8}}, {{card:demo:j2-1}}, which the thread's work as the drive draws it does not hold, belongs in this thread: if one is wrong, reword the post in place.",
     }
     assert "strays" not in jev.asked[-1]["state"]["thread"]
     jev.breaks("wider", "", 0.9)

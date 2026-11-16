@@ -22,6 +22,7 @@ BUILDER = "long-running:builder"
 SHELLS = {"sh", "bash", "zsh", "dash", "fish"}
 WRAPPERS = {"command", "exec", "nohup", "env", "time"}
 VALUED = {"-C", "-R", "--repo", "--drive"}
+CCX_RAW = re.compile(r"#\s*ccx:raw\b|\bCAPT_HOOK_CCX_RAW=1\b")
 ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
 SHIP = ("ccx", "vcs", "ship")
 PUSHES = (("gh", "pr", "create"), ("git", "push"), ("jj", "git", "push"), SHIP, ("gt", "submit"))
@@ -203,13 +204,14 @@ def designer_push(found: list[list[str]]) -> str | None:
     )
 
 
-def bare_pr(found: list[list[str]]) -> str | None:
-    if not any(tuple(verb(words)[:3]) == ("gh", "pr", "create") for words in found):
+def bare_pr(found: list[list[str]], command: str) -> str | None:
+    """Why a builder's `gh pr create` must not run: it skips the repository's own way of opening a PR; None for one carrying the `# ccx:raw` escape hatch or `CAPT_HOOK_CCX_RAW=1`, the route when ccx itself refuses."""
+    if CCX_RAW.search(command) or not any(tuple(verb(words)[:3]) == ("gh", "pr", "create") for words in found):
         return None
     return (
         "refused: a builder opens its PR the repository's way, never a bare `gh pr create`: its own submit wrapper, otherwise"
         " the `open-pr` skill, which ships it with `ccx vcs ship --pr-title-file <title> --pr-body-file <body>` and keeps"
-        " the branch, stack and PR text the repository expects"
+        " the branch, stack and PR text the repository expects; when ccx itself refuses, end the raw call with `# ccx:raw`"
     )
 
 
@@ -836,7 +838,7 @@ def deny_reason(payload: dict) -> str | None:
     reasons = (
         lambda: datadog_cli(call["command"], cwd),
         lambda: designer_push(found) if kind == DESIGNER else None,
-        lambda: bare_pr(found) if kind == BUILDER else None,
+        lambda: bare_pr(found, call["command"]) if kind == BUILDER else None,
         lambda: held_pr(found, payload.get("agent_id") or "", drives) if kind == BUILDER else None,
         lambda: cached_page(call["command"]) if drives else None,
         lambda: shell_after_claude(scripts),

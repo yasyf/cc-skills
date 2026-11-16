@@ -2794,3 +2794,9 @@ def test_a_staging_lease_that_runs_past_its_end_extends_once_and_an_incident_tes
     assert (held, kind, data["slots"]["plat-usw2-staging"]["holder"]["until"]) == ("j1", "extended", state.stamp(moment + timedelta(minutes=65)))
     [(_, freed, kind, _), (_, given, go, _)] = state.slot_turns(data, moment + timedelta(minutes=66))
     assert (freed, kind, given, go, [each["job"] for each in data["slots"]["plat-usw2-staging"]["queue"]]) == ("j1", "freed", "j3", "go", ["j2"])
+
+
+def test_a_pr_a_bot_or_github_app_opened_is_no_teammates_and_the_drive_may_take_it() -> None:
+    assert state.foreign("Forge-AI/monorepo#56030", github.author_login({"__typename": "Bot", "login": "poetic-vulcan"}), []) is None
+    assert state.foreign("Forge-AI/monorepo#56030", "renovate[bot]", []) is None
+    assert state.foreign("Forge-AI/monorepo#56030", github.author_login({"__typename": "User", "login": "rowan"}), [])

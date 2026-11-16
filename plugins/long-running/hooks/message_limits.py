@@ -1149,7 +1149,7 @@ def unroomed(post: int, parts: list[tuple[str, int]]) -> agents.Unjudged:
 
 
 def hook_output(payload: dict) -> dict:
-    """What the say hook prints for a call, empty when it lets the call through unjudged: a deny with the rule it stands for, a warning, and what Jev weighs a post by beside his words, the post the drive's watch makes of a proved order's live line read by the same checks, by talk.hook_refusal; a check that fails refuses the post."""
+    """What the say hook prints for a call, empty when it lets the call through unjudged: a deny with the rule it stands for, a warning, and what Jev weighs a post by beside his words, the post the drive's watch makes of a proved order's live line read by the same checks, by talk.hook_refusal; a check that fails lets the post out unchecked with a warning, since a gate that cannot finish fails open."""
     try:
         reason, sent = checked(payload)
         reads = [] if isinstance(reason, agents.Unjudged) else read_evidence(payload, sent.get("claims") or [])
@@ -1167,10 +1167,13 @@ def hook_output(payload: dict) -> dict:
         if judged and (unfit := settled.unfit(judged))[1]:
             reason, heard, judged = unroomed(*unfit), {}, {}
     except Exception as error:
-        reason, heard, judged = agents.Unjudged(
-            f"refused: the drive's message check failed on this post with {type(error).__name__}: {error}, so it does not go"
-            " out unchecked. Name it on a DEFECT line, and the post goes out once the check's fix is installed."
-        ), {}, {}
+        reason, judged = "", {}
+        heard = {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "additionalContext": f"The post went out unchecked: the drive's message check failed on it with {type(error).__name__}: {error}, and a gate that cannot finish lets the post through. Name it on a DEFECT line.",
+            }
+        }
     refused = denial(reason) | agents.ruled(reason) if reason else {}
     return heard | refused | judged
 

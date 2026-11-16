@@ -2978,7 +2978,7 @@ def test_main_prints_a_pretooluse_denial(
     assert "this post is 900 words" in decision["permissionDecisionReason"]
 
 
-def test_a_check_that_fails_refuses_the_post_rather_than_let_it_out_unchecked(
+def test_a_check_that_fails_lets_the_post_out_unchecked_with_a_warning(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     def broken(payload: dict) -> tuple[str | None, dict]:
@@ -2989,9 +2989,8 @@ def test_a_check_that_fails_refuses_the_post_rather_than_let_it_out_unchecked(
     message_limits.main()
     out = json.loads(capsys.readouterr().out)
     decision = out["hookSpecificOutput"]
-    assert out["judged"] is False
-    assert decision["permissionDecision"] == "deny"
-    assert decision["permissionDecisionReason"].startswith("refused: the drive's message check failed on this post with KeyError: 'timestamp'")
+    assert "permissionDecision" not in decision and "judged" not in out
+    assert decision["additionalContext"].startswith("The post went out unchecked: the drive's message check failed on it with KeyError: 'timestamp'")
 
 
 def test_the_meta_session_posts_nothing_to_slack_and_sends_its_words_and_questions_to_the_communicator(

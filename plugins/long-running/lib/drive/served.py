@@ -455,7 +455,7 @@ def under(directory: str, paths: list[str]) -> str | None:
 
 
 def owed(data: dict, key: str, ruled: list[tuple[str, str, str]], reads: dict[str, dict]) -> list[dict]:
-    """Each ruling of his coded() read, on how the code at its <dir> must work, that the PR owes written, his words verbatim, into <dir>/AGENTS.md, the deepest AGENTS.md over that code, by his rulings WRITES_RULING and DEEPEST_RULING, so every later change to that code reads it: only a PR whose diff changes a file under <dir> owes it, and only while <dir>/AGENTS.md holds his words neither at the tip of the PR's base branch nor at the head of another open PR of the drive's in that repository outside its stack whose diff, as its last passed check read it, changes that AGENTS.md, and that outranks it, one numbered below it or, when its stack does not write them, any; all of them read in one GitHub read of those files at the base branch's tip and those PRs' heads alone; each ruling once for each directory however many ids name it, with the file it changes there and whether the added lines in that AGENTS.md of the diff of any PR of its stack, each as reads holds it, write them, since one check judges a stack and its PRs land together, so a stack whose own PR writes a ruling never waits on that PR's own pass to count the write. A ruling already written where its code is, or on its way there in the lowest-numbered open PR whose head holds it, is owed by no other change, since his words ask the rule written once beside the code, never again in each change to it."""
+    """Each ruling of his coded() read, on how the code at its <dir> must work, that the PR owes written, his words verbatim, into <dir>/AGENTS.md, the deepest AGENTS.md over that code, by his rulings WRITES_RULING and DEEPEST_RULING, so every later change to that code reads it: only a PR whose diff changes a file under <dir> owes it, and only while <dir>/AGENTS.md holds his words neither at the tip of the PR's base branch, nor at the tip of its repository's default branch, which a stacked PR's base forked from before his words were written there, nor at the head of another open PR of the drive's in that repository outside its stack whose diff, as its last passed check read it, changes that AGENTS.md, and that outranks it, one numbered below it or, when its stack does not write them, any; all of them read in one GitHub read of those files at the base branch's tip and those PRs' heads alone; each ruling once for each directory however many ids name it, with the file it changes there and whether the added lines in that AGENTS.md of the diff of any PR of its stack, each as reads holds it, write them, since one check judges a stack and its PRs land together, so a stack whose own PR writes a ruling never waits on that PR's own pass to count the write. A ruling already written where its code is, or on its way there in the lowest-numbered open PR whose head holds it, is owed by no other change, since his words ask the rule written once beside the code, never again in each change to it."""
     if not ruled:
         return []
     read = reads[key]
@@ -470,13 +470,15 @@ def owed(data: dict, key: str, ruled: list[tuple[str, str, str]], reads: dict[st
         for other, pr in data["prs"].items()
         if other not in reads and pr["state"] == "open" and pr["branch"] and github.repo_of(other) == github.repo_of(key) and pr["checked"] and paths & pr["checked"]["lines"].keys()
     ]
-    tip, *heads = guides(key, [read["base"], *(branch for _, branch in opened)], paths)
+    bases = list(dict.fromkeys(branch for branch in (read["base"], data["prs"][key]["default"]) if branch))
+    found = guides(key, [*bases, *(branch for _, branch in opened)], paths)
+    tips, heads = found[: len(bases)], found[len(bases) :]
     stack = [piece for each in reads.values() for piece in files(each["diff"])]
     owes = []
     for answer_id, ruling, directory, path in touched:
         written = held(ruling, [line[1:] for file, text in stack if file == guide(directory) for line in text.splitlines() if line.startswith("+") and not line.startswith("+++")])
         outranked = any(holds(at, ruling, directory) and (other < number or not written) for (other, _), at in zip(opened, heads, strict=True))
-        if not outranked and not holds(tip, ruling, directory):
+        if not outranked and not any(holds(tip, ruling, directory) for tip in tips):
             owes.append({"id": answer_id, "words": ruling, "dir": directory, "file": path, "written": written})
     return owes
 

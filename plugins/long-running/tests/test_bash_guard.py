@@ -54,6 +54,8 @@ def test_a_builder_opens_its_pr_the_repositorys_way(demo: str) -> None:
     assert "`ccx vcs ship --pr-title-file <title> --pr-body-file <body>`" in reason
     assert bash_guard.deny_reason(bash("ccx vcs ship --no-watch --pr-title-file /s/t --pr-body-file /s/b", **builder)) is None
     assert bash_guard.deny_reason(bash("gh pr create --title X", session="ordinary")) is None
+    assert bash_guard.deny_reason(bash("gh pr create --base main --head fix --title X --body-file /s/body.md  # ccx:raw", **builder)) is None
+    assert bash_guard.deny_reason(bash("CAPT_HOOK_CCX_RAW=1 gh pr create --title X --body-file /s/body.md", **builder)) is None
 
 
 def test_a_builder_opens_no_pr_while_his_open_cards_hold_its_job(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:

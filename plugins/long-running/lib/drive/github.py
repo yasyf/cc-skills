@@ -17,7 +17,7 @@ from pathlib import Path
 NUMBER = "<number>"
 REQUIRED = f"isRequired(pullRequestNumber: {NUMBER})"
 FIELDS = (
-    "state isDraft headRefOid baseRefName headRefName title lastEditedAt author { login } reviewDecision latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state commit { oid } } } reviews(last: 50) { nodes { state author { login } commit { oid } } } "
+    "state isDraft headRefOid baseRefName headRefName title lastEditedAt author { __typename login } reviewDecision latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state commit { oid } } } reviews(last: 50) { nodes { state author { login } commit { oid } } } "
     "mergeable mergeCommit { oid } mergedAt labels(first: 50) { nodes { name } } timelineItems(itemTypes: [LABELED_EVENT], last: 20) { nodes { ... on LabeledEvent { createdAt label { name } } } } "
     "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { "
     f"... on CheckRun {{ name conclusion detailsUrl {REQUIRED} checkSuite {{ workflowRun {{ workflow {{ name }} }} }} }} ... on StatusContext {{ context state targetUrl {REQUIRED} }} }} }} }} }} }} }}"
@@ -55,6 +55,7 @@ STACK = "stack { baseRefName entries(first: 100) { nodes { position pullRequest 
 UNDER = "baseRef { associatedPullRequests(states: OPEN, first: 2) { nodes { number } } }"
 READ = f"{FIELDS} {UNDER} {STACK}"
 DELETED_AUTHOR = "ghost"
+BOT_PREFIX = "app/"
 PICK = re.compile(r" \(#(\d+)\)$")
 DIFF = ["--no-renames", "--no-ext-diff", "--no-color", "--no-textconv", "-U0", "--src-prefix=a/", "--dst-prefix=b/"]
 UNSHIPPED = re.compile(r"(?:^|/)(?:AGENTS\.md|CLAUDE\.md|[^/]*_test\.go)$|(?:^|/)(?:tests|testdata)/")
@@ -119,6 +120,13 @@ def floor_lifts_in(said: str) -> float | None:
 def close(url: str) -> None:
     """Close a pull request on GitHub."""
     run(["gh", "pr", "close", url])
+
+
+def author_login(author: dict | None) -> str:
+    """A PR author's login as `gh pr view` names it: `app/<login>` for a GitHub App's bot, such as ai-oncall's, and the deleted account's for none."""
+    if author is None:
+        return DELETED_AUTHOR
+    return f"{BOT_PREFIX}{author['login']}" if author.get("__typename") == "Bot" else author["login"]
 
 
 def files(key: str) -> list[str]:
@@ -189,7 +197,7 @@ def flatten(node: dict) -> dict:
         "mergeable": node["mergeable"],
         "title": node["title"],
         "lastEditedAt": node["lastEditedAt"],
-        "author": (node["author"] or {"login": DELETED_AUTHOR})["login"],
+        "author": author_login(node["author"]),
         "labels": labels,
         "ejected_at": labeled(node, labels, EJECTED_LABEL),
         "cancelled_at": labeled(node, labels, CANCELLED_LABEL),
