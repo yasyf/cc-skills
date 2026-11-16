@@ -3319,10 +3319,11 @@ def incident_prs(data: dict, group: list[str], jobs: dict[str, dict], registered
     )
 
 
-def owed_reporters(data: dict, order: dict, moment: datetime) -> list[dict]:
+def owed_reporters(data: dict, order_id: str, moment: datetime) -> list[dict]:
     """Each reporter whose record the order keeps and whose thread is owed its note and the watch has not said so: a bug report's once its fix is proven live, a question's once its answer is posted, nothing moved on it for ten minutes, the drive's last line on an answer order counting as a move since posting its answer moves nothing else, and no note is recorded; a record another order keeps is that order's to owe."""
+    order = data["orders"][order_id]
     moved = (order["last_line"] if order["kind"] == "answer" else None) or order["updated"]
-    if not (state.may_tell(data, order) and moment - state.parse_time(moved) >= TELL_AFTER):
+    if not (state.may_tell(data, order_id) and moment - state.parse_time(moved) >= TELL_AFTER):
         return []
     return [held for held in order["reporters"] if "kept_by" not in held and not held["told"] and not held["tell_said"]]
 
@@ -3356,13 +3357,13 @@ def close_joined_repeats(watcher: Watcher, moment: datetime) -> None:
 def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Each open order proven live, or whose answer is posted, with a reporter's thread that has not heard it ten minutes on, said once for each thread."""
     data = state.load(watcher.name)
-    if not (owing := [order_id for order_id, order in heard_orders(watcher, data).items() if owed_reporters(data, order, moment)]):
+    if not (owing := [order_id for order_id, order in heard_orders(watcher, data).items() if owed_reporters(data, order_id, moment)]):
         return []
 
     def tell_said(data: dict) -> list[str]:
         lines = []
         for order_id in owing:
-            owed = owed_reporters(data, data["orders"][order_id], moment)
+            owed = owed_reporters(data, order_id, moment)
             for held in owed:
                 held["tell_said"] = state.stamp(moment)
             answered = data["orders"][order_id]["kind"] == "answer"

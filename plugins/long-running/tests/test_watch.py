@@ -9972,7 +9972,7 @@ def test_a_fix_merged_to_dev_that_no_release_holds_is_never_proven_live_so_its_r
     data = state.load(demo)
     assert (data["jobs"]["j1"]["state"], data["orders"]["o1"]["proof"], data["orders"]["o1"]["reporters"][0]["tell_said"]) == ("done", None, None)
     assert not [record for records in ready_records for record in records if (record.get("attr") or {}).get("close") == "o1"]
-    assert render.reporter_said(data, data["orders"]["o1"]) == f", reported in {REPORTED}, which hears it is fixed once its fix is proven live"
+    assert render.reporter_said(data, "o1", data["orders"]["o1"]) == f", reported in {REPORTED}, which hears it is fixed once its fix is proven live"
     assert provers == []
 
 
@@ -10812,14 +10812,14 @@ def test_o761s_incident_on_a_surface_he_uses_holds_its_live_line_with_one_prove_
         " of o1, and the watch then closes o1"
     ]
     data = state.load(demo)
-    assert (watch.wakes(lines[0], data, NO_CARDS), ready_records, data["orders"]["o1"]["recovered"], state.may_tell(data, data["orders"]["o1"])) == (True, [], None, False)
+    assert (watch.wakes(lines[0], data, NO_CARDS), ready_records, data["orders"]["o1"]["recovered"], state.may_tell(data, "o1")) == (True, [], None, False)
     with edit(demo) as data:
         data["orders"]["o1"]["jobs"].append("j2")
         data["jobs"]["j2"] = job(parts=["fix"], brief_flags={"native": surface})
     with edit(demo) as data:
         state.take_result(data, "j2", "DONE the Iris chat answers again", f"DONE the Iris chat answers again\nCHECK: {recording}\n")
     data = state.load(demo)
-    assert (data["orders"]["o1"]["proof"], state.may_tell(data, data["orders"]["o1"])) == (f"{fixed}; {recording}", True)
+    assert (data["orders"]["o1"]["proof"], state.may_tell(data, "o1")) == (f"{fixed}; {recording}", True)
     assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=3)) if line.startswith(("PROVE", "RECOVERED"))] == [
         f"RECOVERED o1: {fixed}, so the drive posted its Live line: POSTED {POSTED}; o1 closed on report 9"
     ]

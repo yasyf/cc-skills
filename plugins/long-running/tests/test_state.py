@@ -3121,10 +3121,10 @@ def test_a_reporters_fix_live_note_is_owed_only_once_the_part_carrying_the_repor
     monkeypatch.setattr(state, "fix_proof", lambda data, order: "https://github.com/Forge-AI/monorepo/pull/56406 live: /repro/j5422.py exits 0")
     data["jobs"]["j2"].update(state="done", said="DONE j2 live: /repro/j2.py exits 0")
     data["orders"]["o1"]["parts"][ported].update(posted="j2 live: /repro/j2.py exits 0", posted_by="j2")
-    other = state.may_tell(data, data["orders"]["o1"])
+    other = state.may_tell(data, "o1")
     data["jobs"]["j1"].update(state="done", said="DONE j1 live: /repro/j1.py exits 0")
     data["orders"]["o1"]["parts"][reported].update(posted="j1 live: /repro/j1.py exits 0", posted_by="j1")
-    assert (other, state.reported_parts(data["orders"]["o1"], data["orders"]["o1"]["reporters"][0]), state.may_tell(data, data["orders"]["o1"])) == (False, [reported], True)
+    assert (other, state.reported_parts(data["orders"]["o1"], data["orders"]["o1"]["reporters"][0]), state.may_tell(data, "o1")) == (False, [reported], True)
 
 
 def test_a_job_not_running_keeps_its_mac_box_only_under_a_live_slot_hold_for_it(state_root: Path) -> None:

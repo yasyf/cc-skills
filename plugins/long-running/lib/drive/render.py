@@ -409,24 +409,24 @@ def prs_by_job(drive: dict) -> dict[str, list[str]]:
 
 def order_line(drive: dict, order_id: str, order: dict, limit: int = 120, thread: tuple[str, str] | None = None) -> str:
     where = f", its lines go in {thread[0]} thread {thread[1]}" if thread else ""
-    return f"{order_id} {order['state']}{' incident' if order['incident'] else ''}{where}{reporter_said(drive, order)}: {cut(order['text'], limit)}"
+    return f"{order_id} {order['state']}{' incident' if order['incident'] else ''}{where}{reporter_said(drive, order_id, order)}: {cut(order['text'], limit)}"
 
 
-def reporter_said(drive: dict, order: dict) -> str:
+def reporter_said(drive: dict, order_id: str, order: dict) -> str:
     """Each place the bug the order fixes was reported, or the question it answers asked, and whether that thread heard it, is owed it now, or hears it once its fix is proven live or its answer posted, read from the order keeping that thread's record when another does."""
-    return "".join(reporter_heard(drive, order, *kept_record(drive, held)) for held in order["reporters"])
+    return "".join(reporter_heard(drive, order_id, order, *kept_record(drive, held)) for held in order["reporters"])
 
 
-def reporter_heard(drive: dict, order: dict, keeper: str | None, reporter: dict) -> str:
+def reporter_heard(drive: dict, order_id: str, order: dict, keeper: str | None, reporter: dict) -> str:
     if order["kind"] == "answer" and reporter["told"]:
         return f", asked in {reporter['link']}, told the answer in {reporter['told']}"
     if order["kind"] == "answer":
-        owed = "owed its answer now, since it is posted" if may_tell(drive, order) else "which hears the answer once it is posted"
+        owed = "owed its answer now, since it is posted" if may_tell(drive, order_id) else "which hears the answer once it is posted"
         return f", asked in {reporter['link']}, {owed}"
     kept = f" under {keeper}" if keeper else ""
     if reporter["told"] is None:
         fix = f"{keeper}'s fix" if keeper else "its fix"
-        owed = f"owed its fix-live note{kept} now, since {fix} is proven live" if may_tell(drive, drive["orders"][keeper] if keeper else order) else f"which hears it is fixed{kept} once {fix} is proven live"
+        owed = f"owed its fix-live note{kept} now, since {fix} is proven live" if may_tell(drive, keeper or order_id) else f"which hears it is fixed{kept} once {fix} is proven live"
         return f", reported in {reporter['link']}, {owed}"
     return f", reported in {reporter['link']}, told it is fixed in {reporter['told']}{kept}"
 

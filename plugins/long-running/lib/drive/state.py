@@ -4094,11 +4094,11 @@ def merge_proven(order: dict) -> bool:
     return bool(commits) and all(commit and not merges_untapped(commit["repo"]) for commit in commits) and order["state"] not in CLOSED_ORDER_STATES
 
 
-def may_tell(data: dict, order: dict) -> bool:
+def may_tell(data: dict, order_id: str) -> bool:
     """Whether the threads whose records an order keeps may hear from it now: an answer order's once every part of its answer is posted, any other's once its fix is proven live, by fix_proof, and each part carrying a reported bug reads delivered by its own proof, by delivered, never by another job's proof nor a standing pass's, which delivers no part."""
+    order = data["orders"][order_id]
     if order["kind"] == "answer":
         return all(held["posted"] for held in order["parts"].values())
-    order_id = next(found for found, held in data["orders"].items() if held is order)
     return bool(fix_proof(data, order)) and all(delivered(data, order_id, part) for reporter in order["reporters"] for part in reported_parts(order, reporter))
 
 

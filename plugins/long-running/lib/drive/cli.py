@@ -1502,7 +1502,8 @@ def order_told(args: argparse.Namespace) -> int:
     place = told_reporter(args, data, order, (channel, posted.get("thread_ts")) if posted.get("from_claude") else None)
     keeper, kept = state.kept_record(data, order["reporters"][place])
     keeper_id = keeper or args.id
-    if not state.may_tell(data, holder := data["orders"][keeper_id]):
+    holder = data["orders"][keeper_id]
+    if not state.may_tell(data, keeper_id):
         if asked:
             raise DriveError(f"{args.id}: refused, a part of its answer is not posted yet, so a note now would come before the answer: post it first")
         seen = brief.unseen(data, holder, holder["proof"]) if holder["proof"] else None

@@ -10543,7 +10543,7 @@ def test_an_answer_orders_reporter_is_told_once_its_answer_is_posted_and_never_a
         data["roles"]["coordinator"]["session"] = "elsewhere"
     data = state.load(demo)
     order = data["orders"]["o1"]
-    assert not watch.owed_reporters(data, order, state.parse_time(order["updated"]) + watch.TELL_AFTER)
+    assert not watch.owed_reporters(data, "o1", state.parse_time(order["updated"]) + watch.TELL_AFTER)
     note = note_in(slack_thread, "1794418000.000100")
     assert cli.main(["order", "told", "o1", note]) == 2
     assert "o1: refused, a part of its answer is not posted yet, so a note now would come before the answer: post it first" in capsys.readouterr().err
@@ -10552,7 +10552,7 @@ def test_an_answer_orders_reporter_is_told_once_its_answer_is_posted_and_never_a
     data = state.load(demo)
     order = data["orders"]["o1"]
     assert order["state"] != "done" and not order["proof"]
-    assert watch.owed_reporters(data, order, state.parse_time(order["updated"]) + watch.TELL_AFTER)
+    assert watch.owed_reporters(data, "o1", state.parse_time(order["updated"]) + watch.TELL_AFTER)
     assert run("order", "told", "o1", note) == (0, f"o1: told in the reporter's thread, {note}")
 
 
@@ -12735,3 +12735,19 @@ def test_job_set_reopen_puts_a_wrongly_stopped_job_back_on_its_live_bg_worker_an
     assert "dropped the return that stopped it" in (state_root / demo / cli.STRAY_RETURNS_LOG).read_text()
     assert cli.main(["job", "set", "j1", "--reopen", "--agent", WORKER["agent"], "--session", WORKER["session"]]) == 2
     assert "drive: j1: refused, nothing changed: --reopen puts a stopped job back on its worker, and j1 is waiting" in capsys.readouterr().err
+
+
+def test_job_show_and_status_of_a_job_render_its_orders_reporters_own_and_kept_by_another_order_never_crashing_as_734698_did(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the screenshots")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the screenshot fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix the screenshots")
+    run("job", "add", "builder", "--order", "o2", "--goal", "release it")
+    own = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
+    kept = "https://acme.slack.com/archives/C0REPORTS02/p1794400200000300"
+    with edit(demo) as data:
+        data["orders"]["o1"]["reporters"] = [state.reporter(own), state.reporter(kept)]
+        data["orders"]["o2"]["reporters"] = [state.reporter(kept) | {"kept_by": "o1"}]
+    for verb in (["job", "show"], ["status"]):
+        for job_id in ("j1", "j2"):
+            code, out = run(*verb, job_id)
+            assert code == 0 and f"reported in {kept}, which hears it is fixed" in out, (verb, job_id, out)
