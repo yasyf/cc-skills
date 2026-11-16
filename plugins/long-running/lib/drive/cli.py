@@ -108,10 +108,11 @@ PROMISED_TIME = re.compile(
 REPORTER_HELP = (
     "the bug report the order fixes, or the question an answer order answers, by its Slack permalink or slack:<channel>/<its thread's ts>,"
     " from the share or link in his words: its thread gets one note, a bug report's once the fix is proven live and a question's once"
-    " the answer is posted, and done refuses until drive order told records it; on order add, default: the thread a teammate started"
-    " outside his DM that the --from message is in, with no --thread, on an order neither an answer, a watch nor an incident, whose"
-    " lines then go to his DM; on order set, another reporter kept beside those the order holds, such as a second teammate's report of"
-    " the same bug, so each thread hears its own note"
+    " the answer is posted, and done refuses until drive order told records it; on order add, default: each message the --from"
+    " message shares that a person wrote, not him, the drive or a bot, outside the order's own thread, and the thread a teammate"
+    " started outside his DM that the --from message is in, with no --thread, on an order neither an answer nor an incident, whose"
+    " lines then go to his DM; none on a watch order; on order set, another reporter kept beside those the order holds, such as a"
+    " second teammate's report of the same bug, so each thread hears its own note"
 )
 WATCH_HELP = (
     "a teammate's Slack thread he ordered watched, by its permalink or slack:<channel>/<its thread's ts>: the watch reads it once"
@@ -389,7 +390,7 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
         )
     message = his_message(args.source)
     thread = order_thread(state.load(name), args.source, message, args.thread)
-    reported = state.reporter(args.reporter) if args.reporter else teammate_report(state.load(name), args, message, thread)
+    reported = [state.reporter(args.reporter)] if args.reporter else reporters(args, message, thread)
     watched = state.new_watch(args.watch, state.parse_time(created)) if args.watch else None
     if (args.incident or args.joins) and args.options_only:
         raise DriveError(
@@ -436,7 +437,7 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
         parts = {part: state.new_part() for part in args.parts or [title]}
         order = data["orders"][order_id] = state.new_order(args.words, slack_key(args.source, message), thread, parts, created) | {
             "alerts": alerts,
-            "reporters": [reported] if reported else [],
+            "reporters": reported,
             "watch": watched,
             "incident": args.incident or bool(joined and joined["incident"]),
             "kind": joined["kind"] if joined else "build" if args.incident else args.kind,
@@ -630,9 +631,33 @@ def order_thread(data: dict, source: str, message: tuple[str, str, str | None] |
         ) from None
 
 
-def teammate_report(data: dict, args: argparse.Namespace, message: tuple[str, str, str | None] | None, thread: tuple[str, str] | None) -> dict | None:
-    """The reporter of an order he gave in a thread a teammate started outside his DM, that thread, which then hears only its one note while the order's lines go to his DM, by his pick "Drive posts only the fixed note in a reporter's thread, so the hook's one-pass rule always takes it"; None when --thread names where its lines go, on an answer, watch or incident order, and in a thread he, the drive or a bot started."""
-    if args.thread or args.watch or args.incident or args.joins or args.kind == "answer" or not (message and thread) or thread[0] == slack.dm() or thread[1] == message[1]:
+def reporters(args: argparse.Namespace, message: tuple[str, str, str | None] | None, thread: tuple[str, str] | None) -> list[dict]:
+    """The reporters an order he gave keeps with no --reporter, one per thread: each message his --from message shares that a person wrote, outside the order's own thread, and the thread a teammate started that his message is in; none on a watch order or one from outside Slack."""
+    if args.watch or not message:
+        return []
+    shared = [reporter for reporter in shared_reports(args.source, message) if (reporter["channel"], reporter["thread"]) != thread]
+    teammate = teammate_report(args, message, thread)
+    held: dict[tuple[str, str], dict] = {}
+    for reporter in [*shared, *([teammate] if teammate else [])]:
+        held.setdefault((reporter["channel"], reporter["thread"]), reporter)
+    return list(held.values())
+
+
+def shared_reports(source: str, message: tuple[str, str, str | None]) -> list[dict]:
+    """The reporter of each message his message shares that a person wrote, by the from_user, from_claude and from_bot cc-slack reads on each share, so its thread hears only its one note, by his pick "Drive posts only the fixed note in a reporter's thread, so the hook's one-pass rule always takes it"; a share with no from_claude, from a cc-slack that never says who wrote one, is no one's report."""
+    try:
+        shared = slack.shares(message[0], message[1])
+    except slack.SlackError as error:
+        raise DriveError(
+            f"{source}: refused, Slack cannot read the message to tell whose messages it shares: {error}; try again once Slack answers,"
+            " or pass drive order add --reporter <the shared message's permalink>"
+        ) from None
+    return [state.reporter(share["permalink"]) for share in shared if "from_claude" in share and slack.by_person(share)]
+
+
+def teammate_report(args: argparse.Namespace, message: tuple[str, str, str | None], thread: tuple[str, str] | None) -> dict | None:
+    """The reporter of an order he gave in a thread a teammate started outside his DM, that thread, which then hears only its one note while the order's lines go to his DM, by his pick "Drive posts only the fixed note in a reporter's thread, so the hook's one-pass rule always takes it"; None when --thread names where its lines go, on an answer, incident or joining order, and in a thread he, the drive or a bot started."""
+    if args.thread or args.incident or args.joins or args.kind == "answer" or not thread or thread[0] == slack.dm() or thread[1] == message[1]:
         return None
     try:
         root = slack.root(*thread)
@@ -641,7 +666,7 @@ def teammate_report(data: dict, args: argparse.Namespace, message: tuple[str, st
             f"--from {args.source}: refused, Slack cannot read the thread it is in to tell whether a teammate reported a bug there: {error};"
             " pass --reporter slack:<channel>/<thread ts> for a teammate's report, or --thread <its permalink> for a thread its lines go in"
         ) from None
-    if not root or root.get("from_user") or root.get("from_claude") or root.get("from_bot"):
+    if not root or not slack.by_person(root):
         return None
     return state.reporter(f"slack:{thread[0]}/{thread[1]}")
 
