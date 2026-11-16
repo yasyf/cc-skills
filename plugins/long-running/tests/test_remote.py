@@ -2876,9 +2876,9 @@ def written_minutes_ago(sprite_homes: dict[str, Path], tmp_path: Path, workspace
     return transcript
 
 
-@pytest.mark.parametrize("quiet", [None, 45], ids=["unlisted", "unwritten-45-minutes"])
+@pytest.mark.parametrize("quiet", [None, 4, 45], ids=["unlisted", "written-4-minutes-ago", "unwritten-45-minutes"])
 @pytest.mark.parametrize("lane", [J1409_LANES["j489"], J1409_LANES["j414"], J1409_LANES["j601"], J2504_LANE])
-def test_a_pushed_job_whose_sprite_neither_wakes_nor_answers_ssh_nor_shows_a_transcript_written_in_30_minutes_restarts_on_a_fresh_sprite_from_its_pushed_branch_keeping_its_transcripts_and_that_sprite_and_counts_that_death_against_no_job(
+def test_a_pushed_job_whose_sprite_neither_wakes_nor_answers_ssh_restarts_on_a_fresh_sprite_at_once_from_its_pushed_branch_after_a_save_through_the_reclaimer_keeping_its_transcripts_and_counts_that_death_against_no_job(
     run: Run,
     remote: str,
     tmp_path: Path,
@@ -2894,8 +2894,10 @@ def test_a_pushed_job_whose_sprite_neither_wakes_nor_answers_ssh_nor_shows_a_tra
         written_minutes_ago(sprite_homes, tmp_path, workspace, quiet)
     silent = f"its Sprite did not answer: {SILENT_SPRITE}"
     monkeypatch.setattr(orca, "keep_logs", lambda drive, job_id, job, dispatch: (silent, False, False, False))
-    for step in ("session_of", "save", "release"):
-        monkeypatch.setattr(orca, step, lambda *args, step=step: pytest.fail(f"a Sprite that does not answer ssh is asked nothing more over it, yet {step} ran"))
+    monkeypatch.setattr(orca, "session_of", lambda *args: pytest.fail("a Sprite that does not answer ssh is asked for no session over it"))
+    tried = []
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: tried.append(job["workspace"]) or None)
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: f"destroyed {job['workspace']}")
     asked: list[list[tuple[str, str]]] = []
     monkeypatch.setattr(github, "branch_heads", lambda heads: asked.append(heads) or dict.fromkeys(heads, "4d5e6f7081"))
     held = "Next event for builder j2504, from the coordinator. Design job j3161 picked the two redo volumes."
@@ -2906,7 +2908,7 @@ def test_a_pushed_job_whose_sprite_neither_wakes_nor_answers_ssh_nor_shows_a_tra
     assert (code, out.startswith("j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2")) == (0, True)
     files = f"its worker last wrote a transcript there {quiet} minutes ago" if quiet else f"the Sprites file API did not list its transcripts: {UNLISTED}"
     assert f"was dead ({unreachable(port)}, and its wake read orca-reclaim.py exited 1: {NO_WAKE}, and its Sprite did not answer: {SILENT_SPRITE}, and {files}" in out
-    assert out.endswith(f"{workspace} is kept, since what it holds on no remote could not be saved: no save was tried, since {silent}")
+    assert tried == [workspace]
     assert (wakes, [launched["workspace"] for launched in launches], kept_transcripts) == ([("--wake", workspace)], [None], [("j1", dispatch)])
     brief = orca.brief_of(launches[-1]["brief"])
     assert f"You take the job over on a fresh Sprite from its pushed branches; {orca.UNPUSHED}" in brief
@@ -2921,22 +2923,6 @@ def test_a_pushed_job_whose_sprite_neither_wakes_nor_answers_ssh_nor_shows_a_tra
     assert [[branch for _, branch in heads] for heads in asked] == [["durable-agents-j2504/sandsql-two-redo-volumes"]]
 
 
-def test_a_lane_orca_could_not_reach_whose_sprite_answers_no_ssh_while_its_worker_wrote_a_transcript_minutes_ago_restarts_nothing_and_records_no_death(
-    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sprite_homes: dict[str, Path], kept_transcripts: list[tuple[str, str]]
-) -> None:
-    workspace, dispatch, port = J2504_LANE
-    wakes, launches = unreachable_lane(remote, tmp_path, monkeypatch, J2504_LANE, None)
-    written_minutes_ago(sprite_homes, tmp_path, workspace, 4)
-    for step in ("keep_logs", "session_of", "save", "release"):
-        monkeypatch.setattr(orca, step, lambda *args, step=step: pytest.fail(f"a lane whose worker still writes its transcript is not restarted, yet {step} ran"))
-    code, out = run("job", "resume", "j1", state.UNREACHED)
-    working = f"its Sprite did not answer: {SILENT_SPRITE}, yet its worker wrote a transcript there 4 minutes ago, so it reads as at work until 30 minutes pass with no write, and nothing restarts"
-    assert (code, out) == (0, f"j1: not sent: {unreachable(port)}, and its wake read orca-reclaim.py exited 1: {NO_WAKE}, and {working}; the watch's note to carry the job on reached no one and is not kept, since it was written for this wake or restart alone")
-    assert (wakes, launches, kept_transcripts) == ([("--wake", workspace)], [], [])
-    job = state.load(remote)["jobs"]["j1"]
-    assert (job["dispatch"], job["workspace"], "deaths" in job) == (dispatch, workspace, False)
-
-
 def test_a_lane_that_takes_messages_once_its_sprite_wakes_gets_the_text_and_nothing_restarts(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2948,8 +2934,9 @@ def test_a_lane_that_takes_messages_once_its_sprite_wakes_gets_the_text_and_noth
     assert sent == [("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", Unheld(state.UNREACHED), "--retry-request", ANY)]
 
 
+@pytest.mark.parametrize("listening", [False, True], ids=["nothing-listens", "runtime-listens"])
 @pytest.mark.parametrize("saved", [SAVED, None], ids=["saved", "unsaveable"])
-def test_j982s_full_disk_sprite_whose_claude_lives_while_nothing_listens_where_orcas_runtime_serves_restarts_on_a_fresh_sprite_with_its_branches_saved_and_its_held_texts(
+def test_j982s_sprite_orca_cannot_reach_whether_or_not_its_runtime_listens_restarts_on_a_fresh_sprite_at_once_with_its_branches_saved_and_its_held_texts(
     run: Run,
     remote: str,
     tmp_path: Path,
@@ -2958,10 +2945,11 @@ def test_j982s_full_disk_sprite_whose_claude_lives_while_nothing_listens_where_o
     sessions: dict[str, str],
     saved_on_github: dict[str, list[str]],
     saved: str | None,
+    listening: bool,
 ) -> None:
     workspace, dispatch, port = J982_10
     wakes, launches = unreachable_lane(remote, tmp_path, monkeypatch, J982_10, lambda: refused("remote_runtime_unavailable", f"Could not connect to the remote Orca runtime at ws://127.0.0.1:{port}")(dispatch))
-    runtimes_listening[workspace] = False
+    runtimes_listening[workspace] = listening
     sessions[workspace] = "5a1f0c3e-7d2b-4e8a-9c61-0b2d4f6e8a1c"
     saved_on_github["demo-j1"] = SAVED_BRANCHES if saved else []
     monkeypatch.setattr(orca, "save", (lambda drive, job_id, job, root: saved) if saved else unsaveable(UNREAD))
@@ -2973,33 +2961,12 @@ def test_j982s_full_disk_sprite_whose_claude_lives_while_nothing_listens_where_o
         data["jobs"]["j1"]["undelivered"] = [{"seq": None, "words": held, "at": state.stamp(T0), "said": None, "request": "req-held"}]
     code, out = run("job", "resume", "j1", state.UNREACHED)
     assert (code, out.startswith("j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2")) == (0, True)
-    assert f"was dead ({unreachable(port)}, and its wake read {unreachable(port).removeprefix('Orca could not reach its Sprite: ')}, and its Sprite has nothing listening on the port Orca's runtime serves on there)" in out
+    assert f"was dead ({unreachable(port)}, and its wake read {unreachable(port).removeprefix('Orca could not reach its Sprite: ')}, and {'its Sprite says something listens on the port Orca\'s runtime serves on there, yet Orca cannot reach it' if listening else 'its Sprite has nothing listening on the port Orca\'s runtime serves on there'})" in out
     assert out.endswith(f"what {workspace} held on no remote is saved on GitHub as {ON_GITHUB}; destroyed {workspace}" if saved else f"{workspace} is kept, since what it holds on no remote could not be saved: {UNREAD}")
     assert (wakes, [(launched["workspace"], launched["session"]) for launched in launches], released) == ([("--wake", workspace)], [(None, None)], [workspace] if saved else [])
     assert unheld(orca.brief_of(launches[0]["brief"])).endswith(f"which you act on now:\n\n{held}\n\n{state.UNREACHED}")
     job = state.load(remote)["jobs"]["j1"]
     assert (job["dispatch"], job["workspace"], job["undelivered"], [(death["workspace"], death.get("saved")) for death in job["deaths"]]) == ("dispatch-2", "workspace-2", [], [(workspace, saved)])
-
-
-@pytest.mark.parametrize("held", [[], ["Next event for builder j982, from the coordinator. TAP Approve #12"]], ids=["only-the-note", "beside-a-held-text"])
-def test_a_lane_orca_could_not_reach_whose_woken_sprite_says_orcas_runtime_listens_keeps_no_note_to_carry_on_and_restarts_nothing(
-    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runtimes_listening: dict[str, bool], held: list[str]
-) -> None:
-    workspace, dispatch, port = J982_10
-    wakes, launches = unreachable_lane(remote, tmp_path, monkeypatch, J982_10, lambda: refused("remote_runtime_unavailable", f"Could not connect to the remote Orca runtime at ws://127.0.0.1:{port}")(dispatch))
-    runtimes_listening[workspace] = True
-    monkeypatch.setattr(orca, "save", lambda *args: pytest.fail("a lane whose Sprite's runtime listens is never saved"))
-    with state.edit(remote) as data:
-        data["jobs"]["j1"]["undelivered"] = [{"seq": None, "words": words, "at": state.stamp(T0), "said": None, "request": "req-held", "sender": "coordinator"} for words in held]
-    code, out = run("job", "resume", "j1", state.UNREACHED)
-    refusal = f"orca orchestration worker-show: remote_runtime_unavailable: Could not connect to the remote Orca runtime at ws://127.0.0.1:{port}"
-    unkept = "the watch's note to carry the job on reached no one and is not kept, since it was written for this wake or restart alone"
-    keeps = "the job keeps its text under the Orca request id each was held with, the watch sends them once Orca reads its lane on its Sprite alive, and its next worker gets them in its handoff; the watch says when each goes, and that one has not by a time its words name once that time passes; "
-    assert (code, out.startswith(f"j1: {'held, not sent yet' if held else 'not sent'}: {refusal}"), out.endswith(f"; {keeps if held else ''}{unkept}")) == (0, True, True)
-    assert (wakes, launches) == ([("--wake", workspace)], [])
-    job = state.load(remote)["jobs"]["j1"]
-    assert (job["dispatch"], "deaths" in job, [kept["words"] for kept in job["undelivered"]]) == (dispatch, False, held)
-    assert len(watch.undelivered_lines(watch.Watcher(remote, offset=state.events_end(remote)), state.now() + watch.DUE_EVERY)) == len(held)
 
 
 def reprepared(monkeypatch: pytest.MonkeyPatch, dispatch: str = "dispatch-2") -> list[tuple[str, str | None]]:

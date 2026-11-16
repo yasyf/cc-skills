@@ -1123,7 +1123,7 @@ def woken(drive: str, job_id: str, job: dict, unreached: str) -> LaneEnd | None:
         state.said(job_id, f"its wake read {error}; it asks Sprite {workspace} over ssh what listens on the port Orca's runtime serves on there, for at most {CALL_SECONDS} s")
         match runtime_listening(workspace):
             case True:
-                raise
+                return died(drive, job_id, job["dispatch"], LaneEnd(f"{unreached}, and its Sprite says something listens on the port Orca's runtime serves on there, yet Orca cannot reach it", None, None, unfit=True))
             case False:
                 return died(drive, job_id, job["dispatch"], LaneEnd(f"{unreached}, and its Sprite has nothing listening on the port Orca's runtime serves on there", None, None, unfit=True))
             case silent:
@@ -1133,8 +1133,6 @@ def woken(drive: str, job_id: str, job: dict, unreached: str) -> LaneEnd | None:
         if isinstance(written, str):
             return died(drive, job_id, job["dispatch"], LaneEnd(f"{unreached}, and {written}", None, None, unfit=True))
         minutes = int((state.now() - written).total_seconds() // 60)
-        if minutes < QUIET_SECONDS // 60:
-            raise OrcaError(f"{unreached}, yet its worker wrote a transcript there {minutes} minutes ago, so it reads as at work until {QUIET_SECONDS // 60} minutes pass with no write, and nothing restarts", error.code) from None
         return died(drive, job_id, job["dispatch"], LaneEnd(f"{unreached}, and its worker last wrote a transcript there {minutes} minutes ago", None, None, unfit=True))
     if end is None or end.worktree:
         return end

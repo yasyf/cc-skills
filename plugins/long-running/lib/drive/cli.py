@@ -4222,7 +4222,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
         stale = f"its Sprite {job['workspace']} was made from {was}, and the one the default branch holds now has SHA-256 {now[:12]}"
         return restart(args, name, dispatch, orca.LaneEnd(f"{end.why}, and {stale}", end.branch, None, unfit=True), text)
     death = state.lane_death(job, "dispatch") or {}
-    left = death.get("unsaved") if answered else f"no save was tried, since {read}"
+    left = death.get("unsaved")
     if (death.get("restored") or end.ended and death.get("ended", {}).get("kept")) and not here and "unresumed" not in death and orca.holds_sprite(job) and (session := orca.session_of(args.id, job["workspace"], dispatch)):
         yield_to_launch(name, args.id)
         try:
