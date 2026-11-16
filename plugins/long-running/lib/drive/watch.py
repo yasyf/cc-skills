@@ -1996,16 +1996,10 @@ def respond_pass(watcher: Watcher, moment: datetime) -> list[str]:
 
 def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
     """Take each ended codex-ask run, by codex_takes, then start the handler on each line promised him by a time this pass's own clock is due to start it at, by due_lines, on each line a thread owes on news, every so many minutes he asked or on top priority, by quiet_lines, on each POST report to the communicator, by post_lines, and, once he is back, on each thread's line carrying the reports held for his return, by held_report_lines, and on his catch-up, by catch_up_lines, so no main pass stands between a line owed him by the clock, his return or either and its handler; the lanes' reads are the responder's, by respond_pass. Its first pass, one after a failed read and one every READ_EVERY first has this process's Orca calls speak as the drive's own terminal and reads his cards as the landing loop last stored them, which due_lines and quiet_lines name in their reports."""
-    lines = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
-        try:
-            orca.speak_as_drive(watcher.name)
-        except orca.OrcaError as error:
-            lines = read_failed(watcher, NEWEST_MAIL, error, moment)
-        else:
-            watcher.read_at, watcher.cards = moment, view.live_cards(watcher.name)
+        watcher.read_at, watcher.cards = moment, view.live_cards(watcher.name)
     codex_takes(watcher)
-    return lines + due_lines(watcher, moment) + quiet_lines(watcher, moment) + post_lines(watcher, moment) + held_report_lines(watcher, moment) + catch_up_lines(watcher, moment)
+    return due_lines(watcher, moment) + quiet_lines(watcher, moment) + post_lines(watcher, moment) + held_report_lines(watcher, moment) + catch_up_lines(watcher, moment)
 
 
 def codex_takes(watcher: Watcher) -> None:

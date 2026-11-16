@@ -3760,15 +3760,15 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None, resume: bool
         job = record_start(name, args.id, started, None, text)
         if job["state"] != "running":
             ended, _ = end_lane(name, args.id)
-            return emit(args, f"{args.id}: a wait or stop set while its first lane launched holds it, so that lane, started {orca.place(job)} as dispatch {started['dispatch']}, is ended\n{ended}", started)
-    line = f"{args.id} started {orca.place(job)} as dispatch {started['dispatch']}"
+            return emit(args, f"{args.id}: a wait or stop set while its first lane launched holds it, so that lane, started {orca.place(job)} {as_worker(started)}, is ended\n{ended}", started)
+    line = f"{args.id} started {orca.place(job)} {as_worker(started)}"
     if text is not None:
-        line = f"{args.id}: the message went to the job's next worker, started {orca.place(job)} as dispatch {started['dispatch']} in a handoff carrying it"
+        line = f"{args.id}: the message went to the job's next worker, started {orca.place(job)} {as_worker(started)} in a handoff carrying it"
     elif resume:
-        line = f"{args.id}: the texts it held went to the job's next worker, started {orca.place(job)} as dispatch {started['dispatch']} in a handoff carrying them"
+        line = f"{args.id}: the texts it held went to the job's next worker, started {orca.place(job)} {as_worker(started)} in a handoff carrying them"
     if died:
         line += f", taking over from its agent {agent} on this Mac, which takes no message: {died}"
-    elif state.on_mac(job) and not (text is None and args.local):
+    elif (state.on_mac(job) or started.get("bg")) and not (text is None and args.local):
         line += ", since its brief declares a step only this Mac runs"
     return emit(args, line, started)
 
@@ -4015,7 +4015,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
     except orca.Unstarted:
         record_start(name, job_id, None, None)
         raise
-    return {field: receipt[field] for field in LAUNCHED} | {"brief": str(kept)} | on_lane
+    return {field: receipt[field] for field in LAUNCHED} | {"brief": str(kept)} | on_lane | here_fields(receipt)
 
 
 def admission_refusal(name: str, data: dict, job_id: str, local: bool, step: str | None, takes_over: bool) -> str | None:
@@ -4087,11 +4087,36 @@ def record_start(name: str, job_id: str, started: dict | None, handoff: str | No
         else:
             fresh = state.handed_texts(job, text)
             given = [*state.unreturned(job, "\n\n".join(fresh)), *({"words": words, "at": state.stamp()} for words in fresh)]
-            state.went(name, data, job_id, job["undelivered"], f"in the {'handoff' if handoff else 'brief'} of its worker started as dispatch {started['dispatch']}")
-            job.update(started, handoff=handoff, given=given, undelivered=[], queued=[], report=None, tools_on=started["workspace"], turn_open=True)
+            state.went(name, data, job_id, job["undelivered"], f"in the {'handoff' if handoff else 'brief'} of its worker started {as_worker(started)}")
+            job.update(started, handoff=handoff, given=given, undelivered=[], queued=[], report=None, tools_on=started["workspace"], turn_open=not started.get("bg"))
             state.start(job)
             superseded.hear_start(data, job_id)
     return job
+
+
+def started_here(name: str, job_id: str, kept: Path, text: str, cwd: Path) -> dict:
+    """Start a job's lane on this Mac as its own `claude --bg` session on the brief or handoff text, kept in the launch's brief file, in cwd, as drive job start starts a builder or reader, never as an Orca worker, so Orca holds no Run, terminal or worktree for work on this Mac; a receipt naming no Orca lane and the bg entry the job keeps. Unstarted when no session holds the job's order or `claude --bg` starts none."""
+    kept.write_text(text)
+    data = state.load(name)
+    job = data["jobs"][job_id]
+    _, held = state.holding_role(data, data["orders"][job["order"]])
+    if not held.get("session"):
+        raise orca.Unstarted(f"{kept.stem}: no worker started, since no session holds {job['order']}, so none would hear its agent")
+    call = agents.shaped({"session_id": held["session"], "tool_input": {"subagent_type": state.JOB_AGENTS[job["kind"]][0], "prompt": f"Read your brief first: {kept}"}})
+    bg = {"agent": uuid.uuid4().hex[:17], "session": None, "started": state.stamp(), "cwd": str(cwd), "pointed": [], "pool": False}
+    try:
+        bg["session"] = agents.start_job(name, job_id, bg["agent"], call, held, cwd)
+    except (reads.ReadError, state.DriveError) as error:
+        raise orca.Unstarted(f"{kept.stem}: no worker started, since claude --bg started no agent: {error}") from None
+    return dict.fromkeys(LAUNCHED) | {"resumed": None, "bg": bg}
+
+
+def here_fields(receipt: dict) -> dict:
+    return {"where": "local", "route": None, "bg": receipt["bg"]} if receipt.get("bg") else {}
+
+
+def as_worker(started: dict) -> str:
+    return f"as dispatch {started['dispatch']}" if started["dispatch"] else f"as its own claude --bg session {started['bg']['session']}"
 
 
 def overtaken(data: dict, job: dict) -> bool:
@@ -4104,6 +4129,8 @@ def overtaken(data: dict, job: dict) -> bool:
 
 def launch_attempt(name: str, job: dict, attempt: str, kept: Path, brief: str, root: Path, workspace: str | None, session: str | None, transcript: Path | None = None) -> dict:
     """Launch one attempt of a job's lane on a Run the drive's own terminal makes, since Orca binds a Run only to the terminal that made it: on a fresh Sprite, or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given, or on a fresh Sprite resuming the session given from the transcript given, which its prepare places there; a fresh Sprite's receipt records the SHA-256 of the cc-remote config the checkout holds, which it is made from, and one on the workspace's own Sprite keeps the job's; a try whose worker-start sent nothing reuses the Sprite it prepared, a Run Orca cannot make starts nothing, and the launcher copies this brief onto it. An attempt on a fresh Sprite that started no worker, since its prepare failed or its Sprite refused the tools a worker needs, launches once more, in a fresh Claude session, the launcher preparing another Sprite or retrying worker-start on the one it prepared; Unstarted when that one starts none either, or when the workspace's own Sprite or the Mac does."""
+    if state.on_mac(job):
+        return started_here(name, attempt.partition("-")[0], kept, orca.brief_of(brief), Path(workspace) if workspace else root)
     kept.write_text(brief)
     try:
         run = orca.new_run(name, f"drive {name} {attempt}: {job['goal']}")
@@ -4295,15 +4322,15 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
         if not own or holder:
             raise
         return restart(args, name, dispatch, orca.died(name, args.id, dispatch, orca.LaneEnd(f"{end.why}, and {error}", end.branch, None, unfit=True)), text)
-    started = {field: receipt[field] for field in LAUNCHED}
+    started = {field: receipt[field] for field in LAUNCHED} | here_fields(receipt)
     record_start(name, args.id, started, str(kept), text)
-    carrying = "in a handoff carrying its brief, its branch, its last line, its report and its PRs"
+    carrying ="in a handoff carrying its brief, its branch, its last line, its report and its PRs"
     local = here or state.on_mac(job)
     went = "the message went to the job's next worker" if message is not None else "the job's next worker"
     if same:
         line = (
             f"{args.id}: {went}, started in a fresh terminal and Claude session in its worktree {own} {orca.ON_MAC}"
-            f" as dispatch {started['dispatch']} {carrying}; its lane {was} had finished ({end.why})"
+            f" {as_worker(started)} {carrying}; its lane {was} had finished ({end.why})"
         )
         if end.terminal and end.terminal != started["terminal"]:
             refused = orca.close_pane(end.terminal)
@@ -4313,7 +4340,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
         where = f"in the worktree {holder.path} {orca.ON_MAC}, which holds its PR branch {holder.branch}," if holder else f"in a fresh worktree {orca.ON_MAC}" if local else orca.place({**job, **started})
         line = (
             f"{args.id}: {went}, relaunched {where}"
-            f" as dispatch {started['dispatch']} {carrying}; its lane {was} {'was stopped' if stopped is not None else 'had finished' if end.worktree or end.live else 'had ended' if end.ended else 'was dead'} ({state.why_died(end.why, cause)}), and "
+            f" {as_worker(started)} {carrying}; its lane {was} {'was stopped' if stopped is not None else 'had finished' if end.worktree or end.live else 'had ended' if end.ended else 'was dead'} ({state.why_died(end.why, cause)}), and "
             + (
                 f"it continues in the checkout it left on {source}, which cc-remote prepared again with the tools and keys a fresh Sprite gets"
                 if finished
@@ -6429,7 +6456,7 @@ def install_plugin(args: argparse.Namespace) -> int:
 
 
 def reload_plugins(args: argparse.Namespace) -> int:
-    return install.reload_main(args.drive, args.seat, args.force)
+    return install.reload_main(args.drive, args.seat, args.force, args.terminal)
 
 
 def advised(args: argparse.Namespace) -> int:
@@ -7235,7 +7262,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--local",
         action="store_true",
-        help="start it as an Orca worker on this Mac, in a fresh worktree of this checkout's Orca repository, read like a Sprite's lane; for a job on a Sprite whose lane ended or whose Sprite Orca cannot reach, its next worker starts here with no wake of that Sprite, a resume holding the job's lock standing down for it, after a save of what that Sprite holds on no remote; when the save fails the Sprite is kept, and the handoff names what each lane of the job saved on GitHub",
+        help="start it on this Mac as its own claude --bg session, as drive job start starts one, never as an Orca worker; for a job on a Sprite whose lane ended or whose Sprite Orca cannot reach, its next worker starts here with no wake of that Sprite, a resume holding the job's lock standing down for it, after a save of what that Sprite holds on no remote; when the save fails the Sprite is kept, and the handoff names what each lane of the job saved on GitHub",
     )
     verb.set_defaults(run=job_launch)
     verb = job.add_parser(
@@ -8038,6 +8065,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--seat", help="the one seat of --drive whose reload this process types, as the process an install starts does")
     verb.add_argument("--force", action="store_true", help="with --seat, type it even when the seat already reloaded onto the newest plugin install, as a bare drive reload does")
+    verb.add_argument("--terminal", help="with --seat, the Orca terminal the seat's session runs in, as the install's one read of Orca found it, so this process reads Orca for it no second time")
     verb.set_defaults(run=reload_plugins)
     verb = verbs.add_parser(
         "advised",

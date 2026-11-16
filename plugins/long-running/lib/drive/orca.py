@@ -482,7 +482,7 @@ def role_body(role: str) -> str:
 
 def place(job: dict) -> str:
     """Where the job's lane runs, as a line names it."""
-    return ON_MAC if state.on_mac(job) else f"on Sprite {job['workspace']}"
+    return ON_MAC if state.on_mac(job) or job.get("where") == "local" else f"on Sprite {job['workspace']}"
 
 
 def vm_brief(drive: str, job_id: str, kind: str, brief: str, route: str | None) -> str:
