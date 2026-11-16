@@ -49,6 +49,7 @@ TARGET = re.compile(r"^  ([a-z0-9][a-z0-9-]*):\n((?:    .*(?:\n|$))*)", re.MULTI
 INLINE_PARTS = re.compile(r"^    components: \[([^\]]*)\]", re.MULTILINE)
 COMPONENTS = re.compile(r"^components:\n((?:[ -].*(?:\n|$))*)", re.MULTILINE)
 PART_ENVS = re.compile(r"^    envs: \[([^\]]*)\]", re.MULTILINE)
+SCOPE_WORDS = 'his words on Nov 15, 2026, "why are you leaving stuff out? you should make sure everything including sand-next is working and has not broken anything and then release it all"'
 MANUAL_TARGET = re.compile(r"^    manual: true\s*$", re.MULTILINE)
 LISTED_PARTS = re.compile(r"^    components:\n((?:    - .*(?:\n|$))+)", re.MULTILINE)
 OPUS_RULES = (
@@ -1295,10 +1296,31 @@ def off_production_parts(cwd: str) -> set[str]:
     return {part for part, block in TARGET.findall(section[1] if section else "") if (envs := PART_ENVS.search(block)) and not any(prod(env.strip(), cwd) for env in envs[1].split(","))}
 
 
+def platform_targets(cwd: str) -> list[str]:
+    """The targets of the whole platform, in the order the targets file lists them: every one target_blocks() lists but those its `manual: true` keeps for a hand deploy and those whose every component runs off production, by off_production_parts()."""
+    parts, off = target_parts(cwd), off_production_parts(cwd)
+    return [target for target, block in target_blocks(cwd) if not MANUAL_TARGET.search(block) and target in parts and not set(parts[target]) <= off]
+
+
 def left_out(release: dict, cwd: str) -> list[str]:
-    """Each target of the whole platform none of whose components a release ships, by shipped_parts(), in the order the targets file lists them: every one target_blocks() lists but those its `manual: true` keeps for a hand deploy and those whose every component runs off production, by off_production_parts()."""
-    ships, parts, off = shipped_parts(release, cwd), target_parts(cwd), off_production_parts(cwd)
-    return [target for target, block in target_blocks(cwd) if not MANUAL_TARGET.search(block) and target in parts and not set(parts[target]) <= off and not set(parts[target]) & ships]
+    """Each target of the whole platform, by platform_targets(), none of whose components a release ships, by shipped_parts()."""
+    ships, parts = shipped_parts(release, cwd), target_parts(cwd)
+    return [target for target in platform_targets(cwd) if not set(parts[target]) & ships]
+
+
+def unexcused(release: dict, cwd: str, said: str, rulings: list[dict]) -> list[str]:
+    """Each target a start of the whole platform leaves out, by left_out(), that said neither records as `<target> fails: <the failing test>` nor as `<target> left out by his <id>: "<his words>"` quoting one of rulings, each an answer of his as {answer, words}, by his words SCOPE_WORDS; none for a start shipping half the platform's targets or fewer, a release his words name target by target, such as SandSQL's own."""
+    whole, dropped = platform_targets(cwd), left_out(release, cwd)
+    if (len(whole) - len(dropped)) * 2 <= len(whole):
+        return []
+    return [target for target in dropped if not excused(target, said, rulings)]
+
+
+def excused(target: str, said: str, rulings: list[dict]) -> bool:
+    if re.search(rf"(?<![\w-]){re.escape(target)} fails: \S", said):
+        return True
+    cited = re.search(rf"(?<![\w-]){re.escape(target)} left out by his (\w+): \"([^\"]+)\"", said)
+    return bool(cited) and any(ruling["answer"][:7] == cited[1][:7] and plain(cited[2]) in plain(ruling["words"]) for ruling in rulings)
 
 
 def threaded(answer: dict, data: dict) -> list[dict]:

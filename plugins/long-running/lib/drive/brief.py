@@ -1,3 +1,4 @@
+import contextlib
 import functools
 import itertools
 import json
@@ -291,6 +292,25 @@ def approval_refusal(command: str, data: dict, reading: str | None = None) -> st
         return f"refused: Opus did not settle whether his answer {answer_id} approves this release ({failure}). {RELEASE_APPROVAL}"
     asked, said = cut(answer["title"], 200), cut(settled.his(answer["body"]), settled.QUOTED_CHARS)
     return f'refused: `--order {answer_id}` names his answer to "{asked}", "{said}", and {why}. {RELEASE_APPROVAL}'
+
+
+def scope_refusal(release: str, data: dict, said: str) -> str | None:
+    """Why a production `ci release start` of the whole platform may not start, by the target list it passes: it leaves out a target, by settled.unexcused, that said, the goal or brief of the job starting it, neither records as `<target> fails: <the failing test>` nor as `<target> left out by his <id>: "<his words>"` quoting the answer of his its --order names, his ruling on this release; none for a rehearsal(), a hotfix or a start his words name target by target, by his words settled.SCOPE_WORDS."""
+    if rehearsal(release):
+        return None
+    cwd = data["roles"]["coordinator"]["cwd"]
+    starts = [flags for flags in started(release) if flags.get("targets") and not flags.get("hotfix")]
+    rulings = []
+    for answer_id in dict.fromkeys(order for flags in starts for order in flags.get("order", ())):
+        with contextlib.suppress(state.DriveError):
+            rulings.append({"answer": answer_id, "words": settled.his(settled.shown(answer_id, cwd)["body"])})
+    if not (dropped := list(dict.fromkeys(target for flags in starts for target in settled.unexcused(settled.shipped(flags), cwd, said, rulings)))):
+        return None
+    return (
+        f"refused: `{cut(release, 200)}` leaves out {', '.join(dropped)}, and a release ships every target his latest ruling on it does not exclude, read fresh from his words,"
+        f" never from an earlier plan or a reader's choice: add each to its targets, or record in the job's goal `<target> fails: <the failing test>`, or"
+        f' `<target> left out by his <its --order answer>: "<his words leaving it out>"` ({settled.SCOPE_WORDS})'
+    )
 
 
 def uncarried_refusal(command: str, data: dict) -> str | None:

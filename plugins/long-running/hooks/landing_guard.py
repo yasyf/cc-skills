@@ -508,10 +508,11 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
     if not (drives := names if names and not codex else list(filter(None, [os.environ.get(state.DRIVE_ENV)]))):
         return None
     data = state.load(drives[0])
-    release = release_of(words, Path(data["jobs"][codex]["brief"]).read_text() if codex else agents.brief(shell.caller), data["jobs"].values())
+    briefed = Path(data["jobs"][codex]["brief"]).read_text() if codex else agents.brief(shell.caller)
+    release = release_of(words, briefed, data["jobs"].values())
     try:
         hold = settled.hold(data["roles"]["coordinator"]["cwd"])
-        return hold and brief.hold_refusal(release, data, hold) or brief.away_refusal(verb, release, data, state.now())
+        return hold and brief.hold_refusal(release, data, hold) or verb in brief.RELEASE_STARTS and brief.scope_refusal(release, data, briefed) or brief.away_refusal(verb, release, data, state.now())
     except state.DriveError as error:
         return HOLD_UNREAD.format(command=" ".join(words), error=error)
 

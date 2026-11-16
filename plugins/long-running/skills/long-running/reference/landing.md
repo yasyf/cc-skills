@@ -743,7 +743,13 @@ the patch.
   <the failing test>`; the `--without` rung above names each target it drops that way. A target
   his ruling excludes is written in the ASK as `<target> left out by his <id>: "<his words>"`,
   quoting his newest recorded ruling on a release. `drive job ask` refuses a card naming a
-  production `ci release start` in backticks that leaves out a target by neither.
+  production `ci release start` in backticks that leaves out a target by neither. The start itself
+  is checked by its target list, whatever any card says: `drive job add --release`, `drive job
+  held --release` and the `landing_guard` hook refuse a production start shipping more than half
+  the platform's targets that leaves one out, unless the starting job's goal or brief records
+  `<target> fails: <the failing test>` or `<target> left out by his <id>: "<his words>"` quoting
+  the answer its `--order` names. A start of half the targets or fewer, such as SandSQL's own
+  release, is one his words name target by target and passes.
 - A release never skips a component or waits a night for a PR that is green and approved, by his
   words on Nov 15, 2026: "its saying it will wait all night or skip the mac release for 1 PR which
   is already green and approved, I just merged it to unblock but whatever in the tooling that did

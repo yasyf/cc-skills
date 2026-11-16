@@ -26,7 +26,6 @@ DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 ROLE_NAMES = {"coordinator": "top coordinator", "communicator": "communicator", "meta": "meta session"}
 FREEZE_FOR = timedelta(hours=12)
 RELEASE_WORD = re.compile(r"\breleas", re.IGNORECASE)
-RELEASE_SCOPE_WORDS = 'his words on Nov 15, 2026, "why are you leaving stuff out? you should make sure everything including sand-next is working and has not broken anything and then release it all"'
 INCIDENT_EXEMPTION = "incident fix"
 UNLANDABLE = (
     "{key}: refused, nothing {done}: only his tap or an exempt class lands a Forge-AI PR, and this leaves it with neither, so no card"
@@ -1548,7 +1547,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     refuse_a_mark_off_a_builder(args.kind, args.builds_nothing)
     lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
     found = check_waits(name, args.waits)
-    unreleased = args.release and (brief.release_refusal(args.release) or brief.approval_refusal(args.release, known := state.load(name), args.reading) or brief.uncarried_refusal(args.release, known) or brief.away_refusal("start", args.release, known, state.now()))
+    unreleased = args.release and (brief.release_refusal(args.release) or brief.approval_refusal(args.release, known := state.load(name), args.reading) or brief.scope_refusal(args.release, known, args.goal or "") or brief.uncarried_refusal(args.release, known) or brief.away_refusal("start", args.release, known, state.now()))
     if args.release and not unreleased:
         for line in brief.release_notes([args.release], state.load(name)):
             print(f"drive job add: {line}", file=sys.stderr)
@@ -2324,29 +2323,21 @@ def release_holds(data: dict, job: dict, asked: limits.Question, text: str) -> l
 
 
 def release_scope(data: dict, asked: limits.Question, text: str, recorded: list[dict]) -> list[str]:
-    """Why an ASK naming a production `ci release start` in backticks may not draw: a start leaving out a target of the whole platform, by settled.left_out, whose card neither draws `<target> fails: <the failing test>` nor the ASK says `<target> left out by his <id>: "<his words>"`, quoting his newest recorded answer on a release that the brief binds or the ASK cites, by his words RELEASE_SCOPE_WORDS: a release ships everything his latest ruling on it does not exclude, its scope read fresh from that ruling, never carried from an earlier plan or a reader's choice."""
+    """Why an ASK naming a production `ci release start` in backticks may not draw: a start of the whole platform leaving out a target, by settled.unexcused, that the card does not draw as `<target> fails: <the failing test>` and the ASK does not say is `<target> left out by his <id>: "<his words>"`, quoting his newest recorded answer on a release that the brief binds or the ASK cites, by his words settled.SCOPE_WORDS: a release ships everything his latest ruling on it does not exclude, read fresh from that ruling, never carried from an earlier plan or a reader's choice. brief.scope_refusal checks the start itself."""
     cwd = data["roles"]["coordinator"]["cwd"]
     starts = [flags for release in brief.card_releases(text) if not brief.rehearsal(release) for flags in brief.started(release) if flags.get("targets") and not flags.get("hotfix")]
     if not starts:
         return []
     drawn = "\n".join([*asked.summary, *asked.show_me, *asked.options, *asked.hints.values()])
-    rulings = [answer for answer in recorded if RELEASE_WORD.search(f"{answer['asked']}\n{answer['words']}")]
-    latest = max(rulings, key=lambda answer: answer["at"], default=None)
-    plain = settled.plain(latest["words"]) if latest else ""
-    problems = []
-    for target in dict.fromkeys(target for flags in starts for target in settled.left_out(settled.shipped(flags), cwd)):
-        if re.search(rf"(?<![\w-]){re.escape(target)} fails: \S", drawn):
-            continue
-        cited = re.search(rf"(?<![\w-]){re.escape(target)} left out by his (\w+): \"([^\"]+)\"", text)
-        if latest and cited and latest["answer"].startswith(cited[1][:7]) and settled.plain(cited[2]) in plain:
-            continue
-        newest = f'his newest ruling on a release, {latest["answer"]}: "{render.cut(latest["words"], settled.QUOTED_CHARS)}"' if latest else "no recorded ruling of his on a release, so none leaves it out"
-        problems.append(
-            f"its release leaves out {target}, which no failing test and no ruling of his excludes: a release ships every target his latest ruling on it does not exclude, read fresh from"
-            f" his words, never from an earlier plan or a reader's choice. Ship {target}, or draw `{target} fails: <the failing test>` on the card, or write"
-            f' `{target} left out by his <id>: "<his words>"` quoting {newest} ({RELEASE_SCOPE_WORDS})'
-        )
-    return problems
+    cited = "\n".join(line for line in text.splitlines() if " left out by his " in line)
+    latest = max((answer for answer in recorded if RELEASE_WORD.search(f"{answer['asked']}\n{answer['words']}")), key=lambda answer: answer["at"], default=None)
+    newest = f'his newest ruling on a release, {latest["answer"]}: "{render.cut(latest["words"], settled.QUOTED_CHARS)}"' if latest else "no recorded ruling of his on a release, so none leaves it out"
+    return [
+        f"its release leaves out {target}, which no failing test and no ruling of his excludes: a release ships every target his latest ruling on it does not exclude, read fresh from"
+        f" his words, never from an earlier plan or a reader's choice. Ship {target}, or draw `{target} fails: <the failing test>` on the card, or write"
+        f' `{target} left out by his <id>: "<his words>"` quoting {newest} ({settled.SCOPE_WORDS})'
+        for target in dict.fromkeys(target for flags in starts for target in settled.unexcused(settled.shipped(flags), cwd, f"{drawn}\n{cited}", [latest] if latest else []))
+    ]
 
 
 def judging_words(name: str, data: dict, job: dict, asked: limits.Question, text: str) -> list[dict]:
@@ -4391,7 +4382,7 @@ def job_held(args: argparse.Namespace) -> int:
     find(data["jobs"], job_id, "job")
     if args.release:
         hold = settled.hold(data["roles"]["coordinator"]["cwd"])
-        refused = hold and brief.hold_refusal(args.release, data, hold) or args.release_verb and brief.away_refusal(args.release_verb, args.release, data, state.now())
+        refused = hold and brief.hold_refusal(args.release, data, hold) or args.release_verb in brief.RELEASE_STARTS and brief.scope_refusal(args.release, data, data["jobs"][job_id]["goal"]) or args.release_verb and brief.away_refusal(args.release_verb, args.release, data, state.now())
         return emit(args, refused or f"no hold of his refuses {args.release}", {"id": job_id, "release": refused})
     if args.cluster:
         refused = brief.cluster_job_refusal({"cluster": args.cluster, "cronJob": args.cronjob, "reason": args.reason}, data, state.now())
