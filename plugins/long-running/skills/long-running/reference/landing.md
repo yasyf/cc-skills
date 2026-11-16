@@ -623,8 +623,8 @@ PR checks that everyone hits".
   untested". A stack staging has no copy of, such as Buildkite, core-gbl-identity or Datadog, goes on by
   his pick 67caa93, "His exception after reading the release dry-run's preview of each such stack". So
   when `tools/ci release select --pr` names none of a PR's releases as `staged`, each with an env marked
-  `stage: staging`, and none is sand-next or iris-desktop, which `tools/ci mac-box prove` signs in to
-  staging, its staging test part's tester starts the release dry run of each from this Mac and asks his
+  `stage: staging`, and none is the new tree's Sand CLI or iris-desktop, which `tools/ci mac-box prove`
+  signs in to staging, its staging test part's tester starts the release dry run of each from this Mac and asks his
   exception with the counts each stack's preview plans; his answer giving it drops the part, so the PR
   lands on his Approve. A PR reaching one staged component keeps its soak.
 - **How it runs.** Short, aggressive and agent-led, never a hold on staging, then a 2-hour soak once
@@ -821,7 +821,7 @@ the patch.
   or tap orders a `release start` carrying only targets, `--env`, `--without`, `--from` or `--commit`, `--order` and
   `--emergency`, with a target and a place, when the option's words name each target and they or his
   words past the number name each place it runs on, so his "1" on a card whose option deploys the
-  branch's cloudrunner-next build to plat-usw2-staging orders that start; Opus reads any other answer beside the card it answers,
+  branch's dashboard build to plat-usw2-staging orders that start; Opus reads any other answer beside the card it answers,
   the drive's `Notes:` on his words, his answers recorded before it in the same Slack thread and the
   places the release runs on with each one's stage, ordering only what his words name, so
   his words to get work built or tested on a sandbox or staging order no release on production. A staging release started with `--for-production`, which go/ci
