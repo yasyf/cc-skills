@@ -237,7 +237,9 @@ Posting it:
 - `drive job ask` refuses only a block it cannot read or a card cc-slack cannot draw. Each finding on
   what the card's words say, such as a bare mechanism, an option that retries or sweeps, a request
   for a sign-in or a fact, a vague object or a missing root cause, prints as `weigh before it
-  draws:` with its rule: you weigh it and fix the card when the rule applies.
+  draws:` with its rule. Run `drive job ask <j> <file> --check` first, which prints each before
+  any card draws, and fix the ASK where the rule applies; a drawn card that breaks one is asked
+  again with `--redraws <its waits id>`.
 - A card his question no longer needs is withdrawn at once by the session that holds its job, with
   `drive cards withdraw <waits> --words "<what happened>" --via <the link of what overtook it>`, so it never asks him for a day about
   work that went on without it. `drive job report` prints each open card a return no longer names

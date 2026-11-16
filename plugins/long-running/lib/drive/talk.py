@@ -703,20 +703,20 @@ def homed(name: str, data: dict, post: dict, stack: list[str], order: str | None
     if where != (slack.dm(), None) or post.get("edit") or not data["slack"]["channels"]:
         return where
     if answered_ts(data, post):
-        return where[0], his_thread(post)
+        return his_thread(post)
     on = order or posted_order(data, post, None)
     channel = channel_for(name, data, project(data, post, stack, on))
     thread = state.promise_thread(data, data["orders"][on]) if on and (post.get("card") or post.get("about") or stack) else None
     return channel, thread[1] if thread and thread[0] == channel else None
 
 
-def his_thread(post: dict) -> str:
-    """The thread of the first message of his a post's asked names by ts or permalink: a bare ts is its own thread, and a permalink names its message's thread, or the message itself at a root."""
+def his_thread(post: dict) -> tuple[str, str]:
+    """The channel and thread of the first message of his a post's asked names by ts or permalink: a bare ts is its own thread in his DM, and a permalink names its message's channel and thread, or the message itself at a root."""
     for entry in slack.messages(post["asked"]):
         if BARE_TS.fullmatch(entry):
-            return entry
+            return slack.dm(), entry
         if message := state.slack_message(entry):
-            return message[2] or message[1]
+            return message[0], message[2] or message[1]
     raise DriveError("asked names no message of his by ts or permalink")
 
 
