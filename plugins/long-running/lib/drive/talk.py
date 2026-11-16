@@ -228,7 +228,7 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
                     if (promised := state.promise_thread(data, each)) == place or promised and promised[0] == place[0] != slack.dm():
                         each["last_line"] = max(each["last_line"] or at, at, key=state.parse_time)
 
-        state.update(name, None, spoken_write)
+        state.write(name, spoken_write)
     if warning := reply.get("warning"):
         line += f" WARNING {warning}"
     if post.get("blocks") and (unshown_blocks := drawn_as(link, post["blocks"])):
@@ -266,7 +266,7 @@ def awaiting(name: str, job_id: str, link: str) -> str:
         job = data["jobs"][job_id]
         job["waits"] = list(dict.fromkeys([*job["waits"], f"reply:{link}"]))
 
-    state.update(name, None, awaiting_write)
+    state.write(name, awaiting_write)
     return f"{job_id} waits on the reply to it"
 
 
@@ -623,7 +623,7 @@ def posted(name: str, post: dict, order: str | None = None, receipt: dict | None
         def posted_write(data: dict):
             state.join_pr_cards(data, stack, [reply.get("card_permalink")], state.stamp())
 
-        state.update(name, None, posted_write)
+        state.write(name, posted_write)
     for place in [place for place in rest if place[0] not in operators]:
         reply |= {"permalink": carried(name, reply, place, post, refs.slack(words, found, place[1]), label, kept, stack)}
     return reply
@@ -708,7 +708,7 @@ def keep_line(name: str, thread: str, link: str, sent: str) -> None:
         for _, question in view.drawn_on(data, *view.SLACK_TS.findall(sent)):
             question["told"][thread] = {"link": link, "words": sent}
 
-    state.update(name, None, keep_line_write)
+    state.write(name, keep_line_write)
 
 
 def channel_for(name: str, data: dict, project: str | None) -> str:
