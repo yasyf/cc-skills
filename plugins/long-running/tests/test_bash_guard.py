@@ -1005,3 +1005,16 @@ def test_the_watchdogs_rerun_in_a_folder_holding_no_clone_is_read_by_its_drives_
     assert type(bash_guard.own_build("/")) is HOME["build"]
     monkeypatch.delenv(state.DRIVE_ENV)
     assert type(bash_guard.own_build("/")) is providers.BuildProvider
+
+
+def test_a_destructive_command_refuses_once_naming_the_withdrawal_and_open_record_its_session_has_not_read_as_735756_needed(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    cwd = Path(state.load(demo)["roles"]["coordinator"]["cwd"])
+    (cwd / ".claude").mkdir(parents=True, exist_ok=True)
+    (cwd / state.REPO_RULES).write_text("[[destructive]]\nclass = \"writer drop\"\nmatch = '\\bdrop-writer\\b'\nenv = '-n (\\S+)'\n")
+    withdrawn = "735710 withdraw root: drop the writer pod restart, sandsql is mid-incident"
+    urgent = "735705 blocker sandsql: plat-usw2-staging writer corrupts on restart"
+    monkeypatch.setattr(bash_guard.reads, "run", lambda argv, checkout: withdrawn if "--mail" in argv else urgent)
+    delete = bash("scripts/drop-writer -n plat-usw2-staging --force", cwd=str(cwd))
+    assert bash_guard.deny_reason(delete) == gate.refusal([f"records to {state.session_lane(state.load(demo), SESSION)} it has not read: {withdrawn}", f"an open record on plat-usw2-staging: {urgent}"])
+    assert bash_guard.deny_reason(delete) is None
+    assert bash_guard.deny_reason(bash("scripts/list-writers -n plat-usw2-staging", cwd=str(cwd))) is None

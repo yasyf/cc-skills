@@ -2,6 +2,7 @@ import json
 import os
 import re
 import sys
+import tomllib
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from fnmatch import fnmatchcase
@@ -11,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, gate, github, install, land, orca, providers, reports, state
+from drive import agents, gate, github, install, land, orca, providers, reads, reports, state
 from drive.orca import OrcaError
 from drive.shell import KEYWORDS, Case, Function, Loop, expanded, grouped, literal, runnable, simple_commands, spread
 
@@ -763,6 +764,26 @@ def ended_role(words: list[str]) -> tuple[dict, str] | None:
     return None
 
 
+def destroying(command: str, cwd: str, session: str, drives: list[str]) -> str | None:
+    """Why a drive session's own destructive command waits for it to read what came since, by meta defect 735756, where root deleted a writer pod a minute after the urgent stop and withdrawal of its ask, which reach a session only when a tool call returns: a command a `[[destructive]]` table of the repository's .claude/long-running.toml matches, each table naming a `class`, a `match` regex and an optional `env` regex whose first group names the env it acts on, refuses once, by gate.gate, printing each record addressed to the session's lane it has not read and each open record naming that env; an inbox that cannot be read lets it through, warned."""
+    rules = next((folder / state.REPO_RULES for folder in [Path(cwd), *Path(cwd).parents] if (folder / state.REPO_RULES).is_file()), None)
+    if not drives or rules is None:
+        return None
+    tables = [table for table in tomllib.loads(rules.read_text()).get("destructive", []) if re.search(table["match"], command)]
+    if not tables or not (lane := state.session_lane(data := state.load(drives[0]), session)):
+        return None
+    envs = {found[1] for table in tables if table.get("env") and (found := re.search(table["env"], command))}
+    try:
+        unread = reads.run(["cci", "tail", "--drive", data["name"], "--to", lane, "--mail"], Path.cwd()).strip()
+        held = reads.run(["cci", "tail", "--drive", data["name"], "--open"], Path.cwd()).splitlines() if envs else []
+    except reads.ReadError as error:
+        print(f"bash_guard let this {tables[0]['class']} through unread: this lane's records could not be read: {error}", file=sys.stderr)
+        return None
+    findings = [f"records to {lane} it has not read: {unread}"] if unread else []
+    findings += [f"an open record on {env}: {line}" for env in sorted(envs) for line in held if re.search(rf"\b{re.escape(env)}\b", line)]
+    return gate.gate(data["name"], f"{tables[0]['class']} {command}", findings, session)
+
+
 def mid_incident(found: list[list[str]]) -> str | None:
     for words in found:
         if not (owner := ended_role(words)):
@@ -827,6 +848,7 @@ def deny_reason(payload: dict) -> str | None:
         lambda: shell_after_claude(scripts),
         lambda: live_resume(found + [words for inner in scripts for words in inner]),
         lambda: mid_incident(found),
+        lambda: None if payload.get("agent_id") else destroying(call["command"], cwd, session, drives),
         lambda: reran(found, cwd),
         lambda: helper_install(found, drives),
     )
