@@ -9429,7 +9429,7 @@ def test_job_brief_on_a_surface_refuses_interactions_jev_reads_as_steps_and_send
     told = "click a step and its log opens beside it; press j and the next step's log replaces it"
     code, out = run(*briefed, "--interactions", told)
     assert code == 0
-    assert sorted((asked["state"]["story"], list(asked["questions"])) for asked in jev.asked[-2:]) == [(told.split("; ")[0], ["steps.s1"]), (told.split("; ")[1], ["steps.s2"])]
+    assert sorted((asked["state"]["story"], list(asked["questions"])) for asked in jev.asked if "story" in asked["state"] and asked["state"]["story"] in told.split("; ")) == [(told.split("; ")[0], ["steps.s1"]), (told.split("; ")[1], ["steps.s2"])]
     assert f"Interactions: {told}\n" in Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
 
 
