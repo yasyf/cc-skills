@@ -3566,6 +3566,7 @@ def take_report(name: str, job_id: str, whole: str, read_prs: bool = True, tell:
     if refused := (
         brief.report_refusal(name, data, job_id, whole)
         or state.result_refusal(data, job_id, line, whole)
+        or required_refusal(data, job_id, line, whole)
         or (built and (held := state.change_job(data, job["order"], [], job["waits"], job_id, built["branch"], job["repo"], proving=state.builds_nothing(job))) and one_change_job(data, job["order"], job["kind"], [], held, job["waits"], branch=built["branch"], repo=job["repo"], job_id=job_id))
     ):
         raise DriveError(f"{job_id}: refused, nothing kept: {refused}")
@@ -3865,7 +3866,8 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         and STAGING_MAC.format(env=providers.of(data).staging.env) + "".join(f"; {asked}" for asked in [state.stage_ask(data, providers.of(data).staging.env)] if asked) + ". "
         + STAGING_FIRST.format(drive=name, attrs=json.dumps(state.thread_attr(data, order) | {"order": job["order"], "job": job_id, "progress": "true", "incident": "true"}))
         + boxed
-        + staging_taps(data, job),
+        + staging_taps(data, job)
+        + staging_required(data, job),
         "Native": flags["native"],
         "Interactions": flags["interactions"],
         "Would he ask": flags["would_he_ask"],
@@ -6023,6 +6025,40 @@ def staging_mac_box(name: str, data: dict, job: dict) -> str:
         live, unread = "<that commit>", found.staging.unread(str(error))
     own = [key for key in dashboard if found.mac_box.builds & set(reach[key]["touched"])]
     return found.mac_box.case_steps(", ".join(dashboard), live) + unread + (found.mac_box.rebuild_steps(", ".join(own)) if own else "")
+
+
+def required_cases(data: dict, job: dict) -> dict[str, list[str]]:
+    """The staging cases the repository's staging provider requires of each PR a tester tests, by state.tested_prs, read from the paths the PR changes, which are read only when the provider defines required_cases."""
+    staging = providers.of(data).staging
+    if type(staging).required_cases is providers.StagingProvider.required_cases:
+        return {}
+    return {key: cases for key in state.tested_prs(data, job) if (cases := staging.required_cases(github.files(key)))}
+
+
+def staging_required(data: dict, job: dict) -> str:
+    """What a staging tester's Staging line adds for each PR it tests whose paths the staging provider requires cases of, by required_cases: each case, which its DONE's CASE line must read pass, since a case not exercised is no pass."""
+    return "".join(
+        f"; {key} requires {len(cases)} staging case{'' if len(cases) == 1 else 's'}, each a CASE line your DONE reads pass, never not exercised: {', '.join(cases)}"
+        for key, cases in required_cases(data, job).items()
+    )
+
+
+def required_refusal(data: dict, job_id: str, line: str, whole: str) -> str | None:
+    """Why a staging tester's DONE may not be kept: a case the staging provider requires of a PR it tests, by required_cases, that no CASE line reads pass, not exercised and no line at all among them."""
+    if not re.match(r"DONE\b", line):
+        return None
+    ran = state.case_lines(whole)
+    short = []
+    for key, cases in required_cases(data, data["jobs"][job_id]).items():
+        for case in cases:
+            verdicts = [verdict for named, verdict in ran if case.casefold() in named.casefold()]
+            if not any(state.PASSED_CASE.match(verdict) for verdict in verdicts):
+                short.append(f"{key} {case}: {verdicts[0] if verdicts else 'no CASE line'}")
+    return (
+        f"a DONE passes each staging case its PR requires, and a case not exercised is no pass: {'; '.join(short)}; run each on staging and report its CASE line reading pass, or WAITING on what keeps it from running"
+        if short
+        else None
+    )
 
 
 def staging_taps(data: dict, job: dict) -> str:
