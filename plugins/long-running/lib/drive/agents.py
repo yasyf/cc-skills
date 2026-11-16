@@ -42,6 +42,7 @@ COMMON = frozenset("about after again also been before being could does done fro
 WARM = "Drive: {drive}\nContext: a warm start with no brief yet: end on `NOTHING warm, waiting for a brief`."
 SYNTHETIC = "<synthetic>"
 OUTAGE_WAITS = (1, 2, 4, 8)
+RATE_LIMITED = "would exceed your account's rate limit"
 START_WINDOW = timedelta(minutes=5)
 REMOVE = ["sh", "-c", 'sleep 2; claude stop "$1"; claude rm "$1"', "remove"]
 STOP = ["sh", "-c", 'sleep 2; claude stop "$1"', "stop"]
@@ -1357,6 +1358,11 @@ def ended(row: dict) -> bool:
 def died(row: dict) -> bool:
     """Whether a transcript row is a response that ended on an API error or a refusal, the row Claude Code writes itself under model `<synthetic>` or one stopped for any reason but the end of its turn, so the agent's turn ended without its work and a SendMessage meets the same stop."""
     return ended(row) and (row["message"].get("stop_reason") != "end_turn" or row["message"].get("model") == SYNTHETIC)
+
+
+def limited(row: dict) -> bool:
+    """Whether a transcript row is a response a Claude usage limit stopped, Claude Code's notice "You've hit your weekly limit · resets …" or the API's "would exceed your account's rate limit": no outage to wait out, since Escape on its dialog keeps this Mac working on paid usage, by his words "Keep working on paid usage", so the watch restarts the agent or lane it stopped at once."""
+    return died(row) and bool(state.USAGE_LIMIT.search(text := notice(row)) or RATE_LIMITED in text)
 
 
 def refused(row: dict) -> bool:

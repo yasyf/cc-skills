@@ -1,6 +1,7 @@
 import collections
 import contextlib
 import faulthandler
+import fcntl
 import functools
 import hashlib
 import itertools
@@ -180,6 +181,7 @@ class Watcher:
     made: list[str] = field(default_factory=list)
     resume: str | None = None
     unsent: dict[str, list[str]] = field(default_factory=dict)
+    handed_at: dict[str, datetime] = field(default_factory=dict)
     down: str | None = None
     dashboard_down: bool = False
     serving: dict[str, dict[str, bool]] | None = None
@@ -1698,8 +1700,15 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
             job.update(report=body, ask=None)
         return None
     if kind == "escalation":
-        output = body.partition("Last output:")[2].partition("\nFull output:")[0] or first_line(body)
-        return f"JOB {job_id} {job['order']} STOPPED without a report, last output: {' '.join(output.split())}"
+        output = " ".join((body.partition("Last output:")[2].partition("\nFull output:")[0] or first_line(body)).split())
+        if not (limit := state.USAGE_LIMIT.search(output)):
+            return f"JOB {job_id} {job['order']} STOPPED without a report, last output: {output}"
+        restart = (
+            f"the watch sends Escape to its dialog and types the resume prompt into its terminal {job['terminal']}, so resume it no second time"
+            if state.on_mac(job) and job.get("terminal")
+            else f"drive job resume {job_id} <the event> relaunches it"
+        )
+        return f'JOB {job_id} {job["order"]} stopped on Claude\'s usage limit {orca.place(job)}, "{limit[0]}", not on its work: {restart}'
     if kind == "status":
         owed.append((job_id, [f"MESSAGE {message['id']}: {message['subject'] or first_line(body)}"], [], []))
         return None
@@ -2211,10 +2220,10 @@ def respond_pass(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """Take each ended codex-ask run, by codex_takes, start the disk check once DISKS_EVERY is due, by check_disks, hand on each staging slot whose lease ended or whose turn came, by slot_lines, then start the handler on each POST report that needs one, by post_lines, so none of these clocks waits on a main pass that runs minutes; the lanes' reads are respond_pass's."""
+    """Take each ended codex-ask run, by codex_takes, start the disk check once DISKS_EVERY is due, by check_disks, hand on each staging slot whose lease ended or whose turn came, by slot_lines, tell him once of each Claude usage limit this Mac hit, by limit_lines, then start the handler on each POST report that needs one, by post_lines, so none of these clocks waits on a main pass that runs minutes; the lanes' reads are respond_pass's."""
     clocks_drawn(watcher)
     codex_takes(watcher)
-    return check_disks(watcher, moment) + slot_lines(watcher, moment) + post_lines(watcher, moment)
+    return limit_lines(watcher, moment) + check_disks(watcher, moment) + slot_lines(watcher, moment) + post_lines(watcher, moment)
 
 
 CLOCKS_DRAWN: dict[str, int] = {}
@@ -2601,6 +2610,30 @@ def take_deliveries(watcher: Watcher) -> list[str] | None:
         watcher.checking.update(keys)
         named += keys
     return named
+
+
+def limit_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Tell him once for this Mac each Claude usage limit a session here hit that has not reset, as the usage-limit log every drive here shares records it, by his words on the stop "nothing restarts them or tells him": a milestone he wants to know, which the watch posts itself through milestone, with no model; it posts under that log's lock and marks the hit told there once the post went out, so no other drive's watch tells him again, and a post that fails is tried again next pass."""
+    log = state.root() / state.USAGE_LIMIT_LOG
+    if not log.exists():
+        return []
+    with log.open("r+") as kept:
+        fcntl.flock(kept, fcntl.LOCK_EX)
+        rows = [json.loads(line) for line in kept if line.strip()]
+        told = {row["told"] for row in rows if "told" in row}
+        if not (hit := next((row for row in reversed(rows) if "until" in row and row["until"] not in told and state.parse_time(row["until"]) > moment), None)):
+            return []
+        words = (
+            f'Claude Code hit its {hit["limit"]} limit on this Mac: "{hit["notice"]}". Sessions here dismiss its dialog and keep working on paid usage,'
+            " and the watch restarts each agent and lane it stopped."
+        )
+        try:
+            milestone(watcher, {"kind": "report", "attr": {}, "topic": f"usage-limit-{hit['until']}", "text": f"Claude Code hit its {hit['limit']} limit on this Mac", "body": hit["notice"] + "\n"}, words)
+        except (slack.SlackError, state.DriveError) as error:
+            return failed(watcher, "limit notice", "post telling him of Claude's usage limit on this Mac", error, moment)
+        kept.write(json.dumps({"told": hit["until"], "drive": watcher.name}) + "\n")
+    watcher.failures.pop("limit notice", None)
+    return []
 
 
 def claim_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -3436,10 +3469,10 @@ def agent_death(job: dict, data: dict) -> str | None:
 
 
 def agent_stop(job: dict, data: dict) -> dict | None:
-    """The stop of a running local job's agent the watch acts on, its last response: at once when a model's safeguards stopped it, which safeguard_lines passes to him, and when it ended on an API error only once the session holding it has had a response answered since, so the fresh worker the watch hands the job to does not start inside the outage that stopped it; None until then, and for an agent that ended with its session."""
+    """The stop of a running local job's agent the watch acts on, its last response: at once when a model's safeguards stopped it, which safeguard_lines passes to him, or a Claude usage limit did, by agents.limited, since the holding session may never answer again to show it lifted, and when it ended on any other API error only once the session holding it has had a response answered since, so the fresh worker the watch hands the job to does not start inside the outage that stopped it; None until then, and for an agent that ended with its session."""
     if not job.get("agent") or (holder := session_of(job, data)) is None or not (turn := stopped_turn(holder, job, data)):
         return None
-    return turn if agents.refused(turn) or answered_since(holder, turn) else None
+    return turn if agents.refused(turn) or agents.limited(turn) or answered_since(holder, turn) else None
 
 
 def answered_since(holder: dict, turn: dict) -> bool:
@@ -3456,15 +3489,17 @@ def stopped_turn(holder: dict, job: dict, data: dict) -> dict | None:
 
 
 def stopped_on(turn: dict) -> str:
+    if agents.limited(turn):
+        return f'it stopped on Claude\'s usage limit at {when(turn["timestamp"])}: "{cut(said_last(turn), 100)}"'
     return f'its last response ended on {turn["message"]["stop_reason"]} at {when(turn["timestamp"])}: "{cut(said_last(turn), 100)}"'
 
 
 def lane_stop(worker: dict, data: dict) -> tuple[dict, Path] | None:
-    """The last row of the lane_transcript of a lane on this Mac, and that transcript, when a model's safeguards stopped that response, or when it ended on an API error and a session bound to the drive has had a response answered since; None until then."""
+    """The last row of the lane_transcript of a lane on this Mac, and that transcript, when a model's safeguards or a Claude usage limit stopped that response, or when it ended on any other API error and a session bound to the drive has had a response answered since; None until then."""
     path = lane_transcript(worker["terminal"]["worktreePath"])
     if not path or not (turn := last_turn(path)) or not agents.died(turn):
         return None
-    return (turn, path) if agents.refused(turn) or any(answered_since(held, turn) for held in state.bound_sessions(data).values()) else None
+    return (turn, path) if agents.refused(turn) or agents.limited(turn) or any(answered_since(held, turn) for held in state.bound_sessions(data).values()) else None
 
 
 def lane_transcript(worktree: str) -> Path | None:
@@ -3474,7 +3509,7 @@ def lane_transcript(worktree: str) -> Path | None:
 
 
 def resume_lane(watcher: Watcher, job_id: str, job: dict, terminal: str, stop: tuple[dict, Path], moment: datetime) -> list[str]:
-    """Type agents.RESUMED into the terminal of a lane on this Mac that stopped, once for each stop, as the StopFailure hook resumes a lane on a Sprite, whose RESUMED prompts count toward the same four; once four resumes met the stop again, say so once and type no more."""
+    """Type agents.RESUMED into the terminal of a lane on this Mac that stopped, once for each stop, as the StopFailure hook resumes a lane on a Sprite, whose RESUMED prompts count toward the same four, after Escape on the usage-limit dialog a limit stop leaves up, which holds every key typed into the pane until it closes; once four resumes met the stop again, say so once and type no more."""
     turn, path = stop
     if watcher.resumed.get(job_id) == turn["timestamp"]:
         return []
@@ -3484,12 +3519,15 @@ def resume_lane(watcher: Watcher, job_id: str, job: dict, terminal: str, stop: t
         return [f"{head}, after {tries} resumes met the same stop. The watch types no more into it; drive job resume {job_id} <the event> sends it one"]
     source = f"resume of {job_id}"
     try:
+        if agents.limited(turn):
+            orca.dismiss_limit_dialog(terminal)
         orca.type_prompt(terminal, agents.RESUMED)
     except orca.OrcaError as error:
         return failed(watcher, source, f"typing the resume into {job_id}'s terminal {terminal}", error, moment)
     watcher.failures.pop(source, None)
     watcher.resumed[job_id] = turn["timestamp"]
-    return [f"{head}. The watch typed the resume prompt into its terminal {terminal}"]
+    dismissed = "sent Escape to its usage-limit dialog and " if agents.limited(turn) else ""
+    return [f"{head}. The watch {dismissed}typed the resume prompt into its terminal {terminal}, so resume it no second time"]
 
 
 def agent_transcript(holder: dict, job: dict, data: dict) -> Path:
@@ -5625,12 +5663,14 @@ def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
 def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> list[str]:
     """Post the lines owed the lane over cci as one record, by posted_record, a handoff when any of them asks a step now, by wakes, or the lane is the communicator's or the meta session's, else evidence, which reaches the lane with others at most every five minutes, the lander's own failures apart as one defect, which the meta session starts a fix from, so a pass that says many gaps reaches the lane as one record however many it says; but drop each line that needs_step, judging it as it posts, finds asks no step now, each one quiet() reads its row saying Nothing for, each one said to the lane already within SAID_FOR, by unsaid, and each one owed the communicator or the meta session that is a READY whose fix its builder owes, by fixing(), by his words "make everything less chatty", so a line held across a newer install's takeover or a failed post never hands work that ended meanwhile: each credential cci refuses is withheld from it, and a record that fails goes again when the next pass starts, sent with no lines, each line made meanwhile waiting behind it, so a pass tries a failing lane once and its third failure in a row is said. The lines stay among the watcher's unsent until their record posts, so a newer install that takes the watch over meanwhile gets them."""
     if lines and watcher.unsent.get(lane):
-        watcher.unsent[lane] += lines
+        watcher.unsent[lane] = list(dict.fromkeys(watcher.unsent[lane] + lines))
         return []
-    owed = watcher.unsent[lane] = watcher.unsent.get(lane, []) + lines
+    owed = watcher.unsent[lane] = list(dict.fromkeys(watcher.unsent.get(lane, []) + lines))
     if not owed:
         return []
     data = state.load(watcher.name)
+    if untaken(watcher, data, lane):
+        return []
     posting = unsaid(watcher.name, lane, [line for line in owed if needs_step(line, data, watcher.cards) and not quiet(line) and (lane not in state.HOLDERS or not fixing(line, data, watcher.cards))], moment)
     defects = [line for line in posting if line.startswith(LANDER)]
     rest = [line for line in posting if line not in defects]
@@ -5644,6 +5684,8 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
             refusal = error
     keep_said(watcher.name, lane, [line for line in posting if line not in unsent], moment)
     watcher.unsent[lane] = unsent
+    if kind == "handoff" and rest and not unsent:
+        watcher.handed_at[lane] = moment
     project = next((project for project in data["subcoordinators"] if state.project_lane(project) == lane), lane)
     what = {"communicator": "handoff post to the communicator", "meta": "handoff post to the meta session", "root": "post to the coordinator"}.get(lane, f"post to the sub-coordinator for {project}")
     if refusal is None:
@@ -5683,6 +5725,15 @@ def keep_said(name: str, lane: str, lines: list[str], moment: datetime) -> None:
     taking = path.with_name(f"{SAID_FILE}.{os.getpid()}.{threading.get_ident()}")
     taking.write_text(json.dumps(said | {said_key(lane, line): state.stamp(moment) for line in lines}))
     os.replace(taking, path)
+
+
+def untaken(watcher: Watcher, data: dict, lane: str) -> bool:
+    """Whether a coordinator lane's session wrote nothing to its transcript since the last handoff the watch posted it, so it took no turn on that handoff, as a session stopped on Claude's usage limit takes none, and each line owed it waits, deduplicated, for the one record that follows its next write; the communicator and the meta session, whose handlers write no role transcript, never wait."""
+    if lane not in state.coordinator_lanes(data) or (handed := watcher.handed_at.get(lane)) is None:
+        return False
+    holder = data["roles"]["coordinator"] if lane == "root" else next(held for project, held in data["subcoordinators"].items() if state.project_lane(project) == lane)
+    path = session_transcript(holder)
+    return not path.exists() or datetime.fromtimestamp(path.stat().st_mtime).astimezone() <= handed
 
 
 def posted_record(name: str, lane: str, kind: str, lines: list[str], checkout: Path) -> None:

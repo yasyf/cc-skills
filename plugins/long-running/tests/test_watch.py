@@ -11723,6 +11723,8 @@ def test_a_waiting_or_pushed_return_reaches_the_coordinator_as_evidence_waking_n
     assert watch.wakes("JOB j2 o1 PUSHED https://github.com/Forge-AI/monorepo/pull/9", data, None) is False
     assert watch.wakes("JOB j2 o1 PUSHED https://github.com/Forge-AI/monorepo/pull/9; its ASK was not kept", data, None) is True
     assert watch.wakes("JOB j3 o1 READY https://github.com/Forge-AI/monorepo/pull/9", data, None) is True
+
+
 def test_a_relaunch_that_ended_with_no_next_worker_is_tried_again_after_five_minutes_three_times_in_all(monkeypatch: pytest.MonkeyPatch) -> None:
     moment = datetime(2026, 11, 15, 17, 13, tzinfo=UTC)
     monkeypatch.setattr(state, "alive", lambda pid: pid == 1)
@@ -11820,3 +11822,47 @@ def test_a_pr_is_checked_on_the_first_pass_then_only_once_a_delivery_names_it_hi
     watch.checks(watching, T0 + timedelta(minutes=3))
     watch.checks(watching, T0 + timedelta(minutes=3) + watch.CHECK_SWEEP)
     assert started == [["Forge-AI/monorepo#42", "Forge-AI/monorepo#43"], [KEY], ["Forge-AI/monorepo#42", "Forge-AI/monorepo#43"], ["Forge-AI/monorepo#42", "Forge-AI/monorepo#43"]]
+
+
+def test_a_usage_limit_hit_on_this_mac_is_told_him_once_as_a_milestone_whichever_watch_reads_it_and_one_that_reset_is_never_told(
+    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]
+) -> None:
+    lined: list[dict] = []
+    monkeypatch.setattr(talk, "watch_line", lambda name, post: lined.append(post) or f"POSTED {POSTED}")
+    notice = "You've hit your weekly limit · resets Nov 17 at 11pm (America/Los_Angeles)"
+    log = state.root() / state.USAGE_LIMIT_LOG
+    rows = [{"limit": "weekly", "until": state.stamp(T0 - timedelta(hours=1)), "notice": notice, "at": state.stamp(T0 - timedelta(days=7))}, {"limit": "weekly", "until": state.stamp(T0 + timedelta(days=2)), "notice": notice, "at": state.stamp(T0)}]
+    log.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    assert [watch.limit_lines(watcher(demo), T0) for _ in range(2)] == [[], []]
+    assert [(record["text"], record["body"]) for records in ready_records for record in records] == [("Claude Code hit its weekly limit on this Mac", notice + "\n")]
+    assert lined == [
+        {
+            "text": f'Claude Code hit its weekly limit on this Mac: "{notice}". Sessions here dismiss its dialog and keep working on paid usage, and the watch restarts each agent and lane it stopped ({{record:9|its facts}}).',
+            "record": "9",
+        }
+    ]
+
+
+def test_a_coordinator_session_that_wrote_nothing_since_the_watchs_last_handoff_gets_no_record_until_it_writes_then_one_with_each_line_once(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    posted: list[tuple[str, str, list[str]]] = []
+    monkeypatch.setattr(watch, "posted_record", lambda name, lane, kind, lines, checkout: lines and posted.append((lane, kind, lines)))
+    transcript = watch.session_transcript(state.load(demo)["roles"]["coordinator"])
+    transcript.parent.mkdir(parents=True, exist_ok=True)
+    transcript.write_text("{}\n")
+    written = datetime.fromtimestamp(transcript.stat().st_mtime).astimezone()
+    watching = watcher(demo)
+    watching.handed_at["root"] = written + timedelta(seconds=1)
+    lines = ['ORPHAN o1 "ship the watch": no live job', 'ORPHAN o1 "ship the watch": no live job', 'ORPHAN o2 "fix the dashboard": no live job']
+    assert (watch.sent(watching, "root", lines, T0), posted, watching.unsent["root"]) == ([], [], list(dict.fromkeys(lines)))
+    assert (watch.sent(watching, "root", [], T0 + timedelta(minutes=1)), posted) == ([], [])
+    os.utime(transcript, (written.timestamp() + 60, written.timestamp() + 60))
+    assert watch.sent(watching, "root", [], T0 + timedelta(minutes=2)) == []
+    assert [(lane, sent) for lane, _, sent in posted] == [("root", list(dict.fromkeys(lines)))]
+
+
+def test_a_watchdog_answer_whose_labels_open_lists_below_them_keeps_each_whole_block_as_one_line() -> None:
+    text = "WHY:\n- his Approve on #56961\n- its staging test\nWHO: j154\nNEXT:\n- drive job resume j154\nUNREAD: none"
+    assert stall.answer(text) == {"WHY": "- his Approve on #56961 - its staging test", "WHO": "j154", "NEXT": "- drive job resume j154", "UNREAD": "none"}
