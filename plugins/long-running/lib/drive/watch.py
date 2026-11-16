@@ -5490,16 +5490,25 @@ def ensure(name: str) -> str:
 
 def retired_seats(watcher: Watcher, moment: datetime) -> list[str]:
     """Retire, from the drive's own watch, each priority order's seat that no open order holds any longer, its order closed or unmarked, by retire_seat, so a finished seat's session stops resuming into a start that refuses it."""
-    if watcher.project or state.scratch():
+    if watcher.project:
         return []
-    data = state.load(watcher.name)
+    retired = seats_retired(watcher.name)
+    for seat in retired:
+        watcher.others.pop(seat, None)
+    return list(retired.values())
+
+
+def seats_retired(name: str) -> dict[str, str]:
+    """Retire each priority seat no open order holds, by retire_seat, as the watch does each pass and drive order set does in the step that drops, closes or unmarks a priority order; each seat retired and the line saying so."""
+    if state.scratch():
+        return {}
+    data = state.load(name)
     held = {order["priority"] for order in state.open_orders(data).values() if order["priority"]}
-    return [retire_seat(watcher, seat) for seat in data["subcoordinators"] if seat.startswith(state.priority_seat("")) and seat not in held]
+    return {seat: retire_seat(name, seat) for seat in data["subcoordinators"] if seat.startswith(state.priority_seat("")) and seat not in held}
 
 
-def retire_seat(watcher: Watcher, seat: str) -> str:
+def retire_seat(name: str, seat: str) -> str:
     """Take a priority seat down: its watch's launch agent and pid file, by retire, its cci alias, by `cci session rm`, which keeps its session alive no more and drops its channel subscription, its session, by seat_ended, and its binding and launched terminal on the drive, so no restart starts it again; the line saying so."""
-    name = watcher.name
     session = state.load(name)["subcoordinators"][seat]["session"]
     alias = state.alias(name, "coordinator", seat)
     retire(name, seat)
@@ -5507,7 +5516,6 @@ def retire_seat(watcher: Watcher, seat: str) -> str:
     with state.edit(name) as data:
         data["subcoordinators"].pop(seat)
         data["launched"].pop(f"sub-coordinator {seat}", None)
-    watcher.others.pop(seat, None)
     return f"retired the seat {seat}: no open order holds it, so its alias {alias} is removed from cci, its session {session} stopped with its conversation kept, and its binding dropped"
 
 
