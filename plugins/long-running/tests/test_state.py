@@ -351,6 +351,37 @@ def test_close_report_presence_uses_its_index_and_tracks_row_changes(state_root:
     assert not state.has_close_reports("demo")
 
 
+@pytest.mark.parametrize("incident,order_state,users,paged,post,pending", [
+    (False, "working", 123, None, None, False),
+    (True, "working", None, None, None, False),
+    (True, "working", 123, None, None, True),
+    (True, "done", 123, None, None, False),
+    (True, "dropped", 123, None, None, False),
+    (True, "working", None, "2026-11-16T11:00:00-08:00", None, False),
+    (True, "working", None, "2026-11-16T11:00:00-08:00", {"link": None}, True),
+    (True, "working", None, "2026-11-16T11:00:00-08:00", {"link": "https://slack.com/posted"}, False),
+])
+def test_owner_page_presence_uses_its_index(state_root: Path, monkeypatch: pytest.MonkeyPatch, incident: bool, order_state: str, users: int | None, paged: str | None, post: dict | None, pending: bool) -> None:
+    make("demo")
+    path = state.database_path("demo")
+    with closing(state.connect(path)) as db:
+        db.execute("INSERT INTO rows VALUES ('orders', 'o1', 1, ?)", (json.dumps({"incident": incident, "state": order_state, "users": users, "paged": paged, "page_post": post}),))
+    connect = state.connect
+    statements = []
+
+    def traced(path: Path, seconds: float | None = None) -> sqlite3.Connection:
+        db = connect(path, seconds)
+        db.set_trace_callback(statements.append)
+        return db
+
+    monkeypatch.setattr(state, "connect", traced)
+    monkeypatch.setattr(state, "load", lambda *args: pytest.fail("pending owner pages must not load the drive"))
+    assert state.has_owner_pages("demo") == pending
+    [selected] = [statement for statement in statements if statement.startswith("SELECT 1 FROM rows")]
+    with closing(connect(path)) as db:
+        assert any("USING INDEX pending_owner_pages" in row[3] for row in db.execute("EXPLAIN QUERY PLAN " + selected))
+
+
 def test_row_cache_updates_and_deletions_do_not_sort_unchanged_positions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     copy = state.Copy(tmp_path / "drive.db")
     with closing(copy.watcher):
