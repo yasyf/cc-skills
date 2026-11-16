@@ -514,13 +514,13 @@ def alive(pid: int) -> bool:
 
 
 def detach(name: str, args: list[str], log: str) -> int:
-    """Run the drive CLI with args on the drive as its own process, outliving the watch pass or tap that started it, its output appended to the drive's log of that name; its environment names the drive, which lets the drive's sessions end it unasked once it outlives its use, and that log, under DETACHED_ENV, which a launch or resume that still refuses names on the event it writes for the watch, and its PATH leads with install.plugin_copies_first, so a drive install's brew upgrade never unlinks a ccx or cci it runs."""
+    """Run the drive CLI with args on the drive as its own process, outliving the watch pass or tap that started it, its output appended to the drive's log of that name; its environment names the drive, which lets the drive's sessions end it unasked once it outlives its use, and that log, under DETACHED_ENV, which a launch or resume that still refuses names on the event it writes for the watch, and its PATH leads with install.plugin_copies_first, so a drive install's brew upgrade never unlinks a ccx or cci it runs. It runs on this process's own interpreter, the drive's environment that bin/drive's bootstrap already built for this process, so the child's bootstrap finds spawnllm and returns at once, with no wait on venv.lock and no uv sync between its launch and its adopt of a reservation, whose ADOPT_SECONDS lease then covers only its imports and its first write."""
     from drive import install
 
     env = {variable: value for variable, value in os.environ.items() if variable != "CLAUDE_CODE_SESSION_ID"} | {"PATH": install.plugin_copies_first(), DRIVE_ENV: name, DETACHED_ENV: log}
     with (drive_dir(name) / log).open("a") as out:
         return subprocess.Popen(
-            [str(Path(__file__).resolve().parents[2] / "bin" / "drive"), *args, "--drive", name],
+            [sys.executable, "-I", str(Path(__file__).resolve().parents[2] / "bin" / "drive"), *args, "--drive", name],
             cwd=drive_dir(name),
             env=env,
             stdin=subprocess.DEVNULL,
@@ -5492,7 +5492,7 @@ def item(field: str, value: object) -> str:
 
 
 def lapsed(record: dict) -> bool:
-    """Whether a reservation no child adopted within ADOPT_SECONDS of its launch, by the wall clock, which no test's fixed now moves, so a child that died before adopting holds nothing; the clock starts when settle names the child, never at reserve, so a starter launching several children one after another, each settled patiently, never hands a later one a lease already spent, and a reservation its live starter has not launched yet holds while that starter runs. A child's start, measured on this Mac at load 25, reaches its first drive load in 0.2 to 0.3 seconds through bin/drive's environment check, and a uv sync building that environment from uv's cache takes 0.2 seconds; a sync that downloads packages, or a wait on another process's sync, is what the rest of the 120 seconds covers, its adopt write's budget the same 120."""
+    """Whether a reservation no child adopted within ADOPT_SECONDS of its launch, by the wall clock, which no test's fixed now moves, so a child that died before adopting holds nothing; the clock starts when settle names the child, never at reserve, so a starter launching several children one after another, each settled patiently, never hands a later one a lease already spent, and a reservation its live starter has not launched yet holds while that starter runs. A child detach starts runs on its starter's own built environment, so no bootstrap lock or uv sync waits inside the lease, and it reaches its first drive load in 0.2 to 0.3 seconds, measured on this Mac at load 25; the rest of the 120 seconds covers a slow host and its adopt write, whose budget is the same 120."""
     return record.get("state") == "reserved" and "launched_at" in record and time.time() - record["launched_at"] >= ADOPT_SECONDS
 
 

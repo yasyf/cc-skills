@@ -2442,7 +2442,7 @@ def test_a_detached_verb_names_its_drive_its_log_and_no_session_in_its_environme
     monkeypatch.setattr(install, "plugin_copies_first", lambda: "/cache/cc-context/0.96.10/bin:/opt/homebrew/bin")
     assert state.detach("demo", ["pr", "land", "https://github.com/yasyf/cc-skills/pull/7"], "landings.log") == 4242
     [(argv, options)] = started
-    assert argv[1:] == ["pr", "land", "https://github.com/yasyf/cc-skills/pull/7", "--drive", "demo"]
+    assert (argv[:2], Path(argv[2]).name, argv[3:]) == ([sys.executable, "-I"], "drive", ["pr", "land", "https://github.com/yasyf/cc-skills/pull/7", "--drive", "demo"])
     assert options["env"][state.DRIVE_ENV] == "demo" and options["env"][state.DETACHED_ENV] == "landings.log" and "CLAUDE_CODE_SESSION_ID" not in options["env"]
     assert options["env"]["PATH"] == "/cache/cc-context/0.96.10/bin:/opt/homebrew/bin"
 
