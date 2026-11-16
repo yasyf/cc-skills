@@ -4644,7 +4644,7 @@ def slot_hold(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     if not state.top_coordinator(state.load(name), os.environ.get("CLAUDE_CODE_SESSION_ID")):
         raise DriveError(f"refused: only the top coordinator holds the {args.env} slot")
-    with state.edit(name) as data:
+    def slot_held(data: dict) -> str:
         if args.clear:
             (data["slots"].get(args.env) or {})["hold"] = None
             line = f"{args.env} holds for no one now"
@@ -4652,6 +4652,9 @@ def slot_hold(args: argparse.Namespace) -> int:
             if args.held not in data["jobs"]:
                 raise DriveError(f"{args.held}: refused, no job of this drive: a hold names one job, never an order")
             line = state.slot_hold(data, args.env, args.held, state.parse_time(args.until), args.reason, state.now())
+        return line
+
+    line = state.update(name, None, slot_held)
     return emit(args, line, {"env": args.env, "line": line})
 
 
