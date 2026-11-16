@@ -1,6 +1,6 @@
 """His Approve is the merge: which of a lane's PRs land now, read from its lane file's prs rows alone.
 
-A PR lands on his Approve at its current head with green checks and no hold. A head the dangerous reader judged safe needs nothing more; an unread head never lands. A dangerous PR lands only with its stack, once a staging proof passed at the stack's top head on the target its release reaches, and only while he is present, his word or tap within PRESENT_WITHIN. The merge queue lands a stack from its bottom, so a PR waits while any PR below it cannot land.
+A PR lands on his Approve at its current head with green checks and no hold. A head the dangerous reader judged safe, its verdict at that head naming no class, needs nothing more; an unread head or one read at an older head never lands. A dangerous PR lands only with its stack, once a staging proof passed at the stack's top head on the target its release reaches, and only while he is present, his word or tap within PRESENT_WITHIN. The merge queue lands a stack from its bottom, so a PR waits while any PR below it cannot land.
 """
 
 from dataclasses import dataclass
@@ -21,11 +21,11 @@ def key(row: dict) -> str:
 
 
 def judged(row: dict) -> bool:
-    return "dangerous" in row and (row["dangerous"] is None or row["dangerous"]["head"] == row["head"])
+    return bool(row.get("dangerous")) and row["dangerous"]["head"] == row["head"]
 
 
 def dangerous(row: dict) -> bool:
-    return row["dangerous"] is not None
+    return bool(row["dangerous"]["classes"])
 
 
 def proven(stack: list[dict]) -> bool:

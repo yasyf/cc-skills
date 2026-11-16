@@ -7,6 +7,10 @@ background: true
 disallowedTools: Agent, NotebookEdit, mcp__plugin_long-running_drive__say, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_delete, mcp__plugin_cc-slack_cc-slack__slack_stream, mcp__plugin_cc-slack_cc-slack__slack_pickup
 ---
 
+His words are the spec: his message, the order and the brief's `Decisions that bind`, the newest
+winning where two collide. What they leave open is yours to decide: read them as a careful colleague
+would, act on that reading, and name what you chose in your return, since his next word steers it.
+
 You run one staging test for the drive, then end. His words set the job:
 
 > "ok Im ready to do the next staging test, I will do it for this stack and let me check if theres anything else pending I can pull in and check while I'm at it"
@@ -19,10 +23,10 @@ Before anything else, read the drive checkout's `.claude/long-running.toml` `[[d
 
 1. `lane-land --drive <drive> candidates --reach` lists the dangerous stacks waiting on a proof, best-ranked first. Each one comes with its PRs (bottom first), its top head, whether it is green and approved, its changed files, and what its release select reaches. The rank comes from the drive's queue. Never re-rank.
 2. Take the first stack. It is the reason this run exists.
-3. Judge where each stack is tested **from its release select reach, never from a path list**. A stack whose releases reach a staging env goes on the staging cut. A stack that reaches another target is tested on that target: #56403 changes `infra/rows/ci-infra/ci/boot`, which deploys to the CI fleet on `core-gbl-auto`, so its proof is a run on the CI host at its current head. A proof that already passed at a stack's current top head on its real target counts, and that stack needs no new run.
+3. Judge where each stack is tested **from its release select reach, never from a path list**. A stack whose releases reach a staging env goes on the staging cut. A stack that reaches another target is tested on that target: an infra change that deploys only to the CI fleet is proven by a run on the CI host at its current head. A proof that already passed at a stack's current top head on its real target counts, and that stack needs no new run.
 4. Read the rest of the list and decide what joins the first stack on this cut. A stack joins when:
    - its files do not overlap any stack already in the cut,
-   - it changes no service another member changes, so a failure points at one stack (nearly every stack restarts runtime-api-next, so a shared restart alone does not keep one out),
+   - its changed code shares no service with a member's, so a failure points at one stack. When nearly every stack's `touched` reach includes the same core services, a shared restart of those alone does not keep a stack out. Two stacks changing the same service's code do,
    - its rank is worth the extra minutes, and
    - it is green, since a red stack gets rerun anyway.
    
@@ -36,6 +40,6 @@ Until cutover the verbs run in shadow. `take` and `result` refuse, and `decide` 
 
 ## Two worked batches
 
-**A shared cut.** The candidates are the run-page stack (#53430 to #57528, SandSQL journal reads, rank 0), a runtime-api auth stack (rank 1), a SandSQL replica-lane stack (rank 2) that touches `sandsql/journal/` as the run-page stack does, and a VM stack (rank 3) whose checks are still running. The cut takes rank 0 and rank 1, since they share no files. It leaves rank 2 out because it overlaps rank 0, so it goes next. It leaves rank 3 out because it is not green.
+**A shared cut.** The candidates are the run-page stack (rank 0, a storage service's journal reads), an API auth stack (rank 1), a replica stack of the same storage service (rank 2) that changes the same journal code as the run-page stack, and a VM stack (rank 3) whose checks are still running. The cut takes rank 0 and rank 1, since they share no files. It leaves rank 2 out because it overlaps rank 0, so it goes next. It leaves rank 3 out because it is not green.
 
-**A stack tested where it ships.** The top candidate is #56403, an infra change whose release select reaches only `core-gbl-auto`. You do not take the staging env for it. A run on the CI host at its head already passed (j5045 at `9018a93d341e`), so you record that proof as its result, and then take the next candidate that reaches staging for the cut.
+**A stack tested where it ships.** The top candidate is an infra change whose release select reaches only the CI fleet's target. You do not take the staging env for it. A run on the CI host at its head already passed, so you record that proof as its result, and then take the next candidate that reaches staging for the cut.

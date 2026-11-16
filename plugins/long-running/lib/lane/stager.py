@@ -55,7 +55,7 @@ def lane_candidates(drive: str) -> list[dict]:
         lane = json.loads((folder / f"{lane_id}.json").read_text())
         for stack in landing.stacks(lane):
             open_rows = [row for row in stack if not row.get("merged")]
-            if open_rows and any(landing.judged(row) and landing.dangerous(row) for row in open_rows) and not landing.proven(open_rows):
+            if any(landing.judged(row) and landing.dangerous(row) for row in open_rows) and not landing.proven(open_rows):
                 found.append(
                     {
                         "rank": rank,
