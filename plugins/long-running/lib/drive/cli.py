@@ -172,15 +172,17 @@ def start(args: argparse.Namespace) -> int:
             f"drive start {args.name} --role {args.role}: refused, this session runs in no Orca terminal, so he cannot open it from Orca;"
             f" start the session under cci and show it in one with {' then '.join(agents.launch(args.name, args.role, args.project, str(kept)))}"
         )
-    if args.project and args.role != "coordinator":
-        raise DriveError(f"--project binds a sub-coordinator, which holds the coordinator role; the {state.title(args.role)} holds no project")
+    if args.project and args.role == "meta":
+        raise DriveError("--project binds a sub-coordinator or a seat's communicator; the meta session holds no project")
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     fresh = state.new_drive(args.name, args.role, session, str(kept))
     fresh["roles"][args.role]["rules"] = render.rules_digest(fresh, args.role)
     with state.edit_or_create(args.name, fresh) as data:
-        if args.project:
+        if args.project and args.role == "communicator":
+            bind_communicator(data, args.project, fresh["roles"][args.role])
+        elif args.project:
             bind_subcoordinator(data, args.project, fresh["roles"][args.role])
-        elif project := state.session_project(data, session):
+        elif project := state.session_seat(data, session):
             raise DriveError(
                 f"--role {args.role}: session {session} is the sub-coordinator for {project} in drive {args.name}; the top coordinator,"
                 " the communicator and the meta session are sessions of their own, so start this role from another session"
@@ -196,7 +198,8 @@ def start(args: argparse.Namespace) -> int:
     opened = channel_opened(args.name, data)
     siblings = "".join(sibling_started(args.name, role, held["cwd"], data["launched"].get(role)) for role in SIBLINGS if role not in data["roles"])
     watched = f"{watch.ensure(args.name)}\n" if args.role == "coordinator" else ""
-    seat = f"sub-coordinator for {args.project}" if args.project else args.role
+    watched += f"{said}\n" if args.project and args.role == "coordinator" and (said := communicator_started(args.name, args.project)) else ""
+    seat = (f"communicator for {args.project}" if args.role == "communicator" else f"sub-coordinator for {args.project}") if args.project else args.role
     elsewhere = "" if Path.cwd() == kept.resolve() else f"this session runs in {Path.cwd()} until it next exits, when cci resumes it in the drive's checkout {kept}\n"
     text = f"{render.context(data, args.role, args.project)}\n\n{registered}{opened}{siblings}{watched}{elsewhere}{seat}: session {held['session']}, {seen}"
     return emit(args, text, {**data, "orca": {seat: seen}})
@@ -262,6 +265,33 @@ def seat_started(name: str, seat: str) -> str:
     return f"started the sub-coordinator for {seat}, which holds this order alone, in Orca terminal {handle}; its project's coordinator hears it until it binds"
 
 
+def communicator_started(name: str, seat: str) -> str:
+    """Start the communicator of a seat, a project's or a priority order's, in an Orca terminal of its own while none is bound for it, once the drive keeps that seat's channel, making it first while the drive keeps its own channel, by his words "we should move so every project has a communicator to pair with its coordinator and messages in that channel should go to it", in the top coordinator's checkout, so its first turn binds it with drive start --role communicator --project <seat>; the line saying so, or nothing for a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves."""
+    if state.scratch():
+        return ""
+    data = state.load(name)
+    if seat in data["communicators"]:
+        return f"the communicator for {seat} is bound, session {data['communicators'][seat]['session']}, and holds its channel"
+    if seat not in data["slack"]["channels"]:
+        if "" not in data["slack"]["channels"]:
+            return f"the communicator for {seat} did not start: the drive keeps no channel; drive channels makes them"
+        open_channel(name, seat)
+        data = state.load(name)
+    key = f"communicator {seat}"
+    try:
+        handle = orca.start_session(name, "communicator", seat, data["roles"]["coordinator"]["cwd"], data["launched"].get(key))
+    except orca.OrcaError as error:
+        return f"the communicator for {seat} did not start: {error}; drive manual start prints its commands"
+    if handle is None:
+        return f"the communicator for {seat} starts in Orca terminal {data['launched'][key]}, which an earlier start opened"
+
+    def communicator_started_write(data: dict):
+        data["launched"][key] = handle
+
+    state.update(name, None, communicator_started_write)
+    return f"started the communicator for {seat}, which holds its channel #{data['slack']['channels'][seat]['name']}, in Orca terminal {handle}"
+
+
 def bind_subcoordinator(data: dict, project: str, held: dict) -> None:
     """Bind this session as the project's sub-coordinator, or as a priority order's by the seat drive order set --priority names, replacing any session bound for it before, and keep where the event log ended at its first binding, which its watch reads from; refused for a project no order is filed under and no order holds as its seat, a session holding another seat, and a lane another seat, record or numbered name of the drive takes."""
     if project not in (filed := [*state.projects(data), *sorted(order["priority"] for order in data["orders"].values() if order["priority"])]):
@@ -278,6 +308,20 @@ def bind_subcoordinator(data: dict, project: str, held: dict) -> None:
     if clash := lane_clash(data, project, bound is None):
         raise DriveError(f"--project {project}: {clash}; file its orders under a project whose lane no one else takes")
     data["subcoordinators"][project] = held | {"from": bound["from"] if bound else state.events_end(data["name"])}
+
+
+def bind_communicator(data: dict, project: str, held: dict) -> None:
+    """Bind this session as the communicator for a project or priority seat, holding that seat's channel alone, paired with its sub-coordinator, by his words "every project has a communicator to pair with its coordinator and messages in that channel should go to it", replacing any session bound for it before; the drive's communicator gets its held channels again at its next call, so it lets that channel go. Refused for a seat whose channel the drive has not made and for a session holding another seat or role."""
+    if project not in data["slack"]["channels"]:
+        raise DriveError(f"--project {project}: the drive keeps no channel for it, so its communicator would hold none; the channels it keeps: {', '.join(seat for seat in data['slack']['channels'] if seat) or 'none'}")
+    session = held["session"]
+    if role := next((role for role, bound in data["roles"].items() if session and bound["session"] == session), None):
+        raise DriveError(f"--project {project}: session {session} holds the {ROLE_NAMES[role]} role of drive {data['name']}; a seat's communicator is a session of its own")
+    if (other := state.session_seat(data, session)) not in (None, project) or state.session_project(data, session):
+        raise DriveError(f"--project {project}: session {session} already holds the seat {other} of drive {data['name']}; bind {project}'s communicator from another session")
+    data["communicators"][project] = held
+    if root := data["roles"].get("communicator"):
+        root.pop("rules", None)
 
 
 def lane_clash(data: dict, project: str, first: bool) -> str | None:
@@ -1098,7 +1142,7 @@ def order_set(args: argparse.Namespace) -> int:
     parts = [answered_lines.get(part) or f"{args.id} {render.part_line(data, args.id, part)}" for part in dict.fromkeys([*sorted_parts, *standing, *([followed[0]] if followed else [])])]
     turned += state.asked_lines(data, order["text"]) if turning else []
     repeated = repeated_lines(data, args.id, list(dict.fromkeys(args.add_part)))
-    seated = [said] if args.priority and (said := seat_started(name, order["priority"])) else []
+    seated = [said for said in (seat_started(name, order["priority"]), communicator_started(name, order["priority"])) if said] if args.priority else []
     seated += [priority_page(name, args.id, order)] if args.priority and not args.dry_run else []
     retired = list(seats_retired(name).values()) if args.state in state.CLOSED_ORDER_STATES or args.priority is False else []
     retired += closed_prs(name, args.id, closing, args.note or f"its order {args.id} was dropped") if closing and not args.dry_run else []
@@ -6388,10 +6432,16 @@ def with_build(place: str, held: dict) -> str:
     return f"{place}; {note}" if note else place
 
 
+def priority_words(data: dict, seat: str | None) -> str | None:
+    """What a priority seat's channel is named for: the workstream its order is filed under, else the order's id; None for a seat no priority order holds."""
+    order_id = next((order_id for order_id, order in data["orders"].items() if seat and order["priority"] == seat), None)
+    return (data["orders"][order_id]["workstream"] or order_id) if order_id else None
+
+
 def open_channel(name: str, project: str | None) -> dict:
     """Make, as him with cc-slack's user token, the drive's own private channel for no project, or a project's under it, named by slack.channel_name, which cc-slack reads as it reads his DM, one he already has kept; keep its id and name in the drive's slack row, and hand the communicator its Hold with line again at its next tool call, so it holds the channel with no restart."""
     project = slack.channel_project(project)
-    made = slack.cc_slack("operator-channel", slack.channel_name(name, project))
+    made = slack.cc_slack("operator-channel", slack.channel_name(name, project, priority_words(state.load(name), project)))
     def open_channel_write(fresh: dict):
         fresh["slack"]["channels"][project or ""] = {"id": made["id"], "name": made["name"]}
         if held := fresh["roles"].get("communicator"):
@@ -6407,8 +6457,8 @@ def channels(args: argparse.Namespace) -> int:
 
     name = state.resolve(args.drive)
     data = state.load(name)
-    seats = [seat for seat in data["subcoordinators"] if seat not in {state.priority_seat(order_id) for order_id in data["orders"]}]
-    made = [open_channel(name, project) for project in dict.fromkeys([None, *seats, TOOLING_FILING[0]])]
+    made = [open_channel(name, project) for project in dict.fromkeys([None, *data["subcoordinators"], TOOLING_FILING[0]]) if (slack.channel_project(project) or "") not in data["slack"]["channels"]]
+    started = [communicator_started(name, seat) for seat in state.load(name)["subcoordinators"]]
     data = state.load(name)
     found, dm, moved = view.cards(name), slack.dm(), []
     try:
@@ -6424,7 +6474,7 @@ def channels(args: argparse.Namespace) -> int:
                 with state.edit(name) as fresh:
                     state.join_pr_cards(fresh, stack, [url], state.stamp())
         view.refresh_cards(name)
-    lines = [*(f"#{channel['name']} {channel['id']}" for channel in made), f"{len(moved)} open card(s) of his DM moved to their project's channel"]
+    lines = [*(f"#{channel['name']} {channel['id']}" for channel in made), *started, f"{len(moved)} open card(s) of his DM moved to their project's channel"]
     return emit(args, "\n".join(lines), {"channels": made, "moved": [{"from": card["url"], "to": url} for card, _, url in moved]})
 
 
@@ -6435,7 +6485,7 @@ def context(args: argparse.Namespace) -> int:
     role = args.role or state.session_role(data, session)
     if role is None:
         raise DriveError(f"this session holds no role in drive {name}; pass --role")
-    print(render.context(data, role, None if args.role else state.session_project(data, session)))
+    print(render.context(data, role, None if args.role else state.session_seat(data, session)))
     return 0
 
 

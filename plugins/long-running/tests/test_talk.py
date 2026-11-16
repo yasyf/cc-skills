@@ -102,9 +102,9 @@ def test_a_root_post_on_an_order_goes_to_its_projects_operator_channel_and_keeps
 
 
 def test_a_card_of_no_project_asks_at_the_root_of_the_drives_own_channel_while_a_status_line_of_none_stays_in_his_dm(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C777", "name": "him-drive-demo-iris"}, {"id": "C888", "name": "him-drive-demo-drive-tooling"}])
+    monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C777", "name": "him-drive-demo-iris"}, {"id": "C888", "name": "him-drive-demo-tooling"}])
     with state.edit(demo) as data:
-        data["slack"]["channels"] = {"Iris": {"id": "C777", "name": "him-drive-demo-iris"}, "Drive tooling": {"id": "C888", "name": "him-drive-demo-drive-tooling"}}
+        data["slack"]["channels"] = {"Iris": {"id": "C777", "name": "him-drive-demo-iris"}, "Drive tooling": {"id": "C888", "name": "him-drive-demo-tooling"}}
         data["orders"]["o1"] = state.new_order("design the store", "D123", None, {}, state.stamp()) | {"jobs": ["j1"]}
         data["jobs"]["j1"] = state.new_job("o1", "builder", "design the store", [], state.stamp())
         data["jobs"]["j1"]["questions"].append(state.new_question(None, "Keep the old store?", state.stamp()) | {"waits": "demo:j1-8"})
@@ -129,7 +129,7 @@ def test_once_the_drive_has_its_own_channel_a_post_of_a_project_with_none_makes_
 
 
 def test_a_priority_orders_post_makes_its_bound_seats_own_channel_while_its_projects_other_orders_stay_in_the_projects(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
-    made = {"him-drive-demo-iris": {"id": "C777", "name": "him-drive-demo-iris"}, "him-drive-demo-priority-o2": {"id": "C790", "name": "him-drive-demo-priority-o2"}}
+    made = {"him-drive-demo-iris": {"id": "C777", "name": "him-drive-demo-iris"}, "him-drive-demo-prio-o2": {"id": "C790", "name": "him-drive-demo-prio-o2"}}
     sent = slack.cc_slack
     monkeypatch.setattr(slack, "cc_slack", lambda *argv, **_: made[argv[1]] if argv[0] == "operator-channel" else sent(*argv))
     with state.edit(demo) as data:
@@ -140,7 +140,7 @@ def test_a_priority_orders_post_makes_its_bound_seats_own_channel_while_its_proj
     talk.posted(demo, {"text": "The page is up."}, "o1")
     talk.posted(demo, {"text": "The lock is fixed."}, "o2")
     assert [argv[argv.index("--channel") + 1] for argv in posts] == ["C777", "C790"]
-    assert state.load(demo)["slack"]["channels"][state.priority_seat("o2")] == made["him-drive-demo-priority-o2"]
+    assert state.load(demo)["slack"]["channels"][state.priority_seat("o2")] == made["him-drive-demo-prio-o2"]
 
 
 def test_the_drives_own_channel_posts_one_line_per_project_channel_linking_it_and_its_queue(demo: str, unposted_waits: Callable[..., dict[str, str]]) -> None:
@@ -156,7 +156,7 @@ def test_drive_channels_moves_each_open_card_of_his_dm_to_its_projects_channel_o
         data["orders"][order_id] = state.new_order("ship the run page", "D123", None, {}, state.stamp()) | {"project": "Iris", "jobs": [job_id]}
         data["jobs"][job_id] = state.new_job(order_id, "builder", "ship the run page", [], state.stamp()) | {"waits": [CARD_URL]}
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr(PR_URL, job_id, order_id)
-    iris, drive, moved = {"id": "C777", "name": "him-drive-demo-iris"}, {"id": "C888", "name": "him-drive-demo-drive-tooling"}, "https://acme.slack.com/archives/C777/p1794300000000950"
+    iris, drive, moved = {"id": "C777", "name": "him-drive-demo-iris"}, {"id": "C888", "name": "him-drive-demo-tooling"}, "https://acme.slack.com/archives/C777/p1794300000000950"
     made = {"him-drive-demo": {"id": "C666", "name": "him-drive-demo"}, iris["name"]: iris, drive["name"]: drive}
     unfiled = question_card("https://acme.slack.com/archives/D123/p1794300000000300", "Which drive?", "demo:j99-7")
     pr_card = {"prs": [PR_URL], "asked": ASKED, "url": "https://acme.slack.com/archives/D123/p1794300000000200", "card": {"title": "Merge #7?", "waits": "merge:yasyf/cc-skills#7"}}

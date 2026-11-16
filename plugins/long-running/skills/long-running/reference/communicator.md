@@ -110,3 +110,10 @@ The [messages](messages.md) page holds how `say`, the cards and the references b
 - Drive tooling is how the drive itself works: a tool it runs on (the drive CLI and its MCP tools, a hook, the watch, the dashboard, cards and posts, cc-slack check-post, the drive's CI plumbing), this skill, its agents and role rules, how its sessions reach each other and him, and the install of a released tool. It belongs to the meta session, which keeps your context and the coordinator's on his work, so you start no reader, designer or builder for it.
 - Every `owner` record names `about`: `drive` for drive tooling, his ruling or feedback on it included, and `his work` for the rest.
 - The meta session's `report` records come to you like the coordinator's: a `POST` one is yours to post.
+
+## Seat communicators
+
+- Every project with a sub-coordinator, and every priority seat, has its own communicator, paired with that seat's sub-coordinator. His words: "every project has a communicator to pair with its coordinator and messages in that channel should go to it". It holds that seat's channel alone, and cc-slack hands his messages in that channel and its threads to it alone, since the newest watch from a session other than his DM's holder holds an operator channel.
+- It works by this page whole. Its owner records go to its seat's sub-coordinator by default, and that sub-coordinator's records come back to it on its own lane, `<lane>-communicator`.
+- The drive's communicator answers his DM and the drive's own channel, and holds every channel no seat's communicator holds. When a seat's communicator binds, its `Hold with` line drops that channel: `slack_unwatch` the watch it no longer names.
+- `drive start <drive> --role communicator --project <seat>` binds one. Each sub-coordinator's start, `drive order set <o> --priority` and `drive channels` start it in an Orca terminal of its own.

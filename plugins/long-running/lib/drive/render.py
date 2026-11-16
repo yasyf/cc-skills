@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from drive import slack
-from drive.state import CLOCKS, DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owner_away, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, present, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
+from drive.state import CLOCKS, DRIVE_TOOLING, communicator_lane, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owner_away, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, present, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -476,20 +476,26 @@ def job_pr_lines(drive: dict, job_id: str, job: dict) -> list[str]:
 FEED_SUBSCRIPTION = "cc-slack subscribe --kind alerts,releases,posts --channel <id>"
 
 
-def held_channels(drive: dict, role: str) -> list[str]:
+def held_channels(drive: dict, role: str, project: str | None = None) -> list[str]:
+    """The channels a session holds: a seat's communicator its seat's channel alone, the drive's communicator his DM and each channel of the drive no seat's communicator holds, by his words "every project has a communicator to pair with its coordinator and messages in that channel should go to it"."""
+    made = drive["slack"]["channels"]
+    if role == "communicator" and project:
+        return [f"#{made[project]['name']} {made[project]['id']}"] if project in made else []
     if role == "communicator":
-        return [f"his DM {slack.dm()}", *(f"#{channel['name']} {channel['id']}" for channel in drive["slack"]["channels"].values())]
+        return [f"his DM {slack.dm()}", *(f"#{channel['name']} {channel['id']}" for seat, channel in made.items() if seat not in drive["communicators"])]
     return drive["slack"].get("watch", []) if role == "coordinator" else []
 
 
 def hold_line(drive: dict, role: str, project: str | None = None) -> str:
-    if project:
+    if project and role != "communicator":
         return "Hold no Slack channel: the top coordinator holds the drive's."
-    channels = held_channels(drive, role)
+    channels = held_channels(drive, role, project)
     if not channels:
         return "Hold no Slack channel."
-    tool = "slack_watch" if role == "communicator" else FEED_SUBSCRIPTION
-    return f"Hold with {tool}: {', '.join(channels)}"
+    if role != "communicator":
+        return f"Hold with {FEED_SUBSCRIPTION}: {', '.join(channels)}"
+    released = "; slack_unwatch any channel watch of yours this line no longer names, since a seat's communicator holds it now" if not project and drive["communicators"] else ""
+    return f"Hold with slack_watch: {', '.join(channels)}{released}"
 
 
 def who(drive: dict, role: str) -> str:
@@ -583,6 +589,8 @@ def untracked_line(drive: dict, job: dict) -> str:
 
 def opening(drive: dict, role: str, project: str | None) -> list[str]:
     """Who the session is: its role, or the project it is the sub-coordinator for with its cci lane, and who holds the other sessions."""
+    if project and role == "communicator":
+        return communicator_opening(drive, project)
     if project is None:
         return [
             (
@@ -610,6 +618,23 @@ def opening(drive: dict, role: str, project: str | None) -> list[str]:
             f" you at {lane}@{drive['name']}."
         ),
         hold_line(drive, role, project),
+    ]
+
+
+def communicator_opening(drive: dict, project: str) -> list[str]:
+    """Who a seat's communicator is: the communicator for one project or priority seat, holding its channel alone, paired with that seat's sub-coordinator, which its owner records reach, while the drive's communicator answers his DM and the drive's own channel."""
+    lane = communicator_lane(project)
+    paired = drive["subcoordinators"].get(project)
+    coordinator = f"the sub-coordinator for {project}, session {paired['session']}, lane {project_lane(project)}" if paired else f"the top coordinator, {who(drive, 'coordinator')}, until a sub-coordinator for {project} binds"
+    return [
+        (
+            f"You are the communicator for {project} of drive {drive['name']}: his messages in {project}'s channel reach you, and you"
+            f" answer each there yourself by the communicator rules below. His work there goes to {coordinator}, as his owner record"
+            f" on the record tool, which sends it there by default. The drive's communicator, {who(drive, 'communicator')}, answers"
+            " his DM and the drive's own channel. A background agent this session started ignores this block."
+        ),
+        f"Your cci lane is {lane}: the record tool posts as it, and {project}'s sub-coordinator's records reach you at {lane}@{drive['name']}.",
+        hold_line(drive, "communicator", project),
     ]
 
 

@@ -614,7 +614,13 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
             " its order and reader, by drive manual meta defect"
         )
     project = state.session_project(data, session)
-    lane, other = {"communicator": ("communicator", "root"), "meta": ("meta", "communicator")}.get(role) or (state.project_lane(project) if project else "root", "communicator")
+    if spoke := state.communicator_project(data, session):
+        lane, other = state.communicator_lane(spoke), state.project_lane(spoke) if spoke in data["subcoordinators"] else "root"
+    else:
+        lane, other = {"communicator": ("communicator", "root"), "meta": ("meta", "communicator")}.get(role) or (
+            state.project_lane(project) if project else "root",
+            state.communicator_lane(project) if project in data["communicators"] else "communicator",
+        )
     posts = []
     for index, item in enumerate(records, start=1):
         try:

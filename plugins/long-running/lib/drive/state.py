@@ -335,7 +335,7 @@ SCHEMA = "1"
 COLLECTIONS = ("orders", "jobs", "prs", "answers", "handlers", "stalls")
 FIELDS_ONCE_COLLECTIONS = ("routed", "routes")
 CLOCKS = "clocks"
-BINDINGS = ("driver", "roles", "subcoordinators", "handlers")
+BINDINGS = ("driver", "roles", "subcoordinators", "communicators", "handlers")
 TABLES = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
 CREATE TABLE rows (collection TEXT NOT NULL, key TEXT NOT NULL, place INTEGER NOT NULL, body TEXT, PRIMARY KEY (collection, key)) WITHOUT ROWID;
@@ -540,7 +540,9 @@ def coordinator_lanes(data: dict) -> tuple[str, ...]:
 
 
 def alias(drive: str, role: str, project: str | None = None) -> str:
-    """The cci alias a role's session, or a project's sub-coordinator's, is registered under, which names its tmux session too."""
+    """The cci alias a role's session, a project's sub-coordinator's or a seat's communicator's, is registered under, which names its tmux session too."""
+    if project and role == "communicator":
+        return f"{drive}-{communicator_lane(project)}"
     return f"{drive}-{project_lane(project) if project else role}"
 
 
@@ -845,6 +847,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "name": name,
         "roles": {role: {"session": session, "cwd": cwd, "started": stamp()}},
         "subcoordinators": {},
+        "communicators": {},
         "handlers": {},
         "slack": {"page": None, "watch": [], "swept": None, "waiting": {}, "digest": None, "channels": {}},
         "owner": {"heard": None, "away": None, "absence": None},
@@ -1051,6 +1054,7 @@ def bound(data: dict) -> dict:
     if "driver" in data:
         data["roles"] = {"coordinator": data.pop("driver")}
     data.setdefault("subcoordinators", {})
+    data.setdefault("communicators", {})
     data.setdefault("handlers", {})
     data.setdefault("launched", {})
     data.setdefault("terminal", None)
@@ -1069,7 +1073,7 @@ def bound(data: dict) -> dict:
         handler.setdefault("given", handler["started"])
         handler.setdefault("topics", [])
         handler.setdefault("items", 0)
-    for held in [*data["roles"].values(), *data["subcoordinators"].values()]:
+    for held in [*data["roles"].values(), *data["subcoordinators"].values(), *data["communicators"].values()]:
         held.pop("terminal", None)
     return data
 
@@ -4359,7 +4363,7 @@ def moved(name: str) -> None:
 
 def pointed(name: str, data: dict) -> None:
     """Replace drive.json with a pointer to the drive's database, saved_by an install newer than any, so every older install's load, edit, batch and edit_or_create refuse the drive as a newer install's, its bindings kept so an older verb still resolves the drive and says so."""
-    pointer = {MOVED: DATABASE, "backup": BACKUP, "saved_by": MOVED_SAVER, "name": name, "roles": {}, "subcoordinators": {}, "handlers": {}, "launched": {}}
+    pointer = {MOVED: DATABASE, "backup": BACKUP, "saved_by": MOVED_SAVER, "name": name, "roles": {}, "subcoordinators": {}, "communicators": {}, "handlers": {}, "launched": {}}
     tmp = state_path(name).with_name("drive.json.tmp")
     tmp.write_text(json.dumps(pointer | {field: data[field] for field in BINDINGS if field in data}, indent=2) + "\n")
     os.replace(tmp, state_path(name))
@@ -5105,7 +5109,7 @@ def session_role(data: dict, session: str | None) -> str | None:
         return role
     if session_project(data, session):
         return "coordinator"
-    return "communicator" if handler_id(data, session) else None
+    return "communicator" if communicator_project(data, session) or handler_id(data, session) else None
 
 
 def top_coordinator(data: dict, session: str | None) -> bool:
@@ -5155,9 +5159,29 @@ def session_project(data: dict, session: str | None) -> str | None:
     return next((project for project, held in data["subcoordinators"].items() if session and held["session"] == session), None)
 
 
+def communicator_project(data: dict, session: str | None) -> str | None:
+    """The project or priority seat a session is the communicator for, paired with that seat's sub-coordinator and holding that seat's channel, or None for any other session, the drive's own communicator included."""
+    return next((project for project, held in data["communicators"].items() if session and held["session"] == session), None)
+
+
+def session_seat(data: dict, session: str | None) -> str | None:
+    """The project or priority seat a session holds, as its sub-coordinator or as its communicator."""
+    return session_project(data, session) or communicator_project(data, session)
+
+
+def communicator_lane(project: str) -> str:
+    """The cci lane of a project's or priority seat's communicator."""
+    return f"{project_lane(project)}-communicator"
+
+
+def communicator_lanes(data: dict) -> tuple[str, ...]:
+    """The cci lanes of the drive's communicator sessions, the drive's own and each seat's."""
+    return ("communicator", *map(communicator_lane, data["communicators"]))
+
+
 def bound_sessions(data: dict) -> dict[str, dict]:
-    """Every session bound to the drive: each role's by the role's name, each sub-coordinator's as `sub-coordinator <its project>`."""
-    return data["roles"] | {f"sub-coordinator {project}": held for project, held in data["subcoordinators"].items()}
+    """Every session bound to the drive: each role's by the role's name, each sub-coordinator's as `sub-coordinator <its project>`, each seat's communicator as `communicator <its project>`."""
+    return data["roles"] | {f"sub-coordinator {project}": held for project, held in data["subcoordinators"].items()} | {f"communicator {project}": held for project, held in data["communicators"].items()}
 
 
 def repo_config(data: dict) -> dict:
@@ -5494,6 +5518,8 @@ def session_lane(data: dict, session: str | None) -> str | None:
     """The cci lane a session of the drive posts with: a sub-coordinator's its project's, any other role's its own; None for a session the drive does not bind."""
     if project := session_project(data, session):
         return project_lane(project)
+    if spoke := communicator_project(data, session):
+        return communicator_lane(spoke)
     role = session_role(data, session)
     return next((lane for lane, held in LANE_ROLES.items() if held == role), None)
 
@@ -5565,7 +5591,7 @@ def unread(drives: dict[str, dict], to: list[str], drive: str | None, held: bool
     for entry in to:
         lane, _, name = entry.partition("@")
         name = name or drive or ""
-        if not (data := drives.get(name)) or lane in (lanes := ["root", "communicator", "meta", *map(project_lane, data["subcoordinators"]), "owner"]) or held and lane in open_jobs(data) or lane in {agent_address(job) for job in data["jobs"].values() if job.get("agent") and job.get("session")}:
+        if not (data := drives.get(name)) or lane in (lanes := ["root", *communicator_lanes(data), "meta", *map(project_lane, data["subcoordinators"]), "owner"]) or held and lane in open_jobs(data) or lane in {agent_address(job) for job in data["jobs"].values() if job.get("agent") and job.get("session")}:
             continue
         return job_addressed(drives, [entry], drive) or f"refused, nothing posted: to {lane}: no session of drive {name} reads that lane; name one of {', '.join(lanes)}, or an unfinished job's id on the drive's `record` tool"
     return None

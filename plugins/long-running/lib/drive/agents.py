@@ -1080,9 +1080,10 @@ def filled(page: str) -> str:
 
     def holes(line: str) -> dict[str, str]:
         seat = SEAT.search(line)
-        window = COMMUNICATOR_WINDOW if seat and seat[1] == "communicator" else ROOT_WINDOW
+        speaks = bool(seat) and (seat[1] == "communicator" or seat[1].endswith("-communicator"))
+        window = COMMUNICATOR_WINDOW if speaks else ROOT_WINDOW
         settings = session_settings({COMPACT_ENV: window})
-        below = bool(seat) and seat[1] not in TOP_SEATS
+        below = bool(seat) and seat[1] not in TOP_SEATS and not speaks
         settings = leaf(settings) if below else settings
         words = {
             SESSION_ENV: shlex.join(env_words(settings)),
@@ -1104,7 +1105,8 @@ def filled(page: str) -> str:
 def launch(name: str, role: str, project: str | None, worktree: str) -> list[str]:
     """The `cci session register` line of Start or resume that starts the role's session, or a project's sub-coordinator's, under its alias in the worktree, and the `orca terminal create` line that shows it in Orca, as `drive manual start` fills them."""
     lines = filled(START_PAGE.read_text()).splitlines()
-    register = next(line for line in lines if line.startswith(f"cci session register <drive>-{'<lane>' if project else role} "))
+    seat = ("<lane>-communicator" if role == "communicator" else "<lane>") if project else role
+    register = next(line for line in lines if line.startswith(f"cci session register <drive>-{seat} "))
     show = next(line for line in lines if line.startswith("orca terminal create --worktree path:<worktree> --title <alias> "))
     named = {"<alias>": state.alias(name, role, project), "<drive>": name, "<worktree>": shlex.quote(worktree), "<lane>": state.project_lane(project or ""), "<project>": project or ""}
     for hole, value in named.items():

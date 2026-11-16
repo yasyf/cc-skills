@@ -17,7 +17,7 @@ def main() -> None:
     if role := agents.hold_rules(names[0], session):
         changed = f"Your {state.title(role)} rules or held channels changed since this session's block drew them: long-running {state.VERSION}'s replace them whole, and win where any older text disagrees."
         data = state.load(names[0])
-        lines += [changed, render.hold_line(data, role, state.session_project(data, session)), *render.rules(data, role)]
+        lines += [changed, render.hold_line(data, role, state.session_seat(data, session)), *render.rules(data, role)]
     if lines:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "\n".join(lines)}}))
 

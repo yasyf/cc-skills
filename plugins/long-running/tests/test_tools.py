@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from drive import agents, card, cli, limits, mcp, reads, settled, slack, state, superseded, tools, view, watch
+from drive import agents, card, cli, limits, mcp, reads, render, settled, slack, state, superseded, tools, view, watch
 from conftest import LEAD, LOCK_STALL, LOCK_STALL_AGAIN, RESEARCH, STANDING_FREEZE, Answers, Cci, Heard, Jev, Thread, Withdrawals
 from drive.state import DriveError
 
@@ -793,6 +793,43 @@ def test_a_sub_coordinator_posts_from_its_lane_his_answer_to_its_card_or_an_owne
     assert state.load(demo)["orders"].keys() == {"o1"}
     with pytest.raises(DriveError, match="to platform: no session of drive demo reads that lane; name one of root, communicator, meta, iris"):
         tools.run("record", demo, {"records": [{"kind": "owner", "text": "fix the alert", "to": "platform", "about": "his work"}]})
+
+
+def test_a_seats_communicator_holds_its_channel_alone_and_its_records_and_its_sub_coordinators_reach_each_other(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    run("start", demo, "--role", "coordinator", "--project", "Iris")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-talk")
+    with pytest.raises(DriveError, match="--project Iris: the drive keeps no channel for it"):
+        run("start", demo, "--role", "communicator", "--project", "Iris")
+    with state.edit(demo) as data:
+        data["slack"]["channels"] = {"": {"id": "C666", "name": "him-drive-demo"}, "Iris": {"id": "C777", "name": "him-drive-demo-iris"}}
+    run("start", demo, "--role", "communicator", "--project", "Iris")
+    data = state.load(demo)
+    assert state.session_role(data, "iris-talk") == "communicator"
+    assert state.alias(demo, "communicator", "Iris") == f"{demo}-iris-communicator"
+    assert render.hold_line(data, "communicator", "Iris") == "Hold with slack_watch: #him-drive-demo-iris C777"
+    assert render.hold_line(data, "communicator").startswith("Hold with slack_watch: his DM D123, #him-drive-demo C666; slack_unwatch")
+    assert "rules" not in data["roles"]["communicator"]
+    posted: list[tuple[str, list[dict]]] = []
+
+    def post(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        records = json.loads(kwargs["input"])
+        posted.append((argv[argv.index("--lane") + 1], records))
+        return subprocess.CompletedProcess(argv, 0, "".join(json.dumps({"seq": n}) + "\n" for n, _ in enumerate(records)), "")
+
+    monkeypatch.setattr(subprocess, "run", post)
+    tools.run("record", demo, {"records": [{"kind": "owner", "text": "a new order", "about": "his work"}]})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    tools.run("record", demo, {"records": [{"kind": "owner", "text": "why did the page wait?", "url": "terminal", "about": "his work"}]})
+    assert [(lane, [record["to"] for record in records]) for lane, records in posted] == [
+        ("iris-communicator", [["iris@demo"]]),
+        ("iris", [["iris-communicator@demo"]]),
+    ]
 
 
 def test_a_record_to_an_unfinished_jobs_id_goes_out_and_is_held_on_that_job_with_its_seq_and_sender_and_a_finished_jobs_is_refused(

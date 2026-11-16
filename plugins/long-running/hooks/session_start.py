@@ -16,14 +16,14 @@ def role_context(session: str) -> str | None:
         return None
     data = state.load(bound[0])
     role = state.session_role(data, session)
-    project = state.session_project(data, session)
+    project = state.session_seat(data, session)
     context = render.context(data, role, project)
     agents.hold_rules(bound[0], session)
     if role == "coordinator":
         watch.ensure(bound[0])
     if state.scratch():
         return context
-    held = data["subcoordinators"][project] if project else data["roles"][role]
+    held = state.seat(data, session)
     try:
         agents.register(bound[0], role, project, str(orca.checkout(bound[0], held["cwd"])), session)
     except state.DriveError as error:
