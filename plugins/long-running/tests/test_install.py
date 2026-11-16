@@ -2983,6 +2983,7 @@ def test_the_watch_moves_onto_a_newer_install_only_when_its_python_differs_or_it
     own, same, changed = plugin("1.0.1", "PASS = 1\n"), plugin("1.0.2", "PASS = 1\n"), plugin("1.0.3", "PASS = 2\n")
     monkeypatch.setattr(install, "DRIVE", own)
     monkeypatch.setattr(install, "upgraded", lambda: changed)
+    monkeypatch.setattr(install, "watch_tried", lambda plugin: True)
     monkeypatch.setattr(install, "STARTED", time.monotonic())
     assert install.watch_upgraded() is None
     monkeypatch.setattr(install, "STARTED", time.monotonic() - install.WATCH_MOVES_EVERY)
@@ -3004,3 +3005,21 @@ def test_a_drive_tooling_order_whose_every_job_finished_on_prs_merged_in_the_ins
             data["prs"][f"{REPO}#{order_id[1]}"] = state.new_pr(url, job_id, order_id) | {"state": "merged" if merged else "open", "merged_sha": merged}
     assert install.installed_fixes(state.load("demo"), REPO) == {"o1": [f"{REPO}#1"]}
     assert install.installed_fixes(state.load("demo"), "someone/fork") == {}
+
+
+def test_the_watch_moves_onto_a_newer_install_only_once_its_own_try_on_a_copy_of_the_drives_passed_starting_that_try_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    newer = tmp_path / "1.0.4"
+    (newer / "lib" / "drive").mkdir(parents=True)
+    (newer / "lib" / "drive" / "watch.py").write_text("PASS = 3\n")
+    started: list[list[str]] = []
+    monkeypatch.setattr(install.subprocess, "Popen", lambda cmd, **options: started.append(cmd))
+
+    assert install.watch_tried(newer) is False
+    assert install.watch_tried(newer) is False
+    assert started == [[str(newer / "bin" / "drive"), "try-install", str(newer)]]
+
+    for passed in (False, True):
+        install.tried_path(newer).write_text(json.dumps({"passed": passed, "said": "", "at": state.stamp()}))
+        assert install.watch_tried(newer) is passed
+    assert len(started) == 1
+

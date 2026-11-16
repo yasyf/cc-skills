@@ -519,7 +519,9 @@ def watch_upgraded() -> Path | None:
     """The drive of the newest installed long-running when it runs other code than this one's, so the watch moves onto an install only when that install changes what the watch runs: a newer install whose lib and bin/drive are byte for byte this one's is not one, unless this install's folder is gone, as a pruned cache leaves it. A watch process moves at most once per WATCH_MOVES_EVERY of its own run, onto the newest install then, so a burst of releases restarts it once rather than once per release, each restart owing GitHub a read of every PR it holds."""
     if time.monotonic() - STARTED < WATCH_MOVES_EVERY or not (newer := upgraded()):
         return None
-    if DRIVE.exists() and code_digest(newer.resolve().parents[1]) == code_digest(DRIVE.parents[1]):
+    if not DRIVE.exists():
+        return newer
+    if code_digest(newer.resolve().parents[1]) == code_digest(DRIVE.parents[1]):
         return None
     return newer if watch_tried(newer.resolve().parents[1]) else None
 
@@ -529,7 +531,7 @@ def tried_path(plugin: Path) -> Path:
 
 
 def watch_tried(plugin: Path) -> bool:
-    """Whether the install at plugin passed one relay and one watch pass of its own on a copy of every drive here, by try_watch, which runs once per install's code in a process of its own, `drive try-install`, its verdict kept by the code's digest, so no watch moves onto an install whose passes crash, a hand `claude plugin update` included, and no watch pass waits on the try; False while the try runs or after it failed."""
+    """Whether the install at plugin passed one relay and one watch pass of its own on a copy of every drive here, by try_watch, which runs once per install's code in a process of its own, `drive try-install`, its verdict kept by the code's digest, so no watch moves onto an install whose passes crash, a hand `claude plugin update` included, and no watch pass waits on the try; False while the try runs or after it failed. A watch whose own install was removed moves without it, since it has no older code left to stay on."""
     if (verdict := tried_path(plugin)).exists():
         return json.loads(verdict.read_text())["passed"]
     running = verdict.with_suffix(".running")
@@ -538,7 +540,7 @@ def watch_tried(plugin: Path) -> bool:
     running.parent.mkdir(parents=True, exist_ok=True)
     running.touch()
     with (state.root() / TRIED / "tries.log").open("a") as out:
-        subprocess.Popen([str(DRIVE), "try-install", str(plugin)], stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+        subprocess.Popen([str(plugin / "bin" / "drive"), "try-install", str(plugin)], stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
     return False
 
 
@@ -560,16 +562,16 @@ def try_install(plugin: Path) -> bool:
     return not said
 
 
-def try_root() -> str | None:
+def try_root(deadline: float) -> str | None:
     """The folder try_watch copies the drives into: the one global git config's long-running.scratch names, else the system's temporary folder."""
-    return subprocess.run(["git", "config", "--global", "--get", "long-running.scratch"], capture_output=True, text=True, check=False).stdout.strip() or None
+    return ran(["git", "config", "--global", "--get", "long-running.scratch"], deadline).stdout.strip() or None
 
 
 def try_watch(plugin: Path, names: list[str], deadline: float) -> None:
     """Run the install at plugin's tools/try-watch on a copy of each drive named, deleted once it ends, raising InstallError with what it printed when a pass of its own crashes."""
     if not names:
         return
-    if root := try_root():
+    if root := try_root(deadline):
         Path(root).mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="drive-try-watch-", dir=root) as copies:
         for name in names:

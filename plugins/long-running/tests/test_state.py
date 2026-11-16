@@ -2548,7 +2548,7 @@ def test_the_demo_drive_a_release_saves_for_the_next_release_to_try_reads_with_i
     code, out = run("status", "--drive", "demo")
 
     assert code == 0
-    assert len(state.load("demo")["jobs"]) == len(state.JOB_KINDS) * len(state.JOB_STATES)
+    assert len([job for job in state.load("demo")["jobs"].values() if job["order"] == "o1"]) == len(state.JOB_KINDS) * len(state.JOB_STATES)
 
 
 def test_j4060_a_drive_saved_with_failed_builders_another_builder_took_over_stops_each_replaced_by_the_newest_carrying_all_its_parts(state_root: Path) -> None:
