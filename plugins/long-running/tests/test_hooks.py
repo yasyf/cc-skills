@@ -291,7 +291,7 @@ def test_a_sessions_call_shows_its_orders_most_overdue_first_a_thread_lined_with
     with state.edit("demo") as data:
         data["owner"]["away"] = state.stamp(later - timedelta(minutes=1))
     state.redrawn("demo")
-    assert overdue_at_call(monkeypatch, capsys, {"session_id": coordinator})[1].endswith("; he is away, so its line is owed at his return")
+    assert overdue_at_call(monkeypatch, capsys, {"session_id": coordinator})[1].endswith("; he is away, so no nudge goes out until he is back")
     monkeypatch.setattr(state, "now", lambda: later + timedelta(minutes=45))
     assert overdue_at_call(monkeypatch, capsys, {"session_id": coordinator}) == []
 
