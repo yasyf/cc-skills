@@ -1008,12 +1008,7 @@ def run_watch(name: str, monkeypatch: pytest.MonkeyPatch, project: str | None = 
 def test_a_watch_that_ends_ends_its_responder_last_so_lanes_get_readers_while_the_relay_and_landing_loop_end(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     ended: list[str] = []
 
-<<<<<<< ours
     def spawn(watcher: watch.Watcher, flag: str, lines: int, project: str | None = None) -> subprocess.Popen:
-||||||| base
-=======
-    def spawn(watcher: watch.Watcher, flag: str, lines: int) -> subprocess.Popen:
->>>>>>> theirs
         child = subprocess.Popen(["sleep", "3600"], pass_fds=(lines,))
         real = child.terminate
         monkeypatch.setattr(child, "terminate", lambda: ended.append(flag) or real())
