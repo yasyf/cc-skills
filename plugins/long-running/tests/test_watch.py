@@ -6986,6 +6986,20 @@ def test_the_one_post_in_each_place_saying_what_waits_on_him_goes_up_once_a_card
     assert state.load(demo)["slack"]["waiting"] == {"C777": {"message": iris_post, "words": talk.NO_CARDS, "pinned": True}, "D123": {"message": dm_post, "words": talk.NO_CARDS, "pinned": True}}
 
 
+def test_his_question_cards_asked_over_a_day_ago_go_out_once_a_day_in_one_digest_and_leave_their_orders_news_lines(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    posts: list[dict] = []
+    monkeypatch.setattr(talk, "posted", lambda name, post: posts.append(post) or {"permalink": "https://acme.slack.com/archives/D123/p1794400200000100"})
+    old, fresh = question("demo:j1-1-a") | {"asked": state.stamp(T0 - timedelta(days=2))}, question("demo:j1-2-a")
+    watching = watcher(demo)
+    watching.cards = view.NO_CARDS | {"questions": [fresh, old]}
+    assert watch.digest_lines(watching, T0) == ["DIGEST 2026-11-09: 1 of his question cards asked more than a day ago, linked in https://acme.slack.com/archives/D123/p1794400200000100"]
+    assert (len(posts), posts[0]["request_key"], "{card:demo:j1-1-a}" in posts[0]["text"], "{card:demo:j1-2-a}" in posts[0]["text"]) == (1, "digest:2026-11-09", True, False)
+    assert watch.digest_lines(watching, T0 + timedelta(hours=1)) == [] and len(posts) == 1
+    data = state.load(demo)
+    assert data["slack"]["digest"]["waits"] == ["demo:j1-1-a"]
+    assert watch.digest_lines(watching, T0 + timedelta(days=1)) != [] and len(posts) == 2
+
+
 def test_a_waiting_post_kept_unpinned_is_pinned_on_the_next_pass_with_no_new_post_and_a_refused_pin_goes_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     dm_post = "https://acme.slack.com/archives/D123/p1794400200000100"
     with state.edit(demo) as data:
