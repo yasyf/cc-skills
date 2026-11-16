@@ -534,7 +534,8 @@ def main_lines(watcher: Watcher, moment: datetime) -> list[str]:
         return read_failed(watcher, "github main runs", error, moment)
     watcher.failures.pop("github main runs", None)
     watcher.ci_marks |= marks
-    with state.edit(watcher.name) as data:
+
+    def main_lines_write(data: dict) -> list[tuple[str, str, list[str]]]:
         for repo, tests in passed.items():
             for test in tests:
                 data["mains"][repo].pop(test, None)
@@ -549,8 +550,9 @@ def main_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for repo, owner, tests in wakes:
             for test in tests:
                 data["mains"][repo][test]["waking"] = state.stamp(moment)
-        texts = [(owner, main_fix(repo, owner, data["prs"][owner], data["mains"][repo], tests), [f"main:{repo}@{test}" for test in tests]) for repo, owner, tests in wakes]
-    for owner, text, marks in texts:
+        return [(owner, main_fix(repo, owner, data["prs"][owner], data["mains"][repo], tests), [f"main:{repo}@{test}" for test in tests]) for repo, owner, tests in wakes]
+
+    for owner, text, marks in state.update(watcher.name, None, main_lines_write):
         stage.wake(watcher.name, owner, text, marks=marks, at=state.stamp(moment))
     return []
 
