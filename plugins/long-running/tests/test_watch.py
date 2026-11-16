@@ -7772,7 +7772,7 @@ def test_drive_order_set_refuses_to_drop_an_open_prs_staging_test_and_only_his_a
     assert land.run(demo, [KEY]) == held
     assert cli.main(["order", "set", "o1", "--drop-part", part, "--drive", demo]) == 2
     assert f"the staging test {KEY} waits on before it merges, which only his answer lifts, by his words {state.TESTED_FIRST_RULING}: drive answer <his answer> --dropped o1:<the part>" in capsys.readouterr().err
-    assert land.run(demo, [KEY]) == held
+    assert land.run(demo, [KEY]) == f"{land.WAITED}: its staging test o1:{part} has not passed"
     dropped_by_answer(demo, part)
     assert land.run(demo, [KEY]) == land.QUEUED
     with state.edit(demo) as data:

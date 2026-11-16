@@ -2872,7 +2872,7 @@ def renamed_change(name: str, data: dict, order_id: str, named: list[str], desig
 
 
 def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
-    """Stage each PR the drive tracks that a builder's READY or PUSHED names on a `STAGING: #N <cases>` line, by stage_pr, lifting by unstage one reading `#N none: <why>`, those cases its tester's goal, or held on the unended tester already on it, so a tester the drive gave a PR from its changed files hears them, and lift by unstage each Forge-AI/monorepo PR its first line names that no such line stages once a `STAGING: none: <why>` line says AGENTS.md's dangerous rule misses it, at every head and whatever tap he gave: a `#N <cases>` line stages a PR his answer let merge before its staging test too, since a builder asking for the test only holds the PR to his words a9c9edc, while neither none line touches such a PR, by merges_first_lift, since a builder's word never undoes his answer 2eb7e76; the testers added."""
+    """Stage each PR the drive tracks that a builder's READY or PUSHED names on a `STAGING: #N <cases>` line, by stage_pr, lifting by unstage one reading `#N none: <why>`, those cases its tester's goal, or held on the unended tester already on it, so a tester the drive gave a PR from its changed files hears them, and lift by unstage each monorepo PR its first line names that no such line stages once a `STAGING: none: <why>` line says AGENTS.md's dangerous rule misses it, at every head and whatever tap he gave: a `#N <cases>` line stages a PR his answer let merge before its staging test too, since a builder asking for the test only holds the PR to his words a9c9edc, while neither none line touches such a PR, by merges_first_lift, since a builder's word never undoes his answer 2eb7e76; the testers added."""
     job = data["jobs"][job_id]
     if not REPORTED_LINE.match(report.lstrip()):
         return []
@@ -2951,7 +2951,7 @@ def unstage(data: dict, key: str, why: str, job_id: str) -> None:
 
 
 def staged_open(data: dict, part: str) -> list[str]:
-    """Each open Forge-AI/monorepo PR the drive tracks that a `staging test of #N before it lands` part names, a combined `staging test of #A with #B before they land` included; none for any other part."""
+    """Each open monorepo PR the drive tracks that a `staging test of #N before it lands` part names, a combined `staging test of #A with #B before they land` included; none for any other part."""
     if not (named := STAGING_PARTS.fullmatch(part)):
         return []
     return [key for number in re.findall(r"\d+", named["numbers"]) if (pr := data["prs"].get(key := f"{MONOREPO}#{number}")) and pr["state"] == "open"]
@@ -2971,7 +2971,7 @@ def merges_first_lift(pr: dict | None) -> bool:
 
 
 def markable(data: dict, key: str, head: str) -> bool:
-    """Whether mark_dangerous may stage a PR at a head from its changed files: an open Forge-AI/monorepo PR no order holds the staging test part of whose builder's `STAGING: none` lifted no test at that head, and whose staging test his answer did not let it merge before, by merges_first_lift, at any head, by his answer 2eb7e76."""
+    """Whether mark_dangerous may stage a PR at a head from its changed files: an open monorepo PR no order holds the staging test part of whose builder's `STAGING: none` lifted no test at that head, and whose staging test his answer did not let it merge before, by merges_first_lift, at any head, by his answer 2eb7e76."""
     pr, part = data["prs"][key], STAGING_TEST.format(number=key.split("#")[1])
     return pr["state"] == "open" and github.repo_of(key).casefold() == MONOREPO.casefold() and not (pr["unstaged"] and (pr["unstaged"]["merges_first"] or pr["unstaged"]["head"] == head)) and not any(part in order["parts"] for order in data["orders"].values())
 
