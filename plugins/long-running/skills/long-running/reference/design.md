@@ -71,7 +71,7 @@ stop doing the bare minimum", so no builder waits on a job holding its design.
      strategy before the abstraction it shares.
    - Every option carries one plain-text description his card draws under it, saying in prose what
      the option is: what runs and when, where its data lives, and what it requires touching or
-     building, by name, with any cost every user pays, such as SandSQL's write path for every
+     building, by name, with any cost every user pays, such as a database's write path for every
      table. His words: "you need to always fucking explain each optopn properly as prose in additon tot he table or whatever and what it requires touching/building" and "this does/data/toches is not as helpful as each option just having a plain-text shot concise but clear and comprehensive description of what it is".
      `drive job ask` refuses an option with no description or with fields such as `Does:` in place of one, a mechanism such as polling left a bare word, a block out of shape, a
      `Root cause:` line missing, or its `First principles:` option missing or not recommended, a `Simplest:` line missing or naming no option, and a question a recorded answer of his may

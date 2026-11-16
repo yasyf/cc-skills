@@ -51,7 +51,7 @@ Contents:
 - The same `caps.json` sets each project's daily budget in dollars: `daily_usd`, the day's total,
   `15000` unless set, of which drive tooling, every order whose words open `Drive tooling:`, may
   spend `tooling_share`, `0.25`, and `project_usd`, `5000`, what each other project may spend a
-  day unless `projects` names its own, as `{"projects": {"Iris": 4000}}`. Spend prices each
+  day unless `projects` names its own, as `{"projects": {"Billing": 4000}}`. Spend prices each
   message of a job's transcripts dated today at its model's list price: input and output at their
   own, a cache write at 1.25 times input or 2 times for one kept an hour, a cache read at 5% of
   input. It sums over every drive that files work under the project's name; the watch reads it
@@ -106,7 +106,7 @@ Contents:
   whose turn ended, which the `communicator_calls` hook refuses while the slots are full, and after
   which `drive job resume <j> "<the message>"` hands the job to a lane on a Sprite with the message
   in its handoff, or holds the message for that takeover when its brief declares such a step.
-- A Forge-AI/monorepo builder is placed when it starts, from the step its brief declares, by his pick
+- A <monorepo> builder is placed when it starts, from the step its brief declares, by his pick
   "Decide at start: a brief naming a Mac-only step starts here at any load, others keep the load
   check". `drive job add` never refuses one for load. The brief's writer names the step only this
   Mac runs that the job itself runs with `drive job brief <j> --mac "<the step>"`, its `Mac:` line:
@@ -120,7 +120,7 @@ Contents:
   `After install:` line names one. A `Release:` line declares one too, since its
   agent follows and approves the release with this Mac's Buildkite token. `place.mac_step` reads those two lines and no
   other word of the brief, since its fields quote where his words were typed, an alert he shared
-  from Datadog, the `Incident:` rule's `tools/ci release start` and what earlier jobs found: no word
+  from Datadog, the `Incident:` rule's `<ci> release start` and what earlier jobs found: no word
   of his `Order`, a `Goal`, `Plan` or `Handoff` places a job. The `agent_brief` hook refuses a
   builder started with the Agent tool while this Mac's CPU is at or over its load gate's limit, the
   `remote` that `drive place` prints, unless its brief declares such a step. Every later start of
@@ -140,14 +140,14 @@ Contents:
   key and reads Datadog with `drive datadog`, which runs on this Mac with ai-oncall's keys; its AWS session reads Buildkite and starts `ci db-read` builds only through the sprite door, and `ci mac-box` and `ci devbox` run on this Mac's machine profile
   through `DEVBOX_AWS_PROFILE`, with no sign-in. Readers, codex jobs and any job that touches this
   Mac's processes always run here.
-- A Mac box comes down with the job that holds it. `tools/ci mac-box up <name> --holder <drive>/<job>`
+- A Mac box comes down with the job that holds it. `<ci> mac-box up <name> --holder <drive>/<job>`
   refuses a box with no holder; the lane names the drive and job its brief's `Drive:` line names,
   which tags the box `mac-box:holder`. The save that moves a job into done, failed or stopped
-  starts `drive mac-boxes-down <job>`, a process of its own that runs `tools/ci mac-box down --holder
+  starts `drive mac-boxes-down <job>`, a process of its own that runs `<ci> mac-box down --holder
   <drive>/<job>` in the drive's checkout and whose output goes to the drive's `mac-boxes.log`, so no box outlives its job and no sweep
   looks for one. A waiting job, such as one waiting for a staging slot, keeps its box, and a job
   that needs a Mac runs its own `up`. A box handed to another job moves before the old job's save
-  with `tools/ci mac-box up <box> --holder <drive>/<new job> --from <drive>/<old job>`, run by either
+  with `<ci> mac-box up <box> --holder <drive>/<new job> --from <drive>/<old job>`, run by either
   job, which moves the box's `mac-box:holder` tag instead of launching one, so that save leaves the
   box up for the new job and the new job's own save takes it down; a box handed on with no such `up`
   comes down at the old job's save, under the new job, and its host sits in AWS's scrub for an hour
@@ -233,10 +233,10 @@ that Jev reads as building less or later than his words or answers name with no 
 abstraction it shares, and a reader's `DESIGN` that `drive job ask` refuses as his card. Each drive PR, `release:<service>:<owner>/<repo>#<n>[@<env>]`, `staging:<target>/<env>@<commit>`, `<order>:<part>` and Buildkite build link a
 `READY` or `PUSHED` first line names becomes a wait, and each a `WAITING` first line names that still holds, the build a `--release` job started among them, never one the lines below it name, a `pid:<n>` of a process on this Mac that still runs, a teammate's reply as `reply:<the question's permalink>` and another drive's next record as `reply:cci:<the seq of its record the job waits after>` among them, and on a `WAITING` each other job it names as `j<n>`, stored as `drive job set --waits <j>` stores it, that job's next report while its newest open PR waits on the waiting job, by a wait naming it or a part it carries; no take keeps a wait of the job's on a PR waiting on the job or a part it carries, as the PR a staging tester tests or a builder's own PR waiting on its own staging test, which waits on the job in turn, so a
 `WAITING` is taken only while something can wake the job, by the one rule `drive job report`, a codex job's take and the watch's stall check share: its due time or an order's, a wait it stores that still holds, an open question card of its own, a wait its first line names that still holds, a card its `waits on` names, or a PR the drive does not track that it keeps by `drive job set --pr`, which its `WAITING` then waits on until the watch's GitHub read finds it merged or closed; one naming only PRs that merged or closed, parts delivered, processes that ended or such a PR is refused, its fix naming only what its lane can do, no `pid:<n>` on a Sprite; the watch's `FREE` line ends a wait once
-the PR merges, every cluster of the release wait's service, or the one env it names, serves the PR's merge, or at once once the PR merged where `tools/ci release live` cannot follow it, `release live` reads the staging wait's env running its target at its commit or a build carrying it on the default branch's first-parent line, as a promotion of dev holding a merge does, the watch's Buildkite read finds the build passed, failed, canceled or stopped at an approve step, the process ends or a builder or codex job on the part returns `DONE` with no PR of its own unlanded, a `staging test of #N before it lands` part once the `DONE` of a builder or codex job testing it, never one following a release it started, one line per case of the test reading `CASE <case>: <verdict>`, one or more of the PR's reading `pass` and each other `pass` or `not exercised`, which the PR's card asks him to land it without, and a line naming the part's PR by link or `#N`, keeps on it the first `CHECK:` proof heading that PR's `CASE` lines, a `DONE` testing several PRs in turn heading each PR's with a `CHECK:` line naming it, and only while that job still holds that `DONE` and each tester added after it is done or stopped, so a newer tester at work, waiting or failed, or that job's next other return, reopens it, while a `DONE` whose every `CASE` line reads `not exercised`, as one following a release another job started does, ran none and leaves the part as it stood; a case that failed or was skipped is a `CASE` line reading neither `pass` nor `not exercised`, its job still returns `DONE`, and `drive job report` refuses a `DONE` on the part with no `CASE` line; or once the PR it names, one of the job's own, closes unmerged, while another job's PR closing unmerged
+the PR merges, every cluster of the release wait's service, or the one env it names, serves the PR's merge, or at once once the PR merged where `<ci> release live` cannot follow it, `release live` reads the staging wait's env running its target at its commit or a build carrying it on the default branch's first-parent line, as a promotion of dev holding a merge does, the watch's Buildkite read finds the build passed, failed, canceled or stopped at an approve step, the process ends or a builder or codex job on the part returns `DONE` with no PR of its own unlanded, a `staging test of #N before it lands` part once the `DONE` of a builder or codex job testing it, never one following a release it started, one line per case of the test reading `CASE <case>: <verdict>`, one or more of the PR's reading `pass` and each other `pass` or `not exercised`, which the PR's card asks him to land it without, and a line naming the part's PR by link or `#N`, keeps on it the first `CHECK:` proof heading that PR's `CASE` lines, a `DONE` testing several PRs in turn heading each PR's with a `CHECK:` line naming it, and only while that job still holds that `DONE` and each tester added after it is done or stopped, so a newer tester at work, waiting or failed, or that job's next other return, reopens it, while a `DONE` whose every `CASE` line reads `not exercised`, as one following a release another job started does, ran none and leaves the part as it stood; a case that failed or was skipped is a `CASE` line reading neither `pass` nor `not exercised`, its job still returns `DONE`, and `drive job report` refuses a `DONE` on the part with no `CASE` line; or once the PR it names, one of the job's own, closes unmerged, while another job's PR closing unmerged
 moves either wait to that job's newest open PR, else to that job until its work is done; a staging test pausing until staging runs
-its soak commit, or an after-merge staging pass until staging serves a build carrying its merge commit, returns one `WAITING staging:<target>/<env>@<commit>` per stack, the target and env as `tools/ci release live` names
-them, such as `WAITING staging:sandsql/plat-usw2-staging@044e8552b694`, never a line opening with no result word; a release wait whose service `tools/ci release select
+its soak commit, or an after-merge staging pass until staging serves a build carrying its merge commit, returns one `WAITING staging:<target>/<env>@<commit>` per stack, the target and env as `<ci> release live` names
+them, such as `WAITING staging:db/<staging env>@044e8552b694`, never a line opening with no result word; a release wait whose service `<ci> release select
 --pr` finds the PR's changed paths never reach is kept with a note naming the components they reach, since a release wait is a wake the job sets, never a gate:
 
 | First line | The job's state |
@@ -427,7 +427,7 @@ reply.
 
 **Reads.** A lane on a Sprite reads a red check's whole log itself, by his pick "Give Sprites a
 scoped AWS read role, so every step runs where its lane runs": a Buildkite job's with
-`tools/ci bk log` through the sprite door under the Sprite's AWS session, and a GitHub Actions
+`<ci> bk log` through the sprite door under the Sprite's AWS session, and a GitHub Actions
 job's with `ccx vcs job-log`. A Sprite holds no copy of the drive's cci or cc-notes records and no Slack credential, so a
 lane reads those, and Slack, through this Mac with a blocking question.
 
@@ -439,7 +439,7 @@ lane reads those, and Slack, through this Mac with a blocking question.
   lists what it holds one level deep, through `reads.carried_folders`, a file by its path and size
   and a folder by its path and a `/`, so a lane learns which paths to read next. A `READ` question runs its first line alone. A `LOG <url>` question, which a lane started under the builder
   rules from before this Mac's log read was deleted still asks, reads nothing: its answer is the
-  builder rule that has the lane read the log on its Sprite, or return `BLOCKED` when `tools/ci bk`
+  builder rule that has the lane read the log on its Sprite, or return `BLOCKED` when `<ci> bk`
   refuses there.
 - The watch answers it itself, with no event, as it answers a `DRIVE` question. Its relay, a process
   of its own each watch starts beside its passes and ends as it ends, moves onto the newest install
@@ -689,7 +689,7 @@ Goal: <the deliverable, one sentence>
 Done when: <the check that proves it where he will see or use it, such as the installed command's output, the live post or a picture of each user story, since data fetched from an API proves no screen>
 Where: <repo, base branch, existing branch or PR to adopt>
 Runs as: <only for a pass, migration, backfill, conversion, bulk or hand repair or any other write of a team's data: the service account in that team's cluster it runs as, and how it starts with no person's role and not from this Mac, such as a pipeline or an in-cluster schedule; `none: <why>` when the hook reads such a write in a Goal that makes none>
-Release: <only for a job a release started on: the one `tools/ci release start` or `tools/ci release hotfix` that `drive job add --release` started, written by the process that call started it in; it reads whether the answer its `--order` names orders that release, by the one reading of his pick [landing.md](landing.md#after-merge) states, unless the answer is an incident's, and the `landing_guard` hook refuses every start or hotfix a drive session or agent runs itself>
+Release: <only for a job a release started on: the one `<ci> release start` or `<ci> release hotfix` that `drive job add --release` started, written by the process that call started it in; it reads whether the answer its `--order` names orders that release, by the one reading of his pick [landing.md](landing.md#after-merge) states, unless the answer is an incident's, and the `landing_guard` hook refuses every start or hotfix a drive session or agent runs itself>
 Release build: <beside Release only: the build that start printed, which the job's agent follows and approves>
 Handoff: <a PR event or a built branch freed only: the PR URLs or the built branch, its head, the event line verbatim, and the INSTALL: and PROVE: lines the first builder returned>
 Repo rules: <each `[[rule]]` the `.claude/long-running.toml` of the drive's repository holds at its default branch's head, as `<id>: <text>`, which every job of every drive working in that repository follows; left out when it holds no such file>
@@ -699,7 +699,7 @@ Native: <where he sees or uses the result, such as a Slack post or card, the das
 Interactions: <when Native names his surface: his user stories on the result, `;` only between stories, each what he does, a click, key or hover, and sees what he then sees, its result inside the story after ", and sees", never after a `;`, such as "he presses j on the queue, and sees the next card open with its question as its first line"; its job writes each story's strict acceptance criteria into its proof file before building, which `drive pr add` refuses its PR without, and proves each on the installed surface with a picture or recording of it, the live post's link its proof file reads back, or, for a command, the file holding the output of its run, which only `drive job prove` proves, reading in code each story's `STORY`, `CRITERION`, `PASS` or `FAIL` and `SEEN` lines in what the proof file prints, as the builder's proof-file step states them, so a builder's or codex job's `DONE` on such a brief is refused whatever it names; its order is proven done by them or the live post>
 Would he ask: <what he would still have to ask for if only his words were built, such as the next piece, a link, or a native piece passed over>
 Plan: <the plan section this implements, quoted; a builder the drive added for a design's change gets `<design>'s design, change "<change>": drive job report <design>` from that add, so no brief writer leaves it out, and a lane on a Sprite reads that report with the same `drive job report`>
-Incident: <an incident job only: the record's id, which its owner, the first check or the cause job, keeps and every other job appends what it observed to; roll back to the newest build provably without the failing change, however many releases back; never a revert, which lands only on his tap; when no rollback stops the harm, the stop ships the immediate fix at once as an incident fix; the fix starts at the alert's code path or the failed release's step and is the root fix of the cause, which deletes any immediate fix and leaves no pin, flag, header, prefix rule, cap, retry, timeout raise, timer, wait, cache or special case standing; a card of his that blocks it never stops it, unless his words on the order ask for options and no fix; from the merged fix to its build nothing stops, no dry run, no cover or cause read, no comparison of open builds, no question; the job that merges the fix lifts the service's freeze, named here by its id, with tools/ci release unfreeze <id>; start the build at the fix commit the regular way, by the release rule of reference/incidents.md that `drive job brief` adds to a builder's line, and report its link; the approve hold, which the job reads, is the only check and other reads run while it builds; return the inputs to a write-up, not the write-up; and last, the rule its kind follows on a choice, word for word, which `drive job brief` adds and `brief_refusal` refuses an incident brief without, so its writer types none>
+Incident: <an incident job only: the record's id, which its owner, the first check or the cause job, keeps and every other job appends what it observed to; roll back to the newest build provably without the failing change, however many releases back; never a revert, which lands only on his tap; when no rollback stops the harm, the stop ships the immediate fix at once as an incident fix; the fix starts at the alert's code path or the failed release's step and is the root fix of the cause, which deletes any immediate fix and leaves no pin, flag, header, prefix rule, cap, retry, timeout raise, timer, wait, cache or special case standing; a card of his that blocks it never stops it, unless his words on the order ask for options and no fix; from the merged fix to its build nothing stops, no dry run, no cover or cause read, no comparison of open builds, no question; the job that merges the fix lifts the service's freeze, named here by its id, with <ci> release unfreeze <id>; start the build at the fix commit the regular way, by the release rule of reference/incidents.md that `drive job brief` adds to a builder's line, and report its link; the approve hold, which the job reads, is the only check and other reads run while it builds; return the inputs to a write-up, not the write-up; and last, the rule its kind follows on a choice, word for word, which `drive job brief` adds and `brief_refusal` refuses an incident brief without, so its writer types none>
 Scratch: <the job's scratch folder>
 Earlier parts: <a builder's brief only: each other builder of this order whose return kept a `SUMMARY:` block, its parts and those lines, at most 15, which it reads before the code they name>
 Transcripts: <the transcript path of every earlier job on this order, so it reads instead of being told; a Sprite lane's brief names each a READ cannot serve, a transcript on this Mac outside the drive's folder, as `drive job replies <j>` instead, and keeps a codex run's folder, which a READ lists file by file>
@@ -756,9 +756,9 @@ hold holds. The top coordinator starts it with `drive job add builder --order <o
 ships>" --release "<the start> --order <his answer id>"` with no second card or question first. That
 one call starts it from the top's checkout, prints its build link and writes the job's brief on that
 build. With no such answer, the top reads the release's plan and asks him with `drive job ask` whether
-to start that exact command, but for a release on `plat-usw2-staging` or `plat-usw2-sandbox` alone,
+to start that exact command, but for a release on `<staging env>` or `<sandbox env>` alone,
 which it starts with no `--order` and no card. At the approve hold the job's agent reads each held migration, delete and replace against the
-code at the release's commit, then runs `tools/ci release approve <id> --via <agent>`, naming in
+code at the release's commit, then runs `<ci> release approve <id> --via <agent>`, naming in
 `--leave-out` each stack it cannot vouch for, never cancelling the release or asking him, by his pick
 "Land whole stacks and read the gate: no schema change merges without its writer; a stack's bottom
 waits for its top".

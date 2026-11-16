@@ -40,7 +40,7 @@ summary line about it, because work stopped before it starts wastes nothing.
   none, added with its reader and builder by
   [meta.md](meta.md), and never `--serves` to his feature order, so his
   feature threads carry only their feature. Its PR's His words list says none. A `yasyf/*` tooling
-  PR lands with no tap. A `Forge-AI/*` one lands under an exempt class, or serves its own order with
+  PR lands with no tap. A `<guarded org>/*` one lands under an exempt class, or serves its own order with
   `drive pr set <url> --tap --serves <its Drive tooling order> --design none` and gets a PR card at
   his DM root. That card's top line quotes the order's "Drive tooling: …" words, and his Approve
   lands it. A tooling job decides its own details and asks him only a high-level preference, by
@@ -94,7 +94,7 @@ backfills, CI fixes, cleanups, and tool fixes. A repair he calls a one-off runs 
 path, PR, or release step. When he picked something and the route to run it is missing, build the
 route instead of carding it or waiting.
 
-Four actions wait for his word: landing a `Forge-AI/*` change that is not an exempt class by
+Four actions wait for his word: landing a `<guarded org>/*` change that is not an exempt class by
 [landing.md](landing.md), posting as him to anyone else, changing production, and stopping or
 closing a session he did not name. His order to post, a tap on a card included, is that word for the
 one post it names, and nothing asks him to approve it again. A post nobody ordered, such as a reply

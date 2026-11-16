@@ -225,7 +225,7 @@ summary of one feature is a line of at most 60 words.
   an order he limited to options or an answer order. The first line says what the card is: the work it serves, as
   `{order:<o>}`, which his card draws as his order's title linked to its thread, `port of #N` as
   the text of that PR's link, or Drive tooling, and what his pick changes for him, said as "your
-  pick", such as "For {order:o518}: your pick decides whether restoring a SandSQL Env to an earlier
+  pick", such as "For {order:o518}: your pick decides whether restoring a database env to an earlier
   point keeps its moved tables readable once the reader switch ships." `drive job ask` refuses a first
   line missing either, by his words on a card that opened on its findings: "what is this and what the
   fuck are you talking about". It also counts the words his card draws for each reference in the
@@ -236,10 +236,10 @@ summary of one feature is a line of at most 60 words.
   plain words how it came about and what it does to the teams it touches, or to whoever reads that,
   never only by a count, rate or system's name, and each sentence reads once. `drive job ask` refuses
   a paragraph his card draws that `cc-slack check-post` finds a wall of text in, more than 3
-  sentences, and prints Opus's read of the rest beside his words e10ccc1 on a card about a SandSQL
-  migration: "explain more why all these DBs are being created and what’s happening use proper English". That card failed it with "It made production's SandSQL system fleet, the
+  sentences, and prints Opus's read of the rest beside his words e10ccc1 on a card about a database
+  migration: "explain more why all these DBs are being created and what’s happening use proper English". That card failed it with "It made production's database system fleet, the
   servers holding each team's platform databases, create 2,451 databases." Its redraw passes with
-  "SandSQL now upgrades those databases to the current schema, team by team at 3 a minute, because a
+  "The database service now upgrades those databases to the current schema, team by team at 3 a minute, because a
   bug makes every database it closes look out of date."
 - His card draws the findings' `Root cause:` line under the summary's first line, as `*Root cause:*`
   and its words, a cause not found without the job measuring it, and counts it outside the 150 words:
@@ -277,9 +277,9 @@ summary of one feature is a line of at most 60 words.
   the block, which `drive job card` passes as the card's `hints` and cc-slack draws under that
   option. In at most 60 words of prose, short but clear and whole, it says what the option is: what
   runs and on what trigger, where its data lives and how it is written and read, and what it
-  requires touching or building, by name, with any cost every user pays, such as SandSQL's write
+  requires touching or building, by name, with any cost every user pays, such as a database's write
   path for every table. A table or Show me never stands in for it. His words, on a card whose
-  options never said one changed SandSQL: "you need to always fucking explain each optopn properly as prose in additon tot he table or whatever and what it requires touching/building"; on the next card: "where is that data stored
+  options never said one changed a shared database: "you need to always fucking explain each optopn properly as prose in additon tot he table or whatever and what it requires touching/building"; on the next card: "where is that data stored
   then and how"; and on the `Does:`, `Data:` and `Touches:` lines that first carried it:
   "this does/data/toches is not as helpful as each option just having a plain-text shot concise but clear and comprehensive description of what it is". `drive job ask` refuses an option with no description, more than one line under it, a
   field label such as `Does:` in it, or one over 60 words. The card draws each file name and path in
@@ -508,7 +508,7 @@ When it is answered, replaced or redone:
   per request, as you picked; its title and wording stop calling siblings a stack. One Approve still
   lands both.", the PR sections past the 50 blocks one Slack message holds under its Explain more. It is only
   for a PR that
-  carries out an order of his whose words ask for it, or a `Forge-AI/*` drive tooling fix no exempt
+  carries out an order of his whose words ask for it, or a `<guarded org>/*` drive tooling fix no exempt
   class covers, which serves its own order by [Scope](scope.md).
 - A PR has one card. The drive's own draw sends cc-slack the PRs with no line: cc-slack redraws
   their card where it sits, offering Approve again when the drive still asks it, or first posts it
@@ -635,7 +635,7 @@ merged and installed, listing each rule now in the skill.
   or "let us know". Post nothing else in that thread: no progress, no test results, no follow-up.
 
 ```
-Fixed: Iris picks up again right after you answer its question, on today's build.
+Fixed: the agent picks up again right after you answer its question, on today's build.
 ```
 
 **The status page.** You never write it: the drive's watch redraws the drive's canvas, a tab in his
@@ -1037,7 +1037,7 @@ digest lists it again while it stands.
   ``<https://buildkite.com/forge/release/builds/15020|the release build> started `11:30 AM` ``.
   Every surface the clock-time check runs on refuses a line saying when a release, build or deploy
   started with either stamp in a clause naming no job or record, or a quoted time on a line linking no
-  build or tool: on Nov 12 two posts said the SandSQL release started at its job's start, over an hour
+  build or tool: on Nov 12 two posts said a database release started at its job's start, over an hour
   before its release build did.
 
 ## Examples

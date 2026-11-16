@@ -59,7 +59,7 @@ Do not show raw record lines or wrap arbitrary blocks inside a kit component cla
   - `page`, its `page.json`
   - `features`, its matched orders as Now shows them
   - `edges`, each `{from, to, kind}` between two matched orders, read from the drive's jobs whenever it changes: `carries` when a job of `from` also builds parts of `to`, `waits` while a job of `from` waits on a part, job, PR or PR's release of `to`, so a page draws what holds what without keeping a list of its own
-  - `prs`, the open PRs of its matched orders and the PRs it names, each with `staging`, the line its PR cards say of its staging test, such as `Tested on staging: plat-usw2-staging at f3a6f23, passed` with a link to its proof
+  - `prs`, the open PRs of its matched orders and the PRs it names, each with `staging`, the line its PR cards say of its staging test, such as `Tested on staging: <staging env> at f3a6f23, passed` with a link to its proof
   - `questions`, open decisions on its matched orders, each with `href`, the queue route that focuses it
   - `story`, the newest moments naming its matched orders
   - `asked`, the state of its last ask

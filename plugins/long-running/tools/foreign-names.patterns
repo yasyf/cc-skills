@@ -7,3 +7,4 @@
 (?i)\bplaty\b
 \bC0[A-Z0-9]{8,}\b
 (?<![\w.-])(?:go/sand|api/src|common/src|dashboard/src|infra/envs|release/targets\.yaml|\.agents/skills)\b
+(?<![\w-])(?:plat|core|tnt|rt|fd)-(?:usw2|use1|gbl)-[\w-]+
