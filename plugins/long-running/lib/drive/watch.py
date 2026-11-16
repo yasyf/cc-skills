@@ -877,7 +877,8 @@ def gave_way(watcher: Watcher, data: dict, moment: datetime) -> tuple[bool, list
     ]
     if not told:
         return False, []
-    with state.edit(watcher.name) as saved:
+
+    def gave(saved: dict) -> None:
         for job_id, key, freeze, notice in told:
             job = saved["jobs"][job_id]
             job["gave_way"].append(key)
@@ -887,6 +888,8 @@ def gave_way(watcher: Watcher, data: dict, moment: datetime) -> tuple[bool, list
             state.hold_text(job, gave_way_text(freeze, notice, bool(held)), state.WATCH_SENDER)
             reason = f"freeze {freeze['id']} it holds gave way to the staging release for production {notice['url']}"
             state.drop_waits(saved, job_id, {wait: reason for wait in job["waits"] if state.STAGING_WAIT.fullmatch(wait)})
+
+    state.update(watcher.name, None, gave)
     return True, []
 
 
