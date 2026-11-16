@@ -40,3 +40,20 @@ def test_only_a_session_started_as_a_lane_owner_takes_the_fast_path(monkeypatch:
     else:
         monkeypatch.delenv(voice.LANE_ENV, raising=False)
     assert voice.own_lane() == owner
+
+
+PRS = [{"repo": "Forge-AI/monorepo", "number": 53430}, {"repo": "Forge-AI/monorepo", "number": 53305}, {"repo": "yasyf/cc-skills", "number": 53305}]
+
+
+@pytest.mark.parametrize(
+    ("typed", "drawn"),
+    [
+        ("Reworking {pr:53430|reads old journals}.", "Reworking <https://github.com/Forge-AI/monorepo/pull/53430|#53430 reads old journals>."),
+        ("{pr:53430} lands first", "<https://github.com/Forge-AI/monorepo/pull/53430|#53430> lands first"),
+        ("{pr:yasyf/cc-skills#53305|the hook}", "<https://github.com/yasyf/cc-skills/pull/53305|#53305 the hook>"),
+        ("{pr:53305} is two PRs", "{pr:53305} is two PRs"),
+        ("{pr:999} is none of the lane's", "{pr:999} is none of the lane's"),
+    ],
+)
+def test_a_pr_the_lane_holds_draws_as_its_number_and_words(typed: str, drawn: str) -> None:
+    assert voice.linked(typed, PRS) == drawn
