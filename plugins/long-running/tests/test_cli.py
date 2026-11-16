@@ -10947,13 +10947,18 @@ def test_drive_manual_prints_the_bullet_carrying_words_no_row_names(run: Run) ->
     assert len(out) < len((cli.PAGES / "incidents.md").read_text()) / 10
 
 
-def test_drive_manual_appends_what_the_repositorys_page_tables_add_to_that_page(run: Run, demo: str, tmp_path: Path) -> None:
-    (tmp_path / ".claude").mkdir(exist_ok=True)
-    (tmp_path / state.REPO_RULES).write_text(
-        '[[page]]\npage = "incidents"\ntext = "- The emergency env here is acme-auto."\n'
-        '[[page]]\npage = "landing"\ntext = "- Landing words."\n'
-        '[[page]]\npage = "incidents"\ntext = "- Its CI tool is ./ci."\n'
-    )
+class PagedRepo(HomeRepo):
+    def page(self, name: str) -> str:
+        return {"incidents": "- The emergency env here is acme-auto.", "landing": "- Landing words."}.get(name, "")
+
+
+class PagedRelease(SelectRelease):
+    def page(self, name: str) -> str:
+        return "- Its CI tool is ./ci." if name == "incidents" else ""
+
+
+def test_drive_manual_appends_what_the_repositorys_providers_add_to_that_page(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    provide(monkeypatch, Path(), repo=PagedRepo, release=PagedRelease)
     page = (cli.PAGES / "incidents.md").read_text()
     code, out = run("manual", "incidents")
     assert (code, out) == (0, (page + "\n## In this repository\n\n- The emergency env here is acme-auto.\n\n- Its CI tool is ./ci.").strip())
