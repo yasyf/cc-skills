@@ -2009,3 +2009,18 @@ def test_a_stack_too_long_to_number_in_its_waits_id_asks_under_its_bottom_pr_cou
         None,
     )
     assert grown.startswith("merge:48841-13:") and card.ask_waits(asked[:2]) == asked_waits(48841, 48867)
+
+
+def test_a_card_titled_outside_1_to_140_characters_is_cut_to_fit_or_takes_its_prs_title_and_says_what_it_built_as_53302_drew_none(capsys: pytest.CaptureFixture[str]) -> None:
+    pr_title = "sand-next: ♻️ a cloud pod takes an agent from the session its wake pushes, not the agent-host row"
+    fits = {"title": "Cleanup: delete agent_hosts"}
+    assert card.titled(fits, pr_title) is fits
+    assert capsys.readouterr().err == ""
+    long = {"title": "Cleanup: " + "delete agent_hosts and agent_inbox, the old Postgres record of cloud agents, " * 2 + "· left out, held by your word: #53301"}
+    cut = card.titled(long, pr_title)["title"]
+    assert 0 < card.slack_length(cut) <= card.TITLE_CHARS and cut.endswith("…")
+    assert f"drive card: built a title of {card.slack_length(long['title'])} characters" in capsys.readouterr().err
+    assert "a cloud pod takes an agent from the session its wake pushes" in card.titled({"title": " "}, pr_title)["title"]
+    assert "drive card: built a title of 0 characters, '', outside 1 to 140" in capsys.readouterr().err
+    emoji = card.titled({"title": "🚀" * 100}, pr_title)["title"]
+    assert card.slack_length(emoji) <= card.TITLE_CHARS

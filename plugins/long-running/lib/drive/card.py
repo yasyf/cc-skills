@@ -146,6 +146,22 @@ def framed(opening: str, plain: str, closing: str = "") -> str:
     return opening + cut(plain, TITLE_CHARS - len(opening) - len(closing)) + closing
 
 
+def titled(card: dict, pr_title: str) -> dict:
+    """The card with a title of 1 to TITLE_CHARS characters, counted in UTF-16 units as Slack counts them, since cc-slack refuses a card titled otherwise and draws none, as #53302 drew none: a longer one cut to fit, an empty one its PR's title without its kind prefix or emoji, each fix said on stderr with the title it was built with."""
+    title = " ".join(card["title"].split())
+    if 0 < slack_length(title) <= TITLE_CHARS:
+        return card
+    fixed = title or kind_and_title(pr_title)[1] or pr_title
+    while slack_length(fixed := cut(fixed, TITLE_CHARS)) > TITLE_CHARS:
+        fixed = fixed[:-2]
+    print(f"drive card: built a title of {slack_length(title)} characters, {title!r}, outside 1 to {TITLE_CHARS}; drawn as {fixed!r}", file=sys.stderr)
+    return card | {"title": fixed}
+
+
+def slack_length(text: str) -> int:
+    return len(text.encode("utf-16-le")) // 2
+
+
 def heading_key(heading: str) -> str:
     return heading.strip().rstrip(":").lower().replace("\u2019", "'")
 
@@ -892,7 +908,8 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
             siblings(known, members, reads),
         )
         if kept:
-            card |= {"title": f"{card['title']} · left out, held by your word: {', '.join('#' + key.rpartition('#')[2] for key in kept)}"}
+            card |= {"title": framed("", card["title"], f" · left out, held by your word: {', '.join('#' + key.rpartition('#')[2] for key in kept)}")}
+        card = titled(card, reads[members[0]]["title"])
         remember(known, members, changes)
         drawn(known, {key: (*undrawn, *unsaid_storage(reads[key], known[key][1])) for key, (_, undrawn) in drawings.items()}, at, changes)
         repo, number = members[0].split("#")
