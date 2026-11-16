@@ -3333,7 +3333,7 @@ def communicators_idle(watcher: Watcher, moment: datetime) -> list[str]:
     """Retire each seat's communicator that has held its channel COMMUNICATOR_IDLE with no message of his owed there, since its start or the last one, its seat's priority order closed included, by retire_communicator, so the drive's communicator holds that channel again until his next message there starts one anew; the line of each."""
     if watcher.project:
         return []
-    data = state.load(watcher.name)
+    data = state.load(watcher.name, ("orders", "communicators"))
     held = {order["priority"] for order in state.open_orders(data).values() if order["priority"]}
     return [
         retire_communicator(watcher.name, seat)
@@ -3798,7 +3798,7 @@ def compact_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Type /compact into the first Orca terminal each communicator runs in, the drive's and each seat's, at an idle moment, never at its context limit mid-conversation, and into none while no terminal shows it; the drive's own watch alone does."""
     if watcher.project:
         return []
-    data = state.load(watcher.name)
+    data = state.load(watcher.name, ("roles", "communicators", "owed_replies"))
     held = {"the communicator": data["roles"]["communicator"]} if "communicator" in data["roles"] else {}
     held |= {f"the communicator for {seat}": seated for seat, seated in data["communicators"].items()}
     lines = []
@@ -3824,7 +3824,7 @@ def coordinator(data: dict, project: str | None) -> dict:
 
 def down_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Tell the communicator, once each time it exits, that the coordinator this watch posts to runs no Claude Code process, so nothing hears the drive's records: the communicator restarts it that minute, resuming its session, and never reports it to him as down."""
-    held = coordinator(state.load(watcher.name), watcher.project)
+    held = coordinator(state.saved(watcher.name), watcher.project)
     if orca.live_pid(held["session"]) is not None:
         watcher.down = None
         return []
@@ -6849,7 +6849,7 @@ def seats_retired(name: str) -> dict[str, str]:
     """Retire each priority seat no open order holds, by retire_seat, as the watch does each pass and drive order set does in the step that drops, closes or unmarks a priority order; each seat retired and the line saying so."""
     if state.scratch():
         return {}
-    data = state.load(name)
+    data = state.load(name, ("orders", "subcoordinators"))
     held = {order["priority"] for order in state.open_orders(data).values() if order["priority"]}
     return {seat: retire_seat(name, seat) for seat in data["subcoordinators"] if seat.startswith(state.priority_seat("")) and seat not in held}
 
