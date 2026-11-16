@@ -118,6 +118,8 @@ ASK_FIELD = re.compile(r"^ASK:?[ \t]+([/~]\S*)[ \t]*$", re.MULTILINE)
 PAUSED = "The recommended answer to this question is built and paused on your pick: tap it and the work ships; another pick rebuilds it first."
 QUIET_FOR = timedelta(minutes=30)
 REAP_AFTER = timedelta(hours=6)
+RELAUNCH_RETRY = timedelta(minutes=5)
+RELAUNCH_TRIES = 3
 UNSTAFFED_FOR = timedelta(minutes=5)
 UNSTARTED_FOR = timedelta(minutes=1)
 RELAUNCH = timedelta(seconds=orca.LAUNCH_SECONDS)
@@ -3693,6 +3695,24 @@ def unprompted_lines(job_id: str, job: dict) -> list[str]:
     return [f"LANE {job_id} {job['order']} never got its prompt {orca.ON_MAC}: no transcript in {UNPROMPTED.seconds // 60} minutes since its worker started; {done}"]
 
 
+def relaunchable(ended: dict | None, moment: datetime) -> bool:
+    """Whether the watch starts a relaunch of a dead worker now: none started yet, or the last one ended at least RELAUNCH_RETRY ago with no next worker and fewer than RELAUNCH_TRIES ran, so a relaunch whose Sprite prepare failed is tried again within minutes, with no session, rather than leaving the job to the six-hour reap."""
+    if ended is None or "relaunch" not in ended:
+        return True
+    last = ended["relaunch"]
+    return not state.alive(last["pid"]) and last.get("tries", 1) < RELAUNCH_TRIES and moment - state.parse_time(last["at"]) >= RELAUNCH_RETRY
+
+
+def bg_death(job: dict) -> str | None:
+    """Why a running job's agent drive job start started as its own `claude --bg` session is dead: no running process names its session and Claude Code's background job for it failed, stopped or is gone, so the watch relaunches it as it does a dead Sprite lane; None for any other agent and while it lives or its turn ended on its own."""
+    if not (session := state.own_session(job)) or agents.alive(session, agents.session_records()):
+        return None
+    found = agents.background_job(session)
+    if found and found[1]["state"] not in ("failed", "stopped"):
+        return None
+    return f"its own claude --bg session {session} ended{' ' + found[1]['state'] if found else ', its background job gone'}"
+
+
 def ended_gap(job_id: str, job: dict, ended: dict, moment: datetime) -> str | None:
     """A running job whose lane died or finished, which the watch relaunched, and no next lane replaced in the time a relaunch takes: none while it waits its turn for a builder slot on this Mac, or within the time a relaunch takes since that turn came and started its next worker, or while that relaunch runs, and once that relaunch ended or overran, the line names it and its log."""
     if state.SLOT_WAIT in job["waits"] or (slot := job.get("slot")) and moment - state.parse_time(slot) < RELAUNCH:
@@ -3732,7 +3752,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 if running and (turn := agent_stop(job, data)):
                     if agents.refused(turn):
                         refusals[job_id] = turn
-                    elif (ended := state.lane_death(job)) and "relaunch" in ended:
+                    elif (ended := state.lane_death(job)) and not relaunchable(ended, moment):
                         gaps[job_id] = ended_gap(job_id, job, ended, moment)
                     else:
                         deaths[job_id] = (job["agent"], ended["why"] if ended else stopped_on(turn))
@@ -3743,6 +3763,9 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     gap = agent_gap(job_id, job, data, moment)
                     if isinstance(gap, Returned):
                         gap.take(watcher.name, job_id)
+                    elif (why := bg_death(job)) and relaunchable(state.lane_death(job), moment):
+                        deaths[job_id] = (job["agent"], why)
+                        continue
                     gaps[job_id] = None if isinstance(gap, Returned | Answered | Gone) else gap
                     if gaps[job_id] and job["kind"] == "codex" and not job.get("agent"):
                         lost[job_id] = gap
@@ -3756,7 +3779,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if job["state"] not in LIVE_JOB_STATES:
                 continue
             if ended := state.lane_death(job):
-                if running and "relaunch" not in ended:
+                if running and relaunchable(ended, moment):
                     deaths[job_id] = (job["dispatch"], ended["why"])
                 elif running:
                     gaps[job_id] = ended_gap(job_id, job, ended, moment)
@@ -4336,10 +4359,11 @@ def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: da
             if job["state"] in state.FINISHED_JOB_STATES or job.get("where") == "remote" and job["state"] == "waiting":
                 state.lane_died(job, worker, why, moment)
                 continue
-            if job[state.worker_key(job)] != worker or "relaunch" in (state.lane_death(job) or {}) or busy(watcher, job_id, moment):
+            if job[state.worker_key(job)] != worker or not relaunchable(state.lane_death(job), moment) or busy(watcher, job_id, moment):
                 continue
             state.lane_died(job, worker, why, moment)
-            state.lane_death(job)["relaunch"] = {"pid": relaunch(watcher, job_id, moment), "at": state.stamp(moment)}
+            tries = (state.lane_death(job).get("relaunch") or {}).get("tries", 0) + 1
+            state.lane_death(job)["relaunch"] = {"pid": relaunch(watcher, job_id, moment), "at": state.stamp(moment), "tries": tries}
             if job.get("where") != "remote":
                 lines.append(
                     f'LANE {job_id} {job["order"]} died as agent {worker} on this Mac: {why}, while it worked on "{cut(job["said"] or job["goal"], 60)}". The watch ran'

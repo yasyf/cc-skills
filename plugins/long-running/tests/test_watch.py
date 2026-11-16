@@ -12,7 +12,7 @@ import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13135,3 +13135,14 @@ def test_only_an_incident_a_top_priority_order_or_one_he_asked_a_cadence_of_is_o
 
     base = {"incident": False, "priority": None, "every": 0}
     assert [REAL_ASKED_LINES(base | change) for change in ({}, {"incident": True}, {"priority": "top"}, {"every": 15})] == [False, True, True, True]
+
+
+def test_a_relaunch_that_ended_with_no_next_worker_is_tried_again_after_five_minutes_three_times_in_all(monkeypatch: pytest.MonkeyPatch) -> None:
+    moment = datetime(2026, 11, 15, 17, 13, tzinfo=UTC)
+    monkeypatch.setattr(state, "alive", lambda pid: pid == 1)
+    ran = {"why": "its worker exited", "at": state.stamp(moment), "relaunch": {"pid": 2, "at": state.stamp(moment)}}
+    assert (watch.relaunchable(None, moment), watch.relaunchable({"why": "its worker exited"}, moment)) == (True, True)
+    assert watch.relaunchable(ran, moment + timedelta(minutes=4)) is False
+    assert watch.relaunchable(ran, moment + timedelta(minutes=5)) is True
+    assert watch.relaunchable(ran | {"relaunch": {"pid": 1, "at": state.stamp(moment)}}, moment + timedelta(minutes=5)) is False
+    assert watch.relaunchable(ran | {"relaunch": {"pid": 2, "at": state.stamp(moment), "tries": 3}}, moment + timedelta(hours=1)) is False
