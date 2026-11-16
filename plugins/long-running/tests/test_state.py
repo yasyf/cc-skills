@@ -2839,6 +2839,27 @@ def test_a_staging_lease_that_runs_past_its_end_extends_once_and_an_incident_tes
     assert (freed, kind, given, go, [each["job"] for each in data["slots"]["plat-usw2-staging"]["queue"]]) == ("j1", "freed", "j3", "go", ["j2"])
 
 
+def test_a_staging_lease_cut_short_by_a_release_for_production_holds_while_its_test_waits_on_that_release_and_runs_its_full_length_after() -> None:
+    moment = datetime(2026, 11, 15, 22, 5, tzinfo=UTC)
+    build = "https://buildkite.com/forge/release/builds/16950"
+    data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": [], "goal": "", "waits": []} for job_id in ("j1", "j2")}}
+    state.slot_claim(data, "plat-usw2-staging", "j1", 30, [], None, moment)
+    state.slot_claim(data, "plat-usw2-staging", "j2", 25, [], None, moment)
+    held = data["slots"]["plat-usw2-staging"]["holder"]
+    held["gave_way_to"] = build
+    data["jobs"]["j1"]["waits"] = [build]
+    for minutes in (40, 80, 160):
+        assert state.slot_turns(data, moment + timedelta(minutes=minutes)) == []
+    assert (held["until"], held["extended"]) == (state.stamp(moment + timedelta(minutes=160) + state.CLAIM_WAIT + timedelta(minutes=30)), False)
+    data["jobs"]["j1"]["waits"] = []
+    assert state.slot_turns(data, moment + timedelta(minutes=190)) == []
+    [(_, held_by, kind, _)] = state.slot_turns(data, moment + timedelta(minutes=196))
+    assert (held_by, kind) == ("j1", "extended")
+    data["jobs"]["j2"]["waits"] = [build]
+    [(_, freed, kind, _), (_, given, go, _)] = state.slot_turns(data, moment + timedelta(minutes=226))
+    assert (freed, kind, given, go) == ("j1", "freed", "j2", "go")
+
+
 def test_a_pr_a_bot_or_github_app_opened_is_no_teammates_and_the_drive_may_take_it() -> None:
     assert state.foreign("Forge-AI/monorepo#56030", github.author_login({"__typename": "Bot", "login": "poetic-vulcan"}), []) is None
     assert state.foreign("Forge-AI/monorepo#56030", "renovate[bot]", []) is None

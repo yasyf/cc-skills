@@ -46,9 +46,10 @@ Verbs:
 
 Each pass, for each slot:
 
-1. **Extend an overrunning lease once.** The holder's `until` passed while its job still runs: the lease extends by its `--minutes`, once, and the watch says one `SLOT` evidence line.
-2. **End a lease.** The holder's job finished, stopped or failed, or its extended `until` passed. The watch releases the slot, says one `SLOT` evidence line, and wakes nobody.
-3. **Hand the slot on.** When a slot is free and its queue is not empty, the head job takes it, and the watch resumes it with `GO` and its steps:
+1. **Hold a cut-short lease.** A pass of the holder's cut waits on the staging release for production its freeze gave way to: the lease's end moves to its full length from now, so it runs neither out nor short while that release runs.
+2. **Extend an overrunning lease once.** The holder's `until` passed while its job still runs: the lease extends by its `--minutes`, once, and the watch says one `SLOT` evidence line.
+3. **End a lease.** The holder's job finished, stopped or failed, or its extended `until` passed. The watch releases the slot, says one `SLOT` evidence line, and wakes nobody.
+4. **Hand the slot on.** When a slot is free and its queue is not empty, the head job takes it, and the watch resumes it with `GO` and its steps:
    - post the staging claim as a `POST` report to `communicator@<drive>`, at the root of the channel the repository's `staging-claim` rule names, with `until` set to the lease's end;
    - a tester whose PR has not merged starts its own cut of its branch onto the staging env with the repository's release start verb, and returns `WAITING staging:<target>/<env>@<head>`;
    - it runs its cases once staging serves its commit, which is past the claim's 5 minutes;
@@ -56,7 +57,7 @@ Each pass, for each slot:
 
 ## The top coordinator's cuts
 
-Every staging start holds the slot, the top coordinator's included. `drive job add --release` whose start names one staging `--env` takes that env's slot for the job it adds, with a 60-minute lease that ends with the job. While another cut holds the slot it queues, and the watch starts its release with `drive job release` when its turn comes. Its release names its own branch, so it holds a cut alone. The staging release of a production release, `--for-production`, never queues: it goes through a held slot as it goes through every staging freeze, by his pick 18c2fda, and takes the slot only when it is free. The test it cuts short keeps its slot, its lease started again, and reruns once that release ends.
+Every staging start holds the slot, the top coordinator's included. `drive job add --release` whose start names one staging `--env` takes that env's slot for the job it adds, with a 60-minute lease that ends with the job. While another cut holds the slot it queues, and the watch starts its release with `drive job release` when its turn comes. Its release names its own branch, so it holds a cut alone. The staging release of a production release, `--for-production`, never queues: it goes through a held slot as it goes through every staging freeze, by his pick 18c2fda, and takes the slot only when it is free. The test it cuts short keeps its slot, its lease started again and held at its full length while any pass of the cut waits on that release's build, and reruns in that lease once the release ends.
 
 ## Packing
 
@@ -70,7 +71,7 @@ A hold from `drive slot hold` names one job, never an order. Another job of the 
 
 ## The queue
 
-Claims queue first in, first out. A pass serving a priority order or an open incident goes ahead of every pass that does not, behind only the passes that jump too, as their builders jump the builder-slot line. A holder is cut short only by a staging release for production, whose give-way starts its lease again.
+Claims queue first in, first out. A pass serving a priority order or an open incident goes ahead of every pass that does not, behind only the passes that jump too, as their builders jump the builder-slot line. A holder is cut short only by a staging release for production, whose give-way starts its lease again and holds it while the test waits on that release.
 
 ## What stays with a model
 

@@ -1351,6 +1351,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             slot["holder"].setdefault("starts", False)
             slot["holder"].setdefault("riders", [])
             slot["holder"].setdefault("released", False)
+            slot["holder"].setdefault("gave_way_to", None)
     data.setdefault("reader_pilot", None)
     data.setdefault("tooling_backlog", False)
     for answer in data["answers"].values():
@@ -7083,7 +7084,7 @@ def slot_hand(data: dict, env: str, to: str, moment: datetime) -> tuple[dict, st
 
 def leased(asked: dict, moment: datetime, riders: list[dict]) -> dict:
     minutes = max(each["minutes"] for each in [asked, *riders])
-    return asked | {"minutes": minutes, "since": stamp(moment), "until": stamp(moment + CLAIM_WAIT + timedelta(minutes=minutes)), "extended": False, "riders": riders, "released": False}
+    return asked | {"minutes": minutes, "since": stamp(moment), "until": stamp(moment + CLAIM_WAIT + timedelta(minutes=minutes)), "extended": False, "riders": riders, "released": False, "gave_way_to": None}
 
 
 def held_for(data: dict, slot: dict, job_id: str, moment: datetime) -> bool:
@@ -7164,7 +7165,7 @@ def holding(release: Any, data: dict, members: list[str], starter: str | None = 
 
 
 def slot_turns(data: dict, moment: datetime, release: Any = None) -> list[tuple[str, str, str, str]]:
-    """End each staging slot's lease once every pass of its cut is done, stopped or gave the slot back, a pass that failed or returned BLOCKED keeping the lease while the cut's coordinator holds its next step, extend once by its minutes a lease whose end passed while a pass still runs, by his ruling that an overrunning lease extends once, and end it at its second end, then give each free slot to the first job in its queue that still runs or waits, dropping finished ones, packed with the later passes whose files never overlap, by packed, under one lease: the head starts the cut and each packed pass rides it; each (env, job, kind, line) of a slot that changed, kind freed, extended, go, its line the GO its job is resumed with, or start, for a start whose release the watch now starts."""
+    """End each staging slot's lease once every pass of its cut is done, stopped or gave the slot back, a pass that failed or returned BLOCKED keeping the lease while the cut's coordinator holds its next step, hold it at its full length from now while a pass of its cut waits on the staging release for production its freeze gave way to, by watch.gave_way, so no queued test takes staging while that release runs and the test reruns in its own lease once it ends, extend once by its minutes a lease whose end passed while a pass still runs, by his ruling that an overrunning lease extends once, and end it at its second end, then give each free slot to the first job in its queue that still runs or waits, dropping finished ones, packed with the later passes whose files never overlap, by packed, under one lease: the head starts the cut and each packed pass rides it; each (env, job, kind, line) of a slot that changed, kind freed, extended, go, its line the GO its job is resumed with, or start, for a start whose release the watch now starts."""
     moved = []
     for env, slot in data["slots"].items():
         held = slot["holder"]
@@ -7173,7 +7174,9 @@ def slot_turns(data: dict, moment: datetime, release: Any = None) -> list[tuple[
             held["riders"] += [{key: each[key] for key in QUEUED_KEYS} for each in joining]
             moved += [(env, each["job"], "go", RIDE_STEPS.format(env=env, until=held["until"], starter=held["job"], prs=", ".join(each["prs"]) or "your PR", job=each["job"]) + "." + holding(release, data, [each["job"]], held["job"])) for each in joining]
         running = held and [job_id for job_id in slot_members(slot) if data["jobs"][job_id]["state"] not in SLOT_LIVE_END and not (job_id == held["job"] and held["released"])]
-        if held and running and parse_time(held["until"]) <= moment and not held["extended"]:
+        if held and running and held["gave_way_to"] in {wait for job_id in running for wait in data["jobs"][job_id]["waits"]}:
+            held.update(until=stamp(moment + CLAIM_WAIT + timedelta(minutes=held["minutes"])), extended=False)
+        elif held and running and parse_time(held["until"]) <= moment and not held["extended"]:
             held.update(until=stamp(parse_time(held["until"]) + timedelta(minutes=held["minutes"])), extended=True)
             moved.append((env, held["job"], "extended", f"SLOT {env} lease of {held['job']}'s cut ran past its end, extended once to {held['until']}"))
         elif held and (not running or parse_time(held["until"]) <= moment):
