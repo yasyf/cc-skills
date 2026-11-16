@@ -5708,7 +5708,7 @@ def home_repo(data: dict, repo: str) -> bool:
 
 
 def drive_checkout(name: str, clone: str) -> Path:
-    """The drive's own checkout, the worktree of clone's repository orca.checkout keeps at its default branch's head, found once a process, else the session's clone while no drive checkout exists yet or git cannot list its worktrees; a session's own clone can sit days behind, missing the repository's settings."""
+    """The drive's own checkout, the worktree of clone's repository orca.checkout keeps at its default branch's head, else the session's clone while no drive checkout exists yet or git cannot list its worktrees, read once a process, since every providers read asks it and a drive with no checkout listed the worktrees 270 times in one pass; orca.checkout records the one it makes, so the process that makes it runs from it at once. A session's own clone can sit days behind, missing the repository's settings."""
     from drive import github, orca
 
     if (key := (name, clone)) not in DRIVE_CHECKOUTS:
@@ -5716,9 +5716,7 @@ def drive_checkout(name: str, clone: str) -> Path:
             found = orca.worktree(clone, f"drive-{name}")
         except github.GithubError:
             found = None
-        if not found:
-            return Path(clone)
-        DRIVE_CHECKOUTS[key] = found
+        DRIVE_CHECKOUTS[key] = found or Path(clone)
     return DRIVE_CHECKOUTS[key]
 
 
