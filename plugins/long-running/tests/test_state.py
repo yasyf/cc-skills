@@ -86,7 +86,6 @@ def test_a_save_takes_down_the_mac_boxes_of_each_job_it_moves_out_of_running_or_
 def test_a_save_hands_a_finished_jobs_mac_boxes_to_a_process_of_its_own_that_takes_them_down_from_the_drives_checkout(
     state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run: Callable[..., tuple[int, str]]
 ) -> None:
-    monkeypatch.setattr(state, "MAC_BOX_DOWNS_STOPPED", False)
     checkout = tmp_path / "checkout"
     (checkout / "tools").mkdir(parents=True)
     (checkout / "tools" / "ci").write_text(f'#!/bin/sh\necho "$(pwd -P) $*" >> {tmp_path / "downs"}\n')
@@ -3037,12 +3036,3 @@ def test_while_a_slot_hold_stands_only_a_tester_whose_pr_has_his_approve_is_queu
     assert [line.split(" queued ")[1].split(",")[0] for line in state.queue_waiters(data, approved_only=True)] == ["j1"]
     assert [line.split(" queued ")[1].split(",")[0] for line in state.queue_waiters(data)] == ["j2"]
 
-
-def test_no_save_or_sweep_takes_a_mac_box_down_while_downs_are_stopped(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    make("demo")
-    detached = []
-    monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args))
-    monkeypatch.setattr(state, "scratch", lambda: False)
-    monkeypatch.setattr(state, "mac_box_command", lambda data, verb: "true")
-    state.down_mac_boxes("demo", state.load("demo"), ["j1"])
-    assert detached == []
