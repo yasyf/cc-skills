@@ -828,7 +828,11 @@ the patch.
   `WAITING release` naming the merged changes the cut must carry, and its sub-coordinator asks the top
   for the cut with a `release` record at `root@<drive>` naming, in backticks, the one start with the
   `--order` of his answer, or else asking the top to put it to him. The top starts the cut in one call on the
-  record's order, such as `drive job add builder --order o1094 --goal "release the merged database
+  record's words as given, never re-deriving the start, its targets or their order and never asking the
+  sub-coordinator again: `drive job add --release` reads his answer itself, and its refusal goes back to the
+  sub-coordinator as the record's answer, by his words on Nov 16, 2026, "let the release judge figure out
+  the order, that doesn't need to block". The release's own job then follows it to its approve step and
+  approves it on that kept pass, with no round trip to the top. For example, on the record's order, such as `drive job add builder --order o1094 --goal "release the merged database
   changes" --release "<ci> release start db --from a6f826f01131fb9774a1410f95b3480996409aeb --order b9668c9"`,
   which starts it from the top's checkout in a process of its own that keeps its build and writes the
   job's brief, whose `Release:` and `Release build:` lines name the command and its build, then starts
