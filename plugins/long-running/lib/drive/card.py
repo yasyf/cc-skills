@@ -490,18 +490,26 @@ def skip(key: str, reason: str) -> dict:
 
 def read(key: str, entry: dict | None = None) -> dict | None:
     """One PR's card fields with every file it changes, completing large lists through github.files."""
-    if not (pr := github_reads({key: entry}).get(key)):
+    if not (pr := github_reads({key: entry}, fresh=True).get(key)):
         return None
     return pr | {"files": [{"path": path} for path in github.files(key)]} if pr["changedFiles"] > len(pr["files"]) else pr
 
 
-def github_reads(entries: dict[str, dict | None]) -> dict[str, dict]:
+def github_reads(entries: dict[str, dict | None], fresh: bool = False) -> dict[str, dict]:
     """Read card fields in repository batches, reusing each PR for READ_AGE regardless of batch composition. Undrawn pictures force fresh reads; refused reads retain the last saved card with the drive's state and head."""
     found = {}
+
+    def read(keys: list[str]) -> dict[str, dict]:
+        return github.nodes(json.loads(run(["gh", "api", "graphql", "-f", f"query={github.query(keys, FIELDS)}"], max_age="0s")), keys)
+
+    def current(key: str, node: dict) -> bool:
+        entry = entries[key]
+        return not entry or (not entry.get("head") or entry["head"] == node["headRefOid"]) and (entry["state"] == github.FOLDED or entry["state"] == node["state"].lower())
+
     for chunk in github.by_repository(list(entries), github.PRS_PER_QUERY):
-        fresh = any((entries[key] or {}).get("undrawn") for key in chunk)
+        uncached = fresh or any((entries[key] or {}).get("undrawn") for key in chunk)
         try:
-            answered = github.cached_nodes(chunk, FIELDS, 0 if fresh else int(READ_AGE.removesuffix("s")), lambda unread: github.nodes(json.loads(run(["gh", "api", "graphql", "-f", f"query={github.query(unread, FIELDS)}"], max_age="0s")), unread))
+            answered = github.cached_nodes(chunk, FIELDS, 0 if uncached else int(READ_AGE.removesuffix("s")), read, current)
             prs = {key: card_fields(node) for key, node in answered.items()}
         except (GithubError, json.JSONDecodeError) as error:
             print(f"drive card: {', '.join(chunk)}: {error}", file=sys.stderr)

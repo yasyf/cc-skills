@@ -8,6 +8,8 @@ import pytest
 from conftest import card_node
 from drive import card, github
 
+REAL_STACKS = github.stacks
+
 
 def test_card_reads_reuse_overlapping_reordered_batches_without_rewriting_saved_cards(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
@@ -38,6 +40,36 @@ def test_card_with_undrawn_picture_bypasses_snapshot_cache(state_root: Path, mon
     assert card.github_reads({"o/r#1": None})["o/r#1"]["title"] == "1"
     assert card.github_reads({"o/r#1": {"undrawn": {"why": "picture changed"}, "state": "open"}})["o/r#1"]["title"] == "2"
     assert card.github_reads({"o/r#1": None})["o/r#1"]["title"] == "2"
+    assert len(calls) == 2
+
+
+def test_single_card_validators_always_read_current_edits(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+
+    def read(cmd: list[str], **kwargs: object) -> str:
+        calls.append(cmd)
+        return json.dumps({"data": {"r0": {"p1": card_node({"title": str(len(calls)), "state": "OPEN", "changedFiles": 0, "labels": [], "files": []})}}})
+
+    monkeypatch.setattr(card, "run", read)
+    assert card.read("o/r#1")["title"] == "1"
+    assert card.read("o/r#1")["title"] == "2"
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("changed", [{"head": "pushed"}, {"state": "merged"}])
+def test_watched_head_or_state_invalidates_card_snapshot(state_root: Path, monkeypatch: pytest.MonkeyPatch, changed: dict) -> None:
+    calls = []
+    entry = {"head": "head", "state": "open"}
+
+    def read(cmd: list[str], **kwargs: object) -> str:
+        calls.append(cmd)
+        return json.dumps({"data": {"r0": {"p1": card_node({"headRefOid": entry["head"], "title": str(len(calls)), "state": entry["state"].upper(), "labels": [], "files": []})}}})
+
+    monkeypatch.setattr(card, "run", read)
+    assert card.github_reads({"o/r#1": entry})["o/r#1"]["title"] == "1"
+    entry.update(changed)
+    assert card.github_reads({"o/r#1": entry})["o/r#1"]["title"] == "2"
+    assert card.github_reads({"o/r#1": entry})["o/r#1"]["title"] == "2"
     assert len(calls) == 2
 
 
@@ -114,6 +146,7 @@ def test_stacks_reuse_negative_results_across_groups(state_root: Path, monkeypat
         return {"data": {"r0": {f"p{n}": {"stack": None} for n in re.findall(r"p(\d+):", query)}}}
 
     monkeypatch.setattr(github, "graphql", read)
+    monkeypatch.setattr(github, "stacks", REAL_STACKS)
     assert github.stacks(["o/r#1", "o/r#2"]) == {}
     assert github.stacks(["o/r#2"]) == {}
     assert len(calls) == 1

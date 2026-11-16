@@ -408,7 +408,7 @@ def nodes(payload: dict, keys: list[str]) -> dict[str, dict]:
     return {key: node for key in keys if (node := found.get(f"p{split(key)[2]}"))}
 
 
-def cached_nodes(keys: list[str], fields: str, max_age: int, read: Callable[[list[str]], dict[str, dict]]) -> dict[str, dict]:
+def cached_nodes(keys: list[str], fields: str, max_age: int, read: Callable[[list[str]], dict[str, dict]], accept: Callable[[str, dict], bool] | None = None) -> dict[str, dict]:
     """Reuse each PR's fields within max_age seconds across overlapping batches, coalescing concurrent misses without caching absent or refused reads."""
     from drive import state
 
@@ -418,18 +418,21 @@ def cached_nodes(keys: list[str], fields: str, max_age: int, read: Callable[[lis
     folder.mkdir(parents=True, exist_ok=True)
     with closing(state.connect(folder / "pr-nodes.sqlite3")) as db, ExitStack() as locks:
         db.execute("CREATE TABLE IF NOT EXISTS nodes (fields TEXT NOT NULL, key TEXT NOT NULL, read_at REAL NOT NULL, body TEXT NOT NULL, PRIMARY KEY (fields, key)) WITHOUT ROWID")
-        found = {}
-        for key in keys:
-            row = db.execute("SELECT read_at, body FROM nodes WHERE fields = ? AND key = ?", (fields, key.casefold())).fetchone()
-            if row and max_age and time.time() - row[0] < max_age:
-                found[key] = json.loads(row[1])
+        def reusable(keys: list[str]) -> dict[str, dict]:
+            found = {}
+            for key in keys:
+                row = db.execute("SELECT read_at, body FROM nodes WHERE fields = ? AND key = ?", (fields, key.casefold())).fetchone()
+                if row and max_age and time.time() - row[0] < max_age:
+                    node = json.loads(row[1])
+                    if accept is None or accept(key, node):
+                        found[key] = node
+            return found
+
+        found = reusable(keys)
         missing = [key for key in keys if key not in found]
         for key in sorted({key.casefold() for key in missing}):
             locks.enter_context(state.flocked(folder / "pr-node-locks" / hashlib.sha256((fields + key).encode()).hexdigest()))
-        for key in missing:
-            row = db.execute("SELECT read_at, body FROM nodes WHERE fields = ? AND key = ?", (fields, key.casefold())).fetchone()
-            if row and max_age and time.time() - row[0] < max_age:
-                found[key] = json.loads(row[1])
+        found |= reusable(missing)
         if unread := [key for key in missing if key not in found]:
             started = time.time()
             answered = read(unread)
