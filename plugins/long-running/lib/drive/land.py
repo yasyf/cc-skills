@@ -44,6 +44,7 @@ OWN_FAILURE = "the lander could not"
 NO_ENQUEUE = f"{OWN_FAILURE} finish the merge queue's script"
 NO_DEQUEUE = f"{OWN_FAILURE} take"
 ENQUEUE_FAILED = 5
+NETWORK_BLIP = re.compile(r"timed out|Recv failure|unable to access|Could not resolve host|Failed to connect|Connection (?:refused|reset|closed)", re.IGNORECASE)
 HELD = "not landed while he holds it"
 WAITED = "not landed while it waits"
 AWAY = "not landed while he is away"
@@ -769,13 +770,22 @@ def noted(name: str, data: dict, keys: list[str], outcome: str, below: list[str]
             pr["flaky"]["requeued"] = at
         pr["lander"] = (pr["lander"] or {"head": pr["head"], "base": pr["base"], "pid": os.getpid(), "at": at}) | {"outcome": outcome, "below": below, "entry": keys[-1]}
         pr["conflict"] |= conflicted(pr)
-        was = pr["lander"].get("was")
-        if was == outcome or outcome.startswith(OWN_FAILURE) and (was or "").partition(": ")[0] == outcome.partition(": ")[0] or outcome.startswith(UNREAD) and (was or "").startswith(UNREAD):
+        was = pr["lander"].get("was") or ""
+        raised = pr["lander"].get("raised")
+        pr["lander"]["raised"] = outcome.partition(": ")[0] if blip(outcome) and blip(was) else None
+        if blip(outcome) and (not blip(was) or raised == pr["lander"]["raised"]):
+            continue
+        if not blip(outcome) and (was == outcome or outcome.startswith(OWN_FAILURE) and was.partition(": ")[0] == outcome.partition(": ")[0] or outcome.startswith(UNREAD) and was.startswith(UNREAD)):
             continue
         repo, number = key.split("#")
         events.append({"repo": repo, "number": int(number), "change": outcome, "lane": state.heard_lane(data, pr["order"])})
     if events:
         state.after(lambda: [state.append_event(name, "landing", **event) for event in events] and [])
+
+
+def blip(outcome: str) -> bool:
+    """Whether a landing ended on the lander's own failure to reach the network, a connect or timeout failure by his Oct 22 ruling, which the next pass tries again with no word: only the same failure on the pass after it is the lander's defect, said once."""
+    return outcome.startswith(OWN_FAILURE) and bool(NETWORK_BLIP.search(outcome))
 
 
 class Halted(SystemExit):

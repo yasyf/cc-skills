@@ -8419,6 +8419,32 @@ def test_a_landing_whose_stack_enqueue_failed_on_its_own_is_said_once_to_the_met
     assert posted(sent) == [("defect", f"meta@{demo}", f"{watch.LANDER}{failed}")]
 
 
+@pytest.mark.parametrize("blip", ["fatal: unable to access 'https://github.com/Forge-AI/monorepo/': Recv failure: Operation timed out", "fatal: unable to access 'https://github.com/Forge-AI/monorepo/': Could not resolve host: github.com"])
+def test_a_landing_whose_check_failed_on_one_network_blip_tries_again_with_no_word_and_only_the_same_failure_on_the_next_pass_is_the_landers_defect_as_57608s_was_not(
+    home_repo: None,
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], blip: str
+) -> None:
+    waiting_job(demo)
+    approve(demo, KEY)
+    with edit(demo) as data:
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
+    on_main(tmp_path, demo, f'#!/bin/sh\n[ "$1" = --check ] || exit 0\necho "stack-enqueue failed: git ls-remote origin: {blip}" >&2\nexit 5\n')
+    watching = watcher(demo)
+    failed = land.run(demo, [KEY])
+    assert failed.startswith(f"{land.NO_ENQUEUE} --check on {KEY}, which exited 5") and land.blip(failed)
+    assert watch.event_lines(watching) == []
+    assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
+    assert land.run(demo, [KEY]) == failed
+    assert watch.event_lines(watching) == [f"{watch.LANDER}{failed}"]
+    assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
+    assert land.run(demo, [KEY]) == failed
+    assert watch.event_lines(watching) == []
+    enqueue_exiting(tmp_path, demo, 0)
+    assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
+    assert land.run(demo, [KEY]) == land.QUEUED
+    assert watch.event_lines(watching) == [f"PR {KEY}: {land.QUEUED} [o1 j1]"]
+
+
 @pytest.mark.parametrize("mode", ["--check", "--watch"])
 def test_replayed_56720_a_landing_whose_stack_enqueue_exited_before_it_printed_an_answer_is_the_landers_own_failure_said_once_a_head_to_the_meta_session_and_tried_again_until_it_queues(
     home_repo: None,
