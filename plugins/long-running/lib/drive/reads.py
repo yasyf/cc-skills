@@ -160,14 +160,14 @@ def answer(question: str, checkout: Path, drive: str, job_id: str) -> str:
 
 
 def log_rule(question: str) -> str:
-    """What a `LOG <url>` question gets in place of the log this Mac no longer reads: the builder rule that has a lane read it on its own Sprite, as agents/builder.md words it, and `BLOCKED` when its Sprite's `tools/ci bk` refuses."""
+    """What a `LOG <url>` question gets in place of the log this Mac no longer reads: the builder rule that has a lane read it on its own Sprite, as agents/builder.md words it, and `BLOCKED` when its Sprite's CI tool refuses."""
     from drive import orca
 
     rule = next(bullet for bullet in orca.builder_body().split("\n- ") if bullet.startswith(LOG_RULE))
     return (
         f"{question}: this Mac reads no build log for a lane; read it on your Sprite, by the builder rule that replaced the LOG read:\n\n"
         f"{' '.join(rule.split())}\n\n"
-        "When tools/ci bk refuses on your Sprite for want of its AWS session, return BLOCKED naming the read and its command."
+        "When the repository's CI tool refuses on your Sprite for want of its AWS session, return BLOCKED naming the read and its command."
     )
 
 

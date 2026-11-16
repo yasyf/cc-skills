@@ -6477,7 +6477,7 @@ def test_a_log_question_a_lane_on_the_old_builder_rules_asks_gets_the_rule_back_
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     assert watch.run_pass(watching, T0) == []
     assert [args[:5] for args in replies if args[0] == "reply"] == [("reply", "--id", "msg_log", "--run", RUN)]
-    assert "<ci> bk log <pipeline> <build> <job>" in next(args[-1] for args in replies if args[0] == "reply")
+    assert "with the verbs the repository names" in next(args[-1] for args in replies if args[0] == "reply")
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"], job["said"]) == (None, "running", None)
 
