@@ -34,7 +34,13 @@ jobs:
           node-version: 24
       - run: pip install pytest pytest-xdist pytest-timeout "spawnllm>=0.17.7"
       - name: pytest
-        run: python -m pytest plugins/long-running/tests -q -n auto --durations=25 --timeout=30
+        env:
+          PYTHONFAULTHANDLER: "1"
+        run: |
+          python -m pytest plugins/long-running/tests -q -n auto --durations=25 --timeout=30 &
+          pid=$!
+          ( sleep 300; echo "=== still running after 300 s"; ps -eo pid,ppid,pgid,etime,args --forest; pkill -ABRT -f python ) &
+          wait $pid
       - uses: astral-sh/setup-uv@v8.2.0
       - name: capt-hook pack test
         env:
