@@ -1681,7 +1681,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         "priority": args.priority,
         "model": args.model,
     }
-    with state.edit(name) as data:
+    def job_added(data: dict):
         order = find(data["orders"], args.order, "order")
         parts = pick_job_parts(name, data, args.order, args.part)
         refuse_a_shared_at_once_part(parts)
@@ -1720,6 +1720,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             order["jobs"].append(job_id)
         if held and not folds:
             took.append(state.hand_over(data, held, job_id, args.order, parts, created, args.branch, args.repo))
+        slotted = ""
         if args.release:
             job["brief_flags"] = (job.get("brief_flags") or {}) | {"release": args.release}
             job["release_pass"] = {"release": args.release, "at": created, "reading": args.reading}
@@ -1737,6 +1738,9 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         replaced = [] if args.release else state.end_replaced(data, [args.order], created)
         named = state.named_prs(data, args.order, args.goal)
         history = {key: state.pr_orders(data, key, args.order) for key in named}
+        return data, job_id, job, builder_id, crowd, slotted, took, replaced, named, history, new_parts
+
+    data, job_id, job, builder_id, crowd, slotted, took, replaced, named, history, new_parts = state.update(name, None, job_added)
     waiting = [f"{job_id} waits on {', '.join(job['waits'])}: start no agent for it until the watch's FREE line says its last wait ended"] if job["waits"] and not job["agent"] else []
     waiting += render.builder_lines(name, data, [builder_id] if builder_id else [])
     if crowd:
