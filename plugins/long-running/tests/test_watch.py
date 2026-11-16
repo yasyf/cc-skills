@@ -4976,10 +4976,11 @@ def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_
         data["orders"]["o1"]["jobs"] = [f"j{number}" for number in range(1, place.LOCAL_BUILDERS + 2)] + ["j12"]
         months_ago = state.stamp(T0 - timedelta(days=90))
         data["jobs"]["j12"] = job(state="waiting", questions=[state.new_question(None, "Which store?", months_ago, card=CARD)], created=months_ago, updated=months_ago)
-        data["orders"]["o2"] = order(text="fix the card", jobs=["j10"])
-        data["orders"]["o3"] = order(text="fix the watch", jobs=["j11"])
+        data["orders"]["o1"]["class"] = "process"
+        data["orders"]["o2"] = order(text="fix the card", jobs=["j10"], parts={"fix the card": state.new_part()}, **{"class": "process"})
+        data["orders"]["o3"] = order(text="fix the watch", jobs=["j11"], parts={"fix the watch": state.new_part()}, **{"class": "process"})
         for job_id, order_id, added in (("j9", "o1", 10), ("j10", "o2", 20), ("j11", "o3", 30)):
-            data["jobs"][job_id] = job(order=order_id, session="session-under-test", created=state.stamp(T0 - timedelta(minutes=added)), updated=state.stamp(T0 - timedelta(minutes=10)))
+            data["jobs"][job_id] = job(order=order_id, parts=list(data["orders"][order_id]["parts"]), session="session-under-test", created=state.stamp(T0 - timedelta(minutes=added)), updated=state.stamp(T0 - timedelta(minutes=10)))
             place.queue(data["jobs"][job_id], T0 - timedelta(minutes=10))
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
@@ -6547,7 +6548,7 @@ def test_a_watch_pass_reads_github_twenty_five_open_prs_a_call_however_many_it_w
     with edit(demo) as data:
         for number in range(1, count):
             key = f"Forge-AI/monorepo#{1000 + number}"
-            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": f"head{number}"}
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": f"head{number}", "base": "main"}
     asked: list[list[str]] = []
     monkeypatch.setattr(github, "fetch", REAL_FETCH)
     monkeypatch.setattr(github, "run", lambda cmd, **_: asked.append(cmd) or json.dumps({"data": {}}))
@@ -12786,7 +12787,7 @@ def test_a_prover_waits_on_no_staging_deploy_once_a_production_cluster_of_every_
 ) -> None:
     key = "Forge-AI/monorepo#57634"
     with edit(demo) as data:
-        data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged", "merged_sha": "bbb222"}
+        data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged", "merged_sha": "bbb222", "head": "bbb111", "base": "main"}
         data["jobs"]["j9"] = state.new_job("o1", "builder", f"prove {key} live", [], state.stamp()) | {"waits": [f"staging:dashboard/plat-usw2-staging@{'b' * 40}"]}
         data["jobs"]["j20"] = state.new_job("o1", "builder", "hotfix it", [], state.stamp()) | {"state": "done", "brief_flags": {"release": "tools/ci release hotfix 57634 --order 14e8441"}, "release_build": "https://buildkite.com/forge/release/builds/1"}
     monkeypatch.setattr(orca, "checkout", lambda name, cwd, wait=0: tmp_path)
