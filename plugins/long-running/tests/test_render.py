@@ -242,7 +242,7 @@ def test_a_merged_prs_red_line_names_each_check_its_lander_merged_past_as_the_de
     assert [key for key, line in lines.items() if "the lander" in line] == [("merged", "fail")]
 
 
-def test_a_monorepo_prs_status_line_says_its_staging_test_and_result_as_his_card_does() -> None:
+def test_a_monorepo_prs_status_line_says_its_staging_test_and_result_as_his_card_does(named_repo: None) -> None:
     drive = sample()
     proof = "https://buildkite.com/forge/staging/builds/9"
     drive["orders"]["o1"]["parts"][state.STAGING_TEST.format(number=42)] = state.new_part() | {"soak": "staging:sandsql/plat-usw2-staging@f3a6f23059917549d64ca2fdbdb5034f34289019", "posted": proof}

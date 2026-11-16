@@ -17,7 +17,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import HOME, EnvsRelease, HomeBuild, HomeRepo, MonorepoPaths, SlotStaging, provide, DRIVE_TERMINAL, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged, own_time
+from conftest import HOME, EnvsRelease, HomeBuild, HomeRepo, MonorepoPaths, NamedRepo, SlotStaging, provide, DRIVE_TERMINAL, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged, own_time
 from drive import agents, card, cli, codex, dashboard, github, install, land, launchd, limits, orca, place, providers, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, train, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -262,6 +262,22 @@ def monorepo_providers(monkeypatch: pytest.MonkeyPatch) -> None:
 
 class HomePaths(MonorepoPaths, HomeRepo):
     """The HomeRepo fake with the monorepo's path reads, so its dangerous, CI config and checkout tool paths stay the monorepo's."""
+
+
+class NamedPaths(MonorepoPaths, NamedRepo):
+    """The monorepo's path reads under its name, with no merge queue."""
+
+
+@pytest.fixture
+def named_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every drive's providers the monorepo_providers ones under the monorepo's name, so its PRs' staging rows and commit links name it."""
+
+    def built(clone: Path) -> providers.Providers:
+        roles = HOME | {"repo": NamedPaths, "release": LiveRelease, "staging": SlotStaging}
+        return providers.Providers(None, {}, **{role: made(clone, clone, {}) for role, made in roles.items()})
+
+    monkeypatch.setattr(providers, "of", lambda data: built(Path(data["roles"]["coordinator"]["cwd"])))
+    monkeypatch.setattr(providers, "at", lambda clone, checkout=None: built(clone))
 
 
 @pytest.fixture
@@ -2094,7 +2110,7 @@ def test_the_drives_own_watch_starts_a_projects_briefed_builder_and_a_projects_w
     assert started == [(job_id, "launch")]
 
 
-def test_a_merge_prover_carries_only_the_parts_its_merged_prs_deliver_never_another_prs_staging_test() -> None:
+def test_a_merge_prover_carries_only_the_parts_its_merged_prs_deliver_never_another_prs_staging_test(named_repo: None) -> None:
     merged = "Forge-AI/monorepo#56521"
     data = {"prs": {merged: {"order": "o1482", "parts": []}, "Forge-AI/monorepo#7": {"order": "o1", "parts": ["the fix"]}}}
     work = "Dream ledger votes keep no memory sentence or reason text in Postgres"
@@ -5632,6 +5648,7 @@ def test_a_pr_whose_card_draw_goes_out_with_no_open_card_at_its_head_is_a_failed
 @pytest.mark.parametrize("said", [f"PUSHED {state.pr_url(KEY)}", f"WAITING {state.pr_url(KEY)} to land and release"])
 @pytest.mark.parametrize("job_state", ["running", "waiting"])
 def test_an_unchecked_pr_starts_one_check_against_his_words_whatever_its_jobs_state_whose_checked_line_wakes_no_one_and_whose_not_ready_line_goes_to_its_builder(
+    named_paths: None,
     demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], judge: Judge, said: str, job_state: str, woken: list[tuple[str, str]]
 ) -> None:
     serve(monkeypatch, {})
@@ -11336,6 +11353,7 @@ def staged_on(target: str, commit: str) -> str:
 
 
 def test_23_staging_waits_of_4_jobs_on_one_env_make_one_stall_one_watchdog_and_one_stuck_line_and_a_lone_service_left_undeployed_its_own(
+    named_paths: None,
     demo: str, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]]
 ) -> None:
     waits = {
