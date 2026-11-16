@@ -868,12 +868,13 @@ def owed(name: str, job_id: str) -> list[dict]:
 
 
 def replies(name: str, job_id: str) -> list[dict]:
-    """The job's kept messages and returns, oldest first, each once: its history, then each message its outbox still owes, by owed, and each the batch or write running now keeps once it saves, by keep_reply_saved, each placed as keep_reply will keep it, by reply_place, so a reader before the delivery reads what it will, every row without the kept_at it is ordered by; a watch stopped between keeping a message and saving its cursor keeps it again."""
+    """The job's kept messages and returns, oldest first, each once: its history, then each message its outbox still owes, by owed, and each the batch or write running now keeps once it saves, by keep_reply_saved, each placed as keep_reply will keep it, by reply_place, so a reader before the delivery reads what it will, every row without the kept_at it is ordered by; the outbox read before the history, so a delivery that keeps a message and acks it between the two reads leaves it in one of them; a watch stopped between keeping a message and saving its cursor keeps it again."""
+    running = AFTER_SAVE[name] if name in AFTER_SAVE else attempt.effects if (attempt := ATTEMPT.get()) is not None else []
+    pending = [*owed(name, job_id), *(effect.message for effect in running if isinstance(effect, Keeping) and (effect.name, effect.job_id) == (name, job_id))]
     path = replies_path(name, job_id)
     kept = list({reply["id"]: reply for reply in (json.loads(line) for line in path.read_text().splitlines())}.values()) if path.exists() else []
-    running = AFTER_SAVE[name] if name in AFTER_SAVE else attempt.effects if (attempt := ATTEMPT.get()) is not None else []
     ids = {reply["id"] for reply in kept}
-    for reply in [*owed(name, job_id), *(effect.message for effect in running if isinstance(effect, Keeping) and (effect.name, effect.job_id) == (name, job_id))]:
+    for reply in pending:
         if reply["id"] not in ids:
             kept.insert(reply_place(kept, reply), reply)
             ids.add(reply["id"])
