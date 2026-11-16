@@ -3185,7 +3185,7 @@ def go_clears(pr: dict) -> bool:
 
 
 def give_go(data: dict, key: str, order_id: str) -> None:
-    """Mark an open PR cleared by his go on order_id, by his words GO_WORDS, so it lands with no Approve card and no merge queue. Its staging test stays: a dangerous change, an incident fix included, merges only after its staging test passes, by his rule in the monorepo's AGENTS.md and his answer 0048b14, and a started test runs to its end."""
+    """Mark an open PR cleared by his go on order_id, by his words GO_WORDS, so it lands with no Approve card and no merge queue. Its staging test stays: a dangerous change, an incident fix included, merges only after its staging test passes, by his rule in the repository's AGENTS.md and his answer 0048b14, and a started test runs to its end."""
     data["prs"][key]["go"] = order_id
 
 
@@ -3193,7 +3193,7 @@ def incident_goes(data: dict) -> None:
     """Give each open PR serving an open incident-class order that order's go, by give_go, by his ruling that an open incident is his go to merge and hotfix its fix, with no session recording it, run when drive order set makes an order an incident and once over a drive saved before it; drive pr add gives a PR registered later its go itself: its dangerous change still keeps its staging test and his presence."""
     going = {order_id for order_id, order in data["orders"].items() if has_go(order)}
     for key, pr in data["prs"].items() if going else ():
-        if pr["state"] == "open" and not pr["go"] and (order_id := next((order_id for order_id in served_orders(data, pr) if order_id in going), None)):
+        if pr["state"] == "open" and not pr["go"] and set(pr_jobs(data, pr)) <= data["jobs"].keys() and (order_id := next((order_id for order_id in served_orders(data, pr) if order_id in going), None)):
             give_go(data, key, order_id)
 
 

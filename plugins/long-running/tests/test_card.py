@@ -1241,7 +1241,7 @@ def test_his_approve_on_an_incidents_repair_his_open_card_holds_picks_its_recomm
 ) -> None:
     waits = f"{drive}:{asker}-1794626572499"
     with edit(drive) as data:
-        data["orders"]["o1"] |= {"incident": True, "jobs": list(dict.fromkeys(["j1", asker]))}
+        data["orders"]["o1"] |= {"incident": True, "class": "asked", "jobs": list(dict.fromkeys(["j1", asker]))}
         data["jobs"].setdefault(asker, state.new_job("o1", "builder", "format numbers", [], "2026-11-13T19:00:00-08:00"))
         asked = state.new_question(None, JOURNAL_QUESTION, "2026-11-13T19:22:52-08:00", unsettled="aa5f6ea: Jev reads the recommended option as breaking it", card=JOURNAL_CARD, holds=holds)
         data["jobs"][asker]["questions"] = [asked | {"waits": waits}]
