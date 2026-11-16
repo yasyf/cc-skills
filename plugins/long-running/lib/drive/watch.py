@@ -4667,7 +4667,7 @@ def finished_boxes(watcher: Watcher, moment: datetime) -> list[str]:
     held = [
         job_id
         for job_id in sorted(holders)
-        if (job := data["jobs"].get(job_id)) and job["state"] != "running" and heard_job(watcher, data, job) and not state.box_wanted(data, job_id)
+        if (job := data["jobs"].get(job_id)) and job["state"] in state.FINISHED_JOB_STATES and heard_job(watcher, data, job) and not state.box_wanted(data, job_id)
     ]
     if held:
         state.detach(watcher.name, ["mac-boxes-down", *held], state.MAC_BOXES_LOG)
