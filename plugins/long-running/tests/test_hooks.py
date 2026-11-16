@@ -1658,7 +1658,7 @@ def test_the_release_gate_reads_a_start_against_the_drive_release_notes_in_its_r
         " `ccn note list --label drive:demo --label release-order` and `--label release` list before you offer or start one"
     ]
     assert brief.started("tools/ci release start --manual --stack runtime-api-next/plat-usw2-prod --commit 55b9c39c --rollback", {}) == [
-        {"manual": ("true",), "stack": ("runtime-api-next/plat-usw2-prod",), "commit": ("55b9c39c",), "rollback": ("true",)}
+        {"manual": ("true",), "rollback": ("true",), "targets": ("runtime-api-next",), "env": ("plat-usw2-prod",), "from": ("55b9c39c",)}
     ]
 
 
@@ -1700,7 +1700,7 @@ def test_the_release_gate_refuses_a_start_whose_commit_lacks_a_merged_pr_the_car
     asked = f'`--order 7ab1e20` names his answer to the card asking "{CUT_PICK["title"]}", which names #7, and'
     then = f": it starts as given, since his answer may leave one out; to carry each, start from a commit holding them, such as `--from {merge}`, the newest of their merge commits"
     starts = {
-        "tools/ci release start --order 7ab1e20": f"{asked} this start names no `--from` or `--commit`, so go/ci picks the commit it ships, which may lack one{then}",
+        "tools/ci release start --order 7ab1e20": f"{asked} this start names no `--from` or `--commit`, so the release tool picks the commit it ships, which may lack one{then}",
         f"tools/ci release start --from {older} --order 7ab1e20": f"{asked} at `{older}` it lacks #7 ({merge[:12]}){then}",
         f"tools/ci release start --manual --stack datadog/plat-usw2-prod --commit {older} --order 7ab1e20": f"{asked} at `{older}` it lacks #7 ({merge[:12]}){then}",
         f"tools/ci release start --from {merge} --order 7ab1e20": None,
@@ -1803,7 +1803,7 @@ def test_while_he_holds_every_release_a_drive_runs_none_but_on_his_exception_rec
     asked = len(jev.asked)
     refused = [landing_guard.deny_reason(bash(command) | top) for command in HELD_VERBS]
     assert refused[0] == held("tools/ci release resume 15495", "it names no `--order`, and neither does a `Release:` line of its job's brief")
-    assert [reason.startswith(f'refused: he holds every release reaching past plat-usw2-staging and plat-usw2-sandbox, by his words "{RELEASE_HOLD["body"]}" (15c4de1, {HOLD_LINK})') for reason in refused] == [True] * len(HELD_VERBS)
+    assert [reason.startswith(f'refused: he holds every release reaching past the rehearsal envs of the release provider, by his words "{RELEASE_HOLD["body"]}" (15c4de1, {HOLD_LINK})') for reason in refused] == [True] * len(HELD_VERBS)
     assert len(jev.asked) == asked
     jev.picks("none")
     assert brief.approval_refusal(start.format("8b2e4f7"), data) == held(
