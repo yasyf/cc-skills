@@ -327,7 +327,6 @@ TENANTS = re.compile(r"^tenants:\n((?:[ -].*(?:\n|$))*)", re.MULTILINE)
 TEAM_NAME = re.compile(r"^[ -] (?:name|displayName): *(.+?) *$", re.MULTILINE)
 STAGE = re.compile(r"^stage: *(\S+) *$", re.MULTILINE)
 PROD = re.compile(r"^prod: *true *$", re.MULTILINE)
-STAGING = "staging"
 PRODUCTION = "production, every environment except staging"
 ASKS_PAGE = Noul(
     "Does `order` name a goal he wants worked toward or prioritized, such as \"let's prioritize\" a project, link or outcome or getting a set of changes merged,"

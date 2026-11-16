@@ -3742,8 +3742,8 @@ def part_soak(data: dict, waits: list[str], part: str) -> str | None:
 
 
 def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a staging test's DONE may not free the PRs held for it, naming the fix: a builder or codex job whose goal names staging or that holds a `staging test of #N before it lands` part, whose DONE, taken as take_result takes it and read as its proof proven, which a DONE drive job prove proves before it delivers needs, ends every wait an open PR holds on the job or a part it holds, never one following a release it started, by starts_cut, frees that PR only when a Buildkite build the CHECK: lines heading the PR's own run of cases name, by part_run, or every CHECK: line for a PR it tests no staging part of, passed, at a commit carrying the PR's head, an apply step on an env its infra/envs file marks `stage: staging` or the mac-box-approve step of a `tools/ci mac-box prove`, which signs in to staging a Mac box holding Iris Staging and sand-next built at that commit, the one staging test of a change only a Mac runs, which no staging deploy carries, read with one `bk build view` of each build and, in the coordinator's checkout, by github.uncarried, the lines each freed PR changes in each file since its fork from its base branch, which a shared cut squashing or replaying it on an older line carries too, a file no build ships aside, or, for a PR reaching only code its caller runs from a checkout, the code on go/ci's dev list its caller runs from a checkout, which no release deploys, by cli.release_reach's releases, the GitHub commit link of a commit carrying its head, the head that checkout ran, by the same read, since a soak that tested what staging already ran, or a cut built without the PRs, proves none of them; None for any other result."""
-    from drive import brief, cli, settled, view
+    """Why a staging test's DONE may not free the PRs held for it, naming the fix: a builder or codex job whose goal names staging or that holds a `staging test of #N before it lands` part, whose DONE, taken as take_result takes it and read as its proof proven, which a DONE drive job prove proves before it delivers needs, ends every wait an open PR holds on the job or a part it holds, never one following a release it started, by starts_cut, frees that PR only when a Buildkite build the CHECK: lines heading the PR's own run of cases name, by part_run, or every CHECK: line for a PR it tests no staging part of, passed, at a commit carrying the PR's head, an apply step on an env the release provider places on staging or the Mac box provider's signed-in step of a Mac box proof, which signs in to staging a Mac box holding the builds that provider names, built at that commit, the one staging test of a change only a Mac runs, which no staging deploy carries, read with one `bk build view` of each build and, in the coordinator's checkout, by github.uncarried, the lines each freed PR changes in each file since its fork from its base branch, which a shared cut squashing or replaying it on an older line carries too, a file no build ships aside, or, for a PR reaching only code its caller runs from a checkout, the code on go/ci's dev list its caller runs from a checkout, which no release deploys, by cli.release_reach's releases, the GitHub commit link of a commit carrying its head, the head that checkout ran, by the same read, since a soak that tested what staging already ran, or a cut built without the PRs, proves none of them; None for any other result."""
+    from drive import brief, cli, view
 
     job = data["jobs"][job_id]
     if job["kind"] not in CHANGE_KINDS or not re.match(r"DONE\b", line) or MERGED_LINE.match(line) or starts_cut(job) or not (STAGING_GOAL.search(job["goal"]) or staging_parts(data, job)):
@@ -3763,13 +3763,14 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
     named = {key: part_run(data, job_id, report, tested[key.casefold()])[1] if key.casefold() in tested else every for key in freed}
     runs = {key: [found[0] for proof in proofs if (found := github.BUILD.match(proof))] for key, proofs in named.items()}
     deployed, said, lacking = {}, [], {}
-    signed_in = provided(data).mac_box.signed_in_step
+    repo = provided(data)
+    signed_in = repo.mac_box.signed_in_step
     try:
         for build in dict.fromkeys(build for builds in runs.values() for build in builds):
             ran_build = github.BUILD.match(build)
             read = github.build(ran_build["pipeline"], ran_build["number"])
             passed = {ran.get("step_key") or "" for ran in read.get("jobs", []) if ran.get("state") == "passed"}
-            if envs := sorted({step["env"] for key in passed if (step := APPLY_STEP.fullmatch(key)) and settled.stage(step["env"], clone) == settled.STAGING}) + [MAC_BOX] * (signed_in in passed):
+            if envs := sorted({step["env"] for key in passed if (step := APPLY_STEP.fullmatch(key)) and repo.release.place(step["env"]).stage == "staging"}) + [MAC_BOX] * (signed_in in passed):
                 deployed[build] = (read["commit"], envs)
             else:
                 said.append(f"{build} deployed nothing to staging, passing no apply step on an env the release provider places on staging and no {signed_in} step of a Mac box proof")

@@ -2010,9 +2010,12 @@ def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_tha
     state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     clone = tmp_path / "monorepo"
-    (clone / "infra" / "envs").mkdir(parents=True)
-    (clone / "infra" / "envs" / "plat-usw2-staging.yaml").write_text("name: plat-usw2-staging\nstage: staging\n")
-    (clone / "infra" / "envs" / "plat-usw2-prod.yaml").write_text("name: plat-usw2-prod\nstage: prod\n")
+
+    class Staged(providers.ReleaseProvider):
+        def place(self, env: str) -> providers.Place:
+            return providers.Place({"plat-usw2-staging": "staging", "plat-usw2-prod": "prod"}[env], env == "plat-usw2-prod", ())
+
+    provide(monkeypatch, clone, release=Staged)
     subprocess.run(["git", "init", "-q", "-b", "dev", str(clone)], check=True)
     git_head(clone, "commit", "-q", "--allow-empty", "-m", "base")
     git_head(clone, "remote", "add", "origin", str(clone))
