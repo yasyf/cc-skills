@@ -1903,8 +1903,10 @@ def staging_reads(data: dict) -> tuple[bool, str | None, str | None]:
         ('CASE rollback semantics: the release reads mode dry-run, rollback true: pass\nCASE the key published ("ci-go: linux-amd64 is already published"): pass\n', (True, PROOF, "j1")),
         ("CASE B the first blob mint on lapsed keys: pass: run run_01m7 on the soak\n", (True, PROOF, "j1")),
         ("CASE rollback semantics: the release reads mode dry-run: fail: rollback false\n", (False, None, "j1")),
+        ("CASE 1 pass (W2m c2475b75c178): all 10 backfill-pass CronJobs run the cut's image\nCASE 3 pass (D1b 9c560ac70113, #42 alone on dev): the dry run succeeded\n", (True, PROOF, "j1")),
+        ("CASE 1 pass (W2m c2475b75c178): all 10 backfill-pass CronJobs run the cut's image\nCASE 2 fail (W2m): the dry run logged no run\n", (False, None, "j1")),
     ],
-    ids=["every-case-passes", "a-case-fails", "a-case-not-exercised", "every-case-not-exercised", "a-case-skipped", "no-case-line", "a-prose-line-opening-case", "a-verdict-after-what-ran", "a-verdict-before-what-ran", "a-failing-verdict-after-what-ran"],
+    ids=["every-case-passes", "a-case-fails", "a-case-not-exercised", "every-case-not-exercised", "a-case-skipped", "no-case-line", "a-prose-line-opening-case", "a-verdict-after-what-ran", "a-verdict-before-what-ran", "a-failing-verdict-after-what-ran", "verdicts-in-the-case-name-over-two-cuts", "a-failing-verdict-in-the-case-name"],
 )
 def test_a_staging_test_part_is_delivered_by_its_testers_done_only_when_a_case_passes_and_each_other_passes_or_was_not_exercised_as_j164s_was_not(
     named_repo: None,
@@ -3135,3 +3137,19 @@ def test_a_job_not_running_keeps_its_mac_box_only_under_a_live_slot_hold_for_it(
         data["slots"]["api/plat-usw2-staging"]["hold"]["until"] = state.stamp(state.now() - timedelta(minutes=1))
     data = state.load("demo")
     assert [job_id for job_id in ("j1", "j2", "j3") if state.box_wanted(data, job_id)] == ["j1"]
+
+
+
+def test_an_unproven_line_keeps_a_staging_tests_passing_cases_from_delivering_its_part_until_the_coordinator_accepts_that_line_as_root_did_j4852s(
+    named_repo: None, state_root: Path
+) -> None:
+    data = staging_drive("j1")
+    unproven = "whether case 3's call met a 503 and was resent: retry.Do logs no tries"
+    staging_return(data, "j1", "DONE #42's staging test passed", f"CASE 1 pass (W2m c2475b75c178): the CronJobs run the cut's image\nUNPROVEN: {unproven}\n")
+    held = staging_reads(data)
+    report = f"DONE #42's staging test passed\nCHECK: {PROOF}\nCASE 1 pass (W2m c2475b75c178): the CronJobs run the cut's image\nUNPROVEN: {unproven}\n"
+    left = state.open_unproven(data["jobs"]["j1"], report)
+    data["jobs"]["j1"]["accepted_unproven"].append({"line": unproven, "why": "CI carries the resend", "by": "root", "at": state.stamp()})
+    state.take_result(data, "j1", "DONE #42's staging test passed", report)
+    none = state.open_unproven(data["jobs"]["j1"], "DONE x\nUNPROVEN: none\n")
+    assert (held, left, staging_reads(data), none) == ((False, None, "j1"), [unproven], (True, PROOF, "j1"), [])

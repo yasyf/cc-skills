@@ -5328,7 +5328,14 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, order_id: str,
                 return f"{job_id}'s DONE ran no case of {key}'s staging test, so the part waits on a run of it: {add} --goal '<run it>'"
             if held["posted"]:
                 return f"{job_id}'s DONE passed {key}'s staging test, and a newer tester of it holds the pass"
-            return f"{job_id}'s DONE is no pass of {key}'s staging test: {cut(state.unpassed(held), 240)}, so the part waits on a rerun: {add} --goal '<rerun it>'"
+            report = next((reply["body"] for reply in state.returns(watcher.name, job_id) if re.match(r"DONE\b", state.opening(reply["body"]))), "")
+            if state.passing([tuple(each) for each in held["cases"]]) and (left := state.open_unproven(job, report)):
+                return (
+                    f"{job_id}'s DONE passes every case of {key}'s staging test but leaves {len(left)} UNPROVEN line{'' if len(left) == 1 else 's'} no one accepted:"
+                    f" {'; '.join(left)}; the part is delivered once the coordinator owning the test accepts {'it' if len(left) == 1 else 'them'}:"
+                    f" drive job set {job_id} --accept-unproven '<why>', or a rerun proves {'it' if len(left) == 1 else 'them'}: {add} --goal '<rerun it>'"
+                )
+            return f"{job_id}'s DONE is no pass of {key}'s staging test: {state.unpassed(held)}, so the part waits on a rerun: {add} --goal '<rerun it>'"
         if done_before_proofs(data, job_id):
             return None
         if state.unposted_answer(data, job_id):
@@ -6292,9 +6299,13 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     if pr["stage"] and pr["stage"]["owner"] != now.owner and pr["state"] == "open" and now.name != "uncarded":
                         moved.append(key)
                     stage.stamp(pr, now, moment)
-                    if pr["state"] == "open" and not (now.name == "waiting" and state.staging_owed(data, key)):
+                    if pr["state"] == "open" and not (now.name == "waiting" and (state.staging_owed(data, key) or stage.testing(data, key, watcher.cards))):
                         acts.append((key, now, True, stage.line(key, pr, now) + f" {ids(pr)}"))
-                elif stage.overdue(pr, now, moment) and not (now.name == "waiting" and state.staging_owed(data, key)) and not stage.parked(data, key, watcher.cards):
+                elif (
+                    stage.overdue(pr, now, moment)
+                    and not (now.name == "waiting" and (state.staging_owed(data, key) or stage.testing(data, key, watcher.cards)))
+                    and not stage.parked(data, key, watcher.cards)
+                ):
                     stage.kept(pr, now)
                     pr["stage"]["waking"] = state.stamp(moment)
                     acts.append((key, now, False, stage.line(key, pr, now) + f" {ids(pr)}"))

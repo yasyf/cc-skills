@@ -2065,6 +2065,8 @@ def job_set(args: argparse.Namespace) -> int:
     found = find(known["jobs"], args.id, "job")
     if args.reopen:
         return emit(args, *reopen(name, args.id, args.agent, args.session))
+    if args.accept_unproven:
+        return emit(args, *accept_unproven(name, args.id, args.accept_unproven))
     if args.heard:
         told = [kept for kept in found["undelivered"] if kept.get("told")]
 
@@ -3443,6 +3445,31 @@ def stray_return(name: str, job_id: str, whole: str, why: str) -> tuple[str, dic
     return (
         f"{job_id}: not taken, its state unchanged: {why}, so this return is logged at {body} and sets nothing",
         {"id": job_id, "report": None, "stray": str(body)},
+    )
+
+
+def accept_unproven(name: str, job_id: str, why: str) -> tuple[str, dict]:
+    """Record the coordinator owning a staging test accepting each UNPROVEN: line its tester's newest DONE leaves open, by state.open_unproven, verbatim with why, then read that DONE's run again on each staging test part the job holds, so a part those lines alone kept from a full pass is delivered; refused from a session that may not act on the job's order, or for a job whose newest DONE leaves none open."""
+    data = state.load(name)
+    job = find(data["jobs"], job_id, "job")
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if refused := state.job_held_elsewhere(data, job, session):
+        raise DriveError(f"{job_id}: refused, nothing accepted: {refused}")
+    done = next((reply for reply in state.returns(name, job_id) if re.match(r"DONE\b", state.opening(reply["body"]))), None)
+    if done is None or not (left := state.open_unproven(job, done["body"])):
+        raise DriveError(f"{job_id}: refused, nothing accepted: its newest DONE leaves no UNPROVEN: line open")
+    who = state.session_lane(data, session) or "a session holding no lane"
+
+    def accepted_write(data: dict):
+        held = data["jobs"][job_id]
+        held["accepted_unproven"] += [{"line": line, "why": why, "by": who, "at": state.stamp()} for line in left]
+        state.post_staging_proof(data, job_id, state.opening(done["body"]), done["body"])
+        return [f"{order_id}: {part}" for order_id, part in state.staging_parts(data, held) if state.delivered(data, order_id, part)]
+
+    delivered = state.write(name, accepted_write)
+    return (
+        f"{job_id}: {who} accepted {len(left)} UNPROVEN line{'' if len(left) == 1 else 's'} ({'; '.join(left)}) because {why}; delivered now: {', '.join(delivered) or 'no staging part'}",
+        {"id": job_id, "accepted": left, "delivered": delivered},
     )
 
 
@@ -8240,6 +8267,14 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.add_argument("--session", help="with --reopen, the `claude --bg` session its recorded agent runs as")
+    verb.add_argument(
+        "--accept-unproven",
+        metavar="WHY",
+        help=(
+            "the coordinator owning a staging test accepts each UNPROVEN: line the tester's newest DONE leaves open, recorded verbatim with why;"
+            " a part those lines alone kept from a full pass is then delivered"
+        ),
+    )
     verb.add_argument(
         "--heard",
         action="store_true",

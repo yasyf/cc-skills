@@ -12493,3 +12493,29 @@ def test_a_relay_stage_that_raises_is_contained_so_post_lines_after_it_still_run
     monkeypatch.setattr(watch, "post_lines", lambda watcher, moment: ["POST started"])
     monkeypatch.setattr(watch, "failed", lambda *args: None)
     assert watch.relay_pass(watcher(demo), T0) == ["POST started"]
+
+
+def test_a_pr_waiting_only_on_a_staging_run_its_tester_runs_gets_no_wake_until_that_tester_ends_without_a_pass_as_j5170s_window_was_interrupted(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    part = state.STAGING_TEST.format(number=42)
+    with edit(demo) as data:
+        data["orders"]["o2"] = order(jobs=["j5170"], parts={part: state.new_part()})
+        data["jobs"]["j5170"] = job(order="o2", state="running", goal="test #42 on staging", parts=[part], builds_nothing=True)
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved", "waits": ["j5170", f"o2:{part}"]}
+    approve(demo, KEY)
+    woken: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(stage, "wake", lambda name, key, text, job_id=None, marks=(), at=None: woken.append((key, job_id)))
+    monkeypatch.setattr(slack, "redraw_pr_cards", lambda url: None)
+    watching = carded(demo)
+    data = state.load(demo)
+    now = stage.of(data, KEY, NO_CARDS)
+    assert (now.name, now.why.count("its staging run by j5170"), stage.testing(data, KEY, NO_CARDS)) == ("waiting", 1, True)
+    for minutes in (0, 61, 122):
+        watch.stage_lines(watching, T0 + timedelta(minutes=minutes))
+    assert woken == []
+    with edit(demo) as data:
+        data["jobs"]["j5170"].update(state="failed", said="BLOCKED staging froze for an incident")
+    assert stage.testing(state.load(demo), KEY, NO_CARDS) is False
+    watch.stage_lines(watching, T0 + timedelta(minutes=200))
+    assert [key for key, _ in woken] == [KEY]

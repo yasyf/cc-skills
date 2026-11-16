@@ -200,6 +200,8 @@ CASE_LINE = re.compile(r"^CASE[ \t]+(?P<case>.+?):(?:[ \t]+|$)(?P<rest>.*?)[ \t]
 PASSED_CASE = re.compile(r"pass(?:ed)?\b", re.IGNORECASE)
 CASE_VERDICT = re.compile(r"(?:pass(?:ed)?|fail(?:ed)?|skipped|not exercised)\b", re.IGNORECASE)
 UNEXERCISED_CASE = re.compile(r"not exercised\b[ \t]*:?[ \t]*", re.IGNORECASE)
+VERDICT_IN_CASE = re.compile(r"(?P<case>\S+)[ \t]+(?P<verdict>(?:pass(?:ed)?|fail(?:ed)?|skipped|not exercised)\b.*)", re.IGNORECASE)
+UNPROVEN_LINE = re.compile(r"^UNPROVEN:[ \t]*(?P<what>.+?)[ \t]*$", re.MULTILINE)
 RETURN_WAIT = re.compile(r"(?P<job>j\d+)@(?P<returned>\d+)")
 LINE_JOB = re.compile(r"(?<![\w:/.-])j\d+(?![\w@-])")
 LINE_ORDER = re.compile(r"(?<![\w:/.-])o\d+(?![\w:@-])")
@@ -3772,7 +3774,7 @@ def tested_head(data: dict, report: str, part: str) -> str | None:
     pr = data["prs"].get(f"{home(data)}#{number}")
     if pr is None or not pr["head"]:
         return None
-    named = re.search(rf"/pull/{number}\b\S* at ([0-9a-f]{{7,40}})\b", report)
+    named = re.search(rf"(?:/pull/{number}\b\S*|#{number}) at ([0-9a-f]{{7,40}})\b", report)
     return named[1] if named else pr["head"]
 
 
@@ -3793,9 +3795,15 @@ def take_unexercised_approves(data: dict, order_id: str, part: str, moment: str)
 
 
 def full_pass(data: dict, job_id: str, report: str, part: str) -> tuple[list[tuple[str, str]], str | None]:
-    """The cases a tester's report ran for a staging test part, by part_run, beside the first proof its CHECK: lines name for them when they make a full pass, by passing, and the report names the PR of the drive's home repository the part tests, by tests_named, else None."""
+    """The cases a tester's report ran for a staging test part, by part_run, beside the first proof its CHECK: lines name for them when they make a full pass, by passing, the report names the PR of the drive's home repository the part tests, by tests_named, and it leaves no UNPROVEN: line the coordinator owning the test has not accepted, by open_unproven, else None."""
     cases, proofs = part_run(data, job_id, report, part)
-    return cases, proofs[0] if proofs and passing(cases) and tests_named(report, part, home(data)) else None
+    return cases, proofs[0] if proofs and passing(cases) and tests_named(report, part, home(data)) and not open_unproven(data["jobs"][job_id], report) else None
+
+
+def open_unproven(job: dict, report: str) -> list[str]:
+    """Each UNPROVEN: line of a tester's report, but one reading none, that `drive job set <j> --accept-unproven` has not recorded the coordinator owning the test accepting: each stays a reason its staging part is not delivered."""
+    accepted = {held["line"] for held in job["accepted_unproven"]}
+    return [found["what"] for found in UNPROVEN_LINE.finditer(report) if found["what"].casefold().rstrip(".") != "none" and found["what"] not in accepted]
 
 
 def passing(cases: list[tuple[str, str]]) -> bool:
@@ -3849,7 +3857,11 @@ def case_lines(report: str) -> list[tuple[str, str]]:
     lines = []
     for case, rest in CASE_LINE.findall(report):
         pieces = [case, *rest.split(": ")]
-        at = next((index for index, piece in enumerate(pieces) if index and CASE_VERDICT.match(piece)), 1)
+        at = next((index for index, piece in enumerate(pieces) if index and CASE_VERDICT.match(piece)), None)
+        if at is None and (inside := VERDICT_IN_CASE.fullmatch(case)):
+            lines.append((inside["case"], ": ".join([inside["verdict"], *pieces[1:]])))
+            continue
+        at = at or 1
         lines.append((": ".join(pieces[:at]), ": ".join(pieces[at:])))
     return lines
 
@@ -4403,6 +4415,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "lost_since": None,
         "woken": None,
         "handed_to": None,
+        "accepted_unproven": [],
     }
 
 

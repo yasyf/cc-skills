@@ -132,10 +132,17 @@ def waiting(data: dict, key: str, cards: dict) -> Stage | None:
     testers = {wait: tester for wait in standing if (tester := state.staging_tester(data, wait))}
     if untested := [wait for wait in standing if wait not in testers and (part := state.part_wait(data, wait)) and state.STAGING_PART.fullmatch(part[1])]:
         return Stage("red", BUILDER, f"it waits on {', '.join(untested)}, which no staging tester runs: return PUSHED with {state.STAGING_CASES}")
-    words = ", ".join(f"its staging run by {testers[wait]}, {view.tester_line(data, testers[wait])}" if wait in testers else wait for wait in standing)
+    words = ", ".join(dict.fromkeys(f"its staging run by {testers[wait]}, {view.tester_line(data, testers[wait])}" if wait in testers else wait for wait in standing))
     if len(testers) < len(standing):
         return Stage("waiting", mover(data, key, standing, cards), f"it waits on {words}, and the watch frees it once each ends")
     return Stage("waiting", mover(data, key, standing, cards), f"it waits on {words}")
+
+
+def testing(data: dict, key: str, cards: dict | None) -> bool:
+    """Whether every wait still holding the PR is a staging run whose tester reads running, so it owes no wake: a STAGE line or a resume would only interrupt the frozen window the run holds; once a tester ends without a pass its stage wakes again."""
+    standing = view.holding(data, pr_waits(data, data["prs"][key]), cards)
+    testers = [state.staging_tester(data, wait) for wait in standing]
+    return bool(standing) and all(tester and data["jobs"][tester]["state"] == "running" for tester in testers)
 
 
 def pr_waits(data: dict, pr: dict) -> list[str]:
