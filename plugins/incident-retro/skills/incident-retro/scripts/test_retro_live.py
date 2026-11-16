@@ -203,7 +203,11 @@ class CleanedTimeline(unittest.TestCase):
              "refs": ["https://buildkite.com/forge/release/builds/10"]},
         ]
         state.update(timeline=timeline, started_at="2026-09-02T14:05:00.400-07:00",
-                     detected_at="2026-09-02T14:05:00.400-07:00", severity="SEV2")
+                     detected_at="2026-09-02T14:05:00.400-07:00", severity="SEV2",
+                     teams=[{"id": "team_polar", "codename": "Polar", "from": "2026-09-02T14:05:00-07:00",
+                             "to": "2026-09-02T14:40:00-07:00", "runs": 227,
+                             "refs": ["https://example.slack.com/archives/C0TEST0001/p1789762983924459"]},
+                            {"id": "team_ursa", "codename": "Ursa"}])
         (self.incident / "state.json").write_text(json.dumps(state))
         run(retro_live.init, args(self.incident, self.docs))
         self.code = run(retro_live.sync, args(self.incident, self.docs))
@@ -223,6 +227,13 @@ class CleanedTimeline(unittest.TestCase):
         releases = [t for t in self.R["timeline"] if t["kind"] == "deploy"]
         self.assertEqual([r["refs"] for r in releases],
                          [["https://buildkite.com/forge/release/builds/9", "https://buildkite.com/forge/release/builds/10"]])
+
+    def test_each_customer_hurt_is_an_impact_row_with_what_measured_it(self):
+        self.assertEqual(self.R["impact"]["teams"], [
+            {"codename": "Polar", "text": "Polar had 227 failed runs.", "from": "2026-09-02T14:05:00-07:00",
+             "to": "2026-09-02T14:40:00-07:00", "runs": 227,
+             "refs": ["https://example.slack.com/archives/C0TEST0001/p1789762983924459"]},
+            {"codename": "Ursa", "text": "Ursa was hurt; nothing measured its failed runs."}])
 
     def test_the_severity_is_carried_as_the_page_reads_it(self):
         self.assertEqual(self.R["meta"]["incident"]["severity"], "sev-2")

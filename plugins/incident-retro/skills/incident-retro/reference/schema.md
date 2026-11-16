@@ -170,7 +170,7 @@ the first sync that saw a cause is the one the page shows.
 
 Each block contains `text` and `p` plus section-specific fields. `text` is the wording the team stands behind. `p` is the plain twin a reader outside the team sees first: 30 words or fewer, or a third of the original, excluding ids and file paths. `check --strict` errors on a missing twin or one that breaks those rules. It also errors when `text` changes after a snapshot but `p` does not. Every cause carries the same pair.
 
-- `impact.teams`: `[{codename, text}]`, one row per team and what it saw; `codename` holds the customer's name.
+- `impact.teams`: `[{codename, text, from?, to?, runs?, sessions?, refs?}]`, one row per team and what it saw; `codename` holds the customer's name. `from` and `to` bound when that customer was hurt, `runs` counts its failed runs and `sessions` the sessions it saw fail, each null when nothing measured it, and `refs` link where the numbers came from. The page opens on a table of these rows with a total, or says in one line that nothing was measured.
 - `impact.metrics`: `[{label, value, unit?, delta?, measured, cites?}]`. `value` is a display string (`"3 180"`); `measured` is a boolean, so every number is measured or tagged estimated; `cites` names windows or causes.
 - `resolution.links`: links as below, `closes` refused.
 - `detection.monitors`: `[{id, file?, role, fired?, recovered?}]` with `role` in `caught`, `missed`, `added`. `fired` and `recovered` are timestamps; the page derives "fired N after onset" from `fired` and `timestamps.onset`.
@@ -715,6 +715,8 @@ names no status. One outage window runs from `started_at` to the
 all-clear or now. `causes` come from `diagnoses`, carrying `identifiedAt`.
 `actions` come from `inventory`, with the disposition as the state, the
 matching `prs` as links, and a `history` entry appended only on a change.
+`impact.teams` comes from `teams`, one row per `{codename, from?, to?, runs?,
+sessions?, refs?}` with the counts the caller measured.
 `incident_channel`, when present, becomes `meta.incident.channel`. The
 `evidence/slack/` set is rebuilt from the log on every sync rather than added
 to, so a thread the log no longer carries leaves with it.
