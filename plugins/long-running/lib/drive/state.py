@@ -3303,9 +3303,15 @@ def incident_goes(data: dict) -> None:
 
 
 def markable(data: dict, key: str, head: str) -> bool:
-    """Whether mark_dangerous may stage a PR at a head from its changed files: an open PR of the providers' repository no order holds the staging test part of whose builder's `STAGING: none` lifted no test at that head, at any head."""
-    pr, part = data["prs"][key], STAGING_TEST.format(number=key.split("#")[1])
-    return pr["state"] == "open" and home_repo(data, github.repo_of(key)) and not (pr["unstaged"] and pr["unstaged"]["head"] == head) and not any(part in order["parts"] for order in data["orders"].values())
+    """Whether mark_dangerous judges a PR at a head from its changed files: an open PR of the providers' repository whose builder's `STAGING: none` lifted no test at that head, whether or not an order already holds its staging test part, since a part added by hand first left 331 waits no reader ever judged."""
+    pr = data["prs"][key]
+    return pr["state"] == "open" and home_repo(data, github.repo_of(key)) and not (pr["unstaged"] and pr["unstaged"]["head"] == head)
+
+
+def staging_held(data: dict, key: str) -> bool:
+    """Whether any order holds the PR's `staging test of #N before it lands` part."""
+    part = STAGING_TEST.format(number=key.split("#")[1])
+    return any(part in order["parts"] for order in data["orders"].values())
 
 
 def unmarked(data: dict) -> list[str]:
@@ -3325,24 +3331,32 @@ def classifier(data: dict) -> str:
     key = (found.sha, module)
     if key not in CLASSIFIER_SOURCES:
         CLASSIFIER_SOURCES[key] = providers.blob(Path(next(iter(bound_sessions(data).values()))["cwd"]), found.sha, module) or "" if module else ""
-    return hashlib.sha256((tables + CLASSIFIER_SOURCES[key]).encode()).hexdigest()[:16]
+    return hashlib.sha256((JUDGING + tables + CLASSIFIER_SOURCES[key]).encode()).hexdigest()[:16]
 
 
 CLASSIFIER_SOURCES: dict[tuple[str | None, str | None], str] = {}
+JUDGING = "every open head judged, a held staging part included"
 
 
 def mark_dangerous(data: dict, key: str, head: str, paths: list[str]) -> str | None:
-    """Stage a PR whose head changes a dangerous class of file, by dangerous(), as its builder's `STAGING: #N` line would, by stage_pr, in the session of its job, its tester's goal naming each class and its files, while markable, keeping the head read so each head is read once, and the paths that change how its data is stored, by land.stored, which his card reads on a PR changing more files than its read of the card lists: the check of a PR's changed files that `drive pr add` and the watch make, so the staging test AGENTS.md asks never rests on its builder's word alone, the tooling only helping the builder keep the prose rule, by his words 17f763e; the tester added, or None."""
+    """Stage a PR whose head changes a dangerous class of file, by dangerous(), as its builder's `STAGING: #N` line would, by stage_pr, in the session of its job, its tester's goal naming each class and its files, while markable, keeping the head read so each head is read once, and the paths that change how its data is stored, by land.stored, which his card reads on a PR changing more files than its read of the card lists: the check of a PR's changed files that `drive pr add` and the watch make, so the staging test AGENTS.md asks never rests on its builder's word alone, the tooling only helping the builder keep the prose rule, by his words 17f763e. A PR an order already holds the staging part of is judged too: a dangerous head only records owes_staging on it, adding no tester and holding no case, and a head the reader finds nothing dangerous in leaves its staging test, as unreach takes it off, so his Approve merges it; the tester added, or None."""
     from drive import land
 
     pr, by = data["prs"][key], classifier(data)
     if pr["paths_at"] == head and pr["paths_by"] == by:
         return None
     pr.update(paths_at=head, paths_by=by, stored=land.stored(paths))
-    if not markable(data, key, head) or not (classes := dangerous(data, paths, head)):
+    if not markable(data, key, head):
+        return None
+    held = staging_held(data, key)
+    if not (classes := dangerous(data, paths, head)):
+        if held:
+            unreach(data, key)
         return None
     changes = "; ".join(f"{kind}: {', '.join(made[:DANGEROUS_SHOWN])}{f' and {len(made) - DANGEROUS_SHOWN} more' if len(made) > DANGEROUS_SHOWN else ''}" for kind, made in classes.items())
     pr["owes_staging"] = {"head": head, "at": stamp()}
+    if held:
+        return None
     return stage_pr(data, key, DANGEROUS_GOAL.format(key=key, number=key.split("#")[1], changes=changes, rules=REPO_RULES), data["jobs"][pr["job"]].get("session"))
 
 

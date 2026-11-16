@@ -7197,6 +7197,27 @@ def test_a_builders_staging_line_reaches_the_tester_its_prs_changed_files_gave_i
     assert (lifted, bool(marked), [state.load("demo")["jobs"][job_id]["goal"] for job_id in restaged]) == (None, True, [cases])
 
 
+def test_a_pr_whose_staging_part_an_order_already_holds_is_judged_at_each_head_keeping_a_dangerous_test_and_dropping_one_nothing_dangerous_owes(
+    home_repo: None,
+    run: Run, demo: str, on_github: dict, tmp_path: Path
+) -> None:
+    dangerous_repo(tmp_path, on_github, ["api/migrations/1700_add_runs.sql"])
+    run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    run("pr", "add", PR, "--job", "j1", *LEAD)
+    key, part = "Forge-AI/monorepo#42", state.STAGING_TEST.format(number=42)
+    testers = sorted(job_id for job_id, job in state.load("demo")["jobs"].items() if state.builds_nothing(job))
+    with edit("demo") as data:
+        data["prs"][key] |= {"owes_staging": None, "paths_at": None}
+        marked = state.mark_dangerous(data, key, "def", ["api/migrations/1700_add_runs.sql"])
+    data = state.load("demo")
+    assert (marked, data["prs"][key]["owes_staging"]["head"], sorted(job_id for job_id, job in data["jobs"].items() if state.builds_nothing(job)), part in data["orders"]["o1"]["parts"]) == (None, "def", testers, True)
+    with edit("demo") as data:
+        unmarked = state.mark_dangerous(data, key, "ghi", ["docs/readme.md"])
+    data = state.load("demo")
+    assert (unmarked, part in data["orders"]["o1"]["parts"], data["prs"][key]["waits"], data["prs"][key]["owes_staging"]) == (None, False, [], None)
+
+
 def test_a_builders_42_none_lifts_an_unowed_test_no_job_took_up_and_one_that_ended_with_no_pass(
     home_repo: None,
     run: Run, demo: str, on_github: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

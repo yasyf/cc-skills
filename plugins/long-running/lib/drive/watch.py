@@ -66,6 +66,7 @@ ELAPSED = re.compile(r"\b\d+(?: minutes?| hours?| seconds?|s\b)|\b\d{1,2}:\d{2}(
 BUILT_BASE = "{built}, the change yours builds on, its PR held on his answer: cut your branch from that head, so your PR stacks on it"
 LIVE_EVERY = timedelta(minutes=5)
 REACH_READS = 20
+MARK_READS = 50
 REACH_SHOWN = 8
 WAKES = ("TAP ", "DUE ", "PROVE ", "PAGED ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STAGE ", "FREE ", "MOVED ", "WATCH stopped")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
@@ -486,9 +487,9 @@ def floored(watcher: Watcher, lines: list[str], reset: datetime, refusal: str) -
 
 
 def dangerous_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read in one github.paths call the changed files of each heard PR whose head no read of its files saw, by state.unmarked, whether the repository's .claude/long-running.toml or its provider's dangerous_paths classes it, and put each whose head changes one on its staging test with a tester, by state.mark_dangerous, ahead of the stage_lines that draws his card on it; each tester added said as drive pr add says it. A PR registered before an install that brought this stage has no head read, so the first pass after it reads every open one."""
+    """Read in one github.paths call the changed files of each heard PR whose head no read of its files saw, by state.unmarked, whether the repository's .claude/long-running.toml or its provider's dangerous_paths classes it, and put each whose head changes one on its staging test with a tester, by state.mark_dangerous, ahead of the stage_lines that draws his card on it; each tester added said as drive pr add says it. A PR registered before an install that brought this stage has no head read, so the passes after it read every open one, at most MARK_READS a pass so one write never drops hundreds of staging parts at once."""
     data = state.load(watcher.name)
-    keys = [key for key in state.unmarked(data) if key not in watcher.stale and hears(watcher, data, data["prs"][key]["order"])]
+    keys = [key for key in state.unmarked(data) if key not in watcher.stale and hears(watcher, data, data["prs"][key]["order"])][:MARK_READS]
     if not keys:
         return []
     try:
