@@ -3735,6 +3735,31 @@ def test_the_first_pass_of_a_standing_part_no_job_ever_held_starts_at_once_and_s
     assert f"Done when: {watch.PASS_DONE}\n" in brief_text
 
 
+def test_a_standing_part_kept_on_a_check_runs_it_detached_every_thirty_minutes_with_no_codex_pass_and_a_failed_run_is_its_orphan_line(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    detached = launches(monkeypatch)
+    command = "python3 -I tools/port_gap.py --post"
+    with state.edit(demo) as data:
+        standing_order(data, [])
+        data["orders"]["o2"]["parts"]["codex test box"]["check"] = state.new_check(command)
+    watching = watcher(demo)
+    checking = ["order", "check", "o2", "--part", "codex test box"]
+    assert (staged(watch.standing_lines, watching, T0), detached, state.load(demo)["orders"]["o2"]["jobs"]) == ([], [checking], [])
+    assert (staged(watch.standing_lines, watching, T0 + timedelta(minutes=40)), detached) == ([], [checking])
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["parts"]["codex test box"]["check"].update(exit=0, said="port-gap at dev 6596e76b12fa: 0 gap")
+    assert (staged(watch.standing_lines, watching, T0 + timedelta(minutes=10)), watch.orphan_lines(watching, T0 + timedelta(minutes=10))) == ([], [])
+    data = state.load(demo)
+    assert render.standings(data, "o2", data["orders"]["o2"]) == [
+        f'  STANDING "codex test box": standing on "{render.cut(BOX_GOAL, 80)}", checked by `{command}`, last run {render.when(state.stamp(T0))} exited 0: "port-gap at dev 6596e76b12fa: 0 gap"'
+    ]
+    assert (staged(watch.standing_lines, watching, T0 + state.STANDING_EVERY), detached) == ([], [checking, checking])
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["parts"]["codex test box"]["check"].update(exit=1, said="git fetch: could not read from remote")
+    late = T0 + state.STANDING_EVERY + timedelta(minutes=5)
+    assert watch.orphan_lines(watching, late) == [f'ORPHAN o2 "codex test box": its check `{command}` exited 1: git fetch: could not read from remote']
+
+
 def test_a_standing_parts_next_pass_holds_the_texts_and_owes_the_answers_its_last_pass_held_so_its_launch_carries_them_and_none_waits_on_a_pass_that_ended(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

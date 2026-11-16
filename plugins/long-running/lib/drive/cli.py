@@ -911,7 +911,9 @@ def order_set(args: argparse.Namespace) -> int:
         refused = f"{args.id}: refused, nothing written: --unjoin files it under its own project and workstream, never {order['project']} / {order['workstream']} it took from {order['joins']}"
         args.project, args.workstream = filing(data, order["text"], args.project, args.workstream, refused)
     alerts = alert_links(args.alerts)
-    standing = standing_parts(name, data, args.id, args.add_part, args.drop_part, args.part, args.standing) if args.standing is not None else []
+    if args.standing_check is not None and args.standing is None:
+        raise DriveError("--standing-check: refused, give it with --standing and the part's goal, since a check is how a standing part's passes run")
+    standing = standing_parts(name, data, args.id, args.add_part, args.drop_part, args.part, args.standing, args.standing_check) if args.standing is not None else []
     sorted_parts = sorted_as(data, args.id, args.kind, args.part if args.kind or args.standing is None and not followed else [])
     if (order["incident"] if args.incident is None else args.incident) and (order["options_only"] if args.options_only is None else args.options_only):
         raise DriveError(
@@ -1000,6 +1002,7 @@ def order_set(args: argparse.Namespace) -> int:
             stopped += [superseded.stopped_line(f"{job_id} stopped with its order: end its agent, or its lane with drive job end {job_id}", held) for job_id, held in ended.items()]
         for part in standing:
             order["parts"][part]["standing"] = args.standing.strip() or None
+            order["parts"][part]["check"] = state.new_check(args.standing_check) if args.standing_check and args.standing.strip() else None
         turning = args.incident and not order["incident"]
         if args.incident is not None:
             order["incident"] = args.incident
@@ -1095,13 +1098,15 @@ def follow_ask(data: dict, order_id: str, build: str, ask: str, named: list[str]
     return part, {"build": build, "thread": thread, "message": None, "words": None, "ended": None, "record": None}
 
 
-def standing_parts(name: str, data: dict, order_id: str, added: list[str], dropped: list[str], named: list[str], goal: str) -> list[str]:
-    """The parts --standing keeps standing on its goal, or takes out with an empty one: each --part names among the order's parts as --add-part and --drop-part leave them, refused without --part and, kept standing, wherever brief.job_refusal refuses the codex job each pass of it is or the part has no research, by brief.unresearched, since each pass starts on a handoff, which the start check passes."""
+def standing_parts(name: str, data: dict, order_id: str, added: list[str], dropped: list[str], named: list[str], goal: str, check: str | None) -> list[str]:
+    """The parts --standing keeps standing on its goal, or takes out with an empty one: each --part names among the order's parts as --add-part and --drop-part leave them, refused without --part, --standing-check refused with an empty goal, and, kept standing with no check, wherever brief.job_refusal refuses the codex job each pass of it is or the part has no research, by brief.unresearched, since each pass starts on a handoff, which the start check passes; a part kept standing on a check runs no codex pass, so neither refuses it."""
     if not named:
         raise DriveError(f"--standing: refused, name each part of {order_id} it keeps standing with --part")
+    if check is not None and not goal.strip():
+        raise DriveError("--standing-check: refused, a check keeps a part standing, so give it the part's goal with --standing")
     order = data["orders"][order_id]
     picked = pick_parts(order_id, order | {"parts": {part: None for part in order["parts"] if part not in dropped} | dict.fromkeys(added)}, named)
-    if goal.strip() and (refused := brief.job_refusal(data, order_id, "codex", picked) or brief.unresearched(name, data, order_id, "codex", picked)):
+    if goal.strip() and not check and (refused := brief.job_refusal(data, order_id, "codex", picked) or brief.unresearched(name, data, order_id, "codex", picked)):
         raise DriveError(f"--standing: refused, no part kept standing, since each pass of a standing part is a codex job: {refused}")
     return picked
 
@@ -1201,6 +1206,26 @@ def order_backlog(args: argparse.Namespace) -> int:
         held = [order_id for order_id in data["orders"] if state.on_backlog(data, order_id)]
     line = f"drive tooling backlog on, holding {len(held)} items" if args.switch == "on" else "drive tooling backlog off: a Drive tooling order a session files starts on its reader's research"
     return emit(args, line, {"tooling_backlog": args.switch == "on", "held": held})
+
+
+def order_check(args: argparse.Namespace) -> int:
+    """Run a standing part's check, the pass the watch starts in place of a codex job, with no model session: its shell command in the drive's folder, cut off at STANDING_EVERY, its output printed to the log the watch detached it on and its exit code and closing line kept on the part, which the part's gap reads, so a check that fails is said once as its ORPHAN line and one that passes holds the part until its next run."""
+    name = state.resolve(args.drive)
+    data = state.load(name)
+    [part] = pick_parts(args.id, find(data["orders"], args.id, "order"), [args.part])
+    if not (check := data["orders"][args.id]["parts"][part]["check"]):
+        raise DriveError(f'{args.id} "{part}": refused, it keeps no check: drive order set {args.id} --part {shlex.quote(part)} --standing "<goal>" --standing-check "<command>" keeps one')
+    timeout = int(state.STANDING_EVERY.total_seconds())
+    try:
+        done = subprocess.run(["/bin/zsh", "-c", check["command"]], cwd=state.drive_dir(name), capture_output=True, text=True, timeout=timeout, check=False)
+        code, output = done.returncode, done.stdout + done.stderr
+    except subprocess.TimeoutExpired as expired:
+        code, output = -1, f"{expired.stdout or ''}{expired.stderr or ''}\ntimed out after {timeout // 60} minutes"
+    print(output, end="" if output.endswith("\n") else "\n")
+    said = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "printed nothing")
+    with state.edit(name) as data:
+        data["orders"][args.id]["parts"][part]["check"].update(exit=code, said=render.cut(said, 300))
+    return emit(args, f'{args.id} "{part}": its check exited {code}: {said}', {"id": args.id, "part": part, "exit": code, "said": said})
 
 
 def promise_said(due: str, held: str | None, where: tuple[str, str]) -> str:
@@ -6638,6 +6663,15 @@ def parser() -> argparse.ArgumentParser:
             " an empty goal takes it out"
         ),
     )
+    verb.add_argument(
+        "--standing-check",
+        metavar="COMMAND",
+        help=(
+            "with --standing, run each pass of each --part as this shell command in place of a codex job, with no model session:"
+            f" the watch runs it detached by drive order check at most once every {int(state.STANDING_EVERY.total_seconds() // 60)} minutes, the command itself filing what it finds,"
+            " and a run that exits nonzero is the part's ORPHAN line; --standing without it takes a check off"
+        ),
+    )
     verb.add_argument("--complex", action=argparse.BooleanOptionalAction, help="mark or unmark it as more than a one-fact lookup")
     verb.add_argument(
         "--options-only", action=argparse.BooleanOptionalAction, help="limit it to options, so no builder or codex job starts on it, or lift that once he picks, adding the builder of each change a design on it listed"
@@ -6698,6 +6732,10 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("switch", choices=("on", "off"), help="on or off")
     verb.set_defaults(run=order_backlog)
+    verb = order.add_parser("check", parents=both, help="run a standing part's check, the pass the watch starts in place of a codex job, keeping its exit code and closing line on the part")
+    verb.add_argument("id", help="the order")
+    verb.add_argument("--part", required=True, type=str.strip, help="the standing part whose check it runs")
+    verb.set_defaults(run=order_check)
     verb = order.add_parser("posted", parents=both, help="the communicator posted a line in an order's thread, its cards' or its PRs' cards': a progress line, delivering no part, or the answer a part owes him, which the report record it carries delivers, there or in any other channel; or the session holding the order closes a part from the drive's post that already answered it")
     verb.add_argument("id", help="the order")
     posted = verb.add_mutually_exclusive_group(required=True)
