@@ -3542,6 +3542,24 @@ def test_a_part_no_job_carries_is_an_orphan_said_once_five_minutes_after_its_ord
     assert state.load(demo)["orders"]["o2"]["parts"]["stack 2"]["orphan_said"] is None
 
 
+def test_a_part_of_an_order_he_has_not_scheduled_is_no_orphan_and_heals_the_one_said_until_he_schedules_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        files_order(data)
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == ['ORPHAN o2 "stack 2": no job']
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["state"] = "waiting"
+    assert [watch.run_pass(watching, T0 + timedelta(minutes=minutes)) for minutes in (6, 40)] == [[], []]
+    assert state.load(demo)["orders"]["o2"]["parts"]["stack 2"]["orphan_said"] is None
+    assert render.orphans(state.load(demo), "o2", 80) == []
+    scheduled = T0 + timedelta(minutes=41)
+    with state.edit(demo) as data:
+        data["orders"]["o2"].update(state="open", updated=state.stamp(scheduled))
+    assert watch.run_pass(watching, scheduled + timedelta(minutes=5)) == ['ORPHAN o2 "stack 2": no job']
+
+
 def standing_order(data: dict, jobs: list[str]) -> None:
     data["orders"]["o2"] = order(text="keep testing runs on the new tree", jobs=jobs, parts={"codex test box": state.new_part() | {"standing": BOX_GOAL}})
 
