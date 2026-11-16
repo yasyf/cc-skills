@@ -7056,6 +7056,8 @@ def order_summary(name: str, order_id: str) -> str:
     asks = [f"{job_id}'s card {card}" for job_id, job in jobs.items() if job["state"] not in state.FINISHED_JOB_STATES for card in view.open_cards(job | {"questions": job.get("questions") or []})]
     asks += [f"#{key.split('#')[1]}: {(pr.get('stage') or {}).get('why') or 'his tap'}" for key, pr in prs.items() if pr["state"] == "open" and (pr.get("stage") or {}).get("owner") == "him"]
     lines.append(f"waits on him: {'; '.join(render.cut(ask, 160) for ask in asks) if asks else 'nothing'}")
+    if order["incident"]:
+        lines.append(f"page: {render.page_line(order)}")
     return "\n".join(lines)
 
 
