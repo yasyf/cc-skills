@@ -638,19 +638,21 @@ def brief_path(name: str, handler: str) -> Path:
 
 
 def start_kept(name: str, handler: str) -> str:
-    """Start the handler `handle` kept, in its own process after the handler call returned, since `claude --bg` takes seconds, once this Mac admits a local Claude lane, by place.waited_turn, so a handler waits its turn while this Mac is loaded, short of memory or at its local cap, and never fails for it; one that fails to start leaves the drive's handlers, with the job it was given and the order made for that job, and tells the session it runs beside in a done record from lane handler, naming the error and its kept brief."""
+    """Start the handler `handle` kept, in its own process after the handler call returned, since `claude --bg` takes seconds, once this Mac admits a local Claude lane, by place.waited_turn, so a handler waits its turn while this Mac is loaded, short of memory or at its local cap, and never fails for it; one that fails to start leaves the drive's handlers, with the job it was given and the order made for that job, and tells the session it runs beside in a done record from lane handler, naming the error and its kept brief. Its line in handlers.log is stamped and says how long this process took to begin after the brief was kept, how long it waited its turn and how long its start took, so a slow launch names which of the three it was."""
     from drive import place
 
     kept = brief_path(name, handler)
+    began = time.time()
     try:
         with place.waited_turn(name, lambda: waits_turn(name, handler)):
+            admitted = time.time()
             start_handler(name, handler, kept.read_text())
     except Exception as error:
         unstarted(name, handler)
         line = f"BLOCKED handler {handler} did not start: {start_error(error)}; its brief is kept in {kept}: start it again with the handler tool"
         reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"{beside(state.saved(name))[0]}@{name}", "--id", f"handler-start-{handler}", "--text", line], Path.cwd(), reads.posting())
         return line
-    return f"started {handler}"
+    return f"{state.stamp()} started {handler}: began {began - kept.stat().st_mtime:.1f}s after its brief was kept, waited {admitted - began:.1f}s for its turn, its start took {time.time() - admitted:.1f}s"
 
 
 def waits_turn(name: str, handler: str) -> None:
