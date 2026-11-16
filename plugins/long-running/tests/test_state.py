@@ -2015,7 +2015,7 @@ def test_a_drive_saved_reading_staging_passes_by_prose_case_lines_and_release_fo
     state_root: Path,
 ) -> None:
     data = staging_drive()
-    del data["staging_runs_reread"]
+    del data["staging_cases_reread"]
     data |= {"staging_passes_named": True, "staging_passes_reread": True}
     created, passed = "2026-11-14T10:00:00-08:00", "2026-11-14T11:00:00-08:00"
     prose, followed, rerun, uncased, unnamed = (state.STAGING_TEST.format(number=number) for number in (42, 43, 44, 45, 46))
@@ -2055,7 +2055,7 @@ def test_a_drive_saved_reading_staging_passes_by_prose_case_lines_and_release_fo
     ]
     assert ([(data["prs"][key]["tap"] or {}).get("at") for key in approves], parts[followed]["soak"]) == (["2026-11-14T10:30:00-08:00", "2026-11-14T11:30:00-08:00"], "staging:monorepo/plat-usw2-staging@346fcf4")
     with state.edit("demo") as drive:
-        assert (drive["staging_runs_reread"], "staging_passes_named" in drive, "staging_passes_reread" in drive) == (True, False, False)
+        assert (drive["staging_cases_reread"], "staging_passes_named" in drive, "staging_passes_reread" in drive) == (True, False, False)
 
 
 J164 = """DONE #56799 and #56775 each answered all 22 staging cases exactly as dev's code did
@@ -2093,6 +2093,61 @@ def test_a_done_testing_two_prs_in_turn_keeps_each_prs_own_cases_build_and_soak_
     )
     named = J164.replace("builds/16698\n", "builds/16698 for #56775\n").replace("builds/16721\n", "builds/16721 for #56799\n")
     assert [state.part_run(data, "j1", report, parts["56799"])[1] for report in (J164, named)] == [["https://buildkite.com/forge/release/builds/16698"], ["https://buildkite.com/forge/release/builds/16721"]]
+
+
+J6143 = """DONE all cases read on Mac box j6143-proof: #55974 A1-A2 pass, #56754 C1-C2 pass, #56058 B1 pass and B2 2a fails
+PR: https://github.com/Forge-AI/monorepo/pull/55974 at 9006679
+PR: https://github.com/Forge-AI/monorepo/pull/56058 at 326678a
+PR: https://github.com/Forge-AI/monorepo/pull/56754 at df046be
+CASE #55974 A1 leave the root while its subagent runs: pass: left root with its child running
+CASE #55974 A2 archive a root: pass: the root left GET /api/sessions
+CASE #56058 B1 three typed sends while busy: pass: snapshot 119 lists the three queued in typed order
+CASE #56058 B2 2a no row for the courier's report while the card is open: fail: snapshot 83 lists the report queued
+CASE #56754 C1 Agents pill while bash runs sand iris: pass: iris.subagents reached the parent stream
+CASE #56754 C2 inbox line names the child by title: not exercised: no child titled itself
+CHECK: /Users/yasyf/.local/state/long-running/durable-agents/scratch/j6143/results.md
+CHECK: /Users/yasyf/.local/state/long-running/durable-agents/scratch/j6143/out/B-check.txt
+"""
+
+
+def test_a_done_testing_prs_of_two_orders_keeps_on_each_part_the_cases_whose_case_lines_name_its_pr_so_only_the_failing_prs_part_reads_no_pass_as_j6143s_did_not(state_root: Path) -> None:
+    data = staging_drive("j1")
+    parts = {number: state.STAGING_TEST.format(number=number) for number in ("55974", "56754", "56058")}
+    data["orders"]["o1"]["parts"] = {parts["55974"]: state.new_part(), parts["56754"]: state.new_part()}
+    data["orders"]["o2"] = state.new_order("ship #56058", "terminal", None, {parts["56058"]: state.new_part()}, state.stamp()) | {"jobs": ["j1"]}
+    data["jobs"]["j1"] |= {"parts": [parts["55974"], parts["56754"]], "carries": {"o2": [parts["56058"]]}}
+    state.take_result(data, "j1", J6143.splitlines()[0], J6143)
+    held = [data["orders"][order_id]["parts"][parts[number]] for order_id, number in (("o1", "55974"), ("o1", "56754"), ("o2", "56058"))]
+    results = "/Users/yasyf/.local/state/long-running/durable-agents/scratch/j6143/results.md"
+    assert [(len(part["cases"]), part["posted"]) for part in held] == [(2, results), (2, results), (2, None)]
+    assert (state.unexercised(held[1]), state.unpassed(held[2])) == (
+        [("#56754 C2 inbox line names the child by title", "no child titled itself")],
+        "CASE #56058 B2 2a no row for the courier's report while the card is open: fail: snapshot 83 lists the report queued",
+    )
+
+
+def test_a_drive_saved_before_after_merge_passes_were_kept_reads_each_merged_prs_from_its_provers_returns_dated_by_the_return_as_56539s_was_not(state_root: Path) -> None:
+    data = staging_drive()
+    del data["staging_cases_reread"]
+    created = "2026-11-14T10:00:00-08:00"
+    provers = {"j1": 56539, "j2": 56516, "j3": 56478}
+    data["jobs"] = {job_id: state.new_job("o1", "builder", f"prove {MONOREPO}#{number} live", ["prove it"], created) | {"builds_nothing": True, "state": "done"} for job_id, number in provers.items()}
+    data["jobs"]["j9"] = state.new_job("o1", "builder", "ship them", ["prove it"], created) | {"state": "done"}
+    data["orders"]["o1"] |= {"parts": {"prove it": state.new_part()}, "jobs": [*provers, "j9"]}
+    data["prs"] = {f"{MONOREPO}#{number}": state.new_pr(state.pr_url(f"{MONOREPO}#{number}"), "j9", "o1") | {"state": "merged", "merged_sha": "6545af289898"} for number in provers.values()}
+    state.create(data)
+    passed, failed = "2026-11-14T11:00:00-08:00", "2026-11-14T11:20:00-08:00"
+    release = "https://buildkite.com/forge/release/builds/16484"
+    state.keep_report("demo", "j1", f"WAITING release:api:{MONOREPO}#56539@plat-usw2-prod", f"WAITING release:api:{MONOREPO}#56539@plat-usw2-prod: staging passed for #56539\nCHECK: {release}\nCASE old clients still read: pass\nCASE sand-exec: not exercised (staging has no Riza credentials)\n", state.parse_time(passed))
+    state.keep_report("demo", "j1", f"DONE {MONOREPO}#56539 live on plat-usw2-prod", f"DONE {MONOREPO}#56539 live on plat-usw2-prod\n", state.parse_time("2026-11-14T12:00:00-08:00"))
+    state.keep_report("demo", "j2", f"WAITING release:api:{MONOREPO}#56516@plat-usw2-prod", f"WAITING release:api:{MONOREPO}#56516@plat-usw2-prod: staging ran #56516\nCHECK: {release}\nCASE old clients still read: fail: 500 on GET /api/sessions\n", state.parse_time(failed))
+    state.keep_report("demo", "j3", f"WAITING release:api:{MONOREPO}#56478@plat-usw2-prod", f"WAITING release:api:{MONOREPO}#56478@plat-usw2-prod: staging ran #56478\nCHECK: {release}\nCASE sand-exec: not exercised\n", state.parse_time(failed))
+    prs = state.load("demo")["prs"]
+    assert [prs[f"{MONOREPO}#{number}"]["after_merge"] for number in provers.values()] == [
+        {"cases": [["old clients still read", "pass"], ["sand-exec", "not exercised (staging has no Riza credentials)"]], "posted": release, "posted_by": "j1", "at": state.stamp(state.parse_time(passed))},
+        {"cases": [["old clients still read", "fail: 500 on GET /api/sessions"]], "posted": None, "posted_by": "j2", "at": state.stamp(state.parse_time(failed))},
+        None,
+    ]
 
 
 def test_a_builder_only_following_a_release_another_job_started_neither_stands_in_for_the_tester_nor_holds_its_pass_its_cases_not_exercised_as_j6240s_did(state_root: Path) -> None:

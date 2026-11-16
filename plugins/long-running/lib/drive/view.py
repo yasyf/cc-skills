@@ -411,19 +411,27 @@ def coming(drive: dict, job_id: str) -> bool:
 
 
 def staging(drive: dict, key: str) -> str:
-    """What a PR's lines say of its staging test, its staging_row whole."""
+    """What a PR's lines say of its staging tests, its staging_row whole."""
     return "".join(staging_row(drive, key))
 
 
 def staging_row(drive: dict, key: str) -> tuple[str, ...]:
-    """What a PR's cards say of its staging test, in parts, each its tester's or builder's own words Pasted, which his card draws only as card.plain_row lets it, read from the `staging test of #N before it lands` part an order holds for it, the soak its tester last waited on for this PR and its testers, by state.part_testers, else from the run a job waiting on the PR returned DONE on under a part of its own, by waited_run, as a tester his words name the part of does: tested on staging with its env, commit and result, a pass with when its tester returned it and each case it did not exercise with why, which his Approve lands it without, testing while a worker its tester started is at work, or, while its tester asks his exception, by state.EXCEPTED, that staging has no copy of what it changes, or not on staging and why, each CASE line of the run it holds that did not pass, a tester's DONE that ran none of its cases, a tester no worker started yet, by its worker_started, and the why of its builder's `STAGING: none` among them."""
+    """What a PR's cards say of its staging tests, in parts, each its tester's or builder's own words Pasted, which his card draws only as card.plain_row lets it: its test before it lands, by before_merge, and the after-merge staging pass its prover ran, by state.keep_after_merge, with that pass's result, its time, its proof and each case it did not exercise with why, or each CASE line that did not pass, alone when no test before it lands was set or run."""
     repo, _, number = key.rpartition("#")
     if repo.lower() != state.MONOREPO.lower():
         return (f"Not on staging: {repo} has no staging env",)
     part = state.STAGING_TEST.format(number=number)
     held = [order_id for order_id, order in drive["orders"].items() if part in order["parts"]]
+    run = None if held else waited_run(drive, key)
+    if not (after := drive["prs"][key]["after_merge"]):
+        return before_merge(drive, key, part, held, run)
+    return (*before_merge(drive, key, part, held, run), "; after its merge: ", *after_words(after)) if held or run else ("Tested on staging after its merge: ", *after_words(after))
+
+
+def before_merge(drive: dict, key: str, part: str, held: list[str], run: dict | None) -> tuple[str, ...]:
+    """What a PR's cards say of its staging test before it lands, in parts as staging_row gives them, read from the `staging test of #N before it lands` part each order in held holds for it, the soak its tester last waited on for this PR and its testers, by state.part_testers, else from run, the DONE a job waiting on the PR ran its cases in under a part of its own, by waited_run, as a tester his words name the part of does: tested on staging with its env, commit and result, a pass with when its tester returned it and each case it did not exercise with why, which his Approve lands it without, testing while a worker its tester started is at work, or, while its tester asks his exception, by state.EXCEPTED, that staging has no copy of what it changes, or not on staging and why, each CASE line of the run it holds that did not pass, a tester's DONE that ran none of its cases, a tester no worker started yet, by its worker_started, and the why of its builder's `STAGING: none` among them."""
     if not held:
-        if run := waited_run(drive, key):
+        if run:
             return tested(run, "") if run["posted"] else ("Tested on staging: no pass", Pasted(f": {cut(state.unpassed(run), NOW_CHARS)}"))
         if not (lifted := drive["prs"][key]["unstaged"]):
             return ("Not on staging: no staging test is set for it",)
@@ -458,32 +466,46 @@ def staging_row(drive: dict, key: str) -> tuple[str, ...]:
 def tested(passed: dict, where: str) -> tuple[str, ...]:
     """A staging run's full pass as his card says it, from the run a part holds or waited_run reads: where it ran, when its tester returned it, its proof and each case it did not exercise, which his Approve lands it without."""
     at = f" at {when(passed['passed_at'])}" if passed["passed_at"] else ""
-    untested = "; ".join(f"{case} ({cut(why, TITLE_CHARS)})" if why else case for case, why in state.unexercised(passed))
-    proof = link("proof", passed["posted"]) if passed["posted"].startswith("https://") else "its proof a file on the Mac"
-    opening = f"Tested on staging: {where}passed{at}, {proof}"
+    untested = untested_words(passed)
+    opening = f"Tested on staging: {where}passed{at}, {proof_words(passed['posted'])}"
     return (opening, ". Land it without what staging did not exercise", Pasted(f"? {untested}"), ". Approve lands it without them; Hold keeps it from landing") if untested else (opening,)
 
 
 def waited_run(drive: dict, key: str) -> dict | None:
-    """The staging run of the newest DONE a builder or codex job of the PR's order waiting on the PR returned last, by state.orders_jobs, read from its report, which names the PR and runs a case of it, shaped as a staging test part holds its run, by state.keep_pass: its cases, and on a full pass, by state.passing, its first CHECK: proof and when the job returned it; None when no such DONE ran one, as when each of its cases reads not exercised."""
-    from drive import brief
-
+    """The staging run of the newest DONE a builder or codex job of the PR's order waiting on the PR returned last, by state.orders_jobs, read from its report, which names the PR and runs a case of it, each of its CASE lines the PR's that state.pr_run gives it among the PRs the job waits on, shaped as a staging test part holds its run, by state.keep_pass: its cases, and on a full pass, by state.passing, its first CHECK: proof and when the job returned it; None when no such DONE ran one, as when each of its cases reads not exercised."""
     number = key.rpartition("#")[2]
     dones = [
-        reply
+        (reply, {wait.rpartition("#")[2] for wait in job["waits"] if wait.rpartition("#")[0].casefold() == state.MONOREPO.casefold()})
         for job_id, job in state.orders_jobs(drive, [drive["prs"][key]["order"]]).items()
         if job["state"] == "done" and job["kind"] in state.CHANGE_KINDS and key in job["waits"]
         for reply in state.returns(drive["name"], job_id)[:1]
         if re.match(r"DONE\b", reply["body"])
     ]
-    for reply in sorted(dones, key=lambda done: state.parse_time(done["created_at"]), reverse=True):
-        cases = state.case_lines(reply["body"])
+    for reply, tested_prs in sorted(dones, key=lambda done: state.parse_time(done[0]["created_at"]), reverse=True):
+        cases, proofs = state.pr_run(reply["body"], number, tested_prs)
         if all(state.UNEXERCISED_CASE.match(verdict) for _, verdict in cases) or number not in state.named_numbers(reply["body"]):
             continue
-        proofs = [found for check in brief.CHECK.findall(reply["body"]) for found in brief.proofs(check)]
         passed = state.passing(cases) and bool(proofs)
         return {"cases": [[case, verdict] for case, verdict in cases], "posted": proofs[0] if passed else None, "passed_at": reply["created_at"] if passed else None}
     return None
+
+
+def after_words(run: dict) -> tuple[str, ...]:
+    """An after-merge staging pass's result, in parts as staging_row gives them: passed at the time its return was kept, with its proof and each case it did not exercise, else each CASE line that did not pass, by state.unpassed."""
+    if not run["posted"]:
+        return ("no pass", Pasted(f": {cut(state.unpassed(run), NOW_CHARS)}"))
+    opening = f"passed at {when(run['at'])}, {proof_words(run['posted'])}"
+    return (opening, "; not exercised", Pasted(f": {untested}")) if (untested := untested_words(run)) else (opening,)
+
+
+def untested_words(run: dict) -> str:
+    """Each case a staging run did not exercise, with why, by state.unexercised."""
+    return "; ".join(f"{case} ({cut(why, TITLE_CHARS)})" if why else case for case, why in state.unexercised(run))
+
+
+def proof_words(proof: str) -> str:
+    """A staging run's proof as his card links it, or a file on the Mac."""
+    return link("proof", proof) if proof.startswith("https://") else "its proof a file on the Mac"
 
 
 def tester_line(drive: dict, tester: str) -> str:
