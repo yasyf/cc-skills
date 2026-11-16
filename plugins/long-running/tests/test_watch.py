@@ -11181,7 +11181,8 @@ def test_23_staging_waits_of_4_jobs_on_one_env_make_one_stall_one_watchdog_and_o
 def test_stall_chains_resolve_shared_waits_once_per_snapshot(demo: str, monkeypatch: pytest.MonkeyPatch, count: int) -> None:
     data = state.load(demo)
     data["prs"] = {}
-    data["jobs"] = {f"j{n}": job(state="waiting") for n in range(1, count + 1)}
+    normalized = data["jobs"]["j1"] | {"state": "waiting", "prs": []}
+    data["jobs"] = {f"j{n}": dict(normalized) for n in range(1, count + 1)}
     resolved = []
     link = stall.link
 
