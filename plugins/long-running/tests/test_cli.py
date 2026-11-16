@@ -12561,6 +12561,29 @@ def test_a_parse_never_hands_a_verb_the_list_its_parser_keeps_as_a_default() -> 
     assert (again.waits, again.part, cli.parser() is cli.parser()) == ([], [], True)
 
 
+def test_a_release_carries_an_ask_it_names_only_once_each_pr_delivering_it_merged_into_its_commit_on_a_target_it_names(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    run(
+        "order", "add", "--title", "Cloud agents", "--project", "The drive", "--workstream", "Drive tooling", "show my agents, and drop the env picker",
+        "--parts", "own agents", "env picker", "--ask", "own agents", "show my agents", "--ask", "env picker", "drop the env picker",
+    )
+    with edit(demo) as data:
+        data["prs"]["Forge-AI/monorepo#1"] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/1", None, "o1") | {"parts": ["own agents"], "state": "merged", "merged_sha": "a" * 40}
+        data["prs"]["Forge-AI/monorepo#2"] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/2", None, "o1") | {"parts": ["env picker"], "state": "open"}
+    reached = {"Forge-AI/monorepo#1": {"releases": ["api"]}}
+    monkeypatch.setattr(brief, "started", lambda command, data: [{"targets": ("desktop",), "from": ("c" * 40,)}])
+    monkeypatch.setattr(github, "fetch_commit", lambda cwd, sha: None)
+    monkeypatch.setattr(brief, "contained", lambda cwd, named, sha, commit: (True, f"holds {named}"))
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: reached[key] for key in keys})
+    carried, missed = brief.release_asks("tools/ci release start desktop", state.load(demo), ["a1", "a2", "a9"])
+    assert (carried, [line.split(":")[0] for line in missed]) == ([], ['a1 on o1, "show my agents"', 'a2 on o1, "drop the env picker"', "a9 is no ask of his the drive keeps"])
+    assert ("ships in api, which this release, naming only desktop, does not carry" in missed[0], "Forge-AI/monorepo#2 has not merged" in missed[1]) == (True, True)
+    reached["Forge-AI/monorepo#1"] = {"releases": ["desktop"]}
+    monkeypatch.setattr(brief, "contained", lambda cwd, named, sha, commit: (False, f"lacks {named}"))
+    assert brief.release_asks("tools/ci release start desktop", state.load(demo), ["a1"])[1] == [f'a1 on o1, "show my agents": `{"c" * 40}` lacks Forge-AI/monorepo#1']
+    monkeypatch.setattr(brief, "contained", lambda cwd, named, sha, commit: (True, f"holds {named}"))
+    assert brief.release_asks("tools/ci release start desktop", state.load(demo), ["a1"]) == (['a1 on o1, "show my agents": Forge-AI/monorepo#1'], [])
+
+
 def test_a_staging_release_start_names_one_rehearsal_env_alone() -> None:
     start = "tools/ci release start api rsw-cp --from b --emergency --env plat-usw2-staging --order 23eefb9"
     assert (brief.leased_env(start.split(), {}), brief.leased_env("tools/ci release start api --order 23eefb9".split(), {}), brief.leased_env(f"{start} --env core-usw2-prod".split(), {})) == ("plat-usw2-staging", None, None)

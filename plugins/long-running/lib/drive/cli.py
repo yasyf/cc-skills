@@ -1853,6 +1853,12 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
     found = check_waits(name, args.waits)
     unreleased = args.release and (brief.release_refusal(args.release, known := state.load(name), args.reading, args.order) or brief.approval_refusal(args.release, known, args.reading, args.order) or brief.away_refusal("start", args.release, known, state.now()) or gate.gate(name, f"release {args.release}", brief.incident_scope(args.release, known)))
+    if args.asks and not args.release:
+        raise DriveError("--asks names the asks of his the release --release starts is made for, so it needs --release")
+    carried, missed = brief.release_asks(args.release, known, args.asks) if args.release and args.asks and not unreleased else ([], [])
+    if missed:
+        unreleased = brief.ASK_UNCARRIED.format(missed="; ".join(missed))
+        asks_missed(name, args.order, args.release, unreleased)
     if args.release and not unreleased:
         for line in filter(None, [brief.uncarried(args.release, known), *brief.release_notes([args.release], known)]):
             print(f"drive job add: {line}", file=sys.stderr)
@@ -1919,7 +1925,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         if args.release:
             job["brief_flags"] = (job.get("brief_flags") or {}) | {"release": args.release}
             job["release_checkout"] = checkout
-            job["release_pass"] = {"release": args.release, "at": created, "reading": args.reading}
+            job["release_pass"] = {"release": args.release, "at": created, "reading": args.reading, "asks": args.asks}
             if (env := brief.leased_env(words := shlex.split(args.release), data)) and not (providers.of(data).release.gives_way(words) and (data["slots"].get(env) or {}).get("holder")) and not state.train_lease(data, env, job_id, state.parse_time(created)):
                 slotted = env
         if args.agent:
@@ -1943,11 +1949,26 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         waiting.append(
             f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
         )
+    carriage = [f"{job_id} carries his ask {line}" for line in carried] + [
+        f'{job_id} leaves out his open ask {ask_id} on {order_id}, "{render.cut(ask["words"], 120)}": its post names it as left out'
+        for order_id in ([args.order] if args.release else [])
+        for ask_id, ask in state.open_asks(data, order_id).items()
+        if ask_id not in args.asks
+    ]
     started = [f"{job_id} waits for {slotted}, which a cut holds now: the watch starts `{args.release}` by drive job release {job_id} the moment that cut ends, before any new cut, so start nothing for it"] if slotted else state.after(lambda: started_release(name, job_id, args.release)) if args.release else []
     also = list(dict.fromkeys(order_id for orders in history.values() for order_id in orders))
     names = [f"{job_id} names {', '.join(named)}" + (f", also on {', '.join(also)}" if also else "") + ": drive status <id>"] if named else []
     names += state.asked_lines(data, args.goal)
-    return job_id, job | {"builder": builder_id, "history": history}, [*took, *replaced, *started, *waiting, *names, *repeated_lines(data, args.order, new_parts)]
+    return job_id, job | {"builder": builder_id, "history": history}, [*took, *replaced, *carriage, *started, *waiting, *names, *repeated_lines(data, args.order, new_parts)]
+
+
+def asks_missed(name: str, order_id: str, command: str, why: str) -> None:
+    """Post one handoff record to the session holding the order a release was made for, by state.holding_lane, saying it did not start because it leaves out an ask it names, so his thread hears why from that session, as release_start_failed tells of a start that failed."""
+    data = state.load(name)
+    lane = state.holding_lane(data, find(data["orders"], order_id, "order"))
+    text = f"RELEASE {order_id}: `{command}` did not start: {why}. Tell him in the order's thread which ask it leaves out and why, in his words"
+    argv = ["cci", "post", "--drive", name, "--lane", watch.LANE, "--kind", "handoff", "--to", f"{lane}@{name}", "--topic", f"release-{order_id}"]
+    reads.run([*argv, "--text", reads.withheld(text)], Path.cwd(), reads.posting())
 
 
 CUT_LEASE_MINUTES = 60
@@ -8199,7 +8220,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--workstream", metavar="NAME", required=True, help="the workstream inside its project the Now screen files it under")
     verb.add_argument("--title", metavar="WORDS", required=True, help=f"the few words, at most {TITLE_CHARS} characters and no link, the dashboard names it by and its evidence record is titled by")
     verb.add_argument("--users", type=int, metavar="SEQ", help=USERS_HELP)
-    verb.set_defaults(run=incident_open, incident=True, joins=None, kind=None, order_class=None, complex=False, options_only=False, once=False, every=0, owner=None, watch=None)
+    verb.set_defaults(run=incident_open, incident=True, joins=None, kind=None, order_class=None, complex=False, options_only=False, once=False, every=0, owner=None, watch=None, ask=None)
     verb = incident.add_parser(
         "stop",
         parents=both,
@@ -8307,6 +8328,17 @@ def parser() -> argparse.ArgumentParser:
             " release, or it is an incident's order, but one on the release provider's rehearsal envs alone, which needs no --order; it starts"
             " from the top's checkout, then the job's brief names the command and its build, and its agent follows it and reads its approve hold;"
             " outside his hold, the top coordinator's --reading starts it with no --order and whatever Opus reads"
+        ),
+    )
+    verb.add_argument(
+        "--asks",
+        nargs="+",
+        default=[],
+        metavar="ASK",
+        help=(
+            "with --release, each ask of his, a<n> as drive status lists it, this release is made for: refused, nothing started, unless it carries every one,"
+            " each PR delivering it merged, in the commit it ships and on a target it names, and the order's thread then hears why;"
+            " the job's lines name each it carries and each open ask of his it leaves out"
         ),
     )
     verb.add_argument(

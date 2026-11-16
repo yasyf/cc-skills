@@ -4253,6 +4253,17 @@ def ask_delivered(data: dict, order_id: str, ask: dict) -> bool:
     return bool(held) and all(delivered(data, order_id, part) for part in held)
 
 
+def ask_prs(data: dict, order_id: str, ask: dict) -> list[str]:
+    """The PRs delivering an ask, open or merged: each whose job holds one of its parts on its order, or whose own parts on that order name one; never a closed one."""
+    parts = set(ask["parts"])
+    return [
+        key
+        for key, pr in data["prs"].items()
+        if pr["state"] != "closed"
+        and ((job := data["jobs"].get(pr["job"] or "")) and parts & set(job_parts(job, order_id)) or pr["order"] == order_id and parts & set(pr["parts"]))
+    ]
+
+
 def open_asks(data: dict, order_id: str) -> dict[str, dict]:
     """Each ask of an order not delivered yet, by ask_delivered, oldest first."""
     return {ask_id: ask for ask_id, ask in data["orders"][order_id]["asks"].items() if not ask_delivered(data, order_id, ask)}

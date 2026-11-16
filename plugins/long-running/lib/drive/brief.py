@@ -416,6 +416,58 @@ def uncarried(command: str, data: dict) -> str | None:
     return UNCARRIED.format(order=flags["order"][-1], asked=cut(asked.title, 200), named=", ".join(merges), why=why, newest=newest)
 
 
+ASK_UNCARRIED = (
+    "a release made for his asks carries each one it names, or it does not start and his thread hears why, by his rethink step 5: {missed}."
+    " Land what is missing and add the release again, or name only the asks it carries in --asks, the post then naming each one it leaves out"
+)
+
+
+def release_asks(command: str, data: dict, asks: list[str]) -> tuple[list[str], list[str]]:
+    """Which asks a release start carries, each a line naming it and the PRs that deliver it, and why each it names but does not carry is missing: an ask no order holds, one no PR delivers, one a PR of which has not merged, one whose merge the commit its --from or --commit names lacks, by contained(), and one whose PR reaches no target its --targets or --only names, by the release provider's components as cli.release_reach reads them, so the release ships what his asks need, capped by the scope he named. A read of git or the release provider that fails lets the ask through with its line saying so, since an unreadable input never holds the action."""
+    from drive import cli, github
+
+    [flags] = started(command, data)
+    cwd, commit = data["roles"]["coordinator"]["cwd"], (flags.get("from") or (None,))[-1]
+    named = set(flags.get("targets", ())) | set(flags.get("only", ()))
+    scoped = named and providers.of(data).release.whole not in named
+    carried, missed = [], []
+    for ask_id in asks:
+        if not (found := state.find_ask(data, ask_id)):
+            missed.append(f"{ask_id} is no ask of his the drive keeps")
+            continue
+        order_id, ask = found
+        shown = f'{ask_id} on {order_id}, "{cut(ask["words"], 120)}"'
+        keys = state.ask_prs(data, order_id, ask)
+        if not keys:
+            missed.append(f"{shown}: no PR delivers it yet")
+            continue
+        if unmerged := [key for key in keys if data["prs"][key]["state"] != "merged"]:
+            missed.append(f"{shown}: {', '.join(unmerged)} has not merged")
+            continue
+        lacking, unread = [], []
+        for key in keys if commit else []:
+            try:
+                github.fetch_commit(cwd, data["prs"][key]["merged_sha"])
+                github.fetch_commit(cwd, commit)
+            except (github.GithubError, reads.ReadError) as error:
+                unread.append(f"whether `{commit}` holds {key} did not read: {error}")
+                continue
+            held, said = contained(cwd, key, data["prs"][key]["merged_sha"], commit)
+            (lacking if held is False else unread if held is None else []).append(f"`{commit}` {said}")
+        if lacking:
+            missed.append(f"{shown}: {'; '.join(lacking)}")
+            continue
+        try:
+            reach = cli.release_reach(data["name"], data, keys) if scoped else {}
+        except (state.DriveError, reads.ReadError, providers.ProviderError, github.GithubError) as error:
+            reach, unread = {}, [*unread, f"what {', '.join(keys)} reaches did not read: {error}"]
+        if outside := [f"{key} ships in {', '.join(found['releases']) or 'no release target'}" for key, found in reach.items() if found["releases"] and not set(found["releases"]) & named]:
+            missed.append(f"{shown}: {'; '.join(outside)}, which this release, naming only {', '.join(sorted(named))}, does not carry")
+            continue
+        carried.append(f"{shown}: {', '.join(keys)}" + (f" ({'; '.join(unread)})" if unread else ""))
+    return carried, missed
+
+
 def away_refusal(verb: str, release: str, data: dict, moment: datetime) -> str | None:
     """Why a production release may not start, resume or pass its approve hold now, by a release verb or a `ci bk api` write to its build such as unblocking that hold: he is not present, by state.absence, and it is dangerous by the root AGENTS.md's rule, as every approve hold is, since it holds a migration, delete or replace, and every cut but harmless() ones, since what a cut of the default branch carries is not read here; a release naming only places off production, by settled.off_production(), such as a staging or sandbox step, a rollback, a rerun or any other verb runs."""
     if verb not in PRESENT_CUTS or not (away := state.absence(data, moment)):
