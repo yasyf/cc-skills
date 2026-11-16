@@ -446,6 +446,12 @@ def real_drive(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def session_clone_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test's repository settings come from the session's own clone, as they do while no drive checkout exists, so no settings read runs git to list a test folder's worktrees."""
+    monkeypatch.setattr(state, "drive_checkout", lambda name, clone: Path(clone))
+
+
+@pytest.fixture(autouse=True)
 def drive_interpreter(tmp_path: Path) -> None:
     """Every test's state root records the interpreter running the tests as the drive's own, as hooks/installed.py records the drive's, so each proof file a test keeps has that interpreter's folder pinned first on its PATH."""
     record = tmp_path / "long-running" / "interpreter"
