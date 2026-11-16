@@ -456,14 +456,14 @@ def trunk_failures(keys: list[str], since: str) -> list[dict]:
 
 
 def gone(entry: dict) -> bool:
-    """Whether the turn of a job's own `claude --bg` session is over, whatever its Stop hook did, read from the records Claude Code keeps of the session its launch named: no running process's `sessions/<pid>.json`, the record Claude Code keeps of each session's process, names that session with a status but idle, and its background job, which `claude --bg` writes `working` before it returns, ended a turn done, blocked, failed or stopped, rests idle or blocked, as one stuck on a startup dialog does, or `claude rm` took it; so a launch whose job ended blocked before it ran a turn holds nothing. A launch that has not named its session yet is in flight for START_WINDOW, many times the seconds a `claude --bg` launch takes, and past it never started."""
+    """Whether the turn of a job's own `claude --bg` session is over, whatever its Stop hook did, read from the records Claude Code keeps of the session its launch named, a background job Claude Code still lists as running counting as over once no running process, by pid and start time, names its session, as j6063's session 429b9597 died with four resumes posted to it unread: no running process's `sessions/<pid>.json`, the record Claude Code keeps of each session's process, names that session with a status but idle, and its background job, which `claude --bg` writes `working` before it returns, ended a turn done, blocked, failed or stopped, rests idle or blocked, as one stuck on a startup dialog does, or `claude rm` took it; so a launch whose job ended blocked before it ran a turn holds nothing. A launch that has not named its session yet is in flight for START_WINDOW, many times the seconds a `claude --bg` launch takes, and past it never started."""
     if not entry["session"]:
         return state.parse_time(entry["started"]) + START_WINDOW <= state.now()
     records = session_records()
     if busy(entry["session"], records):
         return False
     found = background_job(entry["session"])
-    return found is None or found[1]["state"] in ("done", "blocked", "failed", "stopped") or found[1].get("tempo") in ("idle", "blocked")
+    return found is None or found[1]["state"] in ("done", "blocked", "failed", "stopped") or found[1].get("tempo") in ("idle", "blocked") or not alive(entry["session"], records)
 
 
 def busy(session: str, records: list[tuple[int, dict]]) -> bool:

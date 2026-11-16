@@ -56,3 +56,12 @@ def retirement(monkeypatch: pytest.MonkeyPatch, job: dict) -> list:
     monkeypatch.setattr(agents, "background_job", lambda session: ("job", {"state": "done"}))
     monkeypatch.setattr(agents, "end_bg", lambda session, cwd, removed: ended.append((session, cwd, removed)))
     return ended
+
+
+@pytest.mark.parametrize("live", [False, True])
+def test_a_background_session_claude_still_lists_as_running_is_gone_once_no_process_by_pid_and_start_names_it_as_j6063s_was(monkeypatch: pytest.MonkeyPatch, live: bool) -> None:
+    records = [(4123, {"sessionId": "429b9597", "status": "idle", "procStart": "Mon Nov 16 04:02:11 2026"})]
+    monkeypatch.setattr(agents, "session_records", lambda: records)
+    monkeypatch.setattr(agents, "background_job", lambda session: ("job", {"state": "running", "tempo": "active"}))
+    monkeypatch.setattr(agents, "running", lambda started: set(started) if live else set())
+    assert agents.gone({"session": "429b9597", "started": "2026-11-16T04:02:11-08:00"}) is not live
