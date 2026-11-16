@@ -60,8 +60,8 @@ class Provider:
         return ""
 
     def run(self, template: str, stdin: str | None = None, timeout: int = COMMAND_SECONDS, **fields: str) -> str:
-        """The output of the shell command template with each `{field}` filled, quoted, run in the checkout; a ProviderError when it exits non-zero."""
-        command = template.format_map({key: shlex.quote(value) for key, value in fields.items()})
+        """The output of the shell command template with each `{field}` it is given filled, quoted, and every other brace, such as a jq filter's, left as written, run in the checkout; a ProviderError when it exits non-zero."""
+        command = re.sub(r"\{(\w+)\}", lambda found: shlex.quote(fields[found[1]]) if found[1] in fields else found[0], template)
         try:
             done = subprocess.run(command, shell=True, cwd=self.checkout, input=stdin, capture_output=True, text=True, timeout=timeout, check=False)
         except subprocess.TimeoutExpired:
