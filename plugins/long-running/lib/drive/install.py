@@ -1618,7 +1618,7 @@ def typed_reload(drive: str, seat: str, held: dict, terminal: str, onto: str, pl
 
     moved = homed(drive, seat, held)
     typed = orca.EXIT if moved else orca.RELOAD
-    if not (pid := idle_pid(held["session"])):
+    if not (pid := idle_pid(held["session"], partial(owes_him, drive) if seat.startswith("communicator") else None)):
         return f"its Claude Code process exited, so it loads {plugin} once it starts again", False
     transcript = watch.session_transcript(held)
     start = transcript.stat().st_size if transcript.exists() else 0
@@ -1633,18 +1633,23 @@ def typed_reload(drive: str, seat: str, held: dict, terminal: str, onto: str, pl
     return f"reloaded onto {plugin} in {terminal}" if not moved else f"{typed} typed in {terminal}{moved()}", True
 
 
-def idle_pid(session: str) -> int | None:
-    """The pid of the Claude Code process running the session once its turn is over, waiting each second until the status Claude Code keeps in its sessions/<pid>.json reads idle, which it writes as the turn ends, never while it runs or shows a menu or permission prompt the command would answer, a newer install landing meanwhile taking the wait over in this process by reopen, so no older install holds the seat's reload lock; None once the process exits or runs another session."""
+def idle_pid(session: str, owing: Callable[[], bool] | None = None) -> int | None:
+    """The pid of the Claude Code process running the session once its turn is over, waiting each second until the status Claude Code keeps in its sessions/<pid>.json reads idle, which it writes as the turn ends, never while it runs or shows a menu or permission prompt the command would answer, and for a communicator, by owing, never while a message of his waits for its answer, so no reload or restart lands mid-answer; a newer install landing meanwhile takes the wait over in this process by reopen, so no older install holds the seat's reload lock; None once the process exits or runs another session."""
     from drive import orca
 
     if not (pid := orca.live_pid(session)):
         return None
-    while (status := session_status(pid, session)) != "idle":
+    while (status := session_status(pid, session)) != "idle" or (owing and owing()):
         if status is None:
             return None
         reopen(sys.argv[1:])
         sleep(1)
     return pid
+
+
+def owes_him(drive: str) -> bool:
+    """Whether a message of his waits for its answer, as the drive's watch last read `cc-slack dm-owed` into its owed replies."""
+    return bool(state.saved(drive)["owed_replies"])
 
 
 def session_status(pid: int, session: str) -> str | None:

@@ -288,7 +288,7 @@ test, such as a lint step, is the PR's own.
   through Orca into each idle drive session that has not reloaded since the newest `lastUpdated`
   in `installed_plugins.json`. One detached `drive reload --seat` per terminal holds the
   terminal's lock in the state folder's `reloads/`, waits for the session's `sessions/<pid>.json`
-  to read idle, types once, and waits for the transcript's `Reloaded:` line. It logs to the
+  to read idle, and for a communicator also until no message of his waits for its answer, types once, and waits for the transcript's `Reloaded:` line. It logs to the
   drive's `reloads.log`. An unanswered send is retried under the same
   `orca terminal send --retry-request <id>`, which Orca replays without typing twice. One Orca
   refused, or left unanswered for 30 seconds, is printed as the `orca terminal send` command and
