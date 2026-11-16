@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, cli, fixes, gate, limits, mcp, orca, picture, reads, refs, render, settled, slack, state, talk, tools, view, watch
+from drive import agents, cli, events, fixes, gate, limits, mcp, orca, picture, reads, refs, render, settled, slack, state, talk, tools, view, watch
 from drive.state import DriveError
 
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
@@ -1176,57 +1176,13 @@ def block_words(blocks: object) -> list[str]:
     return []
 
 
-UNEXPLAINED = re.compile(r"\bunexplained\b|\bcause\b[^.\n]{0,30}\b(?:unread|unknown|unclear|not (?:yet )?(?:read|known|clear))\b|\bno cause\b|\bnot sure (?:why|what caused)\b", re.IGNORECASE)
-CLOCK = re.compile(r"\b(\d{1,2}):(\d{2})\s*([AaPp])?\.?[Mm]?\.?")
-EVENT_WINDOW = timedelta(minutes=2)
-EVENT_RECORDS = 30
-EVENT_TEXT = 300
-EVENT_BUDGET = 60000
-UNEXPLAINED_RULE = (
-    "Does `post.text` call an event at a stated time unexplained, or its cause unread or unknown, without citing one of `records`,"
-    " the drive's records from within two minutes of that time, case attrs first, as the event's cause, or saying none of them applies?"
-)
-
-
-def event_times(text: str, moment: datetime) -> list[datetime]:
-    """Each clock time a sentence calling an event unexplained, or its cause unread, states, read as today's Pacific time, the latest past one when it names no AM or PM."""
-    pacific = moment.astimezone(fixes.PACIFIC)
-    times = []
-    for sentence in re.split(r"(?<=[.!?\n])\s+", text):
-        if not UNEXPLAINED.search(sentence):
-            continue
-        for found in CLOCK.finditer(sentence):
-            hour, minute, half = int(found[1]) % 12, int(found[2]), (found[3] or "").lower()
-            choices = [hour + 12] if half == "p" else [hour] if half == "a" else [hour, hour + 12]
-            stamps = [pacific.replace(hour=each, minute=minute, second=0, microsecond=0) for each in choices]
-            past = [stamp for stamp in stamps if stamp <= pacific] or stamps
-            times.append(max(past))
-    return times
-
-
-def event_records(name: str, order_id: str | None, times: list[datetime]) -> list[dict]:
-    """The drive's records from within EVENT_WINDOW of each time, the order's alone when the post names one, those carrying a case attr first, each cut to EVENT_TEXT, so Jev weighs whether one explains the event, as root's planned S2 pod delete 735744 explained the writer pod kill 736258 called unread."""
-    found: dict[int, dict] = {}
-    for at in times:
-        start, end = at - EVENT_WINDOW, at + EVENT_WINDOW
-        listed = reads.run(["cci", "tail", "--drive", name, "--since", start.isoformat(), "--oldest", "--budget", str(EVENT_BUDGET), "--json"], Path.cwd())
-        for line in listed.splitlines():
-            if not line.startswith("{"):
-                continue
-            record = json.loads(line)
-            attrs = (record.get("fields") or {}).get("attrs") or {}
-            if state.parse_time(record["at"]) <= end and (order_id is None or attrs.get("order") == order_id or order_id in record["text"]):
-                found[record["seq"]] = {"seq": record["seq"], "at": render.when(record["at"]), "lane": record["lane"], "kind": record["kind"], "attrs": attrs, "text": record["text"][:EVENT_TEXT]}
-    return sorted(found.values(), key=lambda record: ("case" not in record["attrs"], record["seq"]))[:EVENT_RECORDS]
-
-
 def nearby_records(drive: dict, tool_input: dict, text: str) -> list[dict] | None:
     """The records Jev weighs a post calling an event unexplained against, by event_records, for the order whose thread it goes in; None for a post calling nothing unexplained at a stated time, or when cci cannot be read, so the post goes out unweighed."""
-    if not (times := event_times(text, datetime.now(UTC))):
+    if not (times := events.event_times(text, datetime.now(UTC))):
         return None
     voice = talk.thread_voice(drive, tool_input | {"edit": None})
     try:
-        return event_records(drive["name"], voice[0] if voice else None, times)
+        return events.event_records(drive["name"], voice[0] if voice else None, times)
     except reads.ReadError:
         return None
 
@@ -1234,7 +1190,7 @@ def nearby_records(drive: dict, tool_input: dict, text: str) -> list[dict] | Non
 def crafted(text: str, pictures: int, rules: tuple[str, ...] = (), records: list[dict] | None = None) -> list[str]:
     """What one quick Jev read of the post against CRAFT_GUIDE finds, by his words "have the check be super quick, like a tiny jev check with their smallest model that just gets the guidelines and compares against the post": each rule it reads as broken at settled.YES or more, with its fix; none when Jev gives no reading within CRAFT_SECONDS, since this check fails open. Each post rule of the drive's repository is asked beside them, by his words "there should be both rules and transforms … can specify for it that get incorporated into the plugin"."""
     asked = CRAFT | {f"craft.repo{number}": settled.Noul(f"Does `post.text` break this rule of his repository: {rule}") for number, rule in enumerate(rules)}
-    asked |= {"craft.unexplained": settled.Noul(UNEXPLAINED_RULE)} if records is not None else {}
+    asked |= {"craft.unexplained": settled.Noul(events.UNEXPLAINED_RULE)} if records is not None else {}
     fixed = CRAFT_FIXES | {f"craft.repo{number}": rule for number, rule in enumerate(rules)}
     guidelines = CRAFT_GUIDE + (" His repository's own rules for every post: " + " ".join(rules) if rules else "")
     answers = settled.jev({"guidelines": guidelines, "post": {"text": text, "pictures": pictures}} | ({"records": records} if records is not None else {}), asked, CRAFT_SECONDS, "crafted")

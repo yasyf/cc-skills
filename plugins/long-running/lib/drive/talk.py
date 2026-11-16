@@ -185,6 +185,34 @@ def told_stale(name: str, seq: str, writer: str, due: str) -> None:
     tools.sent(name, "watch", [{"kind": "note", "to": [f"{writer}@{name}"], "re": [seq], "text": f"report {seq} posted after its due {due} passed, so its post left that due out: send a fresh due if a next step is still owed"}])
 
 
+def report_records(name: str, order_id: str | None, words: str) -> list[dict]:
+    """The records from within two minutes of an event a report calls unexplained, by events.event_records, which its writer gets to cite; none for a report calling nothing unexplained at a stated time, or when cci cannot be read."""
+    from drive import events
+
+    if not (times := events.event_times(words, state.now())):
+        return []
+    try:
+        return events.event_records(name, order_id, times)
+    except reads.ReadError:
+        return []
+
+
+def unexplained_refusal(name: str, text: str, nearby: list[dict], channel: str | None, thread: str | None) -> str | None:
+    """Why a report's post calling an event unexplained goes nowhere the first time, by the one Jev rule the say hook holds a post to, events.UNEXPLAINED_RULE: it cites none of the records beside the event and does not say none applies; through gate.gate, so it blocks once."""
+    from drive import events, gate, settled
+
+    if not nearby or not events.event_times(text, state.now()):
+        return None
+    try:
+        answers = settled.jev({"post": {"text": text}, "records": nearby}, {"craft.unexplained": settled.Noul(events.UNEXPLAINED_RULE)}, events.EVENT_SECONDS, "unexplained")
+    except settled.Unheard:
+        return None
+    if answers.get("craft.unexplained", 0) < settled.YES:
+        return None
+    listed = "; ".join(f"{record['seq']} {record['lane']} {record['kind']} {json.dumps(record['attrs'])}: {record['text']}" for record in nearby)
+    return gate.gate(name, f"unexplained {channel or 'dm'}/{thread or ''}", [f"its post calls an event unexplained, citing none of the records from within two minutes of it, nor saying none applies: {listed}"])
+
+
 def report_line(name: str, seq: str) -> str:
     """Post a `POST` report for him from the drive itself, an open incident's report naming no thread in the incident's thread in a channel the drive keeps, by state.incident_place, by his words "Where did the approve tap get sent initially?", from a process the watch starts, or a line the watch writes from its own rows, a milestone, an incident's end or a proved order's live line, from the watch's own pass, so no session posts it and no message of his waits behind one: one Sonnet call given REPORT_RULES, his rules for a post, where it goes and when a visual is owed, writes the post and decides its place, by his words "get rid of hard-coded stuff, give it the rules, and let it make the call", then each mechanical `cc-slack check-post` fix is made by fixes.mended and say posts it citing the report: in the thread the report names, at its channel's root, or as an edit of the post a correction corrects, in that post's own place; each order its close attr names then closes on it, once the post's record lands on its order. A report placed in a channel outside the drive's, where cc-slack posts only on the ticket a session's permission hook names, a link the report does not print, words check-post still faults and a report the model skips, as Skipped, post nothing, and the refusal goes back to its writer, by report_post, or to the watch's pass that called it."""
     from drive import answer, fixes
@@ -219,6 +247,8 @@ def report_line(name: str, seq: str) -> str:
             ],
         )
     )
+    nearby = report_records(name, read["attrs"].get("order"), words)
+    facts += "".join(f"\nRecords from within two minutes of an event it calls unexplained, case attrs first; cite the one that caused it, or say none applies:\n- {record['seq']} {record['lane']} {record['kind']} {json.dumps(record['attrs'])}: {record['text']}" for record in nearby[:1]) + "".join(f"\n- {record['seq']} {record['lane']} {record['kind']} {json.dumps(record['attrs'])}: {record['text']}" for record in nearby[1:])
     said, _ = answer.ask(facts, "Write his post for this report as one JSON object.", REPORT_RULES, "ask")
     try:
         made = json.loads(said[said.index("{") : said.rindex("}") + 1])
@@ -230,6 +260,8 @@ def report_line(name: str, seq: str) -> str:
         raise Skipped(f"its post was skipped: {made['skip']}")
     if not (text := (made.get("text") or "").strip()):
         raise DriveError(f"its post was not written: {render.cut(said, 200)}")
+    if refused := unexplained_refusal(name, text, nearby, attrs.get("channel") or channel, thread):
+        raise DriveError(refused)
     drawn = {link for ref in refs.resolved(name, words).values() for link in (ref.get("url"), ref.get("card"), ref.get("board")) if link}
     if strays := [url for url in answer.URL.findall(json.dumps(made)) if url not in words and url not in corrected and url not in drawn]:
         raise DriveError(f"its post links {strays[0]}, which the report does not print")

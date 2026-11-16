@@ -20,7 +20,7 @@ from conftest import (
     edit,
     explained,
 )
-from drive import agents, limits, picture, refs, settled, slack, state, talk, view
+from drive import agents, events, limits, picture, refs, settled, slack, state, talk, view
 from drive.state import DriveError
 
 Run = Callable[..., tuple[int, str]]
@@ -1303,7 +1303,7 @@ def test_a_refused_post_to_one_place_goes_through_with_a_warning_when_the_sessio
 def test_a_post_calling_an_event_unexplained_is_weighed_against_the_records_beside_it_and_blocks_once(talker: str, transcript: Path, checked: Checked, jev: Jev, monkeypatch: pytest.MonkeyPatch) -> None:
     deleted = {"seq": 735744, "at": "10:58 AM", "lane": "root", "kind": "report", "attrs": {"case": "S2-DELETE", "order": "o1339"}, "text": "S2: deleted the sandsql writer pod on staging"}
     windows: list[list[datetime]] = []
-    monkeypatch.setattr(message_limits, "event_records", lambda name, order_id, times: windows.append(times) or [deleted])
+    monkeypatch.setattr(events, "event_records", lambda name, order_id, times: windows.append(times) or [deleted])
     text = "The kubelet killed staging's writer pod at 10:58 AM; the cause is unread. A reader is on it."
     payload = call("slack_reply", transcript, channel_id="C0CHZM7A478", thread_ts="1794830198.687629", text=text)
     del payload["agent_id"]

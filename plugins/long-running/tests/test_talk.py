@@ -731,6 +731,26 @@ def test_a_report_about_an_order_from_any_session_but_its_communicator_goes_to_t
     assert data["posts"]["handed"]["736200"]["order"] == "o1" and "736200" in data["posts"]["claimed"]
 
 
+def test_a_report_post_calling_an_event_unexplained_gets_the_records_beside_it_and_blocks_once_citing_none(demo: str, jev: Jev, monkeypatch: pytest.MonkeyPatch) -> None:
+    from drive import answer, events
+
+    thread = "1794830198.687629"
+    deleted = {"seq": 735744, "at": "10:58 AM", "lane": "root", "kind": "report", "attrs": {"case": "S2-DELETE", "order": "o1339"}, "text": "S2: deleted the sandsql writer pod on staging"}
+    monkeypatch.setattr(events, "event_records", lambda name, order_id, times: [deleted])
+    words = "POST the kubelet killed staging's sandsql writer pod at 10:58 AM; the cause is unread"
+    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {"channel": "C1", "thread": thread}, "report": {"kind": "report", "lane": "priority-o1339", "text": words, "seq": seq}, "thread": None})
+    asked: list[str] = []
+    monkeypatch.setattr(answer, "ask", lambda facts, prompt, rules, tag: asked.append(facts) or (json.dumps({"text": "The kubelet killed staging's writer pod at 10:58 AM; the cause is unread.", "place": "thread"}), None))
+    monkeypatch.setattr(slack, "homes", lambda data: {"C1"})
+    monkeypatch.setattr(slack, "post_findings", lambda text, draws_card, asked="": [])
+    monkeypatch.setattr(talk, "spoken", lambda name, post, known, recorded_first=False: "POSTED https://acme.slack.com/archives/C1/p1")
+    jev.ruled = {"craft": ("unexplained", 0.9)}
+    with pytest.raises(DriveError, match="refused once: its post calls an event unexplained.*735744"):
+        talk.report_line(demo, "736258")
+    assert "735744 root report" in asked[0] and jev.asked[-1]["state"]["records"] == [deleted]
+    assert talk.report_line(demo, "736259") == "POSTED https://acme.slack.com/archives/C1/p1"
+
+
 def test_a_correction_of_a_posted_report_rewords_that_post_itself_rather_than_bouncing_to_a_writer_that_cannot_post(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     from drive import answer
 
