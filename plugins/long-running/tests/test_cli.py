@@ -12747,3 +12747,22 @@ def test_an_incident_order_an_older_install_saved_without_its_page_mark_shows_it
     code, out = run("order", "show", "o1")
     assert (code, out.splitlines()[-1]) == (0, "page: not marked as hitting real users; he was not paged")
     assert render.page_line(state.saved_row(demo, "orders", "o1")) == "not marked as hitting real users; he was not paged"
+
+
+@pytest.mark.usefixtures("envs_release")
+def test_a_staging_release_starts_from_a_checkout_at_its_commit_and_production_or_another_head_is_refused(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    places = Path(state.load(demo)["roles"]["coordinator"]["cwd"])
+    (places / "infra" / "envs").mkdir(parents=True, exist_ok=True)
+    for place, marked in (("plat-usw2-staging", "staging"), ("plat-usw2-prod", "prod\nprod: true")):
+        (places / "infra" / "envs" / f"{place}.yaml").write_text(f"id: {place}\nstage: {marked}\n")
+    monkeypatch.setattr(orca, "checkout", lambda name, cwd, wait=0: places)
+    tip = tmp_path / "tip"
+    subprocess.run(["git", "init", "-q", str(tip)], check=True)
+    subprocess.run(["git", "-C", str(tip), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "tip"], check=True)
+    head = subprocess.run(["git", "-C", str(tip), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    staging = f"tools/ci release start sandsql-rehearsal --env plat-usw2-staging --commit {head} --manual"
+    assert cli.release_checkout(demo, staging, tip) == tip
+    with pytest.raises(state.DriveError, match="only a release on staging or sandbox alone starts from another checkout"):
+        cli.release_checkout(demo, staging.replace("plat-usw2-staging", "plat-usw2-prod"), tip)
+    with pytest.raises(state.DriveError, match=f"its HEAD {head[:12]} is not the one commit"):
+        cli.release_checkout(demo, staging.replace(head, "1234567" + "0" * 33), tip)
