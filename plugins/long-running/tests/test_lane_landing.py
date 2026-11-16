@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from lane import landing
+from lane import landing, rows
 
 NOW = datetime(2026, 11, 16, 15, 0).astimezone()
 SAFE: dict = {}
@@ -35,8 +35,20 @@ def test_an_unread_head_a_head_read_before_a_push_and_no_approve_never_land() ->
     assert [verdict.lands for stack in (unread, stale, unapproved) for verdict in landing.verdicts(lane(stack), NOW, NOW)] == [False, False, False]
 
 
-def test_his_approve_stands_on_a_head_our_pushes_moved_after_his_tap() -> None:
-    assert landing.verdicts(lane(row(3, head="new") | {"approved_head": "old"}), None, NOW)[0].lands is True
+def test_his_approve_stands_on_a_head_only_our_own_commits_moved_and_a_teammates_commit_needs_his_tap_again() -> None:
+    ours = row(3, head="new") | {"approved_head": "old", "foreign": []}
+    theirs = row(3, head="new") | {"approved_head": "old", "foreign": ["new by a-teammate"]}
+    lost = row(3, head="new") | {"approved_head": "old", "foreign": None}
+    assert landing.verdicts(lane(ours), None, NOW)[0].lands is True
+    assert landing.verdicts(lane(theirs), None, NOW)[0].why == "Forge-AI/monorepo#3 waits: commits since his Approve need his tap again: new by a-teammate"
+    assert landing.verdicts(lane(lost), None, NOW)[0].lands is False
+
+
+def test_foreign_lists_the_commits_after_his_approved_head_that_another_account_authored() -> None:
+    commits = [("a" * 40, "lane-bot"), ("b" * 40, "lane-bot"), ("c" * 40, "teammate"), ("d" * 40, "lane-bot")]
+    assert rows.foreign(commits, "a" * 40, "lane-bot") == [f"{'c' * 12} by teammate"]
+    assert rows.foreign(commits, "c" * 40, "lane-bot") == []
+    assert rows.foreign(commits, "e" * 40, "lane-bot") is None
 
 
 def test_a_dangerous_stack_lands_whole_only_on_a_pass_at_its_top_head_while_he_is_present() -> None:

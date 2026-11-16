@@ -1,11 +1,13 @@
 """lane-land's reads and writes of lane PRs: their state from GitHub, kept in memory and never on a row, and on each row the dangerous reader's verdict at a head and its stack's staging proof."""
 
+import subprocess
+from functools import cache
 from pathlib import Path
 
 from lane import facts, landing, store
 
 CHECKS = {"SUCCESS": "pass", "FAILURE": "fail", "ERROR": "fail"}
-PR_STATE = ("head", "checks", "merged", "under")
+PR_STATE = ("head", "checks", "merged", "under", "commits", "foreign")
 
 
 def view(drive: str) -> dict[str, dict]:
@@ -15,7 +17,7 @@ def view(drive: str) -> dict[str, dict]:
     heads = {(repo, pull["branch"]): f"{repo}#{number}" for (repo, number), pull in read.items() if pull["state"] == "OPEN"}
     found = {}
     for (repo, number), pull in read.items():
-        facts_of = {"head": pull["head"] if pull["state"] == "OPEN" or pull["merged"] else None, "checks": CHECKS.get(pull["rollup"] or "", "pending"), "merged": pull["merged"]}
+        facts_of = {"head": pull["head"] if pull["state"] == "OPEN" or pull["merged"] else None, "checks": CHECKS.get(pull["rollup"] or "", "pending"), "merged": pull["merged"], "commits": pull["commits"]}
         if pull["base"] == pull["default"]:
             facts_of["under"] = None
         elif below := heads.get((repo, pull["base"])):
@@ -25,8 +27,26 @@ def view(drive: str) -> dict[str, dict]:
 
 
 def seen(lane: dict, read: dict[str, dict]) -> dict:
-    """The lane with each prs row joined to its PR's state from view(), in memory, a PR GitHub did not answer keeping no head, so it never lands."""
-    return lane | {"prs": [{field: value for field, value in row.items() if field not in PR_STATE} | read.get(landing.key(row), {"head": None}) for row in lane["prs"]]}
+    """The lane with each prs row joined to its PR's state from view(), in memory, a PR GitHub did not answer keeping no head, so it never lands, and with `foreign`, the commits since his approved head that our lanes' account did not author, by foreign()."""
+    joined = []
+    for row in lane["prs"]:
+        kept = {field: value for field, value in row.items() if field not in PR_STATE} | read.get(landing.key(row), {"head": None})
+        joined.append(kept | {"foreign": foreign(kept.get("commits") or [], kept["approved_head"], ours())})
+    return lane | {"prs": joined}
+
+
+def foreign(commits: list[tuple[str, str | None]], approved: str | None, account: str) -> list[str] | None:
+    """Each commit after his approved head on the PR authored by any account but ours, as `<sha> by <login>`, so a teammate's push needs his tap again while our lanes' own pushes keep his Approve, by his 14:13 words and team-lead's rule; None when his approved head is not among the PR's last COMMITS_READ commits, which landing reads as needing his tap; empty for none."""
+    oids = [oid for oid, _ in commits]
+    if not approved or approved not in oids:
+        return None
+    return [f"{oid[:12]} by {login or 'an unknown author'}" for oid, login in commits[oids.index(approved) + 1 :] if login != account]
+
+
+@cache
+def ours() -> str:
+    """The GitHub account our lanes push as, the one gh is signed in to."""
+    return subprocess.run(["gh", "api", "user", "-q", ".login"], capture_output=True, text=True, check=True, timeout=60).stdout.strip()
 
 
 def unjudged(lanes: dict[str, dict]) -> list[str]:
