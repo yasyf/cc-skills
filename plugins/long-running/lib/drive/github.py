@@ -813,6 +813,10 @@ def contains(clone: str) -> Callable[[str, str, str, str | None], bool]:
     git = ["git", "-C", clone]
 
     @functools.cache
+    def ensure_commit(sha: str) -> None:
+        fetch_commit(clone, sha)
+
+    @functools.cache
     def base_tip(branch: str) -> str | None:
         try:
             return fetched(clone, branch)
@@ -822,17 +826,19 @@ def contains(clone: str) -> Callable[[str, str, str, str | None], bool]:
     @functools.cache
     def holds(build: str, merge: str, head: str, base: str | None) -> bool:
         for sha in (build, merge):
-            fetch_commit(clone, sha)
+            ensure_commit(sha)
         if not subprocess.run([*git, "merge-base", "--is-ancestor", merge, build], capture_output=True, check=False).returncode:
             return True
-        return bool(base) and (tip := base_tip(base)) is not None and net_held(clone, build, head, tip)
+        if not base or (tip := base_tip(base)) is None:
+            return False
+        ensure_commit(head)
+        return net_held(clone, build, head, tip)
 
     return holds
 
 
 def net_held(clone: str, build: str, head: str, base_tip: str) -> bool:
     """Whether each hunk a PR at head changes since its fork from base reads in a build's files: its added lines stand there together, and its removed lines, unless head keeps them too, do not, whatever lines sit around them."""
-    fetch_commit(clone, head)
     git = ["git", "-C", clone, "--literal-pathspecs", "-c", "core.quotePath=false"]
     fork = fork_point(clone, git, head, base_tip)
     hunks: dict[str, list[tuple[list[str], list[str]]]] = {}
