@@ -85,6 +85,7 @@ UNPLAIN = (
 RAW_IDS = ("commit-sha", "ruling-id", "ulid")
 NAMED_IDS = ("internal-id", "drive-term", "codename")
 CHECKED = re.compile(r"^\d+:\d+ ([\w-]+) '([^'\n]*)'")
+WALLED = re.compile(r'^\d+:\d+ wall-of-text (?P<opening>"(?:[^"\\\n]|\\.)*"): (?P<count>\d+) sentences in one paragraph; keep each paragraph to (?P<most>\d+)')
 RAW = (
     "drive job ask: kept, but his card shows {found}, raw ids he cannot open: write a recorded answer of his as {{answer:<id>}},"
     " which his card draws as his words, and name any other by what it is, linking it where it opens. {advisory}"
@@ -146,7 +147,8 @@ OPTIONS_HEADING = re.compile(r"options:", re.IGNORECASE)
 QUOTE = ">"
 REDONE = "*This question is being redone:* "
 REBUILT_HOLDS = "Holds: none: rebuilt from the posted card"
-REBUILT = f"Root cause: none: rebuilt from the posted card\n{REBUILT_HOLDS}"
+REBUILT_CAUSE = "Root cause: none: rebuilt from the posted card"
+REBUILT = f"{REBUILT_CAUSE}\n{REBUILT_HOLDS}"
 POSTED_PICTURE = re.compile(r"!\[(?P<caption>[^\]]*)\]\((?P<path>/[^)\s]+)\)")
 NAMELESS_CAPTION = re.compile(r"Show me(?: \(\d+\))?")
 FENCE = re.compile(r"^[ \t]*```")
@@ -172,7 +174,10 @@ SHIPPING = re.compile(r"https?://\S+|\bj\d+\b")
 NOT_FOUND = re.compile(r"not found[ \t]*:[ \t]*(.*)", re.IGNORECASE)
 NOT_FOUND_BY = re.compile(r"not found[ \t]*:[ \t]*(?P<measures>\S.*?)[ \t]*,[ \t]*by[ \t]+j\d+[ \t.]*", re.IGNORECASE)
 FIXED = re.compile(r"fixed[ \t]*:[ \t]*(.*)", re.IGNORECASE)
+INTERIM_BY = re.compile(r"(?P<fix>\S.*?)[ \t]*,[ \t]*by[ \t]+j\d+[ \t.]*", re.IGNORECASE)
 CAUSE_LINE = "*Root cause:* "
+INTERIM_LINE = "*Interim fix:* "
+DRAWN_FINDINGS = (CAUSE_LINE, INTERIM_LINE)
 CAUSE_RULING = 'his words "this still doesnt tell us why its so slow/how to speed it up"'
 MEASURED = re.compile(r"\d")
 ROOT_CAUSE_QUOTE = "Update your skill to not just brush over the root cause ever"
@@ -483,6 +488,20 @@ AWS_ACTION = re.compile(
 )
 OFF_AWS_SIGN_IN = re.compile(r"\bcookiesync\b|\bbrowser(?:['’]s)?\s+(?:sign[- ]?in|cookies|session)\b|\bsecure\s+enclave\b", re.IGNORECASE)
 FACT_NOUN = r"(?:ids?|keys?|tokens?|secrets?|urls?|names?|numbers?|values?|address(?:es)?|passwords?|emails?|credentials?|handles?|endpoints?|hosts?)"
+TOLD_WORDS = {
+    "id": "ruling:e10ccc1",
+    "asked": "Should the production release start before production's SandSQL finishes the migration the drive's mistaken dry run started?",
+    "said": "explain more why all these DBs are being created and what’s happening use proper English",
+    "rule": (
+        "Each thing the card's summary, Root cause or Interim fix line says happened or is happening says in plain words how it"
+        " came about and what it does to the teams it touches, or to whoever reads that. One told only by a count, rate, time or"
+        ' system\'s name, as "made the fleet create 2,451 databases" or "is migrating those teams 3 a minute", breaks this. Each'
+        " sentence reads once: a gloss of a term is its own short sentence or comes after the sentence's verb, never a clause"
+        " stacked before it, and a record link sits at the sentence's end. A card with nothing behind it that happened breaks nothing."
+    ),
+}
+CARD_WORDS = frozenset({ROOT_CAUSE_WORDS["id"], TOLD_WORDS["id"]})
+TOLD_RULING = f'his words e10ccc1, "{TOLD_WORDS["said"]}"'
 FACT_VERB = r"(?:paste|copy|send|share|type|enter|tell|reply(?:\s+with)?|look\s+up|find|give|provide|fill\s+in|dig\s+up)"
 ASKS_HIM_FOR_A_VALUE = re.compile(
     rf"\byou(?:['’]\w+)?\b(?:\s+[\w'’-]+){{0,3}}?\s+{FACT_VERB}\b[^.;:]{{0,40}}?\b{FACT_NOUN}\b"
@@ -522,12 +541,13 @@ class Question:
     holds: str | None
     replaces: tuple[str, ...] = ()
     cause: str = ""
+    interim: str = ""
 
     def card(self, drive: str, waits: str, meanwhile: str = "") -> dict:
-        """The question card a handler draws from this block, its Root cause line under the summary's first line, each option's description as the hint cc-slack draws under it, each file name and path in its body and hints in code formatting, each PR it names as a ref, which cc-slack draws beside its options with the state GitHub reads for it, kept current until the PR ends, so no card's words alone tell him a PR's state, and the line the drive reads from its jobs saying what is built while he decides, which cc-slack draws above the buttons in place of its line saying the asking lane is stopped."""
-        body = coded(card_body(self.summary, self.show_me, self.cause))
+        """The question card a handler draws from this block, its Root cause line under the summary's first line and its Interim fix line under that, each option's description as the hint cc-slack draws under it, each file name and path in its body and hints in code formatting, each PR it names as a ref, which cc-slack draws beside its options with the state GitHub reads for it, kept current until the PR ends, so no card's words alone tell him a PR's state, and the line the drive reads from its jobs saying what is built while he decides, which cc-slack draws above the buttons in place of its line saying the asking lane is stopped."""
+        body = coded(card_body(self.summary, self.show_me, self.cause, self.interim))
         hinted = {"hints": {option: coded(hint) for option, hint in self.hints.items()}} if self.hints else {}
-        refs = pr_refs([self.title, *self.summary, self.cause, *self.options, *self.hints.values(), *self.show_me])
+        refs = pr_refs([self.title, *self.summary, self.cause, self.interim, *self.options, *self.hints.values(), *self.show_me])
         built = {"meanwhile": meanwhile} if meanwhile else {}
         return {"title": self.title, "body": body, "options": self.options, "recommended": self.recommended, **hinted, **({"refs": refs} if refs else {}), "waits": waits, "drive": drive, **built}
 
@@ -655,9 +675,9 @@ def word_refusal(post: dict, limit: int, shape: str, edited: int, reading: str, 
     return Refusal(f"refused: {found} ({reading}). {rest}", found)
 
 
-def card_body(summary: list[str], show_me: list[str], cause: str = "") -> str:
-    """The body of a question card: the summary's first line, saying what the card is, then the Root cause line, why it comes up, then the rest of the summary and any Show me."""
-    lines = [*summary[:1], *([CAUSE_LINE + cause] if cause else []), *summary[1:]]
+def card_body(summary: list[str], show_me: list[str], cause: str = "", interim: str = "") -> str:
+    """The body of a question card: the summary's first line, saying what the card is, then the Root cause line, why it comes up, then the Interim fix line, who is hurt now or the fix shipping while he picks, then the rest of the summary and any Show me."""
+    lines = [*summary[:1], *([CAUSE_LINE + cause] if cause else []), *([INTERIM_LINE + interim] if interim else []), *summary[1:]]
     return "\n".join([*lines, "*Show me*", *show_me] if any(line.strip() for line in show_me) else lines)
 
 
@@ -673,18 +693,20 @@ def coded(text: str) -> str:
 
 
 def rebuilt(card: dict, asks: Path, jobs: dict) -> str:
-    """The ASK block a posted question card draws again, rebuilt from the card as the drive stored it for a question whose job kept no file: its question, summary and options in the words he read, the recommended one marked, each with the description its hint drew under it, each Show me picture as the fence its source.json keeps, under its caption, or as the picture's line where none is kept, then each picture `attached` finds, and the Findings `kept_findings` finds among the drive's jobs, their Root cause the line the card drew when none are kept."""
+    """The ASK block a posted question card draws again, rebuilt from the card as the drive stored it for a question whose job kept no file: its question, summary and options in the words he read, the recommended one marked, each with the description its hint drew under it, each Show me picture as the fence its source.json keeps, under its caption, or as the picture's line where none is kept, then each picture `attached` finds, and the Findings `kept_findings` finds among the drive's jobs, their Root cause and Interim fix the lines the card drew when none are kept."""
     lines = card["body"].split("\n")
     shown = lines.index("*Show me*") if "*Show me*" in lines else len(lines)
     show_me = [*unpictured(lines[shown + 1 :]), *attached(card, asks.with_name("pictures"))]
     hints = card.get("hints") or {}
     findings = kept_findings(asks, card, jobs)
-    if findings == REBUILT and (drawn := next((line.removeprefix(CAUSE_LINE) for line in lines[:shown] if line.startswith(CAUSE_LINE)), None)):
-        findings = ROOT_CAUSE.sub(lambda _: f"Root cause: {drawn}", findings, count=1)
+    if findings == REBUILT:
+        drawn = {prefix: line.removeprefix(prefix) for line in lines[:shown] for prefix in DRAWN_FINDINGS if line.startswith(prefix)}
+        cause = f"Root cause: {drawn[CAUSE_LINE]}" if CAUSE_LINE in drawn else REBUILT_CAUSE
+        findings = "\n".join([cause, *([f"Interim fix: {drawn[INTERIM_LINE]}"] if INTERIM_LINE in drawn else []), REBUILT_HOLDS])
     return "\n".join(
         [
             f"ASK {card['title']}",
-            *(line for line in lines[:shown] if not line.startswith((REDONE, CAUSE_LINE))),
+            *(line for line in lines[:shown] if not line.startswith((REDONE, *DRAWN_FINDINGS))),
             *(["Show me:", *show_me] if show_me else []),
             *(
                 line
@@ -740,8 +762,8 @@ def kept_findings(asks: Path, card: dict, jobs: dict) -> str:
 
 
 def card_words(card: dict) -> int:
-    """The words he reads on a question card, counted by `drive job ask` over the card it keeps and by the post hook over the card posted: its title, the body above its `*Show me*` line but the line saying the question is being redone and the Root cause line, held to its own limit, and its options."""
-    summary = [line for line in SHOWN.split(card.get("body") or "", maxsplit=1)[0].splitlines() if not line.startswith((REDONE, CAUSE_LINE))]
+    """The words he reads on a question card, counted by `drive job ask` over the card it keeps and by the post hook over the card posted: its title, the body above its `*Show me*` line but the line saying the question is being redone and the Root cause and Interim fix lines, each held to its own limit, and its options."""
+    summary = [line for line in SHOWN.split(card.get("body") or "", maxsplit=1)[0].splitlines() if not line.startswith((REDONE, *DRAWN_FINDINGS))]
     return sum(map(words, [card.get("title") or "", *summary, *(card.get("options") or [])]))
 
 
@@ -799,7 +821,7 @@ def out_of_shape(problems: list[str]) -> str:
 
 
 def question_problems(text: str, kept: bool = False, unsettled: str | None = None, hurting: bool = False) -> tuple[Question, list[str]]:
-    """The one question a job's ASK block puts to him, as far as its words read, and every way they are out of shape, each rule one entry of the list; a block `drive job ask` already kept, or one rebuilt from his card, is read with no rule at all once its words parse, so a card he was shown redraws under the rules it was asked under whatever rule came since, an option that cleans up a bad state passes only when `unsettled` names his ruling against it and why, a question on a bug hurting someone now names the immediate fix shipping while he picks, and each new one names on its `Holds:` line the changes its options alter, which his open card holds from landing, or none and why; a `Replaces:` line among its findings names the ASK file of the open question it builds on. Its length is counted on the card it draws, each reference filled, which `cli.checked_ask` counts once."""
+    """The one question a job's ASK block puts to him, as far as its words read, and every way they are out of shape, each rule one entry of the list; a block `drive job ask` already kept, or one rebuilt from his card, is read with no rule at all once its words parse, so a card he was shown redraws under the rules it was asked under whatever rule came since, an option that cleans up a bad state passes only when `unsettled` names his ruling against it and why, a question on a bug hurting someone now names the immediate fix shipping while he picks, its Interim fix line, which his card draws under the Root cause line, fits a line with no drive id, and each new one names on its `Holds:` line the changes its options alter, which his open card holds from landing, or none and why; a `Replaces:` line among its findings names the ASK file of the open question it builds on. Its length is counted on the card it draws, each reference filled, which `cli.checked_ask` counts once."""
     asked, *findings = FINDINGS.split(text, maxsplit=1)
     head, *example = SHOW_ME.split(asked, maxsplit=1)
     lines = [line.strip() for line in head.splitlines() if line.strip()]
@@ -831,6 +853,7 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
         None if held is None else "" if NONE_WHY.match(held[1]) else held[1],
         replaced(findings[0]) if findings else (),
         drawn_cause(findings[0]) if findings else "",
+        drawn_interim(findings[0]) if findings else "",
     )
     if kept:
         return asked, []
@@ -867,7 +890,7 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
         f'"{found}" points at an option by number or position; cards renumber, so each option says its own words'
         for found in OPTION_POINTER.findall(URL.sub(" ", TOKEN.sub(" ", "\n".join([*shown, *captions(show_me)]))))
     ]
-    problems += unlinked([*summary, *captions(show_me), *(line for _, line in prose), *([asked.cause] if asked.cause else [])], [title, *options], DRIVE_KINDS)
+    problems += unlinked([*summary, *captions(show_me), *(line for _, line in prose), *(line for line in (asked.cause, asked.interim) if line)], [title, *options], DRIVE_KINDS)
     problems += counted_problems(title, summary, options, show_me)
     problems += [
         f'{where} holds "{found}", which Slack draws as raw text, since a card\'s title and buttons take no markdown or links;'
@@ -909,6 +932,16 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
         problems += root_cause_problems(findings[0], options)
     if not (held and held[1] and held[1].casefold() != "none"):
         problems.append(f"no `Holds:` line under `Findings:` naming what his open card holds: write {HOLDS_SHAPE} ({HOLDS_RULING})")
+    if (count := words(asked.interim)) > LINE_WORDS:
+        problems.append(
+            f"`Interim fix:` is {count} words, and his card draws it under the Root cause line, at most {LINE_WORDS}, a line in his thread:"
+            f" say who is hurt now or the fix shipping while he picks, the rest staying under `Findings:` ({IMMEDIATE_FIX_RULING})"
+        )
+    if found := DRIVE_ID.search(asked.interim):
+        problems.append(
+            f'`Interim fix:` holds "{found[0]}", a drive job or order id his card draws and he cannot open: write `Interim fix: <the fix>, by j<n>`,'
+            f" which his card draws without the job, or link what ships it ({PROPER_TERMS_RULING})"
+        )
     if hurting:
         problems += interim_fix_problems("".join(findings[:1]))
     return asked, problems
@@ -1089,7 +1122,7 @@ def options_start(lines: list[str]) -> int:
 
 def counted_problems(title: str, summary: list[str], options: list[str], show_me: list[str]) -> list[str]:
     """Each count of two to twelve things the card's question, summary or options name, as "four strategies" does, that the card never lists: as many options, Show me table rows or columns, list lines, captions, pictures, fenced blocks or compared options, or members named right after a count on the card, as "four strategies: A, B, C and D" names them. A measure such as "30 days" or "3 requests", a bound such as "at most 3" and a rate or swap such as "four tests at a time" or "eight machines instead of two" count no members he must see."""
-    lines = [title, *(line for line in summary if not line.startswith((REDONE, CAUSE_LINE))), *options]
+    lines = [title, *(line for line in summary if not line.startswith((REDONE, *DRAWN_FINDINGS))), *options]
     counted = [(line, bare, match) for line in lines for bare in [masked(line)] for match in COUNTED.finditer(bare)]
     sizes = listed_sizes(options, show_me) | {named_count(bare[match.end() :]) for _, bare, match in counted}
     found = []
@@ -1196,10 +1229,19 @@ def root_cause_problems(findings: str, options: list[str]) -> list[str]:
 def drawn_cause(findings: str) -> str:
     """The findings' Root cause line as his card draws it, a cause not found without the job measuring it, which he cannot open; none for a block rebuilt from a card that drew none."""
     cause = ROOT_CAUSE.search(findings)
-    if not cause or findings.strip() == REBUILT:
+    if not cause or cause[0].strip() == REBUILT_CAUSE:
         return ""
     unfound = NOT_FOUND_BY.fullmatch(cause[1])
     return f"not found: {unfound['measures']}" if unfound else cause[1]
+
+
+def drawn_interim(findings: str) -> str:
+    """The findings' Interim fix line as his card draws it, a fix a job is building without that job, which he cannot open."""
+    interim = INTERIM_FIX.search(findings)
+    if not interim:
+        return ""
+    building = INTERIM_BY.fullmatch(interim[1])
+    return building["fix"] if building else interim[1]
 
 
 def names_option(words: str, options: list[str]) -> bool:
@@ -1207,9 +1249,9 @@ def names_option(words: str, options: list[str]) -> bool:
 
 
 def ask_case(text: str, asked: Question, cited: frozenset[str] = frozenset()) -> str:
-    """A kept card as Opus reads it against his words: its question, summary and Show me, each option numbered with its description and the recommended one marked, the root cause its findings name with the option they say removes it and the one they name the simplest, which every card offers, each other line of its findings naming by id one of the recorded answers of his it cites, such as one saying its recommended option replaces words of that answer, and a Page line for each web page it links, holding the words that page shows once Chrome opens it, every page read at once."""
+    """A kept card as Opus reads it against his words: its question, summary and Show me, each option numbered with its description and the recommended one marked, the root cause its findings name with the option they say removes it, the one they name the simplest, which every card offers, and their interim fix, each other line of its findings naming by id one of the recorded answers of his it cites, such as one saying its recommended option replaces words of that answer, and a Page line for each web page it links, holding the words that page shows once Chrome opens it, every page read at once."""
     findings = FINDINGS.split(text, maxsplit=1)[1]
-    named = [found[0].strip() for pattern in (ROOT_CAUSE, FIRST_PRINCIPLES, SIMPLEST) if (found := pattern.search(findings))]
+    named = [found[0].strip() for pattern in (ROOT_CAUSE, FIRST_PRINCIPLES, SIMPLEST, INTERIM_FIX) if (found := pattern.search(findings))]
     with ThreadPoolExecutor() as pool:
         pages = list(pool.map(page_line, linked_pages(asked)))
     return "\n".join(
@@ -1234,10 +1276,10 @@ def offered(asked: Question) -> list[str]:
 
 
 def rule_words(case: str) -> list[dict[str, str]]:
-    """His rulings Opus weighs a card's case by beside his words: his ruling on root causes, with the rule it sets by the form of the case's `Root cause:` line, a cause named, one fixed by a merged PR or none behind the question, his words that a team's data is read or written only as a service account, beside the question they answered, whatever order the card serves, his words that a job reads a value itself rather than asking him for it, with the rule they set, and, when the case reads a page the card links, his words on a link that opened another view than its card described, with the rule they set."""
+    """His rulings Opus weighs a card's case by beside his words: his ruling on root causes, with the rule it sets by the form of the case's `Root cause:` line, a cause named, one fixed by a merged PR or none behind the question, his words that a team's data is read or written only as a service account, beside the question they answered, whatever order the card serves, his words that a job reads a value itself rather than asking him for it, with the rule they set, his words that a card tell in plain English how what it says happened came about and what it does, with the rule they set, and, when the case reads a page the card links, his words on a link that opened another view than its card described, with the rule they set."""
     cause = ROOT_CAUSE.findall(case)[-1]
     form = "none" if NONE_WHY.match(cause) else "fixed" if FIXED.match(cause) else "found"
-    return [ROOT_CAUSE_WORDS | {"rule": ROOT_CAUSE_RULES[form]}, TEAM_DATA_WORDS, FACT_WORDS, *([LINK_VIEW_WORDS] if PAGE_LINE.search(case) else [])]
+    return [ROOT_CAUSE_WORDS | {"rule": ROOT_CAUSE_RULES[form]}, TEAM_DATA_WORDS, FACT_WORDS, TOLD_WORDS, *([LINK_VIEW_WORDS] if PAGE_LINE.search(case) else [])]
 
 
 def linked_pages(asked: Question) -> list[str]:
@@ -1254,14 +1296,15 @@ def page_line(url: str) -> str:
 
 
 def interim_fix_problems(findings: str) -> list[str]:
-    """Whether the findings of a choice on a bug hurting someone now name the immediate fix or rollback that ships while he picks, by the link of its PR, release, rollback or repair or the job building it, or say with `Interim fix: none: <why>` that nobody is hurt now."""
+    """Whether the findings of a choice on a bug hurting someone now name the immediate fix or rollback that ships while he picks, by the link of its PR, release, rollback or repair or as that fix by the job building it, or say with `Interim fix: none: <why>` that nobody is hurt now."""
     named = INTERIM_FIX.search(findings)
     if named and (NONE_WHY.match(named[1]) or SHIPPING.search(named[1])):
         return []
     unnamed = (
         "it asks him for the proper fix of a bug hurting someone now, so `Findings:` carries `Interim fix: <the link of the PR,"
-        " release, rollback or repair that ships the immediate fix while he picks, or the job building it>`, which his pick"
-        f" replaces, or `Interim fix: none: <why nobody is hurt now>` ({IMMEDIATE_FIX_RULING})"
+        " release, rollback or repair that ships the immediate fix while he picks>` or `Interim fix: <that fix>, by j<n>` for the job"
+        " building it, which his card draws without the job and his pick replaces, or `Interim fix: none: <why nobody is hurt"
+        f" now>`, either drawn on his card under the Root cause line ({IMMEDIATE_FIX_RULING})"
     )
     return [unnamed]
 

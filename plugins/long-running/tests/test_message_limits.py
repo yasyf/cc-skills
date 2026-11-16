@@ -2119,6 +2119,34 @@ def test_a_card_draws_its_root_cause_line_under_its_first_line_and_counts_it_apa
     assert limits.card_refusal(card, "") is None
 
 
+INTERIM_ASK = STRAY_CHATS_ASK.replace(STRAY_CAUSE, f"{STRAY_CAUSE}Interim fix: a repair moving his 9 stray chats back, by j12\n")
+
+
+def test_a_card_draws_its_interim_fix_line_under_its_root_cause_line_without_the_job_building_it_and_counts_it_apart_from_its_words() -> None:
+    card = limits.question(INTERIM_ASK).card("demo", "demo:j585-7")
+    _, cause, interim = card["body"].splitlines()[:3]
+    assert (cause.startswith(limits.CAUSE_LINE), interim) == (True, "*Interim fix:* a repair moving his 9 stray chats back")
+    assert limits.card_words(card) == limits.card_words(card | {"body": card["body"].replace(f"{interim}\n", "")})
+
+
+def test_a_card_rebuilt_from_his_posted_card_keeps_the_interim_fix_line_it_drew_out_of_its_summary(tmp_path: Path) -> None:
+    rebuilt = limits.question(limits.rebuilt(limits.question(INTERIM_ASK).card("demo", "demo:j585-7"), tmp_path / "asks", {}), kept=True)
+    assert rebuilt.interim == "a repair moving his 9 stray chats back"
+    assert [line for line in rebuilt.summary if line.startswith(limits.DRAWN_FINDINGS)] == []
+
+
+@pytest.mark.parametrize(
+    ("interim", "refusal"),
+    [
+        (f"Interim fix: {' '.join(['repair'] * 61)}\n", "`Interim fix:` is 61 words"),
+        ("Interim fix: j12 moves his 9 stray chats back\n", '`Interim fix:` holds "j12"'),
+    ],
+)
+def test_an_interim_fix_line_his_card_draws_is_one_line_long_and_names_no_job_he_cannot_open(interim: str, refusal: str) -> None:
+    with pytest.raises(DriveError, match=re.escape(refusal)):
+        limits.question(STRAY_CHATS_ASK.replace(STRAY_CAUSE, f"{STRAY_CAUSE}{interim}"))
+
+
 @pytest.mark.parametrize(
     ("cause", "refusal"),
     [
@@ -2155,7 +2183,7 @@ def test_a_card_asking_only_when_a_merged_fix_ships_names_the_structure_it_remov
     ],
 )
 def test_jev_weighs_a_card_by_the_rule_for_the_form_of_its_root_cause_line(cause: str, form: str) -> None:
-    assert limits.rule_words(STRAY_CHATS_ASK.replace(STRAY_CAUSE, cause)) == [limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES[form]}, limits.TEAM_DATA_WORDS, limits.FACT_WORDS]
+    assert limits.rule_words(STRAY_CHATS_ASK.replace(STRAY_CAUSE, cause)) == [limits.ROOT_CAUSE_WORDS | {"rule": limits.ROOT_CAUSE_RULES[form]}, limits.TEAM_DATA_WORDS, limits.FACT_WORDS, limits.TOLD_WORDS]
 
 
 def test_the_case_jev_reads_carries_the_show_me_each_option_with_its_description_and_the_root_cause_lines(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2452,7 +2480,7 @@ def test_a_choice_on_a_bug_hurting_someone_now_names_the_immediate_fix_shipping_
     assert limits.interim_fix_problems("Interim fix: we will repair the stuck rows\n") != []
     for named in (
         "Interim fix: https://github.com/Forge-AI/monorepo/pull/43",
-        "Interim fix: j12 repairs the stuck rows",
+        "Interim fix: a repair of the stuck rows, by j12",
         "Interim fix: none: the bug blocks only a test env",
     ):
         assert limits.interim_fix_problems(f"Root cause: none: a design choice\n{named}\n") == []
