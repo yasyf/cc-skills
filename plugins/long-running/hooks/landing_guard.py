@@ -919,7 +919,7 @@ def held_posts(payload: dict) -> None:
         for post in posts:
             state.hold_addressed(data, post, post["lane"] or job_id, None, job_id, post["drive"] or name)
 
-    state.update(name, None, held)
+    state.write(name, held)
 
 
 def codex_job() -> str | None:
