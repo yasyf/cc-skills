@@ -521,13 +521,21 @@ def upgraded() -> Path | None:
 
 def watch_upgraded() -> Path | None:
     """The drive of the newest installed long-running when it runs other code than this one's, so the watch moves onto an install only when that install changes what the watch runs: a newer install whose lib and bin/drive are byte for byte this one's is not one, unless this install's folder is gone, as a pruned cache leaves it. A watch process moves at most once per WATCH_MOVES_EVERY of its own run, onto the newest install then, so a burst of releases restarts it once rather than once per release, each restart owing GitHub a read of every PR it holds."""
-    if time.monotonic() - STARTED < WATCH_MOVES_EVERY or not (newer := upgraded()):
+    if time.monotonic() - STARTED < WATCH_MOVES_EVERY or not (newer := upgraded()) or not other_code(newer):
         return None
-    if not DRIVE.exists():
-        return newer
-    if code_digest(newer.resolve().parents[1]) == code_digest(DRIVE.parents[1]):
+    return newer if not DRIVE.exists() or watch_tried(newer.resolve().parents[1]) else None
+
+
+def outrun(name: str) -> Path | None:
+    """The drive of the newest installed long-running once a newer release than this one saved the drive, when that install runs other code than this one, so a process of the watch moves onto it before its next stage reads rows this code may not know, whatever WATCH_MOVES_EVERY and watch_tried would hold it to: the drive's rows are that code's already, and every drive verb runs it."""
+    if not state.newer_saver(name) or not (newer := upgraded()):
         return None
-    return newer if watch_tried(newer.resolve().parents[1]) else None
+    return newer if other_code(newer) else None
+
+
+def other_code(newer: Path) -> bool:
+    """Whether the install whose drive is newer runs other Python than this one, or this install's folder is gone, as a pruned cache leaves it."""
+    return not DRIVE.exists() or code_digest(newer.resolve().parents[1]) != code_digest(DRIVE.parents[1])
 
 
 def tried_path(plugin: Path) -> Path:

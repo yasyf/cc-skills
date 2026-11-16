@@ -3026,6 +3026,25 @@ def test_the_watch_moves_onto_a_newer_install_only_when_its_python_differs_or_it
     assert install.watch_upgraded() == same
 
 
+def test_the_watch_moves_onto_a_newer_install_before_its_clock_or_try_once_a_newer_release_saved_the_drive_unless_its_python_is_the_same(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def plugin(version: str, module: str) -> Path:
+        root = tmp_path / version
+        (root / "bin").mkdir(parents=True)
+        (root / "lib" / "drive").mkdir(parents=True)
+        (root / "bin" / "drive").write_text("#!/usr/bin/env python3\n")
+        (root / "lib" / "drive" / "watch.py").write_text(module)
+        return root / "bin" / "drive"
+
+    own, same, changed = plugin("1.0.1", "PASS = 1\n"), plugin("1.0.2", "PASS = 1\n"), plugin("1.0.3", "PASS = 2\n")
+    monkeypatch.setattr(install, "DRIVE", own)
+    monkeypatch.setattr(install, "STARTED", time.monotonic())
+    monkeypatch.setattr(install, "watch_tried", lambda plugin: False)
+    for saver, newer, moved in ((None, changed, None), ("1.0.3", changed, changed), ("1.0.2", same, None), ("1.0.3", None, None)):
+        monkeypatch.setattr(state, "newer_saver", lambda name, saver=saver: saver)
+        monkeypatch.setattr(install, "upgraded", lambda newer=newer: newer)
+        assert install.outrun("demo") == moved
+
+
 def test_a_drive_tooling_order_whose_every_job_finished_on_prs_merged_in_the_installed_repo_is_a_fix_the_install_closes(tmp_path: Path) -> None:
     state.create(state.new_drive("demo", "coordinator", "demo-coordinator", str(tmp_path)))
     with edit("demo") as data:
