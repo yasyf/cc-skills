@@ -533,8 +533,8 @@ def holder(data: dict, held: dict) -> str | None:
 
 
 def gone(entry: dict) -> bool:
-    """Whether a handler's turn is over, whatever its Stop hook did, read from the records Claude Code keeps of the session its launch named: no running process's `sessions/<pid>.json`, the record Claude Code keeps of each session's process, names that session with a status but idle, and its background job, which `claude --bg` writes `working` before it returns, ended a turn done, blocked, failed or stopped, rests idle or blocked, as one stuck on a startup dialog does, or `claude rm` took it; so a launch whose job ended blocked before it ran a turn holds nothing. A handler whose launch has not named its session yet is in flight for START_WINDOW, many times the seconds a `claude --bg` launch takes, and past it never started, as when an install or a stopped watch ended its start between the drive's save of its entry and its launch's save of the session; one whose start waits its turn in a process still running, by waiting, is not gone, nor one whose turn an API error ended until the resume that wakes it. A pool handler resting between items is not gone while any running process's record names its session, whatever its status."""
-    if waiting(entry) or (wakes := entry.get("wakes")) and state.parse_time(wakes) > state.now():
+    """Whether a handler's turn is over, whatever its Stop hook did, read from the records Claude Code keeps of the session its launch named: no running process's `sessions/<pid>.json`, the record Claude Code keeps of each session's process, names that session with a status but idle, and its background job, which `claude --bg` writes `working` before it returns, ended a turn done, blocked, failed or stopped, rests idle or blocked, as one stuck on a startup dialog does, or `claude rm` took it; so a launch whose job ended blocked before it ran a turn holds nothing. A handler whose launch has not named its session yet is in flight for START_WINDOW, many times the seconds a `claude --bg` launch takes, and past it never started, whatever its start process does, so its briefs go on to the next handler and a start still waiting its turn launches nothing; one whose turn an API error ended is not gone until the resume that wakes it. A pool handler resting between items is not gone while any running process's record names its session, whatever its status."""
+    if (until := entry.get("resumes")) and state.parse_time(until) > state.now():
         return False
     if not entry["session"]:
         return state.parse_time(entry["started"]) + START_WINDOW <= state.now()
@@ -801,7 +801,7 @@ def started(name: str, handler_id: str, brief: str, prompt: str, detached: bool,
 
     if folder := scratch(brief):
         folder.mkdir(parents=True, exist_ok=True)
-    if not detached and later is None and not drive_written(holds(brief)) and (his_message(holds(brief)) or not place.admission(state.load(name), None, "handlers", state.now())):
+    if not detached and later is None and not drive_written(holds(brief)) and (preempting(state.load(name), holds(brief)) or not place.admission(state.load(name), None, "handlers", state.now())):
         start_handler(name, handler_id, prompt)
         return []
     kept = brief_path(name, handler_id)
@@ -848,6 +848,11 @@ def scripted_post(name: str, handler: str) -> str | None:
 def his_message(held: dict) -> bool:
     """Whether a handler's brief, as holds reads it, answers a message of his rather than a record, which starts at once past this Mac's load gate and caps, by his words through the main session "the owner's answers must never queue behind lane load"; a report's or a digest's handler, which works on a record, waits its turn."""
     return not held["record"]
+
+
+def preempting(data: dict, held: dict) -> bool:
+    """Whether a handler's brief, as holds reads it, starts at once past this Mac's load gate and caps: one answering a message of his, by his_message, or carrying a report on an open incident order, as place.preempts lets that order's lanes start; a quiet, due or other `POST` report's handler waits its turn."""
+    return his_message(held) or bool(state.open_incidents(data, state.report_orders(data, held.get("attrs", {}))))
 
 
 def threaded(data: dict, held: dict) -> dict:
@@ -898,9 +903,11 @@ def start_kept(name: str, handler: str) -> str:
         if woken:
             wake(name, handler, released(name, state.saved(name), prompt))
             return f"{state.stamp()} woke {handler}: began {began - kept.stat().st_mtime:.1f}s after its brief was kept, wrote its brief in {briefed - began:.1f}s, its record took {time.time() - briefed:.1f}s"
-        mine = his_message(holds(kept.read_text()))
+        mine = preempting(state.load(name), holds(kept.read_text()))
         with place.waited_turn(name, lambda: waits_turn(name, handler), mine, None if mine else briefed + place.REPORT_TURN_SECONDS):
             admitted = time.time()
+            if handler not in state.saved(name)["handlers"]:
+                return f"{state.stamp()} {handler} left the drive while it waited its turn, its briefs handed on, so it starts no session"
             start_handler(name, handler, prompt)
     except place.Unadmitted as error:
         unstarted(name, handler)
@@ -1339,7 +1346,7 @@ def resume(payload: dict) -> str | None:
     since = datetime.now(UTC)
     if "handler_session" in handler:
         with state.edit(names[0]) as data:
-            data["handlers"][handler["agent_id"]]["wakes"] = state.stamp(since + timedelta(minutes=OUTAGE_WAITS[tries]))
+            data["handlers"][handler["agent_id"]]["resumes"] = state.stamp(since + timedelta(minutes=OUTAGE_WAITS[tries]))
     time.sleep(OUTAGE_WAITS[tries] * 60)
     if any(state.parse_time(row["timestamp"]) > since for row in tail(transcript) if row["type"] in ("user", "assistant")):
         return None

@@ -11,7 +11,7 @@ import handed_records
 import one_line_result
 import pytest
 from conftest import HELD_RELEASES, LANE_SPEC, UNFROZEN, Answers, Thread
-from drive import agents, install, orca, place, reads, slack, state, talk, tools, watch
+from drive import agents, install, orca, place, procs, reads, slack, state, talk, tools, watch
 
 Run = Callable[..., tuple[int, str]]
 HIS_BRIEF = "Message (his words): why is this card asking again?\nThread: D123 1794380463.481959\nDrive: demo\nScratch: {scratch}\nDeliverable: his answer, in his thread"
@@ -886,7 +886,8 @@ def test_a_handler_is_gone_once_no_running_process_names_its_session_at_work_and
         }
         assert GONE({"session": None, "started": state.stamp(), "pool": True}) is False
         assert GONE({"session": None, "started": state.stamp(state.now() - agents.START_WINDOW)}) is True
-        assert GONE(entries["done"] | {"wakes": state.stamp(state.now() + timedelta(minutes=1))}) is False
+        assert GONE(entries["done"] | {"resumes": state.stamp(state.now() + timedelta(minutes=1))}) is False
+        assert GONE(entries["done"] | {"wakes": state.stamp(state.now() + timedelta(minutes=1))}) is True
         assert {session: GONE(entries[session] | {"pool": True}) for session in ("busy", "idle", "died", "done")} == {"busy": False, "idle": False, "died": True, "done": True}
     finally:
         spare.kill()
@@ -1231,6 +1232,34 @@ def test_a_handler_of_his_message_starts_at_once_on_a_loaded_mac_and_one_on_a_re
     monkeypatch.setattr(place.time, "sleep", lambda seconds: None)
     with pytest.raises(place.Unadmitted, match="60s turn ran out"), place.waited_turn("demo", lambda: None, within=0.0):
         pytest.fail("a report's start past its turn never starts")
+
+
+def test_a_handler_on_an_open_incidents_report_starts_at_once_on_a_loaded_mac(
+    communicator: str, tmp_path: Path, started: list[list[str]], launched_sessions: list[str], cci_records: dict[str, dict], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(place, "strained", lambda: "this Mac's 1-minute load is 160, over its 32 cores times 1")
+    with state.edit("demo") as data:
+        data["orders"]["o9"] = state.new_order("the api is down", "test", None, {}, state.stamp()) | {"incident": True}
+    cci_records["726701"] = POST_REPORT | {"seq": 726701, "fields": {"attrs": {"order": "o9"}}}
+    handler, _ = agents.handle("demo", brief_of("726701").format(scratch=tmp_path))
+    assert state.load("demo")["handlers"][handler]["session"] == launched_sessions[0]
+
+
+def test_a_handler_with_no_session_past_its_start_window_is_gone_whatever_its_start_process_does_and_that_start_then_launches_nothing(
+    communicator: str, tmp_path: Path, started: list[list[str]], launched_sessions: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    long_ago = state.stamp(state.now() - 3 * agents.START_WINDOW)
+    assert GONE({"session": None, "started": long_ago, "waiter": {"pid": os.getpid(), "started": procs.started(os.getpid())}}) is True
+    monkeypatch.setattr(place, "strained", lambda: "this Mac's 1-minute load is 160, over its 32 cores times 1")
+
+    def forgotten(seconds: float) -> None:
+        with state.edit("demo") as data:
+            data["handlers"].clear()
+        monkeypatch.setattr(place, "strained", lambda: None)
+
+    monkeypatch.setattr(place.time, "sleep", forgotten)
+    handler, _ = agents.handle("demo", brief_of("726702").format(scratch=tmp_path))
+    assert (handler in state.load("demo")["handlers"], launched_sessions) == (False, [])
 
 
 def test_a_lane_session_the_drive_starts_on_this_mac_runs_with_no_advisor_at_high_effort_on_the_lane_rules_in_place_of_the_users_claude_md(communicator: str) -> None:

@@ -419,6 +419,21 @@ def test_a_loaded_mac_starts_no_builder_here_and_gives_no_slot_but_a_priority_or
     assert (place.crowded(data, "j1", moment), place.turns(data, moment)[0]) == (None, ["j2"])
 
 
+def test_a_message_wakes_a_builder_marked_builds_nothing_whose_turn_ended_on_a_loaded_mac_at_its_local_cap_as_the_refusal_says(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Hotfix", "ship his fix", "--parts", "the hotfix", "the soak")
+    run("job", "add", "builder", "--order", "o1", "--part", "the hotfix", "--goal", "build the hotfix")
+    assert run("job", "add", "builder", "--order", "o1", "--part", "the soak", "--goal", "soak the hotfix with tools/ci staging-smoke", "--builds-nothing")[0] == 0
+    with state.edit(demo) as data:
+        for job_id in ("j1", "j2"):
+            data["jobs"][job_id].update(where="local", agent=f"a-{job_id}")
+    loaded = "this Mac's 1-minute load is 160, over its 32 cores"
+    monkeypatch.setattr(place, "strained", lambda: loaded)
+    monkeypatch.setattr(place, "local_builders", lambda data, moment: {})
+    (state.root() / place.CAPS_FILE).write_text(json.dumps({"local": 0}))
+    data, moment = state.load(demo), state.now()
+    assert [place.woken(data, job_id, moment) for job_id in ("j1", "j2")] == [f"its turn ended and {loaded}", None]
+
+
 def test_the_local_cap_counts_the_lanes_here_of_every_drive_and_the_owners_caps_file_sets_it(demo: str, run: Run) -> None:
     (state.root() / place.CAPS_FILE).write_text(json.dumps({"local": 1}))
     assert place.caps() == {"local": 1, "sprite": 30, "handlers": 8, "handler_pool": 4, "load_per_core": 1, "free_memory": 15}

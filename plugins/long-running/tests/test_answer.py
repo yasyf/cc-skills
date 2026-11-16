@@ -1,5 +1,5 @@
 from conftest import REAL_ANSWER
-from drive import answer
+from drive import answer, state
 
 ROWS = "- job: staging test of memory running; its last line: c7 fails, build https://buildkite.com/forge/release/builds/17166\n  - PR https://github.com/Forge-AI/monorepo/pull/57072: open, checks pass"
 
@@ -64,3 +64,13 @@ def test_a_report_line_is_checked_as_an_answer_is():
 
 def test_a_verb_written_with_a_colon_reads_as_that_verb():
     assert answer.report_of(f"{answer.NOTHING}: no job moved", ROWS) == (None, answer.NOTHING, "no job moved")
+
+
+def test_his_thread_question_with_no_card_drawn_yet_reads_so_in_the_rows(demo, monkeypatch):
+    with state.edit(demo) as data:
+        data["orders"]["o1"] = state.new_order("ship the run page", "terminal", ["D1", "1794774184.502879"], {}, state.stamp()) | {"jobs": ["j1"]}
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "ship the run page", [], state.stamp()) | {"state": "waiting", "questions": [state.new_question(None, "Ring or knock?", state.stamp())]}
+    asked = []
+    monkeypatch.setattr(answer, "ask", lambda rows, words: asked.append(rows) or (f"{answer.ESCALATE} he asks", {}))
+    answer.found_answer(demo, "https://x.slack.com/archives/D1/p1794806180473129", "status?", "D1", "1794774184.502879", True)
+    assert "question, no card drawn yet, asking him: Ring or knock?" in asked[0]
