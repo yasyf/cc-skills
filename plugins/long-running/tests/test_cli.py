@@ -12917,21 +12917,3 @@ def test_a_wave_start_holds_its_start_on_testers_of_orders_two_sessions_hold_and
     jobs = state.load("demo")["jobs"]
     assert [[kept["words"] for kept in jobs[job_id]["undelivered"]] for job_id in ("j1", "j2")] == [["START wave 2 cut 2b 82778a97bccf: j1 runs now; j2 case 7"]] * 2
     assert detached == [["job", "resume", "j1"], ["job", "resume", "j2"]]
-
-
-def test_a_watch_text_reaches_a_job_once_until_its_next_return_and_a_possessive_job_on_its_waiting_names_no_wait(run: Run, demo: str) -> None:
-    run("order", "add", "--title", "Short title", "--workstream", "Staging", "prove the cut on staging")
-    for goal in ("test the cut", "the tip", "the bridge"):
-        run("job", "add", "reader", "--order", "o1", "--goal", goal)
-    tester, tip, bridge = state.load("demo")["orders"]["o1"]["jobs"][-3:]
-    stop = state.SLOT_STOP.format(env="plat-usw2-staging", to=tip)
-    with edit("demo") as data:
-        assert state.hold_text(data["jobs"][tester], stop, state.WATCH_SENDER)
-        data["jobs"][tester]["undelivered"] = []
-        assert not state.hold_text(data["jobs"][tester], stop, state.WATCH_SENDER)
-        assert state.hold_text(data["jobs"][tester], stop, state.HIM)
-        data["jobs"][tester]["undelivered"] = []
-    cli.take_report("demo", tester, f"WAITING {tip}: its tip, carrying {bridge}'s eb6227aa4f3c and {bridge}’s seat lines\n", read_prs=False)
-    assert state.load("demo")["jobs"][tester]["waits"] == [tip]
-    with edit("demo") as data:
-        assert state.hold_text(data["jobs"][tester], stop, state.WATCH_SENDER)

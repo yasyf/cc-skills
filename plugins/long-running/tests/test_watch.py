@@ -12719,3 +12719,24 @@ def test_a_landers_failure_quotes_the_line_that_failed_never_the_steps_its_scrip
     quoted = land.said("\n".join([*steps, failed, *steps[:1]]))
     outcome = f"{land.NO_ENQUEUE} --check on {KEY}, which exited 5 on a failure of its own: {quoted}"
     assert (quoted, land.blip(outcome), land.said("\n".join(steps))) == (failed, True, land.cut("; ".join(steps), land.SAID_CHARS))
+
+
+def test_a_watch_text_reaches_a_job_once_until_its_next_return_and_a_possessive_job_on_its_waiting_names_no_wait(demo: str) -> None:
+    with edit(demo) as data:
+        data["orders"]["o1"]["jobs"] += ["j2", "j3"]
+        data["jobs"]["j1"].update(kind="reader", prs=[], state="running")
+        data["jobs"]["j2"] = job(kind="reader", goal="the tip")
+        data["jobs"]["j3"] = job(kind="reader", goal="the bridge")
+    stop = state.SLOT_STOP.format(env="plat-usw2-staging", to="j2")
+    with edit(demo) as data:
+        assert state.hold_text(data["jobs"]["j1"], stop, state.WATCH_SENDER)
+        data["jobs"]["j1"]["undelivered"] = []
+        assert not state.hold_text(data["jobs"]["j1"], stop, state.WATCH_SENDER)
+        assert state.hold_text(data["jobs"]["j1"], stop, state.HIM)
+        data["jobs"]["j1"]["undelivered"] = []
+    with edit(demo) as data:
+        state.take_result(data, "j1", "WAITING j2: its tip, carrying j3's eb6227aa4f3c and j3’s seat lines")
+    data = state.load(demo)
+    assert [wait.partition("@")[0] for wait in data["jobs"]["j1"]["waits"] if state.LINE_JOB.match(wait)] == ["j2"]
+    with edit(demo) as data:
+        assert state.hold_text(data["jobs"]["j1"], stop, state.WATCH_SENDER)
