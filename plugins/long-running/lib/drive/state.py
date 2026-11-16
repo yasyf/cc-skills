@@ -4391,10 +4391,8 @@ def gave_box_back(then: str | None, now: str) -> bool:
 
 
 def down_mac_boxes(name: str, data: dict, finished: list[str]) -> None:
-    """Take down every Mac box each job a save just moved out of running or finished holds: `drive mac-boxes-down` on those jobs, a process of its own that outlives the save, its output appended to the drive's mac-boxes.log, so a box comes down with the job it is named after while the save neither waits on the drive's checkout nor fails with it, unless box_wanted keeps it for a job still to take its turn there. None for a scratch drive, a proof's or a test's, or a repository whose .claude/long-running.toml names no mac_box provider under [providers], which holds no Mac box."""
-    if not finished or scratch() or not repo_config(data).get("providers", {}).get("mac_box") or not (freed := [job_id for job_id in finished if data["jobs"][job_id]["state"] in FINISHED_JOB_STATES and not box_wanted(data, job_id)]):
-        return
-    detach(name, ["mac-boxes-down", *freed], MAC_BOXES_LOG)
+    """No save takes a Mac box down: by his order 732123 every down stops until the repository's own pool gives boxes back without terminating them."""
+
 
 
 def box_wanted(data: dict, box: str) -> bool:

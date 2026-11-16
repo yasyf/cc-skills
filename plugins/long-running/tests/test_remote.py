@@ -5700,43 +5700,15 @@ def test_mac_box_sweep_reads_no_drive_state_before_its_next_sweep(monkeypatch: p
     assert watching.boxes_at == T0
 
 
-def test_the_watch_takes_down_each_live_mac_box_its_jobs_hold_unless_they_run_or_an_unfinished_job_names_it(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("order", "set", "o1", "--add-part", "still at work")
-    run("job", "add", "builder", "--order", "o1", "--part", "still at work", "--goal", "still at work", "--remote")
-    checkout = Path(state.load(remote)["roles"]["coordinator"]["cwd"])
-    (checkout / ".claude").mkdir(parents=True, exist_ok=True)
-
-    class Boxes(providers.MacBoxProvider):
-        def live_boxes(self) -> list[str]:
-            return [f"{remote}/j1", "other/j1", "None"]
-
-    provide(monkeypatch, checkout, mac_box=Boxes)
+def test_no_sweep_takes_a_mac_box_down_while_downs_are_stopped(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     with state.edit(remote) as data:
         data["jobs"]["j1"]["state"] = "done"
-        data["jobs"]["j2"]["state"] = "running"
     started: list[list[str]] = []
-    reaped: list[list[str]] = []
-    monkeypatch.setattr(state, "detach", lambda name, args, log: (started if args[0] == "mac-boxes-down" else reaped).append(args) or ENDED_READER)
-    monkeypatch.setattr(state, "scratch", lambda: False)
+    monkeypatch.setattr(state, "detach", lambda name, args, log: started.append(args) or ENDED_READER)
     watching = watch.Watcher(remote, offset=state.events_end(remote))
-    for at in (T0, T0 + timedelta(minutes=30), T0 + watch.BOX_SWEEP):
-        watch.finished_boxes(watching, at)
-    assert started == [["mac-boxes-down", "j1"], ["mac-boxes-down", "j1"]]
-    with state.edit(remote) as data:
-        data["jobs"]["j1"]["state"] = "waiting"
-        data["jobs"]["j2"]["handoff"] = "Your Mac box, mine to name: box j1, up and signed in to staging; your turn on it comes next"
-    watch.finished_boxes(watching, T0 + 2 * watch.BOX_SWEEP)
-    assert started == [["mac-boxes-down", "j1"], ["mac-boxes-down", "j1"]]
-    with state.edit(remote) as data:
-        data["jobs"]["j2"]["state"] = "waiting"
-    watch.finished_boxes(watching, T0 + 3 * watch.BOX_SWEEP)
-    assert started == [["mac-boxes-down", "j1"], ["mac-boxes-down", "j1"]]
-    with state.edit(remote) as data:
-        data["jobs"]["j2"]["state"] = "done"
-    watch.finished_boxes(watching, T0 + 4 * watch.BOX_SWEEP)
-    assert started == [["mac-boxes-down", "j1"], ["mac-boxes-down", "j1"], ["mac-boxes-down", "j1"]]
-    assert reaped == [["mac-boxes-reap"]] * 5
-
+    for at in (T0, T0 + watch.BOX_SWEEP):
+        assert watch.finished_boxes(watching, at) == []
+    assert started == []
 
 def test_reclaim_destroys_a_left_sprite_and_marks_a_lane_on_this_mac_freed_so_no_watch_reclaims_it_again(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

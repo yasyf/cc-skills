@@ -83,7 +83,7 @@ def test_a_save_takes_down_the_mac_boxes_of_each_job_it_moves_out_of_running_or_
     assert mac_boxes_downed == ["demo/j1", "demo/j4", "demo/j2", "demo/j1", "demo/j3"]
 
 
-def test_a_save_hands_a_finished_jobs_mac_boxes_to_a_process_of_its_own_that_takes_them_down_from_the_drives_checkout(
+def test_no_save_takes_a_finished_jobs_mac_box_down_while_downs_are_stopped(
     state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run: Callable[..., tuple[int, str]]
 ) -> None:
     checkout = tmp_path / "checkout"
@@ -104,7 +104,7 @@ def test_a_save_hands_a_finished_jobs_mac_boxes_to_a_process_of_its_own_that_tak
     monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append((name, args, log)) or 0)
     REAL_DOWN_MAC_BOXES("demo", state.load("demo"), ["j1", "j2"])
     REAL_DOWN_MAC_BOXES("demo", state.new_drive("demo", "coordinator", None, str(tmp_path / "elsewhere")), ["j3"])
-    assert detached == [("demo", ["mac-boxes-down", "j1", "j2"], state.MAC_BOXES_LOG)]
+    assert detached == []
     assert run("mac-boxes-down", "j1", "j2", "--drive", "demo")[0] == 0
     assert (tmp_path / "downs").read_text().splitlines() == [f"{checkout.resolve()} mac-box down --holder demo/j1 j1", f"{checkout.resolve()} mac-box down --holder demo/j2 j2"]
 
