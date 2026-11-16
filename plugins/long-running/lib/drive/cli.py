@@ -27,6 +27,7 @@ ROLE_NAMES = {"coordinator": "top coordinator", "communicator": "communicator", 
 FREEZE_FOR = timedelta(hours=12)
 KEPT_SPRITE_CAP = 60
 NBD_READS = "nbd-reads.json"
+CHECK_UNBOUND = frozenset({state.DRIVE_ENV, "CLAUDE_CODE_SESSION_ID", "CCI_AGENT_ID"})
 RELEASE_WORD = re.compile(r"\breleas", re.IGNORECASE)
 INCIDENT_EXEMPTION = "incident fix"
 UNLANDABLE = (
@@ -1236,15 +1237,16 @@ def order_backlog(args: argparse.Namespace) -> int:
 
 
 def order_check(args: argparse.Namespace) -> int:
-    """Run a standing part's check, the pass the watch starts in place of a codex job, with no model session: its shell command in the drive's folder, cut off at STANDING_EVERY, its output printed to the log the watch detached it on and its exit code and closing line kept on the part, which the part's gap reads, so a check that fails is said once as its ORPHAN line and one that passes holds the part until its next run."""
+    """Run a standing part's check, the pass the watch starts in place of a codex job, with no model session: its shell command in the drive's folder, bound to no session, drive or cci agent by CHECK_UNBOUND, so the records it posts go out as the lane and drive it names, cut off at STANDING_EVERY, its output printed to the log the watch detached it on and its exit code and closing line kept on the part, which the part's gap reads, so a check that fails is said once as its ORPHAN line and one that passes holds the part until its next run."""
     name = state.resolve(args.drive)
     data = state.load(name)
     [part] = pick_parts(args.id, find(data["orders"], args.id, "order"), [args.part])
     if not (check := data["orders"][args.id]["parts"][part]["check"]):
         raise DriveError(f'{args.id} "{part}": refused, it keeps no check: drive order set {args.id} --part {shlex.quote(part)} --standing "<goal>" --standing-check "<command>" keeps one')
     timeout = int(state.STANDING_EVERY.total_seconds())
+    unbound = {variable: value for variable, value in os.environ.items() if variable not in CHECK_UNBOUND}
     try:
-        done = subprocess.run(["/bin/zsh", "-c", check["command"]], cwd=state.drive_dir(name), capture_output=True, text=True, timeout=timeout, check=False)
+        done = subprocess.run(["/bin/zsh", "-c", check["command"]], cwd=state.drive_dir(name), env=unbound, capture_output=True, text=True, timeout=timeout, check=False)
         code, output = done.returncode, done.stdout + done.stderr
     except subprocess.TimeoutExpired as expired:
         code, output = -1, f"{expired.stdout or ''}{expired.stderr or ''}\ntimed out after {timeout // 60} minutes"
