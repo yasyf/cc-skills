@@ -21,6 +21,7 @@ from unittest.mock import ANY
 
 import pytest
 from conftest import (
+    claim_of,
     BINDER_TERMINAL,
     DRIVE_TERMINAL,
     LEAD,
@@ -1774,7 +1775,7 @@ def test_the_watch_hands_a_job_whose_agent_on_this_mac_stopped_on_an_api_error_t
     assert lane_lines(watching, T0 + timedelta(minutes=1)) == []
     assert relaunches == ["j1"]
     job = state.load(demo)["jobs"]["j1"]
-    assert [(death["agent"], death["dispatch"], death["relaunch"]) for death in job["deaths"]] == [("a1", None, {"pid": os.getpid(), "at": state.stamp(T0), "tries": 1})]
+    assert [(death["agent"], death["dispatch"], claim_of(death["relaunch"])) for death in job["deaths"]] == [("a1", None, {"state": "reserved", "at": state.stamp(T0), "tries": 1})]
     assert "lane dead since" in render.job_line(state.load(demo), "j1", job)
 
 
@@ -4683,10 +4684,10 @@ def test_the_watch_neither_records_nor_relaunches_a_lane_death_while_another_dri
     assert (relaunches, state.load(remote)["jobs"]["j1"].get("deaths", [])) == ([], [])
     [line] = watch.death_lines(watching, {"j1": (DISPATCH, GONE_SPRITE)}, T0 + timedelta(minutes=1))
     [death] = state.load(remote)["jobs"]["j1"]["deaths"]
-    assert (line.startswith(f"LANE j1 o1 died on Sprite pool-txgdh6qfdwhn72iy: {GONE_SPRITE}"), relaunches, death["relaunch"]) == (
+    assert (line.startswith(f"LANE j1 o1 died on Sprite pool-txgdh6qfdwhn72iy: {GONE_SPRITE}"), relaunches, claim_of(death["relaunch"])) == (
         True,
         ["j1"],
-        {"pid": os.getpid(), "at": state.stamp(T0 + timedelta(minutes=1)), "tries": 1},
+        {"state": "reserved", "at": state.stamp(T0 + timedelta(minutes=1)), "tries": 1},
     )
 
 
@@ -5163,7 +5164,7 @@ def test_a_running_job_whose_lane_died_is_relaunched_that_pass_once(remote: str,
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
     assert relaunches == ["j1"]
     job = state.load(remote)["jobs"]["j1"]
-    assert (job["state"], job["deaths"][-1]["relaunch"]) == ("running", {"pid": os.getpid(), "at": state.stamp(T0), "tries": 1})
+    assert (job["state"], claim_of(job["deaths"][-1]["relaunch"])) == ("running", {"state": "reserved", "at": state.stamp(T0), "tries": 1})
     assert "lane dead since" in render.job_line(state.load(remote), "j1", job)
 
 
@@ -5318,7 +5319,8 @@ def test_a_running_job_whose_lane_died_while_it_waited_is_resumed_once_with_no_m
     assert line.startswith("LANE j1 o1 died on Sprite sprite-old: its worker exited")
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
     assert relaunches == ["j1"]
-    assert state.load(remote)["jobs"]["j1"]["deaths"] == [death | {"relaunch": {"pid": os.getpid(), "at": state.stamp(T0), "tries": 1}}]
+    [kept] = state.load(remote)["jobs"]["j1"]["deaths"]
+    assert (kept | {"relaunch": claim_of(kept["relaunch"])}) == death | {"relaunch": {"state": "reserved", "at": state.stamp(T0), "tries": 1}}
 
 
 def test_a_lane_result_opens_with_the_subject_it_was_sent_under(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -592,6 +592,11 @@ def unreserved(args: list[str]) -> list[str]:
     return [arg for at, arg in enumerate(args) if arg != "--reserved" and (at == 0 or args[at - 1] != "--reserved")]
 
 
+def claim_of(record: dict) -> dict:
+    """What a reservation record keeps beside its token, starter, child and members: its state and the fields its site merged in, the same on every run."""
+    return {field: value for field, value in record.items() if field not in ("token", "members", "starter", "child", "reserved_at")}
+
+
 def adopted_as(name: str, args: list[str], pid: int) -> int:
     """Adopt, as the child the launch args start would on its first step, the reservation they name by --reserved, wherever the drive holds it, naming pid as that child, so a test reads the child's liveness by pid as a real launch's; pid."""
     if "--reserved" not in args:
@@ -1425,7 +1430,7 @@ def agents_at_work(monkeypatch: pytest.MonkeyPatch) -> None:
 def relaunches(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Each job whose dead lane the watch relaunched, as a drive job resume that still runs."""
     started: list[str] = []
-    monkeypatch.setattr(watch, "relaunch", lambda watcher, job_id, moment: started.append(job_id) or os.getpid())
+    monkeypatch.setattr(watch, "relaunch", lambda watcher, job_id, moment, token: started.append(job_id) or os.getpid())
     return started
 
 

@@ -4010,6 +4010,8 @@ def start_refusal(payload: dict) -> str | None:
 def job_resume(args: argparse.Namespace) -> int:
     """Send a job its next event, or with no text the texts it holds, by the one relaunch launch and resume share: to its lane while its worker takes messages, else in the handoff of its next worker, or in the brief of the first worker of a builder waiting its turn for a slot on this Mac that none started, or a codex job's by codex_resume. A finished pass of a standing part is refused by unrun, holding nothing."""
     name = state.resolve(args.drive)
+    if args.reserved:
+        state.adopt_reserved(name, state.death_member(args.id, state.load(name)["jobs"][args.id], "relaunch", args.reserved), args.reserved)
     if unrun(state.load(name), args.id)["kind"] == "codex":
         return codex_resume(args, name)
     unqueued(name, args.id)
@@ -8461,6 +8463,7 @@ def parser() -> argparse.ArgumentParser:
         type=lambda value: sys.stdin.read() if value == "-" else value,
         help="his answer, or the event the lane acts on next, or - to read it from stdin; left out, the texts the job holds",
     )
+    verb.add_argument("--reserved", metavar="TOKEN", help="the token of the relaunch the watch reserved on the death of the job's lane for this run, adopted before anything else; the run ends doing nothing once that reservation is gone, cancelled, lapsed or another run's")
     verb.set_defaults(run=job_resume)
     verb = job.add_parser(
         "read",

@@ -4112,7 +4112,7 @@ def relaunchable(ended: dict | None, moment: datetime) -> bool:
     if ended is None or "relaunch" not in ended:
         return True
     last = ended["relaunch"]
-    return not state.alive(last["pid"]) and last.get("tries", 1) < RELAUNCH_TRIES and moment - state.parse_time(last["at"]) >= RELAUNCH_RETRY
+    return not land.runs(last) and last.get("tries", 1) < RELAUNCH_TRIES and moment - state.parse_time(last["at"]) >= RELAUNCH_RETRY
 
 
 def bg_death(job: dict) -> str | None:
@@ -4131,7 +4131,7 @@ def ended_gap(job_id: str, job: dict, ended: dict, moment: datetime) -> str | No
         return None
     gone = moment - state.parse_time(ended["at"])
     relaunch = ended["relaunch"]
-    if state.alive(relaunch["pid"]) and moment - state.parse_time(relaunch["at"]) < RELAUNCH:
+    if land.runs(relaunch) and moment - state.parse_time(relaunch["at"]) < RELAUNCH:
         return None
     return (
         f"{job_id}'s lane ended {minutes(gone)} minutes ago ({cut(ended['why'], 60)}) and the watch's drive job resume at"
@@ -4317,7 +4317,7 @@ def reaped_lines(watcher: Watcher, data: dict, read: set[str], lost: dict[str, s
         for job_id, why in due.items():
             job = data["jobs"][job_id]
             relaunch = (state.lane_death(job) or {}).get("relaunch")
-            if job["state"] != "running" or not (since := job.get("lost_since")) or moment - state.parse_time(since) < REAP_AFTER or relaunch and state.alive(relaunch["pid"]) and moment - state.parse_time(relaunch["at"]) < RELAUNCH:
+            if job["state"] != "running" or not (since := job.get("lost_since")) or moment - state.parse_time(since) < REAP_AFTER or relaunch and land.runs(relaunch) and moment - state.parse_time(relaunch["at"]) < RELAUNCH:
                 continue
             said = f"failed: the watch found no live worker on every read since {when(since)} ({why})"
             job.update(state="failed", said=said, lost_since=None, updated=state.stamp(moment))
@@ -5003,7 +5003,7 @@ def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: da
         return []
     at = state.stamp(moment)
 
-    def claim_relaunches(data: dict) -> tuple[list[str], dict[str, object]]:
+    def claim_relaunches(data: dict) -> tuple[list[str], dict[str, state.Reservation]]:
         lines, claims = [], {}
         for job_id, (worker, why) in deaths.items():
             job = data["jobs"][job_id]
@@ -5015,9 +5015,11 @@ def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: da
             if job[state.worker_key(job)] != worker or not relaunchable(state.lane_death(job), moment) or busy(watcher, job_id, moment):
                 continue
             state.lane_died(job, worker, why, moment)
-            claims[job_id] = state.lane_death(job).get("relaunch")
-            tries = (claims[job_id] or {}).get("tries", 0) + 1
-            state.lane_death(job)["relaunch"] = {"pid": os.getpid(), "at": at, "tries": tries}
+            tries = (state.lane_death(job).get("relaunch") or {}).get("tries", 0) + 1
+            if not (held := state.reserve(data, (state.death_row(job_id, state.lane_death(job), "relaunch"),))):
+                continue
+            state.lane_death(job)["relaunch"] |= {"at": at, "tries": tries}
+            claims[job_id] = held
             if job.get("where") != "remote":
                 lines.append(
                     f'LANE {job_id} {job["order"]} died as agent {worker} on this Mac: {why}, while it worked on "{cut(job["said"] or job["goal"], 60)}". The watch ran'
@@ -5035,25 +5037,15 @@ def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: da
         return lines, claims
 
     lines, claims = state.write(watcher.name, claim_relaunches, budget=state.WATCH_WRITE_SECONDS)
-    spawned: dict[str, int] = {}
-
-    def own(data: dict) -> None:
-        for job_id, before in claims.items():
-            for death in data["jobs"][job_id]["deaths"]:
-                if (claim := death.get("relaunch")) and claim["pid"] == os.getpid() and claim["at"] == at:
-                    if job_id in spawned:
-                        death["relaunch"] = claim | {"pid": spawned[job_id]}
-                    elif before is None:
-                        death.pop("relaunch")
-                    else:
-                        death["relaunch"] = before
-
+    unlaunched = dict(claims)
     try:
-        for job_id in claims:
-            spawned[job_id] = relaunch(watcher, job_id, moment)
+        for job_id, held in claims.items():
+            pid = relaunch(watcher, job_id, moment, held.token)
+            del unlaunched[job_id]
+            state.settle(watcher.name, held, pid)
     finally:
-        if claims:
-            state.write(watcher.name, own, patient=True)
+        for held in unlaunched.values():
+            state.cancel(watcher.name, held)
     return lines
 
 
@@ -5068,9 +5060,9 @@ def start_verb(watcher: Watcher, job_id: str, args: list[str], moment: datetime)
     return state.detach(watcher.name, args, RELAUNCHES_LOG)
 
 
-def relaunch(watcher: Watcher, job_id: str, moment: datetime) -> int:
-    """Run `drive job resume` by start_verb on a running job whose lane died."""
-    return start_verb(watcher, job_id, ["job", "resume", job_id, state.CARRY_ON], moment)
+def relaunch(watcher: Watcher, job_id: str, moment: datetime, token: str) -> int:
+    """Run `drive job resume` by start_verb on a running job whose lane died, with --reserved naming the token of the relaunch the watch reserved on that death, which it adopts before anything else."""
+    return start_verb(watcher, job_id, ["job", "resume", job_id, state.CARRY_ON, "--reserved", token], moment)
 
 
 def send_held(watcher: Watcher, job_id: str, moment: datetime) -> int:
