@@ -12,7 +12,7 @@ import tempfile
 import time
 import uuid
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from functools import cache, partial
 from pathlib import Path, PurePosixPath
 
@@ -20,7 +20,7 @@ from drive import github, state, train
 
 POLL_SECONDS = 20
 READ_EVERY_SECONDS = 60
-CI_HEARD = "ci-heard.json"
+CI_HEARD = "ci-heard.sqlite3"
 CI_HEARD_SECONDS = 600
 FAILED_TEST = re.compile(r"^\S+ (?:FAILED|ERROR) (?P<test>\S+\.py(?:::[^\r\n]+?)?)(?: - [^\r\n]*)?\r?$", re.MULTILINE)
 GITHUB_REPO = re.compile(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?/?$")
@@ -865,18 +865,24 @@ def statuses_judged(repo: str, statuses: list[dict], later: Iterator[str]) -> li
 
 
 def heard_ci(repo: str, sha: str, mark: str | None) -> list[tuple[str, bool]]:
-    """pushed_ci of the merge at sha, kept under the state root beside the receiver's ci mark it was read at and answered from there while that mark has not moved and the answer is under CI_HEARD_SECONDS old, since each drive job prove a lane starts read it afresh, five to eight core calls of the owner's, while no run completed and no status landed on the default branch to change it."""
-    kept = state.root() / CI_HEARD
-    known = json.loads(kept.read_text()) if kept.exists() else {}
+    """Share a merge's CI verdict across processes until its webhook mark changes or expires, polling once per READ_EVERY_SECONDS before the first mark. Reads of the same merge share one in-flight request; unrelated merges retain independent entries and locks."""
+    folder = state.root()
     key = f"{repo}@{sha}"
-    if mark and (was := known.get(key)) and was["mark"] == mark and time.time() - was["at"] < CI_HEARD_SECONDS:
-        return [tuple(line) for line in was["verdict"]]
-    verdict = pushed_ci(repo, sha)
-    known = {k: v for k, v in known.items() if time.time() - v["at"] < CI_HEARD_SECONDS} | {key: {"mark": mark, "at": time.time(), "verdict": verdict}}
-    staged = kept.with_name(f"{kept.name}.{os.getpid()}")
-    staged.write_text(json.dumps(known))
-    os.replace(staged, kept)
-    return verdict
+    lock = folder / "ci-heard-locks" / hashlib.sha256(key.encode()).hexdigest()
+    with state.flocked(lock), closing(state.connect(folder / CI_HEARD)) as db:
+        db.execute("CREATE TABLE IF NOT EXISTS verdicts (key TEXT PRIMARY KEY, mark TEXT, at REAL NOT NULL, verdict TEXT NOT NULL) WITHOUT ROWID")
+        db.execute("CREATE INDEX IF NOT EXISTS verdicts_at ON verdicts (at)")
+        was = db.execute("SELECT mark, at, verdict FROM verdicts WHERE key = ?", (key,)).fetchone()
+        age = CI_HEARD_SECONDS if mark else READ_EVERY_SECONDS
+        if was and was[0] == mark and time.time() - was[1] < age:
+            return [tuple(line) for line in json.loads(was[2])]
+        verdict = pushed_ci(repo, sha)
+        now = time.time()
+        with db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute("INSERT OR REPLACE INTO verdicts VALUES (?, ?, ?, ?)", (key, mark, now, json.dumps(verdict)))
+            db.execute("DELETE FROM verdicts WHERE at <= ?", (now - CI_HEARD_SECONDS,))
+        return verdict
 
 
 def pushed_ci(repo: str, sha: str) -> list[tuple[str, bool]]:
