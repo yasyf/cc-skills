@@ -6164,7 +6164,7 @@ def manual(args: argparse.Namespace) -> int:
     if not args.page:
         print("\n".join(["drive manual <page> prints one of these pages:", *(f"- {page}" for page in manual_pages())]))
         return 0
-    text = agents.filled((PAGES / f"{args.page}.md").read_text())
+    text = agents.filled((PAGES / f"{args.page}.md").read_text()) + repo_page(args.drive, args.page)
     if not args.row:
         sys.stdout.write(text)
         return 0
@@ -6174,6 +6174,16 @@ def manual(args: argparse.Namespace) -> int:
         raise DriveError(f"nothing in drive manual {args.page} names {args.row}; drive manual {args.page} prints the page")
     print("\n\n".join(parts))
     return 0
+
+
+def repo_page(drive: str | None, page: str) -> str:
+    """What the [[page]] tables of the .claude/long-running.toml in the drive's checkout add to a page of the skill, under an `## In this repository` heading, or nothing when no drive or no such table is there to read."""
+    try:
+        data = state.load(state.resolve(drive))
+    except DriveError:
+        return ""
+    texts = [table["text"].strip() for table in (state.repo_config(data).get("page", []) if state.bound_sessions(data) else []) if table["page"] == page]
+    return "\n## In this repository\n\n" + "\n\n".join(texts) + "\n" if texts else ""
 
 
 def page_parts(text: str, words: str) -> list[str]:
@@ -7873,7 +7883,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--prs", action="store_true", help="only a table of each open PR he approved or that waits on him: its stage, what holds it, who owes its next step and since when")
     verb.set_defaults(run=status)
-    verb = verbs.add_parser("manual", help="print one page of the long-running skill")
+    verb = verbs.add_parser("manual", parents=[drive_opt], help="print one page of the long-running skill, then what the [[page]] tables of the drive checkout's .claude/long-running.toml add to it")
     verb.add_argument("page", nargs="?", choices=manual_pages(), help="default: list the pages")
     verb.add_argument("row", nargs="?", help="print only the table rows whose first cell names this, such as TAP or READY, else each section, list item, row, fenced block and paragraph carrying it")
     verb.set_defaults(run=manual)
