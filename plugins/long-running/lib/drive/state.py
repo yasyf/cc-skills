@@ -858,13 +858,13 @@ def replay(name: str) -> list[str]:
 
 
 def owed(name: str, job_id: str) -> list[dict]:
-    """What a job's outbox holds: as the write running now on the drive holds it, as its batch's copy does, else as its row is committed, that row read alone."""
+    """What a job's outbox holds as the write running now on the drive holds it, or its batch's copy does, so the write reads the messages it owes; nothing outside a write, whose readers read the history alone, as they did before the outbox, the next delivery or replay keeping what a commit owes there, so no reader opens the database for each history it reads."""
     if (attempt := ATTEMPT.get()) is not None and attempt.name == name:
         job = attempt.data["jobs"].get(job_id)
     elif name in BATCHED:
         job = load(name)["jobs"].get(job_id)
     else:
-        job = saved_row(name, "jobs", job_id)
+        return []
     return (job or {}).get("outbox", [])
 
 
