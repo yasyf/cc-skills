@@ -919,7 +919,7 @@ def stored(name: str, fields: tuple[str, ...] | None = None) -> dict:
     return rows_read(path, fields)
 
 
-def whole(path: Path, shape: Callable[[dict], tuple[dict, bool]]) -> dict:
+def whole(path: Path, shape: Callable[[dict], tuple[dict, bool]], fields: tuple[str, ...] | None = None) -> dict:
     """The drive's whole saved state as shape brings it up to this install's fields, from this process's copy of its rows, which caught_up brings up to the database once another connection committed since, as PRAGMA data_version on the copy's own connection that never writes says, reading only the rows written since; a fresh copy of what it shaped last while none did, so a verb's many loads parse and shape the drive's rows once, and a shape that says it read something outside the database that may change with no commit is shaped again on each load. Shaping runs outside READING, since it may read the drive itself."""
     key = (path, path.stat().st_ino)
     with READING:
@@ -927,7 +927,7 @@ def whole(path: Path, shape: Callable[[dict], tuple[dict, bool]]) -> dict:
             copy = WHOLE_READS[key] = Copy(path)
         if (now := copy.watcher.execute("PRAGMA data_version").fetchone()[0]) == copy.version and copy.shaped:
             LOADED_VERSION.set(now)
-            return marshal.loads(copy.shaped)
+            return {field: marshal.loads(copy.shaped[field]) for field in (copy.shaped if fields is None else fields)}
         if now != copy.version:
             caught_up(copy)
             copy.version = now
@@ -936,9 +936,9 @@ def whole(path: Path, shape: Callable[[dict], tuple[dict, bool]]) -> dict:
     if keep:
         with READING:
             if (copy.rev, copy.version) == (rev, now):
-                copy.shaped = marshal.dumps(data)
+                copy.shaped = {field: marshal.dumps(value) for field, value in data.items()}
     LOADED_VERSION.set(now)
-    return data
+    return data if fields is None else {field: data[field] for field in fields}
 
 
 def unchanged_since(name: str, version: int | None) -> bool:
@@ -959,7 +959,7 @@ class Copy:
         self.version: int | None = None
         self.rev: int | None = None
         self.rows: dict[str, dict[str, tuple[int, bytes | None]]] = {}
-        self.shaped = b""
+        self.shaped: dict[str, bytes] = {}
 
     def built_back(self) -> dict:
         """The drive the rows hold, as rows_read builds it back."""
@@ -979,7 +979,7 @@ class Copy:
                 else:
                     held[key] = (row[0], None if row[1] is None else marshal.dumps(json.loads(row[1]), ROW_MARSHAL))
             self.rows[collection] = dict(sorted(held.items(), key=lambda item: item[1][0]))
-            self.shaped = b""
+            self.shaped = {}
 
 
 def caught_up(copy: Copy) -> None:
@@ -1059,16 +1059,18 @@ def bound(data: dict) -> dict:
     return data
 
 
-def load(name: str) -> dict:
-    """Read a drive, bringing a drive saved by an older install up to the fields this one reads, in memory and from what is on this Mac alone, whatever install saved it last. Inside a batch, the batch's copy as its writes so far left it. It writes nothing: a one-time change to the drive's files is `migrate`'s, since every drive command, hook and watch pass reads through here at once. All copies of its acyclic JSON records are materialized without cyclic garbage collection, which would repeatedly scan every retained drive copy while allocating them; the caller's collector setting is restored on return or error."""
+def load(name: str, fields: tuple[str, ...] | None = None) -> dict:
+    """Read a drive, bringing a drive saved by an older install up to the fields this one reads, in memory and from what is on this Mac alone, whatever install saved it last. Inside a batch, the batch's copy as its writes so far left it. It writes nothing: a one-time change to the drive's files is `migrate`'s, since every drive command, hook and watch pass reads through here at once. When fields are named, return only those fields, decoding no other field from an unchanged snapshot. All copies of its acyclic JSON records are materialized without cyclic garbage collection, which would repeatedly scan every retained drive copy while allocating them; the caller's collector setting is restored on return or error."""
     collecting = gc.isenabled()
     gc.disable()
     try:
         if name in BATCHED:
-            return marshal.loads(BATCHED[name])
+            data = marshal.loads(BATCHED[name])
+            return data if fields is None else {field: data[field] for field in fields}
         if not (path := database_path(name)).exists():
-            return shaped(name, stored_json(name))[0]
-        return whole(path, lambda saved: shaped(name, saved))
+            data = shaped(name, stored_json(name))[0]
+            return data if fields is None else {field: data[field] for field in fields}
+        return whole(path, lambda saved: shaped(name, saved), fields)
     finally:
         if collecting:
             gc.enable()

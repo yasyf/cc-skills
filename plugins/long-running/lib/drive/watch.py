@@ -2218,7 +2218,7 @@ def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
     shape = markdown.split("\n", 1)[1]
     if shape == watcher.page_shape:
         return []
-    stale = state.load(watcher.name)["slack"].get("page_stale")
+    stale = state.load(watcher.name, ("slack",))["slack"].get("page_stale")
     try:
         drawn = page.draw(watcher.name, markdown)
     except page.PageError as error:
@@ -2327,7 +2327,7 @@ def overdue(data: dict, order: dict, held: dict, moment: datetime) -> bool:
 
 def due_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Owe him each line promised by a time with no drive post since its promise in the thread whose line promised it, read from Slack, a post in any other thread keeping nothing: the relay writes the report owing that line and starts the handler that posts it there, as quiet_lines does, DUE_AHEAD before the time while he reads present, by its own clock however long a pass holds the watch, so the line is in that thread by its time and no session's judgment stands between the time and its line, by his words "fix your toolking so tracking this stuff beciomes deterministic and it cant get lost at the whims of an agent"; again every ten minutes until a post is there, by overdue's clock, none while he is away and the first at once after he is heard, each counting him late once he read present ten minutes past the time. A report reaching a handler keeps its facts as quiet_lines' own reports do, so the thread's next news report waits five minutes from it. A thread that could not be read and a report that could not be written are said as a failed read is and tried again next pass; a report whose handler did not start gets one from post_lines, as each POST report does. An incident promises none, since quiet_lines owes its next line five quiet minutes after its last once it has news. The drive's own time of an order whose lines to him have no thread has no line to read, so it is said once as a DUE line and kept by being said."""
-    data = state.load(watcher.name)
+    data = state.load(watcher.name, ("owner", "orders", "subcoordinators"))
     threads = {
         (order_id, tuple(held["thread"] or ())): slack.thread_posts(held) if held["thread"] else None
         for order_id, order in heard_orders(watcher, data).items()
@@ -2386,7 +2386,7 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 def held_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Once he is back, owe each thread of his DM or an incident's that a report held for his return was to go in its line, by his words 162648a "why did all of these get sent in this thread?": one report on the orders and incidents with news in that thread and the orders of its held reports this watch hears, with what moved and each held report its writer did not withdraw, with each correction cci holds re one, for one handler the watch starts there, which re-reads each and posts what still stands, a handler already at work in that thread taking it at its next step; each held report is kept as that report's until a post of it lets it go, by talk.released, each withdrawn let go at once, and its orders keep the facts it carried, as due_lines' reports do. A held report with no order or no thread goes on his catch-up instead, by catch_up_report. A failed write is said as a failed read is and tried again next pass; a report whose handler did not start gets one from post_lines, as each POST report does."""
-    data = state.load(watcher.name)
+    data = state.load(watcher.name, ("owner", "held", "orders", "subcoordinators"))
     if state.owner_away(data, moment):
         return []
     threads: dict[tuple[str, str], list[str]] = {}
@@ -2395,6 +2395,7 @@ def held_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
             threads.setdefault(where, []).append(seq)
     if not threads:
         return []
+    data = state.load(watcher.name)
     try:
         amended = agents.amendments(watcher.name, [seq for seqs in threads.values() for seq in seqs])
     except state.DriveError as error:
@@ -2915,9 +2916,12 @@ def incident_pr_lines(name: str, group: list[str]) -> list[str]:
     """Each PR of an incident's orders, on their jobs or named in their words, from its row as the watch last read it from GitHub with his card on it, never from what an order's words or note say of it, which only someone typed."""
     from drive import cli
 
-    data = cli.with_cards(name, state.load(name))
-    jobs = state.orders_jobs(data, group)
-    lines = [render.pr_line(data, key, data["prs"][key]["card_state"]) if key in data["prs"] else state.pr_url(key) for key in incident_prs(data, group, jobs, render.prs_by_job(data))]
+    data = state.load(name)
+    with state.indexed(data):
+        jobs = state.orders_jobs(data, group)
+        keys = incident_prs(data, group, jobs, render.prs_by_job(data))
+        cli.with_cards(name, data, {"jobs": jobs, "prs": {key: data["prs"][key] for key in keys if key in data["prs"]}})
+        lines = [render.pr_line(data, key, data["prs"][key]["card_state"]) if key in data["prs"] else state.pr_url(key) for key in keys]
     return [f"PRs, as the watch last read them from GitHub: {len(lines)}", *(f"- {line}" for line in lines)]
 
 
@@ -4969,7 +4973,7 @@ def unhear(name: str, last: datetime, why: str) -> dict:
 
 def catch_up_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Post the catch-up the drive owes him at his DM root from the relay, so within RELAY_SECONDS of his return, once for each time he is heard: a report of it the watch writes once, by catch_up_report, for a handler the watch starts, unless the handler started last is still at work on it; a failed write or start is said as a failed read is and tried again next pass."""
-    data = state.load(watcher.name)
+    data = state.load(watcher.name, ("owner", "catch_up", "handlers"))
     owed, heard = data["catch_up"], data["owner"]["heard"]
     if watcher.project or owed is None or owed["tried"] == heard or state.owner_away(data, moment):
         return []
@@ -4978,7 +4982,7 @@ def catch_up_lines(watcher: Watcher, moment: datetime) -> list[str]:
             data["catch_up"]["tried"] = heard
         return []
     try:
-        seq = owed["record"] or catch_up_report(watcher, data)
+        seq = owed["record"] or catch_up_report(watcher, state.load(watcher.name))
         handler, _ = agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'catch-up-{seq}'}")
     except (reads.ReadError, state.DriveError) as error:
         return failed(watcher, "catch-up", "post of his catch-up", error, moment)

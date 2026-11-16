@@ -431,11 +431,11 @@ def owing(data: dict, seq: str) -> bool:
 
 def start_posts(name: str, moment: datetime) -> None:
     """Start a handler on each POST report the drive owes a post from its mark on, but one a live handler holds, by its record or a brief handed to it, or the watch posts itself, by state.watch_posting, as the watch's read of them: each stays owed until a post carries it, so one whose handler did not start, never started, died or ended posting nothing gets a fresh one on the next read, and the mark moves past a report only once it is carried or held, in one save after every start, so a read that dies anywhere leaves each report it read owed. A report cci took less than BATCH_WINDOW before the moment waits for a later read unless a live handler, one this read started included, holds the thread its thread attr names, so the reports of one thread inside a minute go to one handler, by the Nov 15 pick "Handlers batched + trimmed". A report whose handler died or never started after the one before it ended without posting is given up, by give_up, as a second such end of a handler's turn is. A handler that did not start, whatever its start raised, raises a refusal naming its report and its error, once the rest started."""
-    data = state.load(name)
+    data = state.load(name, ("posts",))
     since = seeded(name) if data["posts"]["mark"] is None else data["posts"]["mark"]
     read, newest = posts(name, since)
     seqs = [seq for seq, _, _ in read]
-    data = state.load(name)
+    data = state.load(name, ("posts", "handlers", "carried", "held", "orders"))
     holders = [(gone(entry), held_records(entry)) for entry in data["handlers"].values()]
     live = {seq for ended, records in holders if not ended for seq in records}
     dead = {seq for ended, records in holders if ended for seq in records}
@@ -444,7 +444,7 @@ def start_posts(name: str, moment: datetime) -> None:
     for seq, at, thread in read:
         if not owing(data, seq) or seq in live or seq in posting:
             continue
-        if at + BATCH_WINDOW > moment and not live_thread(state.load(name), thread):
+        if at + BATCH_WINDOW > moment and not live_thread(state.load(name, ("handlers",)), thread):
             continue
         if seq in dead and (line := data["posts"]["unposted"].get(seq)):
             try:
