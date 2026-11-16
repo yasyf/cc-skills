@@ -102,22 +102,38 @@ def test_a_root_post_on_an_order_goes_to_its_projects_operator_channel_and_keeps
     assert [(event["channel"], event["answers"]) for event in said(demo)] == [("C777", ["1794200000.000300"]), (None, [])]
 
 
-def test_drive_channels_moves_each_open_card_of_his_dm_to_its_projects_channel_and_follows_it_there(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_card_of_no_project_asks_at_the_root_of_the_drives_own_channel_while_a_status_line_of_none_stays_in_his_dm(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C777", "name": "demo-iris"}, {"id": "C888", "name": "demo-drive"}])
+    with state.edit(demo) as data:
+        data["orders"]["o1"] = state.new_order("design the store", "D123", None, {}, state.stamp()) | {"jobs": ["j1"]}
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "design the store", [], state.stamp())
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, "Keep the old store?", state.stamp()) | {"waits": "demo:j1-8"})
+    talk.say(demo, {"card": {"title": "Keep the old store?", "waits": "demo:j1-8"}})
+    talk.say(demo, {"text": "The fix is in."})
+    assert [argv[argv.index("--channel") + 1] if "--channel" in argv else None for argv in posts] == ["C888", None]
+
+
+def test_drive_channels_moves_each_open_card_of_his_dm_to_its_projects_channel_one_of_no_project_to_the_drives_and_follows_it_there(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     order_id, job_id = "o1", "j1"
     with state.edit(demo) as data:
         data["orders"][order_id] = state.new_order("ship the run page", "D123", None, {}, state.stamp()) | {"project": "Iris", "jobs": [job_id]}
         data["jobs"][job_id] = state.new_job(order_id, "builder", "ship the run page", [], state.stamp()) | {"waits": [CARD_URL]}
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr(PR_URL, job_id, order_id)
-    iris, moved = {"id": "C777", "name": "demo-iris"}, "https://acme.slack.com/archives/C777/p1794300000000950"
+    iris, drive, moved = {"id": "C777", "name": "demo-iris"}, {"id": "C888", "name": "demo-drive"}, "https://acme.slack.com/archives/C777/p1794300000000950"
+    unfiled = question_card("https://acme.slack.com/archives/D123/p1794300000000300", "Which drive?", "demo:j99-7")
     pr_card = {"prs": [PR_URL], "asked": ASKED, "url": "https://acme.slack.com/archives/D123/p1794300000000200", "card": {"title": "Merge #7?", "waits": "merge:yasyf/cc-skills#7"}}
     asked = question_card(CARD_URL, QUESTION, f"demo:{job_id}-7")
     sent: list[tuple[str, ...]] = []
-    monkeypatch.setattr(slack, "operator_channels", lambda: [iris])
+    monkeypatch.setattr(slack, "operator_channels", lambda: [iris, drive])
     monkeypatch.setattr(slack, "cc_slack", lambda *argv, **_: sent.append(argv) or (iris if argv[0] == "operator-channel" else {"permalink": moved}))
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": [asked, question_card("https://acme.slack.com/archives/D123/p1794300000000300", "Which drive?", "demo:j99-7")], "pr_cards": [pr_card], "closed": []})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": [asked, unfiled], "pr_cards": [pr_card], "closed": []})
 
-    assert run("channels")[1].splitlines()[-1] == "2 open card(s) of his DM moved to their project's channel"
-    assert [argv for argv in sent if argv[0] == "move-card"] == [("move-card", "--url", CARD_URL, "--channel", "C777"), ("move-card", "--url", pr_card["url"], "--channel", "C777")]
+    assert run("channels")[1].splitlines()[-1] == "3 open card(s) of his DM moved to their project's channel"
+    assert [argv for argv in sent if argv[0] == "move-card"] == [
+        ("move-card", "--url", CARD_URL, "--channel", "C777"),
+        ("move-card", "--url", unfiled["url"], "--channel", "C888"),
+        ("move-card", "--url", pr_card["url"], "--channel", "C777"),
+    ]
     data = state.load(demo)
     assert data["jobs"][job_id]["waits"] == [asked["card"]["waits"]]
     assert ["C777", "1794300000.000950"] in [where[:2] for where in data["orders"][order_id]["threads"]]
