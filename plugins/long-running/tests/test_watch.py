@@ -12761,14 +12761,22 @@ def test_his_undo_tap_owes_a_revert_on_the_job_whose_card_it_answered_and_each_j
         assert owing.reverted(data, "demo:j9-1", card, moment + owing.SPAN_FLOOR, moment, []) == []
 
 
-def test_a_job_of_his_ask_waiting_on_a_builder_slot_owes_one_step_saying_what_blocks_it_due_five_minutes_on_and_a_process_job_owes_none(demo: str) -> None:
+def test_a_job_of_his_ask_waiting_on_a_builder_slot_ten_minutes_owes_one_step_per_ask_folded_into_a_step_due_soon_and_a_process_job_owes_none(demo: str) -> None:
     moment = state.parse_time("2026-11-09T05:07:00-08:00")
     with edit(demo) as data:
-        data["jobs"]["j1"].update(waits=[state.SLOT_WAIT], state="waiting")
-        assert owing.settle(data, moment)
-        [item] = [item for item in data["orders"]["o1"]["owed"] if item["done_when"] == {"blocked": "j1"}]
-        assert (item["kind"], item["due"], item["what"].endswith("and what clears it: it waits on a builder slot")) == (owing.STEP, state.stamp(moment + owing.BLOCKED_DUE), True)
-        assert not owing.settle(data, moment + timedelta(minutes=1))
-        data["orders"]["o1"]["class"] = "process"
-        owing.close(item, "delivered", moment)
+        data["jobs"]["j1"].update(waits=[state.SLOT_WAIT], state="waiting", slot_since=state.stamp(moment - timedelta(minutes=9)))
+        assert not owing.settle(data, moment)
+        assert owing.settle(data, moment + timedelta(minutes=1))
+        [item] = [item for item in data["orders"]["o1"]["owed"] if item["done_when"] == {"blocked": "o1"}]
+        assert (item["kind"], item["due"], "and what clears it: it has waited on a builder slot since" in item["what"]) == (owing.STEP, state.stamp(moment + timedelta(minutes=1) + owing.BLOCKED_DUE), True)
+        data["jobs"]["j2"] = data["jobs"]["j1"] | {"order": "o1"}
         assert not owing.settle(data, moment + timedelta(minutes=2))
+        owing.close(item, "delivered", moment)
+        owing.add(data, "o1", owing.STEP, "its staging result", moment + timedelta(minutes=8), {"post_on": "o1"}, "o1", moment)
+        assert owing.settle(data, moment + timedelta(minutes=3))
+        assert [each["what"].startswith("its staging result; and say in his thread what blocks") for each in owing.still_open(data["orders"]["o1"]) if each["kind"] == owing.STEP] == [True]
+        assert not owing.settle(data, moment + timedelta(minutes=4))
+        data["orders"]["o1"]["class"] = "process"
+        for each in owing.still_open(data["orders"]["o1"]):
+            owing.close(each, "delivered", moment)
+        assert not owing.settle(data, moment + timedelta(minutes=5))

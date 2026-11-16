@@ -13,6 +13,8 @@ REVERT = "revert"
 KINDS = (STEP, FIX_LIVE, CLAIM, CARD, DELIVER, REVERT)
 TELL_AFTER = timedelta(minutes=10)
 BLOCKED_DUE = timedelta(minutes=5)
+SLOT_QUIET = timedelta(minutes=10)
+FOLD_WITHIN = timedelta(minutes=10)
 SPAN_FLOOR = timedelta(minutes=15)
 SPAN_CEILING = timedelta(minutes=60)
 COORDINATOR_MISS = 2
@@ -146,7 +148,7 @@ def settle(data: dict, moment: datetime) -> bool:
 
 
 def waiting(data: dict, moment: datetime) -> dict[str, str]:
-    """Each job of an incident's or asked order waiting on a contended resource, with why: a stage-test item the queue starts no cut for, by work.STAGE.why_not, a release the train holds behind a cut, by state.train_waiting, and a builder waiting on a builder slot."""
+    """Each job of an incident's or asked order waiting on a contended resource, with why: a stage-test item the queue starts no cut for, by work.STAGE.why_not, a release the train holds behind a cut, by state.train_waiting, and a builder that has waited on a builder slot SLOT_QUIET or more, so a brief routine wait says nothing, by his words "make the tooling even less chatty"."""
     from drive import work
 
     held = {}
@@ -155,17 +157,27 @@ def waiting(data: dict, moment: datetime) -> dict[str, str]:
     for env, slot in data["slots"].items():
         if slot["holder"]:
             held |= dict.fromkeys(state.train_waiting(data, env), f"its release waits for {env}, which {slot['holder']['job']} holds until {when(slot['holder']['until'])}")
-    held |= {job_id: "it waits on a builder slot" for job_id, job in data["jobs"].items() if state.SLOT_WAIT in job["waits"] and job["state"] not in state.FINISHED_JOB_STATES}
+    held |= {
+        job_id: f"it has waited on a builder slot since {when(since)}"
+        for job_id, job in data["jobs"].items()
+        if state.SLOT_WAIT in job["waits"] and job["state"] not in state.FINISHED_JOB_STATES and moment - state.parse_time(since := job.get("slot_since") or job["updated"]) >= SLOT_QUIET
+    }
     return {job_id: why for job_id, why in held.items() if state.class_rank(data, data["jobs"][job_id]) < state.CLASSES.index("process")}
 
 
 def blocked(data: dict, job_id: str, why: str, moment: datetime) -> bool:
-    """Owe one step on the job's order when its work is refused or waits on a contended resource, by his rule "silence is never acceptable; it tells me in the thread when it is blocked": a post in his thread saying what blocks the ask and what clears it, due BLOCKED_DUE on, closed only by a post naming it as its outcome, at most one open per job; nothing is refused and the model writes the post. Whether it opened one."""
+    """Owe one step on the ask a blocked job serves, by his rule "silence is never acceptable; it tells me in the thread when it is blocked": a post in his thread saying what blocks the ask and what clears it, due BLOCKED_DUE on, closed only by a post naming it as its outcome, at most one open per ask; when a step of the ask is already due within FOLD_WITHIN, the block folds into that step's post instead of adding one, by his words "make the tooling even less chatty". Nothing is refused and the model writes the post. Whether it changed anything."""
     order_id = data["jobs"][job_id]["order"]
     order = data["orders"][order_id]
-    if open_on(order, STEP, {"blocked": job_id}):
+    if open_on(order, STEP, {"blocked": order_id}):
         return False
-    add(data, order_id, STEP, f"say in his thread what blocks {order['title'] or cut(order['text'], 80)} and what clears it: {why}", moment + BLOCKED_DUE, {"blocked": job_id}, f"{job_id} blocked", moment, job_id)
+    said = f"say in his thread what blocks {order['title'] or cut(order['text'], 80)} and what clears it: {why}"
+    if soon := next((item for item in still_open(order) if item["kind"] == STEP and item["due"] and state.parse_time(item["due"]) - moment <= FOLD_WITHIN), None):
+        if " and what clears it: " in soon["what"]:
+            return False
+        soon["what"] = f"{soon['what']}; and {said}"
+        return True
+    add(data, order_id, STEP, said, moment + BLOCKED_DUE, {"blocked": order_id}, f"{job_id} blocked", moment, job_id)
     return True
 
 

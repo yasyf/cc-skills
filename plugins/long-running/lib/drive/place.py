@@ -371,7 +371,9 @@ def queueable(data: dict, job_id: str) -> bool:
 
 
 def queue(job: dict, moment: datetime) -> None:
-    """Hold a builder job waiting its turn for a slot on this Mac on builder-slot: one no agent or lane runs, or one taking over here from its agent on this Mac, waiting, so the watch reads it waiting, never abandoned, until its FREE line names it or its turn starts the takeover, and one moving here from its Sprite in the state its lane there set, that lane running on, until the watch's turn starts its move."""
+    """Hold a builder job waiting its turn for a slot on this Mac on builder-slot: one no agent or lane runs, or one taking over here from its agent on this Mac, waiting, so the watch reads it waiting, never abandoned, stamping when its wait began as slot_since, until its FREE line names it or its turn starts the takeover, and one moving here from its Sprite in the state its lane there set, that lane running on, until the watch's turn starts its move."""
+    if state.SLOT_WAIT not in job["waits"]:
+        job["slot_since"] = state.stamp(moment)
     waits = list(dict.fromkeys([*job["waits"], state.SLOT_WAIT]))
     if on_sprite(job):
         job.update(waits=waits, slot=None, updated=state.stamp(moment))
