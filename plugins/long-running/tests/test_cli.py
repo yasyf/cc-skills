@@ -9494,6 +9494,22 @@ def test_a_change_job_added_on_a_part_another_unfinished_one_carries_folds_into_
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"], data["jobs"]["j1"]["handed_to"]) == ("stopped", "handed to j3", "j3")
 
 
+def test_a_job_waiting_on_a_mac_box_is_freed_once_the_pool_hands_it_one(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test the app on a Mac")
+    run("job", "add", "codex", "--order", "o1", "--goal", "test the app on your own Mac box")
+    data = state.load(demo)
+    assert state.named_waits(data, "o1", "WAITING mac-box:any, every host busy") == ["mac-box:any"]
+    assert view.holds(data, "mac-box:any", None) is True
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", waits=["mac-box:any"])
+    assert run("mac-box", "handed", "j2", "j1-prod")[0] != 0
+    code, out = run("mac-box", "handed", "j1", "j1-prod", "--host", "mac-07")
+    assert (code, out) == (0, "j1 has Mac box j1-prod on mac-07: mac-box:any ended, so the watch frees it on its next pass")
+    data = state.load(demo)
+    assert (data["jobs"]["j1"]["waits"], view.holds(data, "mac-box:j1-prod@handed", None)) == (["mac-box:j1-prod@handed"], False)
+    assert run("mac-box", "handed", "j1", "j1-prod")[0] != 0
+
+
 def test_a_change_job_added_on_a_part_a_job_between_runs_carries_is_a_new_job_beside_it_never_folded_into_it(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test the app on a Mac", "--parts", "mac test pass")
     run("job", "add", "codex", "--order", "o1", "--goal", "test the app on your own Mac box", "--part", "mac test pass")

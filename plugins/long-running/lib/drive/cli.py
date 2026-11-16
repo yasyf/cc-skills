@@ -4683,6 +4683,18 @@ def slot_hand(args: argparse.Namespace) -> int:
     return emit(args, f"{line}{told}; drive {' '.join(command[:3])} runs now", {"env": args.env, "job": args.to, "line": line, "stopped": stopped})
 
 
+def mac_box_handed(args: argparse.Namespace) -> int:
+    """Take the drive pool's word that it handed a job a Mac box, by tools/ci mac-box lend or up naming the job as holder: each mac-box:<box> or mac-box:any wait of the job ends, so the watch's next pass frees it with its FREE line, and the hand is kept as an event; refused for a job that waits on no box."""
+    name = state.resolve(args.drive)
+    with state.edit(name) as data:
+        job = find(data["jobs"], args.job, "job")
+        if not (marked := state.mac_box_handed(data, args.job, args.box)):
+            raise DriveError(f"{args.job}: refused, nothing written: it waits on no Mac box ({', '.join(job['waits']) or 'no waits'}), so a WAITING naming mac-box:<box> or mac-box:any is what this frees")
+    state.append_event(name, "mac_box_handed", job=args.job, box=args.box, host=args.host, ended=marked)
+    line = f"{args.job} has Mac box {args.box}{f' on {args.host}' if args.host else ''}: {', '.join(marked)} ended, so the watch frees it on its next pass"
+    return emit(args, line, {"job": args.job, "box": args.box, "ended": marked})
+
+
 def slot_hold(args: argparse.Namespace) -> int:
     """Hold a staging env's slot for one job until a time, from the top coordinator's session, so the watch gives it to no other job and hands a lease that ends to the one it names; --until with a past time is refused, and --clear drops the hold."""
     name = state.resolve(args.drive)
@@ -7445,6 +7457,12 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("components", nargs="+", metavar="COMPONENT", help="the broken service's release component, such as sandsql, covering every stack it deploys")
     verb.set_defaults(run=incident_freeze)
 
+    boxes = verbs.add_parser("mac-box", help="Mac test boxes the drive's pool hands to jobs").add_subparsers(dest="action", required=True)
+    verb = boxes.add_parser("handed", parents=both, help="the pool handed a job a Mac box: its mac-box:<box> or mac-box:any wait ends, so the watch frees it")
+    verb.add_argument("job", help="the job the box went to")
+    verb.add_argument("box", help="the box's name, as tools/ci mac-box up named it")
+    verb.add_argument("--host", help="the Mac host the box runs on")
+    verb.set_defaults(run=mac_box_handed)
     slot = verbs.add_parser("slot", help="staging slots, a first-in first-out lease on each staging env").add_subparsers(dest="action", required=True)
     verb = slot.add_parser("claim", parents=both, help="hold a staging env's slot now, or queue for it", description="Hold the env's slot now when no job holds it, its lease ending the minutes given past the staging-claim rule's five-minute wait, else queue last; the watch hands a queued job the slot with a GO once the holder gives it back, finishes or outlives its lease.")
     verb.add_argument("env", help="the staging env, such as plat-usw2-staging")

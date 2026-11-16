@@ -360,6 +360,8 @@ def holds(drive: dict, wait: str, found: dict | None) -> bool:
         return drive["prs"][release["pr"]]["state"] != "closed"
     if state.PID_WAIT.fullmatch(wait):
         return state.pid_runs(wait)
+    if boxed := state.MAC_BOX_WAIT.fullmatch(wait):
+        return not boxed["handed"]
     if drawn := drawn_on(drive, wait):
         return any(question["closed"] is None for _, question in drawn)
     if staged := state.STAGING_WAIT.fullmatch(wait):
