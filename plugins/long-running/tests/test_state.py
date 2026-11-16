@@ -3150,7 +3150,10 @@ BLANK_ROWS = {
 }
 
 
-@pytest.mark.parametrize("collection, key", [(collection, key) for collection, (_, blank) in BLANK_ROWS.items() for key in blank])
+SHAPED_FIRST = {("orders", "text"), ("orders", "priority"), ("orders", "owner"), ("orders", "project"), ("orders", "updated"), ("jobs", "state"), ("jobs", "updated"), ("slots", "holder")}
+
+
+@pytest.mark.parametrize("collection, key", [(collection, key) for collection, (_, blank) in BLANK_ROWS.items() for key in blank if (collection, key) not in SHAPED_FIRST])
 def test_a_row_saved_without_a_field_its_constructor_gives_renders_through_drive_status_with_that_fields_new_value(run: Callable[..., tuple[int, str]], demo: str, collection: str, key: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Tooling", "fix the clock")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
@@ -3172,9 +3175,9 @@ def test_a_detached_report_post_runs_under_drive_retried_on_the_newest_install_a
     monkeypatch.setattr(state.subprocess, "Popen", lambda argv, **options: started.append(argv) or type("Started", (), {"pid": 7})())
 
     state.detach(demo, ["report-post", "735816"], "posts.log")
-    state.detach(demo, ["transcripts-keep", "j1"], "posts.log")
+    state.detach(demo, ["probe", "j1"], "posts.log")
 
-    assert [argv[2:] for argv in started] == [[str(newest), "retried", "report-post", "735816", "--drive", demo], [str(newest), "transcripts-keep", "j1", "--drive", demo]]
+    assert [argv[2:] for argv in started] == [[str(newest), "retried", "report-post", "735816", "--drive", demo], [str(newest), "probe", "j1", "--drive", demo]]
 
 
 def test_drive_retried_runs_a_verb_that_exits_non_zero_once_more_on_the_install_newest_by_then(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

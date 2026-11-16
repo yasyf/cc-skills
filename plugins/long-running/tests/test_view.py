@@ -768,7 +768,7 @@ def test_a_stack_card_whose_prs_the_watch_dropped_since_draws_them_by_their_link
     ]
 
 
-def test_cards_are_read_from_the_file_the_watch_rewrites_only_on_change(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cards_are_read_from_the_file_the_watch_rewrites_only_on_change_and_a_refused_read_keeps_the_last_ones(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     assert view.stored_cards(demo) == (view.NO_CARDS, view.UNREAD)
     listed = found([question("Release now?", -20)])
     monkeypatch.setattr(view, "cards", lambda name: listed)
@@ -783,7 +783,7 @@ def test_cards_are_read_from_the_file_the_watch_rewrites_only_on_change(demo: st
 
     monkeypatch.setattr(view, "cards", refused)
     view.refresh_cards(demo)
-    assert view.stored_cards(demo) == (view.NO_CARDS, "unavailable: not signed in")
+    assert view.stored_cards(demo) == (listed, "unavailable: not signed in")
 
 
 def test_a_cc_slack_answer_that_exits_0_with_no_json_is_a_slack_error_not_a_crash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
