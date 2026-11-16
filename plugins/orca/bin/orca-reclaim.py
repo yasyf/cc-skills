@@ -622,17 +622,20 @@ class CcRemote:
     def __init__(self, state: Path = CC_REMOTE_STATE):
         self.state = state
 
-    def sprites(self) -> dict[tuple[str, str], Sprite]:
-        hosted: dict[tuple[str, str], Sprite] = {}
+    def recorded(self) -> Iterator[tuple[dict, Sprite]]:
         for path in sorted((self.state / "orca").glob("*.json")):
             task = json.loads(path.read_text())
-            if task.get("schemaVersion") != CC_REMOTE_TASK_SCHEMA or task.get("provider") != "sprites" or not all(task.get(key) for key in ("forward", "worktreeId", "terminal")):
+            if task.get("schemaVersion") != CC_REMOTE_TASK_SCHEMA or task.get("provider") != "sprites" or not task.get("forward"):
                 continue
             if not (self.state / "workspaces" / f"{task['workspace']}.json").is_file():
                 continue
-            sprite = Sprite(task["workspace"], task["forward"]["host"], task["forward"]["config"], task["projectRoot"], task["environmentId"])
-            hosted[(task["worktreeId"], task["terminal"])] = sprite
-        return hosted
+            yield task, Sprite(task["workspace"], task["forward"]["host"], task["forward"]["config"], task["projectRoot"], task["environmentId"])
+
+    def sprites(self) -> dict[tuple[str, str], Sprite]:
+        return {(task["worktreeId"], task["terminal"]): sprite for task, sprite in self.recorded() if task.get("worktreeId") and task.get("terminal")}
+
+    def sprite(self, workspace: str) -> Sprite | None:
+        return next((sprite for _, sprite in self.recorded() if sprite.workspace == workspace), None)
 
     def checkout(self, sprite: Sprite) -> Checkout | str:
         git_c = f"git -C {shlex.quote(sprite.root)}"
@@ -745,12 +748,8 @@ def uncommitted(changed: Iterable[tuple[str, str]]) -> str:
     return f"uncommitted changes in {trees}" if trees else "uncommitted changes"
 
 
-def sprite_of(workspace: str, cc_remote: CcRemote) -> Sprite | None:
-    return next((sprite for sprite in cc_remote.sprites().values() if sprite.workspace == workspace), None)
-
-
 def held(workspace: str, cc_remote: CcRemote) -> str | None:
-    if (sprite := sprite_of(workspace, cc_remote)) is None:
+    if (sprite := cc_remote.sprite(workspace)) is None:
         return None
     checkout = cc_remote.checkout(sprite)
     return checkout if isinstance(checkout, str) else "; ".join(holdings(checkout, cc_remote.remote(checkout.repository))) or None
@@ -772,7 +771,7 @@ def one_destroy(workspace: str) -> Iterator[None]:
 
 
 def destroy(workspace: str, lane: str, cc_remote: CcRemote) -> str:
-    if (sprite := sprite_of(workspace, cc_remote)) is None:
+    if (sprite := cc_remote.sprite(workspace)) is None:
         raise Unsaved(f"cc-remote records no Sprite {workspace}, so nothing was destroyed")
     with one_destroy(workspace):
         saved = save(workspace, lane, cc_remote)
@@ -787,7 +786,7 @@ def destroy(workspace: str, lane: str, cc_remote: CcRemote) -> str:
 
 
 def save(workspace: str, lane: str, cc_remote: CcRemote) -> str | None:
-    if (sprite := sprite_of(workspace, cc_remote)) is None:
+    if (sprite := cc_remote.sprite(workspace)) is None:
         return f"cc-remote records no Sprite {workspace}, so nothing on it was read or saved"
     checkout = cc_remote.checkout(sprite)
     if isinstance(checkout, str):
@@ -815,16 +814,28 @@ def save_script(sprite: Sprite, slug: str, lane: str, refs: dict[str, str], tree
     prefix = f"saved/{lane}/"
     message = f"wip: what {lane} left uncommitted on Sprite {sprite.workspace}, saved for its next lane"
     helper = '!f() { echo username=x-access-token; echo "password=$SAVE_TOKEN"; }; f'
-    lines = ["set -e", "IFS= read -r SAVE_TOKEN", "export SAVE_TOKEN GIT_TERMINAL_PROMPT=0", FREE_FULL_HOME, f"cd {shlex.quote(sprite.root)}"]
-    lines += [f"git update-ref {shlex.quote('refs/heads/' + (name if name.startswith(prefix) else prefix + name))} {tip}" for name, tip in refs.items()]
+    lines = ["set -e", "IFS= read -r SAVE_TOKEN", "export SAVE_TOKEN GIT_TERMINAL_PROMPT=0", FREE_FULL_HOME, f"cd {shlex.quote(sprite.root)}", "pushed="]
+    lines += [
+        "save() {",
+        '  tip=$(git rev-parse -q --verify "refs/heads/$1" || echo "$2")',
+        '  short=$(printf %.10s "$tip")',
+        f"  name=${{1#{prefix}}}",
+        '  name=${name%"$short"}',
+        "  name=${name%-}",
+        f'  ref="refs/heads/{prefix}${{name:+$name-}}$short"',
+        '  git update-ref "$ref" "$tip"',
+        '  case " $pushed " in *" ${tip}:$ref "*) ;; *) pushed="$pushed ${tip}:$ref" ;; esac',
+        "}",
+    ]
     for tree in map(shlex.quote, trees):
         lines += [
             f'pgrep -x git >/dev/null || rm -f "$(git -C {tree} rev-parse --path-format=absolute --git-path index.lock)"',
             f"git -C {tree} add -A",
             f"git -C {tree} -c core.hooksPath=/dev/null commit -q --no-verify -m {shlex.quote(message)}",
-            f'git update-ref "refs/heads/{prefix}$(git -C {tree} symbolic-ref --short -q HEAD || git -C {tree} rev-parse --short=10 HEAD)" "$(git -C {tree} rev-parse HEAD)"',
         ]
-    lines.append(f"git -c credential.helper= -c {shlex.quote('credential.helper=' + helper)} push --quiet https://github.com/{slug}.git 'refs/heads/{prefix}*:refs/heads/{prefix}*'")
+    lines += [f"save {shlex.quote(name)} {tip}" for name, tip in refs.items()]
+    lines += [f'save "$(git -C {tree} symbolic-ref --short -q HEAD)" "$(git -C {tree} rev-parse HEAD)"' for tree in map(shlex.quote, trees)]
+    lines.append(f"git -c credential.helper= -c {shlex.quote('credential.helper=' + helper)} push --quiet https://github.com/{slug}.git $pushed")
     return "\n".join(lines)
 
 
@@ -1210,16 +1221,17 @@ def main() -> int:
         "by the same checkout read that keeps a Sprite, naming each of them: every worktree with uncommitted changes and its count of changed files, every branch "
         "or stash with commits on no remote, and an unpushed HEAD; or the reason the read failed, or nothing. A branch whose first-parent history begins at a root commit "
         "GitHub's default branch shares no history with, such as the cc-notes-source-live-v2 branch cc-notes pins its own records on, is no lane's work and counts for nothing. It needs no Orca, so it reads a Sprite whose dispatch "
-        "or environment Orca has dropped. "
+        "or environment Orca has dropped, or whose cc-remote task records no Orca worktree or terminal, as when cc-remote orca prepare failed before a worker started. "
         "--save WORKSPACE LANE takes what --held would name to GitHub, so a fresh Sprite gets it: one ssh to that Sprite first deletes ~/.cache when its home has "
         f"under {FULL_HOME_KIB // 1024} MiB free, the line cc-remote's runtime names out of disk space at, since git can write no commit on a full disk, then commits each worktree's "
         "uncommitted changes there with --no-verify and no hooks, names each commit, branch or stash GitHub holds nowhere, by a branch head, an open or merged PR's "
-        "head or its default branch, as the local branch saved/LANE/<its name>, a worktree's commit by its own branch or short sha, and pushes "
-        "refs/heads/saved/LANE/* to github.com over https on the token gh auth token prints, which it reads from stdin into that one shell's "
+        "head or its default branch, as the local branch saved/LANE/<its name>-<its first 10 sha characters>, a worktree's commit by its own branch or, detached, "
+        "by its first 10 sha characters alone, and pushes each by its own <sha>:refs/heads/<name> refspec, never a glob or a force, so a saved/LANE/ branch "
+        "another writer pushed never refuses it and a retry reads up to date, to github.com over https on the token gh auth token prints, which it reads from stdin into that one shell's "
         "environment and hands git through a credential helper naming only the variable, so nothing writes it to the Sprite's disk or history. "
         "It prints what it saved and the repository and saved/LANE/ it went under, naming no branch, since GitHub's own refs say which exist; or, when the Sprite holds nothing, that it held nothing unpushed or uncommitted, so nothing was saved; "
         "or, when no cc-remote task records a Sprite under that name, that nothing on it was read or saved; and exits 1 naming "
-        "why when the read or the save fails, which leaves each commit it made on its saved/LANE branch, still read as held. "
+        "why when the read or the save fails, which leaves each commit it made on its local saved/LANE/ branch, still read as held. "
         "--destroy WORKSPACE LANE first takes what --held would name to GitHub as --save WORKSPACE LANE does, then destroys the Sprite a cc-remote task records under that workspace name "
         "with cc-remote destroy, which closes its forward and removes its Orca environment, once the same checkout read, made again after the save, finds it holds nothing --held would name. "
         "It needs no Orca Run or dispatch and no idle terminal, so it reaches a Sprite whose dispatch Orca has dropped, and the pause does not hold it. It prints what it saved, as --save does, "
@@ -1248,7 +1260,7 @@ def main() -> int:
     parser.add_argument("--dispatch", action="append", default=[], metavar="CTX", help="only this settled dispatch; repeatable")
     parser.add_argument("--done", action="append", default=[], metavar="CTX", help="worker-stop this dispatch, close its terminal, and reclaim its worktree; repeatable")
     parser.add_argument("--held", metavar="WORKSPACE", help="print what this cc-remote workspace's Sprite holds on no remote, or nothing, and change nothing")
-    parser.add_argument("--save", nargs=2, metavar=("WORKSPACE", "LANE"), help="commit and push what this cc-remote workspace's Sprite holds on no remote to saved/LANE/<name> branches on GitHub, and print what it saved, that it held nothing, or that no cc-remote task records it")
+    parser.add_argument("--save", nargs=2, metavar=("WORKSPACE", "LANE"), help="commit and push what this cc-remote workspace's Sprite holds on no remote to saved/LANE/<name>-<sha> branches on GitHub, and print what it saved, that it held nothing, or that no cc-remote task records it")
     parser.add_argument("--destroy", nargs=2, metavar=("WORKSPACE", "LANE"), help="save what this cc-remote workspace's Sprite holds on no remote as --save does, then destroy it and its Orca environment, and print both")
     parser.add_argument("--wake", metavar="WORKSPACE", help="wake this cc-remote workspace's Sprite and reconnect Orca to the runtime it runs, starting no worker")
     parser.add_argument("--new", action="store_true", help="the recurring pass: a bounded batch of settled dispatches, capped closes and removals, backing off when Orca is slow")

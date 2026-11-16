@@ -3978,7 +3978,7 @@ def lane_saved(drive: str, job_id: str, job: dict, root: Path) -> str | None:
 
 
 def release_sprite(drive: str, job_id: str, job: dict, root: Path) -> str | None:
-    """Destroy the Sprite cc-remote still records for the job's lane once what it holds on no remote is saved to GitHub as saved/<lane>/<branch>; what happened to it, or None when none is recorded."""
+    """Destroy the Sprite cc-remote still records for the job's lane once what it holds on no remote is saved to GitHub as saved/<lane>/<branch>-<sha>; what happened to it, or None when none is recorded."""
     if not orca.holds_sprite(job):
         return None
     try:
@@ -6408,7 +6408,7 @@ def parser() -> argparse.ArgumentParser:
             "in that terminal, or, when Orca no longer finds that terminal or worktree, as a dead worker's; when its worker is dead, relaunch the job on a fresh Sprite, or in a fresh worktree on this "
             "Mac, on the same Run. Before a relaunch on a fresh Sprite it saves what the dead lane's Sprite holds that GitHub does not: over ssh "
             "it commits each worktree's uncommitted changes there and pushes each commit, branch or stash on no remote as saved/<the dead lane>/<its "
-            "branch>, on the token gh auth token prints, lent to that one push through the ssh session's stdin, so it never reaches the Sprite's disk; "
+            "branch>-<sha>, on the token gh auth token prints, lent to that one push through the ssh session's stdin, so it never reaches the Sprite's disk; "
             "its output and the new worker's handoff name each branch GitHub then holds under saved/<the dead lane>/, by one read of its refs. When that Sprite does not answer or the save fails, it relaunches the job on that "
             "Sprite instead, in the checkout the dead lane left. When Orca cannot reach the lane's Sprite, it wakes that Sprite with "
             "orca-reclaim.py --wake and reads the lane again: a worker that takes messages gets the text, and any other lane relaunches on "
@@ -6482,9 +6482,9 @@ def parser() -> argparse.ArgumentParser:
         "end",
         parents=both,
         help=(
-            "free the Orca lane a job's row records by its dispatch and workspace once it returned its line, whatever its where names: its Sprite, destroyed once what it holds on no remote is saved to GitHub as saved/<its lane>/<branch>, or its terminal and clean worktree on this Mac. The job"
+            "free the Orca lane a job's row records by its dispatch and workspace once it returned its line, whatever its where names: its Sprite, destroyed once what it holds on no remote is saved to GitHub as saved/<its lane>/<branch>-<sha>, or its terminal and clean worktree on this Mac. The job"
             " stays in the state its line set, with its waits, PRs and carried parts. A job not yet done first has what its Sprite holds"
-            " on no remote, uncommitted changes included, saved to GitHub as saved/<its lane>/<branch>; its output and its next lane's handoff"
+            " on no remote, uncommitted changes included, saved to GitHub as saved/<its lane>/<branch>-<sha>; its output and its next lane's handoff"
             " name each branch GitHub then holds under saved/<its lane>/; refused, naming why, for a row that records no lane, when that Sprite cannot be read or the save fails, and for a running job, whose lane returned no line: drive job resume sends it its next event"
         ),
     )
@@ -6495,7 +6495,7 @@ def parser() -> argparse.ArgumentParser:
         parents=both,
         help=(
             "what the watch runs in a process of its own on each thing an earlier or ended lane of the job left, and a session runs only to ask again for a kept Sprite: the Sprite cc-remote records under the workspace given, destroyed with its Orca environment"
-            " once what it holds on no remote is saved to GitHub as saved/<its lane>/<branch>, or else marked kept on that lane's death and refused, which the watch says once and never asks for again; or, for a job on this Mac, the dispatch given, whose terminal it closes and whose worktree it removes once clean and pushed,"
+            " once what it holds on no remote is saved to GitHub as saved/<its lane>/<branch>-<sha>, or else marked kept on that lane's death and refused, which the watch says once and never asks for again; or, for a job on this Mac, the dispatch given, whose terminal it closes and whose worktree it removes once clean and pushed,"
             " then marks freed so no watch reclaims it again; the reclaimer runs from the drive's checkout and is killed with every process it started past 300 seconds; refused, naming why, for a lane no death of the job records,"
             " or when the reclaimer fails or overruns"
         ),

@@ -10,6 +10,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from collections.abc import Iterator
 from dataclasses import replace
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
@@ -179,8 +180,8 @@ class FakeCcRemote(orca_gc.CcRemote):
         self.refusal = refusal
         self.destroyed: list[str] = []
 
-    def sprites(self) -> dict[tuple[str, str], orca_gc.Sprite]:
-        return self.hosted
+    def recorded(self) -> Iterator[tuple[dict, orca_gc.Sprite]]:
+        return (({"worktreeId": worktree, "terminal": terminal}, sprite) for (worktree, terminal), sprite in self.hosted.items())
 
     def checkout(self, sprite: orca_gc.Sprite) -> orca_gc.Checkout | str:
         return self.checkouts.get(sprite.workspace, checkout(sprite.root))
@@ -1005,8 +1006,8 @@ class SpriteTest(unittest.TestCase):
         self.assertEqual((orca.calls, cc_remote.destroyed), ([("close", "term_sprite", SPRITE.environment)], []))
         self.assertNotIn(SPRITE.root, out)
 
-    def test_a_sprite_task_saved_before_its_worker_terminal_is_skipped(self):
-        saved = {"schemaVersion": 1, "provider": "sprites", "workspace": "pool-new", "projectRoot": SPRITE.root, "environmentId": "env_new", "forward": {"host": "pool-new", "config": "/s/ssh/pool-new.ssh"}}
+    def test_a_sprite_task_saved_before_its_worker_terminal_is_skipped_by_a_pass_yet_found_by_its_workspace(self):
+        saved = {"schemaVersion": 1, "provider": "sprites", "workspace": "pool-new", "projectRoot": SPRITE.root, "environmentId": "env_new", "forward": {"host": "pool-new", "config": "/s/ssh/pool-new.ssh"}, "worktreeId": None, "terminal": None}
         attached = {**saved, "workspace": "pool-abc", "environmentId": "env_abc", "forward": {"host": "pool-abc", "config": "/s/ssh/pool-abc.ssh"}, "worktreeId": SPRITE_WT, "terminal": "term_sprite"}
         with tempfile.TemporaryDirectory() as state:
             for task in (saved, attached):
@@ -1014,7 +1015,9 @@ class SpriteTest(unittest.TestCase):
                     path = Path(state) / kind / f"{task['workspace']}.json"
                     path.parent.mkdir(exist_ok=True)
                     path.write_text(json.dumps(task))
-            self.assertEqual(orca_gc.CcRemote(Path(state)).sprites(), self.hosted)
+            cc_remote = orca_gc.CcRemote(Path(state))
+            self.assertEqual(cc_remote.sprites(), self.hosted)
+            self.assertEqual((cc_remote.sprite("pool-new"), cc_remote.sprite("pool-abc"), cc_remote.sprite("pool-gone")), (orca_gc.Sprite("pool-new", "pool-new", "/s/ssh/pool-new.ssh", SPRITE.root, "env_new"), SPRITE, None))
 
     def test_uncommitted_work_keeps_the_sprite(self):
         cc_remote = FakeCcRemote(self.hosted, {"pool-abc": checkout(SPRITE.root, dirty=True)})
@@ -1198,7 +1201,7 @@ class DestroyTest(unittest.TestCase):
         self.assertEqual(orca_gc.held(sprite.workspace, cc_remote), "unpushed commits on port-next-direct")
         with mock.patch.object(orca_gc, "github_token", return_value="ghs_lent"):
             said = orca_gc.destroy(sprite.workspace, "durable-agents-j2622", cc_remote)
-        self.assertEqual(git_in(github, "rev-parse", "saved/durable-agents-j2622/port-next-direct"), head)
+        self.assertEqual(git_in(github, "rev-parse", f"saved/durable-agents-j2622/port-next-direct-{head[:10]}"), head)
         self.assertEqual(
             said,
             "commits on no remote on port-next-direct, saved to acme/repo under saved/durable-agents-j2622/; destroyed pool-v5enaxpcuapy7bcm",
@@ -1255,16 +1258,14 @@ class SaveTest(unittest.TestCase):
         cc_remote = SavingCcRemote(sprite, held, github)
         with mock.patch.object(orca_gc, "github_token", return_value="ghs_lent"):
             said = orca_gc.save("pool-abc", "demo-j1", cc_remote)
-        loose_head = git_in(loose, "rev-parse", "HEAD")
+        loose_head, lane_head = git_in(loose, "rev-parse", "HEAD"), git_in(root, "rev-parse", "lane")
         saved = dict(line.split() for line in git_in(github, "for-each-ref", "--format=%(refname:lstrip=2) %(objectname)", "refs/heads/saved/").splitlines())
+        lane, loose_saved = f"saved/demo-j1/lane-{lane_head[:10]}", f"saved/demo-j1/{loose_head[:10]}"
+        self.assertEqual(saved, {lane: lane_head, f"saved/demo-j1/other-{tips['other'][:10]}": tips["other"], loose_saved: loose_head})
+        self.assertEqual(git_in(github, "rev-parse", f"{lane}^"), tips["lane"])
+        self.assertEqual(git_in(github, "rev-parse", f"{loose_saved}^"), tips["dev"])
         self.assertEqual(
-            saved,
-            {"saved/demo-j1/lane": git_in(root, "rev-parse", "lane"), "saved/demo-j1/other": tips["other"], f"saved/demo-j1/{loose_head[:10]}": loose_head},
-        )
-        self.assertEqual(git_in(github, "rev-parse", "saved/demo-j1/lane^"), tips["lane"])
-        self.assertEqual(git_in(github, "rev-parse", f"saved/demo-j1/{loose_head[:10]}^"), tips["dev"])
-        self.assertEqual(
-            [git_in(github, "show", f"{branch}:{file}") for branch, file in (("saved/demo-j1/lane", "kept.txt"), ("saved/demo-j1/lane", "new.txt"), (f"saved/demo-j1/{loose_head[:10]}", "scratch.txt"))],
+            [git_in(github, "show", f"{branch}:{file}") for branch, file in ((lane, "kept.txt"), (lane, "new.txt"), (loose_saved, "scratch.txt"))],
             ["changed", "new", "scratch"],
         )
         self.assertEqual((git_in(root, "status", "--porcelain"), git_in(loose, "status", "--porcelain")), ("", ""))
@@ -1272,7 +1273,21 @@ class SaveTest(unittest.TestCase):
         [(script, given)] = cc_remote.sent
         self.assertEqual(given, "ghs_lent\n")
         self.assertNotIn("ghs_lent", script)
-        self.assertIn("push --quiet https://github.com/acme/repo.git 'refs/heads/saved/demo-j1/*:refs/heads/saved/demo-j1/*'", script)
+        self.assertIn("push --quiet https://github.com/acme/repo.git ", script)
+
+    def test_a_save_never_pushes_onto_a_saved_branch_another_writer_holds_and_its_retry_passes(self):
+        sprite, base, _, tips = self.sprite_holding_work()
+        root, github = base / "repo", base / "github.git"
+        sibling = git_in(root, "commit-tree", f"{tips['lane']}^{{tree}}", "-p", tips["dev"], "-m", "wip: the worker's own backup")
+        git_in(root, "push", "--quiet", "origin", f"{sibling}:refs/heads/saved/demo-j1/lane")
+        git_in(root, "update-ref", "refs/heads/saved/demo-j1/lane", tips["lane"])
+        held = checkout(str(root), branch="lane", head=tips["lane"], repository="acme/repo")
+        with mock.patch.object(orca_gc, "github_token", return_value="ghs_lent"):
+            said = [orca_gc.save("pool-abc", "demo-j1", SavingCcRemote(sprite, held, github)) for _ in range(2)]
+        saved = dict(line.split() for line in git_in(github, "for-each-ref", "--format=%(refname:lstrip=2) %(objectname)", "refs/heads/saved/").splitlines())
+        self.assertEqual(saved, {"saved/demo-j1/lane": sibling, f"saved/demo-j1/lane-{tips['lane'][:10]}": tips["lane"]})
+        self.assertEqual(said, ["commits on no remote on lane, saved to acme/repo under saved/demo-j1/"] * 2)
+        self.assertIsNone(orca_gc.unsaved(held, orca_gc.Remote(heads=frozenset(saved.values()), landed=frozenset())))
 
     def test_save_first_deletes_the_cache_of_a_sprite_whose_home_has_under_64_mib_free_and_still_pushes(self):
         for free_kib, kept in ((0, False), (orca_gc.FULL_HOME_KIB - 1, False), (orca_gc.FULL_HOME_KIB, True)):
@@ -1287,7 +1302,7 @@ class SaveTest(unittest.TestCase):
                 with mock.patch.object(orca_gc, "github_token", return_value="ghs_lent"):
                     orca_gc.save("pool-abc", "demo-j1", cc_remote)
                 self.assertEqual((cc_remote.home / ".cache").exists(), kept)
-                self.assertIn("saved/demo-j1/lane", git_in(base / "github.git", "for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads/saved/").split())
+                self.assertIn(f"saved/demo-j1/lane-{git_in(base / 'repo', 'rev-parse', 'lane')[:10]}", git_in(base / "github.git", "for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads/saved/").split())
 
     def sprite_with_index_lock(self, git_running: bool) -> tuple[SavingCcRemote, Path, Path]:
         sprite, base, held, _ = self.sprite_holding_work()
@@ -1305,7 +1320,7 @@ class SaveTest(unittest.TestCase):
         with mock.patch.object(orca_gc, "github_token", return_value="ghs_lent"):
             orca_gc.save("pool-abc", "demo-j1", cc_remote)
         self.assertFalse(lock.exists())
-        self.assertIn("saved/demo-j1/lane", git_in(github, "for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads/saved/").split())
+        self.assertIn(f"saved/demo-j1/lane-{git_in(lock.parent.parent, 'rev-parse', 'lane')[:10]}", git_in(github, "for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads/saved/").split())
 
     def test_save_keeps_an_index_lock_while_a_git_runs_and_fails_naming_it(self):
         cc_remote, lock, github = self.sprite_with_index_lock(git_running=True)
@@ -1324,7 +1339,7 @@ class SaveTest(unittest.TestCase):
             said = orca_gc.save("pool-abc", "demo-j1", SavingCcRemote(sprite, held, github))
         loose_head = git_in(loose, "rev-parse", "HEAD")
         saved = dict(line.split() for line in git_in(github, "for-each-ref", "--format=%(refname:lstrip=2) %(objectname)", "refs/heads/saved/").splitlines())
-        self.assertEqual(sorted(saved), sorted(["saved/demo-j1/lane", "saved/demo-j1/other", f"saved/demo-j1/{loose_head[:10]}"]))
+        self.assertEqual(sorted(saved), sorted([f"saved/demo-j1/lane-{git_in(root, 'rev-parse', 'lane')[:10]}", f"saved/demo-j1/other-{tips['other'][:10]}", f"saved/demo-j1/{loose_head[:10]}"]))
         self.assertEqual(
             said,
             f"uncommitted changes in {root} (2 files), {loose} (1 file); commits on no remote on other, lane, saved to acme/repo under saved/demo-j1/;"
@@ -1344,7 +1359,8 @@ class SaveTest(unittest.TestCase):
         with mock.patch.object(orca_gc, "github_token", return_value="ghs_lent"), self.assertRaisesRegex(orca_gc.Unsaved, r"^the save on pool-abc failed: fatal: .*does not appear to be a git repository"):
             orca_gc.save("pool-abc", "demo-j1", SavingCcRemote(sprite, held, base / "gone.git"))
         kept = dict(line.split() for line in git_in(root, "for-each-ref", "--format=%(refname:lstrip=2) %(objectname)", "refs/heads/saved/").splitlines())
-        self.assertEqual((len(kept), kept["saved/demo-j1/other"], kept["saved/demo-j1/lane"]), (3, tips["other"], git_in(root, "rev-parse", "lane")))
+        lane_head = git_in(root, "rev-parse", "lane")
+        self.assertEqual((len(kept), kept[f"saved/demo-j1/other-{tips['other'][:10]}"], kept[f"saved/demo-j1/lane-{lane_head[:10]}"]), (3, tips["other"], lane_head))
         self.assertEqual(git_in(base / "github.git", "for-each-ref", "refs/heads/saved/"), "")
 
     def test_save_of_a_sprite_holding_nothing_or_unknown_runs_nothing_on_it_and_says_which(self):
@@ -1418,11 +1434,11 @@ EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 class LocalSprite(orca_gc.CcRemote):
     def __init__(self, root: Path):
         super().__init__(Path("/nonexistent"))
-        self.sprite = replace(SPRITE, root=str(root))
+        self.local = replace(SPRITE, root=str(root))
         self.destroyed: list[str] = []
 
-    def sprites(self) -> dict[tuple[str, str], orca_gc.Sprite]:
-        return {(SPRITE_WT, "term_sprite"): self.sprite}
+    def recorded(self) -> Iterator[tuple[dict, orca_gc.Sprite]]:
+        yield {"worktreeId": SPRITE_WT, "terminal": "term_sprite"}, self.local
 
     def ssh(self, sprite: orca_gc.Sprite, script: str, given: str | None = None) -> subprocess.CompletedProcess[str]:
         return subprocess.run(["sh", "-c", script], input=given, capture_output=True, text=True)
@@ -1453,7 +1469,7 @@ class SpriteReadTest(unittest.TestCase):
 
     def test_the_branch_cc_notes_keeps_its_records_on_holds_nothing_and_the_sprite_is_destroyed(self):
         _, cc_remote, _ = self.sprite()
-        self.assertEqual(cc_remote.checkout(cc_remote.sprite).off_origin, ())
+        self.assertEqual(cc_remote.checkout(cc_remote.sprite("pool-abc")).off_origin, ())
         self.assertIsNone(orca_gc.held("pool-abc", cc_remote))
         self.assertEqual((orca_gc.destroy("pool-abc", "demo-j1", cc_remote), cc_remote.destroyed), ("destroyed pool-abc", ["pool-abc"]))
 
@@ -1468,7 +1484,7 @@ class SpriteReadTest(unittest.TestCase):
         (root / "untracked.txt").write_text("untracked\n")
         git_in(root, "stash", "push", "--quiet", "--include-untracked", "-m", "lane")
         tips = tuple((name, git_in(root, "rev-parse", ref)) for name, ref in (("j2462-images", "j2462-images"), ("j2462-plumbing", "j2462-plumbing"), ("stash", "refs/stash")))
-        self.assertEqual(cc_remote.checkout(cc_remote.sprite).off_origin, tips)
+        self.assertEqual(cc_remote.checkout(cc_remote.sprite("pool-abc")).off_origin, tips)
         self.assertEqual(orca_gc.held("pool-abc", cc_remote), "commits on no remote on j2462-images, j2462-plumbing, stash")
 
 
