@@ -8279,7 +8279,7 @@ def test_an_incidents_stop_is_its_immediate_fix_and_lands_at_once_as_an_incident
 
 
 def test_a_pr_built_on_an_open_incidents_fix_is_an_incident_fix_with_no_tap_no_staging_test_and_no_merge_queue(
-    run: Run, demo: str, on_github: dict, monkeypatch: pytest.MonkeyPatch
+    home_repo: None, run: Run, demo: str, on_github: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(cli.reads, "run", recorded([]))
     run("incident", "open", "table moves rerun on every write", "--no-rollback", *FILED)

@@ -1001,17 +1001,18 @@ def release_told(watcher: Watcher, job_id: str, read: dict, moment: datetime) ->
         kept["jobs"][job_id]["release_heard"]["told"] = seq
 
     release_post(watcher.name, data, job_id, text, body, f"release-{link}-{read['state']}", release_told_write)
-    if read["state"] != "PASSED" and (incident := state.incident_place(data, [data["jobs"][job_id]["order"], *data["jobs"][job_id]["carries"]])):
-        release_stop_line(watcher.name, data, job_id, link, text.partition(f"{link} ")[2], record.get("name"), incident)
+    if read["state"] != "PASSED" and (incidents := state.open_incidents(data, [data["jobs"][job_id]["order"], *data["jobs"][job_id]["carries"]])):
+        release_stop_line(watcher.name, data, incidents[0], link, text.partition(f"{link} ")[2], record.get("name"))
 
 
-def release_stop_line(name: str, data: dict, job_id: str, link: str, how: str, release: str | None, where: tuple[str, str]) -> str:
-    """Post in an open incident's thread, the moment the watch reads it, that the release its job started stopped short of live: failed, canceled or waiting at an approve step, a fixed line with no writer between, by his ruling that any release that stops, cancels or waits on approval reaches the incident thread and the coordinator at once, not after he notices; the coordinator hears it by release_post. The permalink."""
+def release_stop_line(name: str, data: dict, order_id: str, link: str, how: str, release: str | None) -> str:
+    """Post in an open incident's thread, else where its page line goes, by page_place, the moment the watch reads it, that the release its job started stopped short of live: failed, canceled or waiting at an approve step, a fixed line with no writer between, by his ruling that any release that stops, cancels or waits on approval reaches the incident thread and the coordinator at once, not after he notices; the coordinator hears it by release_post. The permalink."""
     from drive import talk
 
-    order_id = next(iter(state.open_incidents(data, [data["jobs"][job_id]["order"], *data["jobs"][job_id]["carries"]])))
     words = f"🛑 The release [{release or 'of the fix'}]({link}) {how}, so the fix for {{order:{order_id}}} is not live yet. The coordinator has it now, and its next step lands here."
-    return talk.posted(name, {"text": words, "channel_id": where[0], "thread_ts": where[1]}, order_id)["permalink"]
+    where = state.incident_place(data, [order_id])
+    place = {"channel_id": where[0], "thread_ts": where[1]} if where and where[0] in slack.homes(data) else page_place(data, data["orders"][order_id])
+    return talk.posted(name, {"text": words} | place, order_id)["permalink"]
 
 
 def release_post(name: str, data: dict, job_id: str, text: str, body: str, record_id: str, kept: Callable[[dict, str], None] = lambda data, seq: None, topic: str = "release") -> str:

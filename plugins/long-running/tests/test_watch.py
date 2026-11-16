@@ -5327,6 +5327,7 @@ def test_an_open_incidents_release_stopped_at_its_approve_step_is_told_and_poste
     monkeypatch.setattr(watch, "release_post", lambda name, data, job_id, text, body, record_id, kept=None, topic="release": "731000")
     lines: list[dict] = []
     monkeypatch.setattr(talk, "posted", lambda name, post, order=None: lines.append(post) or {"permalink": "https://poetic-technology.slack.com/archives/C0INC/p1794800000000200"})
+    monkeypatch.setattr(slack, "homes", lambda data: {"C0INC"})
     with edit(demo) as data:
         data["orders"]["o1"] |= {"incident": True, "thread": ["C0INC", "1794800000.000100"]}
         data["jobs"]["j2"] = state.new_job("o1", "builder", "follow the release", [], state.stamp(T0)) | {"brief_flags": RELEASED, "release_build": TRIGGERED_BUILD}

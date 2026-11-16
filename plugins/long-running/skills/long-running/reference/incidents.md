@@ -254,7 +254,7 @@ check's verdict, or from the order when none ran.
   should skip the merge queue, just squash merge, then hotfix release". `drive pr add` classes a
   PR its job builds on an open incident's `fix`, `stop` or `immediate fix` as an `incident fix`.
   So does `drive pr set <url> --exempt "incident fix"` for any other PR that fixes the incident.
-  The class means no Approve card and no staging test before the merge: its test is the
+  The class lands it with no Approve card, and its staging test runs as the
   after-merge pass. The lander squash-merges it directly, with no merge queue, the merge the
   repository names under `## In this repository`. A dangerous change still lands only while he is
   present, his word or tap within 15 minutes. The `landing_guard` hook holds a merge to that
@@ -267,7 +267,7 @@ check's verdict, or from the order when none ran.
   makes that thread the incident's own.
 - Accept a reviewer-bot finding with the repository's accept command, its why reading
   `incident: <why the fix is right>`, unless it says the fix is wrong.
-- Nothing stands between the merged fix and its build: no dry run and no question. The job
+- The merged fix goes straight to its build, with no dry run or question. The job
   shipping the fix returns `WAITING release` naming the hotfix of its PR, and the top coordinator
   starts it with `drive job add --release`. The release's own approve hold is the one check, and
   every other read runs while it builds.
@@ -278,7 +278,7 @@ check's verdict, or from the order when none ran.
 - Every release a drive job starts, an incident's included, starts the regular way at the merged
   fix or the default branch's head a first check proved, a release start of its target from that commit, whose footers decide what ships with
   it, so it is not narrowed to leave out a partner they name. A hotfix of an open incident's PR is
-  the one narrowed start: it names with `--only` just the components its PR reaches that his words
+  the one narrowed start: it names with `--only` only the components its PR reaches that his words
   name. The job it started on does not cancel it, however wide its plan reads: a job that
   would decline it at approve returns with it held for the coordinator, and the `landing_guard`
   hook refuses a drive job's release cancel. A fix cherry-picked onto the live commit on a

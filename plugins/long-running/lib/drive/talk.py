@@ -122,7 +122,7 @@ Shape of a reply: {"text": "<the lead>", "place": "root", "blocks": [{"type": "s
 
 
 def report_line(name: str, seq: str) -> str:
-    """Post a `POST` report for him from the drive itself, from a process the watch starts, or a line the watch writes from its own rows, a milestone, an incident's end or a proved order's live line, from the watch's own pass, so no session posts it and no message of his waits behind one: one Sonnet call given REPORT_RULES, his rules for a post, where it goes and when a visual is owed, writes the post and decides its place, by his words "get rid of hard-coded stuff, give it the rules, and let it make the call", then each mechanical `cc-slack check-post` fix is made by fixes.mended and say posts it citing the report: in the thread the report names, at its channel's root, or as an edit of the post a correction corrects, in that post's own place; each order its close attr names then closes on it, once the post's record lands on its order. A report placed in a channel outside the drive's, where cc-slack posts only on the ticket a session's permission hook names, a link the report does not print, words check-post still faults and a report the model skips, as Skipped, post nothing, and the refusal goes back to its writer, by report_post, or to the watch's pass that called it."""
+    """Post a `POST` report for him from the drive itself, an open incident's report naming no thread in the incident's thread in a channel the drive keeps, by state.incident_place, by his words "Where did the approve tap get sent initially?", from a process the watch starts, or a line the watch writes from its own rows, a milestone, an incident's end or a proved order's live line, from the watch's own pass, so no session posts it and no message of his waits behind one: one Sonnet call given REPORT_RULES, his rules for a post, where it goes and when a visual is owed, writes the post and decides its place, by his words "get rid of hard-coded stuff, give it the rules, and let it make the call", then each mechanical `cc-slack check-post` fix is made by fixes.mended and say posts it citing the report: in the thread the report names, at its channel's root, or as an edit of the post a correction corrects, in that post's own place; each order its close attr names then closes on it, once the post's record lands on its order. A report placed in a channel outside the drive's, where cc-slack posts only on the ticket a session's permission hook names, a link the report does not print, words check-post still faults and a report the model skips, as Skipped, post nothing, and the refusal goes back to its writer, by report_post, or to the watch's pass that called it."""
     from drive import answer, fixes
 
     read = agents.answered(seq)
@@ -130,7 +130,10 @@ def report_line(name: str, seq: str) -> str:
     known = state.load(name)
     words = report_words(report).removeprefix("POST").strip()
     thread = attrs.get("thread") or read["thread"]
-    channel = attrs.get("channel") or (thread and (kept_in(known, thread) or outside(known, thread)))
+    incident = None if thread or attrs.get("order") not in known["orders"] else state.incident_place(known, [attrs["order"]])
+    incident = incident if incident and incident[0] in slack.homes(known) else None
+    thread = incident[1] if incident else thread
+    channel = attrs.get("channel") or (incident and incident[0]) or (thread and (kept_in(known, thread) or outside(known, thread)))
     if channel and channel not in slack.homes(known):
         raise DriveError(f"its post goes in {channel}, outside the drive's channels, where cc-slack posts only on the ticket a session's permission hook names")
     corrected = known["carried"].get(str(report.get("re") or "")) or "" if report["kind"] == "correction" else edited(channel, attrs.get("edit"), thread)
@@ -157,7 +160,7 @@ def report_line(name: str, seq: str) -> str:
             raise DriveError(f"it corrects report {report.get('re')}, which went out in no post")
         return spoken(name, shown | {"edit": corrected, "record": seq}, known)
     place = {"channel_id": channel} if channel else {}
-    if made.get("place") == "thread" and (under := (channel, thread) if thread else corrected and state.link_thread(corrected)):
+    if (made.get("place") == "thread" or incident) and (under :=(channel, thread) if thread else corrected and state.link_thread(corrected)):
         place = {"thread_ts": under[1]} | ({"channel_id": under[0]} if under[0] else {})
     owes = {key: attrs[key] for key in ("due", "owes") if attrs.get(key)}
     line = spoken(name, shown | {"record": seq} | place | owes, known, recorded_first=bool(state.closed_orders(attrs)))
