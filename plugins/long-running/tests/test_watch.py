@@ -12637,7 +12637,7 @@ def test_idle_relay_stages_materialize_no_drive(stage: str, project: str | None,
     monkeypatch.setattr(applet, "unannounced", lambda name, moment: [])
     monkeypatch.setattr(state, "load", lambda *args: pytest.fail("an idle relay stage materialized the drive"))
     monkeypatch.setattr(watch.dashboard, "link", lambda *args: pytest.fail("an idle relay stage resolved the dashboard"))
-    assert getattr(watch, stage)(watch.Watcher("absent", project=project), T0) == []
+    assert getattr(watch, stage)(watch.Watcher("absent", offset=0, project=project), T0) == []
 
 
 def test_a_relay_stage_that_raises_is_contained_so_post_lines_after_it_still_runs(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
