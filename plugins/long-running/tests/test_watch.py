@@ -1997,6 +1997,7 @@ def test_jobs_this_macs_load_holds_back_are_queued_with_a_place_and_a_job_needin
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "four builds")
     run("job", "add", "builder", "--order", "o1", "--goal", "first build")
     with state.edit(demo) as data:
+        data["prs"].pop(KEY)
         builders = [job_id for job_id, job in data["jobs"].items() if job["kind"] == "builder"]
         for goal in ("second build", "staging test", "sprite build", "queued sprite build"):
             builders.append(job_id := state.next_id(data["jobs"], "j"))
@@ -2005,7 +2006,7 @@ def test_jobs_this_macs_load_holds_back_are_queued_with_a_place_and_a_job_needin
         for index, job_id in enumerate(builders):
             brief = tmp_path / f"{job_id}.md"
             brief.write_text(f"Goal: build\nMac: drive job prove {job_id}\n" if index < 3 else "Goal: build\n")
-            data["jobs"][job_id].update(brief=str(brief), waits=[], state="waiting", said=state.NOT_STARTED, agent=None, where="local", launching=None, dispatch=None)
+            data["jobs"][job_id].update(brief=str(brief), waits=[], state="waiting", said=state.NOT_STARTED, agent=None, where="local", launching=None, dispatch=None, prs=[])
     started: list[tuple[str, str]] = []
     monkeypatch.setattr(watch, "start_verb", lambda watcher, job_id, args, moment: started.append((job_id, args[1])) or 1)
     monkeypatch.setattr(place, "crowded", lambda data, job_id, moment: None if job_id == builders[2] else "this Mac's 1-minute load is 49")

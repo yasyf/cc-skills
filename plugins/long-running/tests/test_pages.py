@@ -574,7 +574,7 @@ def test_an_order_marked_priority_gets_its_applet_page(run: Run, ordered: str, m
 def test_a_composed_layout_keeps_only_the_keys_its_slice_holds_and_composes_again_only_when_its_work_changes(monkeypatch: pytest.MonkeyPatch, state_root: Path) -> None:
     from drive import applet, served
 
-    told = {"orders": [{"key": "o1"}], "prs": [{"key": "a/b#1", "waits_on_him": True}], "questions": [{"key": "https://x.slack.com/archives/D1/p1"}], "moments": []}
+    told = {"orders": [{"key": "o1", "state": "running"}], "prs": [{"key": "a/b#1", "waits_on_him": True}], "questions": [{"key": "https://x.slack.com/archives/D1/p1"}], "moments": []}
     block = applet.SCHEMA["properties"]["blocks"]["items"]["required"]
     drawn = {field: [] for field in block} | {"kind": "approve", "title": "Land it", "text": "", "tone": "plain", "before": "", "after": "", "diagram": "", "prs": ["a/b#1", "a/b#9"], "orders": ["o1", "o7"], "steps": [{"label": "Ship", "orders": ["o1", "o8"]}]}
     monkeypatch.setattr(served, "structured", lambda *args: {"headline": "h", "summary": "s", "blocks": [drawn]})

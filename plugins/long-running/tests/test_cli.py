@@ -9072,7 +9072,8 @@ def test_pr_tapped_json(run: Run, with_pr: str) -> None:
 
 
 def test_a_red_pr_whose_builder_waits_on_an_unended_job_reads_blocked_on_it_and_wakes_no_one_until_that_job_ends(run: Run, with_pr: str) -> None:
-    run("job", "add", "builder", "--order", "o1", "--goal", "name the new bases", "--part", "the bases")
+    assert run("order", "set", "o1", "--add-part", "the bases")[0] == 0
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "name the new bases", "--part", "the bases")[0] == 0
     with state.edit("demo") as data:
         data["prs"][with_pr].update(checks="fail", head="c792ecebf2aa", failed_checks=["buildkite/test"])
         step = stage.owed(data, with_pr)
