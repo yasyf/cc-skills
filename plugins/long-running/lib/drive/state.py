@@ -5067,7 +5067,7 @@ def read_updated[T](name: str, change: Callable[[dict], T]) -> T:
         if tried >= UPDATE_TRIES:
             if not WAITS_OUT_LOCK.get() and time.monotonic() - asked >= DRIVE_LOCK_SECONDS:
                 break
-            time.sleep(random.uniform(0, min(1.0, 0.01 * 2 ** (tried - UPDATE_TRIES))))
+            time.sleep(random.uniform(0, 0.01 * 2 ** min(tried - UPDATE_TRIES, 7)))
         with editing(name) as taken:
             loaded = load(name)
             since, base, reads = LOADED_REV.get(), marshal.dumps(loaded), Reads()
