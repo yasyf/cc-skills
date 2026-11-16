@@ -4944,6 +4944,20 @@ def test_a_release_build_stopped_at_its_approve_step_is_told_once_it_has_stood_t
     assert (told, state.load(demo)["jobs"]["j2"]["release_heard"]["since"]) == ([("j2", "BLOCKED")], state.stamp(T0))
 
 
+def test_730544_a_release_job_whose_waits_moved_on_from_its_release_build_is_never_told_of_that_build_and_one_still_waiting_on_it_is(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = buildkite_reads(monkeypatch, {"forge/release/17468": {**BUILD_RUNNING, "state": "PASSED"}, "forge/release/17469": {**BUILD_RUNNING, "state": "PASSED"}})
+    told: list[tuple[str, str]] = []
+    monkeypatch.setattr(watch, "release_told", lambda watcher, job_id, read, moment: told.append((job_id, read["state"])))
+    staging = "staging:llm-gateway/plat-usw2-staging@950c935749448e741572047cc4feb173863255ab"
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"] += ["j2", "j3"]
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "follow the release", [], state.stamp(T0)) | {"brief_flags": RELEASED, "release_build": LAUNCH_BUILD, "waits": [staging]}
+        data["jobs"]["j3"] = state.new_job("o1", "builder", "follow the release", [], state.stamp(T0)) | {"brief_flags": RELEASED, "release_build": TRIGGERED_BUILD, "waits": [TRIGGERED_BUILD, staging]}
+    watching = watcher(demo)
+    assert (watch.build_lines(watching, T0), watch.release_end_lines(watching, T0)) == ([], [])
+    assert (told, calls, state.load(demo)["jobs"]["j2"]["release_heard"]) == ([("j3", "PASSED")], [["forge/release/17469"]], None)
+
+
 def test_a_buildkite_build_wait_is_read_once_as_first_held_then_only_on_a_delivery_naming_it_holding_while_it_runs_and_freeing_at_its_approve_step(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
