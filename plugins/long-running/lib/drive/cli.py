@@ -1731,6 +1731,9 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         raise DriveError("--model names the codex-ask model a codex job runs; any other job's model is its Agent call's")
     if args.release and args.waits:
         raise DriveError("--release starts its release as the job is added, so it waits on nothing: add the job once what it waits on has landed")
+    if args.checkout and not args.release:
+        raise DriveError("--checkout names where the release --release starts runs from, so it needs --release")
+    checkout = str(release_checkout(name, args.release, Path(args.checkout))) if args.checkout else None
     if args.reading and not (args.release and state.top_coordinator(state.load(name), os.environ.get("CLAUDE_CODE_SESSION_ID"))):
         raise DriveError("--reading is the top coordinator's own reading of his words ordering the release --release starts, taken only from its session")
     refuse_a_mark_off_a_builder(args.kind, args.builds_nothing)
@@ -1802,6 +1805,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         slotted = ""
         if args.release:
             job["brief_flags"] = (job.get("brief_flags") or {}) | {"release": args.release}
+            job["release_checkout"] = checkout
             job["release_pass"] = {"release": args.release, "at": created, "reading": args.reading}
             if (env := brief.leased_env(words := shlex.split(args.release), data)) and not (providers.of(data).release.gives_way(words) and (data["slots"].get(env) or {}).get("holder")):
                 slotted = state.slot_claim(data, env, job_id, CUT_LEASE_MINUTES, [], None, state.parse_time(created), starts=True)
@@ -1865,7 +1869,8 @@ def job_release(args: argparse.Namespace) -> int:
     command = state.load(name)["jobs"][args.id]["brief_flags"]["release"]
     [words] = simple_commands(command)
     manual = "manual" in providers.of(state.load(name)).release.start(words)
-    cwd = release_checkout(name, command, Path(args.checkout)) if args.checkout else None
+    kept = args.checkout or state.load(name)["jobs"][args.id].get("release_checkout")
+    cwd = release_checkout(name, command, Path(kept)) if kept else None
     answer, failure = release_start(name, words, manual, args.session, cwd)
     if failure and GITHUB_5XX.search(failure):
         print(f"{args.id}: its release did not start, failing on GitHub: {failure}; starting it once more in {RELEASE_RETRY_SECONDS} s", file=sys.stderr, flush=True)
@@ -8250,6 +8255,10 @@ def parser() -> argparse.ArgumentParser:
             " from the top's checkout, then the job's brief names the command and its build, and its agent follows it and reads its approve hold;"
             " outside his hold, the top coordinator's --reading starts it with no --order and whatever Opus reads"
         ),
+    )
+    verb.add_argument(
+        "--checkout",
+        help="with --release, the checkout its start runs from instead of the drive's, kept on the job so the watch's slot start uses it too: for a staging or sandbox start whose target exists only at the commit it ships; refused, at add and again at launch, unless every place it names is staging or sandbox and the checkout's HEAD is that commit",
     )
     verb.add_argument(
         "--reading",
