@@ -273,7 +273,10 @@ model. Local Claude keeps the machine's existing interactive authentication and
 task-scoped bypass behavior. It starts stripped under the `env`, `settings`
 and `deniedTools` of this plugin's `lib/lane.json`, with no auto-update,
 native `~/.claude` watcher, animation, telemetry or status line, and no tool
-that parks on a human. A Sprite Claude lane gets the same `env` as one of
+that parks on a human. A Bash result over 6,000 characters comes back as its
+first 2 KB and the path of the whole, and the `default` output style overrides
+a repository's own, such as `Concise`, whose reminder rides along on about
+half of a lane's model calls. A Sprite Claude lane gets the same `env` as one of
 prepare's `--env` flags per variable, and the same `settings` with the
 `deniedTools` as `permissions.deny` in prepare's one `--settings`, which needs
 cc-remote 0.27.41 or later. Change
