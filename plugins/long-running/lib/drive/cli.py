@@ -5265,7 +5265,7 @@ def job_end(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     state.adopt_reserved(name, ("jobs", args.id, "end"), args.reserved)
     with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
-        line, ended = end_lane(name, args.id)
+        line, ended = end_lane(name, args.id, args.reserved)
     return emit(args, line, ended)
 
 
@@ -5278,8 +5278,8 @@ def stopped_lane(name: str, job_id: str) -> list[str]:
         return [end_lane(name, job_id)[0]]
 
 
-def end_lane(name: str, job_id: str) -> tuple[str, dict]:
-    """drive job end's work under the job's lock its caller holds: the line it prints and what it ended."""
+def end_lane(name: str, job_id: str, token: str | None = None) -> tuple[str, dict]:
+    """drive job end's work under the job's lock its caller holds: the line it prints and what it ended. An end the watch started with --reserved token ends without working once the job's end no longer holds that token, and its later writes change nothing, by state.fenced."""
     data = state.load(name)
     job = find(data["jobs"], job_id, "job")
     if not job.get("dispatch"):
@@ -5291,6 +5291,8 @@ def end_lane(name: str, job_id: str) -> tuple[str, dict]:
         )
     root = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
     def ending(data: dict) -> tuple[dict, bool, bool | None]:
+        if state.fenced(data, ("jobs", job_id, "end"), token):
+            raise SystemExit(f"jobs.{job_id}.end no longer holds reservation {token} for this process, so it ends without working")
         ended = data["jobs"][job_id]
         if already := state.lane_ended(ended):
             return ended, already, None
@@ -5311,7 +5313,7 @@ def end_lane(name: str, job_id: str) -> tuple[str, dict]:
             if job["queued"]:
                 hold_unread(name, job_id, job)
         except orca.OrcaError as error:
-            end_kept(name, job_id, {"failed": True, "fresh": fresh, "saved": None})
+            end_kept(name, job_id, {"failed": True, "fresh": fresh, "saved": None}, token)
             raise DriveError(
                 f"{job_id}: refused, nothing ended: it is {job['state']}, and what {job['workspace']} holds on no remote, or the texts its worker has not read,"
                 f" could not be saved for its next lane: {error}. End it again once that Sprite answers"
@@ -5322,7 +5324,7 @@ def end_lane(name: str, job_id: str) -> tuple[str, dict]:
         orca.keep_sprite(job["workspace"])
     reclaimed = orca.reclaim(job["run"], job["dispatch"], root)
     released = f"Sprite {job['workspace']} is kept, to pause once idle, for the next lane of {job_id}, which resumes its Claude session there" if kept else release_sprite(name, job_id, job, root)
-    ended = end_kept(name, job_id, {"failed": False, "fresh": fresh, "saved": saved, "transcript": transcript and str(transcript), "kept": kept})
+    ended = end_kept(name, job_id, {"failed": False, "fresh": fresh, "saved": saved, "transcript": transcript and str(transcript), "kept": kept}, token)
     evicted = evict_kept(name, job_id, root) if kept else []
     branches = orca.saved(name, job_id, job, root) if saved else []
     line = f"{job_id}'s lane ended; {job_id} stays {ended['state']}" + (f", and what its Sprite held on no remote is saved on GitHub as {', '.join(branches)}" if branches else f", and {saved}" if saved else "")
@@ -5386,10 +5388,12 @@ def evict_kept(name: str, job_id: str, root: Path) -> list[str]:
     return lines
 
 
-def end_kept(name: str, job_id: str, result: dict) -> dict:
-    """Keep on the job what its lane's end came to once it saved, reclaimed and released: the branches saved and its kept transcript, its open question kept for the next worker's handoff to answer, the job left unstamped, since the end of a lane at rest changes nothing it does and so says none of its parts again, or, when the save failed, the end mark taken back, so the lane reads as it did."""
+def end_kept(name: str, job_id: str, result: dict, token: str | None) -> dict:
+    """Keep on the job what its lane's end came to once it saved, reclaimed and released: the branches saved and its kept transcript, its open question kept for the next worker's handoff to answer, the job left unstamped, since the end of a lane at rest changes nothing it does and so says none of its parts again, or, when the save failed, the end mark taken back, so the lane reads as it did; nothing once the job's end no longer holds the token of the end the watch started, by state.fenced."""
     def end_kept_write(data: dict):
         ended = data["jobs"][job_id]
+        if state.fenced(data, ("jobs", job_id, "end"), token):
+            return ended
         death = state.lane_death(ended, "dispatch")
         if result["failed"]:
             if result["fresh"]:
@@ -5413,11 +5417,12 @@ class Kept(DriveError):
     """A Sprite drive job reclaim could not destroy without losing what it may hold on no remote, marked kept on the death of the lane that left it, so no watch asks for it again and one state.detach started writes the one relaunch_refused event that says so."""
 
 
-def last_reclaim(name: str, job_id: str, job: dict, lane: str, root: Path, death: dict) -> str | None:
-    """What the second failed reclaim of a lane's Sprite came to: one checkpoint-restore, by orca.revive, and the save-and-destroy again, since a restored Sprite usually answers; then, while it still does not, a destroy unread only once GitHub holds every branch the job records and its report names no unpushed commit; None, keeping it, otherwise."""
+def last_reclaim(name: str, job_id: str, job: dict, lane: str, root: Path, death: dict, member: tuple[str, ...], token: str | None) -> str | None:
+    """What the second failed reclaim of a lane's Sprite came to: one checkpoint-restore, by orca.revive, and the save-and-destroy again, since a restored Sprite usually answers; then, while it still does not, a destroy unread only once GitHub holds every branch the job records and its report names no unpushed commit; None, keeping it, otherwise. Its mark of the restore changes nothing once member no longer holds the reclaim's token, by state.fenced."""
     if not death.get("reclaim_restored"):
         def restored(data: dict) -> None:
-            state.death_on(data["jobs"][job_id], lane)["reclaim_restored"] = state.stamp()
+            if not state.fenced(data, member, token):
+                state.death_on(data["jobs"][job_id], lane)["reclaim_restored"] = state.stamp()
 
         state.write(name, restored)
         with contextlib.suppress(orca.OrcaError):
@@ -5433,11 +5438,12 @@ def last_reclaim(name: str, job_id: str, job: dict, lane: str, root: Path, death
 
 
 def job_reclaim(args: argparse.Namespace) -> int:
-    """Free one thing an earlier or ended lane of the job left, which the watch's release_lanes starts as a process of its own: on a Sprite, the one cc-remote records under that workspace, destroyed by orca.release once what it holds on no remote is saved to GitHub as saved/<the job's lane>/<branch>, or else marked kept on that lane's death and by orca.keep_sprite, and refused with Kept, since a Sprite that does not answer, a superseded attempt's included, or any Sprite that holds what could not be saved or that cc-remote would not destroy, may still hold work on no remote, so the watch asks for it again in an hour; on this Mac, that dispatch, whose terminal orca.reclaim closes and whose worktree it removes once clean and pushed, then marked freed on its death, so no watch reclaims it again. Either runs the orca plugin's reclaimer from the drive's checkout, moved to its default branch's head first, through orca.reclaimer, which kills it with every process it started past RECLAIM_SECONDS; refused, naming why, for a lane no death of the job records, when the checkout is not moved, or when the reclaimer fails or overruns."""
+    """Free one thing an earlier or ended lane of the job left, which the watch's release_lanes starts as a process of its own: on a Sprite, the one cc-remote records under that workspace, destroyed by orca.release once what it holds on no remote is saved to GitHub as saved/<the job's lane>/<branch>, or else marked kept on that lane's death and by orca.keep_sprite, and refused with Kept, since a Sprite that does not answer, a superseded attempt's included, or any Sprite that holds what could not be saved or that cc-remote would not destroy, may still hold work on no remote, so the watch asks for it again in an hour; on this Mac, that dispatch, whose terminal orca.reclaim closes and whose worktree it removes once clean and pushed, then marked freed on its death, so no watch reclaims it again. Either runs the orca plugin's reclaimer from the drive's checkout, moved to its default branch's head first, through orca.reclaimer, which kills it with every process it started past RECLAIM_SECONDS; refused, naming why, for a lane no death of the job records, when the checkout is not moved, or when the reclaimer fails or overruns. A run the watch started with --reserved writes nothing to the drive once that death's reclaim no longer holds its token, by state.fenced."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
-    state.adopt_reserved(name, state.death_member(args.id, job, "reclaim", args.reserved), args.reserved)
+    member = state.death_member(args.id, job, "reclaim", args.reserved)
+    state.adopt_reserved(name, member, args.reserved)
     if not state.death_on(job, args.lane):
         raise DriveError(f"{args.id}: refused, nothing reclaimed: no death of its lanes records {args.lane}, so no lane of it left that")
     root = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
@@ -5447,12 +5453,12 @@ def job_reclaim(args: argparse.Namespace) -> int:
         except orca.OrcaError as error:
             death = state.death_on(job, args.lane)
             fails = death.get("reclaim_fails", 1 if death.get("kept") else 0) + 1
-            if fails >= 2 and (released := last_reclaim(name, args.id, job, args.lane, root, death)):
+            if fails >= 2 and (released := last_reclaim(name, args.id, job, args.lane, root, death, member, args.reserved)):
                 return emit(args, released, {"id": args.id, "lane": args.lane, "released": released})
             orca.keep_sprite(args.lane)
             def job_reclaim_write2(data: dict):
-                kept = state.death_on(data["jobs"][args.id], args.lane)
-                kept.update(kept=state.stamp(), reclaim_fails=fails)
+                if not state.fenced(data, member, args.reserved):
+                    state.death_on(data["jobs"][args.id], args.lane).update(kept=state.stamp(), reclaim_fails=fails)
                 return data
 
             data = state.write(name, job_reclaim_write2)
@@ -5463,7 +5469,8 @@ def job_reclaim(args: argparse.Namespace) -> int:
         return emit(args, released, {"id": args.id, "lane": args.lane, "released": released})
     reclaimed = orca.reclaim(job["run"], args.lane, root)
     def job_reclaim_write(data: dict):
-        state.death_on(data["jobs"][args.id], args.lane)["freed"] = state.stamp()
+        if not state.fenced(data, member, args.reserved):
+            state.death_on(data["jobs"][args.id], args.lane)["freed"] = state.stamp()
 
     state.write(name, job_reclaim_write, patient=True)
     return emit(args, reclaimed, {"id": args.id, "lane": args.lane, "reclaimed": reclaimed})

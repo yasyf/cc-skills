@@ -5686,19 +5686,67 @@ def test_a_restarted_watch_asks_for_a_left_sprite_again_only_once_the_reclaim_an
     (workspaces / "pool-silent.json").write_text("{}")
     monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
     started: list[datetime] = []
-    pids = iter([os.getpid(), ENDED_READER, ENDED_READER])
+    first = subprocess.Popen(["sleep", "600"], start_new_session=True)
+    pids = iter([first.pid, ENDED_READER, ENDED_READER])
     asked = T0
     monkeypatch.setattr(state, "detach", lambda name, args, log: started.append(asked) or adopted_as(name, args, next(pids)))
     monkeypatch.setattr(state, "scratch", lambda: False)
     with edit(remote) as data:
         data["jobs"]["j1"].update(state="done", deaths=[{"dispatch": "ctx_old", "workspace": "pool-silent", "why": "its worker exited", "at": state.stamp(T0)}])
-    for minutes in (0, 1, 6, 29, 30, 31, 34, 35):
-        asked = T0 + timedelta(minutes=minutes)
-        watch.release_lanes(watch.Watcher(remote, offset=state.events_end(remote)), asked)
-    assert started == [T0, T0 + timedelta(minutes=30), T0 + timedelta(minutes=35)]
+    try:
+        for minutes in (0, 1, 6, 29, 30, 45, 46, 47, 50, 51):
+            asked = T0 + timedelta(minutes=minutes)
+            if minutes == 46:
+                first.terminate()
+                first.wait()
+            watch.release_lanes(watch.Watcher(remote, offset=state.events_end(remote)), asked)
+    finally:
+        first.kill()
+        first.wait()
+    assert started == [T0, T0 + timedelta(minutes=46), T0 + timedelta(minutes=51)]
     reclaim = state.load(remote)["jobs"]["j1"]["deaths"][0]["reclaim"]
-    assert {field: reclaim[field] for field in ("child", "state", "at")} == {"child": state.born(ENDED_READER), "state": "adopted", "at": state.stamp(T0 + timedelta(minutes=35))}
+    assert {field: reclaim[field] for field in ("child", "state", "at")} == {"child": state.born(ENDED_READER), "state": "adopted", "at": state.stamp(T0 + timedelta(minutes=51))}
     assert ended_lanes == []
+
+
+def test_an_end_whose_reservation_was_taken_after_it_adopted_it_ends_without_working_and_records_no_end(run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cloned(tmp_path, remote)
+    with edit(remote) as data:
+        data["jobs"]["j1"].update(state="waiting", workspace="pool-one")
+        held = state.reserve(data, (("jobs", "j1", "end"),))
+    checkout = orca.checkout
+
+    def taken(drive: str, clone: str) -> Path:
+        with edit(remote) as data:
+            data["jobs"]["j1"]["end"] |= {"token": "another"}
+        return checkout(drive, clone)
+
+    monkeypatch.setattr(orca, "checkout", taken)
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: pytest.fail("an end that lost its reservation frees no lane"))
+    with pytest.raises(SystemExit, match=f"jobs.j1.end no longer holds reservation {held.token}"):
+        run("job", "end", "j1", "--reserved", held.token)
+    job = state.load(remote)["jobs"]["j1"]
+    assert ({field: job["end"][field] for field in ("token", "state")}, state.lane_ended(job)) == ({"token": "another", "state": "adopted"}, False)
+
+
+def test_a_reclaim_whose_death_no_longer_holds_its_token_frees_its_lane_but_writes_nothing_to_the_drive(run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cloned(tmp_path, remote)
+    quiet = state.stamp(T0 - watch.QUIET_LANE)
+    with edit(remote) as data:
+        data["jobs"]["j1"].update(state="done", **state.local_lane("ctx_mac"), run="run_mac", updated=quiet)
+    tokens: list[str] = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: tokens.append(args[args.index("--reserved") + 1]) or os.getpid())
+    monkeypatch.setattr(state, "scratch", lambda: False)
+    watch.release_lanes(watch.Watcher(remote, offset=state.events_end(remote)), T0)
+
+    def taken(run_id: str, dispatch: str, root: Path) -> str:
+        with edit(remote) as data:
+            state.death_on(data["jobs"]["j1"], "ctx_mac")["reclaim"] |= {"token": "another"}
+        return f"closed {dispatch} of {run_id}"
+
+    monkeypatch.setattr(orca, "reclaim", taken)
+    assert run("job", "reclaim", "j1", "ctx_mac", "--reserved", tokens[0]) == (0, "closed ctx_mac of run_mac")
+    assert "freed" not in state.death_on(state.load(remote)["jobs"]["j1"], "ctx_mac")
 
 
 def test_mac_box_sweep_reads_no_drive_state_before_its_next_sweep(monkeypatch: pytest.MonkeyPatch) -> None:

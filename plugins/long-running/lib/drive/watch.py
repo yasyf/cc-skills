@@ -4847,20 +4847,18 @@ def release_lanes(watcher: Watcher, moment: datetime) -> list[str]:
         ends, reclaims = {}, {}
         for job_id in ending:
             job = data["jobs"][job_id]
-            if not in_flight(job.get("end"), moment):
-                job["end"] = None
-                ends[job_id] = state.reserve(data, (("jobs", job_id, "end"),))
+            if not in_flight(job.get("end"), moment) and (held := state.reserve(data, (("jobs", job_id, "end"),))):
                 job["end"] |= {"at": at}
+                ends[job_id] = held
         for job_id, lane in reclaiming:
             job = data["jobs"][job_id]
             if in_flight((state.death_on(job, lane) or {}).get("reclaim"), moment):
                 continue
             if state.on_mac(job) and lane == job.get("dispatch"):
                 state.lane_died(job, lane, RECLAIMED, moment)
-            death = state.death_on(job, lane)
-            death["reclaim"] = None
-            reclaims[job_id, lane] = state.reserve(data, (state.death_row(job_id, death, "reclaim"),))
-            death["reclaim"] |= {"at": at}
+            if held := state.reserve(data, (state.death_row(job_id, state.death_on(job, lane), "reclaim"),)):
+                state.death_on(job, lane)["reclaim"] |= {"at": at}
+                reclaims[job_id, lane] = held
         return ends, reclaims
 
     ends, reclaims = state.write(watcher.name, claim_lanes, budget=state.WATCH_WRITE_SECONDS)
@@ -4969,12 +4967,12 @@ def pool_claims(drive: str) -> dict[str, tuple[str, str, datetime]]:
 
 
 def in_flight(started: dict | None, moment: datetime) -> bool:
-    """Whether a drive verb the watch started to free a lane, by the reservation or the pid and time kept on its job, still runs or started within RECLAIM, so the watch asks for that lane again only once that process is gone and RECLAIM_SECONDS, past which orca.reclaimer kills a reclaimer, have passed since it started; a process alive past the time a relaunch takes is another that took its pid; a reservation its starter cancelled, or whose starter died before a child adopted it, ran nothing, so the watch asks again at once."""
+    """Whether a drive verb the watch started to free a lane, by the reservation or the pid and time kept on its job, still runs or started within RECLAIM, so the watch asks for that lane again only once that process is gone and RECLAIM_SECONDS, past which orca.reclaimer kills a reclaimer, have passed since it started. A reservation holds while state.holder names its process, by pid and start, however long it runs, so no window hands the lane to a second verb while the child that adopted it still works; only one whose child never adopted it within ADOPT_SECONDS, whose starter cancelled it or died first, or whose child ended frees it, and one no child adopted ran nothing, so the watch asks again at once. A pid and time an install before reservations kept reads a process alive past the time a relaunch takes as another that took its pid."""
     if not started:
         return False
     age = moment - state.parse_time(started["at"])
     if "state" in started:
-        return state.holder(started) is not None and age < RELAUNCH or started["state"] == "adopted" and age < RECLAIM
+        return state.holder(started) is not None or started["state"] == "adopted" and age < RECLAIM
     return age < RECLAIM or state.alive(started["pid"]) and age < RELAUNCH
 
 

@@ -5586,6 +5586,11 @@ def adopt(name: str, member: Row, token: str) -> bool:
     return write(name, took, budget=ADOPT_SECONDS)
 
 
+def fenced(data: dict, member: Row, token: str | None) -> bool:
+    """Whether a child a launch started with --reserved token lost the reservation it adopted, member's field holding another value now, as a launch that read the child as gone leaves it, so each write that child makes after its adopt changes nothing; never for a run started with no token."""
+    return token is not None and not reserved(data, [member], token)
+
+
 def adopt_reserved(name: str, member: Row, token: str | None) -> None:
     """The contract of a child a launch started with --reserved <token>, called first: adopt the reservation member holds, by adopt, before any work outside the drive, and end by SystemExit, having done nothing, once it is gone, cancelled or another child's; a child started with no --reserved adopts nothing."""
     if token is not None and not adopt(name, member, token):
