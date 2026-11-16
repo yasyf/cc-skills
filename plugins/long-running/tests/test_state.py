@@ -3056,6 +3056,7 @@ def test_while_a_slot_hold_stands_only_a_tester_whose_pr_has_his_approve_is_queu
 def test_the_mac_queue_puts_a_priority_orders_waiting_job_first(state_root: Path) -> None:
     make("demo")
     with state.edit("demo") as data:
+        data["orders"]["o1"] = state.new_order("test on a Mac", "terminal", None, {}, state.stamp())
         data["orders"]["o2"] = data["orders"]["o1"] | {"priority": True}
         data["jobs"] |= {job_id: state.new_job(order, "builder", "test on a Mac", [], state.stamp()) | {"state": "waiting", "waits": waits} for job_id, order, waits in (("j1", "o1", ["mac-box:any"]), ("j2", "o2", ["mac-box:any"]), ("j3", "o1", ["staging:api/plat-usw2-staging@abc"]))}
     assert state.mac_queue(state.load("demo")) == ["j2", "j1"]

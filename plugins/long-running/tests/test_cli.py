@@ -7284,7 +7284,7 @@ def test_a_sprite_lanes_waiting_holds_on_its_own_open_card_or_a_kept_pr_the_driv
     with state.edit("demo") as data:
         data["jobs"]["j1"].update(where="remote", dispatch="ctx_lane0001")
     code, err = keep(monkeypatch, capsys, "j1", "WAITING his answer\n")
-    assert (code, "its WAITING names nothing the watch frees it on" in err, "pid:<n>" in err, "drive job set" in err) == (2, True, False, False)
+    assert (code, "its WAITING names nothing the watch frees it on" in err, "a process you started on this Mac" in err, "drive job set" in err) == (2, True, False, False)
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(None, "Keep the teammate's PR?", state.stamp(state.now()), card=CARDED))
     assert keep(monkeypatch, capsys, "j1", "WAITING his answer\n") == (0, "")
@@ -9561,7 +9561,8 @@ def test_a_staging_slot_wait_holds_until_the_job_rides_or_holds_a_staging_cut(ru
 def test_every_waiting_form_a_drive_verb_writes_is_one_drive_job_report_takes_and_the_watch_frees(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, line: str, free: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "prove the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "prove the fix", "--builds-nothing")
-    monkeypatch.setattr(providers.MacBoxProvider, "runs", lambda self, box, pid: free != "exited")
+    exited: list[str] = []
+    monkeypatch.setattr(providers.MacBoxProvider, "runs", lambda self, box, pid: not exited)
     data = state.load(demo)
     wait = next(wait for wait in state.named_waits(data, "o1", line) if wait.split(":")[0].split("@")[0] in ("his-word", "mac-box", "staging-slot", "pid"))
     assert state.wakes(data, "j1", state.now(), line) is True
@@ -9575,6 +9576,8 @@ def test_every_waiting_form_a_drive_verb_writes_is_one_drive_job_report_takes_an
             wait = data["jobs"]["j1"]["waits"][0]
         elif free == "seated":
             data["slots"]["plat-usw2-staging"] = {"holder": {"job": "j9", "riders": [{"job": "j1"}]}, "queue": [], "hold": None}
+        elif free == "exited":
+            exited.append(wait)
     assert view.holds(state.load(demo), wait, None) is False
 
 

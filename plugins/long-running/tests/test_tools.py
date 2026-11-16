@@ -230,6 +230,9 @@ def test_a_pr_call_saves_the_drive_once_runs_each_read_its_check_ran_once_and_pr
     prs = [f"https://github.com/Forge-AI/monorepo/pull/{number}" for number in (7, 8)]
     for pr in prs:
         run("pr", "add", pr, "--job", "j1", *LEAD)
+    with state.edit(demo) as data:
+        for pr in data["prs"].values():
+            pr["updated"] = "2026-01-01T00:00:00+00:00"
     ran: list[list[str]] = []
     saves: list[str] = []
     prior, commit = subprocess.run, state.rows_saved
