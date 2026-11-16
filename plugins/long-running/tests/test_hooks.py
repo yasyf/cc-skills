@@ -20,7 +20,7 @@ import role_rules
 import scratch_folder
 import session_start
 from conftest import QUEUE_REASON, EnvsRelease, HomeRepo, provide, ACME_CUT, ANSWERED_CUT, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess, own_time, unreserved, edit
-from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, slack, state, watch
+from drive import agents, brief, cli, github, land, limits, orca, place, providers, render, settled, slack, state, watch
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -2914,6 +2914,7 @@ def test_guard_judges_a_merge_queue_landing_naming_its_pr_by_branch_as_it_judges
 ) -> None:
     viewed = landing_guard.run
     monkeypatch.setattr(landing_guard, "run", lambda args, cwd: state.pr_url(drive_pr) if args[:3] == ["gh", "pr", "view"] else viewed(args, cwd))
+    monkeypatch.setattr(providers, "default_head", lambda clone: "0" * 40)
     assert landing_guard.deny_reason(bash("stack-enqueue fix-the-clock")).startswith(f"{drive_pr}: no tap from him yet")
 
 
