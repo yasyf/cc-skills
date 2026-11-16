@@ -5294,6 +5294,9 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, order_id: str,
                 f"{job_id} {job['kind']} not started, waiting its turn for a slot {minutes(now - state.parse_time(data['jobs'][read]['updated']))} minutes after its reader {read} finished:"
                 f" if his words want it soon, drive order set {order_id} --part \"{part}\" --urgent starts it past the caps; if they already settle the design, start its builder on them and put only the open fork on his card"
             )
+        if not job.get("brief"):
+            refused = f", which refused: {job['brief_error']}" if job.get("brief_error") else ""
+            return NotStarted(f"{job_id} has no brief {minutes(now - state.parse_time(job['created']))} minutes after drive job add, so nothing starts it: `drive job brief {job_id}`{refused}, then `drive job launch {job_id}`")
         return NotStarted(f"{job_id} not started {minutes(now - state.parse_time(job['created']))} minutes after drive job add{brief_first(job)}")
     if moment - state.parse_time(job["updated"]) < HANDOFF:
         return SETTLING
@@ -5777,7 +5780,7 @@ def standing_gap(jobs: list[tuple[str, dict]], gaps: dict[str, str | None], chec
 def standing_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Start the next pass of each standing part its Restart gap names, as finished adds provers: a codex job on this Mac on the part's standing goal, its brief the last pass's flags with a handoff quoting that pass's return and PASS_DONE as its Done when, holding the texts and owing the answers that pass held, by added_pass, launched by drive job launch as its own process, the one start of a pass, since launch and resume refuse a pass that ended, its output in the drive's relaunches log; one STANDING line each, naming why the last pass ended. A launch that refuses leaves the job not started, which its part's ORPHAN line says. A part kept on a check its Recheck gap names runs that check instead, detached by drive order check, its output in the drive's standing-checks log, with no job, no model session and no line, since the check files what it finds and a run that fails is said by its ORPHAN line."""
     data = state.load(watcher.name)
-    if not any(isinstance(gap, Restart) for gap in part_gaps(watcher, data, moment).values()):
+    if not any(isinstance(gap, Restart) for gap in part_gaps(watcher, data, moment).values()) and not unbriefed_passes(data, set()):
         return []
 
     def added_passes(data: dict) -> tuple[list[tuple[str, str]], list[tuple[tuple[str, str], str | None, str]]]:
@@ -5790,7 +5793,24 @@ def standing_lines(watcher: Watcher, moment: datetime) -> list[str]:
     checks, restarts = state.write(watcher.name, added_passes)
     for order_id, part in checks:
         state.detach(watcher.name, ["order", "check", order_id, "--part", part], STANDING_CHECKS_LOG)
-    return [launched_pass(watcher.name, *restart) for restart in restarts]
+    return [launched_pass(watcher.name, *restart) for restart in [*restarts, *unbriefed_passes(state.load(watcher.name), {job_id for *_, job_id in restarts})]]
+
+
+BRIEF_TRIES = 3
+
+
+def unbriefed_passes(data: dict, added: set[str]) -> list[tuple[tuple[str, str], str | None, str]]:
+    """Each standing part's pass the watch added whose brief was never written, as j7852's was not for two and a half hours, with the pass before it, so standing_lines briefs and launches it again on its next pass rather than leaving it unstarted."""
+    found = []
+    for job_id, job in data["jobs"].items():
+        if job_id in added or job["kind"] != "codex" or job.get("brief") or job.get("brief_tries", 0) >= BRIEF_TRIES or not state.unstarted(job) or job["state"] in state.FINISHED_JOB_STATES:
+            continue
+        for part in job["parts"]:
+            if (held := data["orders"][job["order"]]["parts"].get(part)) and held["standing"] == job["goal"]:
+                passes = [passed for passed, _ in state.passes(state.part_jobs(data, job["order"], part)) if passed != job_id]
+                found.append(((job["order"], part), passes[-1] if passes else None, job_id))
+                break
+    return found
 
 
 def added_pass(data: dict, key: tuple[str, str], last: str | None, moment: datetime) -> str:
@@ -5820,6 +5840,7 @@ def launched_pass(name: str, key: tuple[str, str], last: str | None, job_id: str
     try:
         cli.write_brief(name, job_id, {"handoff": pass_handoff(name, data, key, last), "done_when": PASS_DONE})
     except cli.VERB_ERRORS as error:
+        state.update(name, None, lambda data: data["jobs"][job_id].update(brief_error=cut(str(error), 300), brief_tries=data["jobs"][job_id].get("brief_tries", 0) + 1))
         return f"{head}, and wrote it no brief: {error}; brief it with drive job brief {job_id}, then drive job launch {job_id}"
     state.detach(name, ["job", "launch", job_id], RELAUNCHES_LOG)
     return f"{head}, and ran drive job launch {job_id}, its output in the drive's {RELAUNCHES_LOG}"
