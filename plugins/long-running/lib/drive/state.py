@@ -208,7 +208,7 @@ CASE_CUT = re.compile(r"^(?:pass(?:ed)?|fail(?:ed)?)[ \t]*\((?P<label>[A-Z][A-Za
 CASE_CUT_SHA = re.compile(r"\b([A-Z][A-Za-z0-9]*)[ \t]+([0-9a-f]{12,40})\b")
 UNPROVEN_LINE = re.compile(r"^UNPROVEN:[ \t]*(?P<what>.+?)[ \t]*$", re.MULTILINE)
 RETURN_WAIT = re.compile(r"(?P<job>j\d+)@(?P<returned>\d+)")
-LINE_JOB = re.compile(r"(?<![\w:/.-])j\d+(?![\w@-])")
+LINE_JOB = re.compile(r"(?<![\w:/.-])j\d+(?![\w@-]|['’]s\b)")
 LINE_ORDER = re.compile(r"(?<![\w:/.-])o\d+(?![\w:@-])")
 SLOT_WAIT = "builder-slot"
 USAGE_LIMIT_LOG = "claude-usage-limits.jsonl"
@@ -2431,7 +2431,7 @@ def answer_handoffs(data: dict, answers: list[tuple[str, str, dict]]) -> None:
 
 
 def hold_text(job: dict, text: str, sender: str | None, at: str | None = None, seq: str | None = None) -> bool:
-    """Keep a text on the job's undelivered list as kept_text writes it, which its next worker or codex-ask run carries, unless the job already holds it, by its words or the cci seq of the record it came in, or it is one of the watch's RESTART_NOTES, which tells only the lane a wake or restart reaches to carry on and so rides only the message or handoff of the drive job resume that wakes or restarts it, never a later worker; whether it kept it. A text the watch sends goes to a job once per distinct content, its digest kept in watch_said, so a pass re-sending a line it already gave wakes no turn that changes nothing."""
+    """Keep a text on the job's undelivered list as kept_text writes it, which its next worker or codex-ask run carries, unless the job already holds it, by its words or the cci seq of the record it came in, or it is one of the watch's RESTART_NOTES, which tells only the lane a wake or restart reaches to carry on and so rides only the message or handoff of the drive job resume that wakes or restarts it, never a later worker; whether it kept it. A text the watch sends goes to a job once per distinct content until the job next returns, its digest kept in watch_said, which take_result clears, so a pass re-sending a line it already gave wakes no turn that changes nothing while a line still true after the job acted goes again."""
     if text in RESTART_NOTES or any(held["words"] == text or seq and held["seq"] == seq for held in job["undelivered"]):
         return False
     if sender == WATCH_SENDER:
@@ -2892,7 +2892,7 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
     if taken != "done":
         for order_id in open_incidents(data, [order_id for order_id, order in data["orders"].items() if order["proof_by"] == job_id]):
             data["orders"][order_id].update(proof=None, proof_by=None)
-    job.update(state=taken, updated=moment, returned=moment)
+    job.update(state=taken, updated=moment, returned=moment, watch_said=[])
     if taken != "waiting" or not re.match(r"ASK\b", line):
         job["said"] = line
     post_staging_proof(data, job_id, line, report)
