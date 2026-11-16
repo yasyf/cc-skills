@@ -6565,7 +6565,7 @@ def test_a_held_green_approved_pr_is_never_said_to_have_no_card(demo: str, monke
     ],
     ids=["his hold", "the hold label on a pr he approved"],
 )
-def test_a_red_pr_his_hold_or_the_hold_label_holds_reads_red_and_wakes_its_builder_every_thirty_minutes_while_no_lander_starts_and_his_card_says_what_lifts_it(
+def test_a_red_pr_his_hold_or_the_hold_label_holds_reads_red_and_wakes_its_builder_every_thirty_minutes_while_no_lander_starts_and_the_dashboard_says_what_lifts_it(
     demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]], tap: dict | None, labels: list[str], field: str, says: str
 ) -> None:
     waiting_job(demo)
@@ -6580,7 +6580,7 @@ def test_a_red_pr_his_hold_or_the_hold_label_holds_reads_red_and_wakes_its_build
     kept = data["prs"][KEY]["stage"]
     assert (kept["name"], kept["owner"], [key for key, _ in woken], landers) == ("red", stage.BUILDER, [KEY, KEY], [])
     assert land.held(data, [KEY]) == f"{KEY}: {stage.stopped(data['prs'][KEY])}"
-    assert his_card_row(demo, KEY)[field] == says
+    assert dashboard_lines(demo, KEY)[field] == says
 
 
 def test_a_red_pr_his_card_holds_wakes_its_builder_at_once_and_every_thirty_minutes_while_his_card_stays_up(
@@ -6601,14 +6601,14 @@ def test_a_red_pr_his_card_holds_wakes_its_builder_at_once_and_every_thirty_minu
     assert stage.held(state.load(demo), state.load(demo)["prs"][KEY])
 
 
-def his_card_row(name: str, key: str) -> dict:
+def dashboard_lines(name: str, key: str) -> dict[str, str]:
     data = state.load(name)
     entry = data["prs"][key]
     shown = {"title": entry["title"], "body": "", "comments": [], "state": "OPEN", "isDraft": False, "headRefOid": entry["head"], "labels": [], "url": entry["url"], "reviewDecision": "REVIEW_REQUIRED", "files": []}
-    return card.render(*card.member(data, view.live_cards(name), shown, entry, {}))["prs"][0]
+    return card.standing(shown, card.drawn_entry(data, entry, view.live_cards(name)))
 
 
-def test_replayed_55175_a_red_pr_whose_builder_waits_on_a_fix_that_waits_on_his_tap_names_and_links_that_fix_and_its_card_in_its_stage_and_dashboard_row(
+def test_replayed_55175_a_red_pr_whose_builder_waits_on_a_fix_that_waits_on_his_tap_names_and_links_that_fix_and_its_card_in_its_stage(
     demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]]
 ) -> None:
     red_pr, fix, fix_card = "Forge-AI/monorepo#55175", "Forge-AI/monorepo#55582", "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794549855666519"
@@ -6647,15 +6647,11 @@ def test_replayed_55175_a_red_pr_whose_builder_waits_on_a_fix_that_waits_on_his_
     fix_link = view.pr_link(state.load(demo)["prs"][fix])
     asked_why = f"its checks fail at 75e6d42: buildkite/test, and its builder waits on {fix_link}, which waits on his Approve on [his card]({fix_card})"
     assert state.load(demo)["prs"][red_pr]["stage"]["why"] == asked_why
-    lands = f"{fix_link} lands, which waits on your Approve on [its card]({fix_card})"
-    assert his_card_row(demo, red_pr)["lands"] == f"you approve, CI passes and {lands}"
     for minutes in (46, 76, 106):
         at(minutes)
     approve(demo, red_pr)
-    assert his_card_row(demo, red_pr)["blocks"] == f"Approved by you. CI failed; it lands once {lands}"
     approve(demo, fix)
     at(144)
-    assert his_card_row(demo, red_pr)["blocks"] == f"Approved by you. CI failed; it lands once {fix_link} lands"
     reads[fix] = read(state="MERGED", mergeCommit="ddd444", headRefOid=heads[fix], title=titles[fix], checks=GREEN, reviewDecision="APPROVED")
     at(150)
     assert passes == [
@@ -6962,7 +6958,6 @@ def test_replayed_56550_an_approved_pr_waiting_only_on_its_staging_tester_reads_
     data, cards = state.load(demo), NO_CARDS | {"pr_cards": [pr_card(OTHER)]}
     assert stage.of(data, OTHER, cards).owner == stage.HIM
     assert stage.of(data, KEY, cards) == stage.Stage("waiting", owner, f"it waits on its staging run by j4542, {said}")
-    assert his_card_row(demo, KEY)["blocks"] == f"Approved by you. Lands once its staging run by j4542 passes ({said})"
 
 
 def test_replayed_720960_a_pr_waiting_on_its_staging_test_is_owed_by_that_tester_never_by_the_job_the_testers_own_stale_wait_leads_to(demo: str) -> None:
@@ -7021,8 +7016,6 @@ def test_replayed_56278_an_approved_pr_whose_waits_end_at_his_open_cards_reads_b
         at(minutes)
     kept = state.load(demo)["prs"][pr]
     assert kept["stage"]["why"] == "it waits on j4413, " + ", ".join(f"his answer on {view.link('his question card', link)}" for link in links.values())
-    answers = " and ".join(f"you answer {view.link(f'Pick {waits}?', link)}" for waits, link in links.items())
-    assert his_card_row(demo, pr)["blocks"] == f"Approved by you. Lands once the build of watch finishes, {answers}"
     assert card.picks(state.load(demo), kept, view.live_cards(demo)) == {}
     found = view.live_cards(demo)
     assert stall.chain(state.load(demo), found, False, pr, set()) is None
@@ -10702,7 +10695,7 @@ def test_his_card_cc_slack_keeps_closed_in_place_on_a_pr_that_asks_his_tap_again
     data = state.load(demo)
     now = stage.of(data, KEY, shown)
     assert (now.name, now.why, redraws.asked, draws.keys) == ("uncarded", "his card on it is closed, since Approve came off it while it waited on no tap, so the watch redraws it in place", [url] * 3, [])
-    assert view.wait_words(data, KEY, shown) == f"{view.pr_link(data['prs'][KEY])} lands"
+    assert view.tap_card(data, data["prs"][KEY], shown) is None
     assert [entry for entry in posted(sent) if entry[1] == f"meta@{demo}"] == [
         ("handoff", f"meta@{demo}", f"WATCH draw of his card on {KEY} failed 3 times in a row: it was redrawn in place, which offers him no Approve at the head of {KEY}")
     ]
@@ -10710,7 +10703,7 @@ def test_his_card_cc_slack_keeps_closed_in_place_on_a_pr_that_asks_his_tap_again
     watch.run_pass(watching, T0 + timedelta(minutes=3))
     data = state.load(demo)
     assert (data["prs"][KEY]["stage"]["name"], draws.keys) == ("card", [])
-    assert view.wait_words(data, KEY, shown) == f"{view.pr_link(data['prs'][KEY])} lands, which waits on your Approve on {view.link('its card', CARD)}"
+    assert view.tap_card(data, data["prs"][KEY], shown) == CARD
 
 
 def test_a_pr_left_uncarded_by_an_older_install_is_redrawn_in_place_once_past_the_uncarded_deadline_and_wakes_no_session(

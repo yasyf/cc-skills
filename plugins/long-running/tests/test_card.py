@@ -153,18 +153,17 @@ def row(**fields: str) -> dict:
         "hate_most": "Retries could send a file twice. The server drops the copy.",
         "plan": "The plan said three retries; this does five.",
         "port": "",
-        "blocks": "",
-        "lands": "",
         "description": FIX_BODY.strip(),
         **fields,
     }
 
 
-def test_a_monorepo_fix_waiting_on_his_tap_asks_for_approve() -> None:
+def test_a_monorepo_fix_waiting_on_his_tap_asks_for_approve_and_the_dashboard_says_it_lands_once_he_approves_and_ci_passes() -> None:
+    assert card.standing(pr_json(), entry()) == {"lands": "you approve and CI passes", "blocks": ""}
     assert card.render(pr_json(), entry()) == {
         "status": "needs_you",
         "title": "Fix: approve retry flaky uploads?",
-        "prs": [row(lands="you approve and CI passes")],
+        "prs": [row()],
         "options": ["Approve", "Hold"],
         "recommended": "Approve",
         "waits": asked_waits(42),
@@ -181,52 +180,55 @@ def test_a_change_since_his_tap_asks_again_with_what_changed() -> None:
     )
 
 
-def test_after_his_approve_while_ci_runs_it_drops_the_buttons_and_says_he_approved_it() -> None:
+def test_after_his_approve_while_ci_runs_it_drops_the_buttons_and_the_dashboard_says_he_approved_it() -> None:
     assert card.render(pr_json(), entry(tap="Approve")) == {
         "status": "info",
         "title": "Fix: retry flaky uploads",
-        "prs": [row(blocks="Approved by you. Lands once CI passes")],
+        "prs": [row()],
     }
+    assert card.standing(pr_json(), entry(tap="Approve")) == {"lands": "", "blocks": "Approved by you. Lands once CI passes"}
 
 
 def test_a_merged_pr_is_done() -> None:
     assert card.render(pr_json(pr_state="MERGED"), entry(tap="Approve")) == {
         "status": "done",
         "title": "Fix: retry flaky uploads",
-        "prs": [row(blocks="Merged")],
+        "prs": [row()],
     }
+    assert card.standing(pr_json(pr_state="MERGED"), entry(tap="Approve"))["blocks"] == "Merged"
 
 
-def test_a_closed_pr_says_it_closed_without_merging() -> None:
+def test_a_closed_pr_is_info_and_the_dashboard_says_it_closed_without_merging() -> None:
     assert card.render(pr_json(pr_state="CLOSED"), entry()) == {
         "status": "info",
         "title": "Fix: retry flaky uploads",
-        "prs": [row(blocks="Closed without merging")],
+        "prs": [row()],
     }
+    assert card.standing(pr_json(pr_state="CLOSED"), entry())["blocks"] == "Closed without merging"
 
 
 def test_checks_the_watch_read_on_another_head_read_as_still_running_and_an_approved_green_monorepo_pr_reads_as_queued_by_the_drive() -> None:
     passed = entry(tap="Approve", checks="pass")
-    assert card.render(pr_json(), passed)["prs"][0]["blocks"] == "Approved by you. CI passed; the drive queues it for merge"
-    assert card.render(pr_json(review="APPROVED"), entry(exempt="test-only", checks="pass"))["prs"][0]["blocks"] == "CI passed; the drive queues it for merge"
-    assert card.render(pr_json(), {**passed, "head": "f" * 40, "now": stage.Stage("grading", "", "")})["prs"][0]["blocks"] == "Approved by you. Lands once CI passes"
+    assert card.standing(pr_json(), passed)["blocks"] == "Approved by you. CI passed; the drive queues it for merge"
+    assert card.standing(pr_json(review="APPROVED"), entry(exempt="test-only", checks="pass"))["blocks"] == "CI passed; the drive queues it for merge"
+    assert card.standing(pr_json(), {**passed, "head": "f" * 40, "now": stage.Stage("grading", "", "")})["blocks"] == "Approved by you. Lands once CI passes"
     other = pr_json(url="https://github.com/Forge-AI/design-docs/pull/42")
-    assert card.render(other, {**passed, "url": other["url"]})["prs"][0]["blocks"] == "Approved by you. CI passed; the agent is landing it"
+    assert card.standing(other, {**passed, "url": other["url"]})["blocks"] == "Approved by you. CI passed; the agent is landing it"
 
 
 def test_a_held_pr_asks_his_approve_saying_it_lifts_his_hold_under_a_waits_id_of_its_own() -> None:
     held = card.render(pr_json(), entry(tap="Hold", checks="pass"))
     lifted = f"you approve, lifting your Hold of {render.when('2026-11-09T08:00:00-08:00')}"
-    assert (held["status"], held["options"], held["prs"][0]["lands"], held["prs"][0]["blocks"]) == ("needs_you", ["Approve", "Hold"], lifted, "")
+    assert (held["status"], held["options"], held["prs"], card.standing(pr_json(), entry(tap="Hold", checks="pass"))) == ("needs_you", ["Approve", "Hold"], [row()], {"lands": lifted, "blocks": ""})
     assert (held["waits"], asked_waits(42) != held["waits"]) == (f"merge:42:{state.ask_hash(f'{HEAD}@2026-11-09T08:00:00-08:00')}", True)
 
 
-def test_a_pr_the_hold_label_holds_still_asks_his_approve_and_says_the_label_holds_it() -> None:
+def test_a_pr_the_hold_label_holds_still_asks_his_approve_and_the_dashboard_says_the_label_holds_it() -> None:
     labeled = pr_json() | {"labels": [{"id": "LA_1", "name": "hold", "description": "", "color": "d93f0b"}]}
-    drawn = card.render(labeled, entry(now="held") | {"hold_label": True})
-    assert (drawn["status"], drawn["options"], drawn["prs"][0]["lands"]) == ("needs_you", ["Approve", "Hold"], "you approve, CI passes and the hold label comes off on GitHub")
-    approved = card.render(labeled, entry(tap="Approve", now="held") | {"hold_label": True})
-    assert (approved["status"], approved["prs"][0]["blocks"]) == ("info", "Approved by you. Held by the hold label on GitHub")
+    drawn = card.render(labeled, held := entry(now="held") | {"hold_label": True})
+    assert (drawn["status"], drawn["options"], card.standing(labeled, held)["lands"]) == ("needs_you", ["Approve", "Hold"], "you approve, CI passes and the hold label comes off on GitHub")
+    approved = entry(tap="Approve", now="held") | {"hold_label": True}
+    assert (card.render(labeled, approved)["status"], card.standing(labeled, approved)["blocks"]) == ("info", "Approved by you. Held by the hold label on GitHub")
 
 
 def test_a_port_carries_its_port_section() -> None:
@@ -238,8 +240,9 @@ def test_a_port_carries_its_port_section() -> None:
 
 
 def test_an_exempt_port_waits_on_nothing_of_his() -> None:
-    drawn = card.render(pr_json(title="Port: upload retry to the CLI", body=""), entry(exempt="pure port"))
-    assert drawn == {
+    port, exempt = pr_json(title="Port: upload retry to the CLI", body=""), entry(exempt="pure port")
+    assert card.standing(port, exempt) == {"lands": "", "blocks": "CI is still running"}
+    assert card.render(port, exempt) == {
         "status": "info",
         "title": "Port: upload retry to the CLI",
         "prs": [
@@ -251,7 +254,6 @@ def test_an_exempt_port_waits_on_nothing_of_his() -> None:
                 hate_most="",
                 plan="",
                 description="",
-                blocks="CI is still running",
             )
         ],
     }
@@ -521,8 +523,7 @@ def test_angle_brackets_and_quotes_in_a_pr_title_and_body_reach_the_card_while_g
 
 
 def test_failed_ci_names_the_agent_fixing_it() -> None:
-    blocks = card.render(pr_json(), entry(wants_tap=False, checks="fail"))["prs"][0]["blocks"]
-    assert blocks == "CI failed; the agent is fixing it"
+    assert card.standing(pr_json(), entry(wants_tap=False, checks="fail"))["blocks"] == "CI failed; the agent is fixing it"
 
 
 @pytest.fixture
@@ -594,7 +595,7 @@ def test_a_card_github_refuses_draws_from_its_last_read_with_the_state_the_drive
     with state.edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["state"] = "merged"
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}], "redraw": True})["cards"]
-    assert (drawn["card"]["status"], drawn["card"]["prs"][0]["blocks"], drawn["card"]["prs"][0]["summary"]) == ("done", "Merged", SUMMARY)
+    assert (drawn["card"]["status"], drawn["card"]["prs"][0]["summary"]) == ("done", SUMMARY)
 
 
 def test_a_card_github_refuses_for_a_pr_no_card_read_draws_from_its_drive_entry_alone(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -629,7 +630,7 @@ def test_prs_matches_the_lowercase_repo_cc_slack_asks_with(drive: str, monkeypat
     assert [(drawn["repo"], drawn["number"]) for drawn in reply["cards"]] == [("Forge-AI/monorepo", 42)]
 
 
-def test_a_pr_whose_wait_holds_redraws_his_open_card_with_its_buttons_saying_what_it_waits_on(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_pr_whose_wait_holds_redraws_his_open_card_with_its_buttons(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(card, "run", lambda cmd, **_: json.dumps(pr_json()))
     with state.edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["waits"] = ["release:dashboard:Forge-AI/monorepo#7"]
@@ -638,9 +639,6 @@ def test_a_pr_whose_wait_holds_redraws_his_open_card_with_its_buttons_saying_wha
     view.refresh_cards(drive)
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
     assert (drawn["card"]["status"], drawn["card"]["options"], drawn["card"]["waits"]) == ("needs_you", ["Approve", "Hold"], asked_waits(42))
-    release = "the dashboard release carrying [retry flaky uploads](https://github.com/Forge-AI/monorepo/pull/7) is out"
-    assert drawn["card"]["prs"][0]["lands"] == f"you approve, CI passes and {release}"
-    assert card.render(pr_json(), entry(tap="Approve", checks="pass", now="waiting"), (), (release,))["prs"][0]["blocks"] == f"Approved by you. Lands once {release}"
 
 
 def test_a_tap_card_whose_body_has_only_a_title_draws_with_approve(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -706,7 +704,7 @@ def test_an_open_pr_only_its_upstream_maintainers_merge_waits_on_them_with_no_ca
         {"repo": "stablyai/orca", "number": 40518, "reason": "stablyai's maintainers merge it, outside the drive, so no PR card draws, since it would offer him no Approve"}
     ]
     [drawn] = ask({"prs": [{"repo": "stablyai/orca", "number": 40518}], "redraw": True})["cards"]
-    assert ("options" in drawn["card"], drawn["card"]["prs"][0]["blocks"]) == (False, "Waits on stablyai's maintainers to merge it")
+    assert "options" not in drawn["card"]
     with state.edit(drive) as data:
         data["prs"][key] |= {"checks": "fail", "failed_checks": ["test"]}
     red = stage.of(state.load(drive), key, view.NO_CARDS)
@@ -1133,7 +1131,7 @@ def test_his_approve_on_an_incidents_repair_his_open_card_holds_picks_its_recomm
     closed: list[tuple[str, str, str, bool]] = []
     monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled, replaces=None: closed.append((card, words, link, settled)) or {})
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
-    assert drawn["card"]["prs"][0]["lands"] == f'you approve; your Approve also picks "{JOURNAL_PICK}" on [{JOURNAL_QUESTION}]({JOURNAL_CARD})'
+    assert drawn["card"]["options"] == ["Approve", "Hold"]
     assert stage.held(state.load(drive), state.load(drive)["prs"]["Forge-AI/monorepo#42"]) == f"his cards {JOURNAL_CARD} on its work are open"
     approve = {"repo": "Forge-AI/monorepo", "number": 42, "waits": asked_waits(42), "label": "Approve", "heads": {}, "action_ts": "1794626600.000100", "source": "pressed the button"}
     assert ask({"answer": approve}) == {"ok": True}
@@ -1168,7 +1166,7 @@ def test_a_card_that_comes_to_hold_his_approved_pr_holds_it_on_him_naming_that_c
     now = stage.of(data, key, view.live_cards(drive))
     assert (state.asks_tap(data, data["prs"][key]), now.name, now.owner, now.why) == (False, "held", stage.HIM, f"his cards {JOURNAL_CARD} on its work are open")
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}], "redraw": True})["cards"]
-    assert (drawn["card"]["status"], drawn["card"]["prs"][0]["blocks"]) == ("info", f"Approved by you. Lands once you answer [{JOURNAL_QUESTION}]({JOURNAL_CARD})")
+    assert (drawn["card"]["status"], "options" in drawn["card"]) == ("info", False)
     land.start(drive, [key], view.live_cards(drive))
     assert (state.load(drive)["jobs"]["j1"]["questions"][0]["closed"], closed, landers) == (None, [], [])
     assert ask({"answer": {"waits": waits, "url": JOURNAL_CARD, "label": JOURNAL_PICK, "action_ts": "1794626700.000100", "source": "pressed the button"}})["ok"]
@@ -1195,16 +1193,10 @@ def test_outside_an_incident_a_pr_his_open_question_card_holds_draws_no_card_ask
     assert (state.tap_refused(data, data["prs"][key]), stage.own(data, key, view.live_cards(drive)).name) == (held, "held")
     assert ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]}) == {"cards": [], "skipped": [{"repo": "Forge-AI/monorepo", "number": 42, "reason": f"{held}, so no PR card draws, since it would offer him no Approve"}]}
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}], "redraw": True})["cards"]
-    assert (drawn["card"]["status"], "options" in drawn["card"], drawn["card"]["prs"][0]["blocks"]) == ("info", False, f"Lands once you answer [{JOURNAL_QUESTION}]({JOURNAL_CARD})")
+    assert (drawn["card"]["status"], "options" in drawn["card"]) == ("info", False)
     assert ask({"answer": {"waits": waits, "url": JOURNAL_CARD, "label": JOURNAL_PICK, "action_ts": "1794626700.000100", "source": "pressed the button"}})["ok"]
     data = state.load(drive)
     assert state.asks_tap(data, data["prs"][key])
-
-
-def test_a_card_his_approve_picks_on_reads_as_his_answer_on_a_card_that_offers_no_approve() -> None:
-    picked = ((JOURNAL_PICK, f"[{JOURNAL_QUESTION}]({JOURNAL_CARD})"),)
-    drawn = card.render(pr_json(), entry(tap="Approve", checks="pass", now="waiting"), (), (), (), picked)["prs"][0]
-    assert (drawn["lands"], drawn["blocks"]) == ("", f"Approved by you. Lands once you answer [{JOURNAL_QUESTION}]({JOURNAL_CARD})")
 
 
 def moved_under_his_card(drive: str, monkeypatch: pytest.MonkeyPatch) -> dict:
@@ -1234,12 +1226,12 @@ def test_a_head_that_moved_under_his_card_keeps_approve_and_his_approve_of_the_h
     key = "Forge-AI/monorepo#42"
     redraw = moved_under_his_card(drive, monkeypatch)
     [shown] = ask(redraw)["cards"]
-    assert (shown["card"]["status"], shown["card"]["options"], shown["card"]["prs"][0]["lands"], shown["card"]["prs"][0]["blocks"]) == ("needs_you", ["Approve", "Hold"], "you approve", "")
+    assert (shown["card"]["status"], shown["card"]["options"]) == ("needs_you", ["Approve", "Hold"])
     tap_approve(HEAD)
     [tapped] = [event for event in events(drive) if event["kind"] == "tap"]
     assert (state.load(drive)["prs"][key]["tap"]["head"], tapped["head"], landers) == (HEAD, HEAD, [(key,)])
     [held] = ask(redraw)["cards"]
-    assert ("options" in held["card"], held["card"]["prs"][0]["blocks"]) == (False, "Approved by you. CI passed; the drive queues it for merge")
+    assert "options" not in held["card"]
 
 
 def test_a_change_against_his_words_keeps_approve_on_his_card_with_no_line_naming_it_and_his_approve_still_lands_it(
@@ -1258,7 +1250,7 @@ def test_a_change_against_his_words_keeps_approve_on_his_card_with_no_line_namin
     pr = state.load(drive)["prs"][key]
     assert (pr["tap"]["label"], pr["fundamental"], landers) == ("Approve", None, [(key,)])
     [held] = ask(redraw)["cards"]
-    assert held["card"]["prs"][0]["blocks"] == "Approved by you. CI passed; the drive queues it for merge"
+    assert "options" not in held["card"]
 
 
 def test_answer_matches_the_lowercase_repo_cc_slack_sends(drive: str) -> None:
@@ -1472,7 +1464,6 @@ def test_one_approve_on_a_stack_card_lifts_his_hold_of_a_pr_on_it_and_starts_lan
     [drawn] = ask(asks(41, 42, 43, 44, 45))["cards"]
     asked = f"merge:42.43.44.45:{state.ask_hash(' '.join([f'{HEAD}@{held_at}', HEAD, HEAD, HEAD]))}"
     assert (drawn["card"]["status"], drawn["card"]["options"], drawn["card"]["waits"]) == ("needs_you", ["Approve", "Hold"], asked)
-    assert [row["lands"] for row in drawn["card"]["prs"]][1:3] == [f"you approve, lifting your Hold of {render.when(held_at)} and CI passes", "you approve and CI passes"]
     started: list[list[str]] = []
     monkeypatch.setattr(land, "start", lambda name, members, cards: started.append(members))
     ask({"answer": {"repo": "Forge-AI/monorepo", "number": 41, "waits": asked, "label": "Approve", "heads": {}, "action_ts": "1794772411.000100", "source": "slack"}})
@@ -1719,10 +1710,6 @@ def test_his_typed_approve_of_one_pr_and_hold_of_the_other_redraw_their_stack_ca
     held_at = state.load("demo")["prs"]["Forge-AI/monorepo#42"]["tap"]["at"]
     [redrawn] = ask(asks(41, 42) | {"redraw": True})["cards"]
     assert (redrawn["card"]["status"], redrawn["card"]["options"], redrawn["card"]["waits"]) == ("needs_you", ["Approve", "Hold"], f"merge:42:{state.ask_hash(f'{HEAD}@{held_at}')}")
-    assert [(row["blocks"], row["lands"]) for row in redrawn["card"]["prs"]] == [
-        ("Approved by you. CI failed; the agent is fixing it", ""),
-        ("", f"you approve, lifting your Hold of {render.when(held_at)} and CI passes"),
-    ]
     posted = {"url": "https://acme.slack.com/archives/D123/p1794515083771169", "prs": [stack_url(41), stack_url(42)], "asked": "2026-11-12T12:26:00-08:00", "card": redrawn["card"]}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [posted], "closed": []})
     typed(42, "Approve")
@@ -1734,7 +1721,7 @@ def test_a_tap_on_his_stack_card_after_his_typed_approve_of_one_pr_keeps_that_ap
     waits = on_his_stack_card(monkeypatch, 41, 42)
     typed(41, "Approve")
     [asking] = ask(asks(41, 42) | {"redraw": True})["cards"]
-    assert (asking["card"]["options"], [row["blocks"] for row in asking["card"]["prs"]]) == (["Approve", "Hold"], ["Approved by you. Lands once CI passes", ""])
+    assert (asking["card"]["options"], asking["card"]["waits"]) == (["Approve", "Hold"], asked_waits(42))
     ask({"answer": {"repo": "Forge-AI/monorepo", "number": 41, "waits": waits, "label": "Hold", "heads": {}, "action_ts": "1794516000.000001", "source": "slack"}})
     prs = state.load("demo")["prs"]
     assert [prs[f"Forge-AI/monorepo#{n}"]["tap"]["label"] for n in (41, 42)] == ["Approve", "Hold"]
