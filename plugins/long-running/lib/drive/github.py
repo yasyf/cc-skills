@@ -41,6 +41,8 @@ HOLD_LABEL = "hold"
 EJECTED_LABEL = "trunk-failed"
 CANCELLED_LABEL = "trunk-cancelled"
 TRUNK_CHECK = "Trunk Merge Queue"
+JOB_READS = "job-reads"
+JOB_READ_DAYS = 2
 RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)/")
 JOB_URL = re.compile(r"/actions/runs/\d+/job/(?P<job>\d+)")
 FAILED_TEST = re.compile(r"^\S+ (?:FAILED|ERROR) (?P<pytest>\S+\.py(?:::[^\r\n]+?)?)(?: - [^\r\n]*)?\r?$|--- FAIL: (?P<go>[^\s\"\\]+)", re.MULTILINE)
@@ -238,12 +240,28 @@ def job_of(check: dict) -> int | None:
 
 
 def job_log(repo: str, job: int) -> str:
-    return read(f"{repo}'s job {job} log", ["gh", "api", f"repos/{repo}/actions/jobs/{job}/logs"])
+    return finished_job_read(repo, job, "log", "/logs")
+
+
+def finished_job_read(repo: str, job: int, what: str, path: str) -> str:
+    """A read of a finished GitHub Actions job, its record or its log, made once and kept under the drive's state root for JOB_READ_DAYS, since a finished job never changes and every watch pass judging a red check re-read it on the owner's core quota; kept reads older than that go as a new one is kept."""
+    from drive import state
+
+    kept = state.root() / JOB_READS / repo.replace("/", "__") / f"{job}.{what}"
+    if kept.exists():
+        return kept.read_text()
+    answer = read(f"{repo}'s job {job} {what}", ["gh", "api", f"repos/{repo}/actions/jobs/{job}{path}"])
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    for old in kept.parent.parent.glob("*/*"):
+        if time.time() - old.stat().st_mtime > JOB_READ_DAYS * 86400:
+            old.unlink(missing_ok=True)
+    kept.write_text(answer)
+    return answer
 
 
 def failed_at_checkout(repo: str, job: int) -> bool:
     """Whether a GitHub Actions job failed on its run's first attempt at a checkout, before any step could run what the checkout fetches: the first of its steps that failed names a checkout, as actions/checkout's unnamed step reads "Run actions/checkout@<sha>"; an ended job's record never changes, so a read of it within the hour answers."""
-    ran = json.loads(read(f"{repo}'s job {job}", ["gh", "api", f"repos/{repo}/actions/jobs/{job}"], max_age="1h"))
+    ran = json.loads(finished_job_read(repo, job, "record", ""))
     first = next((step["name"] for step in ran["steps"] if step["conclusion"] == "failure"), "")
     return ran["run_attempt"] == 1 and "checkout" in first.casefold()
 
