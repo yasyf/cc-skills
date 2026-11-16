@@ -7393,7 +7393,7 @@ def parser() -> argparse.ArgumentParser:
     brief_opt.add_argument("--runs-as", help="for a pass, a hand repair or any other write of a team's data: the service account in its cluster and how it starts; \"none: <why>\" for a job that writes none")
     brief_opt.add_argument(
         "--mac",
-        help="the step only this Mac runs that the job itself runs, such as drive break-glass, ci mac-box, ci devbox or a drive install no lander runs; drive job launch refuses its Sprite start and the agent_brief hook starts it here at any load, and no other words of the brief place it",
+        help="the step only this Mac runs that the job itself runs, such as drive break-glass, drive job prove, ci mac-box, a pass box, ci devbox or a drive install no lander runs, set whenever the job's parts or goal name a pass box, a Mac box or such a step, since a Sprite lane refuses it and returns BLOCKED; drive job launch refuses its Sprite start and the agent_brief hook starts it here at any load, and no other words of the brief place it",
     )
     brief_opt.add_argument(
         "--after",

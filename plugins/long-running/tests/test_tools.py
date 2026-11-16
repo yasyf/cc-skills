@@ -2218,3 +2218,17 @@ def test_a_list_or_object_sent_for_a_field_whose_schema_takes_neither_is_refused
         tools.parsed_arguments({"ops": [{"set": {"url": ["Forge-AI/monorepo#42"]}}]}, shapes["pr"])
     kept = {"records": [owner | {"re": 672234, "to": None, "attrs": {"order": "o1"}, "order": {"title": "a title"}}]}
     assert tools.parsed_arguments(kept, shapes["record"]) == kept
+
+
+def test_a_sprite_lanes_refused_mac_step_names_the_way_forward_a_launch_on_this_mac_or_a_done_pending_its_proof(
+    demo: str, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(reads.SPRITE_LANE, "1")
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j7")
+    monkeypatch.setenv(state.DRIVE_ENV, demo)
+    capsys.readouterr()
+    assert cli.main(["job", "prove", "j7"]) == 2
+    said = capsys.readouterr().err
+    assert said.startswith("drive job prove: refused, nothing ran: a lane runs only these verbs:")
+    assert 'the coordinator moves you to this Mac with `drive job launch j7 --local --mac "<the step>"`' in said
+    assert "return DONE with the proof pending, naming its file, and the coordinator runs `drive job prove j7`" in said
