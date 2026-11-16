@@ -1840,7 +1840,7 @@ def redrawn_by_the_watch(moment: datetime) -> list[str]:
     return watch.redraw_lines(watching, moment)
 
 
-def test_his_typed_approve_of_one_pr_and_hold_of_the_other_redraw_their_stack_card_whole_asking_his_approve_on_the_held_one_alone_and_his_approve_redraws_it_again(
+def test_his_typed_approve_of_one_pr_and_hold_of_the_other_redraw_their_stack_card_whole_leaving_the_held_one_out_and_his_approve_redraws_it_again(
     stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch, redraws: Redraws
 ) -> None:
     moment = state.parse_time("2026-11-12T12:30:00-08:00")
@@ -1850,9 +1850,8 @@ def test_his_typed_approve_of_one_pr_and_hold_of_the_other_redraw_their_stack_ca
     typed(41, "Approve")
     typed(42, "Hold")
     assert (redrawn_by_the_watch(moment), redraws.asked, redraws.drawn) == ([], [stack_url(41)], [])
-    held_at = state.load("demo")["prs"]["Forge-AI/monorepo#42"]["tap"]["at"]
     [redrawn] = ask(asks(41, 42) | {"redraw": True})["cards"]
-    assert (redrawn["card"]["status"], redrawn["card"]["options"], redrawn["card"]["waits"]) == ("needs_you", ["Approve", "Hold"], f"merge:42:{state.ask_hash(f'{HEAD}@{held_at}')}")
+    assert ([row["url"] for row in redrawn["card"]["prs"]], redrawn["card"]["title"].endswith("left out, held by your word: #42")) == ([stack_url(41)], True)
     posted = {"url": "https://acme.slack.com/archives/D123/p1794515083771169", "prs": [stack_url(41), stack_url(42)], "asked": "2026-11-12T12:26:00-08:00", "card": redrawn["card"]}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [posted], "closed": []})
     typed(42, "Approve")

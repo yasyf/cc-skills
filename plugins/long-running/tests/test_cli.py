@@ -32,6 +32,7 @@ from conftest import (
     SAND_NEXT_NOTE,
     SANDSQL_NOTE,
     SEEDED_READER,
+    SESSION,
     SETTLED_LINE_ANSWERS,
     SETTLED_LISTED,
     SETTLED_MATCHED,
@@ -722,7 +723,7 @@ def test_a_start_whose_drive_another_start_made_while_it_built_one_joins_that_dr
     def rival_starts_while_this_one_builds(name: str, data: dict) -> Path:
         monkeypatch.setattr(state, "built", unpatched)
         rival = state.new_drive(name, "communicator", "rival-session", "/rival")
-        rival["orders"]["o1"] = {"text": "the rival's order", "state": "open", "due": None, "jobs": []}
+        rival["orders"]["o1"] = {"text": "the rival's order", "state": "open", "due": None, "jobs": [], "asks": {}}
         state.create(rival)
         return unpatched(name, data)
 
@@ -2299,18 +2300,19 @@ def test_job_ask_refuses_a_compare_fence_holding_a_markdown_table_by_the_fence_i
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(SPLIT_JOURNAL_ASK)
-    for argv in (["job", "ask", asking, "--check", str(block)], ["job", "ask", asking, str(block)]):
-        assert cli.main(argv) == 2
-        refusal = capsys.readouterr().err
-        assert "drive: the ASK is out of shape" in refusal
-        assert (
-            "the Show me ```compare fence is not the JSON it draws from: Expecting value at its line 1, column 1;"
-            f" write {limits.COMPARE_SHAPE}, or put a markdown table outside any fence, which Slack draws as its own table"
-        ) in refusal
-        assert "Traceback" not in refusal
+    unparsed = (
+        "the Show me ```compare fence is not the JSON it draws from: Expecting value at its line 1, column 1;"
+        f" write {limits.COMPARE_SHAPE}, or put a markdown table outside any fence, which Slack draws as its own table"
+    )
+    assert cli.main(["job", "ask", asking, "--check", str(block)]) == 2
+    refusal = capsys.readouterr().err
+    assert ("drive: the ASK is out of shape" in refusal, unparsed in refusal, "Traceback" in refusal) == (True, True, False)
     job = state.load("demo")["jobs"]["j1"]
     assert (job["state"], job["questions"]) == ("running", [])
     assert not (state_root / "demo" / "asks").exists()
+    assert cli.main(["job", "ask", asking, str(block)]) == 0
+    warned = capsys.readouterr().err
+    assert (unparsed in warned, "going through, as a repeat of a try this gate refused once" in warned) == (True, True)
 
 
 def test_job_ask_check_says_ready_or_every_fix_its_words_card_and_job_need_at_once_and_keeps_nothing(
@@ -2399,7 +2401,7 @@ def test_job_ask_check_passes_a_first_line_naming_the_work_it_serves_and_what_hi
 
 
 def test_job_ask_and_its_check_refuse_a_summary_over_his_length_as_his_card_draws_its_order_references_and_keep_one_whose_references_carry_words(
-    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Copy each store of a team once, in the order its list names", "--project", "The drive", "--workstream", "Drive tooling", "copy every store of the team in the order its list names them, one at a time, with no store skipped or copied twice")
     block = tmp_path / "ask.md"
@@ -2407,8 +2409,10 @@ def test_job_ask_and_its_check_refuse_a_summary_over_his_length_as_his_card_draw
     block.write_text(RESTORE_ASK.replace(RESTORE_OPENING, f"For {{order:o2}}: your pick decides who relinks a moved table. It serves {repeated}."))
     assert cli.main(["job", "ask", asking, "--check", str(block)]) == 2
     checked = capsys.readouterr().err
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "a-session-that-never-checked")
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     refusal = capsys.readouterr().err
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", SESSION)
     assert refusal == checked
     assert "words as his card draws them, each reference in the summary drawn as the words that name it" in refusal
     assert state.load("demo")["jobs"]["j1"]["questions"] == []
@@ -2559,8 +2563,9 @@ def test_job_ask_refuses_a_pr_named_with_no_link_and_keeps_the_linked_copy(
     block.write_text(TEAMMATE_FIX_SHOWN.replace("theirs first, then ours", "with their PR, then ours"))
     assert run("job", "ask", asking, str(block))[0] == 0
     block.write_text(TEAMMATE_FIX_SHOWN.replace("A teammate's PR for the update button>", "A teammate's change>").replace("theirs first, then ours", "with their PR, then ours"))
-    assert cli.main(["job", "ask", asking, str(block)]) == 2
-    assert '"their PR" names something he could open with no link there, in "with their PR"' in capsys.readouterr().err
+    assert cli.main(["job", "ask", asking, str(block)]) == 0
+    warned = capsys.readouterr().err
+    assert ('"their PR" names something he could open with no link there, in "with their PR"' in warned, "going through, as a repeat" in warned) == (True, True)
 
 
 def test_job_ask_draws_a_question_that_hides_the_terms_its_findings_name_with_the_rule_printed_for_its_asker(
@@ -2588,8 +2593,9 @@ def test_job_ask_refuses_a_show_me_out_of_shape(run: Run, asking: str, tmp_path:
     head, shown = SHORT_ASK.split("Show me:\n")
     example, options = shown.split("- One snapshot", 1)
     block.write_text(f"{head}- One snapshot{options.split('Findings:')[0]}Show me:\n{example}Findings:\nmeasured\n")
-    assert cli.main(["job", "ask", asking, str(block)]) == 2
-    assert "the options come after the Show me, never above it" in capsys.readouterr().err
+    assert cli.main(["job", "ask", asking, str(block)]) == 0
+    warned = capsys.readouterr().err
+    assert ("the options come after the Show me, never above it" in warned, "going through, as a repeat" in warned) == (True, True)
 
 
 PLANNED_TABLE = """| Database size | 0 change files | 100 change files |
@@ -4863,7 +4869,8 @@ def test_slot_queue_lists_the_work_queues_stage_test_items_marked_in_the_queue_s
     monkeypatch.setattr(type(kind), "blocking", lambda self, data, job_id: ["j9"])
     monkeypatch.setattr(state, "jumps_queue", lambda data, job_id: False)
     monkeypatch.setattr(place, "preempts", lambda data, job: False)
-    assert cli.queue_items(data, work.env(data)) == ["  q1. j2 in the queue, ready to pull", "  q2. j1 in the queue, waiting on j9"]
+    monkeypatch.setattr(work, "untimed", lambda data, job_id, moment: "waits on j9, no estimate")
+    assert cli.queue_items(data, work.env(data)) == ["  q1. j2 in the queue, ready to pull, waits on j9, no estimate", "  q2. j1 in the queue, waiting on j9, waits on j9, no estimate"]
     assert cli.queue_items(data, "plat-usw2-sandbox") == []
 
 
@@ -4899,7 +4906,7 @@ def test_no_new_cut_starts_while_a_cut_or_release_holds_the_env_or_a_release_wai
     data = {"name": "demo", "work": {"kinds": []}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "slots": {env: {"holder": None}}, "jobs": {"j8001": {"state": "waiting", "order": "o1", "carries": [], "goal": "", "priority": None, "train": env, "release_build": None, "created": created}}}
     monkeypatch.setattr(work, "env", lambda data: env)
     monkeypatch.setattr(work.StageTest, "line", lambda self, data: ["j7394", "j7632"])
-    assert work.STAGE.why_not(data, moment) == f"waits on {env}: release j8001 goes first, the train between cuts; the queue takes it once that release ends"
+    assert work.STAGE.why_not(data, moment) == f"waits on {env}: release j8001 goes first, the train between cuts; the next cut starts about 7:37 AM"
     data["jobs"]["j8001"]["train"] = None
     data["slots"][env]["promotion_due"] = True
     assert work.STAGE.why_not(data, moment).startswith(f"waits on {env}: its promotion skipped its last tick while staging was held")
@@ -5358,14 +5365,16 @@ def test_a_reports_researched_block_opens_at_the_first_researched_line_with_bloc
 
 
 def test_a_builders_card_whose_holds_line_names_no_pr_the_drive_tracks_or_branch_is_refused_since_it_would_hold_none_of_its_work(
-    run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
     run("job", "add", "builder", "--order", "o1", "--goal", "copy it")
     block = tmp_path / "ask.md"
     for holds in ("copy one store", "copy one store, in #4127"):
         block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", f"Holds: {holds}"))
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", f"first try of {holds}")
         assert cli.main(["job", "ask", "j1", str(block)]) == 2
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", SESSION)
         assert f"`Holds: {holds}` names no PR the drive tracks on j1's orders or waiting on a part j1 carries, as the PR its staging test tests, and no branch" in capsys.readouterr().err
     block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", "Holds: copy one store, built on `j1-copy-store`"))
     assert run("job", "ask", "j1", str(block))[0] == 0
@@ -5379,7 +5388,9 @@ def test_a_builders_card_whose_holds_line_names_no_pr_the_drive_tracks_or_branch
     assert run("pr", "set", tested, "--waits", f"o3:{staging}")[0] == 0
     gating = "Holds: #4127, the store copy this staging test gates"
     block.write_text(SHORT_ASK.replace("opens without guessing?", "opens on its first read?").replace("Holds: none: no option changes code any job builds", gating))
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "first try of the gating holds")
     assert cli.main(["job", "ask", "j1", str(block)]) == 2
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", SESSION)
     assert f"`{gating}` names no PR the drive tracks on j1's orders or waiting on a part j1 carries" in capsys.readouterr().err
     assert run("job", "ask", "j3", str(block))[0] == 0
     data = state.load("demo")
@@ -6580,7 +6591,7 @@ def test_a_designs_refile_renaming_a_change_whose_builder_was_stopped_drops_the_
     ]
 
 
-def test_a_designs_refile_renaming_a_change_drops_it_and_stops_its_builder_in_one_save_until_an_agent_takes_that_builder(
+def test_a_designs_refile_renaming_a_change_drops_it_and_tells_its_builder_why_in_one_save_until_an_agent_takes_that_builder(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
@@ -6600,7 +6611,8 @@ def test_a_designs_refile_renaming_a_change_drops_it_and_stops_its_builder_in_on
     assert keep(monkeypatch, capsys, "j1", renamed) == (0, "")
     data = state.load("demo")
     assert ("the writes through it" in data["orders"]["o1"]["parts"], "the follow-up" in data["orders"]["o1"]["parts"]) == (False, True)
-    assert (data["jobs"]["j4"]["state"], data["jobs"]["j4"]["parts"], data["jobs"]["j4"]["said"]) == ("stopped", [], "its design j1 no longer lists it")
+    j4 = data["jobs"]["j4"]
+    assert (j4["state"] != "stopped", j4["parts"], j4["undelivered"][-1]["words"].startswith('The part you work on, "the writes through it", left o1: its design j1 no longer lists it.')) == (True, [], True)
     assert [state.part_builders(data, "o1", part) for part in ("the writes by it", "the follow-up")] == [["j6"], ["j5"]]
 
 
@@ -7013,7 +7025,7 @@ def test_a_dangerous_prs_staging_wait_lives_on_the_pr_so_its_order_closing_leave
     key = "Forge-AI/monorepo#42"
     reaching(monkeypatch, key)
     run("pr", "add", PR, "--job", "j1", *LEAD)
-    assert state.load(demo)["prs"][key]["owes_staging"]["head"] == state.load(demo)["prs"][key]["head"]
+    assert state.load(demo)["prs"][key]["owes_staging"]["head"] == state.load(demo)["prs"][key]["paths_at"]
     with edit(demo) as data:
         state.unstage(data, key, "it only renames a column comment", "j1")
     data = state.load(demo)
@@ -7047,7 +7059,7 @@ def test_pr_add_stages_a_monorepo_pr_whose_head_changes_a_dangerous_class_of_fil
     assert (data["prs"]["Forge-AI/monorepo#43"]["waits"], data["prs"]["Forge-AI/monorepo#43"]["paths_at"], [job_id for job_id, job in data["jobs"].items() if state.builds_nothing(job)]) == ([], "abc", [tester_id])
 
 
-def test_a_builders_staging_line_reaches_the_tester_its_prs_changed_files_gave_it_and_its_none_lifts_a_test_no_job_took_up_but_keeps_one_a_job_took_up(
+def test_a_builders_staging_line_reaches_the_tester_its_prs_changed_files_gave_it_and_its_none_lifts_an_unowed_test_no_job_took_up_but_keeps_one_a_job_took_up(
     home_repo: None,
     run: Run, demo: str, on_github: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -7057,6 +7069,8 @@ def test_a_builders_staging_line_reaches_the_tester_its_prs_changed_files_gave_i
     run("pr", "add", PR, "--job", "j1", *LEAD)
     key, part, cases = "Forge-AI/monorepo#42", state.STAGING_TEST.format(number=42), "run the migration twice and roll it back on plat-usw2-staging"
     (tester_id,) = [job_id for job_id, job in state.load("demo")["jobs"].items() if state.builds_nothing(job)]
+    with edit("demo") as data:
+        data["prs"][key]["owes_staging"] = None
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 {cases}\n") == (0, "")
     data = state.load("demo")
     testers = [job_id for job_id, job in data["jobs"].items() if state.builds_nothing(job)]
@@ -7070,7 +7084,7 @@ def test_a_builders_staging_line_reaches_the_tester_its_prs_changed_files_gave_i
         data["jobs"][tester_id]["agent"] = None
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}") == (0, "")
     data = state.load("demo")
-    assert (part in data["orders"]["o1"]["parts"], data["prs"][key]["waits"], data["jobs"][tester_id]["state"]) == (False, [], "stopped")
+    assert (part in data["orders"]["o1"]["parts"], data["prs"][key]["waits"], data["jobs"][tester_id]["state"] != "stopped") == (False, [], True)
     assert view.staging(data, key) == "Not on staging: its builder says AGENTS.md's dangerous rule misses it: it changes no path AGENTS.md calls dangerous"
     with edit("demo") as data:
         data["prs"][key]["paths_at"] = None
@@ -7081,7 +7095,7 @@ def test_a_builders_staging_line_reaches_the_tester_its_prs_changed_files_gave_i
     assert (lifted, bool(marked), [state.load("demo")["jobs"][job_id]["goal"] for job_id in restaged]) == (None, True, [cases])
 
 
-def test_a_builders_42_none_lifts_a_test_no_job_took_up_and_one_that_ended_with_no_pass(
+def test_a_builders_42_none_lifts_an_unowed_test_no_job_took_up_and_one_that_ended_with_no_pass(
     home_repo: None,
     run: Run, demo: str, on_github: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -7091,12 +7105,15 @@ def test_a_builders_42_none_lifts_a_test_no_job_took_up_and_one_that_ended_with_
     run("pr", "add", PR, "--job", "j1", *LEAD)
     key, part = "Forge-AI/monorepo#42", state.STAGING_TEST.format(number=42)
     (tester_id,) = [job_id for job_id, job in state.load("demo")["jobs"].items() if state.builds_nothing(job)]
+    with edit("demo") as data:
+        data["prs"][key]["owes_staging"] = None
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 none: it changes one test's code alone\n") == (0, "")
     data = state.load("demo")
-    assert (part in data["orders"]["o1"]["parts"], data["prs"][key]["waits"], data["jobs"][tester_id]["state"]) == (False, [], "stopped")
+    assert (part in data["orders"]["o1"]["parts"], data["prs"][key]["waits"], data["jobs"][tester_id]["state"] != "stopped") == (False, [], True)
     with edit("demo") as data:
         data["prs"][key] |= {"unstaged": None, "paths_at": None, "head": "abc"}
         tester_id = state.mark_dangerous(data, key, "abc", ["api/migrations/1700_add_runs.sql"])
+        data["prs"][key]["owes_staging"] = None
         data["jobs"][tester_id] |= {"agent": "a1", "state": "failed"}
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 none: its failed test needs no rerun\n") == (0, "")
     data = state.load("demo")
@@ -13001,9 +13018,9 @@ def test_his_ask_owes_its_delivery_from_the_moment_it_is_filed_until_it_closes_a
 
 
 def test_his_undo_of_an_answer_owes_a_revert_on_each_job_that_acted_on_it_the_job_a_hand_off_gave_its_work_among_them(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
-    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
-    run("job", "add", "builder", "--order", "o1", "--goal", "ship again")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it", "--parts", "ship", "ship again")
+    run("job", "add", "builder", "--order", "o1", "--part", "ship", "--goal", "ship")
+    run("job", "add", "builder", "--order", "o1", "--part", "ship again", "--goal", "ship again")
     undo = "https://acme.slack.com/archives/D123/p1794800000000100"
     assert cli.main(["owed", "revert", "a1", "--link", undo, "--due", "2026-11-16T13:00:00-08:00"]) == 2
     with edit(demo) as data:

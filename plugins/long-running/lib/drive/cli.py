@@ -968,9 +968,9 @@ def repeated_lines(data: dict, order_id: str, parts: list[str]) -> list[str]:
 
 
 def pick_job_parts(name: str, data: dict, order_id: str, named: list[str]) -> list[str]:
-    """The parts a job takes on the order, each `port of #N` it names added to the order by change_parts when missing, so each old-tree port is a change of its own: its builder starts beside the builders of other ports, and its part is delivered, or flagged once its builder stops, on its own."""
+    """The parts a job takes on the order, each `port of #N` it names added to the order by change_parts when missing, so each old-tree port is a change of its own: its builder starts beside the builders of other ports, and its part is delivered, or flagged once its builder stops, on its own; none on an open order with no parts left, which still takes a job (o1676)."""
     change_parts(name, data, order_id, [part for part in dict.fromkeys(named) if state.PORT_PART.fullmatch(part) and part not in data["orders"][order_id]["parts"]], [])
-    return pick_parts(order_id, data["orders"][order_id], named)
+    return pick_parts(order_id, data["orders"][order_id], named) if named or data["orders"][order_id]["parts"] else []
 
 
 def apart_from_filing(order: dict) -> str:
