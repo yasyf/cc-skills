@@ -24,8 +24,10 @@ Contents:
 - A session on this Mac that stops on Claude Code's usage limit, "You've hit your weekly limit ·
   resets …", keeps working on paid usage, by his words "Keep working on paid usage": the StopFailure
   hook sends Escape alone to the dialog in the session's own Orca terminal once it draws, never one of
-  its options, since "if u answer it with the paid limit it makes you log in again", then resumes the
-  turn as it resumes any API error. Each hit
+  its options, since "if u answer it with the paid limit it makes you log in again", and Escape again
+  to a login screen the session lands on, never a login, by "if u end up at teh login prompt esc out
+  of that too", until a re-read shows neither screen, then resumes the turn as it resumes any API
+  error. Each hit
   goes on the job whose lane runs in that session's worktree, under `limit_hits`, and neither fails nor
   relaunches it, and one line of `claude-usage-limits.jsonl` under the state folder, which every drive
   on this Mac shares since they share one account, names the session, its job, the reset and whether Escape
