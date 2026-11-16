@@ -4561,6 +4561,39 @@ def test_a_pr_wake_for_an_adopted_prs_job_launches_its_first_builder_with_the_li
     assert run("job", "brief", "j1", "--handoff", handoff)[0] == 0
 
 
+def test_a_pr_wake_for_a_builder_waiting_its_turn_for_a_slot_here_asks_no_resume_and_holds_its_stage_line_once_for_the_worker_its_turn_starts_as_j3927_needed(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the conflict")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix the conflict", "--agent", "a1")
+    url = "https://github.com/Forge-AI/monorepo/pull/56074"
+    key = state.pr_key(url)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(session=data["roles"]["coordinator"]["session"], prs=[url])
+        place.queue(data["jobs"]["j1"], state.now())
+        data["prs"][key] = state.new_pr(url, "j1", "o1")
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
+    posted = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend(posts) or ["9"])
+    line = f"{key} red since 2026-11-15T16:06:32-08:00, owed by its builder: it conflicts with its base dev [o1 j1]"
+    for _ in range(2):
+        assert run("pr", "wake", url, "--text", line) == (0, f"{key}: sent to root@{demo} for j1")
+    in_line = "nothing to run: j1 waits its turn for a builder slot on this Mac, 1 of 1 in line, and the worker the watch starts as its turn comes carries this line"
+    assert [record["text"] for record in posted] == 2 * [f"STAGE {line}; for j1, with this line alone: {in_line}"]
+    data = state.load(demo)
+    assert [held["words"] for held in data["jobs"]["j1"]["undelivered"]] == [f"STAGE {line}"]
+    assert superseded.delivery(data, "j1", data["jobs"]["j1"], "his answer") == ("root", in_line.replace("this line", "his words"))
+
+
+def test_a_builder_waiting_its_turn_to_move_here_from_its_sprite_is_still_reached_through_its_lane_there(remote: str) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(workspace="pool-one", environment="pool-one", state="waiting", waits=[state.SLOT_WAIT])
+    data = state.load(remote)
+    job = data["jobs"]["j1"]
+    assert (place.positions(data), superseded.in_line(data, "j1", job)) == ({"j1": "1 of 1 in line"}, None)
+    assert superseded.delivery(data, "j1", job, "PR #7: checks failed", "this line")[1] == "drive job resume j1 with this line verbatim"
+
+
 def test_a_second_pr_wake_arriving_while_the_first_relaunches_the_dead_lane_waits_for_it_and_sends_that_worker_its_line(
     remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
