@@ -509,10 +509,12 @@ def test_a_schema_named_test_fixture_stores_no_data_while_a_migration_beside_it_
     assert card.render(pr_json(files=(fixture, MIGRATION)), entry())["prs"][0]["stored_data"] == f"Not said yet: {why}. The agent is fixing it."
 
 
-def test_a_card_finds_a_migration_past_the_first_100_files_gh_reads(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_card_finds_a_migration_past_the_first_100_files_its_read_lists_in_the_paths_the_drive_kept_with_no_read_of_its_files(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     listed = tuple(f"lib/part{n}.py" for n in range(100))
+    with state.edit("demo") as data:
+        assert state.mark_dangerous(data, "Forge-AI/monorepo#42", HEAD, [*listed, MIGRATION]) is None
     monkeypatch.setattr(card, "run", answering(pr_json(files=listed) | {"changedFiles": 101}))
-    monkeypatch.setattr(github, "files", lambda key: [*listed, MIGRATION])
+    monkeypatch.setattr(github, "files", lambda key: pytest.fail(f"drive card read the files of {key}"))
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
     assert MIGRATION in drawn["card"]["prs"][0]["stored_data"]
 
@@ -756,10 +758,13 @@ def test_shown_counts_known_prs_and_wakes_nobody(drive: str) -> None:
     assert events(drive) == []
 
 
-def test_refused_appends_one_event_per_new_reason(drive: str) -> None:
+def test_a_refusal_cc_slack_gives_again_after_every_draw_is_told_once_until_its_reason_changes(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card, "run", answering(pr_json()))
     refused = [{"repo": "Forge-AI/monorepo", "number": 42, "reason": "card needs a title"}]
     assert ask({"refused": refused}) == {"refused": 1}
-    assert ask({"refused": refused}) == {"refused": 0}
+    for _ in range(3):
+        [_drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
+        assert ask({"refused": refused}) == {"refused": 0}
     assert ask({"refused": [{**refused[0], "reason": "pull request is merged"}]}) == {"refused": 1}
     assert [(event["kind"], event["reason"]) for event in events(drive)] == [
         ("refused", "card needs a title"),
@@ -1481,6 +1486,8 @@ def test_a_stack_card_reads_github_once_per_25_prs_and_draws_under_no_drive_lock
     with state.edit("demo") as data:
         data["prs"] = {key: {**kept_entry(), "url": state.pr_url(key)} for key in keys}
     native_stacks.update(dict.fromkeys(keys, [(key, "open") for key in keys]))
+    monkeypatch.setattr(card, "run", changed_reads(card.run, lambda number, node: node | {"changedFiles": 400}))
+    monkeypatch.setattr(github, "files", lambda key: pytest.fail(f"drive card read the files of {key}"))
     receipts: list[list[str]] = []
     monkeypatch.setattr(state, "detach", lambda name, args, log: receipts.append(args) or 0)
     taken: list[str] = []

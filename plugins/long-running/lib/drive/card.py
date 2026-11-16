@@ -370,7 +370,7 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), undrawn: tuple[st
         "summary": section_words(found, "summary"),
         "impact": section_words(found, *IMPACT_HEADINGS),
         "refresher": section_words(found, *REFRESHER_HEADINGS) or comment_refresher(pr),
-        "stored_data": stored_words(found) or "".join(f"Not said yet: {why}. The agent is fixing it." for why in unsaid_storage(pr)),
+        "stored_data": stored_words(found) or "".join(f"Not said yet: {why}. The agent is fixing it." for why in unsaid_storage(pr, entry)),
         "surprise": section_words(found, "biggest surprise"),
         "hate_most": section_words(found, *HATE_HEADINGS),
         "show_me": "\n\n".join(filter(None, [show_me_words(found.get("show me", ""), bool(shown), charts), left_off(undrawn)])),
@@ -404,11 +404,12 @@ def stored_words(found: dict[str, str]) -> str:
     return next((words for heading in found if STORED_HEADING.search(heading) and (words := section_words(found, heading))), "")
 
 
-def unsaid_storage(pr: dict) -> tuple[str, ...]:
-    """Why his card on the PR cannot say how its stored data moves: it changes a migration, schema or wire format, by land.stored, and its body never says how the data stored before it moves; none when it says or stores nothing differently. His words under the card of a PR moving stored rows: "How will you migrate the old ones / avoid breaking anything?"."""
+def unsaid_storage(pr: dict, entry: dict) -> tuple[str, ...]:
+    """Why his card on the PR cannot say how its stored data moves: it changes a migration, schema or wire format, by land.stored over the files GitHub's read of it lists, or, for a PR changing more files than that read lists, over every file the drive's last read of its changed files found, kept on its entry by state.mark_dangerous, so no card waits on a read of each PR's files; and its body never says how the data stored before it moves; none when it says or stores nothing differently. His words under the card of a PR moving stored rows: "How will you migrate the old ones / avoid breaking anything?"."""
     from drive import land
 
-    if stored_words(sections(body_of(pr))) or not (paths := land.stored([file["path"] for file in pr["files"]])):
+    listed = [file["path"] for file in pr["files"]]
+    if stored_words(sections(body_of(pr))) or not (paths := land.stored(listed) if pr["changedFiles"] <= len(listed) else entry["stored"]):
         return ()
     return (f"it changes {', '.join(paths)}, and no `## How old data moves` section of its body says how the data stored before it moves or what keeps that from breaking",)
 
@@ -460,10 +461,14 @@ def render_stack(members: list[Member], siblings: bool) -> dict:
 
 
 def drive_prs() -> dict[str, tuple[str, dict]]:
+    return tracked({name: state.load(name) for name in state.names()})
+
+
+def tracked(drives: dict[str, dict]) -> dict[str, tuple[str, dict]]:
     """Each PR the drives track, with the drive whose entry for it was updated last, since a drive copied from another keeps the older copy of each entry."""
     known: dict[str, tuple[str, dict]] = {}
-    for name in state.names():
-        for key, entry in state.load(name)["prs"].items():
+    for name, data in drives.items():
+        for key, entry in data["prs"].items():
             if key not in known or state.parse_time(entry["updated"]) > state.parse_time(known[key][1]["updated"]):
                 known[key] = (name, entry)
     return known
@@ -482,17 +487,20 @@ def skip(key: str, reason: str) -> dict:
 
 
 def read(key: str, entry: dict | None = None) -> dict | None:
-    return github_reads({key: entry}).get(key)
+    """One PR's card fields with every file it changes, those past the first 100 its GraphQL read lists read over REST, by github.files."""
+    if not (pr := github_reads({key: entry}).get(key)):
+        return None
+    return pr | {"files": [{"path": path} for path in github.files(key)]} if pr["changedFiles"] > len(pr["files"]) else pr
 
 
 def github_reads(entries: dict[str, dict | None]) -> dict[str, dict]:
-    """Each PR's card fields, PRS_PER_QUERY PRs of one repository to one GraphQL read through ccx's GitHub cache, which answers the same read made within READ_AGE, but fresh for a read holding a PR whose card left a picture off, since the body edit that fixes it can be newer than the read cached, each read kept on disk, so a read GitHub refuses, as under its rate-limit floor, draws from the copy kept at the last read with the state and head the drive's entry holds; a PR GitHub reads merged that the entry holds folded reads FOLDED, by github.landing; a PR never read is left out. Its checks come from the drive's entry, its changed files past the first 100 gh reads over REST, and its newest 100 comments come in the same read, which asks for no comment's viewerDidAuthor, the field that sends a read to his own GraphQL budget instead of the GitHub App's."""
+    """Each PR's card fields, PRS_PER_QUERY PRs of one repository to one GraphQL read through ccx's GitHub cache, which answers the same read made within READ_AGE, but fresh for a read holding a PR whose card left a picture off, since the body edit that fixes it can be newer than the read cached, each read kept on disk, so a read GitHub refuses, as under its rate-limit floor, draws from the copy kept at the last read with the state and head the drive's entry holds; a PR GitHub reads merged that the entry holds folded reads FOLDED, by github.landing; a PR never read is left out. Its checks come from the drive's entry, its first 100 changed files and its newest 100 comments come in the same read, which asks for no comment's viewerDidAuthor, the field that sends a read to his own GraphQL budget instead of the GitHub App's."""
     found = {}
     for chunk in github.by_repository(list(entries), github.PRS_PER_QUERY):
         fresh = any((entries[key] or {}).get("undrawn") for key in chunk)
         try:
             answered = github.nodes(json.loads(run(["gh", "api", "graphql", "-f", f"query={github.query(chunk, FIELDS)}"], max_age="0s" if fresh else READ_AGE)), chunk)
-            prs = {key: card_fields(key, node) for key, node in answered.items()}
+            prs = {key: card_fields(node) for key, node in answered.items()}
         except (GithubError, json.JSONDecodeError) as error:
             print(f"drive card: {', '.join(chunk)}: {error}", file=sys.stderr)
             prs = {}
@@ -512,10 +520,9 @@ def github_reads(entries: dict[str, dict | None]) -> dict[str, dict]:
     return found
 
 
-def card_fields(key: str, node: dict) -> dict:
+def card_fields(node: dict) -> dict:
     """A PR's node in GitHub's reply to FIELDS shaped as `gh pr view --json` reads it, the shape the copy kept on disk holds."""
-    pr = node | {"author": node["author"] or {"login": github.DELETED_AUTHOR}, "labels": node["labels"]["nodes"], "files": node["files"]["nodes"], "comments": node["comments"]["nodes"]}
-    return pr | {"files": [{"path": path} for path in github.files(key)]} if pr["changedFiles"] > len(pr["files"]) else pr
+    return node | {"author": node["author"] or {"login": github.DELETED_AUTHOR}, "labels": node["labels"]["nodes"], "files": node["files"]["nodes"], "comments": node["comments"]["nodes"]}
 
 
 def drawn_reads(known: dict[str, tuple[str, dict]], keys: list[str]) -> dict[str, dict]:
@@ -539,6 +546,7 @@ def watched(entry: dict) -> dict | None:
         "labels": [{"name": github.HOLD_LABEL}] if entry["hold_label"] else [],
         "url": entry["url"],
         "comments": [],
+        "changedFiles": 0,
         "files": [],
     }
 
@@ -609,14 +617,13 @@ def remember(known: dict[str, tuple[str, dict]], stack: list[str], changes: dict
 
 
 def drawn(known: dict[str, tuple[str, dict]], undrawn: dict[str, tuple[str, ...]], at: str, changes: dict[str, dict]) -> None:
-    """Clears the refusal each drawn PR carries, so a PR drawn after a refusal reads as drawn and a later refusal is told again, and keeps on it why each Show me picture left off its card does not draw and when its body was read for it, at, and why the card cannot say how its stored data moves, by unsaid_storage, which record_kept tells once a reason to the session hearing its order, so a builder fixes the body and the watch redraws the card once GitHub reads the body edited since."""
+    """Keeps on each drawn PR why each Show me picture left off its card does not draw and when its body was read for it, at, and why the card cannot say how its stored data moves, by unsaid_storage, which record_kept tells once a reason to the session hearing its order, so a builder fixes the body and the watch redraws the card once GitHub reads the body edited since."""
     for key, left in undrawn.items():
         entry = known[key][1]
-        if not (left or entry["undrawn"] or entry.get("refused")):
+        if not (left or entry["undrawn"]):
             continue
         repo, number = key.split("#")
         why = f"{repo.split('/')[1]} PR {number}: {'; '.join(left)}, so his card went out without it" if left else None
-        entry.pop("refused", None)
         changes.setdefault(key, {})["undrawn"] = entry["undrawn"] = {"why": why, "at": at} if why else None
 
 
@@ -639,7 +646,7 @@ def kept_later(known: dict[str, tuple[str, dict]], changes: dict[str, dict]) -> 
 
 
 def record_kept(name: str, kept: Path) -> None:
-    """Apply a receipt kept_later kept to the drive in one edit, waiting out its lock however long it is held, since the card is already drawn: each PR's stack, its undrawn pictures, which clear its refusal, and its refusal, telling the session hearing its order a reason it was not told before; a PR the drive stopped tracking since is passed over. The receipt is removed once applied."""
+    """Apply a receipt kept_later kept to the drive in one edit, waiting out its lock however long it is held, since the card is already drawn: each PR's stack, its undrawn pictures and its refusal, telling the session hearing its order a reason it was not told before, so a refusal cc-slack gives again after every draw is told once until its reason changes; a PR the drive stopped tracking since is passed over. The receipt is removed once applied."""
     events = []
     with state.waiting_out_lock(), state.edit(name) as data:
         for key, change in json.loads(kept.read_text()).items():
@@ -650,7 +657,6 @@ def record_kept(name: str, kept: Path) -> None:
             if "stack" in change:
                 pr["stack"] = change["stack"]
             if "undrawn" in change:
-                pr.pop("refused", None)
                 if (why := (change["undrawn"] or {}).get("why")) and why != (pr["undrawn"] or {}).get("why"):
                     events.append(("undrawn", told | {"reason": why}))
                 pr["undrawn"] = change["undrawn"]
@@ -729,11 +735,11 @@ def foreign(drives: dict[str, dict], known: dict[str, tuple[str, dict]], members
     return "; ".join(why for key in members if (why := state.foreign_pr(drives[known[key][0]], key)))
 
 
-def on_his_card(known: dict[str, tuple[str, dict]], reads: dict[str, dict], members: list[str]) -> bool:
+def on_his_card(known: dict[str, tuple[str, dict]], founds: dict[str, dict | None], reads: dict[str, dict], members: list[str]) -> bool:
     """Whether an open card of his already carries one of the PRs: a wait redraws that card in place, Approve and Hold kept, and never draws a fresh one."""
     from drive import view
 
-    listed = ((view.live_cards(known[key][0]), reads[key]["url"]) for key in members)
+    listed = ((founds[known[key][0]], reads[key]["url"]) for key in members)
     return any(found is not None and view.card_for(found["pr_cards"], url) is not None for found, url in listed)
 
 
@@ -741,7 +747,8 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
     """One card per stack the asked PRs form, by groups(), bottom PR first, cut below its lowest PR reworked to his words, which with every PR above it is refused by reworked() since none lands without it, each card drawn kept on its PRs and asking under ask_waits, so Approve lands exactly the PRs it asks, and a fresh one only when tap_refused finds one of them asking his Approve, the same check that puts Approve on a card. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card, a Show me picture that does not draw included, such as an arch diagram whose store node names a medium the drawing does not know: it is left off, the card's Show me saying why in one line, which `drawn` tells the session hearing its order. The reply skips only PRs it was asked for, since cc-slack refuses a whole draw or redraw whose reply skips any PR, so a stack mate refused beside an asked PR, such as the reworked PR above it, never keeps the asked PR's card from drawing."""
     from drive import view
 
-    at, known = state.stamp(), drive_prs()
+    at, drives = state.stamp(), {name: state.load(name) for name in state.names()}
+    known = tracked(drives)
     asked_keys = keys_of(asked, known)
     for key in asked_keys:
         if key not in known:
@@ -759,7 +766,7 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
         members = [key for key in group if key in reads]
         if not members:
             continue
-        drives = {name: state.load(name) for name in {known[key][0] for key in members}}
+        founds = {name: view.live_cards(name) for name in {known[key][0] for key in members}}
         lowest = next((index for index, key in enumerate(members) if reworked(known, [key])), len(members))
         reason = foreign(drives, known, members) or ("" if lowest else reworked(known, members))
         if not reason and lowest < len(members):
@@ -767,7 +774,7 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
             skipped += [skip(key, why) for key in members[lowest:]]
             refusing(known, members[lowest:], why, changes)
             members = members[:lowest]
-        fresh = not redraw and not on_his_card(known, reads, members)
+        fresh = not redraw and not on_his_card(known, founds, reads, members)
         if fresh and not reason and (off := untapped(drives, known, reads, members)):
             skipped += [skip(key, off) for key in members]
             continue
@@ -777,13 +784,12 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
             continue
         taken: set[str] = set()
         drawings = {key: pictured(known[key][0], reads[key], state.pr_jobs(drives[known[key][0]], known[key][1]), taken) for key in members}
-        founds = {name: view.live_cards(name) for name in drives}
         card = drawn_card(
             [member(drives[known[key][0]], founds[known[key][0]], reads[key], known[key][1], drawings[key]) for key in members],
             siblings(known, members, reads),
         )
         remember(known, members, changes)
-        drawn(known, {key: (*undrawn, *unsaid_storage(reads[key])) for key, (_, undrawn) in drawings.items()}, at, changes)
+        drawn(known, {key: (*undrawn, *unsaid_storage(reads[key], known[key][1])) for key, (_, undrawn) in drawings.items()}, at, changes)
         repo, number = members[0].split("#")
         found.append({"repo": repo, "number": int(number), "card": card})
     kept_later(known, changes)
