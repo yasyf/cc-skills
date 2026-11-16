@@ -3195,7 +3195,7 @@ def mid_pass(monkeypatch: pytest.MonkeyPatch, before_lane_lines: Callable[[], ob
 def test_a_line_whose_post_failed_goes_to_the_watch_its_launch_agent_starts_on_the_newer_install_it_ended_for_between_passes(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    upgrades(monkeypatch, tmp_path, [False, True])
+    upgrades(monkeypatch, tmp_path, [True])
     tapped = f"TAP Hold {KEY} [o1 j1]"
     monkeypatch.setattr(watch, "passed", lambda watching, moment, until: [[tapped]])
     monkeypatch.setattr(watch.time, "sleep", lambda seconds: None)
@@ -3217,7 +3217,7 @@ def spied(monkeypatch: pytest.MonkeyPatch, names: tuple[str, ...]) -> list[str]:
     return ran
 
 
-def test_a_watch_that_finds_a_newer_install_between_two_stages_ends_before_the_next_and_the_watch_on_that_install_runs_only_the_stages_it_had_not(
+def test_a_watch_that_finds_a_newer_install_between_two_stages_of_a_pass_after_its_first_ends_before_the_next_and_the_watch_on_that_install_runs_only_the_stages_it_had_not(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     serve(monkeypatch, {})
@@ -3226,11 +3226,18 @@ def test_a_watch_that_finds_a_newer_install_between_two_stages_ends_before_the_n
     newer: list[Path] = []
     monkeypatch.setattr(watch, "upgraded", lambda: newer[-1] if newer else None)
     ran = spied(monkeypatch, ("settle_lines", "release_lanes", "standing_lines"))
-    mid_pass(monkeypatch, lambda: newer.append(install))
+    reads: list[None] = []
+
+    def second_read() -> None:
+        reads.append(None)
+        if len(reads) > 1:
+            newer.append(install)
+
+    mid_pass(monkeypatch, second_read)
     monkeypatch.setattr(watch.time, "sleep", lambda seconds: None)
     launched(monkeypatch, demo)
     assert watch.main(demo) == 0
-    assert (ran, state.resume_path(demo).read_text()) == (["settle_lines"], "release_lanes")
+    assert (ran, state.resume_path(demo).read_text()) == (["settle_lines", "release_lanes", "standing_lines", "settle_lines"], "release_lanes")
     assert f"ended on long-running {state.VERSION} for {install}, before release_lanes" in capsys.readouterr().out.splitlines()
     ran.clear()
     newer.clear()

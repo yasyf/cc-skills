@@ -1773,25 +1773,31 @@ def responder(name: str, project: str | None, lines: int) -> int:
 
 
 def beside_passes(name: str, project: str | None, lines: int, flag: str, passing: Callable[[Watcher, datetime], list[str]], seconds: float) -> int:
-    """Run one pass after another, seconds apart, each first moving this process onto the newest install, by install.reopen, once watch_upgraded reads that install running other code than this one, so the code installed now runs it however long a pass holds the watch on the install it started on, and an install that changes none of its code moves nothing. Each line a pass makes goes to the watch down the pipe end it inherited, for the watch's next pass to hand on; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag rather than an Event, which a handler setting it can deadlock on. It keeps a Watcher of its own, so a failed Orca read of its own never reruns the pass's 60-second block."""
+    """Run one pass after another, seconds apart, each first moving this process onto the newest install, by install.reopen, once watch_upgraded reads that install running other code than this one, so the code installed now runs it however long a pass holds the watch on the install it started on, and an install that changes none of its code moves nothing. Each line a pass makes goes to the watch down the pipe end it inherited, for the watch's next pass to hand on; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag rather than an Event, which a handler setting it can deadlock on. It keeps a Watcher of its own, so a failed Orca read of its own never reruns the pass's 60-second block. Its guard ends it once a pass runs past PASS_FOR and a minute or a rest past STALL_FOR, its stacks in the watch's log, and the watch starts it again, by relayed_lines."""
     ended = term_flag()
     if unwatched(project):
         return 0
     children.reap_inherited()
     passer = Watcher(name, offset=state.watch_cursor(name, project), project=project)
-    with os.fdopen(lines, "w", buffering=1) as written:
-        while not over(ended):
-            if upgraded():
-                with term_held():
-                    install.reopen(["watch", flag, str(lines), "--drive", name, *(["--project", project] if project else [])])
-            if every_project():
-                joined(passer, state.now(), held_beside(name), lambda project: Watcher(name, offset=state.watch_cursor(name, project), project=project))
-            for one in [passer, *passer.others.values()]:
-                if over(ended):
-                    break
-                for line in passing(one, state.now()):
-                    written.write(f"{relayed(one, LINE_BREAKS.sub(' ', line))}\n")
-            time.sleep(seconds)
+    finished = guarded(name, flag)
+    try:
+        with os.fdopen(lines, "w", buffering=1) as written:
+            while not over(ended):
+                beat("pass", True)
+                if upgraded():
+                    with term_held():
+                        install.reopen(["watch", flag, str(lines), "--drive", name, *(["--project", project] if project else [])])
+                if every_project():
+                    joined(passer, state.now(), held_beside(name), lambda project: Watcher(name, offset=state.watch_cursor(name, project), project=project))
+                for one in [passer, *passer.others.values()]:
+                    if over(ended):
+                        break
+                    for line in passing(one, state.now()):
+                        written.write(f"{relayed(one, LINE_BREAKS.sub(' ', line))}\n")
+                beat("rest")
+                time.sleep(seconds)
+    finally:
+        finished.set()
     return 0
 
 
@@ -1837,6 +1843,7 @@ def landing_loop(name: str, project: str | None, lines: int) -> int:
     landing = landing_watcher(name, project)
     argv = ["watch", "--land", str(lines), "--drive", name, *(["--project", project] if project else [])]
     told: dict[str | None, dict] = {}
+    finished = guarded(name, "--land")
     try:
         with os.fdopen(lines, "w", buffering=1) as untracked:
             for _ in rests(state.events_path(name), receiver.deliveries_path()):
@@ -1855,13 +1862,16 @@ def landing_loop(name: str, project: str | None, lines: int) -> int:
                     if one.untracked != told.get(one.project):
                         told[one.project] = dict(one.untracked)
                         untracked.write(f"{relayed(one, json.dumps(told[one.project]))}\n")
+                    beat("landing pass", True)
                     moment = state.now()
                     for said in passed(one, moment, staged=landing_pass):
                         for line in sent(one, one.lane, said, moment):
                             print(line, flush=True)
+                beat("rest")
     finally:
         for one in [landing, *landing.others.values()]:
             hold(one)
+        finished.set()
     return 0
 
 
@@ -5567,19 +5577,31 @@ def stalled(pulse: Pulse, now: float) -> bool:
     return now - pulse.since > (PASS_FOR + SLOW_STAGE if pulse.staged else STALL_FOR).total_seconds()
 
 
-def guard(name: str, ended: threading.Event) -> None:
-    """Write the watch's heartbeat, its pid, step and how long that step has run, to BEAT_FILE every BEAT_SECONDS until ended is set, and end the process once it is stalled on a step, its threads' stacks dumped to its log first, so its launch agent starts a fresh watch within RESTART_SECONDS and the log names the line it hung on; no pass, rest, start or end of the watch then holds the drive's watch for longer than PASS_FOR and a minute, or STALL_FOR outside a stage."""
-    path = state.drive_dir(name) / BEAT_FILE
+def guard(path: Path, ended: threading.Event) -> None:
+    """Write the watch's heartbeat, its pid, step and how long that step has run, to path every BEAT_SECONDS until ended is set, and end the process once it is stalled on a step, its threads' stacks dumped to its log first, so its launch agent starts a fresh watch within RESTART_SECONDS, or the watch starts a fresh responder, relay or landing loop as RESTART_SECONDS pass, and the log names the line it hung on; no pass, rest, start or end of the watch then holds the drive's watch for longer than PASS_FOR and a minute, or STALL_FOR outside a stage."""
     while True:
         now = monotonic()
         path.write_text(json.dumps({"pid": os.getpid(), "step": PULSE.step, "for": round(now - PULSE.since), "at": state.stamp()}) + "\n")
         if stalled(PULSE, now):
-            print(f"{state.stamp()} WATCH stalled {now - PULSE.since:.0f}s on {PULSE.step}, so it ends for its launch agent to start it again; every thread's stack:", flush=True)
+            print(f"{state.stamp()} WATCH stalled {now - PULSE.since:.0f}s on {PULSE.step}, so it ends to be started again; every thread's stack:", flush=True)
             faulthandler.dump_traceback(file=sys.stdout, all_threads=True)
             sys.stdout.flush()
             os._exit(3)
         if ended.wait(BEAT_SECONDS):
             return
+
+
+def guarded(name: str, flag: str | None) -> threading.Event:
+    """Start the guard of this process, the watch's when flag is None, else that of the responder, relay or landing loop flag names, writing its heartbeat beside the watch's, and return the event that ends it."""
+    beat("start")
+    finished = threading.Event()
+    threading.Thread(target=guard, args=(beat_path(name, flag), finished), daemon=True).start()
+    return finished
+
+
+def beat_path(name: str, flag: str | None) -> Path:
+    """The heartbeat file of the watch, or of the process beside it flag names, as watchd-relay.beat for --relay."""
+    return state.drive_dir(name) / (BEAT_FILE if flag is None else BEAT_FILE.replace(".", f"-{flag.lstrip('-')}.", 1))
 
 
 def main(drive_name: str | None = None, project: str | None = None) -> int:
@@ -5598,9 +5620,7 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
         return 0
     if not claim(name):
         return 0
-    beat("start")
-    ended = threading.Event()
-    threading.Thread(target=guard, args=(name, ended), daemon=True).start()
+    ended = guarded(name, None)
     watcher = None
     try:
         os.environ.update(launchd.session_env())
@@ -5626,24 +5646,27 @@ def watched(name: str, project: str | None) -> Watcher:
 
 
 def watching(watcher: Watcher) -> None:
-    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, the drive's pass first, then each project's, by joined, each project the watch claims the pid file of, so a project an older install's watch still runs waits for it to end; and end once a newer long-running is installed, before a pass or between two of a pass's stages, saying so in its log, so its launch agent starts the watch on that install within RESTART_SECONDS of the stage running then, however long a pass runs, and the watch there runs the stages this one had not. A pass that runs past PASS_FOR ends before its next stage the same way, that stage kept as its resume, so one slow project holds the others' passes up no longer than that. A crash wakes the session the crashing pass posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
+    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, the drive's pass first, then each project's, by joined, each project the watch claims the pid file of, so a project an older install's watch still runs waits for it to end; and end once a newer long-running is installed, before a pass or between two of a pass's stages, saying so in its log, so its launch agent starts the watch on that install within RESTART_SECONDS of the stage running then, however long a pass runs, and the watch there runs the stages this one had not, though a watch reads no install until it has run one whole pass, so installs landing minutes apart never end each watch they start before its first pass ends. A pass that runs past PASS_FOR ends before its next stage the same way, that stage kept as its resume, so one slow project holds the others' passes up no longer than that. A crash wakes the session the crashing pass posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     one = watcher
+    passes = 0
     try:
         with relaying(watcher):
             for _ in rests(state.events_path(watcher.name)):
                 beat("pass")
-                if newer := upgraded():
+                if passes and (newer := upgraded()):
                     print(f"ended on long-running {state.VERSION} for {newer}, before {watcher.resume or 'its next pass'}", flush=True)
                     break
+                handing = bool(watcher.made)
                 joined(watcher, state.now(), functools.partial(claim, watcher.name), functools.partial(watched, watcher.name))
                 for one in [watcher, *watcher.others.values()]:
                     read_from, moment = one.offset, state.now()
-                    for said in [handed(one, one.made, moment)] if one.made else passed(one, moment, lambda moment=moment: upgraded() or state.now() - moment > PASS_FOR):
+                    for said in [handed(one, one.made, moment)] if one.made else passed(one, moment, lambda moment=moment: (passes and upgraded()) or state.now() - moment > PASS_FOR):
                         for line in sent(one, one.lane, said, moment):
                             print(line, flush=True)
                     if one.offset != read_from:
                         state.save_watch_cursor(one.name, one.offset, one.project)
+                passes += not handing
                 beat("rest")
             beat("end")
     except Exception as error:
