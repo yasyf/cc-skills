@@ -2572,7 +2572,7 @@ def test_a_job_only_carrying_an_order_and_its_pr_owe_that_orders_thread_no_line_
 
 
 @pytest.mark.parametrize("incident", [False, True])
-def test_a_handoff_asking_for_a_job_owes_its_thread_one_line_five_quiet_minutes_after_the_line_promising_it_whatever_was_answered_naming_each_record_re_it_until_a_job_of_its_order_is_made_or_the_job_it_names_starts(
+def test_a_handoff_asking_for_a_job_owes_its_thread_one_line_five_quiet_minutes_after_the_line_promising_it_whatever_was_answered_naming_each_record_re_it_until_a_job_of_its_order_is_made_or_a_job_it_names_works(
     demo: str, monkeypatch: pytest.MonkeyPatch, incident: bool
 ) -> None:
     """The o1102 thread: a handler promised "A job reading why that blob is missing is being started" on handoff 701640 alone, the coordinator answered it with evidence 701688 and started no job, and the thread had no line for five and a half hours."""
@@ -2581,7 +2581,7 @@ def test_a_handoff_asking_for_a_job_owes_its_thread_one_line_five_quiet_minutes_
         data["orders"]["o1"]["incident"] = incident
         data["jobs"]["j1"].update(state="waiting", said="WAITING on his card")
     calls = catching_up(monkeypatch, demo)
-    evidence = {"seq": 701688, "kind": "evidence", "lane": "platform", "re": 701640, "text": "No new job from Platform: those 500s are the incident the sandsql lane already runs"}
+    evidence = {"seq": 701688, "kind": "evidence", "lane": "platform", "re": 701640, "text": "No new job from Platform: those 500s are the incident the sandsql lane already runs", "fields": {}}
     monkeypatch.setattr(watch.agents, "answering", lambda name, seq: [evidence] if seq == "701640" else [])
     watching = watcher(demo)
 
@@ -2593,7 +2593,7 @@ def test_a_handoff_asking_for_a_job_owes_its_thread_one_line_five_quiet_minutes_
 
     def handed(seq: str, moment: datetime) -> None:
         with state.edit(demo) as data:
-            data["orders"]["o1"]["handoffs"].append({"seq": seq, "text": "start a job reading why that blob is missing", "at": state.stamp(moment), "job": None})
+            data["orders"]["o1"]["handoffs"].append({"seq": seq, "text": "start a job reading why that blob is missing", "at": state.stamp(moment), "jobs": []})
 
     def owed(moment: datetime) -> list[str]:
         data = state.load(demo)
@@ -2610,7 +2610,7 @@ def test_a_handoff_asking_for_a_job_owes_its_thread_one_line_five_quiet_minutes_
     lines = body.splitlines()
     assert "Moved since the thread's last line or the watch's last report on it: handoff 701640. At work: no job." in lines
     assert lines[-3:] == [
-        "Handoffs no job of their order was made after, nor the job each names started: 1. Say in its thread what each asked for, what each record re it answered, and that no job of its order started since, then send the work it asked for on as work no job holds, so a job is put on it.",
+        "Handoffs no job of their order was made after, nor any job each names worked after: 1. Say in its thread what each asked for, what each record re it answered, and that no job of its order started since, then send the work it asked for on as work no job holds, so a job is put on it.",
         f"- handoff 701640, sent {render.when(state.stamp(T0 + timedelta(minutes=2)))}: start a job reading why that blob is missing",
         f"  - 701688 evidence from platform re it: {evidence['text']}",
     ]
@@ -2633,6 +2633,28 @@ def test_a_handoff_asking_for_a_job_owes_its_thread_one_line_five_quiet_minutes_
         data["orders"]["o1"]["jobs"].append("j3")
         data["jobs"]["j3"] = job(kind="reader", created=state.stamp(BACK + timedelta(minutes=2)))
     assert owed(BACK + timedelta(minutes=6)) == []
+
+
+@pytest.mark.parametrize(("kind", "given", "owed"), [("answer", 4, False), ("answer", 1, True), ("withdraw", 1, False)])
+def test_a_handoff_a_record_re_it_withdraws_or_answers_naming_a_job_given_work_since_owes_its_thread_no_line_and_starts_no_handler(
+    demo: str, monkeypatch: pytest.MonkeyPatch, kind: str, given: int, owed: bool
+) -> None:
+    """The watch listed handoff 719030 as one no job of its order was made after though answer 719047 named builder j6428 on o573 holding its work, and handoff 705680 as open though withdraw 705729 closed it, and started a handler that found nothing to post."""
+    threaded(demo)
+    calls = catching_up(monkeypatch, demo)
+    record = {"seq": 719047, "kind": kind, "lane": "root", "re": 719030, "text": "builder j2 on o2 holds this work", "fields": {"attrs": {"job": "j2"}}}
+    monkeypatch.setattr(watch.agents, "answering", lambda name, seq: [record] if seq == "719030" else [])
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", said="WAITING on his card")
+        data["orders"]["o2"] = order(text="ship the alert", jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2", given=[{"words": "carry handoff 719030", "at": state.stamp(T0 + timedelta(minutes=given))}])
+        data["orders"]["o1"]["handoffs"].append({"seq": "719030", "text": "start a builder on the fix", "at": state.stamp(T0 + timedelta(minutes=2)), "jobs": []})
+        data["orders"]["o1"]["last_line"] = state.stamp(T0 + timedelta(minutes=3))
+    watching = watcher(demo)
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=3)) == []
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=8)) == []
+    assert bool(calls) is owed
+    assert state.load(demo)["orders"]["o1"]["handoffs"] == ([] if kind == "withdraw" else [{"seq": "719030", "text": "start a builder on the fix", "at": state.stamp(T0 + timedelta(minutes=2)), "jobs": ["j2"]}])
 
 
 @pytest.mark.parametrize("held", ["away", "close_report", "closed_on"])

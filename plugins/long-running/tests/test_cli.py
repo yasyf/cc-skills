@@ -9592,7 +9592,7 @@ def test_a_change_job_added_on_a_part_another_unfinished_one_carries_folds_into_
     )
     data = state.load("demo")
     assert (data["jobs"]["j3"]["parts"], data["jobs"]["j3"]["prs"], data["prs"][key]["job"]) == (["spike 2", "spike 1"], [url], "j3")
-    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"]) == ("stopped", "handed to j3")
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"], data["jobs"]["j1"]["handed_to"]) == ("stopped", "handed to j3", "j3")
 
 
 def test_a_change_job_added_on_one_part_of_a_returned_job_takes_that_part_and_its_pr_and_stops_the_job_only_once_it_is_left_no_part(run: Run, demo: str) -> None:
