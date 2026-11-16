@@ -63,7 +63,7 @@ def job_rows(data: dict, job_id: str, job: dict, registered: dict[str, list[str]
     rows = [f"- job: {render.job_line(data, job_id, job, 160)}; updated {render.when(job['updated'])}" + (f"; its last line: {cut(' '.join(last.split()), 400)}" if last else "")]
     for key in render.job_pr_keys(job, registered.get(job_id, [])):
         rows.append(f"  - PR {state.pr_url(key)}: {cut(render.pr_line(data, key, data['prs'][key].get('card_state')), 300)}" if key in data["prs"] else f"  - PR {state.pr_url(key)}")
-    rows += [f"  - open card asking him: {cut(question['title'] or 'his question card', 120)}" + (f" {question['card']}" if question.get("card") else "") for question in job["questions"] if not question.get("closed")]
+    rows += [f"  - {'open card' if question['card'] else 'question, no card drawn yet,'} asking him: {cut(question['title'] or 'his question card', 120)}" + (f" {question['card']}" if question["card"] else "") for question in job["questions"] if not question.get("closed")]
     return rows
 
 

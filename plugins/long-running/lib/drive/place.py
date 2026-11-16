@@ -338,9 +338,9 @@ def crowded(data: dict, job_id: str | None, moment: datetime) -> str | None:
 
 
 def woken(data: dict, job_id: str, moment: datetime) -> str | None:
-    """Why a message may not wake the builder's agent on this Mac: its turn ended, so the message starts it again, and crowded gives it no slot."""
+    """Why a message may not wake the builder's agent on this Mac: its turn ended, so the message starts it again, and crowded gives it no slot; one marked with --builds-nothing on drive job add or drive job set takes it at once, as the refusal says, since its work holds no checkout or compiler."""
     job = data["jobs"][job_id]
-    if job["kind"] != "builder" or job.get("where") == "remote" or not job.get("agent") or job_id in local_builders(data, moment):
+    if job["kind"] != "builder" or job.get("where") == "remote" or not job.get("agent") or job.get("builds_nothing") or job_id in local_builders(data, moment):
         return None
     return f"its turn ended and {why}" if (why := crowded(data, job_id, moment)) else None
 

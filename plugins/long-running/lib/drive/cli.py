@@ -4028,7 +4028,8 @@ def admission_refusal(name: str, data: dict, job_id: str, local: bool, step: str
         return None
     with state.edit(name) as data:
         place.queue_sprite(data["jobs"][job_id], state.now())
-    line = place.sprite_line(data)
+    if job_id not in (line := place.sprite_line(data)):
+        return f"{why}, so {job_id} waits on sprite-slot until its project's budget resets tomorrow, and the watch's FREE line names it then: launch it then"
     return f"{why}, so {job_id} waits its turn for a Sprite lane, {line.index(job_id) + 1} of {len(line)} in line, and the watch's FREE line names it as one frees: launch it then"
 
 
