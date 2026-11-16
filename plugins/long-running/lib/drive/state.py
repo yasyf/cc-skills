@@ -4307,8 +4307,8 @@ def drop_ended_texts(data: dict, ended: dict[str, str]) -> list[str]:
 
 
 def down_mac_boxes(name: str, data: dict, finished: list[str]) -> None:
-    """Take down every Mac box each job a save just finished holds: `drive mac-boxes-down` on those jobs, a process of its own that outlives the save, its output appended to the drive's mac-boxes.log, so a box comes down with the job whose holder tag it carries while the save neither waits on the drive's checkout nor fails with it. None for a scratch drive, a proof's or a test's, or a coordinator checkout with no tools/ci, which hold no Mac box."""
-    if not finished or scratch() or not (Path(data["roles"]["coordinator"]["cwd"]) / "tools" / "ci").is_file():
+    """Take down every Mac box each job a save just finished holds: `drive mac-boxes-down` on those jobs, a process of its own that outlives the save, its output appended to the drive's mac-boxes.log, so a box comes down with the job it is named after while the save neither waits on the drive's checkout nor fails with it. None for a scratch drive, a proof's or a test's, or a repository whose .claude/long-running.toml names no [mac_box] down command, which holds no Mac box."""
+    if not finished or scratch() or not mac_box_command(data, "down"):
         return
     detach(name, ["mac-boxes-down", *finished], MAC_BOXES_LOG)
 
@@ -5138,6 +5138,11 @@ def repo_config(data: dict) -> dict:
     """The tables of the .claude/long-running.toml in the drive's checkout, which the drive moves to its default branch's head before each launch, through which the repository the drive works in customizes every drive working in it; none when the repository holds no such file."""
     path = Path(next(iter(bound_sessions(data).values()))["cwd"], REPO_RULES)
     return tomllib.loads(path.read_text()) if path.is_file() else {}
+
+
+def mac_box_command(data: dict, verb: str) -> str | None:
+    """The shell command the [mac_box] table of the repository's .claude/long-running.toml names for verb: `down`, which takes down the box named `{box}`, a job's id, held by `{holder}`, `<drive>/<job>`, and `list`, which prints the name of each live box, one a line; None when it names none."""
+    return repo_config(data).get("mac_box", {}).get(verb)
 
 
 def repo_rules(data: dict) -> list[str]:

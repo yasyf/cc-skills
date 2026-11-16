@@ -110,6 +110,9 @@ RECLAIMED = "reclaimed by the watch's drive job reclaim once its job was quiet"
 ADOPTED = "its Sprite stayed up for this job's lane though no row or death of the job named it, so the watch adopted it for drive job reclaim"
 ADOPT_AFTER = timedelta(hours=1)
 SPRITE_LIST = "sprite list"
+BOX_LIST = "the Mac box list"
+BOX_SWEEP = timedelta(hours=1)
+BOX_LIST_SECONDS = 120
 LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
 OWED_HAND = timedelta(minutes=2)
@@ -157,6 +160,7 @@ class Watcher:
     project: str | None = None
     delivered: int = 0
     read_at: datetime | None = None
+    boxes_at: datetime | None = None
     drained_at: datetime | None = None
     failures: dict[str, int] = field(default_factory=dict)
     failure_said: dict[str, datetime] = field(default_factory=dict)
@@ -4017,7 +4021,7 @@ def release_lanes(watcher: Watcher, moment: datetime) -> list[str]:
     """Free what each job it hears is done with still holds, never what a running job holds, starting each drive verb that frees one as a process of its own, by state.detach, and keeping that process's pid and time on the drive, so a restarted watch reads what every earlier watch asked. First, by one rule, a remote job that is not running holds no Sprite once its worker's turn is over: the own lane of each job whose line set it done, failed or stopped, or set it waiting or built and whose worker then ended its turn or died, by unended, so a live lane waiting on its own question or on a read it asked keeps it, is ended by `drive job end`, which keeps its transcripts, saves what its Sprite holds on no remote and destroys it, every due job's in the pass that reads the event ending its turn, so lanes end as fast as they start, kept as the job's end, so no watch ends that lane again while that end is in_flight, and its Sprite left to that end alone while the end it records on the lane is, ahead of every reclaim, so no reclaim and no install delays an end. Then each Sprite cc-remote still records that an earlier or ended lane of any job left, such as the Sprite a relaunch moved off or one an end kept, destroyed with its Orca environment by --destroy once what it holds on no remote is saved to GitHub as saved/<the job's lane>/<branch>, or else kept by that reclaim, said once and never asked for again; and the dispatch of a done, failed or stopped lane on this Mac once its job has been quiet for QUIET_LANE, as lr's gc --done waited after a lane's last word, whose terminal --run --done closes and whose worktree it removes once clean and pushed, the reclaimer skipping whatever its pauses hold, its death recorded first. Each of those goes to `drive job reclaim`, whose orca.reclaimer kills the reclaimer with every process it started past RECLAIM_SECONDS, kept as the reclaim on the death of the lane that left it, and none asked again while its own is in_flight; what each run printed goes to the watch log."""
     if state.scratch():
         return []
-    lines = adopt_sprites(watcher, moment)
+    lines = adopt_sprites(watcher, moment) + finished_boxes(watcher, moment)
     data = state.load(watcher.name)
     heard = {job_id: job for job_id, job in data["jobs"].items() if heard_job(watcher, data, job)}
     ending = [job_id for job_id, job in heard.items() if unended(job, moment)]
@@ -4052,6 +4056,25 @@ def rest_sessions(watcher: Watcher, moment: datetime) -> list[str]:
                     agents.end_bg(session, Path(job["bg"]["cwd"]), removed=job["state"] in state.FINISHED_JOB_STATES)
         except state.DriveError:
             continue
+    return []
+
+
+def finished_boxes(watcher: Watcher, moment: datetime) -> list[str]:
+    """Take down, by `drive mac-boxes-down` in a process of its own, each live Mac box named after a done, failed or stopped job the watch hears, read by the repository's [mac_box] list command once every BOX_SWEEP, so a box whose save never took it down, or whose down refused, comes down after; the lines a failed list makes."""
+    data = state.load(watcher.name)
+    if watcher.boxes_at is not None and moment - watcher.boxes_at < BOX_SWEEP or not (command := state.mac_box_command(data, "list")):
+        return []
+    watcher.boxes_at = moment
+    try:
+        done = subprocess.run(command, shell=True, cwd=data["roles"]["coordinator"]["cwd"], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=BOX_LIST_SECONDS, check=False)
+    except subprocess.TimeoutExpired:
+        return read_failed(watcher, BOX_LIST, orca.OrcaError(f"{command} ran past {BOX_LIST_SECONDS} s"), moment)
+    if done.returncode:
+        return read_failed(watcher, BOX_LIST, orca.OrcaError(f"{command} exited {done.returncode}: {(done.stderr.strip().splitlines() or ['no output'])[-1]}"), moment)
+    watcher.failures.pop(BOX_LIST, None)
+    held = [job_id for job_id in sorted(set(done.stdout.split())) if (job := data["jobs"].get(job_id)) and job["state"] in state.FINISHED_JOB_STATES and heard_job(watcher, data, job)]
+    if held:
+        state.detach(watcher.name, ["mac-boxes-down", *held], state.MAC_BOXES_LOG)
     return []
 
 

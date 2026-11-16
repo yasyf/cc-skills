@@ -85,6 +85,8 @@ def test_a_save_hands_a_finished_jobs_mac_boxes_to_a_process_of_its_own_that_tak
     (checkout / "tools").mkdir(parents=True)
     (checkout / "tools" / "ci").write_text(f'#!/bin/sh\necho "$(pwd -P) $*" >> {tmp_path / "downs"}\n')
     (checkout / "tools" / "ci").chmod(0o755)
+    (checkout / ".claude").mkdir()
+    (checkout / ".claude" / "long-running.toml").write_text('[mac_box]\ndown = "tools/ci mac-box down --holder {holder} {box}"\n')
     state.create(state.new_drive("demo", "coordinator", None, str(checkout)))
     detached: list[tuple[str, list[str], str]] = []
     monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append((name, args, log)) or 0)
@@ -92,7 +94,7 @@ def test_a_save_hands_a_finished_jobs_mac_boxes_to_a_process_of_its_own_that_tak
     REAL_DOWN_MAC_BOXES("demo", state.new_drive("demo", "coordinator", None, str(tmp_path / "elsewhere")), ["j3"])
     assert detached == [("demo", ["mac-boxes-down", "j1", "j2"], state.MAC_BOXES_LOG)]
     assert run("mac-boxes-down", "j1", "j2", "--drive", "demo")[0] == 0
-    assert (tmp_path / "downs").read_text().splitlines() == [f"{checkout.resolve()} mac-box down --holder demo/j1", f"{checkout.resolve()} mac-box down --holder demo/j2"]
+    assert (tmp_path / "downs").read_text().splitlines() == [f"{checkout.resolve()} mac-box down --holder demo/j1 j1", f"{checkout.resolve()} mac-box down --holder demo/j2 j2"]
 
 
 def test_edit_saves_atomically_and_leaves_no_temp(state_root: Path) -> None:

@@ -5912,8 +5912,13 @@ def handler_start(args: argparse.Namespace) -> int:
 
 def mac_boxes_down(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
-    checkout = orca.checkout(name, state.load(name)["roles"]["coordinator"]["cwd"])
-    return max(subprocess.run([str(checkout / GO_CI), "mac-box", "down", "--holder", f"{name}/{job_id}"], cwd=checkout, stdin=subprocess.DEVNULL, check=False).returncode for job_id in args.jobs)
+    data = state.load(name)
+    checkout = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
+    command = state.mac_box_command(data, "down")
+    return max(
+        subprocess.run(command.replace("{box}", shlex.quote(job_id)).replace("{holder}", shlex.quote(f"{name}/{job_id}")), shell=True, cwd=checkout, stdin=subprocess.DEVNULL, check=False).returncode
+        for job_id in args.jobs
+    )
 
 
 def fde_scan(args: argparse.Namespace) -> int:
@@ -7899,7 +7904,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id", help="the handler's id, as drive handler printed it")
     verb.set_defaults(run=handler_start)
     verb = verbs.add_parser(
-        "mac-boxes-down", parents=both, help="take down the Mac boxes each job holds with tools/ci mac-box down --holder <drive>/<job> in the drive's checkout; a save that finishes a job runs it detached"
+        "mac-boxes-down", parents=both, help="take down the Mac box each job holds with the [mac_box] down command of the drive checkout's .claude/long-running.toml, {box} the job's id and {holder} <drive>/<job>; a save that finishes a job runs it detached, and the watch hourly for each finished job a live box is named after"
     )
     verb.add_argument("jobs", nargs="+", help="the jobs whose Mac boxes come down")
     verb.set_defaults(run=mac_boxes_down)
