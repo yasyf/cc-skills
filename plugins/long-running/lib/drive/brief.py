@@ -1388,7 +1388,9 @@ def shows(seen: str, proof: str) -> bool:
 
 
 def unseen(data: dict, order: dict, proof: str | None) -> str | None:
-    """Where he sees or uses an order's result, by the first of its jobs' briefs naming a surface the proof does not show, as shows reads each link and file it names, so it does not prove the order done there; None once it shows each, or when the order builds nothing he uses."""
+    """Where he sees or uses an order's result, by the first of its jobs' briefs naming a surface the proof does not show, as shows reads each link and file it names, so it does not prove the order done there; None once it shows each, when the order builds nothing he uses, or for drive tooling, which a passing scripted proof or its fix on main and installed closes, since the drive is no product of his."""
+    if state.tooling(order):
+        return None
     named = proofs(proof or "")
     return next((seen for job_id in order["jobs"] if (seen := surface(data["jobs"][job_id])) and not any(shows(seen, found) for found in named)), None)
 

@@ -9504,6 +9504,21 @@ def test_order_set_proves_a_command_done_on_the_saved_output_of_its_run(
     assert state.load("demo")["orders"]["o2"]["state"] == "open"
 
 
+def test_order_set_proves_drive_tooling_done_on_a_scripted_proof_whatever_surface_its_brief_names(run: Run, demo: str, tmp_path: Path) -> None:
+    output = tmp_path / "palette.proof.txt"
+    output.write_text("drive job prove j1: passed")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "build the dashboard's command palette")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    run(
+        "job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main",
+        "--native", "the dashboard's command palette", "--interactions", "he presses k on the dashboard, and sees the palette open",
+    )
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["text"] = f"{state.TOOLING} build the dashboard's command palette"
+    assert run("order", "set", "o1", "--state", "done", "--proof", str(output))[0] == 0
+    assert state.load("demo")["orders"]["o1"]["state"] == "done"
+
+
 def test_job_brief_refuses_an_adopted_prs_waiting_job_until_an_event_hands_it_off(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
