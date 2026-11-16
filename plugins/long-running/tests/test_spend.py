@@ -27,9 +27,12 @@ def test_a_transcript_prices_each_message_once_today_alone_and_reads_on_from_whe
     assert held == [path.stat().st_size - len(turn(today, "m4", MILLION)), "m3"]
 
 
-def test_a_message_is_priced_at_its_models_list_price_with_cache_reads_at_five_percent_and_hour_writes_at_twice_input() -> None:
+def test_a_message_is_priced_at_its_models_list_price_with_its_cache_read_price_hour_writes_at_twice_input_and_its_advisor_calls() -> None:
     usage = {"input_tokens": MILLION, "output_tokens": MILLION, "cache_creation_input_tokens": 2 * MILLION, "cache_creation": {"ephemeral_1h_input_tokens": MILLION}, "cache_read_input_tokens": 20 * MILLION}
     assert spend.priced("claude-opus-5-5", usage) == pytest.approx(4.0 * (1 + 1.25 + 2.0 + 1.0) + 20.0)
+    assert spend.priced("claude-fable-5-2", {"cache_read_input_tokens": 10 * MILLION}) == pytest.approx(2.0)
+    advised = usage | {"iterations": [{"type": "message", "input_tokens": MILLION}, {"type": "advisor_message", "model": "claude-fable-5-2", "input_tokens": MILLION, "output_tokens": MILLION}]}
+    assert spend.priced("claude-opus-5-5", advised) == pytest.approx(4.0 * (1 + 1.25 + 2.0 + 1.0) + 20.0 + 8.0 + 40.0)
     assert spend.priced(spend.SYNTHETIC, usage) == 0.0
     assert (spend.money(3750), spend.money(15000), spend.money(950.4)) == ("$3.8k", "$15k", "$950")
 

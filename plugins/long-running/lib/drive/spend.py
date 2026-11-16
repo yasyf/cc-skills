@@ -15,18 +15,18 @@ SPEND_SECONDS = 300
 TOOLING_PROJECT = "Drive tooling"
 UNFILED = "unfiled"
 PRICES = {
-    "claude-fable-5-2": (8.0, 40.0),
-    "claude-fable-5-1": (10.0, 50.0),
-    "claude-opus-5-5": (4.0, 20.0),
-    "claude-opus-5": (5.0, 25.0),
-    "claude-sonnet-5-5": (2.0, 10.0),
-    "claude-sonnet-5": (2.0, 10.0),
-    "claude-haiku-5-5": (0.10, 0.50),
-    "claude-haiku-4-5": (1.0, 5.0),
+    "claude-fable-5-2": (8.0, 40.0, 0.20),
+    "claude-fable-5-1": (10.0, 50.0, 0.50),
+    "claude-opus-5-5": (4.0, 20.0, 0.20),
+    "claude-opus-5": (5.0, 25.0, 0.25),
+    "claude-sonnet-5-5": (2.0, 10.0, 0.10),
+    "claude-sonnet-5": (2.0, 10.0, 0.10),
+    "claude-haiku-5-5": (0.10, 0.50, 0.005),
+    "claude-haiku-4-5": (1.0, 5.0, 0.05),
 }
 FAMILIES = {"fable": "claude-fable-5-2", "opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5"}
 SYNTHETIC = "<synthetic>"
-CACHE_READ = 0.05
+ADVISOR = "advisor_message"
 CACHE_WRITE = 1.25
 CACHE_WRITE_HOUR = 2.0
 BUDGETS = {"daily_usd": 15000, "tooling_share": 0.25, "project_usd": 5000, "projects": {}}
@@ -66,15 +66,15 @@ def ledger_path(moment: datetime) -> Path:
 
 
 def priced(model: str, usage: dict) -> float:
-    """What one message cost in dollars at its model's list price per million tokens, a new model by its family's newest: input and output at their own prices, a cache write at CACHE_WRITE times input, or CACHE_WRITE_HOUR for one kept an hour, and a cache read at CACHE_READ of input; Claude Code's synthetic messages cost nothing."""
+    """What one message cost in dollars at its model's list price per million tokens, a new model by its family's newest: input, output and cache reads at their own prices, a cache write at CACHE_WRITE times input, or CACHE_WRITE_HOUR for one kept an hour, plus each advisor call its usage iterations hold, at the advisor's own model, which the message's top-level usage leaves out; Claude Code's synthetic messages cost nothing."""
     if model == SYNTHETIC:
         return 0.0
-    given, made = PRICES.get(model) or PRICES[next(newest for family, newest in FAMILIES.items() if family in model)]
+    given, made, reading = PRICES.get(model) or PRICES[next(newest for family, newest in FAMILIES.items() if family in model)]
     written = usage.get("cache_creation_input_tokens") or 0
     hour = (usage.get("cache_creation") or {}).get("ephemeral_1h_input_tokens") or 0
-    read = usage.get("cache_read_input_tokens") or 0
-    taken = (usage.get("input_tokens") or 0) + CACHE_WRITE * (written - hour) + CACHE_WRITE_HOUR * hour + CACHE_READ * read
-    return (given * taken + made * (usage.get("output_tokens") or 0)) / 1e6
+    taken = (usage.get("input_tokens") or 0) + CACHE_WRITE * (written - hour) + CACHE_WRITE_HOUR * hour
+    advised = sum(priced(step["model"], step) for step in usage.get("iterations") or [] if step.get("type") == ADVISOR)
+    return (given * taken + reading * (usage.get("cache_read_input_tokens") or 0) + made * (usage.get("output_tokens") or 0)) / 1e6 + advised
 
 
 def money(usd: float) -> str:
