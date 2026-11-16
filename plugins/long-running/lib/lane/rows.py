@@ -13,8 +13,8 @@ from lane import facts, landing, store
 CHECKS = {"SUCCESS": "pass", "FAILURE": "fail", "ERROR": "fail"}
 PR_STATE = ("head", "checks", "merged", "under", "commits", "whole", "foreign", "title")
 DANGER = Path(__file__).with_name("danger.md")
-BEFORE_MERGE = "needs a staging pass before merge, by his 14:33 list in danger.md"
-DANGER_AT = 0.35
+BEFORE_MERGE = "plainly needs a staging pass before merge, by his 14:33 and 14:55 rulings"
+DANGER_AT = 0.6
 JUDGED_AT = 20
 FILES_SHOWN = 150
 JUDGE_SECONDS = 60.0
@@ -67,7 +67,7 @@ def unjudged(lanes: dict[str, dict], key: str) -> list[str]:
 
 
 def judge(drive: str, read: dict[str, dict]) -> int:
-    """Write each unjudged head's verdict, {head, classes}: a model reads danger.md, his 14:33 list of what needs a staging pass before merge, against each PR's title and changed files, JUDGED_AT a request, and a yes at DANGER_AT or more names the class `before merge` with its why; a no leaves classes empty, so his Approve merges it and the tester runs its test after the merge. A head whose files or answer could not be read stays unjudged and holds. The count written."""
+    """Write each unjudged head's verdict, {head, classes}: a model reads danger.md, the bar rule() reads, his list of what plainly needs a staging pass before merge, against each PR's title and changed files, JUDGED_AT a request, and a yes at DANGER_AT or more names the class `before merge` with its why; a no leaves classes empty, so his Approve merges it and the tester runs its test after the merge. A head whose files or answer could not be read stays unjudged and holds. The count written."""
     key = rule_key(drive)
     if not (waiting := unjudged({lane_id: seen(lane, read) for lane_id, lane in store.load_all(drive).items()}, key)):
         return 0
@@ -90,14 +90,20 @@ def judge(drive: str, read: dict[str, dict]) -> int:
 
 
 def rule(drive: str) -> str:
-    own = store.drive_dir(drive) / "danger.md"
-    return (own if own.is_file() else DANGER).read_text()
+    """The bar a PR is judged against: the page the repository's .claude/long-running.toml names under [lanes] danger, read at its default branch's head in the drive's checkout so no branch loosens it, else lib/lane/danger.md for a repository naming none."""
+    from drive import providers
+
+    if checkout := store.config(drive)["checkout"]:
+        found = providers.at(Path(checkout))
+        if (page := found.config.get("lanes", {}).get("danger")) and (text := providers.blob(Path(checkout), found.sha, page)):
+            return text
+    return DANGER.read_text()
 
 
 def asked(drive: str, chunk: dict[str, tuple[str, list[str]]], read: dict[str, dict]) -> dict[str, dict]:
     """One model request judging each PR of chunk against the rule; none when the request fails, so those heads stay unjudged."""
     told = [{"id": f"p{index}", "pr": key, "title": read[key].get("title") or "", "files": paths[:FILES_SHOWN], "more_files": max(0, len(paths) - FILES_SHOWN)} for index, (key, (_, paths)) in enumerate(chunk.items())]
-    questions = {item["id"]: Binary(f"By the rule, does {item['pr']} need a staging pass before it merges?", yes="it changes one of the five listed kinds", no="it merges on his Approve and is tested after the merge") for item in told}
+    questions = {item["id"]: Binary(f"By the rule, does {item['pr']} plainly do one of the listed kinds?", yes="its title or files plainly show one of them", no="it does none, or it is unclear, so it merges on his Approve and is tested after the merge") for item in told}
     try:
         decision = decide_sync({"rule": rule(drive), "prs": told}, questions, provider=JEV, timeout=JUDGE_SECONDS)
     except (TimeoutError, ValueError, DecideError, DecideKeyMissing, httpx.HTTPError):

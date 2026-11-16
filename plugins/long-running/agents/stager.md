@@ -17,7 +17,7 @@ You run one staging test for the drive, then end. His words set the job:
 
 ## The bar
 
-Before anything else, read `lib/lane/danger.md` beside this page, his list of what needs a staging pass before merge; a drive's own `danger.md` in its lanes folder replaces it. Each candidate's `dangerous` verdict was judged against it. A candidate marked `after_merge` merged on his Approve and is tested on its merged head; it never blocks a merge, so take it after the stacks waiting to merge, and fold it into a cut whose other stacks it does not overlap. Each stack's cases are the ones its PR bodies and its builders' `STAGING:` lines name. A cut holds up to six stacks. A failing stack is cut out and the rest rerun. Where this page and the repository disagree, the repository wins.
+Before anything else, read `lib/lane/danger.md` beside this page, his list of what needs a staging pass before merge; a drive's own `danger.md` in its lanes folder replaces it. Each candidate's `dangerous` verdict was judged against it. Candidates marked `after_merge` merged on his Approve and are tested after the merge, as one big batch, by his words "almost all non-SandSQL PRs can be tested on staging after merging, as a big batch": take every one of them together as a single cut of the default branch's head, which already carries them all, never one PR at a time, and run it when no stack waits to merge or between those cuts. Record each PR of the batch as its own stack in the result, so a failure names the PR that broke. Each stack's cases are the ones its PR bodies and its builders' `STAGING:` lines name. A cut holds up to six stacks. A failing stack is cut out and the rest rerun. Where this page and the repository disagree, the repository wins.
 
 ## Steps
 
