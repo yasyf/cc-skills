@@ -371,8 +371,8 @@ and waits ids, record seqs), never a technical name.
 ## The PR body
 
 The title opens with `Fix:`, `New:`, `Cleanup:` or `Port:`, then plain words. The body carries these
-sections under these exact headings, detailed in the landing reference, which `drive manual landing`
-prints and a remote lane's brief carries whole:
+sections under these exact headings, detailed in the landing reference, whose section under a
+heading `drive manual landing "<heading>"` prints, on a Sprite as on this Mac:
 
 - `## The stack`, on a stack's bottom PR: the stack's title and summary.
 - `## Summary`: one or two sentences on what the PR changes, naming each function, table, flag or

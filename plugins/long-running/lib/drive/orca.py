@@ -32,7 +32,6 @@ NOT_LANE = re.compile(r"[^a-z0-9-]+")
 PLUGIN = Path(__file__).resolve().parents[2]
 AGENTS = PLUGIN / "agents"
 LANE_SECTIONS = ("## On a Sprite\n", "## Waits and reads\n")
-LANDING = PLUGIN / "skills" / "long-running" / "reference" / "landing.md"
 LANE_ENV = f"CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 {state.REMOTE_LANE_ENV}=1"
 LAUNCH_SECONDS = 1800
 RECLAIM_SECONDS = 300
@@ -436,9 +435,9 @@ def agent_body(role: str) -> str:
 
 
 def role_body(role: str) -> str:
-    """The role an Orca worker runs: a builder's whole with the landing reference, any other's with the builder's sections saying how a lane reads, waits and reports through Orca, which its own role leaves out."""
+    """The role an Orca worker runs: a builder's whole, which reads a section of the landing reference with `drive manual landing "<heading>"` when its step needs one, any other's with the builder's sections saying how a lane reads, waits and reports through Orca, which its own role leaves out."""
     if role == "builder":
-        return f"{builder_body()}\n\n# The landing reference of the long-running skill\n\n{LANDING.read_text().strip()}"
+        return builder_body()
     lane = [section.strip() for section in re.split(r"\n(?=## )", builder_body()) if section.startswith(LANE_SECTIONS)]
     return "\n\n".join([agent_body(role), *lane])
 

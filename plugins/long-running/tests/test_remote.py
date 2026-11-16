@@ -663,7 +663,7 @@ def test_launch_composes_the_vm_brief_and_records_the_lane(
     assert (launched["lane"], launched["checkout"], launched["run"]) == ("demo-j1", tmp_path / "worktrees" / "drive-demo", RUN)
     assert launched["brief"].startswith("Remote lane: drive demo, job j1.")
     assert "## On a Sprite" in launched["brief"]
-    assert "# Land a change" in launched["brief"]
+    assert "# Land a change" not in launched["brief"]
     assert launched["brief"].endswith("# Brief\n\nOrder (his words): ship it\nResearched: j0\nDrive: demo, order o1, job j1\n")
     data = state.load(demo)
     assert objectives == ["drive demo j1: ship it"]
