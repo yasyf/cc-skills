@@ -555,6 +555,33 @@ def test_a_seat_communicators_say_marks_its_seat_active_so_the_watch_never_retir
     assert state.now() - state.parse_time(heard) < timedelta(minutes=1)
 
 
+def test_a_report_post_edit_named_by_its_edit_attr_posts_as_that_report_so_no_has_no_post_defect_follows(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    from drive import answer
+
+    attrs = {"channel": "C1", "edit": "1794847894.692869", "thread": "1794847681.824529", "progress": "true"}
+    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": attrs, "report": {"kind": "report", "text": "POST edit: the cause is the pool", "seq": seq}, "thread": None})
+    monkeypatch.setattr(answer, "ask", lambda facts, prompt, rules, tag: (json.dumps({"text": "The cause is the pool.", "place": "edit"}), None))
+    monkeypatch.setattr(slack, "whoami", lambda: {"team_url": "https://acme.slack.com/"})
+    monkeypatch.setattr(slack, "homes", lambda data: {"C1"})
+    monkeypatch.setattr(slack, "post_findings", lambda text, draws_card, asked="": [])
+    edited = "https://acme.slack.com/archives/C1/p1794847894692869?thread_ts=1794847681.824529&cid=C1"
+    spoken: list[dict] = []
+
+    def posting(name: str, post: dict, known: dict) -> str:
+        spoken.append(post)
+        with state.edit(name) as data:
+            data["carried"][post["record"]] = post["edit"]
+        return f"EDITED {post['edit']}"
+
+    monkeypatch.setattr(talk, "spoken", posting)
+    assert talk.report_line(demo, "734749") == f"EDITED {edited}"
+    assert [(post["edit"], post["record"]) for post in spoken] == [(edited, "734749")]
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: pytest.fail(f"flagged a posted edit: {records}"))
+    with state.edit(demo) as data:
+        data["posts"]["claimed"] = {"734749": state.stamp(state.now() - agents.UNPOSTED_AFTER - timedelta(minutes=1))}
+    agents.unposted(demo, state.now())
+
+
 def test_say_posts_the_words_its_hook_judged_and_checks_none_of_them_again(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:
     checked.findings = ["1:5 drive-term 'fence': say what happens to the reader's work instead"]
     with edit(demo) as data:

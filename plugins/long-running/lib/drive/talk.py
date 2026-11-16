@@ -133,7 +133,7 @@ def report_line(name: str, seq: str) -> str:
     channel = attrs.get("channel") or (thread and (kept_in(known, thread) or outside(known, thread)))
     if channel and channel not in slack.homes(known):
         raise DriveError(f"its post goes in {channel}, outside the drive's channels, where cc-slack posts only on the ticket a session's permission hook names")
-    corrected = known["carried"].get(str(report.get("re") or "")) or "" if report["kind"] == "correction" else ""
+    corrected = known["carried"].get(str(report.get("re") or "")) or "" if report["kind"] == "correction" else edited(channel, attrs.get("edit"), thread)
     facts = "\n".join(filter(None, [f"Report {seq}, a {report['kind']}:", words, f"Attrs: {json.dumps(attrs)}", f"Thread: {thread}" if thread else "No thread: it goes at the channel's root.", f"Channel: {channel}" if channel else "", f"The post it corrects: {corrected}" if corrected else ""]))
     said, _ = answer.ask(facts, "Write his post for this report as one JSON object.", REPORT_RULES, "ask")
     try:
@@ -154,12 +154,20 @@ def report_line(name: str, seq: str) -> str:
     if made.get("place") == "edit":
         if not corrected.startswith("https://"):
             raise DriveError(f"it corrects report {report.get('re')}, which went out in no post")
-        return spoken(name, shown | {"edit": corrected}, known)
+        return spoken(name, shown | {"edit": corrected, "record": seq}, known)
     place = {"channel_id": channel} if channel else {}
     if made.get("place") == "thread" and (under := (channel, thread) if thread else corrected and state.link_thread(corrected)):
         place = {"thread_ts": under[1]} | ({"channel_id": under[0]} if under[0] else {})
     line = spoken(name, shown | {"record": seq} | place, known, recorded_first=bool(state.closed_orders(attrs)))
     return line + "".join(closed(name, order_id, seq) for order_id in state.closed_orders(attrs) if state.load(name)["orders"][order_id]["state"] not in state.CLOSED_ORDER_STATES)
+
+
+def edited(channel: str | None, ts: str | None, thread: str | None) -> str:
+    """The permalink of the post a report's edit attr names by its ts in the report's channel, the post its words reword; empty with no edit attr or channel."""
+    if not (ts and channel):
+        return ""
+    query = f"?thread_ts={thread}&cid={channel}" if thread and thread != ts else ""
+    return f"{slack.whoami()['team_url']}archives/{channel}/p{ts.replace('.', '')}{query}"
 
 
 def report_post(name: str, seq: str) -> str:
