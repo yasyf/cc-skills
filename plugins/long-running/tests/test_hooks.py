@@ -120,7 +120,7 @@ def test_session_start_gives_a_sub_coordinator_its_projects_context_and_starts_i
     context = session_start.respond({"session_id": "iris-1", "source": "resume"})["hookSpecificOutput"]["additionalContext"]
     assert context.startswith("You are the sub-coordinator for project Iris of drive demo: ")
     assert "cci: run cci drive use demo, and no cci subscribe: your cci alias demo-iris owns your subscription." in context
-    assert watch_process.ensured == ["demo --project Iris"]
+    assert watch_process.ensured == ["demo"]
     assert registered == [("demo-iris", state.load("demo")["subcoordinators"]["Iris"]["cwd"], "iris-1")]
 
 

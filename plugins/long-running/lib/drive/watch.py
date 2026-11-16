@@ -30,6 +30,8 @@ RELAY_SECONDS = 2
 RESPOND_SECONDS = 1
 READ_EVERY = timedelta(seconds=60)
 SETTLED_READ_EVERY = timedelta(minutes=10)
+PASS_FOR = timedelta(minutes=5)
+EVERY_PROJECT_ENV = "LONG_RUNNING_WATCH_EVERY_PROJECT"
 FAILURES_BEFORE_SAYING = 3
 FAILURE_EVERY = timedelta(minutes=10)
 DUE_EVERY = timedelta(minutes=10)
@@ -154,6 +156,8 @@ class Watcher:
     untracked: dict[str, str] = field(default_factory=dict)
     relayed: collections.deque[str] = field(default_factory=collections.deque)
     redrawn_whole: set[str] = field(default_factory=set)
+    others: dict[str, Self] = field(default_factory=dict)
+    joined_at: datetime | None = None
 
     @property
     def lane(self) -> str:
@@ -1631,7 +1635,11 @@ def relaying(watcher: Watcher) -> Iterator[None]:
     ending, guard, live = threading.Event(), threading.Lock(), {}
     readers = [
         threading.Thread(target=relayed_lines, args=(watcher, ending, guard, live, flag, what, took, beside(watcher, flag, live)), daemon=True)
-        for flag, what, took in (("--respond", "the responder", watcher.relayed.append), ("--relay", "the relay", watcher.relayed.append), ("--land", "the landing loop", functools.partial(took_untracked, watcher)))
+        for flag, what, took in (
+            ("--respond", "the responder", functools.partial(routed, watcher, took=took_relayed)),
+            ("--relay", "the relay", functools.partial(routed, watcher, took=took_relayed)),
+            ("--land", "the landing loop", functools.partial(routed, watcher, took=took_untracked)),
+        )
     ]
     for reader in readers:
         reader.start()
@@ -1673,12 +1681,45 @@ def relayed_lines(watcher: Watcher, ending: threading.Event, guard: threading.Lo
 
 
 def spawn(watcher: Watcher, flag: str, lines: int) -> subprocess.Popen:
-    """Start `drive watch <flag> <fd>`, the responder's `--respond`, the relay's `--relay` or the landing loop's `--land`, as a child of the watch, writing to that end of the watch's pipe, in the watch's process group, so the watch's launch agent ends it with the watch whatever ends the watch."""
+    """Start `drive watch <flag> <fd>`, the responder's `--respond`, the relay's `--relay` or the landing loop's `--land`, as a child of the watch, writing to that end of the watch's pipe, in the watch's process group, so the watch's launch agent ends it with the watch whatever ends the watch; EVERY_PROJECT_ENV in its environment has it run the passes of every project the watch holds beside the drive's own, by joined, each project's lines led by its lane, by relayed."""
     return subprocess.Popen(
-        [str(install.DRIVE), "watch", flag, str(lines), "--drive", watcher.name, *(["--project", watcher.project] if watcher.project else [])],
+        [str(install.DRIVE), "watch", flag, str(lines), "--drive", watcher.name],
         stdin=subprocess.DEVNULL,
         pass_fds=(lines,),
+        env=os.environ | {EVERY_PROJECT_ENV: "1"},
     )
+
+
+def relayed(watcher: Watcher, line: str) -> str:
+    """A line a process beside the watch writes down its pipe: a project's led by its lane and a tab while it runs every project's passes, by every_project, which routed hands to that project's watcher, the drive's own as it is."""
+    return f"{watcher.lane}\t{line}" if watcher.project and every_project() else line
+
+
+def routed(watcher: Watcher, line: str, took: Callable[["Watcher", str], None]) -> None:
+    """Hand a line a process beside the watch wrote to took with the watcher it is for: the project watcher whose lane leads it, by relayed, else the drive's own."""
+    lane, tab, rest = line.partition("\t")
+    one = next((other for other in watcher.others.values() if other.lane == lane), None) if tab else None
+    took(one or watcher, rest if one else line)
+
+
+def joined(watcher: Watcher, moment: datetime, held: Callable[[str], bool], made: Callable[[str], "Watcher"]) -> None:
+    """Add to the watcher's others a watcher made for each project the drive binds a sub-coordinator to that held answers for, once each READ_EVERY, so a project bound while the watch runs gets its passes within a minute."""
+    if watcher.joined_at is not None and moment - watcher.joined_at < READ_EVERY:
+        return
+    watcher.joined_at = moment
+    for project in state.saved(watcher.name)["subcoordinators"]:
+        if project not in watcher.others and held(project):
+            watcher.others[project] = made(project)
+
+
+def every_project() -> bool:
+    """Whether this process beside the watch runs every project's passes, as a watch of this install starts it, by spawn; one an older install's watch started runs only the passes it was named for."""
+    return os.environ.get(EVERY_PROJECT_ENV) == "1"
+
+
+def took_relayed(watcher: Watcher, line: str) -> None:
+    """Keep a line the responder or relay wrote for the watcher's next pass to hand on."""
+    watcher.relayed.append(line)
 
 
 def took_untracked(watcher: Watcher, line: str) -> None:
@@ -1702,14 +1743,22 @@ def beside_passes(name: str, project: str | None, lines: int, flag: str, passing
     signal.signal(signal.SIGTERM, lambda signum, frame: ended.append(signum))
     children.reap_inherited()
     passer = Watcher(name, offset=state.watch_cursor(name, project), project=project)
-    with os.fdopen(lines, "w", buffering=1) as relayed:
+    with os.fdopen(lines, "w", buffering=1) as written:
         while not ended:
             if upgraded():
                 install.reopen(["watch", flag, str(lines), "--drive", name, *(["--project", project] if project else [])])
-            for line in passing(passer, state.now()):
-                relayed.write(f"{LINE_BREAKS.sub(' ', line)}\n")
+            if every_project():
+                joined(passer, state.now(), held_beside(name), lambda project: Watcher(name, offset=state.watch_cursor(name, project), project=project))
+            for one in [passer, *passer.others.values()]:
+                for line in passing(one, state.now()):
+                    written.write(f"{relayed(one, LINE_BREAKS.sub(' ', line))}\n")
             time.sleep(seconds)
     return 0
+
+
+def held_beside(name: str) -> Callable[[str], bool]:
+    """Whether the watch this process runs beside holds a project, its pid in the project's pid file, so a process beside the drive's watch runs no project an older install's project watch still holds."""
+    return lambda project: holder(state.pid_path(name, project)) == os.getppid()
 
 
 def landing_loop(name: str, project: str | None, lines: int) -> int:
@@ -1717,31 +1766,41 @@ def landing_loop(name: str, project: str | None, lines: int) -> int:
     ended: list[int] = []
     signal.signal(signal.SIGTERM, lambda signum, frame: ended.append(signum))
     children.reap_inherited()
-    held = state.take_held_reads(name, project)
-    owes = {"owed": set(held["owed"]), "merging": set(held["merging"]), "stale": set(held["stale"]), "untracked": held["untracked"]} if held else {}
-    offset = held.get("offset", state.watch_cursor(name, project)) if held else state.events_end(name)
-    delivered = held.get("delivered", 0) if held else receiver.deliveries_end()
-    landing = Watcher(name, offset=offset, project=project, delivered=delivered, cards=view.live_cards(name), made=state.take_held_lines(name, project), **owes)
+    landing = landing_watcher(name, project)
     argv = ["watch", "--land", str(lines), "--drive", name, *(["--project", project] if project else [])]
-    told = None
+    told: dict[str | None, dict] = {}
     try:
         with os.fdopen(lines, "w", buffering=1) as untracked:
             for _ in rests(state.events_path(name), receiver.deliveries_path()):
                 if ended:
                     break
                 if upgraded():
-                    hold(landing)
+                    for one in [landing, *landing.others.values()]:
+                        hold(one)
                     install.reopen(argv)
-                if landing.untracked != told:
-                    told = dict(landing.untracked)
-                    untracked.write(f"{json.dumps(told)}\n")
-                moment = state.now()
-                for said in passed(landing, moment, staged=landing_pass):
-                    for line in sent(landing, landing.lane, said, moment):
-                        print(line, flush=True)
+                if every_project():
+                    joined(landing, state.now(), held_beside(name), functools.partial(landing_watcher, name))
+                for one in [landing, *landing.others.values()]:
+                    if one.untracked != told.get(one.project):
+                        told[one.project] = dict(one.untracked)
+                        untracked.write(f"{relayed(one, json.dumps(told[one.project]))}\n")
+                    moment = state.now()
+                    for said in passed(one, moment, staged=landing_pass):
+                        for line in sent(one, one.lane, said, moment):
+                            print(line, flush=True)
     finally:
-        hold(landing)
+        for one in [landing, *landing.others.values()]:
+            hold(one)
     return 0
+
+
+def landing_watcher(name: str, project: str | None) -> Watcher:
+    """The landing loop's watcher of the drive, or of a project, taking the reads the landing loop before it held for it, with the events and deliveries offsets it had read to, else owing a read of every PR from each file's end."""
+    held = state.take_held_reads(name, project)
+    owes = {"owed": set(held["owed"]), "merging": set(held["merging"]), "stale": set(held["stale"]), "untracked": held["untracked"]} if held else {}
+    offset = held.get("offset", state.watch_cursor(name, project)) if held else state.events_end(name)
+    delivered = held.get("delivered", 0) if held else receiver.deliveries_end()
+    return Watcher(name, offset=offset, project=project, delivered=delivered, cards=view.live_cards(name), made=state.take_held_lines(name, project), **owes)
 
 
 def landing_pass(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
@@ -5205,76 +5264,94 @@ def label(name: str, project: str | None = None) -> str:
     return f"{launchd.LABEL}.watch.{name}" + (f".{state.project_lane(project)}" if project else "")
 
 
-def ensure(name: str, project: str | None = None) -> str:
-    """Load the launch agent keeping the drive's watch, or a project's, unless it is loaded or LONG_RUNNING_STATE or XDG_STATE_HOME moves the drive's state root, by state.scratch: launchd starts the watch now and again within RESTART_SECONDS of any exit, crash included, on the newest install, its output in its own log and its environment naming the drive; the line saying which. A project's watch first reads the events from where the log ended as its sub-coordinator was bound."""
-    watcher = f"the watch for {project}" if project else "the watch"
-    reader = f"the sub-coordinator for {project}" if project else "the coordinator"
+def ensure(name: str) -> str:
+    """Load the launch agent keeping the drive's watch, which runs each project's passes beside the drive's own, unless it is loaded or LONG_RUNNING_STATE or XDG_STATE_HOME moves the drive's state root, by state.scratch: launchd starts the watch now and again within RESTART_SECONDS of any exit, crash included, on the newest install, its output in its own log and its environment naming the drive; the line saying which."""
     if state.scratch():
-        return f"{watcher} does not start for a drive whose state LONG_RUNNING_STATE or XDG_STATE_HOME moves to {state.root()}; a proof runs its passes in-process with watch.run_pass(watch.Watcher(...), moment)"
-    agent = f"its launch agent {label(name, project)}, which starts it again within {launchd.RESTART_SECONDS} seconds of any exit, crash included"
+        return f"the watch does not start for a drive whose state LONG_RUNNING_STATE or XDG_STATE_HOME moves to {state.root()}; a proof runs its passes in-process with watch.run_pass(watch.Watcher(...), moment)"
+    agent = f"its launch agent {label(name)}, which starts it again within {launchd.RESTART_SECONDS} seconds of any exit, crash included"
+    if launchd.kept(label(name)):
+        return f"the watch runs under {agent}, and posts its lines to the coordinator and each project's to its sub-coordinator over cci; arm no Monitor for it"
+    launchd.keep(label(name), ["watch", "--loop", "--drive", name], state.watch_log_path(name), {"CLAUDE_LONG_RUNNING_LANE": LANE, state.DRIVE_ENV: name}, state.drive_dir(name))
+    return f"started the watch under {agent}; it posts its lines to the coordinator and each project's to its sub-coordinator over cci, so arm no Monitor for it"
+
+
+def retire(name: str, project: str) -> None:
+    """Take down the launch agent an older install loaded for a project's own watch, its plist first so no login loads it again, letting go of the project's pid file for the drive's watch to take; a bootout of the agent this process runs under ends this process."""
+    release(name, project)
+    (launchd.LAUNCH_AGENTS / f"{label(name, project)}.plist").unlink(missing_ok=True)
     if launchd.kept(label(name, project)):
-        return f"{watcher} runs under {agent}, and posts its lines to {reader} over cci; arm no Monitor for it"
-    launchd.keep(
-        label(name, project),
-        ["watch", "--loop", "--drive", name, *(["--project", project] if project else [])],
-        state.watch_log_path(name, project),
-        {"CLAUDE_LONG_RUNNING_LANE": LANE, state.DRIVE_ENV: name},
-        state.drive_dir(name),
-    )
-    return f"started {watcher} under {agent}; it posts its lines to {reader} over cci, so arm no Monitor for it"
+        launchd.launchctl("bootout", launchd.service(label(name, project)))
 
 
 def stopped(watcher: Watcher, error: Exception) -> None:
     """Say the watch stopped, naming its version and where the error was raised, the innermost frame of this package's code, so the line alone says which line to read."""
-    line = f"WATCH stopped on long-running {state.VERSION}: {render.raised(error)}; its traceback is in {state.watch_log_path(watcher.name, watcher.project)}; its launch agent starts it again within {launchd.RESTART_SECONDS} seconds"
+    line = f"WATCH stopped on long-running {state.VERSION}: {render.raised(error)}; its traceback is in {state.watch_log_path(watcher.name)}; its launch agent starts it again within {launchd.RESTART_SECONDS} seconds"
     with contextlib.suppress(reads.ReadError):
         sent(watcher, watcher.lane, [line], state.now())
 
 
 def main(drive_name: str | None = None, project: str | None = None) -> int:
-    """Run the drive's watch, or a project's, as the process its launch agent starts, until it stops, once a watch an older install ran under a Monitor has ended, with the env of this Mac's Claude settings in its environment, so each read it runs carries the API keys a session here carries. Any other process, such as one an older install's watch re-executed itself into, lets the watch go, loads its agent and ends, so launchd runs every watch. On a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves, end at once, so a watch an older install started there ends at its next re-exec."""
+    """Run the drive's watch as the process its launch agent starts, until it stops, once a watch an older install ran under a Monitor has ended, with the env of this Mac's Claude settings in its environment, so each read it runs carries the API keys a session here carries; it runs each project's passes beside the drive's own over the one copy of the drive this process keeps, by watching. Any other process, such as one an older install's watch re-executed itself into, lets the watch go, loads its agent and ends, so launchd runs every watch; a project's own watch, as an older install's launch agent starts it, takes that agent down and ends, by retire, for the drive's watch to take its project. On a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves, end at once, so a watch an older install started there ends at its next re-exec."""
     if state.scratch():
         print(f"no watch runs for a drive whose state LONG_RUNNING_STATE or XDG_STATE_HOME moves to {state.root()}", flush=True)
         return 0
     name = state.resolve(drive_name)
-    if os.environ.get(launchd.LAUNCHED_ENV) != label(name, project):
-        release(name, project)
-        print(ensure(name, project), flush=True)
+    if project is not None:
+        print(ensure(name), flush=True)
+        retire(name, project)
         return 0
-    if not claim(name, project):
+    if os.environ.get(launchd.LAUNCHED_ENV) != label(name):
+        release(name)
+        print(ensure(name), flush=True)
         return 0
+    if not claim(name):
+        return 0
+    watcher = None
     try:
         os.environ.update(launchd.session_env())
         children.mark_watch()
         children.reap_inherited()
         while holder(state.monitor_pid_path(name)):
             time.sleep(POLL_SECONDS)
-        watching(Watcher(name, offset=state.watch_cursor(name, project), project=project, delivered=receiver.deliveries_end(), cards=view.live_cards(name), made=state.take_held_lines(name, project), resume=state.take_held_resume(name, project)))
+        watcher = watched(name, None)
+        watching(watcher)
     finally:
-        release(name, project)
+        for project in watcher.others if watcher else []:
+            release(name, project)
+        release(name)
     return 0
 
 
+def watched(name: str, project: str | None) -> Watcher:
+    """The watch's watcher of the drive, or of a project, taking what the watch process before it held for it."""
+    return Watcher(name, offset=state.watch_cursor(name, project), project=project, delivered=receiver.deliveries_end(), cards=view.live_cards(name), made=state.take_held_lines(name, project), resume=state.take_held_resume(name, project))
+
+
 def watching(watcher: Watcher) -> None:
-    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, and end once a newer long-running is installed, before a pass or between two of a pass's stages, saying so in its log, so its launch agent starts the watch on that install within RESTART_SECONDS of the stage running then, however long a pass runs, and the watch there runs the stages this one had not; a crash wakes the coordinator session it posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
+    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, the drive's pass first, then each project's, by joined, each project the watch claims the pid file of, so a project an older install's watch still runs waits for it to end; and end once a newer long-running is installed, before a pass or between two of a pass's stages, saying so in its log, so its launch agent starts the watch on that install within RESTART_SECONDS of the stage running then, however long a pass runs, and the watch there runs the stages this one had not. A pass that runs past PASS_FOR ends before its next stage the same way, that stage kept as its resume, so one slow project holds the others' passes up no longer than that. A crash wakes the session the crashing pass posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
+    one = watcher
     try:
         with relaying(watcher):
             for _ in rests(state.events_path(watcher.name)):
                 if newer := upgraded():
                     print(f"ended on long-running {state.VERSION} for {newer}, before {watcher.resume or 'its next pass'}", flush=True)
                     break
-                read_from, moment = watcher.offset, state.now()
-                for said in [handed(watcher, watcher.made, moment)] if watcher.made else passed(watcher, moment, upgraded):
-                    for line in sent(watcher, watcher.lane, said, moment):
-                        print(line, flush=True)
-                if watcher.offset != read_from:
-                    state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
+                joined(watcher, state.now(), functools.partial(claim, watcher.name), functools.partial(watched, watcher.name))
+                for one in [watcher, *watcher.others.values()]:
+                    read_from, moment = one.offset, state.now()
+                    for said in [handed(one, one.made, moment)] if one.made else passed(one, moment, lambda moment=moment: upgraded() or state.now() - moment > PASS_FOR):
+                        for line in sent(one, one.lane, said, moment):
+                            print(line, flush=True)
+                    if one.offset != read_from:
+                        state.save_watch_cursor(one.name, one.offset, one.project)
     except Exception as error:
-        keep_unposted(watcher)
-        stopped(watcher, error)
+        for each in [watcher, *watcher.others.values()]:
+            keep_unposted(each)
+        stopped(one, error)
         raise
-    keep_unposted(watcher)
+    for each in [watcher, *watcher.others.values()]:
+        keep_unposted(each)
 
 
 def rests(*paths: Path) -> Iterator[None]:

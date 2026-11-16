@@ -190,7 +190,7 @@ def start(args: argparse.Namespace) -> int:
     registered = "" if state.scratch() else f"{agents.register(args.name, args.role, args.project, held['cwd'], held['session'])}\n"
     seen = orca_places({args.role: held}, run_show)[args.role]
     meta = "" if "meta" in data["roles"] else meta_started(args.name, held["cwd"], data["launched"].get("meta"))
-    watched = f"{watch.ensure(args.name, args.project)}\n" if args.role == "coordinator" else ""
+    watched = f"{watch.ensure(args.name)}\n" if args.role == "coordinator" else ""
     seat = f"sub-coordinator for {args.project}" if args.project else args.role
     elsewhere = "" if Path.cwd() == kept.resolve() else f"this session runs in {Path.cwd()} until it next exits, when cci resumes it in the drive's checkout {kept}\n"
     text = f"{render.context(data, args.role, args.project)}\n\n{registered}{meta}{watched}{elsewhere}{seat}: session {held['session']}, {seen}"
@@ -5886,7 +5886,7 @@ def receive(args: argparse.Namespace) -> int:
 
 
 def watch_events(args: argparse.Namespace) -> int:
-    """Run the watch with --loop, its responder with --respond, its relay with --relay or its landing loop with --land; else load its launch agent unless one is loaded. A project's watch starts only from the session of that project's sub-coordinator, and a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves gets no process."""
+    """Run the watch with --loop, its responder with --respond, its relay with --relay or its landing loop with --land; else load its launch agent unless one is loaded. The drive's one watch runs each project's passes, and a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves gets no process."""
     if args.respond is not None:
         return watch.responder(state.resolve(args.drive), args.project, args.respond)
     if args.relay is not None:
@@ -5895,17 +5895,7 @@ def watch_events(args: argparse.Namespace) -> int:
         return watch.landing_loop(state.resolve(args.drive), args.project, args.land)
     if args.loop:
         return watch.main(args.drive, args.project)
-    name = state.resolve(args.drive)
-    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    data = state.load(name)
-    project = state.session_project(data, session)
-    if args.project and project != args.project:
-        bound = (data["subcoordinators"].get(args.project) or {}).get("session") or "none bound"
-        raise DriveError(
-            f"--project {args.project}: only the sub-coordinator for {args.project} starts its watch, from its own session ({bound});"
-            f" bind one with drive start {name} --role coordinator --project {shlex.quote(args.project)}"
-        )
-    print(watch.ensure(name, args.project))
+    print(watch.ensure(state.resolve(args.drive)))
     return 0
 
 
@@ -7382,8 +7372,8 @@ def parser() -> argparse.ArgumentParser:
         "--project",
         metavar="NAME",
         help=(
-            "the watch of that project's sub-coordinator, started only from its session: the lines of the orders filed under"
-            " it, their jobs and PRs, posted to its lane; the drive's own watch leaves those lines out"
+            "a project's own watch, which an older install's launch agent runs: it takes that agent down and ends, since the drive's watch runs each"
+            " project's passes beside its own, posting a project's lines to its sub-coordinator"
         ),
     )
     verb.set_defaults(run=watch_events)
