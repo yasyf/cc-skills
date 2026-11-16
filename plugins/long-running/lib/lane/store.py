@@ -14,8 +14,8 @@ RUNNING = "running"
 WAITING = "waiting"
 PARKED = "parked"
 STATES = (RUNNING, WAITING, PARKED)
-WAIT_KINDS = ("pr_merged", "check", "staging_result", "his_reply", "release")
-REF_KINDS = ("pr_merged", "check", "staging_result", "release")
+WAIT_KINDS = ("pr_merged", "check", "staging_result", "his_reply", "release", "queue_grant")
+REF_KINDS = ("pr_merged", "check", "staging_result", "release", "queue_grant")
 LANE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 DEFAULTS = {
     "active": 12,
@@ -31,7 +31,7 @@ DEFAULTS = {
 }
 PRESENCE = "presence.json"
 LIVE = "live"
-NOT_LANES = ("rank", "config", "supervisor", "staging-env", "presence", "rulings", "queue")
+NOT_LANES = ("rank", "config", "supervisor", "staging-env", "presence", "rulings", "queue", "view")
 RULINGS = "rulings.shared.json"
 
 

@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from lane import cli as lane_land
-from lane import facts, rank, store, verbs
+from lane import facts, page, rank, store, verbs
 from lane import owner as owners
 
 RESTART_WINDOW = timedelta(minutes=30)
@@ -93,6 +93,8 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
         except store.Refused as failed:
             errors.append(f"{failed}; the last monitor states read stand")
         hurt = {lane_id for lane_id, lane in lanes_now.items() if facts.hurting(lane, monitors)}
+        if prs:
+            page.keep_view(drive, prs, moment)
         order = rank.ranked(drive, facts.viewed(lanes_now, prs), moment, hurt, monitors)
         if order.get("error"):
             errors.append(f"rank kept its last order: {order['error']}")

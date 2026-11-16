@@ -34,6 +34,22 @@ def hurting(drive: str, lane_id: str) -> bool:
     return lane_id in rank.last(drive).get("hurting", [])
 
 
+def free_for(drive: str, resource: str, lane_id: str) -> bool:
+    """Whether a unit of resource is free now and lane_id asks for it ahead of every other lane in line, or holds it already: what a lane waiting on queue_grant waits for."""
+    if resource not in CAPACITY:
+        raise store.Refused(f"the queue grants {', '.join(CAPACITY)}, not {resource!r}")
+    moment = store.now()
+    order = {lane: index for index, lane in enumerate(rank.last(drive).get("order", []))}
+    queue = kept(drive)
+    leases = [lease for lease in queue["leases"].get(resource, []) if store.parse(lease["until"]) > moment]
+    if any(lease["lane"] == lane_id for lease in leases):
+        return True
+    line = sorted(queue["requests"].get(resource, {}).values(), key=lambda asked: (order.get(asked["lane"], len(order)), asked["at"]))
+    ahead = [asked["lane"] for asked in line]
+    first = ahead.index(lane_id) if lane_id in ahead else len(ahead)
+    return capacity(drive, resource) - len(leases) > first
+
+
 def take(drive: str, resource: str, holder: str, lane_id: str, ttl_minutes: int) -> dict:
     """Ask for one of resource for holder, on lane_id's behalf: granted with its bound when a unit is free and no better-ranked lane is asking, or taken from a lane that is no incident when lane_id's incident hurts users and the resource is the staging env; else the holder's place in line."""
     if resource not in CAPACITY:

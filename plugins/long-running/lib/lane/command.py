@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from lane import owner as owners
-from lane import queue, store, supervisor, verbs, voice
+from lane import page, queue, store, supervisor, verbs, voice
 
 STOP_BLOCKS = 3
 
@@ -179,6 +179,9 @@ def main(argv: list[str] | None = None) -> int:
     verbs_parser.add_parser("pass")
     verbs_parser.add_parser("supervise")
     verbs_parser.add_parser("install", help="keep the drive's supervisor running under launchd")
+    paging = verbs_parser.add_parser("page", help="serve his page of the lanes, or with --install keep it served under launchd")
+    paging.add_argument("--port", type=int, required=True)
+    paging.add_argument("--install", action="store_true")
     hooking = verbs_parser.add_parser("hook")
     hooking.add_argument("event", choices=["stop", "note"])
 
@@ -267,6 +270,11 @@ def run(args: argparse.Namespace) -> int:
             print(json.dumps(supervisor.run_pass(args.drive)))
         case "supervise":
             supervisor.supervise(args.drive)
+        case "page":
+            if args.install:
+                print(page.install(args.drive, args.port))
+            else:
+                page.serve(args.drive, args.port)
         case "install":
             print(supervisor.install(args.drive))
         case "hook":

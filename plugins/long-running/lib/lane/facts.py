@@ -75,7 +75,7 @@ def result_written(drive: str, folder: str, name: str) -> bool:
 
 
 def holds(drive: str, lane: dict, event: dict, prs: dict[tuple[str, int], dict]) -> bool:
-    """Whether the outside fact a wait names holds now: a PR merged or closed, its checks finished at its head, a cut's or release's result written, or an ask of his with no reply."""
+    """Whether the outside fact a wait names holds now: a PR merged or closed, its checks finished at its head, a cut's or release's result written, a unit of a queue's resource free for the lane first in line for it, or an ask of his with no reply."""
     match event["kind"]:
         case "pr_merged":
             pull = prs.get(pr_ref(event["ref"]))
@@ -87,6 +87,10 @@ def holds(drive: str, lane: dict, event: dict, prs: dict[tuple[str, int], dict])
             return result_written(drive, "cuts", event["ref"])
         case "release":
             return result_written(drive, "releases", event["ref"])
+        case "queue_grant":
+            from lane import queue
+
+            return queue.free_for(drive, event["ref"], lane["id"])
         case "his_reply":
             return bool(store.unreplied(lane))
     raise store.Refused(f"waiting on {event['kind']!r} is not an outside fact")

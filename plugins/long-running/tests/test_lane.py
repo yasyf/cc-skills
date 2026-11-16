@@ -547,3 +547,32 @@ def test_a_freed_grant_wakes_the_next_waiting_lane_in_line(world: dict) -> None:
     ended("b", ["his_reply"], "2h")
     queue.release(DRIVE, "staging-env", "tester-a")
     assert store.load(DRIVE, "b")["wait"]["fired_why"].startswith("the queue freed staging-env")
+
+
+def test_a_queue_grant_wait_fires_when_the_lane_is_first_in_line_for_a_free_unit(world: dict) -> None:
+    opened("a")
+    opened("b")
+    supervisor.run_pass(DRIVE)
+    queue.take(DRIVE, "staging-env", "tester-a", "a", 30)
+    queue.take(DRIVE, "staging-env", "tester-b", "b", 30)
+    ended("b", ["queue_grant:staging-env"], "2h")
+    assert supervisor.run_pass(DRIVE)["started"] == []
+    queue.release(DRIVE, "staging-env", "tester-a")
+    assert facts.holds(DRIVE, store.load(DRIVE, "b"), {"kind": "queue_grant", "ref": "staging-env"}, {})
+
+
+def test_his_page_shows_each_lane_its_wait_his_unanswered_asks_and_untapped_prs(world: dict) -> None:
+    from lane import page
+
+    opened("a", prs=[("acme/app", 7), ("acme/app", 8)])
+    opened("b")
+    ended("b", ["pr_merged:acme/app#9"])
+    world["prs"][("acme/app", 7)] = pull(head="new")
+    world["prs"][("acme/app", 8)] = pull(head="h8")
+    store.update(DRIVE, "a", lambda lane: lane["prs"][1].__setitem__("approved_head", "h8"))
+    supervisor.run_pass(DRIVE)
+    shown = {lane["id"]: lane for lane in page.model(DRIVE)["lanes"]}
+    assert [row["number"] for row in shown["a"]["tapless"]] == [7]
+    assert shown["a"]["unanswered"][0]["words"] == "do a"
+    assert shown["b"]["wait"]["on"] == [{"kind": "pr_merged", "ref": "acme/app#9"}]
+    assert "do a" in page.drawn(DRIVE) and "waiting on pr_merged acme/app#9" in page.drawn(DRIVE)
