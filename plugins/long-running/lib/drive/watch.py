@@ -108,7 +108,7 @@ PASS_DONE = (
     " pass, since drive status reads a pass's HANDOFF as stopped"
 )
 RELAUNCH_REFUSED = "relaunch_refused"
-START_AT_ONCE = 2
+START_AT_ONCE = 4
 LANE_READS_AT_ONCE = 6
 SPENT_SHOWN = 3
 SPENT_WORDS = 3
@@ -5056,6 +5056,14 @@ def starts_itself(job: dict) -> bool:
     return job["kind"] in state.STARTS_ITSELF and bool(job.get("brief")) and not (job.get("agent") or job.get("dispatch") or job.get("bg"))
 
 
+def starts_here(watcher: Watcher, data: dict, job: dict, first: bool) -> bool:
+    """Whether this watch's start_jobs starts the job: in a first_starts call, a job its own watch hears, so each priority seat's watch starts its first-in-line work every pass; otherwise the drive's own watch alone, for a job of any lane but a first-in-line one a seat's watch hears, since a project's pass comes round only every ten to twenty minutes while the drive's comes every few, and a starved project's briefed builders waited hours for its turn."""
+    lane = state.heard_job_lane(data, job)
+    if first:
+        return lane == watcher.lane
+    return not watcher.project and (lane == watcher.lane or not (job.get("priority") or state.first_in_line(data, job)))
+
+
 def start_jobs(watcher: Watcher, moment: datetime, first: bool = False) -> None:
     """Start each heard job's first worker that nothing holds, so no session's Agent call or launch starts it and no root relays it: `drive job start` for a briefed builder or reader on this Mac, which starts its agent as its own claude --bg session past every check an Agent start meets, counting its builder slot or holding it waiting its turn, and `drive job launch` for one placed on a Sprite, each by start_verb once busy lets it and at most once per RELAUNCH a watch, at most START_AT_ONCE a pass, a job whose brief declares no step only this Mac runs, by place.mac_step, launched on a Sprite at once beside the rest, taking no place of that count, or queued on sprite-slot under the Sprite cap, whose line launches it as a lane frees, a local job this Mac's load or caps hold back taking no place of that count, a builder of them queued waiting its turn on builder-slot with its place, whose FREE line starts it when a slot frees, and a builder already queued so left to that line, since refused starts heading the jobs every pass once kept about 25 briefed jobs from ever starting but for a priority order's, which first takes past that count, so a burst of freed jobs starts over several passes, and a refusal, which reaches the session holding the job as its relaunch_refused event, leaves the job to that session. A job no order of a coordinator or the meta session holds, such as a handler's, a stopped or finished one, one whose cards or waits hold it, by view.start_refusal, or one launching is left alone. With first, only a job drive job set --priority marks or one serving an open priority order, by state.first_in_line, which first_starts runs on every pass."""
     data, room, queued, sprites = state.load(watcher.name), START_AT_ONCE, [], []
@@ -5064,7 +5072,7 @@ def start_jobs(watcher: Watcher, moment: datetime, first: bool = False) -> None:
             continue
         if room <= 0 and not first:
             break
-        if not starts_itself(job) or work.queued(data, job) or job["state"] in (*state.FINISHED_JOB_STATES, "running") or state.SLOT_WAIT in job["waits"] or state.SPRITE_WAIT in job["waits"] or moment - watcher.started.get(job_id, moment - RELAUNCH) < RELAUNCH or not heard_job(watcher, data, job) or view.open_cards(job) or launching(job, moment):
+        if not starts_itself(job) or work.queued(data, job) or job["state"] in (*state.FINISHED_JOB_STATES, "running") or state.SLOT_WAIT in job["waits"] or state.SPRITE_WAIT in job["waits"] or moment - watcher.started.get(job_id, moment - RELAUNCH) < RELAUNCH or not starts_here(watcher, data, job, first) or view.open_cards(job) or launching(job, moment):
             continue
         if state.holding_lane(data, data["orders"][job["order"]]) == "communicator" or view.start_refusal(data, job_id, False) or busy(watcher, job_id, moment):
             continue
