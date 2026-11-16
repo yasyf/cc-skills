@@ -22,6 +22,7 @@ EDIT_TAKES = {"edit", "text", "blocks", "asked", "claims", "dry_run", "done", *T
 RECORD_WAIT_SECONDS = 1.0
 RECORD_POLL_SECONDS = 0.05
 BARE_TS = re.compile(r"\d{10}\.\d{6}")
+WATCH_LOG = "watch.log"
 
 
 def say(name: str, post: dict) -> str:
@@ -95,6 +96,8 @@ def report_words(report: dict) -> str:
 
 REPORT_RULES = """You write the one Slack post the owner of a software drive reads for a report a session of the drive sent, and decide where it goes. You get the report's words, its attrs, the thread and channel it names, and, for a correction, the post it corrects. Reply with one JSON object and nothing else:
 
+A line saying work he asked for is live, or an incident he was told about is over, always posts, in his thread: never skip one.
+
 {"skip": "<why>"} when it holds no news for him, or asks the poster to decide or do something besides posting, such as answer a teammate, or is a progress line that neither answers a message of his, nor is on an incident, nor is on a cadence order he set, nor reports a finding or the regular progress of work he explicitly asked for (his 03:40 rule: each finding as it happens, a progress line about every 30 minutes), which goes as FYI; the why goes back to its writer, so name the rule it broke; else
 {"text": "<the post>", "place": "thread" | "root" | "edit", "blocks": [<Block Kit blocks>], "visuals": [<visuals>]}, blocks and visuals optional.
 
@@ -132,6 +135,8 @@ def report_line(name: str, seq: str) -> str:
     except ValueError:
         raise DriveError(f"its post was not written: {render.cut(said, 200)}") from None
     if made.get("skip"):
+        with (state.drive_dir(name) / WATCH_LOG).open("a") as log:
+            log.write(f"{state.stamp()} report {seq} by {report['lane']} skipped by report-post: {made['skip']}\n")
         raise Skipped(f"its post was skipped: {made['skip']}")
     if not (text := (made.get("text") or "").strip()):
         raise DriveError(f"its post was not written: {render.cut(said, 200)}")
