@@ -5395,6 +5395,36 @@ def test_an_answer_order_is_one_readers_and_a_build_orders_builder_starts_on_its
         assert run("job", "add", "builder", "--order", order_id, "--goal", "fix it", *part)[0] == 0
 
 
+def test_a_reader_pilot_orders_builder_starts_with_no_research_while_a_complex_designed_or_other_projects_order_keeps_its_reader(
+    run: Run, communicator: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    drive = ("--title", "Short title", "--kind", "build", "--project", "The drive", "--workstream", "Drive tooling")
+    iris = ("--title", "Short title", "--kind", "build", "--project", "Iris", "--workstream", "Chats")
+    run("order", "add", *drive, "copy one store")
+    run("order", "add", *iris, "copy one chat")
+    assert cli.main(["order", "pilot", "Nowhere"]) == 2
+    assert "'Nowhere' names no project an order is filed under" in capsys.readouterr().err
+    assert run("order", "pilot", "The drive", "--days", "1")[1].startswith("reader pilot on The drive from ")
+    run("order", "add", *drive, "copy two stores")
+    run("order", "add", *drive, "copy three stores", "--complex")
+    run("order", "add", *iris, "copy two chats")
+    run("order", "add", *drive, "copy four stores")
+    for order_id in ("o3", "o4", "o5", "o6"):
+        run("job", "add", "builder", "--order", order_id, "--goal", "build it")
+    run("job", "add", "design", "--order", "o6", "--goal", "design it")
+    data = state.load("demo")
+    started = {job_id: f"Drive: demo, order {data['jobs'][job_id]['order']}, job {job_id}" for job_id in ("j1", "j2", "j3", "j4")}
+    assert [job_id for job_id, line in started.items() if brief.brief_refusal("demo", data, job_id, line) is None] == ["j1"]
+    assert brief.unresearched("demo", data, "o3", "builder", list(data["orders"]["o3"]["parts"])) is None
+    assert brief.brief_refusal("demo", data, "j1", f"Researched: j1\n{started['j1']}").startswith("Researched: j1 names no reader or design")
+    run("order", "pilot", "The drive", "--days", "0")
+    run("order", "add", *drive, "copy five stores")
+    run("job", "add", "builder", "--order", "o7", "--goal", "build it")
+    assert brief.brief_refusal("demo", state.load("demo"), "j6", "Drive: demo, order o7, job j6") is not None
+    assert run("order", "pilot")[1] == "reader pilot off: every build order's lanes start on a reader's research"
+    assert state.load("demo")["reader_pilot"] is None
+
+
 def test_replayed_o1324_a_part_split_off_a_read_part_keeps_its_readers_research_so_its_own_builder_starts_with_no_card_waits(
     run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

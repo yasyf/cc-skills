@@ -1146,6 +1146,20 @@ def order_unfiled(args: argparse.Namespace) -> int:
     return emit(args, "\n".join([*lines, *names]) or "every open order names its project, workstream and title", {"unfiled": unfiled, "in_use": named})
 
 
+def order_pilot(args: argparse.Namespace) -> int:
+    """Start or end the reader pilot: a build order filed under the project, added inside the window, marked neither --complex nor holding a design job, starts its builder, designer or codex lane with no reader, by state.readers_piloted."""
+    name = state.resolve(args.drive)
+    known = {order["project"] for order in state.load(name)["orders"].values()}
+    if args.project and args.project not in known:
+        raise DriveError(f"{args.project!r} names no project an order is filed under; drive order unfiled lists the ones in use")
+    since = state.now()
+    pilot = {"project": args.project, "since": state.stamp(since), "until": state.stamp(since + timedelta(days=args.days))} if args.project else None
+    with state.edit(name) as data:
+        data["reader_pilot"] = pilot
+    line = f"reader pilot on {args.project} from {pilot['since']} until {pilot['until']}" if pilot else "reader pilot off: every build order's lanes start on a reader's research"
+    return emit(args, line, {"reader_pilot": pilot})
+
+
 def promise_said(due: str, held: str | None, where: tuple[str, str]) -> str:
     """What --due did with the time: stored to start at the drive post that tells him it, or stored behind a line already owed, which keeps firing until a post lands."""
     post = f"the next drive post in {where[0]} thread {where[1]}"
@@ -6154,14 +6168,14 @@ def parser() -> argparse.ArgumentParser:
         help=(
             "answer: one reader lane researches it and answers him, with no other job; build, the default: an Opus reader keeps its"
             " Researched: block before any builder, designer or codex lane starts, except the immediate fix's and a follow-up part's"
-            " designer, which start at once, the follow-up's designer keeping the Researched: block its changes' builders start on, and their briefs name it."
+            " designer, which start at once, the follow-up's designer keeping the Researched: block its changes' builders start on, and their briefs name it. A build order of the project drive order pilot names, not --complex and holding no design job, starts its lanes with no reader."
             " An incident order is a build"
         ),
     )
     verb.add_argument(
         "--complex",
         action=argparse.BooleanOptionalAction,
-        help="more than a one-fact lookup: its answer lane runs on Opus, never Sonnet; --no-complex marks a one-fact lookup, and an answer order asking several questions with neither starts no Sonnet lane",
+        help="more than a one-fact lookup: its answer lane runs on Opus, never Sonnet; --no-complex marks a one-fact lookup, and an answer order asking several questions with neither starts no Sonnet lane; a build order of the project drive order pilot names keeps its reader only when --complex",
     )
     verb.add_argument(
         "--options-only", action="store_true", help="he asked for options only: no builder or codex job starts on the proper fix until he picks, only a reader or designer, while its immediate fix part's starts at once"
@@ -6304,6 +6318,14 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=rehearsed(order_set))
     verb = order.add_parser("unfiled", parents=both, help="each open order that names no project, workstream or title yet, then the project and workstream pairs in use")
     verb.set_defaults(run=order_unfiled)
+    verb = order.add_parser(
+        "pilot",
+        parents=both,
+        help="start the reader pilot on one project, whose build orders added from now on, unless marked --complex or holding a design job, start their builder with no reader; with no project, end it",
+    )
+    verb.add_argument("project", nargs="?", help="the project orders are filed under, as drive order unfiled lists it; left out, the pilot ends")
+    verb.add_argument("--days", type=float, default=2, help="how long orders added count as the pilot's, 2 by default")
+    verb.set_defaults(run=order_pilot)
     verb = order.add_parser("posted", parents=both, help="the communicator posted a line in an order's thread, its cards' or its PRs' cards': a progress line, delivering no part, or the answer a part owes him, which the report record it carries delivers, there or in any other channel; or the session holding the order closes a part from the drive's post that already answered it")
     verb.add_argument("id", help="the order")
     posted = verb.add_mutually_exclusive_group(required=True)

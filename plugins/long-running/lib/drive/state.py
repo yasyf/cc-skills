@@ -856,6 +856,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "unowed_fails_undone": True,
         "carried_proofs_delivered": True,
         "change_waits_stacked": True,
+        "reader_pilot": None,
     }
 
 
@@ -1238,6 +1239,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             pr["tap"] = new_tap(tap["label"], tap["head"], tap["source"], tap.get("action_ts"), tap["at"], tap.get("picks"), tap.get("card"), tap.get("approval"))
     data.setdefault("answers", {})
     data.setdefault("stalls", {})
+    data.setdefault("reader_pilot", None)
     for answer in data["answers"].values():
         answer.setdefault("jobs", {})
         answer.setdefault("approves", None)
@@ -4761,6 +4763,18 @@ def agent_lane(data: dict, job: dict) -> str | None:
 def starts_cut(job: dict) -> bool:
     """Whether a job starts a production cut, its brief carrying a Release line: the top coordinator's job on any order, since the top alone starts, approves and rolls back cuts, by his words "the top starts, approves and rolls back production cuts, one at a time"."""
     return bool((job.get("brief_flags") or {}).get("release"))
+
+
+def readers_piloted(data: dict, order: dict) -> bool:
+    """Whether a build order's builder, designer or codex lane starts with no reader, researching in its own session: the order is filed under the project drive order pilot names and was added inside its window, and is neither marked --complex nor holds a design job, which keep their reader, as does a repro the coordinator adds a reader for by choice."""
+    pilot = data["reader_pilot"]
+    return (
+        bool(pilot)
+        and order["project"] == pilot["project"]
+        and parse_time(pilot["since"]) <= parse_time(order["created"]) < parse_time(pilot["until"])
+        and not order["complex"]
+        and not any(data["jobs"][job_id]["kind"] == "design" for job_id in order["jobs"])
+    )
 
 
 def heard_job_lane(data: dict, job: dict) -> str:
