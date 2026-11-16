@@ -2354,6 +2354,7 @@ def test_resume_copies_a_dead_lanes_sprite_logs_and_transcripts_before_it_saves_
     steps = []
     dead_lane_holding(remote, tmp_path, monkeypatch, lambda drive, job_id, job, root: steps.append(("save", list(kept_logs), list(kept_transcripts))) or SAVED)
     monkeypatch.setattr(orca, "holds_sprite", lambda job: True)
+    monkeypatch.setattr(orca, "recorded", lambda workspace: True)
     monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: steps.append(("destroy", list(kept_logs), list(kept_transcripts))) or f"destroyed {job['workspace']}")
     assert run("job", "resume", "j1", "Build #4412 failed: fix the lint")[0] == 0
     kept = [("j1", DISPATCH)]
@@ -2510,6 +2511,7 @@ def restarted_lane(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a dead lane: {args}"))
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: FRESH_RUN)
     monkeypatch.setattr(orca, "holds_sprite", lambda job: True)
+    monkeypatch.setattr(orca, "recorded", lambda workspace: True)
     launched: list[tuple] = []
 
     def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None, transcript: Path | None = None, model: str = orca.MODEL) -> dict:
@@ -3055,6 +3057,7 @@ def test_j982s_sprite_orca_cannot_reach_whether_or_not_its_runtime_listens_resta
     saved_on_github["demo-j1"] = SAVED_BRANCHES if saved else []
     monkeypatch.setattr(orca, "save", (lambda drive, job_id, job, root: saved) if saved else unsaveable(UNREAD))
     monkeypatch.setattr(orca, "holds_sprite", lambda job: True)
+    monkeypatch.setattr(orca, "recorded", lambda workspace: True)
     released = []
     monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: released.append(job["workspace"]) or f"destroyed {job['workspace']}")
     held = "Next event for builder j982, from the coordinator. TAP Approve #12"
@@ -3706,6 +3709,7 @@ def test_a_launch_local_of_a_job_whose_sprite_does_not_answer_moves_it_to_this_m
     monkeypatch.setattr(github, "read", matching_refs)
     monkeypatch.setattr(orca, "save", save)
     monkeypatch.setattr(orca, "holds_sprite", lambda job: True)
+    monkeypatch.setattr(orca, "recorded", lambda workspace: True)
     monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: released.append(job["workspace"]) or f"destroyed {job['workspace']}")
     code, out = run("job", "launch", "j1", "--local")
     assert (code, out.startswith("j1: the message went to the job's next worker, relaunched in a fresh worktree on this Mac as its own claude --bg session bg-1")) == (0, True)
@@ -5104,6 +5108,7 @@ def test_the_watch_ends_a_waiting_jobs_own_lane_and_releases_each_sprite_an_earl
     released = []
     monkeypatch.setattr(state, "scratch", lambda: False)
     monkeypatch.setattr(orca, "holds_sprite", lambda job: job.get("workspace") not in (None, "sprite-gone"))
+    monkeypatch.setattr(orca, "recorded", lambda workspace: workspace != "sprite-gone")
     monkeypatch.setattr(state, "detach", lambda name, args, log: released.append((unreserved(args), log)) or adopted_as(name, args, os.getpid()))
     with edit(remote) as data:
         old = [{"dispatch": f"ctx_old{n}", "workspace": workspace, "why": "its worker exited", "at": state.stamp(T0)} for n, workspace in enumerate(["sprite-old", "sprite-gone", "sprite-now"])]
