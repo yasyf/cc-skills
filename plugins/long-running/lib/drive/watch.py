@@ -623,8 +623,8 @@ def pushed_lines(watcher: Watcher, moment: datetime) -> list[str]:
     data = state.load(watcher.name)
     if not any(settles(watcher, data, job_id) for job_id in data["jobs"]):
         return []
-    lines = []
-    with state.edit(watcher.name) as data:
+    def pushed_lines_write(data: dict) -> list[str]:
+        lines = []
         for job_id, job in data["jobs"].items():
             if not (verdict := settles(watcher, data, job_id)):
                 continue
@@ -635,7 +635,9 @@ def pushed_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 continue
             job.update(said="READY refused: " + "; ".join(f"{key}'s {why}" for key, why in held), updated=state.stamp(moment))
             lines += [f"PR {key}: READY refused, its {why} [{job['order']} {job_id}]" for key, why in held]
-    return lines
+        return lines
+
+    return state.update(watcher.name, None, pushed_lines_write)
 
 
 def settles(watcher: Watcher, data: dict, job_id: str) -> tuple[str, list[tuple[str, str]]] | None:
