@@ -329,11 +329,12 @@ it, ai-oncall style". In the pass that pages, the drive:
 
 1. Adds a codex job on the incident's `fix` and on its first check or cause wherever no worker
    runs one, and hands you each to launch in a `PAGED o<n>` line.
-2. Posts the incident's line in a drive channel: the order's thread there, else the root of its
-   seat's channel, never an alert's thread outside the drive's channels. The line says what broke,
-   for whom, its link, and who is fixing it. That post starts the incident's thread.
-3. Pages him naming the same. When no line posts, nobody is paged and the next pass tries again;
-   a pass that posted and failed to page pages next pass with no second post.
+2. Posts the incident's first line, a fixed line the watch writes from the order's row with no
+   post writer between, in a drive channel: the order's thread there, else the root of the drive
+   channel of its project, never an alert's thread outside the drive's channels. The line says what
+   broke, for whom, its link, and who is fixing it, and starts the incident's thread.
+3. Pages him with that line's text. A real-users incident never waits on Slack: when the line
+   cannot post, the page still goes out carrying it, and the watch posts the line on a later pass.
 
 ### Over-communicate a paged incident
 

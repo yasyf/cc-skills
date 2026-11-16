@@ -159,7 +159,7 @@ REMOTE_LANE_ENV = "LONG_RUNNING_REMOTE_LANE"
 WATCHDOG_ENV = "LONG_RUNNING_WATCHDOG"
 DETACHED_ENV = "LONG_RUNNING_DETACHED"
 HIM = "him"
-ORDER_FIELDS = {"paged": None, "paged_by": None, "users": None, "users_by": None}
+ORDER_FIELDS = {"paged": None, "paged_by": None, "page_post": None, "users": None, "users_by": None}
 WATCH_SENDER = "watch"
 SENDER_NAMES = {"coordinator": "the coordinator", "communicator": "the communicator", "meta": "the meta session", WATCH_SENDER: "the watch"}
 CARRY_ON = "The lane that held this job died while it worked, and the watch started you in its place: carry the job on from where that lane left it."
@@ -4238,6 +4238,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "prove_said": None,
         "paged": None,
         "paged_by": None,
+        "page_post": None,
         "users": None,
         "users_by": None,
         "quiet": None,

@@ -1494,58 +1494,84 @@ def page_owner(name: str, data: dict, title: str, why: str) -> str:
 
 
 def page_place(data: dict, order: dict) -> dict[str, str]:
-    """Where a page's line goes, by his ruling b4d22c3 that a page always comes with "a channel message in a drive channel": the order's thread in a channel the drive keeps, by state.channel_thread, else the root of its seat's drive channel, by slack.project_channel, never an alert's thread outside the drive's channels; his DM root for a drive keeping no channel, project_channel's own fallback."""
+    """Where a page's line goes, by his ruling b4d22c3 that a page always comes with "a channel message in a drive channel": the order's thread in a channel the drive keeps, by state.channel_thread, else the root of the drive channel of its project, by slack.project_channel, such as C0CHZM7A478 for o2046, never an alert's thread outside the drive's channels; his DM root only for a drive keeping no channel at all, project_channel's own fallback."""
     if where := state.channel_thread(data, order) if data["slack"]["channels"] else None:
-        return {"channel": where[0], "thread": where[1]}
-    return {"channel": slack.project_channel(data, state.channel_seat_of(data, order))}
+        return {"channel_id": where[0], "thread_ts": where[1]}
+    return {"channel_id": slack.project_channel(data, state.channel_seat_of(data, order))}
 
 
-def page_with_line(name: str, data: dict, key: str, users: int, why: str | None = None) -> tuple[str, list[str]]:
-    """Page him for an incident as his ruling b4d22c3 says, "a page always comes with 1) a channel message in a drive channel, and 2) in parallel needs to start working on a fix": first add a codex job on its fix and on its diagnosis wherever no job runs, by state.page_starts, then post its line in a drive channel by page_place, what broke, for whom, its link and who is fixing it, and only then page him naming the same. The drive's report writer posts the line, and a line it skips or refuses goes out as written through talk.posted, so the page never waits on the writer's taste; a line that posts nowhere pages nobody, and a pass that posted it and failed to page pages next pass with no second post. The post's and the page command's lines, and the start line of each job the coordinator launches now."""
-    from drive import talk, tools
-
-    def page_starts_write(edited: dict) -> tuple[list[str], list[str]]:
-        return state.page_starts(edited, name, key, state.stamp())
-
-    working, starts = state.write(name, page_starts_write, patient=True)
-    data = state.load(name)
+def page_words(data: dict, key: str, users: int, why: str | None, working: list[str], starts: list[str]) -> str:
+    """An incident's first line, the one the watch writes itself from the order's row with no post writer that could skip it: what broke, for whom, its alerts' links, the record of users failing and who is fixing it."""
     order = data["orders"][key]
     alerts = f" ({', '.join(order['alerts'])})" if order["alerts"] else ""
     fixing = "; ".join([*(f"{each} at work" for each in working), *(f"{start.split(':')[0]} starting now" for start in starts)])
-    words = f"Paging you: {why or order['title'] or cut(order['text'], 80)}, failing for real users{alerts}, by {{record:{users}|the read of users failing}}. Fixing it: {fixing}."
-    place = page_place(data, order)
-    record = {
-        "kind": "report",
-        "topic": f"incident-{key}",
-        "id": f"page-{key}-{users}",
-        "attr": {"order": key, "progress": "true"} | place,
-        "body": f"{render.order_line(data, key, order)}\nreal users failing: record {users}\n",
-    }
-    [seq] = tools.sent(name, LANE, [record | {"text": f"POST {words}"}])
-    if not (posted := data["carried"].get(seq) or "").startswith("https://"):
+    return f"🚨 {why or order['title'] or cut(order['text'], 80)}: real users failing{alerts}, by record {users}. Fixing it: {fixing}. Paged him."
+
+
+def post_page_line(name: str, key: str) -> str:
+    """Post an incident's first line, kept on its order by page_with_line, in its drive channel as written, by talk.posted with no writer between, and keep its permalink on the order; the permalink."""
+    from drive import talk
+
+    data = state.load(name)
+    order = data["orders"][key]
+    link = talk.posted(name, {"text": order["page_post"]["text"]} | page_place(data, order), key)["permalink"]
+
+    def post_page_line_write(edited: dict) -> None:
+        edited["orders"][key]["page_post"] = edited["orders"][key]["page_post"] | {"link": link}
+
+    state.write(name, post_page_line_write, patient=True)
+    return link
+
+
+def page_with_line(name: str, data: dict, key: str, users: int, why: str | None = None) -> tuple[str, list[str]]:
+    """Page him for an incident as his ruling b4d22c3 says, "a page always comes with 1) a channel message in a drive channel, and 2) in parallel needs to start working on a fix": first add a codex job on its fix and on its diagnosis wherever no worker runs one, by state.page_starts, then post its first line by post_page_line, a fixed line the watch writes from the order's row, and page him with that line's text. A real-users incident never waits on Slack: a line that cannot post this pass is said, the page goes out carrying its text, and page_post_lines posts it on a later pass. The post's or its failure's line and the page command's, and the start line of each job the coordinator launches now."""
+    def page_starts_write(edited: dict) -> list[str]:
+        working, starts = state.page_starts(edited, name, key, state.stamp())
+        order = edited["orders"][key]
+        if not (order["page_post"] and order["page_post"]["link"]):
+            order["page_post"] = {"text": page_words(edited, key, users, why, working, starts), "link": None}
+        return starts
+
+    starts = state.write(name, page_starts_write, patient=True)
+    order = state.load(name)["orders"][key]
+    try:
+        posted = order["page_post"]["link"] or post_page_line(name, key)
+    except (state.DriveError, slack.SlackError) as error:
+        posted = f"its line did not post, so the page carries it and the watch posts it next pass: {error}"
+    return f"{posted}; {page_owner(name, data, f'{key} {order['title'] or order['text']}', f'{order['page_post']['text']}\nreal users failing: record {users}')}", starts
+
+
+def page_post_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Post the first line of each open incident he was paged for whose line did not post when the page went out, by post_page_line, each pass until it posts, whether he is here or away; one that fails again is said as a failed read is."""
+    data = state.load(watcher.name)
+    for key in state.open_incidents(data, list(data["orders"])):
+        held = data["orders"][key]["page_post"]
+        if not (data["orders"][key]["paged"] and held and not held["link"] and hears(watcher, data, key)):
+            continue
         try:
-            posted = talk.report_line(name, seq)
-        except (talk.Skipped, state.DriveError):
-            posted = talk.posted(name, {"text": words, "record": seq, "channel_id": place["channel"]} | ({"thread_ts": place["thread"]} if "thread" in place else {}), key)["permalink"]
-    return f"{posted}; {page_owner(name, data, f'{key} {order['title'] or order['text']}', f'{words}\nreal users failing: record {users}')}", starts
+            post_page_line(watcher.name, key)
+        except (state.DriveError, slack.SlackError) as error:
+            return failed(watcher, "page line", f"post of {key}'s paged line", error, moment)
+        watcher.failures.pop("page line", None)
+    return []
 
 
 def owner_page_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Page him once for each incident order the watch hears that opened since he was last heard, is open while he is not present, by state.absence, the presence the landing gate reads, and carries the cci record showing real users failing, by state.PAGE_RULE, so a failure only the drive's own callers or proofs hit pages nobody and one whose record lands later pages then; one that fails is said as a failed read is and tried again next pass."""
+    """Page him once for each incident order the watch hears that opened since he was last heard, is open while he is not present, by state.absence, the presence the landing gate reads, and carries the cci record showing real users failing, by state.PAGE_RULE, so a failure only the drive's own callers or proofs hit pages nobody and one whose record lands later pages then, each by page_with_line; a page that fails is said as a failed read is and tried again next pass, and each paged line that did not post goes again by page_post_lines."""
+    lines = page_post_lines(watcher, moment)
     data = state.load(watcher.name)
     if not state.absence(data, moment):
-        return []
+        return lines
     heard = data["owner"]["heard"]
     owed = [
         key
         for key in state.open_incidents(data, list(data["orders"]))
         if data["orders"][key]["users"] and not data["orders"][key]["paged"] and (not heard or state.parse_time(data["orders"][key]["created"]) > state.parse_time(heard)) and hears(watcher, data, key)
     ]
-    lines = []
     for key in owed:
         try:
             paged, starts = page_with_line(watcher.name, data, key, data["orders"][key]["users"])
-        except (state.DriveError, reads.ReadError, slack.SlackError) as error:
+        except (state.DriveError, reads.ReadError) as error:
             return lines + failed(watcher, "owner page", "page of his Datadog On-Call user", error, moment)
         watcher.failures.pop("owner page", None)
         def owner_page_lines_write(edited: dict):
