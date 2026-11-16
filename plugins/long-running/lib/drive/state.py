@@ -2455,15 +2455,13 @@ def unreach(data: dict, key: str) -> list[str]:
 
 
 def left_changes(data: dict, builder_id: str, found: list[tuple[str, list[int]]]) -> list[str]:
-    """Make each piece a builder's return lists on its `UNBUILT:` lines, each a piece of its plan it left to a follow-up, a part of its order, a part already under those words included, under the design of the builder's parts, whose research a builder of the part starts on, or, where its parts have none, read by each reader of them, by share_research; then add a builder for each by change_builders, from that design, or else from the builder, whose return its Plan: line names."""
+    """Make each piece a builder's return lists on its `UNBUILT:` lines, each a piece of its plan it left to a follow-up, a part of its order, a part already under those words included, under the design of the builder's parts, or, where its parts have none, listed by the builder, so brief.researches starts a builder of the part on that design's research, or else on the research of the builder's parts and, with none, on the builder's return; then add a builder for each by change_builders, from that design, or else from the builder, whose return its Plan: line names."""
     builder = data["jobs"][builder_id]
     order = data["orders"][builder["order"]]
-    design = next((held["design"] for part, held in order["parts"].items() if part in builder["parts"] and held["design"]), None)
+    design = next((lister for part, held in order["parts"].items() if part in builder["parts"] and (lister := held["design"]) and data["jobs"][lister]["kind"] == "design"), None)
     for change, _ in found:
         held = order["parts"].setdefault(change, new_part())
-        held["design"] = held["design"] or design
-    if not design:
-        share_research(data, builder["order"], set(builder["parts"]), [change for change, _ in found])
+        held["design"] = held["design"] or design or builder_id
     order["updated"] = stamp()
     return change_builders(data, design or builder_id, builder_id, [([change], waits) for change, waits in found])
 
@@ -2620,8 +2618,8 @@ def design_builders(data: dict, design_id: str) -> list[str]:
 
 
 def designed(data: dict, job_id: str, order_id: str) -> set[str]:
-    """The parts of an order a job's DESIGN listed as its changes, none for a job that designs nothing."""
-    return {part for part, held in data["orders"][order_id]["parts"].items() if held["design"] == job_id}
+    """The parts of an order a job's DESIGN listed as its changes, none for a job that designs nothing, such as a builder whose return listed the changes it left unbuilt."""
+    return {part for part, held in data["orders"][order_id]["parts"].items() if held["design"] == job_id} if data["jobs"][job_id]["kind"] == "design" else set()
 
 
 def unlisted_changes(name: str, data: dict, design_id: str) -> list[str]:

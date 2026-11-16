@@ -6099,10 +6099,30 @@ def test_a_follow_up_piece_a_builder_names_on_an_unbuilt_line_of_an_undesigned_o
     assert cli.main(["job", "report", "j2", "-"]) == 0
     assert capsys.readouterr().out.splitlines()[-1] == f'j3 builder on "retry each stalled copy": start its agent now, run_in_background, on the prompt "Read your brief first: {state.load("demo")["jobs"]["j3"]["brief"]}"'
     data = state.load("demo")
-    assert (data["orders"]["o1"]["parts"]["retry each stalled copy"]["design"], data["jobs"]["j1"]["parts"]) == (None, ["the copy", "retry each stalled copy"])
+    assert (data["orders"]["o1"]["parts"]["retry each stalled copy"]["design"], data["jobs"]["j1"]["parts"]) == ("j2", ["the copy"])
     code, out = run("job", "brief", "j3", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
     written = Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
     assert (code, "\nResearched: j1\n" in written, '\nPlan: j2\'s return, change "retry each stalled copy": drive job report j2\n' in written) == (0, True, True)
+
+
+def test_a_builder_of_a_change_a_built_builder_left_unbuilt_starts_on_that_builders_return_when_nothing_researched_its_work(
+    run: Run, meta: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy")
+    run("job", "add", "builder", "--order", "o1", "--part", "the copy", "--goal", "build the copy")
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", "Holds: the copy, built on `j1-copy`"))
+    assert run("job", "ask", "j1", str(block))[0] == 0
+    [card] = view.open_cards(state.load("demo")["jobs"]["j1"])
+    capsys.readouterr()
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"BUILT j1-copy, waits on {card}\nUNBUILT: retry each stalled copy\n"))
+    assert cli.main(["job", "report", "j1", "-"]) == 0
+    assert any(line.startswith('j2 builder on "retry each stalled copy": start its agent now') for line in capsys.readouterr().out.splitlines())
+    code, out = run("job", "brief", "j2", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
+    written = Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
+    assert (code, "\nResearched: j1\n" in written, '\nPlan: j1\'s return, change "retry each stalled copy": drive job report j1; stack on j1\'s branch j1-copy\n' in written) == (0, True, True)
+    assert brief.brief_refusal("demo", state.load("demo"), "j2", written) is None
+    assert brief.brief_refusal("demo", state.load("demo"), "j2", written.replace("\nResearched: j1\n", "\n")).startswith("j2 builds on o1, a build order: its brief carries the line Researched:")
 
 
 def test_j5896_a_follow_up_builder_split_off_work_a_readers_open_card_holds_is_held_by_that_card_whose_kept_holds_words_name_it_through_a_re_ask(
@@ -6631,9 +6651,11 @@ def test_a_builders_pushed_naming_a_monorepo_pr_on_its_staging_test_gives_its_on
     (tester_id, tester), = [(job_id, job) for job_id, job in data["jobs"].items() if state.builds_nothing(job)]
     assert (data["prs"][key]["waits"], data["prs"]["Forge-AI/monorepo#43"]["waits"], tester_id in data["orders"]["o1"]["jobs"]) == ([f"o1:{part}"], [], True)
     assert (tester["kind"], tester["goal"], tester["parts"], tester["where"]) == ("builder", cases, [part], "local")
+    assert [event["line"] for event, _ in state.read_events("demo") if event["kind"] == state.RETURNED and tester_id in event["line"]] == [f'{tester_id} builder on "{part}": start its agent now, run_in_background, on the prompt "Read your brief first: {tester["brief"]}"']
     assert run("job", "brief", tester_id)[0] == 0
     written = Path(state.load("demo")["jobs"][tester_id]["brief"]).read_text()
-    assert (f"Mac: {cli.STAGING_MAC}" in written, '"incident": "true"' in written, "Researched:" in written) == (True, True, False)
+    assert (f"Mac: {cli.STAGING_MAC.format(drive='demo')}" in written, "`root@demo` on topic `staging-slots`" in written, "`tools/ci release start" in written) == (True, True, False)
+    assert ('"incident": "true"' in written, "Researched:" in written) == (True, False)
 
 
 def test_pr_add_and_pr_set_put_a_flake_fix_whose_paths_reach_a_component_on_its_staging_test_before_his_first_card_and_a_failed_reach_read_keeps_nothing(
@@ -8557,9 +8579,9 @@ def test_declared_step_reads_the_mac_step_a_jobs_next_brief_renders_from_its_fla
     with state.edit(demo) as data:
         data["jobs"]["j1"]["brief"] = str(resumed)
     job = state.load(demo)["jobs"]["j1"]
-    assert (code, place.mac_step(written.read_text()), place.mac_step(resumed.read_text()), cli.declared_step(job)) == (0, step, None, step)
+    assert (code, place.mac_step(written.read_text()), place.mac_step(resumed.read_text()), cli.declared_step(demo, job)) == (0, step, None, step)
     staged = job | {"parts": [state.STAGING_TEST.format(number=42)], "brief_flags": job["brief_flags"] | {"mac": None}}
-    assert cli.declared_step(staged) == cli.STAGING_MAC
+    assert cli.declared_step(demo, staged) == cli.STAGING_MAC.format(drive=demo)
 
 
 def test_job_brief_writes_each_after_install_command_in_order_refuses_one_that_is_no_drive_command_and_drops_them_given_an_empty_value(

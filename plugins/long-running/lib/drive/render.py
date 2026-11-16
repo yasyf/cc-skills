@@ -386,7 +386,7 @@ def start_now(prompt: str) -> str:
 
 
 def builder_lines(name: str, data: dict, builder_ids: list[str]) -> list[str]:
-    """When to start each builder the drive added itself, beside a reader, for a design's change or on a staging test, by the one view.start_refusal drive job launch and the agent_brief hook read, on the watch's FREE line, which names its brief, once its last wait ends, or now on the prompt its brief starts it on, by start_now, each briefed here by cli.write_brief, which takes the drive's lock, so its caller says these once its own save landed, but one waiting only on readers, by unstarted_builder, whose return briefs it on their research, naming each card of his that holds its PR by land.ship_held, since it builds his recommended option and opens no PR until he answers them; a builder whose brief was refused says why and how to brief it."""
+    """When to start each builder the drive added itself, beside a reader, for a change a design or builder listed or on a staging test, by the one view.start_refusal drive job launch and the agent_brief hook read, on the watch's FREE line, which names its brief, once its last wait ends, or now on the prompt its brief starts it on, by start_now, each briefed here by cli.write_brief, which takes the drive's lock, so its caller says these once its own save landed, but one waiting only on readers, by unstarted_builder, whose return briefs it on their research, naming each card of his that holds its PR by land.ship_held, since it builds his recommended option and opens no PR until he answers them; a builder whose brief was refused says why and how to brief it."""
     from drive import cli, land, view
 
     lines = []
