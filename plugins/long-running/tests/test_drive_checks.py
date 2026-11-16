@@ -271,6 +271,24 @@ def test_a_read_and_a_card_too_long_for_one_request_together_reach_jev_whole_in_
     assert all(settled.size(request["state"], request["questions"]) <= settled.REQUEST_CHARS for request in jev.asked)
 
 
+def test_a_claim_naming_a_drive_pr_stands_on_the_drives_line_for_it_when_its_own_read_says_less_and_keeps_the_read_it_names(jev: Jev) -> None:
+    owed = {"claim": "Its builder owes #56983's fix.", "read": "read:1"}
+    call = "drive status Forge-AI/monorepo#56983"
+    line = "Forge-AI/monorepo#56983 open, checks fail, review none, no tap needed; red, owed by its builder: its checks fail"
+    output = handled(owed["claim"], [READ, {"id": "stage:1", "read": call, "source": "the drive's own line", "quote": f"{call}\n{line}", "claims": [1]}], [owed])
+    assert settled.post_verdict(output)["verdict"] == "hold"
+    assert jev.asked[-1] == {
+        "state": {
+            "post": {"text": owed["claim"], "written": owed["claim"]},
+            "claims": {"c1": owed},
+            "reads": {"read:1": {"call": CALL_READ, "result": RESULT}, "stage:1": {"call": call, "result": line}},
+        },
+        "questions": {"c1.backed": settled.asking(settled.BACKED, read="read:1", claim="c1"), "c1.backed.stage:1": settled.asking(settled.BACKED, read="stage:1", claim="c1")},
+    }
+    jev.breaks("c1", "backed.stage:1", settled.BACKS)
+    assert settled.post_verdict(output) == PASSES
+
+
 def test_a_read_too_long_for_one_request_reaches_jev_whole_in_parts_by_line_its_claim_standing_on_the_part_backing_it(jev: Jev) -> None:
     only = {"claim": "Only the cloud's inbox reader queries Postgres straight.", "read": "read:1"}
     result = "\n".join([*(f"{line}  ok := cache.Hit(key)" for line in range(1, 500)), "", "501  rows, err := r.postgres.Query(ctx, selectInbox, agentID)"])

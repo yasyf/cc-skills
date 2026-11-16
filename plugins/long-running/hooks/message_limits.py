@@ -203,6 +203,7 @@ CITED_SOURCE = "a record the post cites or a claim names, as the posting handler
 UNCLAIMED = {"id": "claims:none", "source": "the reads the posting handler's claims name", "quote": "none: the post names no claim and no read behind one"}
 CARRIED_SOURCE = "the report this post carries, another agent's words, as the posting handler's newest call naming its seq"
 ALONE_SOURCE = "; that call held more than this record, so this is the record alone, as cci show prints it"
+STAGE_SOURCE = "the drive's own line for a PR the claims name, as drive status prints it, which owns where that PR stands and who owes its fix"
 
 
 class Warned(str):
@@ -1044,7 +1045,7 @@ def denial(reason: str) -> dict:
 
 
 def read_evidence(payload: dict, claims: list[dict]) -> list[dict]:
-    """What Jev weighs every handler's say post by beside his words, whatever the checks found: for each read its claims name, its newest call that read names, and for each record a claim names or its text cites, the report it carries among them, its newest call naming that record's seq, each with its whole result, so a report it carries reaches Jev only when a line of it names that report, each call once under the first item naming it, since a line on where code lives, what it does, or a number or state stands only on the read behind it, and a record stands on the handler's own read of it, so a handler that reads again narrower hands Jev only that read, by his pick "The handler names the read behind each claim; Jev checks each claim against that read, whole"; a record is never weighed larger than itself, so a call that holds more than the record, such as a cci read of several seqs, hands Jev the record alone as `cci show` prints it; none for any other post, such as the communicator's ack, or a card or PR card, which a record draws."""
+    """What Jev weighs every handler's say post by beside his words, whatever the checks found: for each read its claims name, its newest call that read names, and for each record a claim names or its text cites, the report it carries among them, its newest call naming that record's seq, each with its whole result, so a report it carries reaches Jev only when a line of it names that report, each call once under the first item naming it, since a line on where code lives, what it does, or a number or state stands only on the read behind it, and a record stands on the handler's own read of it, so a handler that reads again narrower hands Jev only that read, by his pick "The handler names the read behind each claim; Jev checks each claim against that read, whole"; for each PR the drive tracks that a claim names by link, key, #N or `{pr:<ref>}`, the drive's own line for it as `drive status <PR>` prints it, beside the claims naming it, since the drive owns where a PR stands and who owes its fix and a handler's read, such as a job's report naming only its job, may not say whose builder that is; a record is never weighed larger than itself, so a call that holds more than the record, such as a cci read of several seqs, hands Jev the record alone as `cci show` prints it; none for any other post, such as the communicator's ack, or a card or PR card, which a record draws."""
     tool_input = payload["tool_input"]
     if payload["tool_name"] != SAY or not payload.get("agent_id") or tool_input.get("card") or tool_input.get("tap_prs") or (drive := his_drive(payload.get("session_id") or "")) is None:
         return []
@@ -1055,6 +1056,12 @@ def read_evidence(payload: dict, claims: list[dict]) -> list[dict]:
     seqs = list(dict.fromkeys([*cited, *claimed]))
     calls = own_calls(payload) if named or seqs else {}
     given: dict[str, str] = {}
+    staged: dict[str, list[int]] = {}
+    for number, claim in enumerate(claims, 1):
+        for key in state.named_prs(drive, "", " ".join([claim["claim"], *(f"#{found[2]}" for found in refs.REF.finditer(claim["claim"]) if found[1] == "pr" and found[2].isdigit())])):
+            staged.setdefault(key, []).append(number)
+    if staged:
+        cli.with_cards(drive["name"], drive, {"jobs": {}, "prs": {key: drive["prs"][key] for key in staged}})
     return [
         *(
             called(f"read:{index}", read, NAMED_SOURCE.format(read=json.dumps(read, ensure_ascii=False)), calls, given)
@@ -1063,6 +1070,10 @@ def read_evidence(payload: dict, claims: list[dict]) -> list[dict]:
         *(
             called(f"record:{seq}", seq, CARRIED_SOURCE if seq == tool_input.get("record") else CITED_SOURCE, calls, given, lambda seq=seq: record_alone(drive["name"], seq))
             for seq in seqs
+        ),
+        *(
+            {"id": f"stage:{index}", "read": f"drive status {key}", "source": STAGE_SOURCE, "quote": f"drive status {key}\n{render.pr_line(drive, key, drive['prs'][key]['card_state'])}", "claims": numbers}
+            for index, (key, numbers) in enumerate(staged.items(), 1)
         ),
         *([] if claims else [UNCLAIMED]),
     ]
