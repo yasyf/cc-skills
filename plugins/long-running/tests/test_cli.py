@@ -12938,7 +12938,7 @@ def test_an_open_order_with_no_parts_left_takes_a_note_and_a_job_as_o1676_could_
     assert run("job", "add", "reader", "--order", "o1", "--goal", "read why the job ran in the freeze")[0] == 0
 
 
-@pytest.mark.parametrize("by", ["12:05 PM", "+20m", "12:05", "2026-11-16T12:05:00-08:00"])
+@pytest.mark.parametrize("by", ["12:05 PM", "+20m", "12:05", "2030-11-16T12:05:00-08:00"])
 def test_drive_owed_due_takes_the_times_drive_job_set_due_takes_and_refuses_a_bad_one_with_a_line(run: Run, demo: str, capsys: pytest.CaptureFixture[str], by: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     with edit(demo) as data:
