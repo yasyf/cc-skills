@@ -744,6 +744,17 @@ def test_his_answer_listing_a_job_reads_it_heard_from_any_launch_text_a_worker_o
     assert state.load(remote)["answers"]["a2"]["jobs"] == {"j1": {"mark": "sent"}}
 
 
+def test_his_answer_reads_heard_from_a_relaunch_handoff_quoting_his_words_in_straight_quotes_where_he_typed_curly_ones(remote: str) -> None:
+    said = "do a self retro on why I’m having to repeat “from scratch”"
+    (folder := state.drive_dir(remote) / "jobs").mkdir(exist_ok=True)
+    (folder / "j1-2.md").write_text('The messages it never read, which you act on now:\n\n"do a self retro on why I\'m having to repeat "from scratch""\n')
+    given = state.stamp(state.now() - timedelta(minutes=1))
+    with state.edit(remote) as data:
+        data["answers"]["a1"] = {"words": said, "link": "https://acme.slack.com/archives/D123/p1794300000000300", "at": given, "said": given, "cards": {}, "jobs": {}}
+        superseded.owe(data, "a1", "j1")
+    assert state.load(remote)["answers"]["a1"]["jobs"] == {"j1": {"mark": "sent"}}
+
+
 def test_launch_runs_from_the_drives_own_worktree_made_once_with_ccx_and_moved_with_one_fetch_to_the_default_branchs_head_never_the_coordinators_working_tree(
     run: Run, demo: str, tmp_path: Path, ccx_worktrees: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

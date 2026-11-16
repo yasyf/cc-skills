@@ -18,6 +18,7 @@ MOVED_ON = "Withdrawn: the work that asked this went on without it · a new card
 PICK = re.compile(r"\b([0-9a-f]{7})[0-9a-f]*:")
 FRESH_STATES = ("built", "done")
 GIVEN_TEXT = re.compile(r"(j\d+)(?:-\d+(?:\.resume)?|\.handoff|\.sent-[\w-]+)?\.md")
+QUOTES = str.maketrans("‘’“”", "''\"\"")
 POINTER = "Read cci record {} whole and act on it"
 POINTED = re.compile(POINTER.format(r"(\d+)"))
 
@@ -616,13 +617,13 @@ def standing[T](data: dict, answers: list[tuple[str, T]]) -> list[tuple[str, T]]
 
 
 def carries(text: str, words: str) -> bool:
-    """Whether the text holds his words verbatim, spacing aside."""
+    """Whether the text holds his words verbatim, spacing and curly or straight quotes aside."""
     return spaced(words) in spaced(text)
 
 
 def spaced(text: str) -> str:
-    """The text with each run of spacing one space, as carries compares it."""
-    return " ".join(text.split())
+    """The text with each run of spacing one space and each curly quote straight, as carries compares it."""
+    return " ".join(text.translate(QUOTES).split())
 
 
 def counted(keys: list[str], asked: dict[str, dict]) -> str:
