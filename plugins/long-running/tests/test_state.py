@@ -2276,13 +2276,13 @@ def test_projection_indexes_pr_jobs_once_preserving_order_and_scope() -> None:
             self.scans += 1
             return super().items()
 
-    jobs = Jobs({f"j{n}": {"prs": [f"pr{n}", "shared", "shared"], "questions": []} for n in range(64)})
+    jobs = Jobs({f"j{n}": {"order": "o1", "prs": [f"pr{n}", "shared", "shared"], "questions": []} for n in range(64)})
     data = {"jobs": jobs, "prs": {}, "orders": {}}
     prs = [{"job": f"j{n}", "url": f"pr{n}"} for n in range(64)] + [{"job": "outside", "url": "shared"}, {"job": "outside", "url": "unknown"}]
     expected = [state.pr_jobs(data, pr) for pr in prs]
     assert jobs.scans == len(prs)
     jobs.scans = 0
-    other = {"jobs": {"other": {"prs": ["shared"], "questions": []}}, "prs": {}, "orders": {}}
+    other = {"jobs": {"other": {"order": "o1", "prs": ["shared"], "questions": []}}, "prs": {}, "orders": {}}
     with state.indexed(data):
         assert [state.pr_jobs(data, pr) for pr in prs] == expected
         assert jobs.scans == 1
@@ -2291,7 +2291,7 @@ def test_projection_indexes_pr_jobs_once_preserving_order_and_scope() -> None:
             assert state.pr_jobs(other, prs[-2]) == ["outside", "other"]
         assert state.pr_jobs(data, prs[-2]) == expected[-2]
         assert jobs.scans == 1
-    jobs["new"] = {"prs": ["shared"], "questions": []}
+    jobs["new"] = {"order": "o1", "prs": ["shared"], "questions": []}
     assert state.pr_jobs(data, prs[-2]) == [*expected[-2], "new"]
     assert jobs.scans == 2
     with pytest.raises(RuntimeError), state.indexed(data):
@@ -2529,3 +2529,48 @@ def test_his_approval_covers_work_on_its_order_until_a_newer_answer_supersedes_i
     gone.clear()
     state.end_approvals(data, key, None)
     assert (settled.approved_by(data, key, "o1", {}), approves["held"]["pr"]) == (None, key)
+
+
+def test_projection_partitions_design_builders_without_repeated_job_scans() -> None:
+    class Jobs(dict):
+        scans = 0
+
+        def items(self):
+            self.scans += 1
+            return super().items()
+
+    moment = state.stamp()
+    orders = {
+        "o1": state.new_order("build it", "terminal", None, {"design": state.new_part(), "listed": state.new_part() | {"design": "j1"}}, moment),
+        "o2": state.new_order("other work", "terminal", None, {}, moment),
+    }
+    jobs = Jobs({
+        "j1": state.new_job("o1", "design", "design it", ["design"], moment),
+        "j2": state.new_job("o1", "builder", "build the design", ["design", "extra"], moment) | {"state": "running"},
+        "j3": state.new_job("o1", "builder", "build its listed change", ["listed"], moment) | {"state": "done"},
+        "j4": state.new_job("o1", "builder", "failed", ["design"], moment) | {"state": "failed"},
+        "j5": state.new_job("o1", "builder", "unrelated", ["elsewhere"], moment),
+        "j6": state.new_job("o1", "reader", "read", ["design"], moment),
+        "j7": state.new_job("o1", "design", "design nothing", [], moment),
+        **{f"j{n}": state.new_job("o2", "builder", "other order", ["design", "listed"], moment) for n in range(8, 72)},
+    })
+    data = {"jobs": jobs, "orders": orders, "prs": {}}
+    assert state.design_builders(data, "j1") == ["j3", "j2"]
+    assert state.design_builders(data, "j7") == ["j3", "j2", "j5"]
+    expected = {key: state.design_builders(data, key) for key in jobs}
+    jobs.scans = 0
+    other = data | {"jobs": {"j1": jobs["j1"]}}
+    with state.indexed(data):
+        assert jobs.scans == 1
+        for _ in range(3):
+            assert {key: state.design_builders(data, key) for key in jobs} == expected
+        assert state.order_jobs(data, "missing") == []
+        assert jobs.scans == 1
+        with state.indexed(other):
+            assert state.design_builders(other, "j1") == []
+        assert state.design_builders(data, "j1") == ["j3", "j2"]
+        assert jobs.scans == 1
+    jobs["j2"]["order"] = "o2"
+    with state.indexed(data):
+        assert state.design_builders(data, "j1") == ["j3"]
+    assert state.INDEX.get() is None

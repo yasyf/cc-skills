@@ -3041,15 +3041,15 @@ def design_builders(data: dict, design_id: str) -> list[str]:
     if design["kind"] != "design":
         return []
     changes = designed(data, design_id, design["order"])
+    parts = set(design["parts"])
     return [
         job_id
         for _, job_id in sorted(
             (job["state"] != "done", job_id)
-            for job_id, job in data["jobs"].items()
-            if job["kind"] == "builder"
-            and job["order"] == design["order"]
+            for job_id in order_jobs(data, design["order"])
+            if (job := data["jobs"][job_id])["kind"] == "builder"
             and job["state"] not in ENDED_JOB_STATES
-            and (set(design["parts"]) <= set(job["parts"]) or changes & set(job["parts"]))
+            and (parts <= set(job["parts"]) or changes & set(job["parts"]))
         )
     ]
 
@@ -5612,9 +5612,10 @@ def served_orders(data: dict, pr: dict) -> list[str]:
 
 
 class Index(NamedTuple):
-    """What one pass over a drive's jobs, PRs and orders finds, for a read-only projection of it: the jobs listing each PR by its URL; each job's question by its waits id and by its card's Slack message, numbered in the order a scan of the jobs meets them; the open PRs waiting on each wait, by key, and each job's open PRs by their row's job, in the drive's order; the orders holding each part; land.unders and land.landing_stacks of the drive; and its immutable PR topology."""
+    """What one pass over a drive's jobs, PRs and orders finds, for a read-only projection of it: the jobs owned by each order; the jobs listing each PR by its URL; each job's question by its waits id and by its card's Slack message, numbered in the order a scan of the jobs meets them; the open PRs waiting on each wait, by key, and each job's open PRs by their row's job, in the drive's order; the orders holding each part; land.unders and land.landing_stacks of the drive; and its immutable PR topology."""
 
     jobs: dict
+    ordered_jobs: dict[str, list[str]]
     pr_jobs: dict[str, list[str]]
     waits: dict[str, list[tuple[int, str, dict]]]
     cards: dict[str, list[tuple[int, str, dict]]]
@@ -5628,14 +5629,16 @@ class Index(NamedTuple):
 
 @contextmanager
 def indexed(data: dict) -> Iterator[None]:
-    """Index the drive once for a read-only projection of it, such as the dashboard's model, so pr_jobs, waits_job, waiting_prs, job_waits, staging_runs, view.drawn_on, land.unders, land.landing_stacks and pr_graph read it without scanning every job, PR or order. Jobs, their PR lists, their questions' waits ids, cards and replacements, PRs' jobs, states, waits, native stacks, branches and unders, and orders' parts must remain unchanged inside the projection; nested projections and other threads retain their own scope."""
+    """Index the drive once for a read-only projection of it, such as the dashboard's model, so order_jobs, design_builders, pr_jobs, waits_job, waiting_prs, job_waits, staging_runs, view.drawn_on, land.unders, land.landing_stacks and pr_graph read it without scanning every job, PR or order. Jobs, their owning orders, their PR lists, their questions' waits ids, cards and replacements, PRs' jobs, states, waits, native stacks, branches and unders, and orders' parts must remain unchanged inside the projection; nested projections and other threads retain their own scope."""
     from drive import land, view
 
+    ordered_jobs: dict[str, list[str]] = {}
     pr_jobs: dict[str, list[str]] = {}
     waits: dict[str, list[tuple[int, str, dict]]] = {}
     cards: dict[str, list[tuple[int, str, dict]]] = {}
     met = itertools.count()
     for job_id, job in data["jobs"].items():
+        ordered_jobs.setdefault(job["order"], []).append(job_id)
         for url in dict.fromkeys(job["prs"]):
             pr_jobs.setdefault(url, []).append(job_id)
         for question in job["questions"]:
@@ -5655,7 +5658,7 @@ def indexed(data: dict) -> Iterator[None]:
         for part in order["parts"]:
             part_orders.setdefault(part, []).append(order_id)
     under = land.unders(data)
-    token = INDEX.set(Index(data["jobs"], pr_jobs, waits, cards, waiting, opened, part_orders, under, land.landing_stacks(data, under), PrGraph.read(data["prs"])))
+    token = INDEX.set(Index(data["jobs"], ordered_jobs, pr_jobs, waits, cards, waiting, opened, part_orders, under, land.landing_stacks(data, under), PrGraph.read(data["prs"])))
     try:
         yield
     finally:
@@ -5677,6 +5680,13 @@ def waiting_prs(data: dict, wait: str) -> list[str]:
     if index := index_of(data):
         return index.waiting.get(wait, [])
     return [key for key, pr in data["prs"].items() if pr["state"] == "open" and wait in pr["waits"]]
+
+
+def order_jobs(data: dict, order_id: str) -> list[str]:
+    """The jobs owned by an order, in the drive's job order, shared across a read-only projection."""
+    if index := index_of(data):
+        return index.ordered_jobs.get(order_id, [])
+    return [job_id for job_id, job in data["jobs"].items() if job["order"] == order_id]
 
 
 def pr_jobs(data: dict, pr: dict) -> list[str]:
