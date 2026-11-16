@@ -5057,29 +5057,30 @@ def update[T](name: str, rows: tuple[Row, ...] | None, change: Callable[[dict], 
         return change(data)
 
 
-def committed(name: str, base: bytes, mine: dict, version: int | None, before: dict[str, str]) -> None:
-    """Save a write's changes, mine, made on the drive as base held it at version, under the drive's lock for the save alone: mine whole while no other connection committed since, else mine laid over the drive as it stands now, by merged, which raises Raced at the first field both changed differently."""
-    with writing(name):
-        if unchanged_since(name, version):
-            saved = mine
-        else:
-            now = load(name)
-            before = holding_lanes(now)
-            saved = merged(marshal.loads(base), mine, now)
-        save(name, saved)
-        tell_moved(name, saved, before)
+def committed(name: str, base: bytes, mine: dict) -> None:
+    """Save a write's changes, mine, made on the drive as base held it, holding no lock while it merges: mine laid over the drive as it stands now, by merged, which raises Raced at the first field both changed differently, saved as the records that merge changed by rows_saved, which keeps them only while each still reads as that load held it, and merged again over the drive as it then stands each time another write committed one first, up to UPDATE_TRIES times."""
+    was = marshal.loads(base)
+    for _ in range(UPDATE_TRIES):
+        now = load(name)
+        saved = merged(was, mine, now)
+        if not (written := tuple(sorted(written_rows(now, saved)))):
+            return
+        try:
+            rows_saved(name, {row: row_of(now, row) for row in written}, now, saved, written)
+            return
+        except Raced:
+            continue
+    raise Raced(("drive",))
 
 
 @contextmanager
 def batch(name: str, dry: bool = False) -> Iterator[list[str]]:
-    """Run a call of several writes on one copy of the drive in memory, each load and edit inside it reading and changing that copy, with no lock held, so a model call, process or network read the call makes holds no writer of the drive behind it; saved once when the call ends and never when it raises, so a refused write leaves the drive as it was. The save takes the lock for itself alone, merging the call's changes into the drive as it stands then, by merged, and that save tells each session the call took open orders from; a field another write changed differently meanwhile refuses the call, keeping nothing and naming each command the call started that does more than read, by WENT. What a write does outside the drive runs after that save, its lines added to the list it yields, each such effect running even when one before it failed, and the failures raised together once all have run, after the lines of the rest. A batch opened inside one joins it. A dry batch, a dry run's, runs every check its writes make and keeps none: it saves nothing, drops what its writes would do outside the drive, and stops at Rehearsed each command they start that does more than read."""
+    """Run a call of several writes on one copy of the drive in memory, each load and edit inside it reading and changing that copy, with no lock held, so a model call, process or network read the call makes holds no writer of the drive behind it; saved once when the call ends and never when it raises, so a refused write leaves the drive as it was. The save holds no lock, merging the call's changes into the drive as it stands then and keeping the records they change, by committed, and that save tells each session the call took open orders from; a field another write changed differently meanwhile refuses the call, keeping nothing and naming each command the call started that does more than read, by WENT. What a write does outside the drive runs after that save, its lines added to the list it yields, each such effect running even when one before it failed, and the failures raised together once all have run, after the lines of the rest. A batch opened inside one joins it. A dry batch, a dry run's, runs every check its writes make and keeps none: it saves nothing, drops what its writes would do outside the drive, and stops at Rehearsed each command they start that does more than read."""
     if name in BATCHED:
         yield []
         return
     after: list[str] = []
-    loaded = load(name)
-    version = LOADED_VERSION.get()
-    BATCHED[name] = base = marshal.dumps(loaded)
+    BATCHED[name] = base = marshal.dumps(load(name))
     AFTER_SAVE[name] = []
     taken: list[tuple[str, str, int]] = []
     tokens = EDITING.set(name), TAKEN_IDS.set(taken)
@@ -5100,7 +5101,7 @@ def batch(name: str, dry: bool = False) -> Iterator[list[str]]:
     if dry:
         return
     try:
-        committed(name, base, mine, version, holding_lanes(loaded))
+        committed(name, base, mine)
     except Raced as raced:
         released(taken)
         raise DriveError(
