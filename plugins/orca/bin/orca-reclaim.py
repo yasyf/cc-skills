@@ -81,6 +81,7 @@ PASS_ORCA_S = 180.0
 CALL_TIMEOUT_S = 60
 DESTROY_S = 120
 SSH_CONNECT_S = 30
+STEP_S = 600
 REVIVE_S = 180
 BACKOFF_FIRST_S = 15 * 60
 BACKOFF_MOST_S = 4 * 60 * 60
@@ -676,7 +677,15 @@ class CcRemote:
         )
 
     def ssh(self, sprite: Sprite, script: str, given: str | None = None) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(["ssh", "-F", sprite.ssh_config, "-o", "BatchMode=yes", "-o", f"ConnectTimeout={SSH_CONNECT_S}", sprite.host, script], input=given, capture_output=True, text=True)
+        done = subprocess.run(["ssh", "-F", sprite.ssh_config, "-o", "BatchMode=yes", "-o", f"ConnectTimeout={SSH_CONNECT_S}", sprite.host, script], input=given, capture_output=True, text=True)
+        return self.step(sprite, script, given) if done.returncode == 255 else done
+
+    def step(self, sprite: Sprite, script: str, given: str | None = None) -> subprocess.CompletedProcess[str]:
+        command = [CC_REMOTE, "step", sprite.workspace, "--", "bash", "-c", f"exec 2>/dev/null\n{script}"]
+        try:
+            return subprocess.run(command, input=given, capture_output=True, text=True, timeout=STEP_S)
+        except subprocess.TimeoutExpired:
+            return subprocess.CompletedProcess(command, 255, "", f"cc-remote step on {sprite.workspace} gave no answer in {STEP_S} s")
 
     def remote(self, slug: str) -> Remote:
         return Remote(GitHubTips(slug), GitHubPullHeads(slug), GitHubTrunk(slug))
@@ -1263,7 +1272,7 @@ def main() -> int:
         "A settled dispatch whose worktree and terminal a cc-remote Sprite task records, with the workspace still recorded, has its Sprite destroyed "
         "with cc-remote destroy, WORKER_CC_REMOTE, else ccRemote in the working directory's .orca.json, else cc-remote on PATH, under the CC_REMOTE_CONFIG it inherits, else ccRemoteConfig in that .orca.json, which refuses a machine without that workspace's label and removes its Orca environment, once no unsettled dispatch "
         "shares the workspace, no file under $XDG_STATE_HOME/orca-gc/kept names it, as a drive job end writes to keep the Sprite paused for its job's next lane, no file under $XDG_STATE_HOME/orca-gc/kept names it, which a drive job end writes to keep the Sprite paused for its job's next lane and --destroy removes, "
-        "shares the workspace, its terminal reads idle twice (skipped under --done), and its checkout, read over ssh, after a read the Sprite gives no answer to revives it with sprite checkpoint create and a restore of that checkpoint, WORKER_SPRITE else sprite on PATH, and reads it once more, is clean in every worktree, holds no other branch or stash with commits on no remote, whose tip GitHub holds neither as a branch's head, an open or merged PR's head, whatever its base, nor in its default branch, and has its HEAD on origin "
+        "shares the workspace, its terminal reads idle twice (skipped under --done), and its checkout, read over ssh, or through cc-remote step over the Sprites exec API when ssh itself fails, after a read the Sprite gives no answer to revives it with sprite checkpoint create and a restore of that checkpoint, WORKER_SPRITE else sprite on PATH, and reads it once more, is clean in every worktree, holds no other branch or stash with commits on no remote, whose tip GitHub holds neither as a branch's head, an open or merged PR's head, whatever its base, nor in its default branch, and has its HEAD on origin "
         "or landed, which GitHub answers for the Sprite's own origin from any working directory; when GitHub cannot answer, such as under a rate limit, the Sprite is kept and named. A removal Orca answers with an error, such as runtime_unavailable when the runtime drops the connection, still counts as removed when "
         "the worktree's directory is gone afterwards, and the Orca error follows on its own error line. A worktree Orca answers selector_not_found for, because it "
         "no longer tracks it, is removed with git worktree remove after the same checks, and kept and named when git refuses. Cleanup is paused until $XDG_STATE_HOME/orca-gc/resumed, default ~/.local/state/orca-gc/resumed, "
