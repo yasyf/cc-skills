@@ -48,3 +48,19 @@ def test_each_read_of_a_cc_slack_verb_that_prints_lines_by_default_parses_its_js
     view.refresh_cards(cc_slack)
     read, parsed = CALLERS[caller]
     assert read() == parsed
+
+
+def test_a_card_read_cc_slack_cannot_answer_keeps_the_cards_last_stored_and_marks_only_their_source_unavailable(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    listed = {"questions": [{"waits": "demo:j1-1", "card": "https://acme.slack.com/archives/D1/p1"}], "pr_cards": [], "closed": [], "team_url": "https://acme.slack.com"}
+    monkeypatch.setattr(view, "cards", lambda name: listed)
+    view.refresh_cards(demo)
+
+    def refused(name: str) -> dict:
+        raise slack.SlackError("cc-slack daemon not running")
+
+    monkeypatch.setattr(view, "cards", refused)
+    view.refresh_cards(demo)
+
+    found, source = view.stored_cards(demo)
+    assert (found, source) == (listed, "unavailable: cc-slack daemon not running")
+    assert view.live_cards(demo) is None

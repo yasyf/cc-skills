@@ -101,11 +101,11 @@ def cards(name: str) -> dict:
 
 
 def refresh_cards(name: str) -> None:
-    """Store his cards as cc-slack lists them now, rewriting the drive's cards file only when they changed."""
+    """Store his cards as cc-slack lists them now, rewriting the drive's cards file only when they changed; a read cc-slack cannot answer, as while its daemon restarts, keeps the cards last stored and marks only their source unavailable, so no reader sees his cards, and every PR stage and page drawn from them, as none."""
     try:
         found = {"source": "live", **cards(name)}
     except slack.SlackError as error:
-        found = {"source": f"unavailable: {error}", **NO_CARDS}
+        found = {**stored_cards(name)[0], "source": f"unavailable: {error}"}
     store(state.cards_path(name), found)
 
 
