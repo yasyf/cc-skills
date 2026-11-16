@@ -80,7 +80,10 @@ while [ $# -gt 0 ]; do
     echo "$name $tag"
   done
 done
-sudo -n /.sprite/bin/rustup toolchain install stable --profile minimal --target wasm32-unknown-unknown --no-self-update >&2
+rustup=/.sprite/bin/rustup
+if ! sudo -n "$rustup" target list --installed --toolchain stable 2>/dev/null | grep -qx wasm32-unknown-unknown; then
+  sudo -n "$rustup" toolchain install stable --profile minimal --target wasm32-unknown-unknown --no-self-update >&2
+fi
 echo "rust stable wasm32-unknown-unknown"
 zig=$HOME/.local/share/zig/0.14.0
 if [ "$("$dest/zig" version 2>/dev/null)" != 0.14.0 ]; then
@@ -98,8 +101,10 @@ sccache=
 export MISE_TRUSTED_CONFIG_PATHS=$root MISE_LOCKED=1
 [ ! -x "$dest/mise" ] || sccache=$("$dest/mise" -C "$root" current sccache)
 if [ -n "$sccache" ]; then
-  "$dest/mise" -C "$root" install sccache >&2
-  ln -sfn "$("$dest/mise" -C "$root" which sccache)" "$dest/sccache"
+  if [ "$("$dest/sccache" --version 2>/dev/null)" != "sccache $sccache" ]; then
+    "$dest/mise" -C "$root" install sccache >&2
+    ln -sfn "$("$dest/mise" -C "$root" which sccache)" "$dest/sccache"
+  fi
   found=$(bash -lc "command -v sccache" 2>/dev/null) || found=nothing
   [ "$found" = "$dest/sccache" ] || { echo "a login shell runs sccache from $found, not the $dest/sccache linked to the sccache $root pins" >&2; exit 1; }
   echo "sccache $sccache"
