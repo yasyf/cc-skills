@@ -12573,7 +12573,7 @@ def test_a_retired_seat_communicator_is_told_its_seat_is_retired_and_how_to_reac
     sent: list[tuple[str, list[dict]]] = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append((lane, records)) or ["1"])
     monkeypatch.setattr(watch.subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, "", ""))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["slack"]["channels"]["Priority o9"] = {"id": "C9", "name": "prio-o9"}
         data["communicators"]["Priority o9"] = {"session": "seat-session", "started": state.stamp()}
     watch.retire_communicator(demo, "Priority o9")

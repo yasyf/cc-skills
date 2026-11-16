@@ -549,7 +549,7 @@ def test_a_post_report_the_drive_took_and_never_posted_is_flagged_to_meta_once_a
 
 def test_a_seat_communicators_say_marks_its_seat_active_so_the_watch_never_retires_it_as_idle(communicator: str) -> None:
     started = state.stamp(state.now() - watch.COMMUNICATOR_IDLE - timedelta(minutes=5))
-    with state.edit(communicator) as data:
+    with edit(communicator) as data:
         data["communicators"]["Priority o9"] = {"session": os.environ["CLAUDE_CODE_SESSION_ID"], "started": started}
     talk.caller(communicator)
     heard = state.load(communicator, ("communicators",))["communicators"]["Priority o9"]["heard"]
@@ -570,7 +570,7 @@ def test_a_report_post_edit_named_by_its_edit_attr_posts_as_that_report_so_no_ha
 
     def posting(name: str, post: dict, known: dict) -> str:
         spoken.append(post)
-        with state.edit(name) as data:
+        with edit(name) as data:
             data["carried"][post["record"]] = post["edit"]
         return f"EDITED {post['edit']}"
 
@@ -578,7 +578,7 @@ def test_a_report_post_edit_named_by_its_edit_attr_posts_as_that_report_so_no_ha
     assert talk.report_line(demo, "734749") == f"EDITED {edited}"
     assert [(post["edit"], post["record"]) for post in spoken] == [(edited, "734749")]
     monkeypatch.setattr(tools, "sent", lambda name, lane, records: pytest.fail(f"flagged a posted edit: {records}"))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["posts"]["claimed"] = {"734749": state.stamp(state.now() - agents.UNPOSTED_AFTER - timedelta(minutes=1))}
     agents.unposted(demo, state.now())
 
@@ -601,7 +601,7 @@ def test_a_report_sent_back_to_its_writer_counts_as_handled_so_no_has_no_post_de
     monkeypatch.setattr(agents, "shown", lambda seq: {"lane": "root"})
     monkeypatch.setattr(talk, "report_line", lambda name, seq: (_ for _ in ()).throw(DriveError("{release:18149} names no release post")))
     monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append(records) or ["1"])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["carried"]["734916"] = agents.DRIVE_CLAIM
         data["posts"]["claimed"] = {"734916": state.stamp(state.now() - agents.UNPOSTED_AFTER - timedelta(minutes=1))}
     assert talk.report_post(demo, "734916").startswith("report 734916 sent back to root@demo")
@@ -614,7 +614,7 @@ def test_a_release_still_running_with_no_post_links_the_build_a_job_started_and_
     build = "https://buildkite.com/forge/release/builds/18149"
     posted: dict[str, str] = {}
     monkeypatch.setattr(providers, "of", lambda data: SimpleNamespace(release=SimpleNamespace(post=posted.get)))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j9"] = state.new_job("o1", "builder", "cut release 3", [], state.stamp()) | {"release_build": build}
     data = state.load(demo)
     assert refs.release(data, "18149")["url"] == build
@@ -1754,12 +1754,12 @@ def test_the_watchs_paused_reply_under_his_question_card_goes_in_the_cards_threa
     assert posts == [("dm-status", "--agent", "claude", "--drive", demo, "--as-holder", "--thread", question, "--", watch.PAUSED)]
 
 
-def test_a_line_asking_his_tap_on_a_carded_pr_links_its_card_and_a_line_only_naming_it_links_the_pr() -> None:
+def test_every_line_naming_a_carded_pr_links_its_card_whether_or_not_it_asks_his_tap() -> None:
     pr = {"url": "https://github.com/yasyf/cc-skills/pull/7", "head": "abc1234", "title": "Fix: the run page shows its history"}
     card = {"url": "https://acme.slack.com/archives/D1/p1794300000000200", "prs": [pr["url"]], "card": {"prs": [{"url": pr["url"], "head": "abc1234"}]}}
     prs = {"yasyf/cc-skills#7": pr}
     found = {"{pr:7}": refs.pr(prs, "7", "", [card])}
-    assert refs.slack("Tap Approve on {pr:7}\nAlso merged: {pr:7}", found, None) == f"Tap Approve on <{card['url']}|the run page shows its history>\nAlso merged: <{pr['url']}|the run page shows its history>"
+    assert refs.slack("Tap Approve on {pr:7}\nAlso merged: {pr:7}", found, None) == f"Tap Approve on <{card['url']}|the run page shows its history>\nAlso merged: <{card['url']}|the run page shows its history>"
     assert refs.pr(prs, "7", "", [card | {"card": {"prs": [{"url": pr["url"], "head": "old0000"}]}}])["card"] is None
 
 
