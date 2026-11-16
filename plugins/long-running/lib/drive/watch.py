@@ -711,7 +711,7 @@ def dropped_lines(watcher: Watcher, foreign: dict[str, tuple[str, str, str]], mo
             for key in gone:
                 state.drop_pr(data, key)
 
-        state.write(watcher.name, dropped_lines_write, budget=state.WATCH_WRITE_SECONDS)
+        state.write(watcher.name, dropped_lines_write, patient=True)
     return lines
 
 
@@ -1254,7 +1254,7 @@ def status(watcher: Watcher, order_id: str, order: dict, part: str, follow: dict
     def status_write(data: dict):
         data["orders"][order_id]["parts"][part]["follow"].update(kept)
 
-    state.write(watcher.name, status_write, budget=state.WATCH_WRITE_SECONDS)
+    state.write(watcher.name, status_write, patient=True)
     if read["state"] in FOLLOW_ENDS:
         def status_write2(data: dict):
             data["orders"][order_id]["parts"][part]["follow"]["ended"] = state.stamp(moment)
@@ -1577,7 +1577,7 @@ def proved_lines(watcher: Watcher, moment: datetime) -> list[str]:
         def proved_lines_write(edited: dict):
             edited["orders"][order_id]["close_report"] = None
 
-        state.write(watcher.name, proved_lines_write, budget=state.WATCH_WRITE_SECONDS)
+        state.write(watcher.name, proved_lines_write, patient=True)
     return lines
 
 
@@ -1594,7 +1594,7 @@ def reported(watcher: Watcher, records: list[dict]) -> list[str]:
                 if order["close_report"] and order["close_report"]["id"] == record.get("id"):
                     order["close_report"] = order["close_report"] | {"seq": seq} if state.watch_posts_itself(order) else None
 
-        state.write(watcher.name, reported_write, budget=state.WATCH_WRITE_SECONDS)
+        state.write(watcher.name, reported_write, patient=True)
     return seqs
 
 
@@ -2914,7 +2914,7 @@ def named_lines(watcher: Watcher, data: dict, link: str, moment: datetime) -> li
         def named_write(saved: dict, seat=seat, renamed=renamed, purpose=purpose):
             saved["slack"]["channels"][seat] |= {"name": renamed["name"], "purpose": purpose}
 
-        state.write(watcher.name, named_write, budget=state.WATCH_WRITE_SECONDS)
+        state.write(watcher.name, named_write, patient=True)
         if renamed["name"] != made["name"]:
             lines.append(f"WATCH #{made['name']} is now #{renamed['name']}")
     return lines
@@ -3224,7 +3224,7 @@ def watched_report(watcher: Watcher, order_id: str, order: dict) -> str | None:
     def watched_report_write(data: dict):
         data["orders"][order_id]["watch"].update(seen=max((message["ts"] for message in messages), key=float), record=seq)
 
-    state.write(watcher.name, watched_report_write, budget=state.WATCH_WRITE_SECONDS)
+    state.write(watcher.name, watched_report_write, patient=True)
     return seq
 
 
@@ -4372,7 +4372,7 @@ def wake_lines(watcher: Watcher, idle: dict[str, tuple[dict, dict]], moment: dat
             def wake_lines_write(data: dict):
                 data["jobs"][job_id]["turn_open"] = True
 
-            state.write(watcher.name, wake_lines_write, budget=state.WATCH_WRITE_SECONDS)
+            state.write(watcher.name, wake_lines_write, patient=True)
     return lines
 
 
@@ -5987,7 +5987,7 @@ def sweep_lines(watcher: Watcher, moment: datetime) -> list[str]:
         promoted, dropped = state.backlog_drain(data, moment)
         return dropped, {order_id: data["orders"][order_id]["promoted"]["why"] for order_id in promoted}
 
-    dropped, drained = state.write(watcher.name, drained_backlog, budget=state.WATCH_WRITE_SECONDS)
+    dropped, drained = state.write(watcher.name, drained_backlog, patient=True)
     print(f"{state.stamp(moment)} drive tooling backlog: dropped {', '.join(dropped) or 'none'}, no repeat in {state.BACKLOG_STALE.days} days", flush=True)
     return lines + [f"BACKLOG {order_id} promoted ({why}): add its one builder now, which researches inline with no reader" for order_id, why in drained.items()]
 
@@ -6395,7 +6395,7 @@ def unscheduled_questions(watcher: Watcher, moment: datetime) -> list[str]:
         def unscheduled_questions_write(edited: dict):
             state.question_in(edited["jobs"][job_id], question)["card"] = None
 
-        state.write(watcher.name, unscheduled_questions_write, budget=state.WATCH_WRITE_SECONDS)
+        state.write(watcher.name, unscheduled_questions_write, patient=True)
         withdrawn.append(f"CARD {card} withdrawn: {job_id} waits on {', '.join(steps)}, work he has not scheduled, and the card asks him again under {question['waits']} once he schedules it")
     if withdrawn:
         view.refresh_cards(watcher.name)
