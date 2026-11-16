@@ -61,11 +61,12 @@ def owed_threads(session: str) -> list[str]:
 
 
 SAID = re.compile(r"\b(?:POSTED|EDITED|CARD) (https://\S+?/archives/\w+/p(\d{10})(\d{6})\S*)")
+HANDED = re.compile(r"\bHANDED \w+/(\d+\.\d+) to ")
 THREAD_TS = re.compile(r"[?&]thread_ts=(\d+\.\d+)")
 
 
 def turn_threads(transcript: Path) -> set[str]:
-    """The thread of each post say's POSTED, EDITED or CARD lines name in this turn's tool results, the drive's own record of what it posted, so a post Slack's owed list has not caught up with yet still counts, by meta's fix of 736132."""
+    """The thread of each post say's POSTED, EDITED or CARD lines name in this turn's tool results, and each thread its HANDED lines handed to an order's holder, the drive's own record of what it posted, so a post Slack's owed list has not caught up with yet still counts, by meta's fix of 736132."""
     threads: set[str] = set()
     for line in tail(transcript):
         entry = json.loads(line)
@@ -82,6 +83,7 @@ def turn_threads(transcript: Path) -> set[str]:
             words = said if isinstance(said, str) else " ".join(part.get("text") or "" for part in said or [] if isinstance(part, dict))
             for found in SAID.finditer(words):
                 threads.add(thread[1] if (thread := THREAD_TS.search(found[1])) else f"{found[2]}.{found[3]}")
+            threads.update(found[1] for found in HANDED.finditer(words))
     return threads
 
 

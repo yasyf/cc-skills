@@ -27,10 +27,34 @@ WATCH_LOG = "watch.log"
 
 def say(name: str, post: dict) -> str:
     """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with no thread at the root of the channel channel_id names, such as a staging claim to its members, or in the group DM of a person, him and the bot when channel_id is that person's user id, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, and a post in a thread is the last line of each open order whose lines go in that thread, whatever order it is recorded on or none, so the watch's clock and each session's overdue line read every line there, and posts nothing from a caller but the communicator, the drive's own posts of reports going through report_line, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads; a post at another channel's root, or a line in its thread, whose report names an end as until keeps that end on its order, from which the watch owes that thread its closing line; a claim at another channel's root goes out only on a report naming an end still to come, which its words name, and a report naming none or a past one goes back to its writer. A question to a teammate naming the job it is for keeps that job waiting on their reply. A report's post names each correction cci holds re it, which the post may lack, and a correction of one a post carried posts nothing, naming where that report's copy is. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses , such as one over its length, a post saying a release may start while a freeze or his release hold it does not name stands, and a dry run."""
-    line = spoken(name, mended(post), caller(name))
+    known = caller(name)
+    if order_id := held_elsewhere(known, post):
+        return handed_answer(name, known, order_id, post)
+    line = spoken(name, mended(post), known)
     if post.get("done") and not post.get("dry_run"):
         line += finished(post.get("asked"))
     return line
+
+
+def held_elsewhere(known: dict, post: dict) -> str | None:
+    """The order whose thread the communicator's own answer goes in when another session holds every open order there, the coordinator or the meta session, which posts there itself, so its thread hears one voice, by his pick of the design's Q5 default; None for a card, a PR card, an edit, a report it relays, a dry run or a post in no order's thread."""
+    if any(post.get(key) for key in ("edit", "card", "tap_prs", "record", "dry_run")) or not post.get("thread_ts"):
+        return None
+    place = [post.get("channel_id") or slack.dm(), post["thread_ts"]]
+    there = [(order_id, order) for order_id, order in known["orders"].items() if order["state"] not in state.CLOSED_ORDER_STATES and order.get("thread") == place]
+    return there[0][0] if there and all(order["owner"] in ("coordinator", "meta") for _, order in there) else None
+
+
+def handed_answer(name: str, known: dict, order_id: str, post: dict) -> str:
+    """Hand the communicator's answer in an order's thread to the order's holder, as one note carrying its words and his message, which the holder posts there through a POST report."""
+    from drive import tools
+
+    holder = known["orders"][order_id]["owner"]
+    lane = next(lane for lane, role in state.LANE_ROLES.items() if role == holder)
+    channel, thread = post.get("channel_id") or slack.dm(), post["thread_ts"]
+    asked = f" his message {post['asked']}," if post.get("asked") else ""
+    tools.sent(name, "communicator", [{"kind": "note", "to": [f"{lane}@{name}"], "text": f"answer him in {order_id}'s thread,{asked} as your POST report with attrs {{order: {order_id}, thread: {thread}}}, since only you post there: {post.get('text') or ''}"}])
+    return f"HANDED {channel}/{thread} to {lane}, {order_id}'s holder, which answers there"
 
 
 ASKED_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})(?:\?thread_ts=(\d+\.\d+))?")
@@ -766,7 +790,7 @@ def shown(name: str, post: dict) -> tuple[list[dict], str, list[str]]:
 
 def posted(name: str, post: dict, order: str | None = None, receipt: dict | None = None) -> dict:
     """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, naming each message of his it answers for the watch's daily sweep, the dashboard drawing each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post that draws a card stores his cards as cc-slack lists them now, so the next post's hook sees that card; a post check refuses goes nowhere, and every cc-slack call making the post carries the post's request key, so a retry gets back each message Slack already holds under it. A post at his DM root goes at the root of its project's operator channel when it has one, the project `project` names. A card's line goes in each thread of his DM or an operator channel its PRs' orders have, and through cc-slack reply in the thread outside his DM the post names, such as an alert's, so whichever he reads carries the card's link, and the thread of each PR card drawn joins every order its PRs serve; the post's permalink is then that line's. A post of words in a thread is kept, by `keep_line`, as the line that thread holds about each card of his it links. A post say records on order keeps receipt, its record and close report, and starts its recorder the moment cc-slack returns it, ahead of every drive write after it, the receipt's path and the recorder's pid then its recorder."""
-    post = post | {"text": state.provided(state.load(name, ("name", "roles", "subcoordinators", "communicators"))).transformed(refs.carded(name, post["text"]))} if post.get("text") else post
+    post = post | {"text": state.posting_transformed(state.load(name, ("name", "roles", "subcoordinators", "communicators")), refs.carded(name, post["text"]))} if post.get("text") else post
     text = post.get("text") or ""
     blocks = json.loads(post["blocks"]) if isinstance(post.get("blocks"), str) else post.get("blocks")
     found = refs.resolved(name, "\n".join([text, *block_words(blocks)]))

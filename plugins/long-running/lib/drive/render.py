@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from drive import slack
-from drive.state import DRIVE_TOOLING, PAGE_RULE, brief_path, communicator_lane, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
+from drive.state import DRIVE_TOOLING, PAGE_RULE, posting_rules, brief_path, communicator_lane, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -759,15 +759,8 @@ POST_RULES_HEADING = "The repository's rules for every post to him, beside his o
 
 
 def post_rules(drive: dict) -> list[str]:
-    """The rules the drive's repository holds every post to him to, by its providers' post_rules; none for a drive no session is bound to yet or whose providers do not load, so a broken provider never blocks a session's start."""
-    from drive import providers, state
-
-    if not state.bound_sessions(drive):
-        return []
-    try:
-        return providers.of(drive).post_rules()
-    except providers.ProviderError:
-        return []
+    """The rules the drive's repository holds every post to him to, by its .claude/long-running.toml [posting] rules."""
+    return posting_rules(drive)
 
 
 def post_rules_block(drive: dict) -> list[str]:

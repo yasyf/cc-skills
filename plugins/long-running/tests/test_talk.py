@@ -837,15 +837,30 @@ def test_a_report_post_may_link_what_the_reports_references_draw_but_no_other_li
             assert talk.report_line(demo, "735031").startswith("POSTED")
 
 
-def test_a_repositorys_post_rule_reaches_the_communicators_rules_and_its_transform_rewrites_a_post(communicator: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
-    rule = "Link a release's Slack release post, never its build page."
+def test_a_repositorys_posting_rule_reaches_the_communicators_rules_and_its_transform_rewrites_a_post(communicator: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+    rule = "Link a release by its Slack post, never its build page."
     post = "https://acme.slack.com/archives/C9/p1794851300000100"
-    fake = SimpleNamespace(post_rules=lambda: [rule], transformed=lambda text: text.replace("build 18219", "{release:18219}"), release=SimpleNamespace(post={"18219": post}.get))
-    monkeypatch.setattr(providers, "of", lambda data: fake)
+    posting = {"rules": [rule], "transforms": [{"match": r"<?https://ci\.example/release/builds/(\d+)(?:\|[^>]*)?>?", "to": "{release:$1}"}]}
+    monkeypatch.setattr(state, "repo_config", lambda data: {"posting": posting})
+    monkeypatch.setattr(providers, "of", lambda data: SimpleNamespace(release=SimpleNamespace(post={"18219": post}.get)))
     assert f"- {rule}" in render.rules(state.load(communicator), "communicator")
     assert f"- {rule}" not in render.rules(state.load(communicator), "coordinator")
-    talk.say(communicator, {"text": "Release 9 is out: build 18219."})
-    assert posts[-1][-1] == f"Release 9 is out: <{post}|18219>."
+    talk.say(communicator, {"text": "Release 9 is out: https://ci.example/release/builds/18219"})
+    assert posts[-1][-1] == f"Release 9 is out: <{post}|18219>"
+
+
+def test_the_communicators_answer_in_a_thread_the_coordinator_holds_goes_to_the_coordinator_so_it_hears_one_voice(communicator: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+    thread = "1794201440.150389"
+    with edit(communicator) as data:
+        data["orders"]["o1"] = state.new_order("fix the run page", "terminal", None, {}, ASKED) | {"owner": "coordinator", "thread": [slack.dm(), thread]}
+    sent: list[tuple[str, list[dict]]] = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append((lane, records)) or ["1"])
+    count = len(posts)
+    said = talk.say(communicator, {"text": "The run page fix is in review.", "thread_ts": thread})
+    assert said == f"HANDED {slack.dm()}/{thread} to root, o1's holder, which answers there"
+    assert len(posts) == count
+    assert [(lane, record["to"]) for lane, records in sent for record in records] == [("communicator", [f"root@{communicator}"])]
+    assert "The run page fix is in review." in sent[0][1][0]["text"]
 
 
 def test_say_posts_the_words_its_hook_judged_and_checks_none_of_them_again(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:

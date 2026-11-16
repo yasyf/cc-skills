@@ -529,6 +529,9 @@ def test_a_communicator_turn_that_said_in_his_thread_ends_though_slacks_owed_lis
     card = {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t2", "content": carded}]}}
     said_both = transcript(tmp_path / "said.jsonl", asked("his message"), called("say", text="x"), result, called("say", text="y"), card, said("Sent."))
     assert quiet_turn.block_reason(stop | {"transcript_path": said_both}) is None
+    handed = {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t3", "content": "HANDED C0CJ378LSBT/1794857634.488009 to root, o1's holder, which answers there"}]}}
+    handed_off = transcript(tmp_path / "handed.jsonl", asked("his message"), called("say", text="x"), handed, called("say", text="y"), card, said("Sent."))
+    assert quiet_turn.block_reason(stop | {"transcript_path": handed_off}) is None
     earlier = transcript(tmp_path / "earlier.jsonl", called("say", text="x"), result, asked("his next message"), said("Sent."))
     assert "1794857634.488009" in quiet_turn.block_reason(stop | {"transcript_path": earlier})
 

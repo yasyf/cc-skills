@@ -5730,6 +5730,22 @@ def repo_config(data: dict) -> dict:
     return tomllib.loads(path.read_text()) if path.is_file() else {}
 
 
+POSTING = "posting"
+TEMPLATE_GROUP = re.compile(r"\$(\d+)")
+
+
+def posting_rules(data: dict) -> list[str]:
+    """The rules, each one plain sentence, the [posting] table of the repository's .claude/long-running.toml holds every post to him to, which the communicator's role text and the one quick Jev read of each post carry, by his words "there should be both rules and transforms monorepo can specify for it that get incorporated into the plugin"; none for a drive no session is bound to yet."""
+    return list(repo_config(data).get(POSTING, {}).get("rules", [])) if bound_sessions(data) else []
+
+
+def posting_transformed(data: dict, text: str) -> str:
+    """A post's words with each of the [posting] table's transforms applied in turn before say resolves their references: each `match` regex rewritten to its `to` template, `$1` naming the match's first group, such as a release's build link written as {release:$1}."""
+    for transform in repo_config(data).get(POSTING, {}).get("transforms", []) if bound_sessions(data) else []:
+        text = re.sub(transform["match"], TEMPLATE_GROUP.sub(r"\\g<\1>", transform["to"]), text)
+    return text
+
+
 DRIVE_CHECKOUTS: dict[tuple[str, str], Path] = {}
 
 

@@ -2767,9 +2767,10 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
             replacing(data, job_id, asked, ref)
         except DriveError as error:
             problems.append(str(error))
-    if refused := slack.draw_refusal(asked.card(name, f"{name}:{job_id}-0")):
-        problems.append(f"the ASK's card is out of shape, so cc-slack would not draw it: {refused}")
-    if refused := limits.shaped(problems):
+    undrawable = slack.draw_refusal(asked.card(name, f"{name}:{job_id}-0"))
+    if undrawable:
+        problems.append(f"the ASK's card is out of shape, so cc-slack would not draw it: {undrawable}")
+    if (refused := limits.shaped(problems)) and (undrawable or gate.gate(name, f"ask {job_id}", refused)):
         raise DriveError(limits.out_of_shape(refused))
     picture.drawn(pictures, asked.show_me)
     if raw := limits.checked(findings, limits.RAW_IDS):
