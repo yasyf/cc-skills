@@ -2297,22 +2297,18 @@ def answered_drop(name: str, job_id: str, file: Path, answer_id: str) -> list[st
 
 
 def decision(name: str, job_id: str, question: dict, words: str) -> str:
-    """Record the drive's decision on the job's question, drawn on his card, as an answer of its own in cc-notes, labelled settled.DECISION_LABEL and under:<his ruling state.UNWAITED_RULING>, and in the drive at its card as `drive answer` records his, listing what it could change, its card marked settled, so `drive answer <its id> --dropped` takes off what its pick rules out and his answer to the same question supersedes it; refused while cc-notes holds another standing answer to that question, which it would supersede. Its id."""
-    from drive import superseded, view
-
+    """Record the drive's decision on the job's question, drawn on his card, as an answer of its own in cc-notes, labelled settled.DECISION_LABEL and under:<his ruling state.UNWAITED_RULING>, and in the drive at its card in the shape `drive answer` keeps his, its card marked settled and nothing else listed, so no job is sent it as his words and the watch owes no mark on it, while `drive answer <its id> --dropped` takes off what its pick rules out and his answer to the same question supersedes it; refused while cc-notes holds another standing answer to that question, which it would supersede. Its id."""
     data = state.load(name)
     cwd = data["roles"]["coordinator"]["cwd"]
-    found = view.live_cards(name)
-    if found is None:
-        raise DriveError("refused, nothing ended: his cards could not be read, so nothing can say what the drive's decision leaves asking him; the watch rereads them every minute, run this again then")
     asked = settled.titled(question["title"])
     if other := next((answer["id"] for answer in settled.listed(f"drive:{name}", cwd) if state.same_question(answer["title"], asked) and settled.plain(settled.his(answer["body"])) != settled.plain(words)), None):
         raise DriveError(f'refused, nothing ended: cc-notes holds answer {other[:7]} to "{render.cut(asked, 120)}", which a decision of the drive would supersede: drive job ask {job_id} --drop {question["file"]} --answer {other[:7]} ends it on that answer')
     decided = settled.recorded(name, question["title"], words, [settled.DECISION_LABEL, f"under:{state.UNWAITED_RULING}"], question["card"], cwd)
 
     def decision_write(data: dict):
-        kept = superseded.record(data, decided, words, question["card"], superseded.asking(data, found, question["card"]), {}, state.stamp(), False)
-        kept["cards"][question["waits"]] = {"mark": "settled", "job": job_id, "card": question["card"]}
+        moment = state.stamp()
+        cards = {question["waits"]: {"mark": "settled", "job": job_id, "card": question["card"]}}
+        data["answers"][decided] = {"words": words, "link": question["card"], "at": moment, "said": moment, "cards": cards, "jobs": {}, "approves": None}
         return data
 
     state.update(name, None, decision_write)

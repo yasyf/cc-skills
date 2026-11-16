@@ -5030,7 +5030,12 @@ def test_job_ask_drop_answer_on_his_unwaited_words_records_the_drives_decision_a
     data = state.load("demo")
     closed = data["jobs"]["j1"]["questions"][-1]["closed"]
     assert (closed["how"], closed["words"], closed["answer"]) == ("answered", words, decided)
-    assert (data["answers"][decided]["words"], data["answers"][decided]["link"], data["answers"][decided]["cards"]["demo:j1-7"]["mark"]) == (words, DESIGN_CARD, "settled")
+    assert (data["answers"][decided]["words"], data["answers"][decided]["link"], data["answers"][decided]["cards"], data["answers"][decided]["jobs"]) == (
+        words,
+        DESIGN_CARD,
+        {"demo:j1-7": {"mark": "settled", "job": "j1", "card": DESIGN_CARD}},
+        {},
+    )
 
 
 def test_a_card_whose_summary_cites_320b7a7_draws_already_answered_with_his_words_and_the_link_drive_answer_kept_and_his_tap_closes_it_on_them(
