@@ -1728,8 +1728,42 @@ class OrcaArgvTest(unittest.TestCase):
             for kind in ("orca", "workspaces"):
                 (Path(state) / kind).mkdir()
                 (Path(state) / kind / "pool-mute.json").write_text(json.dumps(task))
-            with mock.patch.object(orca_gc, "SSH_CONNECT_S", 1), self.assertRaisesRegex(orca_gc.Unsaved, r"^ssh to pool-mute could not read /home/sprite/repo: .*timed out"):
+            with mock.patch.object(orca_gc, "SSH_CONNECT_S", 1), mock.patch.object(orca_gc, "SPRITE_CLI", "false"), self.assertRaisesRegex(orca_gc.Unsaved, r"^ssh to pool-mute could not read /home/sprite/repo: .*timed out, and reviving it failed: sprite checkpoint create: exit 1$"):
                 orca_gc.save("pool-mute", "demo-j1", orca_gc.CcRemote(Path(state)))
+
+    def test_a_sprite_whose_ssh_gives_no_answer_is_revived_from_a_fresh_checkpoint_and_read_again(self):
+        original = orca_gc.subprocess.run
+        self.addCleanup(setattr, orca_gc.subprocess, "run", original)
+        orca_gc.github_trunk.cache_clear()
+        argv: list[list[str]] = []
+        answers = iter([(255, "", "Connection timed out during banner exchange\nConnection to UNKNOWN port 65535 timed out\n"), (0, "https://github.com/acme/repo\n\n\n# branch.oid " + "a" * 40 + "\n# branch.head dev\n", "")])
+
+        def fake(command, **_):
+            argv.append(command)
+            if command[0] == "ssh":
+                return orca_gc.subprocess.CompletedProcess(command, *next(answers))
+            if command[0] == "sprite":
+                return orca_gc.subprocess.CompletedProcess(command, 0, "\u2713 Checkpoint v14 created\n" if command[1] == "checkpoint" else "\u2713 Restored to checkpoint v14\n", "")
+            return orca_gc.subprocess.CompletedProcess(command, 0, '{"default_branch": "dev", "status": "behind"}', "")
+
+        with tempfile.TemporaryDirectory() as home:
+            config = Path(home) / "pool-abc.ssh"
+            config.write_text("Host pool-abc\n  ProxyCommand cc-remote proxy -- sprite proxy -o acme-org -s pool-abc -W :22\n")
+            orca_gc.subprocess.run = fake
+            found = orca_gc.CcRemote(Path("/nonexistent")).checkout(orca_gc.Sprite("pool-abc", "pool-abc", str(config), "/home/sprite/repo", "env_abc"))
+        self.assertEqual(found.head, "a" * 40)
+        self.assertEqual([command for command in argv if command[0] == "sprite"], [["sprite", "checkpoint", "create", "-o", "acme-org", "-s", "pool-abc"], ["sprite", "restore", "-o", "acme-org", "-s", "pool-abc", "v14"]])
+        self.assertEqual([command[0] for command in argv[:4]], ["ssh", "sprite", "sprite", "ssh"])
+
+    def test_an_ssh_read_that_exits_0_printing_nothing_is_no_read(self):
+        original = orca_gc.subprocess.run
+        self.addCleanup(setattr, orca_gc.subprocess, "run", original)
+        orca_gc.subprocess.run = lambda command, **_: orca_gc.subprocess.CompletedProcess(command, 0, "", "")
+        with tempfile.TemporaryDirectory() as home, mock.patch.object(orca_gc, "SPRITE_CLI", "sprite"):
+            config = Path(home) / "pool-abc.ssh"
+            config.write_text("Host pool-abc\n")
+            found = orca_gc.CcRemote(Path("/nonexistent")).checkout(orca_gc.Sprite("pool-abc", "pool-abc", str(config), "/home/sprite/repo", "env_abc"))
+        self.assertEqual(found, "ssh to pool-abc could not read /home/sprite/repo: it printed nothing, and reviving it failed: sprite checkpoint create: it printed nothing")
 
     def test_a_sprite_without_a_github_origin_is_kept_by_name(self):
         original = orca_gc.subprocess.run
