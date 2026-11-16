@@ -1904,7 +1904,7 @@ def test_say_refuses_a_handlers_line_saying_a_job_is_being_started_until_it_name
         assert " and no handoff asking for one is kept on order o1: name the job that started as {started:<j>}, or first send" in refused
         assert refused.rule == message_limits.PROMISE_RULE
     with state.edit("demo") as data:
-        data["orders"]["o1"]["handoffs"].append({"seq": "701640", "text": "start a job reading why that blob is missing", "at": state.stamp(state.now() - timedelta(minutes=2)), "job": None})
+        data["orders"]["o1"]["handoffs"].append({"seq": "701640", "text": "start a job reading why that blob is missing", "at": state.stamp(state.now() - timedelta(minutes=2)), "jobs": []})
     for text in promises:
         assert say(transcript, text=text, thread_ts="1.2") is None, text
     with state.edit("demo") as data:
@@ -1924,11 +1924,11 @@ def test_say_holds_a_handoff_owed_while_another_job_of_its_busy_order_restarts_a
         data["orders"]["o1"] = state.new_order(part, "terminal", (DM, "1.2"), {part: state.new_part()}, state.stamp())
         data["jobs"]["j1"] = state.new_job("o1", "reader", "read why that blob is missing", [part], state.stamp(state.now() - timedelta(minutes=9)))
         data["orders"]["o1"]["jobs"].append("j1")
-        data["orders"]["o1"]["handoffs"].append({"seq": "718999", "text": "start a builder on the fix", "at": asked, "job": None})
+        data["orders"]["o1"]["handoffs"].append({"seq": "718999", "text": "start a builder on the fix", "at": asked, "jobs": []})
         state.start(data["jobs"]["j1"])
     assert say(transcript, text=promise, thread_ts="1.2") is None
     with state.edit("demo") as data:
-        data["orders"]["o1"]["handoffs"] = [{"seq": "718999", "text": "resume j1 on the fix", "at": asked, "job": "j1"}]
+        data["orders"]["o1"]["handoffs"] = [{"seq": "718999", "text": "resume j1 on the fix", "at": asked, "jobs": ["j1"]}]
     assert "no handoff asking for one is kept on order o1" in say(transcript, text=promise, thread_ts="1.2")
 
 
@@ -1943,7 +1943,7 @@ def test_say_reads_an_edit_on_the_order_its_post_went_out_on_and_not_another_ord
     state.append_event("demo", "said", text="Reading why.", channel=DM, thread=thread, url=post, card=None, order="o2", visuals=[], prs=[], edited=False)
     assert "no handoff asking for one is kept on order o2" in say(transcript, edit=post, text=promise)
     with state.edit("demo") as data:
-        data["orders"]["o2"]["handoffs"].append({"seq": "719016", "text": "start a job reading why that blob is missing", "at": state.stamp(state.now() - timedelta(minutes=2)), "job": None})
+        data["orders"]["o2"]["handoffs"].append({"seq": "719016", "text": "start a job reading why that blob is missing", "at": state.stamp(state.now() - timedelta(minutes=2)), "jobs": []})
     assert say(transcript, edit=post, text=promise) is None
 
 

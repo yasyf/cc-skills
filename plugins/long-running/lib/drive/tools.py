@@ -74,7 +74,7 @@ RECORD = {
                 "handoff asks the session holding the order its attrs.order names, or the coordinator session whose agent runs the job its attrs.job names, for a step only it takes, such as"
                 " starting a builder, with no re, since cci also delivers a record to the writer of the record its re names; the"
                 " communicator's side's handoff is kept on the order it serves, and five quiet minutes after it the watch owes that"
-                " order's thread a line naming it and each record re it until a job of that order is made or the job it names starts; a"
+                " order's thread a line naming it and each record re it until a job of that order is made or a job it, or a record re it, names works; a"
                 " report goes through the cci `post` tool instead, whose hook reads it, and no record draws his card on a PR"
             ),
         },
@@ -661,8 +661,7 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     said += went
     said += [f"{index} held on {', '.join(jobs)} for its running worker or codex run, as drive job resume holds a text" for index, jobs in enumerate(hearing, start=1) if jobs]
     ended = stamped(name, posts, seqs)
-    if lane == "communicator":
-        handed(name, posts, seqs)
+    handed(name, lane, posts, seqs)
     his = [index for index, made in enumerate(posts) if superseded.said_at(data, made.get("url"))]
     keep_undelivered(name, [posts[index] for index in his], [seqs[index] for index in his], [closes[index] for index in his], found)
     said += [f"{index} {job_id}'s question \"{render.cut(question['title'] or '', 80)}\" ended {question['closed']['how']} by {seqs[index - 1]}" for index, job_id, question in ended]
@@ -847,12 +846,17 @@ def stamped(name: str, posts: list[dict], seqs: list[str]) -> list[tuple[int, st
     return ended
 
 
-def handed(name: str, posts: list[dict], seqs: list[str]) -> None:
-    """Keep each handoff record the communicator's side sent on the order it serves, by its seq, text, when it went out and the job it names, so the watch owes that order's thread a line once five quiet minutes pass with no job of it made and no worker of that job started since, whatever the session it went to answered, by his words b4b64f5 "fix your toolking so tracking this stuff beciomes deterministic and it cant get lost at the whims of an agent"."""
+def handed(name: str, lane: str, posts: list[dict], seqs: list[str]) -> None:
+    """Keep each handoff record the communicator's side sent on the order it serves, by its seq, text, when it went out and the job it names, and take in each record of any lane re a kept handoff by state.answer_handoffs, so the watch owes that order's thread a line once five quiet minutes pass with no job of it made and no job the handoff names at work since, whatever the session it went to answered, by his words b4b64f5 "fix your toolking so tracking this stuff beciomes deterministic and it cant get lost at the whims of an agent"."""
+    handoffs = [(made, seq) for made, seq in zip(posts, seqs, strict=True) if lane == "communicator" and made["kind"] == "handoff"]
+    answers = [(state.bare_seq(answered), made["kind"], made.get("attr") or {}) for made in posts for answered in made.get("re") or []]
+    if not (handoffs or answers):
+        return
     with state.edit(name) as data:
-        for made, seq in zip(posts, seqs, strict=True):
-            if made["kind"] == "handoff" and (order_id := state.served_order(data, made.get("attr") or {})):
-                data["orders"][order_id]["handoffs"].append({"seq": seq, "text": made["text"], "at": state.stamp(), "job": state.named_job(data, made.get("attr") or {})})
+        for made, seq in handoffs:
+            if order_id := state.served_order(data, attrs := made.get("attr") or {}):
+                data["orders"][order_id]["handoffs"].append({"seq": seq, "text": made["text"], "at": state.stamp(), "jobs": list(filter(None, [state.named_job(data, attrs)]))})
+        state.answer_handoffs(data, answers)
 
 
 def ended_by(closed: dict, made: dict, seq: str | None = None) -> bool:

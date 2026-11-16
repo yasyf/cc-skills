@@ -2377,3 +2377,34 @@ def test_j5802_a_done_design_carries_no_part_a_builder_of_another_change_it_list
     }
     assert state.design_builder(data, "j1") == "j3"
     assert [[job_id for job_id, _ in state.carriers(data, "o1", part)] for part in (follow_up, pages, pin, replica)] == [["j1"], ["j2"], ["j2"], ["j3"]]
+
+
+@pytest.mark.parametrize(
+    ("worked", "owed"),
+    [
+        ({"worker_started": "2026-11-15T13:14:40-08:00"}, False),
+        ({"resumed": "2026-11-15T12:20:00-08:00"}, False),
+        ({"returned": "2026-11-15T12:36:00-08:00"}, False),
+        ({"given": [{"words": "pick up the o146 fix", "at": "2026-11-15T11:58:00-08:00"}]}, False),
+        ({"worker_started": "2026-11-15T11:50:00-08:00", "resumed": "2026-11-15T11:51:00-08:00"}, True),
+    ],
+)
+def test_a_handoff_is_owed_until_a_job_it_or_a_record_re_it_names_or_the_job_that_one_was_handed_to_works_after_it_and_a_withdraw_re_it_ends_it(
+    worked: dict, owed: bool
+) -> None:
+    """Handoff 719716 on o146 named j355, which hand_over had handed to j5665 at 11:45 AM; j5665's worker started at 1:14 PM and opened #56937, yet the watch listed the handoff as unstarted."""
+    handoff = {"seq": "719716", "text": "resume j355 on the o146 fix", "at": "2026-11-15T11:57:08-08:00", "jobs": []}
+    data = {
+        "orders": {"o146": state.new_order("the run page card drops its PRs", "terminal", None, {}, "2026-11-14T09:00:00-08:00")},
+        "jobs": {
+            "j355": state.new_job("o146", "builder", "fix the run page card", [], "2026-11-14T09:30:00-08:00") | {"handed_to": "j5665"},
+            "j5665": state.new_job("o2", "builder", "fix the run page card", [], "2026-11-15T11:45:24-08:00") | worked,
+        },
+    }
+    data["orders"]["o146"].update(jobs=["j355"], handoffs=[handoff])
+    assert state.owed_handoffs(data, ["o146"]) == [handoff]
+    state.answer_handoffs(data, [("719716", "answer", {"job": "j355"}), ("719999", "answer", {"job": "j5665"})])
+    assert handoff["jobs"] == ["j355"]
+    assert state.owed_handoffs(data, ["o146"]) == ([handoff] if owed else [])
+    state.answer_handoffs(data, [("719716", "withdraw", {})])
+    assert state.owed_handoffs(data, ["o146"]) == []

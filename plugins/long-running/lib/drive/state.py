@@ -251,6 +251,7 @@ READ_MARK = hashlib.sha256(f"{github.READ} {github.RULES}".encode()).hexdigest()
 UNSTARTED_WAITING = ".unstarted-jobs-waiting"
 JEV_FOLD_REOPENED = ".jev-fold-reopened"
 JEV_FOLD = ("durable-agents", "j5389", "j5389-ec812baf.md")
+HANDOFF_JOBS = ".handoff-jobs-read"
 CARDS_NOTED = "card_answers_noted"
 INDEX: ContextVar["Index | None"] = ContextVar("index", default=None)
 WAITS_OUT_LOCK: ContextVar[bool] = ContextVar("waits_out_lock", default=False)
@@ -1004,7 +1005,9 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order.setdefault("prove_said", None)
         order.setdefault("handoffs", [])
         for handoff in order["handoffs"]:
-            handoff.setdefault("job", None)
+            if "jobs" not in handoff:
+                job_id = handoff.pop("job", None)
+                handoff["jobs"] = [job_id] if job_id else []
         order.setdefault("paged", None)
         if order.pop("fixed", None) and order["recovered"] and order["state"] not in CLOSED_ORDER_STATES:
             order.update(recovered=None, proof=None)
@@ -1762,6 +1765,8 @@ def migrate(name: str) -> None:
             record_lane_worktrees(name, data)
         if not (drive_dir(name) / JEV_FOLD_REOPENED).exists():
             reopen_jev_fold(name, data)
+        if not (drive_dir(name) / HANDOFF_JOBS).exists():
+            read_handoff_jobs(name, data)
 
 
 def wait_unstarted(name: str, data: dict) -> None:
@@ -1789,6 +1794,22 @@ def reopen_jev_fold(name: str, data: dict) -> None:
             question_in(job, folded).update(closed=None, replaced=None, card=None, waits=new_waits(name, job_id))
             job["undelivered"] = [kept for kept in job["undelivered"] if kept["seq"] != closed["seq"]]
     (drive_dir(name) / JEV_FOLD_REOPENED).touch()
+
+
+def read_handoff_jobs(name: str, data: dict) -> None:
+    """Take in, on each handoff of an open order the watch owes a line on, the job its own cci record names and each record cci holds re it, by answer_handoffs, since the install before this kept every handoff before it naming no job and none it named the job a record re it named; marked so this runs once."""
+    from drive import agents
+
+    opened = [order_id for order_id, order in data["orders"].items() if order["state"] not in CLOSED_ORDER_STATES]
+    answers = [
+        (handoff["seq"], record["kind"], record["fields"].get("attrs") or {})
+        for handoff in owed_handoffs(data, opened)
+        for record in [agents.shown(handoff["seq"]), *agents.answering(name, handoff["seq"])]
+    ]
+    if answers:
+        with edit(name) as data:
+            answer_handoffs(data, answers)
+    (drive_dir(name) / HANDOFF_JOBS).touch()
 
 
 def record_lane_worktrees(name: str, data: dict) -> None:
@@ -1997,15 +2018,43 @@ def started_after(job: dict, moment: str) -> bool:
     return made_after(job, moment) or bool(job["worker_started"]) and parse_time(job["worker_started"]) > parse_time(moment)
 
 
+def worked_after(job: dict, moment: str) -> bool:
+    """Whether the job was made after this moment, or since then a worker of it started, its agent was resumed, it returned or a worker of it was given a text."""
+    return started_after(job, moment) or any(parse_time(stamp) > parse_time(moment) for stamp in [job["resumed"], job["returned"], *(given["at"] for given in job["given"])] if stamp)
+
+
 def owed_handoffs(data: dict, group: list[str]) -> list[dict]:
-    """Each handoff the communicator's side recorded on these orders asking for a step, such as starting a job, after which no job of its order was made and no worker of the job it names started, since a worker of another job of a busy order restarting does no step it asked for, so the watch owes its thread a line on it whatever the session it went to answered, by his words b4b64f5 "fix your toolking so tracking this stuff beciomes deterministic and it cant get lost at the whims of an agent"."""
+    """Each handoff the communicator's side recorded on these orders asking for a step, such as starting a job, after which no job of its order was made and no job it names worked, by worked_after, since a worker of another job of a busy order restarting does no step it asked for, so the watch owes its thread a line on it whatever the session it went to answered, by his words b4b64f5 "fix your toolking so tracking this stuff beciomes deterministic and it cant get lost at the whims of an agent"."""
     return [
         handoff
         for order_id in group
         for handoff in data["orders"][order_id]["handoffs"]
         if not any(made_after(data["jobs"][job_id], handoff["at"]) for job_id in data["orders"][order_id]["jobs"])
-        and not (handoff["job"] and started_after(data["jobs"][handoff["job"]], handoff["at"]))
+        and not any(worked_after(data["jobs"][job_id], handoff["at"]) for job_id in handoff_jobs(data, handoff))
     ]
+
+
+def handoff_jobs(data: dict, handoff: dict) -> list[str]:
+    """The jobs a handoff names, by its own record and the records re it, each followed by the job hand_off handed its work to, in turn."""
+    named: list[str] = []
+    for job_id in handoff["jobs"]:
+        while job_id and job_id not in named:
+            named.append(job_id)
+            job_id = data["jobs"][job_id]["handed_to"]
+    return named
+
+
+def answer_handoffs(data: dict, answers: list[tuple[str, str, dict]]) -> None:
+    """Take in each record re a kept handoff, by the seq it answers, its kind and its attrs: a withdraw takes the handoff off its order, and any other naming a job of this drive, such as a coordinator's answer naming the job on another order that carries its work, adds that job to the ones the handoff names."""
+    kept = {handoff["seq"]: (order, handoff) for order in data["orders"].values() for handoff in order["handoffs"]}
+    for seq, kind, attrs in answers:
+        if seq not in kept:
+            continue
+        order, handoff = kept[seq]
+        if kind == "withdraw":
+            order["handoffs"] = [held for held in order["handoffs"] if held["seq"] != seq]
+        elif (job_id := named_job(data, attrs)) and job_id not in handoff["jobs"]:
+            handoff["jobs"].append(job_id)
 
 
 def hold_text(job: dict, text: str, sender: str | None, at: str | None = None, seq: str | None = None) -> bool:
@@ -2042,10 +2091,10 @@ def hand_held(data: dict, job_id: str, into: str) -> None:
 
 
 def hand_off(data: dict, ends: dict[str, str]) -> None:
-    """Leave each job whose work another job took, by a replace, a hand-over, his superseding answer or a fold, mapped to that job, nothing to own: its texts move by hand_held, it keeps no part, so no walk of a part's jobs, such as the one naming a STAGE line's owner, reaches it, and each wait on it of an unfinished job or unlanded PR waits on that job instead, but that job's own, since a wait on a stopped job holding no part ends."""
+    """Leave each job whose work another job took, by a replace, a hand-over, his superseding answer or a fold, mapped to that job, nothing to own and that job as its handed_to: its texts move by hand_held, it keeps no part, so no walk of a part's jobs, such as the one naming a STAGE line's owner, reaches it, and each wait on it of an unfinished job or unlanded PR waits on that job instead, but that job's own, since a wait on a stopped job holding no part ends."""
     for job_id, into in ends.items():
         hand_held(data, job_id, into)
-        data["jobs"][job_id].update(parts=[], carries={})
+        data["jobs"][job_id].update(parts=[], carries={}, handed_to=into)
     for holder_id, holder in [*((job_id, job) for job_id, job in data["jobs"].items() if job["state"] not in FINISHED_JOB_STATES), *((key, pr) for key, pr in data["prs"].items() if pr["state"] in github.UNLANDED)]:
         holder["waits"] = list(dict.fromkeys(ends.get(wait, wait) for wait in holder["waits"] if ends.get(wait) != holder_id))
 
@@ -3040,7 +3089,7 @@ def change_job(data: dict, order_id: str, parts: list[str], waits: list[str] = (
 
 
 def hand_over(data: dict, held: tuple[str, dict, str], job_id: str, order_id: str, parts: list[str], moment: str) -> str:
-    """Give the job drive job add adds on these parts of an order what the returned change job change_job found carries of them, a part having one change job: those parts, each PR it opened serving one, and each part such a PR serves, since one PR builds one change, a PR serving the parts its row names or else every part of its job. The old job stops, handed to the new one with the texts it holds and the waits on it, by hand_off, only when that leaves it no part; else it keeps its other parts and PRs and its state, so a staging tester also carrying another part keeps its staging test; the line saying which."""
+    """Give the job drive job add adds on these parts of an order what the returned change job change_job found carries of them, a part having one change job: those parts, each PR it opened serving one, and each part such a PR serves, since one PR builds one change, a PR serving the parts its row names or else every part of its job. The old job stops, handed to the new one, which its handed_to names, with the texts it holds and the waits on it, by hand_off, only when that leaves it no part; else it keeps its other parts and PRs and its state, so a staging tester also carrying another part keeps its staging test; the line saying which."""
     old_id, old, shared = held
     lists = [(old["order"], old["parts"]), *old["carries"].items()]
     carried = {(held_order, part) for held_order, kept in lists for part in kept}
@@ -3645,6 +3694,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "worker_started": None,
         "lost_since": None,
         "woken": None,
+        "handed_to": None,
     }
 
 
@@ -3897,7 +3947,7 @@ def pointed(name: str, data: dict) -> None:
 def clone(name: str, folder: Path) -> None:
     """Copy the drive's saved state into folder, as the drive of its name there, read in one transaction, with the mark of each once-only pass `migrate` already made on it, so a load or migrate of the copy reads it as one of the drive would."""
     (folder / name).mkdir(parents=True)
-    for mark in (APPROVALS_LABELLED, UNSTARTED_WAITING, JEV_FOLD_REOPENED, f"asks/{REBUILT_ASKS}", f"pictures/{picture.SOURCED}"):
+    for mark in (APPROVALS_LABELLED, UNSTARTED_WAITING, JEV_FOLD_REOPENED, HANDOFF_JOBS, f"asks/{REBUILT_ASKS}", f"pictures/{picture.SOURCED}"):
         if (drive_dir(name) / mark).exists():
             (folder / name / mark).parent.mkdir(exist_ok=True)
             (folder / name / mark).touch()

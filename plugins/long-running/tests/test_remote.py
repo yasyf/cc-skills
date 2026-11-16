@@ -425,6 +425,31 @@ def test_migrate_records_each_live_lane_on_this_macs_worktree_once_from_orca_and
     state.migrate(demo)
 
 
+def test_migrate_takes_in_once_the_job_each_owed_handoffs_own_record_and_each_record_re_it_names_and_drops_one_a_withdraw_ended(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The install before kept every handoff before it naming no job, so handoff 711451 on o236, whose own record named j585, stayed owed after j585 resumed on it, as did 705680 after withdraw 705729 ended it."""
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "read the stray chat lines", "--parts", "the lines")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the blob reads", "--parts", "the reads")
+    run("job", "add", "builder", "--order", "o1", "--part", "the lines", "--goal", "build from the lines")
+    asked = state.now() + timedelta(minutes=1)
+    with state.edit(demo) as data:
+        job_id = data["orders"]["o1"]["jobs"][-1]
+        data["jobs"][job_id].update(state="running", worker_started=state.stamp(asked + timedelta(hours=7)))
+        for order_id, seq in (("o1", "711451"), ("o2", "705680")):
+            data["orders"][order_id]["handoffs"] = [{"seq": seq, "text": "start its builder", "at": state.stamp(asked), "jobs": []}]
+    records = {"711451": {"seq": 711451, "kind": "handoff", "fields": {"attrs": {"order": "o1", "job": job_id}}}, "705680": {"seq": 705680, "kind": "handoff", "fields": {"attrs": {"order": "o2"}}}}
+    monkeypatch.setattr(agents, "shown", records.__getitem__)
+    monkeypatch.setattr(agents, "answering", lambda name, seq: [{"seq": 705729, "kind": "withdraw", "re": 705680, "fields": {}}] if seq == "705680" else [])
+    (state.drive_dir(demo) / state.HANDOFF_JOBS).unlink()
+    state.migrate(demo)
+    data = state.load(demo)
+    assert [(order_id, handoff["seq"], handoff["jobs"]) for order_id in ("o1", "o2") for handoff in data["orders"][order_id]["handoffs"]] == [("o1", "711451", [job_id])]
+    assert state.owed_handoffs(data, ["o1", "o2"]) == []
+    monkeypatch.setattr(agents, "shown", lambda seq: pytest.fail("a migration that ran reads no record again"))
+    state.migrate(demo)
+
+
 def test_place_counts_a_builder_lane_started_on_this_mac_while_it_launches_or_runs(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

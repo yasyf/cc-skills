@@ -2055,7 +2055,7 @@ def quiet_since(data: dict, group: list[str]) -> datetime:
 
 
 def line_facts(data: dict, group: list[str], registered: dict[str, list[str]], cards: dict | None, moment: datetime) -> dict[str, list]:
-    """What a line on an open order or incident tells him, by the order, job, PR or handoff it is about: each order of it, each job whose own order it is, never one only carrying it, by heard_job's rule that one watch alone makes every line about a job, with the facts state.job_news names once it is not running, so one wait of several ending is no news while the job still waits, each PR registered on those jobs or named in its orders' words, by its state, checks, Trunk ejection and tap as the watch last read them, so a new commit is news only through its checks or state, and each handoff of the communicator's side state.owed_handoffs names, once five quiet minutes passed since it went out, so the post promising its job takes it in as told no sooner than the watch owes its line, which stays owed whatever the session it went to answered until a job of its order is made or the job it names starts, and each card of his on those jobs and PRs open past CARD_WAIT among his cards as cc-slack's store last held them, by waited_cards, told once; never a PR's head, which a push moves while the same checks fail, a stamp or the time of a read, which move with nothing changed, nor the stage stage.of names from those, which relabels a PR with nothing of its own changed, such as red to behind once a PR below it in its stack goes red."""
+    """What a line on an open order or incident tells him, by the order, job, PR or handoff it is about: each order of it, each job whose own order it is, never one only carrying it, by heard_job's rule that one watch alone makes every line about a job, with the facts state.job_news names once it is not running, so one wait of several ending is no news while the job still waits, each PR registered on those jobs or named in its orders' words, by its state, checks, Trunk ejection and tap as the watch last read them, so a new commit is news only through its checks or state, and each handoff of the communicator's side state.owed_handoffs names, once five quiet minutes passed since it went out, so the post promising its job takes it in as told no sooner than the watch owes its line, which stays owed whatever the session it went to answered until a job of its order is made or a job it names works, the records re it taken in once first by quiet_lines, and each card of his on those jobs and PRs open past CARD_WAIT among his cards as cc-slack's store last held them, by waited_cards, told once; never a PR's head, which a push moves while the same checks fail, a stamp or the time of a read, which move with nothing changed, nor the stage stage.of names from those, which relabels a PR with nothing of its own changed, such as red to behind once a PR below it in its stack goes red."""
     jobs, prs = subjects(data, group, registered)
     return {
         **{order_id: [data["orders"][order_id]["state"]] for order_id in group},
@@ -2114,12 +2114,25 @@ def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
         if not (heads := [head for head in heads if data["orders"][head]["incident"] or not away]):
             continue
         since = max(quiet_since(data, groups[head]) for head in heads)
-        moved = {head: untold(data["orders"][head], facts[head]) for head in heads}
-        working = {head: [job_id for job_id, job in state.orders_jobs(data, groups[head]).items() if state.at_work(job)] for head in heads}
         silent = moment - since
-        if not (heads := [head for head in heads if silent >= state.QUIET_THREAD and (moved[head] or working[head] or data["orders"][head]["priority"]) or 0 < data["orders"][head]["every"] <= silent.total_seconds() // 60]):
+        every = {head for head in heads if 0 < data["orders"][head]["every"] <= silent.total_seconds() // 60}
+        if not (heads := [head for head in heads if silent >= state.QUIET_THREAD or head in every]):
             continue
         source = f"quiet {heads[0]}"
+        if fresh := [key.removeprefix(f"{HANDOFF_FACT} ") for head in heads for key in untold(data["orders"][head], facts[head]) if key.startswith(f"{HANDOFF_FACT} ")]:
+            try:
+                answers = [(seq, record["kind"], record["fields"].get("attrs") or {}) for seq in fresh for record in agents.answering(watcher.name, seq)]
+            except state.DriveError as error:
+                lines += failed(watcher, source, f"read of the records re handoffs {', '.join(fresh)}", error, moment)
+                continue
+            if answers:
+                with state.edit(watcher.name) as data:
+                    state.answer_handoffs(data, answers)
+                facts |= {head: line_facts(data, groups[head], registered, watcher.cards, moment) for head in heads}
+        moved = {head: untold(data["orders"][head], facts[head]) for head in heads}
+        working = {head: [job_id for job_id, job in state.orders_jobs(data, groups[head]).items() if state.at_work(job)] for head in heads}
+        if not (heads := [head for head in heads if moved[head] or working[head] or data["orders"][head]["priority"] or head in every]):
+            continue
         owed = data["orders"][heads[0]]["quiet"]
         try:
             seq = (
@@ -2229,7 +2242,7 @@ def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], sin
         *([f"Cards of his open past 48 hours: {len(waited)}. Say once in its thread that each still waits on him and what it holds, linking each:", *(f"- {said}" for said in waited)] if waited else []),
         *(
             [
-                f"Handoffs no job of their order was made after, nor the job each names started: {len(handoffs)}. Say in its thread what each asked for, what each record re it answered, and that no job of its order started since, then send the work it asked for on as work no job holds, so a job is put on it.",
+                f"Handoffs no job of their order was made after, nor any job each names worked after: {len(handoffs)}. Say in its thread what each asked for, what each record re it answered, and that no job of its order started since, then send the work it asked for on as work no job holds, so a job is put on it.",
                 *(line for handoff in handoffs for line in handoff_lines(watcher.name, handoff)),
             ]
             if handoffs

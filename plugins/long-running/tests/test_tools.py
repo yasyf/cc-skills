@@ -1229,6 +1229,27 @@ def test_a_handoff_the_communicators_side_sends_is_kept_on_the_order_it_serves_b
     ]
 
 
+def test_a_record_of_any_lane_re_a_kept_handoff_naming_a_job_adds_that_job_to_the_ones_the_handoff_names(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Root's 719725 re handoff 719716 named j5665, the job on another order carrying its work, which the drive never took in, so the watch listed the handoff as unstarted after j5665 opened #56937."""
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Alerts", "milestone reads fail with blob not found")
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Alerts", "fix the run page card", "--parts", "the card")
+    run("job", "add", "builder", "--order", "o2", "--part", "the card", "--goal", "fix the card")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "tooler")
+    run("start", demo, "--role", "meta")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    seqs = iter(range(719716, 719730))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, "".join(json.dumps({"seq": next(seqs)}) + "\n" for _ in json.loads(kwargs["input"])), ""))
+    monkeypatch.setattr(agents, "shown", lambda seq: {"lane": "communicator"})
+    tools.run("record", demo, {"records": [{"kind": "handoff", "text": "resume the builder on the card fix", "attrs": {"order": "o1"}}]})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "tooler")
+    job_id = state.load(demo)["orders"]["o2"]["jobs"][-1]
+    tools.run("record", demo, {"records": [{"kind": "answer", "text": f"{job_id} on o2 carries it", "to": "communicator", "re": "719716", "attrs": {"job": job_id}}]})
+    assert [handoff["jobs"] for handoff in state.load(demo)["orders"]["o1"]["handoffs"]] == [[job_id]]
+
+
 def test_the_meta_sessions_handoff_naming_no_lane_goes_to_the_session_holding_the_order_it_serves_and_one_naming_a_lane_goes_there(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
