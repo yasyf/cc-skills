@@ -87,7 +87,7 @@ ASK_LINE = re.compile(r"ASK (?P<files>[/~]\S*(?: [/~]\S*)*)")
 PUSHED_LINE = re.compile(r"PUSHED\b")
 POSTED_LINE = re.compile(r"POSTED (?P<link>https://[^\s;]+)")
 REPORTED_LINE = re.compile(r"(?:READY|PUSHED)\b")
-REPRO = re.compile(r"^REPRO:[ \t]*(?P<path>\S+)", re.MULTILINE)
+REPRO = re.compile(r"^REPRO:[ \t]*(?P<path>\S+?)(?=[,;:.]?(?:\s|$))", re.MULTILINE)
 REPORT_CHANGE = re.compile(r"^CHANGE:[ \t]*(?P<change>.+?)[ \t]*$", re.MULTILINE)
 LISTED_CHANGE = r"[ \t]*(?P<change>.+?)(?:[ \t]*\(waits on (?P<waits>[^()]*)\))?[ \t]*$"
 CHANGE_LINE = re.compile(rf"^Change:{LISTED_CHANGE}", re.MULTILINE)
