@@ -1058,8 +1058,9 @@ def order_set(args: argparse.Namespace) -> int:
     thread = check_thread(data, args.thread, message) if args.thread else None
     dropping = args.state == "dropped" and order["state"] not in state.CLOSED_ORDER_STATES
     closing = state.order_open_prs(data, args.id) if dropping else []
-    if landing := [key for key in closing if (data["prs"][key]["stage"] or {}).get("name") == "landing"]:
-        raise DriveError(f"{args.id}: refused, nothing changed: {', '.join(landing)} {'is' if len(landing) == 1 else 'are'} queued to land, so dropping {args.id} would close a PR mid-merge: let it land or dequeue it first")
+    landing = [key for key in closing if (data["prs"][key]["stage"] or {}).get("name") == "landing"]
+    if landing and (refused := gate.gate(name, f"drop {args.id}", [f"{', '.join(landing)} {'is' if len(landing) == 1 else 'are'} queued to land, so dropping {args.id} closes a PR mid-merge: let it land or dequeue it first"])):
+        raise DriveError(f"{args.id}: nothing changed, {refused}")
     if not dropping and args.state in state.CLOSED_ORDER_STATES and order["state"] not in state.CLOSED_ORDER_STATES and (untested := state.dangerous_staged(data, args.id)):
         raise DriveError(
             f"{args.id}: refused, {', '.join(untested)} {'waits' if len(untested) == 1 else 'wait'} on {args.id}'s staging test, staged because {'its head changes' if len(untested) == 1 else 'their heads change'} a dangerous class of file,"
@@ -3681,12 +3682,13 @@ def take_report(name: str, job_id: str, whole: str, read_prs: bool = True, tell:
     if repro := named_repro(job_id, job, whole):
         job["repro"] = str(repro)
     built = state.BUILT_LINE.match(line) if job["kind"] in state.CHANGE_KINDS else None
-    if refused := (
+    refused = (
         brief.report_refusal(name, data, job_id, whole)
         or state.result_refusal(data, job_id, line, whole)
         or (built and (held := state.change_job(data, job["order"], [], job["waits"], job_id, built["branch"], job["repo"], proving=state.builds_nothing(job))) and one_change_job(data, job["order"], job["kind"], [], held, job["waits"], branch=built["branch"], repo=job["repo"], job_id=job_id))
-    ):
-        raise DriveError(f"{job_id}: refused, nothing kept: {refused}")
+    )
+    if refused and not (refused.startswith(state.WAITING_UNFREED) and not gate.gate(name, f"waiting {job_id} {line}", [refused], job["session"])):
+        raise DriveError(f"{job_id}: refused, nothing kept: {refused}{f". {gate.REPEAT}" if refused.startswith(state.WAITING_UNFREED) else ""}")
     unreached(name, data, state.result_waits(data, job_id, line))
     if job["kind"] == "builder" and state.REPORTED_LINE.match(line) and any(not served.named(cited) for cited in served.deciding(whole)):
         print(f"drive job report: {served.NAMELESS}", file=sys.stderr)
@@ -3723,7 +3725,8 @@ def take_report(name: str, job_id: str, whole: str, read_prs: bool = True, tell:
     try:
         misses = cut_misses(state.load(name), job_id, whole) if re.match(r"DONE\b", line) else {}
     except github.GithubError as error:
-        raise DriveError(f"{job_id}: refused, nothing kept: whether each cut its CASE lines name carries the PR's head could not be read: {error}") from None
+        print(f"drive job report: kept unchecked, since whether each cut its CASE lines name carries the PR's head could not be read: {error}", file=sys.stderr)
+        misses = {}
     def reported(data: dict):
         data["jobs"][job_id]["cut_misses"] = misses
         held = built and state.change_job(data, job["order"], [], data["jobs"][job_id]["waits"], job_id, built["branch"], job["repo"], proving=state.builds_nothing(job))
@@ -6791,11 +6794,8 @@ def page_owner(args: argparse.Namespace) -> int:
     data = state.load(name)
     order = find(data["orders"], args.order, "order")
     users = args.users or order["users"]
-    if not users:
-        raise DriveError(
-            f"refused, nobody paged: {state.PAGE_RULE}. Post the read showing real users failing as a cci record and pass its seq with"
-            " --users <seq>; with none, the incident stays open and its jobs work on without paging him"
-        )
+    if not users and (refused := gate.gate(name, f"page {args.order}", [f"{state.PAGE_RULE}, and no --users record shows real users failing: post that read as a cci record and pass its seq with --users <seq>"])):
+        raise DriveError(f"nobody paged: {refused}")
     try:
         paged, starts = watch.page_with_line(name, data, args.order, users, args.why)
     except (reads.ReadError, slack.SlackError) as error:

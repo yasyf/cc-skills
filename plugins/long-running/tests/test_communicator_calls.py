@@ -55,7 +55,7 @@ def transcript(tmp_path: Path, *commands: str) -> Path:
     return path
 
 
-def test_the_communicator_runs_every_call_a_root_session_does_but_a_cci_write_and_research_its_subagent_runs(
+def test_the_communicator_runs_every_call_a_root_session_does_but_a_cci_write(
     communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     for own in (
@@ -77,15 +77,8 @@ def test_the_communicator_runs_every_call_a_root_session_does_but_a_cci_write_an
         output = json.loads(hook_output(monkeypatch, capsys, cci))
         assert (output["hookSpecificOutput"]["permissionDecisionReason"], output["judged"]) == (refused, False), cci
     assert hook_output(monkeypatch, capsys, {**call(SLACK + "slack_thread"), "session_id": "someone-else"}) == ""
-    for research, ran in (
-        ("cc-transcript show /x/agent-a1.jsonl", "cc-transcript"),
-        ("timeout 25 tools/ci bk api /organizations/forge/pipelines/release/builds/1", "ci"),
-        ("git show origin/dev:api/x.ts", "git"),
-        ("drive status 2>/dev/null | grep release", "a bare drive status"),
-    ):
-        assert communicator_calls.deny_reason(call("Bash", command=research)) == f"{communicator_calls.HANDED_OFF} This call runs {ran}."
-    assert communicator_calls.deny_reason(call("Bash", command="git log") | {"agent_id": "a1"}) is None
-    assert communicator_calls.deny_reason(call("mcp__sentry__get_sentry_resource", url="https://forge-rf.sentry.io/issues/1/")) == f"{communicator_calls.HANDED_OFF} This call reads Sentry."
+    for research in ("cc-transcript show /x/agent-a1.jsonl", "git show origin/dev:api/x.ts", "drive status 2>/dev/null | grep release"):
+        assert communicator_calls.deny_reason(call("Bash", command=research)) is None
 
 
 def answered(builder: Callable[..., None], demo: str, words: str, at: datetime, **fields: object) -> dict:

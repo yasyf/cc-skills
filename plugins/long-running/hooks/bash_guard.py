@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, github, install, land, orca, providers, reports, state
+from drive import agents, gate, github, install, land, orca, providers, reports, state
 from drive.orca import OrcaError
 from drive.shell import KEYWORDS, Case, Function, Loop, expanded, grouped, literal, runnable, simple_commands, spread
 
@@ -784,11 +784,12 @@ def mid_answer(found: list[list[str]]) -> str | None:
         data, role = owner
         held = state.bound_sessions(data)[role]
         status = install.session_status(pid, held["session"]) if (pid := orca.live_pid(held["session"])) else None
-        if status not in (None, "idle") or state.answering(data["owed_replies"], state.now()):
-            return (
-                f"refused: the {role} of {data['name']} is mid-answer to him, its turn running or a message of his from the last ten minutes"
-                f" unanswered; `drive reload --drive {data['name']}` reloads it once it is idle with nothing owed, and no /exit is needed for new code"
-            )
+        mid = (
+            f"the {role} of {data['name']} is mid-answer to him, its turn running or a message of his from the last ten minutes"
+            f" unanswered; `drive reload --drive {data['name']}` reloads it once it is idle with nothing owed, and no /exit is needed for new code"
+        )
+        if (status not in (None, "idle") or state.answering(data["owed_replies"], state.now())) and (refused := gate.gate(data["name"], f"end {role}", [mid])):
+            return refused
     return None
 
 

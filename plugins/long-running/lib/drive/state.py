@@ -115,6 +115,7 @@ CI_ONLY = "ci-only"
 UNCARDED_CLASSES = (FLAKE_FIX, MAIN_FIX)
 EXEMPT_CLASSES = ("pure port", "test-only", CI_ONLY, FLAKE_FIX, MAIN_FIX, "incident fix")
 CLASSES = ("incident", "asked", "process")
+WAITING_UNFREED = "its WAITING names nothing the watch frees it on"
 GO_WORDS = "I told you 3 times to merge snd release why do you keep delaying"
 FLAKE_RULING = "532cd3d"
 FLAKE_WORDS = "and ffs fix these flaky tgests how many times do I have to tell yoiu"
@@ -2675,7 +2676,7 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
     if re.match(r"WAITING\b", line) and not wakes(data, job_id, now(), line):
         process = "" if place.on_sprite(job) else f", a process you started on this Mac that still runs as pid:<n>, which wakes {job_id} once it ends"
         return (
-            "its WAITING names nothing the watch frees it on: name on its first line, the only line its waits are read from, the release as"
+            f"{WAITING_UNFREED}: name on its first line, the only line its waits are read from, the release as"
             " release:<service>:<owner>/<repo>#<n>, or release:<service>:<owner>/<repo>#<n>@<env> for one env as the release provider's live read names it, a staging test's soak commit as staging:<target>/<env>@<commit>, processes of yours on a Mac box as pid:<n>[,<n>…]@<box>, his next word as his-word, which any word or tap of his after it frees, a Mac box the drive's pool hands you as mac-box:<box> or mac-box:any, a Buildkite build by its link, https://buildkite.com/<org>/<pipeline>/builds/<n>,"
             f" an open PR the drive tracks, a part of an order not yet delivered as <order>:<part>{process}, a teammate's reply as reply:<the permalink of the question the drive asked them>, which their first message after it ends, another drive's next record as reply:cci:<the seq of its record you wait after>, which the first record after it on that record's topic in that drive ends, or his open card as `WAITING <what> waits on <its waits id or Slack link>`,"
             f" since a PR that merged or closed, a part delivered, a process that ended and a card he answered free it at once, and a PR waiting on {job_id} or a part it carries, as the PR its staging test tests, waits on {job_id} in turn: name with it the job"

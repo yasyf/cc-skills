@@ -12643,7 +12643,7 @@ def test_dropping_an_order_closes_its_open_prs_with_the_reason_and_is_refused_wh
     with edit("demo") as data:
         data["prs"][key]["stage"] = {"name": "landing", "owner": "the lander", "since": state.stamp()}
     code = cli.main(["order", "set", "o1", "--state", "dropped", "--note", "backlog cut"])
-    assert (code, f"o1: refused, nothing changed: {key} is queued to land" in capsys.readouterr().err, closed) == (2, True, [])
+    assert (code, f"o1: nothing changed, refused once: {key} is queued to land" in capsys.readouterr().err, closed) == (2, True, [])
     with edit("demo") as data:
         data["prs"][key]["stage"] = None
     code, out = run("order", "set", "o1", "--state", "dropped", "--note", "backlog cut")

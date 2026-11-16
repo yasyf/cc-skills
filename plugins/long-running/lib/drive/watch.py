@@ -1500,12 +1500,12 @@ def page_place(data: dict, order: dict) -> dict[str, str]:
     return {"channel_id": slack.project_channel(data, state.channel_seat_of(data, order))}
 
 
-def page_words(data: dict, key: str, users: int, why: str | None, working: list[str], starts: list[str]) -> str:
+def page_words(data: dict, key: str, users: int | None, why: str | None, working: list[str], starts: list[str]) -> str:
     """An incident's first line, the one the watch writes itself from the order's row with no post writer that could skip it: what broke, for whom, its alerts' links, the record of users failing and who is fixing it."""
     order = data["orders"][key]
     alerts = f" ({', '.join(order['alerts'])})" if order["alerts"] else ""
     fixing = "; ".join([*(f"{each} at work" for each in working), *(f"{start.split(':')[0]} starting now" for start in starts)])
-    return f"🚨 {why or order['title'] or cut(order['text'], 80)}: real users failing{alerts}, by record {users}. Fixing it: {fixing}. Paged him."
+    return f"🚨 {why or order['title'] or cut(order['text'], 80)}{f": real users failing{alerts}, by record {users}" if users else alerts}. Fixing it: {fixing}. Paged him."
 
 
 def post_page_line(name: str, key: str) -> str:
@@ -1523,7 +1523,7 @@ def post_page_line(name: str, key: str) -> str:
     return link
 
 
-def page_with_line(name: str, data: dict, key: str, users: int, why: str | None = None) -> tuple[str, list[str]]:
+def page_with_line(name: str, data: dict, key: str, users: int | None, why: str | None = None) -> tuple[str, list[str]]:
     """Page him for an incident as his ruling b4d22c3 says, "a page always comes with 1) a channel message in a drive channel, and 2) in parallel needs to start working on a fix": first add a codex job on its fix and on its diagnosis wherever no worker runs one, by state.page_starts, then post its first line by post_page_line, a fixed line the watch writes from the order's row, and page him with that line's text. A real-users incident never waits on Slack: a line that cannot post this pass is said, the page goes out carrying its text, and page_post_lines posts it on a later pass. The post's or its failure's line and the page command's, and the start line of each job the coordinator launches now."""
     def page_starts_write(edited: dict) -> list[str]:
         working, starts = state.page_starts(edited, name, key, state.stamp())

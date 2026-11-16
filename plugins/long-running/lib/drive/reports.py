@@ -4,7 +4,7 @@ import re
 from collections.abc import Iterator
 from datetime import datetime
 
-from drive import agents, artifacts, limits, refs, settled, slack, state
+from drive import agents, artifacts, gate, limits, refs, settled, slack, state
 
 CALL_FIELDS = ("records", "lane", "drive", "id")
 CHATTY_KINDS = ("state", "note", "evidence")
@@ -128,7 +128,12 @@ def addressed(record: dict, lane: str) -> bool:
 
 
 def chatter(record: dict) -> str | None:
-    """Why a drive session's record is chatter, by his words "make everything less chatty … the durable fix": a state, note or evidence line, which the dashboard shows and no session acts on, or one to several lanes but an incident or blocker whose words name each lane's step; None for a record one lane acts on."""
+    """Why a drive session's record is chatter, by his words "make everything less chatty … the durable fix": a state, note or evidence line, which the dashboard shows and no session acts on, or one to several lanes but an incident or blocker whose words name each lane's step; None for a record one lane acts on. It blocks once, by gate.gate: the same record sent again by the same session goes out, warned."""
+    found = chattered(record)
+    return found and gate.gate(None, f"record {kind(record)} {listed(record.get('to'))} {(record.get('text') or '')[:120]}", [found])
+
+
+def chattered(record: dict) -> str | None:
     lanes = list(dict.fromkeys(entry.split("@", 1)[0] for entry in listed(record.get("to")) if not entry.startswith("peer:")))
     if kind(record) in CHATTY_KINDS:
         return CHATTY.format(kind=kind(record))
