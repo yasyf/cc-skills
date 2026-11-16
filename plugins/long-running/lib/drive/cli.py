@@ -6472,6 +6472,8 @@ def channels(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     data = state.load(name)
     missing = [project for project in dict.fromkeys([None, *data["subcoordinators"], TOOLING_FILING[0]]) if (slack.channel_project(project) or "") not in data["slack"]["channels"]]
+    if args.env_alerts:
+        return emit(args, "\n".join(env_alerts_kept(name, args.env_alerts)), {"env_alerts": state.load(name)["slack"]["env_alerts"]})
     if args.hold:
         return emit(args, "\n".join(channels_held(name, args.hold, args.kinds)), {"held_by": state.load(name)["slack"]["held_by"]})
     if not (args.make or args.move_cards):
@@ -6498,6 +6500,25 @@ def channels(args: argparse.Namespace) -> int:
         view.refresh_cards(name)
     lines = [*(f"#{channel['name']} {channel['id']}" for channel in made), *([f"{len(moved)} open card(s) of his DM moved to their project's channel"] if args.move_cards else [])]
     return emit(args, "\n".join(lines), {"channels": made, "moved": [{"from": card["url"], "to": url} for card, _, url in moved]})
+
+
+def env_alerts_kept(name: str, pairs: list[str]) -> list[str]:
+    """Name each staging env's alert channel, <env>=<channel>, as plat-usw2-staging=C0CAC1HT17W, whose each new alert from now on the watch hands to the jobs testing on that env, by watch.env_alert_lines; an empty channel stops it. Refused for an env the drive keeps no slot for."""
+    data = state.load(name)
+    split = [pair.partition("=")[::2] for pair in pairs]
+    if unknown := [env for env, _ in split if env not in data["slots"]]:
+        raise DriveError(f"--env-alerts: the drive keeps no slot for {', '.join(unknown)}; its slots: {', '.join(data['slots']) or 'none'}")
+    seen = f"{state.now().timestamp():.6f}"
+
+    def env_alerts_write(fresh: dict):
+        for env, channel in split:
+            if channel:
+                fresh["slack"]["env_alerts"][env] = {"channel": channel, "seen": fresh["slack"]["env_alerts"].get(env, {}).get("seen", seen)}
+            else:
+                fresh["slack"]["env_alerts"].pop(env, None)
+
+    state.update(name, None, env_alerts_write)
+    return [f"each new alert in {channel} goes to the jobs testing on {env}" if channel else f"alerts of {env} go to no job" for env, channel in split]
 
 
 def channels_held(name: str, holds: list[str], kinds: str) -> list[str]:
@@ -8321,6 +8342,7 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser("channels", parents=both, help="list the drive's private channels, each #name, id and seat, and each the drive has not made yet; bare, it changes nothing")
     verb.add_argument("--make", action="store_true", help="make as him the drive's private channel <handle>-drive-<drive> and the private channel <handle>-drive-<drive>-<project> of each sub-coordinator's project and of the drive's tooling, which cc-slack reads as it reads his DM, keeping each id in the drive, one he has kept; say then makes each other project's channel the first time it posts about it")
     verb.add_argument("--hold", action="append", metavar="CHANNEL=SEAT", help="give a watched alert channel to a seat's sub-coordinator, as C0CAC1HT17W=Platform, which subscribes to it by its Hold line across restarts and compaction, in place of the top coordinator; an empty seat hands it back; repeatable")
+    verb.add_argument("--env-alerts", action="append", metavar="ENV=CHANNEL", help="name a staging env's alert channel, as plat-usw2-staging=C0CAC1HT17W: the watch hands each new alert there, its link and words, to each job holding that env's slot or its slot's hold, once per alert and job; an empty channel stops it; repeatable")
     verb.add_argument("--kinds", default="alerts", help="with --hold, the kinds of lines the seat subscribes to, of alerts, releases and posts, comma-separated; default alerts")
     verb.add_argument("--move-cards", action="store_true", help="move each open card of his DM whose project has a channel to that channel's root, a card of no project to the drive's tooling channel, its DM card edited to Moved to and a link")
     verb.set_defaults(run=channels)

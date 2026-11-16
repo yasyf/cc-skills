@@ -138,6 +138,8 @@ BOX_SWEEP = timedelta(hours=1)
 LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
 COMMUNICATOR_IDLE = timedelta(hours=2)
+ENV_ALERT_EVERY = timedelta(minutes=1)
+ENV_ALERT_READ = 20
 REPLY_READ = 100
 SETTLING = ""
 PR_LINE = re.compile(r"\s*(?:READY|PUSHED|PR:)")
@@ -937,11 +939,11 @@ def release_told(watcher: Watcher, job_id: str, read: dict, moment: datetime) ->
     release_post(watcher.name, data, job_id, text, body, f"release-{link}-{read['state']}", release_told_write)
 
 
-def release_post(name: str, data: dict, job_id: str, text: str, body: str, record_id: str, kept: Callable[[dict, str], None] = lambda data, seq: None) -> str:
-    """Post one handoff record about a job's release to the job, held on it by state.hold_addressed for its worker as any held text, and to the coordinator sessions acting on it and holding its order, under the record id so a repost returns the stored record, keeping in the same write whatever kept writes with its seq; the seq."""
+def release_post(name: str, data: dict, job_id: str, text: str, body: str, record_id: str, kept: Callable[[dict, str], None] = lambda data, seq: None, topic: str = "release") -> str:
+    """Post one handoff record about a job's release, or another fact the drive holds for it such as an alert in its staging env, to the job, held on it by state.hold_addressed for its worker as any held text, and to the coordinator sessions acting on it and holding its order, under the record id so a repost returns the stored record, keeping in the same write whatever kept writes with its seq; the seq."""
     job = data["jobs"][job_id]
     to = list(dict.fromkeys([job_id, state.job_lane(data, job), state.holding_lane(data, data["orders"][job["order"]])]))
-    argv = ["cci", "post", "--drive", name, "--lane", LANE, "--kind", "handoff", *(arg for lane in to for arg in ("--to", f"{lane}@{name}")), "--topic", f"release-{job_id}"]
+    argv = ["cci", "post", "--drive", name, "--lane", LANE, "--kind", "handoff", *(arg for lane in to for arg in ("--to", f"{lane}@{name}")), "--topic", f"{topic}-{job_id}"]
     argv += ["--id", record_id, "--json", "--path", "-", "--text", reads.withheld(text)]
     seq = str(json.loads(reads.run(argv, Path(data["roles"]["coordinator"]["cwd"]), reads.posting(), stdin=reads.withheld(body)))["seq"])
     def release_post_write(saved: dict):
@@ -950,6 +952,44 @@ def release_post(name: str, data: dict, job_id: str, text: str, body: str, recor
 
     state.update(name, None, release_post_write)
     return seq
+
+
+def env_alert_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Hand each new alert in a staging env's alert channel, as drive channels --env-alerts names it, to each job testing on that env, the holder of its drive slot and a job its slot's hold is for, as one handoff record with the alert's link and words, keyed by env, alert and job so none is handed twice, by his words "if a lane is doing staging tests it should automatically get the things posted in alerts-staging channel sent to it": the slot decides who gets it, never a judgment. Each env's channel is read at most once every ENV_ALERT_EVERY, from the newest alert it read; a read or post that fails goes again next read, said from its third failure in a row."""
+    if watcher.project:
+        return []
+    data = state.load(watcher.name)
+    lines = []
+    for env, watched in data["slack"]["env_alerts"].items():
+        if moment - watcher.polled.get(f"alerts {env}", moment - ENV_ALERT_EVERY) < ENV_ALERT_EVERY:
+            continue
+        watcher.polled[f"alerts {env}"] = moment
+        try:
+            read = slack.cc_slack("history", "--channel", watched["channel"], "--limit", str(ENV_ALERT_READ), "--json")["messages"]
+        except slack.SlackError as error:
+            lines += failed(watcher, f"alerts {env}", f"read of {env}'s alert channel {watched['channel']}", error, moment)
+            continue
+        watcher.failures.pop(f"alerts {env}", None)
+        fresh = sorted((message for message in read if float(message["ts"]) > float(watched["seen"]) and not message.get("from_claude") and not message.get("from_user")), key=lambda message: float(message["ts"]))
+        if not fresh:
+            continue
+        slot = data["slots"].get(env) or {}
+        testing = [job for job in dict.fromkeys([(slot.get("holder") or {}).get("job"), (slot.get("hold") or {}).get("for")]) if job in data["jobs"] and data["jobs"][job]["state"] not in state.FINISHED_JOB_STATES]
+        try:
+            for message in fresh:
+                for job_id in testing:
+                    text = f"ALERT in {env}, which you are testing on: {message['user_name']}: {message['text'].splitlines()[0][:200]} {message['permalink']}"
+                    release_post(watcher.name, state.load(watcher.name), job_id, text, message["text"], f"alert-{env}-{message['ts']}-{job_id}", topic="alert")
+                lines.append(f"WATCH alert in {env} handed to {', '.join(testing) or 'no job, none tests on it'}: {message['permalink']}")
+        except reads.ReadError as error:
+            lines += failed(watcher, f"alerts {env}", f"hand-off of an alert in {env}", error, moment)
+            continue
+
+        def env_alert_write(saved: dict, env=env, newest=fresh[-1]["ts"]):
+            saved["slack"]["env_alerts"][env]["seen"] = newest
+
+        state.update(watcher.name, None, env_alert_write)
+    return lines
 
 
 def release_card_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -5728,7 +5768,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
         functools.partial(train_lines, watcher, moment),
         functools.partial(event_lines, watcher),
         *(owed_reads(watcher, moment) if lands else []),
-        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, clock_lines, case_lines, undelivered_lines, close_answered, close_joined_repeats, tell_lines, standing_lines, retired_seats, communicators_idle, orphan_lines)),
+        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, clock_lines, case_lines, undelivered_lines, close_answered, close_joined_repeats, tell_lines, standing_lines, retired_seats, communicators_idle, env_alert_lines, orphan_lines)),
     ]
     names = [stage.func.__name__ for stage in later]
     resume, watcher.resume = watcher.resume, None
