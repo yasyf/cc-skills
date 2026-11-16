@@ -6970,6 +6970,28 @@ def test_a_stack_waiting_on_his_tap_draws_its_first_card_only_once_no_pr_of_it_e
     assert draws.keys == [list(STACKED)]
 
 
+def test_a_held_stack_waiting_on_the_cutover_he_has_not_scheduled_draws_no_card_however_many_passes_and_one_card_for_the_whole_stack_once_he_schedules_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws
+) -> None:
+    reads = three_stacked(demo, monkeypatch)
+    with state.edit(demo) as data:
+        data["orders"]["o3"] = order(text="cut over to the new tree", title="The cutover", state="waiting", jobs=[])
+        for job_id in ("j1", "j2"):
+            data["jobs"][job_id]["waits"] = ["o3"]
+        for key in STACKED:
+            data["prs"][key]["tap"] = {"label": "Hold", "at": state.stamp(T0), "head": reads[key]["headRefOid"], "source": "pressed the button"}
+            reads[key] |= {"labels": [github.HOLD_LABEL]}
+    watching = watcher(demo)
+    for minutes in (0, 10, 40, 120):
+        watch.run_pass(watching, T0 + timedelta(minutes=minutes))
+    data = state.load(demo)
+    assert (draws.keys, [data["prs"][key]["stage"]["name"] for key in STACKED]) == ([], ["unscheduled"] * 3)
+    with state.edit(demo) as data:
+        data["orders"]["o3"]["state"] = "open"
+    watch.run_pass(watching, T0 + timedelta(minutes=130))
+    assert draws.keys == [list(STACKED)]
+
+
 def test_a_restack_moving_a_head_under_his_card_draws_no_other_card(demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws) -> None:
     reads = three_stacked(demo, monkeypatch)
     watching = watcher(demo)
