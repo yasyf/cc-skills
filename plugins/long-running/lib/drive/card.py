@@ -296,7 +296,7 @@ def waits_on(pr: dict, entry: dict) -> str:
 
 
 def doing(pr: dict, entry: dict) -> str:
-    now, approved, key = entry["now"], tap_label(entry) == "Approve", state.pr_key(pr["url"])
+    now, approved = entry["now"], tap_label(entry) == "Approve"
     match pr["state"], now.name:
         case "MERGED", _:
             return "Merged"
@@ -316,7 +316,7 @@ def doing(pr: dict, entry: dict) -> str:
             return "CI is still running"
         case _, "grading":
             return "Lands once CI passes"
-        case _, "ready" | "landing" if state.queued_by_lander(key):
+        case _, "ready" | "landing" if entry["queued"]:
             return "CI passed; the drive queues it for merge"
         case _, "ready" | "landing" | "author":
             return "CI passed; the agent is landing it"
@@ -727,13 +727,13 @@ def member(data: dict, found: dict | None, pr: dict, entry: dict, drawing: tuple
 
 
 def drawn_entry(data: dict, entry: dict, found: dict | None) -> dict:
-    """The drive's entry with what render reads beside it, the one place that adds it, for his card and the dashboard's row alike: its stage and staging line now, why his card offers no Approve by state.tap_refused, and a link to each open PR above it in its stack, by PrGraph.stack(), being reworked to his words, which cards() leaves off its card with every PR above it so his Approve lands it alone."""
+    """The drive's entry with what render reads beside it, the one place that adds it, for his card and the dashboard's row alike: its stage and staging line now, why his card offers no Approve by state.tap_refused, whether the drive's lander queues it by state.queued_by_lander, and a link to each open PR above it in its stack, by PrGraph.stack(), being reworked to his words, which cards() leaves off its card with every PR above it so his Approve lands it alone."""
     from drive import stage, view
 
     key = state.pr_key(entry["url"])
     stack = [mate for mate in state.pr_graph(data).stack(key) if mate in data["prs"] and data["prs"][mate]["state"] == "open"]
     above = stack[stack.index(key) + 1 :] if key in stack else []
-    return entry | {"now": stage.on_card(data, key, found), "staging": view.staging_row(data, key), "reworked_above": tuple(view.pr_link(data["prs"][mate]) for mate in above if data["prs"][mate]["rework"]), "tap_refused": state.tap_refused(data, entry)}
+    return entry | {"now": stage.on_card(data, key, found), "staging": view.staging_row(data, key), "reworked_above": tuple(view.pr_link(data["prs"][mate]) for mate in above if data["prs"][mate]["rework"]), "tap_refused": state.tap_refused(data, entry), "queued": state.queued_by_lander(data, key)}
 
 
 def drawn_lines(data: dict, key: str, found: dict | None) -> dict[str, str]:

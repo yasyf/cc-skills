@@ -188,9 +188,9 @@ def running(pr: dict) -> bool:
     return bool(lander) and lander["outcome"] is None and state.alive(lander["pid"])
 
 
-def reported(key: str, pr: dict) -> bool:
-    """Whether the lander merges the PR itself with gh pr merge, as it does every PR but a Forge-AI/monorepo one Trunk merges, and says so on its own line, so GitHub's merged line asks no step: it still runs on it, or it merged it."""
-    return not state.queued_by_lander(key) and (running(pr) or ((pr["lander"] or {}).get("outcome") or "").startswith("merged"))
+def reported(data: dict, key: str, pr: dict) -> bool:
+    """Whether the lander merges the PR itself with gh pr merge, as it does every PR but one of the drive's home repository its merge queue merges, by state.queued_by_lander, and says so on its own line, so GitHub's merged line asks no step: it still runs on it, or it merged it."""
+    return not state.queued_by_lander(data, key) and (running(pr) or ((pr["lander"] or {}).get("outcome") or "").startswith("merged"))
 
 
 def landing(pr: dict) -> bool:
@@ -344,7 +344,7 @@ def units(data: dict, keys: list[str], cards: dict) -> list[tuple[str, ...]]:
     under = unders(data)
     stacks = landing_stacks(data, under)
     found = dict.fromkeys(
-        members if state.queued_by_lander(members[0]) and not any(refused(data["prs"][member]) for member in members) else members[:1]
+        members if state.queued_by_lander(data, members[0]) and not any(refused(data["prs"][member]) for member in members) else members[:1]
         for key in keys
         if data["prs"][key]["state"] == "open" and (members := unit(data, under, stacks, key, cards))
     )
@@ -480,7 +480,7 @@ def halting(pr: dict) -> bool:
 def stopping(data: dict, key: str, cards: dict | None) -> str:
     """What stops a Forge-AI/monorepo landing on the PR, whether its lander still runs or Trunk's merge queue holds what it queued, as the outcome its unit records: a hold of his, by held(), a wait of the PR that still stands, by state.job_waits, its own staging tests included, his words ordering its rework, or nothing clearing it now, as once his words under its card took back his Approve; "" while what let it land stands, and for a PR of any other repository, whose lander merges it at once."""
     pr = data["prs"][key]
-    if not state.queued_by_lander(key):
+    if not state.queued_by_lander(data, key):
         return ""
     if holding := held(data, [key]):
         return f"{HELD}: {holding}"
@@ -646,7 +646,7 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
         raise state.DriveError(f"{', '.join(refused)}: the drive lands a yasyf/* PR, or a PR he approved or an exempt class lands, a pure port only once its original merged or he approved it, and no other")
     if foreign := [why for key in keys if (why := state.foreign_pr(data, key))]:
         raise state.DriveError("; ".join(foreign))
-    if len(keys) > 1 and not state.queued_by_lander(keys[0]):
+    if len(keys) > 1 and not state.queued_by_lander(data, keys[0]):
         raise state.DriveError(f"{', '.join(keys)}: {' '.join(MERGE)} merges one PR at a time, so the lander lands one outside Forge-AI/monorepo, never crediting the rest with its merge")
     below: list[str] = []
     asked: dict[str, str] = {}
@@ -694,7 +694,7 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
                 outcome = f"{AWAY}: {away}"
             elif below:
                 outcome = held_below(keys, below)
-            elif state.queued_by_lander(keys[0]):
+            elif state.queued_by_lander(data, keys[0]):
                 outcome = enqueued(name, Path(data["roles"]["coordinator"]["cwd"]), providers.of(data).repo.queue().script, keys, data["prs"], asked, dry_run, any(requeues(data, data["prs"][key]) for key in keys))
             else:
                 pr = data["prs"][keys[0]]

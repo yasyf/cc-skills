@@ -112,13 +112,14 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
         "now": stage.Stage(named, "", ""),
         "staging": (STAGING,),
         "reworked_above": (),
+        "queued": True,
     }
     return kept | {"tap_refused": state.tap_refused(judged_job({"orders": {}, "jobs": {}}), kept)}
 
 
 def kept_entry(**fields: object) -> dict:
     """A PR's row as drive.json keeps it: its entry with no stage, no reworked PRs above it and no tap refusal, which card.render's callers give it from stage.of, the drive's rows and state.tap_refused."""
-    return {key: value for key, value in entry(**fields).items() if key not in ("now", "reworked_above", "tap_refused")}
+    return {key: value for key, value in entry(**fields).items() if key not in ("now", "reworked_above", "tap_refused", "queued")}
 
 
 def default_stage(wants_tap: bool, tap: str | None, exempt: str | None, pr_state: str, checks: str) -> str:
@@ -244,7 +245,7 @@ def test_checks_the_watch_read_on_another_head_read_as_still_running_and_an_appr
     assert card.standing(pr_json(review="APPROVED"), entry(exempt="test-only", checks="pass"))["blocks"] == "CI passed; the drive queues it for merge"
     assert card.standing(pr_json(), {**passed, "head": "f" * 40, "now": stage.Stage("grading", "", "")})["blocks"] == "Approved by you. Lands once CI passes"
     other = pr_json(url="https://github.com/Forge-AI/design-docs/pull/42")
-    assert card.standing(other, {**passed, "url": other["url"]})["blocks"] == "Approved by you. CI passed; the agent is landing it"
+    assert card.standing(other, {**passed, "url": other["url"], "queued": False})["blocks"] == "Approved by you. CI passed; the agent is landing it"
 
 
 def test_a_held_pr_asks_his_approve_saying_it_lifts_his_hold_under_a_waits_id_of_its_own() -> None:

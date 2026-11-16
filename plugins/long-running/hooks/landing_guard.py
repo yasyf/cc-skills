@@ -433,7 +433,7 @@ def pr_reason(landing: Landing, key: str, shell: Shell) -> str | None:
         return f"{key}: {why}. {TAP_HINT}"
     if away := land.unattended(state.load(name), key, state.now()):
         return f"{key}: refused: {away}"
-    if shell.driving and not landing.repo and state.queued_by_lander(key) and pr.get("exempt") != INCIDENT_FIX and (queue := providers.at(Path(shell.cwd)).repo.queue()):
+    if shell.driving and not landing.repo and state.queued_by_lander(data, key) and pr.get("exempt") != INCIDENT_FIX and (queue := providers.at(Path(shell.cwd)).repo.queue()):
         return queue.reason.format(key=key)
     return None
 

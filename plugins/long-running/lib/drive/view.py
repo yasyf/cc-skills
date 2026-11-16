@@ -504,8 +504,8 @@ def waited_run(drive: dict, key: str) -> dict | None:
         if re.match(r"DONE\b", reply["body"])
     ]
     for reply, tested_prs in sorted(dones, key=lambda done: state.parse_time(done[0]["created_at"]), reverse=True):
-        cases, proofs = state.pr_run(reply["body"], number, tested_prs)
-        if all(state.UNEXERCISED_CASE.match(verdict) for _, verdict in cases) or number not in state.named_numbers(reply["body"]):
+        cases, proofs = state.pr_run(reply["body"], number, tested_prs, repo)
+        if all(state.UNEXERCISED_CASE.match(verdict) for _, verdict in cases) or number not in state.named_numbers(reply["body"], repo):
             continue
         passed = state.passing(cases) and bool(proofs)
         return {"cases": [[case, verdict] for case, verdict in cases], "posted": proofs[0] if passed else None, "passed_at": reply["created_at"] if passed else None}
@@ -1301,7 +1301,7 @@ def approve_waits(drive: dict, key: str, pr: dict, found: dict) -> str | None:
     """What still holds the PR once he approves it, as its lander reads it: empty when his Approve queues it at once, None for a repository no lander queues."""
     from drive import land
 
-    if not state.queued_by_lander(key):
+    if not state.queued_by_lander(drive, key):
         return None
     return land.unready(drive | {"prs": drive["prs"] | {key: pr | {"tap": state.new_tap("Approve", pr["head"], "dashboard", card=[key])}}}, key, found) or ""
 
