@@ -333,10 +333,9 @@ def queue_landings(shell: Shell) -> tuple[Landing, ...]:
         repo = providers.of(state.load(named[0])).repo
     else:
         try:
-            providers.default_head(Path(shell.cwd))
+            repo = providers.at(Path(shell.cwd)).repo
         except providers.ProviderError:
             return ()
-        repo = providers.at(Path(shell.cwd)).repo
     if (queue := repo.queue()) is None:
         return ()
     return tuple(Landing(path, valued, every_pr=True, repo=repo.name, reads=reads) for path, valued, reads in queue.commands)
