@@ -46,9 +46,11 @@ def test_his_approve_stands_on_a_head_only_our_own_commits_moved_and_a_teammates
 
 def test_foreign_lists_the_commits_after_his_approved_head_that_another_account_authored() -> None:
     commits = [("a" * 40, "lane-bot"), ("b" * 40, "lane-bot"), ("c" * 40, "teammate"), ("d" * 40, "lane-bot")]
-    assert rows.foreign(commits, "a" * 40, "lane-bot") == [f"{'c' * 12} by teammate"]
-    assert rows.foreign(commits, "c" * 40, "lane-bot") == []
-    assert rows.foreign(commits, "e" * 40, "lane-bot") is None
+    assert rows.foreign(commits, "a" * 40, "lane-bot", False) == [f"{'c' * 12} by teammate"]
+    assert rows.foreign(commits, "c" * 40, "lane-bot", False) == []
+    assert rows.foreign(commits, "e" * 40, "lane-bot", False) is None
+    assert rows.foreign(commits, "e" * 40, "lane-bot", True) == [f"{'c' * 12} by teammate"]
+    assert rows.foreign([("f" * 40, "lane-bot")], "e" * 40, "lane-bot", True) == []
 
 
 def test_a_dangerous_stack_lands_whole_only_on_a_pass_at_its_top_head_while_he_is_present() -> None:

@@ -45,7 +45,7 @@ def read_chunk(ordered: list[tuple[str, int]]) -> dict[tuple[str, int], dict]:
     for index, (repo, number) in enumerate(ordered):
         owner, name = repo.split("/", 1)
         parts.append(
-            f'p{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ pullRequest(number: {number}) {{ state merged headRefOid baseRefName headRefName repository {{ defaultBranchRef {{ name }} }} reviewDecision commits(last: {COMMITS_READ}) {{ nodes {{ commit {{ oid author {{ user {{ login }} }} statusCheckRollup {{ state }} }} }} }} }} }}'
+            f'p{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ pullRequest(number: {number}) {{ state merged headRefOid baseRefName headRefName repository {{ defaultBranchRef {{ name }} }} reviewDecision commits(last: {COMMITS_READ}) {{ totalCount nodes {{ commit {{ oid author {{ user {{ login }} }} statusCheckRollup {{ state }} }} }} }} }} }}'
         )
     done = subprocess.run(["gh", "api", "graphql", "-f", f"query={{ {' '.join(parts)} }}"], capture_output=True, text=True, check=False, timeout=60)
     if done.returncode:
@@ -58,7 +58,7 @@ def read_chunk(ordered: list[tuple[str, int]]) -> dict[tuple[str, int], dict]:
             continue
         nodes = pull["commits"]["nodes"]
         rollup = ((nodes[-1]["commit"].get("statusCheckRollup") or {}).get("state")) if nodes else None
-        read[key] = {"state": pull["state"], "merged": pull["merged"], "head": pull["headRefOid"], "base": pull["baseRefName"], "branch": pull["headRefName"], "default": pull["repository"]["defaultBranchRef"]["name"], "review": pull["reviewDecision"], "rollup": rollup, "commits": [(node["commit"]["oid"], ((node["commit"]["author"] or {}).get("user") or {}).get("login")) for node in nodes]}
+        read[key] = {"state": pull["state"], "merged": pull["merged"], "head": pull["headRefOid"], "base": pull["baseRefName"], "branch": pull["headRefName"], "default": pull["repository"]["defaultBranchRef"]["name"], "review": pull["reviewDecision"], "rollup": rollup, "commits": [(node["commit"]["oid"], ((node["commit"]["author"] or {}).get("user") or {}).get("login")) for node in nodes], "commit_count": pull["commits"]["totalCount"]}
     return read
 
 
