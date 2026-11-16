@@ -7583,9 +7583,9 @@ def leased(asked: dict, moment: datetime, riders: list[dict]) -> dict:
 
 
 def slot_members(slot: dict) -> list[str]:
-    """The jobs a staging env's cut holds: its head and each item packed into it, or the release the train runs there."""
+    """The jobs a staging env's cut holds: its head until it gave the cut back and each item packed into it, or the release the train runs there."""
     held = slot["holder"]
-    return [held["job"], *(rider["job"] for rider in held["riders"])] if held else []
+    return [*([] if held["released"] else [held["job"]]), *(rider["job"] for rider in held["riders"])] if held else []
 
 
 def packed(ready: list[dict], most: int) -> tuple[dict, list[dict]]:
@@ -7662,7 +7662,7 @@ def slot_ends(data: dict, moment: datetime) -> list[tuple[str, str]]:
     for env, slot in data["slots"].items():
         migrated_queue(data, env, slot)
         held = slot["holder"]
-        running = held and [job_id for job_id in slot_members(slot) if data["jobs"][job_id]["state"] not in SLOT_LIVE_END and not (job_id == held["job"] and held["released"])]
+        running = held and [job_id for job_id in slot_members(slot) if data["jobs"][job_id]["state"] not in SLOT_LIVE_END]
         kept = held and held["starts"] and not held["released"] and not held["extended"] and moment < parse_time(held["until"])
         if held and running and held["gave_way_to"] in {wait for job_id in running for wait in data["jobs"][job_id]["waits"]}:
             held.update(until=stamp(moment + CLAIM_WAIT + timedelta(minutes=held["minutes"])), extended=False)
