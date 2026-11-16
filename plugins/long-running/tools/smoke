@@ -126,6 +126,7 @@ tests=plugins/long-running/tests
 "${python[@]}" -m pytest -q -n 4 --timeout=30 -p no:cacheprovider \
   "$tests/test_quoted_commands.py" \
   "$tests/test_modules.py" \
+  "$tests/test_reactions.py" \
   "$tests/test_installed_hooks.py" \
   "$tests/test_state.py::test_outbox_replay_reads_only_pending_messages_through_its_index" \
   "$tests/test_state.py::test_close_report_presence_uses_its_index_and_tracks_row_changes" \
