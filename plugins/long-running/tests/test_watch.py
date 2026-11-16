@@ -12630,6 +12630,16 @@ def test_a_part_its_orders_session_delivers_every_thirty_minutes_is_no_orphan_wh
     assert watch.reported_gap({"last_line": None}, 30, moment).startswith("its line to him every 30 minutes is overdue: the order's last went out never")
 
 
+@pytest.mark.parametrize(("stage", "project"), [("applet_lines", None), ("applet_lines", "Platform"), ("work_lines", "Platform")])
+def test_idle_relay_stages_materialize_no_drive(stage: str, project: str | None, monkeypatch: pytest.MonkeyPatch) -> None:
+    from drive import applet
+
+    monkeypatch.setattr(applet, "unannounced", lambda name, moment: [])
+    monkeypatch.setattr(state, "load", lambda *args: pytest.fail("an idle relay stage materialized the drive"))
+    monkeypatch.setattr(watch.dashboard, "link", lambda *args: pytest.fail("an idle relay stage resolved the dashboard"))
+    assert getattr(watch, stage)(watch.Watcher("absent", project=project), T0) == []
+
+
 def test_a_relay_stage_that_raises_is_contained_so_post_lines_after_it_still_runs(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     for quiet in ("clocks_drawn", "codex_takes", "limit_lines", "applet_lines", "check_disks", "slot_lines"):
         monkeypatch.setattr(watch, quiet, lambda *args: [])

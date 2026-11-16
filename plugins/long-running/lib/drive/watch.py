@@ -3066,9 +3066,11 @@ def applet_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
     if watcher.project is not None:
         return []
+    if not (pending := applet.unannounced(watcher.name, moment)):
+        return []
     data = state.load(watcher.name)
     board = dashboard.link(watcher.name)
-    for page_shown, laid, layout in applet.unannounced(watcher.name, moment):
+    for page_shown, laid, layout in pending:
         order_id = page_shown["orders"][0]
         order = data["orders"][order_id]
         made = data["slack"]["channels"].get(state.channel_seat_of(data, order) or "")
@@ -5262,9 +5264,9 @@ PROMOTION_READ_EVERY = timedelta(minutes=5)
 
 def work_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Run the work queue's spawner on every drive, since stage-test always runs there: read the files and stacks of ready stage-test items it has not read, so packing pairs only passes it can see, and record and start a worker of each kind whose items have none and that this Mac admits, by work.spawned, an urgent head past the cap; its lines go as evidence and wake nobody."""
-    data = state.load(watcher.name)
     if watcher.project:
         return []
+    data = state.load(watcher.name)
     read = {job_id: pass_reads(watcher.name, data, state.tested_prs(data, data["jobs"][job_id])) for job_id in work.unread(data)}
     staged = work.env(data)
     due, said = None, []
