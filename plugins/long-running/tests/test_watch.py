@@ -11153,6 +11153,14 @@ def test_stall_chains_resolve_shared_waits_once_per_snapshot(demo: str, monkeypa
         return link(data, cards, subject)
 
     monkeypatch.setattr(stall, "link", resolve)
+    resolved = []
+    link = stall.link
+
+    def resolve(data: dict, cards: dict, subject: str) -> tuple[str, list[str]]:
+        resolved.append(subject)
+        return link(data, cards, subject)
+
+    monkeypatch.setattr(stall, "link", resolve)
     for commit in ("6d44e8728ec1", "5d44e8728ec1"):
         wait = staged_on("api", commit)
         for held in data["jobs"].values():
