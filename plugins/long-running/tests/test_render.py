@@ -329,3 +329,12 @@ def test_an_incidents_page_mark_shows_the_users_record_who_marked_it_and_when_an
     marked = {"users": 734700, "users_by": "root", "paged": paged, "paged_by": "the watch"}
     assert render.page_line(marked) == f"real users failing per record 734700, marked by root; paged him at {render.when(paged)} by the watch"
     assert render.page_line({"users": None, "users_by": None, "paged": None, "paged_by": None}) == "not marked as hitting real users; he was not paged"
+
+
+def test_the_order_classes_reach_every_role_from_the_repositorys_rule_and_the_plugin_defines_none(tmp_path: Path) -> None:
+    drive = state.new_drive("demo", "coordinator", "s1", str(tmp_path))
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / state.REPO_RULES).write_text("[[rule]]\nid = \"order-classes\"\ntext = '''incident: an open incident. asked: what he asked for. process: what the drive starts itself.'''\n")
+    drawn = "- order-classes: incident: an open incident. asked: what he asked for. process: what the drive starts itself."
+    assert [role for role in state.ROLES if drawn not in render.context(drive, role)] == []
+    assert "a deliverable he spoke about" not in (cli.PAGES / "coordinator.md").read_text()

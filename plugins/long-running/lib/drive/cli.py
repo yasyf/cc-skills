@@ -7946,7 +7946,7 @@ def parser() -> argparse.ArgumentParser:
     order = verbs.add_parser("order", help="his orders").add_subparsers(dest="action", required=True)
     verb = order.add_parser("add", parents=both)
     verb.add_argument("words", help='his words, verbatim, or a "Drive tooling:" order\'s own')
-    verb.add_argument("--class", dest="order_class", choices=state.CLASSES, help="its class, by the repository's class rules, when it is not his asked work: process for work the drive starts on its own")
+    verb.add_argument("--class", dest="order_class", choices=state.CLASSES, help="its class, incident, asked or process, as the repository's order-classes rule defines them")
     verb.add_argument("--from", dest="source", default="terminal", help=FROM_HELP)
     verb.add_argument(
         "--thread",
@@ -8075,7 +8075,7 @@ def parser() -> argparse.ArgumentParser:
     reported.add_argument("--no-reporter", metavar="LINK", help="his Slack message saying not to tell the reporters; the order then closes done with no note to them")
     verb.add_argument("--watch", metavar="LINK", help=f"{WATCH_HELP}; it replaces any thread the order watched, reading only messages newer than now")
     verb.add_argument("--follow", nargs=2, metavar=("BUILD", "ASK"), help=FOLLOW_HELP)
-    verb.add_argument("--class", dest="order_class", choices=state.CLASSES, help="its class, by the repository's class rules: incident, an open incident's work; asked, a deliverable he spoke about and has not received; process, work the drive added on its own; every grant sorts by it")
+    verb.add_argument("--class", dest="order_class", choices=state.CLASSES, help="its class, incident, asked or process, as the repository's order-classes rule defines them; every grant sorts by it")
     verb.add_argument("--incident", action=argparse.BooleanOptionalAction, help="mark it an incident order in one save, as drive incident open opens one: its fix and cause parts, a build whose answer order's other parts stay answers, its evidence record when its note names none and a codex job on each of those two parts no unfinished codex job holds, each printed with its start line; or unmark it")
     verb.add_argument("--alert", dest="alerts", action="append", default=[], metavar="LINK", help=f"added to its alerts: {ALERT_HELP}")
     verb.add_argument(
