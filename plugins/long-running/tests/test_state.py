@@ -295,6 +295,37 @@ def test_selected_loads_decode_only_requested_fields_and_keep_independent_copies
         assert state.load("demo", fields)["orders"]["o0"]["text"] == "order 0"
 
 
+@pytest.mark.parametrize("warm", [False, True])
+@pytest.mark.parametrize("read_again", [False, True])
+def test_writes_reuse_the_loaded_snapshot_without_encoding_the_whole_drive(
+    state_root: Path, monkeypatch: pytest.MonkeyPatch, warm: bool, read_again: bool
+) -> None:
+    path = ordered("demo", 3)
+    if warm:
+        state.load("demo")
+    else:
+        state.WHOLE_READS.pop((path, path.stat().st_ino), None)
+    dumps = state.marshal.dumps
+
+    def encode(value, *args):
+        if isinstance(value, dict) and {"name", "orders", "jobs"} <= value.keys():
+            pytest.fail("a write encoded the whole drive again")
+        return dumps(value, *args)
+
+    monkeypatch.setattr(state.marshal, "dumps", encode)
+
+    def change(data: dict) -> None:
+        data["orders"]["o0"]["text"] = "changed order"
+        data["terminal"] = "changed terminal"
+        if read_again:
+            state.load("demo")
+
+    state.write("demo", change)
+    assert state.LOADED_BASE.get() is None
+    assert state.saved_row("demo", "orders", "o0")["text"] == "changed order"
+    assert state.stored("demo", ("terminal",)) == {"terminal": "changed terminal"}
+
+
 def test_selected_loads_observe_other_processes_saves_and_batch_writes(state_root: Path) -> None:
     ordered("demo", 3)
     fields = ("terminal", "orders")
