@@ -1929,7 +1929,7 @@ def rehome_proofs(name: str, data: dict) -> None:
 
 
 def mark_cut_backlog(data: dict) -> None:
-    """Mark for the next release cut's prover, by cut set to backlog, each prover a drive saved before one prover proved each cut kept, whose goal reads prove <PRs> live with no words after it, no agent or lane having taken it, naming only Forge-AI/monorepo PRs, waiting on nothing but release waits and owing no after-merge staging pass nor a proof by tests alone, so the watch folds it into that prover once; a prover added after, by hand or by the watch, is never folded."""
+    """Mark for the next release cut's prover, by cut set to backlog, each prover a drive saved before one prover proved each cut kept, whose goal reads prove <PRs> live with no words after it, no agent or lane having taken it, naming only PRs of the providers' repository, waiting on nothing but release waits and owing no after-merge staging pass nor a proof by tests alone, so the watch folds it into that prover once; a prover added after, by hand or by the watch, is never folded."""
     from drive import install
 
     for job_id, job in data["jobs"].items():
@@ -2628,7 +2628,7 @@ def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
 
 
 def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a job's returned line may not set its state, naming the fix: a line opening with no result sets nothing, a reader's READY, PUSHED or BUILT sets nothing, by unshipped, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, a builder's READY or PUSHED naming a Forge-AI/monorepo PR says how each is tested on staging, by staging_refusal, a prover's WAITING names no process of its own while drive job prove proves it, since that runs its proof file and the watch its WAIT, a builder's DONE on work he ordered no proof delivered yet keeps the proof file drive job prove runs to deliver it, a WAITING, READY or PUSHED names as reply:cci:<seq> only another drive's record on a topic, by anchors, and a WAITING holds on something that can wake it, by wakes, the rule drive job report, codex.take and the watch's stall check share, so a codex reply whose line names only lost logs or merged PRs is refused rather than freed a minute later and launched into the same wait again, never puts a PR on a part view.pooled refuses it, which open PRs of other jobs outside its stack wait on, a staging test's DONE frees no PR held for it that no build its CHECK: lines name deployed to staging, nor, for one reaching only code its caller runs from a checkout, a commit they link carries, by unstaged, and a WAITING or BUILT of a job on an order of his product names no "Drive tooling:" order's work, a job of such an order named as j<n> among it, by tooling_waits."""
+    """Why a job's returned line may not set its state, naming the fix: a line opening with no result sets nothing, a reader's READY, PUSHED or BUILT sets nothing, by unshipped, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, a builder's READY or PUSHED naming a PR of the providers' repository says how each is tested on staging, by staging_refusal, a prover's WAITING names no process of its own while drive job prove proves it, since that runs its proof file and the watch its WAIT, a builder's DONE on work he ordered no proof delivered yet keeps the proof file drive job prove runs to deliver it, a WAITING, READY or PUSHED names as reply:cci:<seq> only another drive's record on a topic, by anchors, and a WAITING holds on something that can wake it, by wakes, the rule drive job report, codex.take and the watch's stall check share, so a codex reply whose line names only lost logs or merged PRs is refused rather than freed a minute later and launched into the same wait again, never puts a PR on a part view.pooled refuses it, which open PRs of other jobs outside its stack wait on, a staging test's DONE frees no PR held for it that no build its CHECK: lines name deployed to staging, nor, for one reaching only code its caller runs from a checkout, a commit they link carries, by unstaged, and a WAITING or BUILT of a job on an order of his product names no "Drive tooling:" order's work, a job of such an order named as j<n> among it, by tooling_waits."""
     from drive import install, place, view
 
     job = data["jobs"][job_id]
@@ -2699,7 +2699,7 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
 
 
 def staging_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a builder's READY or PUSHED naming a Forge-AI/monorepo PR by link may not be taken: a `STAGING:` line of its report names no such PR as `#N <cases>` nor opens `none: <why>`, a PR the release reach put on its staging test, by reach_staging, has no `#N <cases>` line giving its tester's cases, which no `none` line stands in for, or another such PR has neither, as fix_refusal asks a FIX line, the tooling only helping the builder keep the prose rule, by his words 17f763e."""
+    """Why a builder's READY or PUSHED naming a PR of the providers' repository by link may not be taken: a `STAGING:` line of its report names no such PR as `#N <cases>` nor opens `none: <why>`, a PR the release reach put on its staging test, by reach_staging, has no `#N <cases>` line giving its tester's cases, which no `none` line stands in for, or another such PR has neither, as fix_refusal asks a FIX line, the tooling only helping the builder keep the prose rule, by his words 17f763e."""
     if data["jobs"][job_id]["kind"] != "builder" or not REPORTED_LINE.match(line):
         return None
     named = [found[3] for found in PR_URL.finditer(line) if home_repo(data, f"{found[1]}/{found[2]}")]
@@ -3073,7 +3073,7 @@ def renamed_change(name: str, data: dict, order_id: str, named: list[str], desig
 
 
 def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
-    """Stage each PR the drive tracks that a builder's READY or PUSHED names on a `STAGING: #N <cases>` line, by stage_pr, lifting by unstage one reading `#N none: <why>`, those cases its tester's goal, or held on the unended tester already on it, so a tester the drive gave a PR from its changed files hears them, and lift by unstage each monorepo PR its first line names that no such line stages once a `STAGING: none: <why>` line says AGENTS.md's dangerous rule misses it, at every head and whatever tap he gave: a `#N <cases>` line stages a PR his answer let merge before its staging test too, since a builder asking for the test only holds the PR to his words a9c9edc, while neither none line touches such a PR, by merges_first_lift, since a builder's word never undoes his answer 2eb7e76; the testers added."""
+    """Stage each PR the drive tracks that a builder's READY or PUSHED names on a `STAGING: #N <cases>` line, by stage_pr, lifting by unstage one reading `#N none: <why>`, those cases its tester's goal, or held on the unended tester already on it, so a tester the drive gave a PR from its changed files hears them, and lift by unstage each PR of the providers' repository its first line names that no such line stages once a `STAGING: none: <why>` line says AGENTS.md's dangerous rule misses it, at every head and whatever tap he gave: a `#N <cases>` line stages a PR his answer let merge before its staging test too, since a builder asking for the test only holds the PR to his words a9c9edc, while neither none line touches such a PR, by merges_first_lift, since a builder's word never undoes his answer 2eb7e76; the testers added."""
     job = data["jobs"][job_id]
     if not REPORTED_LINE.match(report.lstrip()):
         return []
@@ -3120,7 +3120,7 @@ def dangerous_staged(data: dict, order_id: str) -> list[str]:
 
 
 def stage_pr(data: dict, key: str, goal: str, session: str | None) -> str | None:
-    """Put a Forge-AI/monorepo PR the drive tracks on its staging test, by wait_on_staging, and give the part a tester when no job tests it, by part_tester, a builder building nothing on this Mac in the session given, its goal the one given, as install.add_prover adds a prover; else hold that goal on that tester as a STAGING_CASE, unless it is that job's goal, which the watch's next pass posts to its running agent, by watch.case_lines, or sends a Sprite worker that takes messages, so the tester adds the case to the test it runs, and which else its next worker hears; or, when that job is a tester mark_dangerous gave it that finished before its builder named these cases, give the part a tester of these; the tester added, or None."""
+    """Put a PR of the providers' repository the drive tracks on its staging test, by wait_on_staging, and give the part a tester when no job tests it, by part_tester, a builder building nothing on this Mac in the session given, its goal the one given, as install.add_prover adds a prover; else hold that goal on that tester as a STAGING_CASE, unless it is that job's goal, which the watch's next pass posts to its running agent, by watch.case_lines, or sends a Sprite worker that takes messages, so the tester adds the case to the test it runs, and which else its next worker hears; or, when that job is a tester mark_dangerous gave it that finished before its builder named these cases, give the part a tester of these; the tester added, or None."""
     order_id, part = wait_on_staging(data, key)
     testing = data["jobs"][tester] if (tester := part_tester(data, order_id, part)) else None
     if testing and not (testing["state"] == "done" and testing["goal"] != goal and testing["goal"].startswith(DANGEROUS_GOAL.partition("{changes}")[0].format(key=key))):
@@ -3141,7 +3141,7 @@ def given_case(data: dict, job_id: str, case: str) -> bool:
 
 
 def unstage(data: dict, key: str, why: str, job_id: str) -> None:
-    """Lift a Forge-AI/monorepo PR off its staging test once its builder's `STAGING: none: <why>` or `#N none: <why>` says AGENTS.md's dangerous rule misses it, keeping why for his card with the head it spoke of, the one whose files were read last, so that head's changed files mark it no more, by markable, while a new head's are read again: the part leaves each order on which it is not delivered and no job runs it now, every job on it untaken or finished, by drop_part, with the PR's wait on it, while a test a job runs stays to its end, by his ruling 0048b14, and one that ended with no pass waits on no rerun once the lift says why."""
+    """Lift a PR of the providers' repository off its staging test once its builder's `STAGING: none: <why>` or `#N none: <why>` says AGENTS.md's dangerous rule misses it, keeping why for his card with the head it spoke of, the one whose files were read last, so that head's changed files mark it no more, by markable, while a new head's are read again: the part leaves each order on which it is not delivered and no job runs it now, every job on it untaken or finished, by drop_part, with the PR's wait on it, while a test a job runs stays to its end, by his ruling 0048b14, and one that ended with no pass waits on no rerun once the lift says why."""
     pr = data["prs"][key]
     pr["unstaged"] = {"why": why, "head": pr["paths_at"] or pr["head"], "merges_first": False}
     part = STAGING_TEST.format(number=key.split("#")[1])
@@ -3152,7 +3152,7 @@ def unstage(data: dict, key: str, why: str, job_id: str) -> None:
 
 
 def staged_open(data: dict, part: str) -> list[str]:
-    """Each open monorepo PR the drive tracks that a `staging test of #N before it lands` part names, a combined `staging test of #A with #B before they land` included; none for any other part."""
+    """Each open PR of the providers' repository the drive tracks that a `staging test of #N before it lands` part names, a combined `staging test of #A with #B before they land` included; none for any other part."""
     if not (named := STAGING_PARTS.fullmatch(part)):
         return []
     return [key for number in re.findall(r"\d+", named["numbers"]) if (pr := data["prs"].get(key := f"{home(data)}#{number}")) and pr["state"] == "open"]
@@ -3172,7 +3172,7 @@ def merges_first_lift(pr: dict | None) -> bool:
 
 
 def markable(data: dict, key: str, head: str) -> bool:
-    """Whether mark_dangerous may stage a PR at a head from its changed files: an open monorepo PR no order holds the staging test part of whose builder's `STAGING: none` lifted no test at that head, and whose staging test his answer did not let it merge before, by merges_first_lift, at any head, by his answer 2eb7e76."""
+    """Whether mark_dangerous may stage a PR at a head from its changed files: an open PR of the providers' repository no order holds the staging test part of whose builder's `STAGING: none` lifted no test at that head, and whose staging test his answer did not let it merge before, by merges_first_lift, at any head, by his answer 2eb7e76."""
     pr, part = data["prs"][key], STAGING_TEST.format(number=key.split("#")[1])
     return pr["state"] == "open" and home_repo(data, github.repo_of(key)) and not (pr["unstaged"] and (pr["unstaged"]["merges_first"] or pr["unstaged"]["head"] == head)) and not any(part in order["parts"] for order in data["orders"].values())
 
@@ -3230,7 +3230,7 @@ def reach_staging(data: dict, key: str, unstaged: list[str]) -> str | None:
 
 
 def unreach(data: dict, key: str) -> list[str]:
-    """Take a PR the release reach put on its staging test, by reach_staging, off it once go/ci's map finds its paths reach no component a release deploys, as cli.staging_reach reads the reach since it counts no path on go/ci's dev list: unmarked reached, and its `staging test of #N before it lands` part off each order, by drop_part, with the PR's wait on it, whichever job took the test up, since a change that plans like dev passes untested, by his answer bb9cf91, and his ruling 0048b14 that a started staging test is finished binds a high-risk change, so his Approve on it stands; each job drop_part stopped."""
+    """Take a PR the release reach put on its staging test, by reach_staging, off it once the release provider's map finds its paths reach no component a release deploys, as cli.staging_reach reads the reach since it counts no path on the repository's dev list: unmarked reached, and its `staging test of #N before it lands` part off each order, by drop_part, with the PR's wait on it, whichever job took the test up, since a change that plans like dev passes untested, by his answer bb9cf91, and his ruling 0048b14 that a started staging test is finished binds a high-risk change, so his Approve on it stands; each job drop_part stopped."""
     pr, part = data["prs"][key], STAGING_TEST.format(number=key.rpartition("#")[2])
     pr["reached"] = False
     stopped = []
@@ -3248,7 +3248,7 @@ def releasing(data: dict, order_id: str) -> bool:
 
 
 def release_held(data: dict, key: str) -> list[str]:
-    """The orders covering a production release, by releasing, whose `staging test of #N before it lands` part alone holds the open Forge-AI/monorepo PR at key: green, his Approve on it and its GitHub review approved, every wait of it on that part of those orders, so the release waits on nothing of it but its landing, by his words RELEASE_HOLD_WORDS; none otherwise."""
+    """The orders covering a production release, by releasing, whose `staging test of #N before it lands` part alone holds the open PR of the providers' repository at key: green, his Approve on it and its GitHub review approved, every wait of it on that part of those orders, so the release waits on nothing of it but its landing, by his words RELEASE_HOLD_WORDS; none otherwise."""
     pr, part = data["prs"][key], STAGING_TEST.format(number=key.rpartition("#")[2])
     if pr["state"] != "open" or not home_repo(data, github.repo_of(key)) or pr["checks"] != "pass" or pr["review"] != "approved" or not cleared(pr):
         return []
@@ -3257,7 +3257,7 @@ def release_held(data: dict, key: str) -> list[str]:
 
 
 def land_for_release(data: dict, key: str, orders: list[str]) -> list[str]:
-    """Take the staging test part off each release order that alone held the PR on it, by drop_part, and let it merge first, by merge_first, so the lander queues it through stack-enqueue on its next pass, the cut waits minutes on its landing and its after-merge staging pass reruns only what it touches, by his words RELEASE_HOLD_WORDS; each job drop_part stopped."""
+    """Take the staging test part off each release order that alone held the PR on it, by drop_part, and let it merge first, by merge_first, so the lander queues it through the repository's merge queue on its next pass, the cut waits minutes on its landing and its after-merge staging pass reruns only what it touches, by his words RELEASE_HOLD_WORDS; each job drop_part stopped."""
     part = STAGING_TEST.format(number=key.rpartition("#")[2])
     stopped = []
     for order_id in orders:
@@ -3686,7 +3686,7 @@ def staging_parts(data: dict, job: dict) -> list[tuple[str, str]]:
 
 
 def tested_prs(data: dict, job: dict) -> list[str]:
-    """The key of the Forge-AI/monorepo PR each staging test part of a job's tests, by staging_parts, its own order's first."""
+    """The key of the PR of the providers' repository each staging test part of a job's tests, by staging_parts, its own order's first."""
     return [f"{home(data)}#{STAGING_PART.fullmatch(part)['number']}" for _, part in staging_parts(data, job)]
 
 
@@ -3705,7 +3705,7 @@ def post_staging_proof(data: dict, job_id: str, line: str, report: str, proven: 
 
 
 def keep_after_merge(data: dict, job_id: str, report: str, moment: str) -> None:
-    """Keep on each merged Forge-AI/monorepo PR a builder proves live, by install.proves, the run of its after-merge staging pass that one of the builder's returns naming the PR reports, by pr_run, whatever its result, as a prover's WAITING on the release opens with that pass's verdict: its cases, the builder as posted_by, when the return was kept as at, and the first proof its CHECK: lines name as posted when the run is a full pass, by passing, else None, so the PR's staging line reads it, by view.staging; a return running none of its cases, naming none or each not exercised, leaves it."""
+    """Keep on each merged PR of the providers' repository a builder proves live, by install.proves, the run of its after-merge staging pass that one of the builder's returns naming the PR reports, by pr_run, whatever its result, as a prover's WAITING on the release opens with that pass's verdict: its cases, the builder as posted_by, when the return was kept as at, and the first proof its CHECK: lines name as posted when the run is a full pass, by passing, else None, so the PR's staging line reads it, by view.staging; a return running none of its cases, naming none or each not exercised, leaves it."""
     from drive import install
 
     if starts_cut(data["jobs"][job_id]) or not CASE_LINE.search(report):
@@ -3847,7 +3847,7 @@ def part_soak(data: dict, waits: list[str], part: str) -> str | None:
 
 
 def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a staging test's DONE may not free the PRs held for it, naming the fix: a builder or codex job whose goal names staging or that holds a `staging test of #N before it lands` part, whose DONE, taken as take_result takes it and read as its proof proven, which a DONE drive job prove proves before it delivers needs, ends every wait an open PR holds on the job or a part it holds, never one following a release it started, by starts_cut, frees that PR only when a Buildkite build the CHECK: lines heading the PR's own run of cases name, by part_run, or every CHECK: line for a PR it tests no staging part of, passed, at a commit carrying the PR's head, an apply step on an env its infra/envs file marks `stage: staging` or the mac-box-approve step of a `tools/ci mac-box prove`, which signs in to staging a Mac box holding Iris Staging and sand-next built at that commit, the one staging test of a change only a Mac runs, which no staging deploy carries, read with one `bk build view` of each build and, in the coordinator's checkout, by github.uncarried, the lines each freed PR changes in each file since its fork from its base branch, which a shared cut squashing or replaying it on an older line carries too, a file no build ships aside, or, for a PR reaching only code its caller runs from a checkout, the code on go/ci's dev list its caller runs from a checkout, which no release deploys, by cli.release_reach's releases, the GitHub commit link of a commit carrying its head, the head that checkout ran, by the same read, since a soak that tested what staging already ran, or a cut built without the PRs, proves none of them; None for any other result."""
+    """Why a staging test's DONE may not free the PRs held for it, naming the fix: a builder or codex job whose goal names staging or that holds a `staging test of #N before it lands` part, whose DONE, taken as take_result takes it and read as its proof proven, which a DONE drive job prove proves before it delivers needs, ends every wait an open PR holds on the job or a part it holds, never one following a release it started, by starts_cut, frees that PR only when a CI build the CHECK: lines heading the PR's own run of cases name, by part_run, or every CHECK: line for a PR it tests no staging part of, passed, at a commit carrying the PR's head, an apply step on an env the release provider places on staging or the Mac box provider's signed-in step of its prove build, which signs in to staging a Mac box holding that provider's builds built at that commit, the one staging test of a change only a Mac runs, which no staging deploy carries, read with one build provider read of each build and, in the coordinator's checkout, by github.uncarried, the lines each freed PR changes in each file since its fork from its base branch, which a shared cut squashing or replaying it on an older line carries too, a file no build ships aside, or, for a PR reaching only code its caller runs from a checkout, the code on the repository's dev list its caller runs from a checkout, which no release deploys, by cli.release_reach's releases, the GitHub commit link of a commit carrying its head, the head that checkout ran, by the same read, since a soak that tested what staging already ran, or a cut built without the PRs, proves none of them; None for any other result."""
     from drive import brief, cli, settled, view
 
     job = data["jobs"][job_id]
@@ -3904,7 +3904,7 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
     return (
         f"{job_id}'s DONE frees {', '.join(lacking)} from waiting on its staging test, and no build the CHECK: lines heading its cases name deployed a commit carrying"
         f" {'them' if len(lacking) > 1 else 'it'} to staging: {'; '.join(said) or 'they name no Buildkite build'}. Name on a CHECK: line the release build"
-        " that deployed a commit carrying each one's head to staging, or the `tools/ci mac-box prove` build that put it on a Mac box signed in to staging,"
+        " that deployed a commit carrying each one's head to staging, or the Mac box prove build that put it on a Mac box signed in to staging,"
         " or, for a PR reaching only code its caller runs from a checkout, the GitHub commit link of the head its checkout ran, heading the CASE lines of that PR's run"
         " and naming the PR when the DONE tests several in turn, or return WAITING on what still holds them, such as staging:<target>/<env>@<commit> while staging does not run it yet"
     )
@@ -3937,7 +3937,7 @@ def done_or_held(job: dict) -> bool:
 
 
 def job_waits(data: dict, pr: dict) -> list[str]:
-    """A PR's waits, its own staging test parts among them, never one another PR of its job waits on, each staging run of the PR itself by staging_runs, and, for a yasyf/* PR, each open Forge-AI PR of its job that does not wait on it, which only his tap or an exempt class lands, so tooling that lands with no tap never ships ahead of the code it calls, as a drive reader shipped hours before the go/ci verb it runs."""
+    """A PR's waits, its own staging test parts among them, never one another PR of its job waits on, each staging run of the PR itself by staging_runs, and, for a yasyf/* PR, each open PR of the guarded owner in its job that does not wait on it, which only his tap or an exempt class lands, so tooling that lands with no tap never ships ahead of the code it calls, as a drive reader shipped hours before the CI verb it runs."""
     key = pr_key(pr["url"])
     mates = index.opened.get(pr["job"], []) if (index := index_of(data)) else [other for other in data["prs"].values() if other["job"] == pr["job"] and other["state"] == "open"]
     tapped = [mate for other in mates if guarded(provided(data).repo.guarded_owner, mate := pr_key(other["url"])) and key not in other["waits"]] if merges_untapped(key) else []
@@ -3945,7 +3945,7 @@ def job_waits(data: dict, pr: dict) -> list[str]:
 
 
 def staging_runs(data: dict, pr: dict) -> list[str]:
-    """Each `staging test of #N before it lands` part naming a Forge-AI/monorepo PR, on any order, that a tester started on, by part_testers, or the PR waits on, by wait_on_staging, and that is not delivered, as `<order>:<part>`, so it lands only once that run passes and its proof is posted, by his ruling 0048b14 that a started staging test is finished before its PR merges."""
+    """Each `staging test of #N before it lands` part naming a PR of the providers' repository, on any order, that a tester started on, by part_testers, or the PR waits on, by wait_on_staging, and that is not delivered, as `<order>:<part>`, so it lands only once that run passes and its proof is posted, by his ruling 0048b14 that a started staging test is finished before its PR merges."""
     repo, number = pr_key(pr["url"]).split("#")
     if not home_repo(data, repo):
         return []
@@ -5754,7 +5754,7 @@ def repo_rules(data: dict) -> list[str]:
 
 
 def dangerous(data: dict, paths: list[str]) -> dict[str, list[str]]:
-    """Each class of dangerous change a [[dangerous]] table of the repository's .claude/long-running.toml names, and beside them each path the repository provider's dangerous_paths names, as PROVIDER_DANGEROUS, since the monorepo moved its classes there and its toml lists none, which let #57530 and #57528 reach his Approve with no staging test, with the paths of these that make it: each its globs match, as fnmatch reads a glob, whose `*` crosses a `/`, that is no test file, as served.TESTS reads one, and that no glob of its [skip] table matches."""
+    """Each class of dangerous change a [[dangerous]] table of the repository's .claude/long-running.toml names, and beside them each path the repository provider's dangerous_paths names, as PROVIDER_DANGEROUS, since a repository may move its classes there and list none in its toml, which let #57530 and #57528 reach his Approve with no staging test, with the paths of these that make it: each its globs match, as fnmatch reads a glob, whose `*` crosses a `/`, that is no test file, as served.TESTS reads one, and that no glob of its [skip] table matches."""
     from drive import served
 
     config = repo_config(data)
@@ -6909,7 +6909,7 @@ def guarded(owner: str | None, key: str) -> bool:
 
 
 def waits_his_tap(data: dict, key: str, order_id: str) -> bool:
-    """Whether a PR registered on this order waits on his tap: one only his tap lands, by guarded, or one of any order but a Drive tooling one, whose PRs outside Forge-AI land on a taken READY or PUSHED."""
+    """Whether a PR registered on this order waits on his tap: one only his tap lands, by guarded, or one of any order but a Drive tooling one, whose PRs outside the guarded owner land on a taken READY or PUSHED."""
     return guarded(provided(data).repo.guarded_owner, key) or not tooling(data["orders"][order_id])
 
 
@@ -7360,7 +7360,7 @@ def slot_packer(data: dict, env: str, lane: str) -> str:
     return f"{env}: testers ask lane {lane} for a cut they cannot start" if lane else f"{env}: no lane named as its packer, so testers are told none"
 SLOT_GO_STEPS = (
     "post the staging claim the repository's staging-claim rule names, a `POST` report to the communicator with `until` the lease's end; a tester whose PR has not merged"
-    " then starts its cut at once, `tools/ci release start <each target its paths reach> --from <your branch> --emergency --env {env} --order 23eefb9`, and returns"
+    " then starts its cut at once through the release provider's start, of each target its paths reach, from your branch, as an emergency start on {env} whose order is his answer 23eefb9, and returns"
     " `WAITING staging:<target>/{env}@<head>` for each target; run your cases once staging serves your commit, past the claim's 5 minutes, and"
     " `drive slot release {env} --job {job}` gives the slot back when you finish early"
 )

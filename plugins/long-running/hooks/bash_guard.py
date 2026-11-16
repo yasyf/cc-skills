@@ -227,7 +227,7 @@ def shell_after_claude(scripts: list[list[list[str]]]) -> str | None:
 
 
 def reran(found: list[list[str]], cwd: str, watchdog: bool = False) -> str | None:
-    """Why a call retries past a failing check, or reruns what the watchdog may not: `stack-enqueue --flake` requeues a PR past its failed verification; a drive session reruns what it judges a rerun remedies, a release job its tool names the rerun for included, and the watchdog only one that reads failed, by his pick that it reruns a failed build, waiting while that state could not be read."""
+    """Why a call retries past a failing check, or reruns what the watchdog may not: the merge queue's flake requeue queues a PR again past its failed verification; a drive session reruns what it judges a rerun remedies, a release job its tool names the rerun for included, and the watchdog only one that reads failed, by his pick that it reruns a failed build, waiting while that state could not be read."""
     for words in found:
         if any(word == FLAKE or word.startswith(f"{FLAKE}=") for word in words) and (retry := flake_retry(words, cwd)):
             return retry

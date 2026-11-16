@@ -618,6 +618,7 @@ QUEUE_REASON = (
 class GuardedRepo(providers.RepoProvider):
     guarded_owner = "forge-ai"
     review_ask = "@forge-pr-reviewer review"
+    research_tools = frozenset({"bk", "tools/ci"})
 
 
 class NamedRepo(GuardedRepo):

@@ -25,6 +25,7 @@ def call(tool: str, transcript: Path | None = None, **tool_input: object) -> dic
     return {
         "session_id": os.environ["CLAUDE_CODE_SESSION_ID"],
         "transcript_path": str(transcript or "/nowhere.jsonl"),
+        "cwd": "/nowhere",
         "tool_name": tool,
         "tool_input": tool_input,
     }

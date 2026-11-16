@@ -7696,7 +7696,7 @@ def test_pr_add_waits_on_his_tap_unless_it_is_a_port_exempt_drive_tooling_outsid
     assert cli.main(["pr", "add", PR, "--job", "j1", "--no-tap", *LEAD]) == 2
     assert "--no-tap needs --why <reason>" in capsys.readouterr().err
     assert cli.main(["pr", "add", PR, "--job", "j1", "--no-tap", "--why", "a teammate lands it", *LEAD]) == 2
-    assert "only his tap or an exempt class lands a Forge-AI PR" in capsys.readouterr().err
+    assert "only his tap or an exempt class lands a PR of the guarded owner" in capsys.readouterr().err
     assert key not in state.load("demo")["prs"]
     assert run("pr", "add", "https://github.com/yasyf/cc-skills/pull/8", "--job", "j1", "--no-tap", "--why", "a teammate lands it", *LEAD)[0] == 0
     assert run("pr", "add", PR, "--job", "j1", "--exempt", "test-only", *LEAD)[0] == 0
@@ -8196,7 +8196,7 @@ def test_pr_set_never_leaves_a_forge_ai_pr_with_neither_his_tap_nor_an_exempt_cl
     run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert cli.main(["pr", "set", PR, "--no-tap", "--why", "not his order"]) == 2
-    assert "only his tap or an exempt class lands a Forge-AI PR" in capsys.readouterr().err
+    assert "only his tap or an exempt class lands a PR of the guarded owner" in capsys.readouterr().err
     assert state.load("demo")["prs"][with_pr]["wants_tap"] is True
     run("pr", "set", PR, "--exempt", "test-only")
     assert run("pr", "set", PR, "--no-tap", "--why", "its class lands it")[0] == 0

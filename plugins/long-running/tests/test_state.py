@@ -2082,7 +2082,7 @@ def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_tha
     assert "16301 deployed nothing to staging, passing no apply step on an env the release provider places on staging and no mac-box-approve step of a Mac box proof" in unsigned
     assert none.endswith(
         "they name no Buildkite build. Name on a CHECK: line the release build that deployed a commit carrying each one's head to staging,"
-        " or the `tools/ci mac-box prove` build that put it on a Mac box signed in to staging, or, for a PR reaching only code its caller runs from a checkout, the GitHub commit link of the head its checkout ran,"
+        " or the Mac box prove build that put it on a Mac box signed in to staging, or, for a PR reaching only code its caller runs from a checkout, the GitHub commit link of the head its checkout ran,"
         " heading the CASE lines of that PR's run and naming the PR when the DONE tests several in turn, or return WAITING on what still holds them,"
         " such as staging:<target>/<env>@<commit> while staging does not run it yet"
     )

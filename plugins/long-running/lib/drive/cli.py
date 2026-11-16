@@ -36,7 +36,7 @@ CHECK_UNBOUND = frozenset({state.DRIVE_ENV, "CLAUDE_CODE_SESSION_ID", "CCI_AGENT
 RELEASE_WORD = re.compile(r"\breleas", re.IGNORECASE)
 INCIDENT_EXEMPTION = "incident fix"
 UNLANDABLE = (
-    "{key}: refused, nothing {done}: only his tap or an exempt class lands a Forge-AI PR, and this leaves it with neither, so no card"
+    "{key}: refused, nothing {done}: only his tap or an exempt class lands a PR of the guarded owner, and this leaves it with neither, so no card"
     " of his would ask his Approve and the lander would never queue it. Keep it waiting on his tap, or record its class with"
     " --exempt <class> or --port-of <N>; his order reworking it takes its card down with drive order set <o> --rework <url>=<his permalink>"
 )
@@ -1144,7 +1144,7 @@ def order_set(args: argparse.Namespace) -> int:
         for term in args.term or []:
             word, _, meaning = term.partition("=")
             if not word.strip():
-                raise DriveError(f"--term {term!r}: name the term before its =, as 'Release 2=everything but SandSQL; waits on its staging test'")
+                raise DriveError(f"--term {term!r}: name the term before its =, as 'Release 2=everything but the database; waits on its staging test'")
             if meaning.strip():
                 order["terms"][word.strip()] = meaning.strip()
             else:
@@ -1952,7 +1952,7 @@ def prebuild(name: str, job_id: str, command: str, commit: str | None) -> list[s
 
 
 def release_running(name: str, command: str) -> str | None:
-    """Why a release may not start while a start of the same release runs, the same by shipped_release past the --order approving it: a job of the drive holding it unfinished with no build, its start still running or never having named one, or one whose build Buildkite reads as unfinished, an approve hold included, read in one `tools/ci bk graphql` call, so a call that failed once its release started never starts it twice."""
+    """Why a release may not start while a start of the same release runs, the same by shipped_release past the --order approving it: a job of the drive holding it unfinished with no build, its start still running or never having named one, or one whose build the build provider reads as unfinished, an approve hold included, read in one call of its builds(), so a call that failed once its release started never starts it twice."""
     data = state.load(name)
     ships = shipped_release(command, data)
     same = {job_id: job for job_id, job in data["jobs"].items() if state.starts_cut(job) and shipped_release(job["brief_flags"]["release"], data) == ships}
@@ -4889,7 +4889,7 @@ def slot_hand(args: argparse.Namespace) -> int:
 
 
 def mac_box_handed(args: argparse.Namespace) -> int:
-    """Take the drive pool's word that it handed a job a Mac box, by tools/ci mac-box lend or up naming the job as holder: each mac-box:<box> or mac-box:any wait of the job ends, so the watch's next pass frees it with its FREE line, and the hand is kept as an event; refused for a job that waits on no box."""
+    """Take the drive pool's word that it handed a job a Mac box, by the Mac box provider's lend or up naming the job as holder: each mac-box:<box> or mac-box:any wait of the job ends, so the watch's next pass frees it with its FREE line, and the hand is kept as an event; refused for a job that waits on no box."""
     name = state.resolve(args.drive)
 
     def handed(data: dict) -> list[str]:
@@ -5247,7 +5247,7 @@ def pr_add(args: argparse.Namespace) -> int:
     if (job := find((data := state.load(name))["jobs"], args.job, "job"))["kind"] == "reader":
         raise DriveError(f"{key}: refused, nothing added: {state.unshipped(data, args.job)}")
     if args.no_tap and not args.why:
-        raise DriveError("--no-tap needs --why <reason>: every PR waits on his tap unless it is a port, exempt or drive tooling outside Forge-AI")
+        raise DriveError("--no-tap needs --why <reason>: every PR waits on his tap unless it is a port, exempt or drive tooling outside the guarded owner")
     if args.no_tap and state.guarded(providers.of(data).repo.guarded_owner, key):
         raise DriveError(UNLANDABLE.format(key=key, done="added"))
     if others := [wait for wait in args.waits if not state.REVIEW_WAIT.fullmatch(wait)]:
@@ -5750,7 +5750,7 @@ def pr_reach(key: str, found: providers.Providers) -> dict:
 
 
 def staging_mac_box(name: str, data: dict, job: dict) -> str:
-    """What a staging tester's Staging line adds for each PR its `staging test of #N before it lands` parts name whose paths reach the dashboard, by release_reach: its cases run in Iris Staging on a Mac box against the sand-next commit live on core-usw2-auto, by live_sand_next, and again at its own head when its paths reach iris-desktop or sand-next too, the two MAC_BOX_BUILDS that `tools/ci mac-box prove` builds from the commit it names, so a control calling a route the released sand-next lacks, or an Iris Staging change, fails on staging rather than for him; nothing when none reaches the dashboard. A live commit that could not be read leaves the brief kept, its line naming the read its tester makes first."""
+    """What a staging tester's Staging line adds for each PR its `staging test of #N before it lands` parts name whose paths reach the dashboard, by release_reach: its cases run on a Mac box signed in to staging against the commit the Mac box provider's live_commit reads as live, and again at its own head when its paths reach one of that provider's builds too, which its prove step builds from the commit it names, so a control calling a route the released build lacks fails on staging rather than for him; nothing when none reaches the dashboard. A live commit that could not be read leaves the brief kept, its line naming the read its tester makes first."""
     keys = state.tested_prs(data, job)
     reach = release_reach(name, data, keys)
     found = providers.of(data)
@@ -5775,7 +5775,7 @@ def staging_taps(data: dict, job: dict) -> str:
 
 
 def staging_reach(name: str, data: dict, keys: list[str]) -> dict[str, list[str]]:
-    """Each PR among keys, the open PRs of the providers' repository waiting on his tap after flake_tap, whatever their exempt class, whose paths reach a component the repository releases through paths off its dev list, the releases of release_reach, so it lands only once its staging test passes, which state.wait_on_staging keeps in the edit that keeps the PR, by his words "a high-risk change marked as a flaky-test fix reaches my Approve card with no staging test waiting on it"; a PR changing only tools/ci and go/ci, the dev list's code, which its caller runs from a checkout and no release deploys to staging, reaches none, by his pick bb9cf91 "a change that plans like dev passes untested", never one drive order set --drop-part or his answer let merge before that test, by state.merges_first_lift, which merges first and is tested after its merge, by his answer 2eb7e76; each with the releases staging has no copy of when it has a copy of none, neither one with a staging env, by release_reach's staged, nor one of the MAC_BOX_BUILDS, which a `tools/ci mac-box prove` signs in to staging, else none, as state.reach_staging reads it, so a PR touching only such a component, such as platy, goes to his exception after the release dry run's preview of each, by his answer 67caa93, rather than to a soak that cannot deploy it; DriveError when that read fails, so its caller keeps nothing."""
+    """Each PR among keys, the open PRs of the providers' repository waiting on his tap after flake_tap, whatever their exempt class, whose paths reach a component the repository releases through paths off its dev list, the releases of release_reach, so it lands only once its staging test passes, which state.wait_on_staging keeps in the edit that keeps the PR, by his words "a high-risk change marked as a flaky-test fix reaches my Approve card with no staging test waiting on it"; a PR changing only the repository's checkout tools, the dev list's code, which its caller runs from a checkout and no release deploys to staging, reaches none, by his pick bb9cf91 "a change that plans like dev passes untested", never one drive order set --drop-part or his answer let merge before that test, by state.merges_first_lift, which merges first and is tested after its merge, by his answer 2eb7e76; each with the releases staging has no copy of when it has a copy of none, neither one with a staging env, by release_reach's staged, nor one of the Mac box provider's builds, which its prove step signs in to staging, else none, as state.reach_staging reads it, so a PR touching only such a component, such as the release tool's own, goes to his exception after the release dry run's preview of each, by his answer 67caa93, rather than to a soak that cannot deploy it; DriveError when that read fails, so its caller keeps nothing."""
     keys = [key for key in keys if not state.merges_first_lift(data["prs"].get(key))]
     try:
         reach = release_reach(name, data, keys)
@@ -5892,7 +5892,7 @@ def unkinded_title(key: str, read: dict, port_of: int | None) -> str | None:
 
 
 def put_off_steps(key: str, read: dict) -> list[str]:
-    """Why each section of a PR's body his card draws fails to report the step it holds: Jev reads it alone, its heading and text in one request of its own, at settled.YES or more, as saying that step, such as the FDE impact scan its branch's own tools/ci refused, runs later, each naming the route around it, FDE_SCAN_ROUTE for the FDE impact, since a refused tool is routed around in the turn it refuses; every section read at once, and a reading in the band between settled.NO and settled.YES, or none, lets it in, said on stderr."""
+    """Why each section of a PR's body his card draws fails to report the step it holds: Jev reads it alone, its heading and text in one request of its own, at settled.YES or more, as saying that step, such as the FDE impact scan its branch's own CI tool refused, runs later, each naming the route around it, FDE_SCAN_ROUTE for the FDE impact, since a refused tool is routed around in the turn it refuses; every section read at once, and a reading in the band between settled.NO and settled.YES, or none, lets it in, said on stderr."""
     from drive import card
 
     shown = [(heading, text) for heading, text in card.sections(card.body_of(read)).items() if heading in card.SHOWN_HEADINGS and text.strip()]
@@ -6795,7 +6795,7 @@ def status(args: argparse.Namespace) -> int:
     return emit(args, text, payload)
 
 
-STAGE_REF = re.compile(r"(?<=\s)Forge-AI/monorepo#")
+STAGE_REF = re.compile(r"(?<=\s)[\w.-]+/[\w.-]+#")
 
 
 def order_summary(name: str, order_id: str) -> str:
@@ -7461,7 +7461,7 @@ def parser() -> argparse.ArgumentParser:
     brief_opt.add_argument("--runs-as", help="for a pass, a hand repair or any other write of a team's data: the service account in its cluster and how it starts; \"none: <why>\" for a job that writes none")
     brief_opt.add_argument(
         "--mac",
-        help="the step only this Mac runs that the job itself runs, such as drive break-glass, drive job prove, ci mac-box, a pass box, ci devbox or a drive install no lander runs, set whenever the job's parts or goal name a pass box, a Mac box or such a step, since a Sprite lane refuses it and returns BLOCKED; drive job launch refuses its Sprite start and the agent_brief hook starts it here at any load, and no other words of the brief place it",
+        help="the step only this Mac runs that the job itself runs, such as drive break-glass, drive job prove, a Mac box or remote machine command of the repository's tools, or a drive install no lander runs, set whenever the job's parts or goal name a data machine, a Mac box or such a step, since a Sprite lane refuses it and returns BLOCKED; drive job launch refuses its Sprite start and the agent_brief hook starts it here at any load, and no other words of the brief place it",
     )
     brief_opt.add_argument(
         "--after",
@@ -7691,7 +7691,7 @@ def parser() -> argparse.ArgumentParser:
         "--term",
         action="append",
         metavar="NAME=MEANING",
-        help="a term he uses for this order and what it is in plain words with its state now, as 'Release 2=everything but SandSQL; waits on its staging test', drawn on its channel's canvas; repeatable, the same name replaces it, an empty meaning takes it out",
+        help="a term he uses for this order and what it is in plain words with its state now, as 'Release 2=everything but the database; waits on its staging test', drawn on its channel's canvas; repeatable, the same name replaces it, an empty meaning takes it out",
     )
     verb.add_argument("--every", type=int, metavar="MINUTES", help="the minutes he asked a line every, owed that long after its thread's last line until the order is done; 0 takes it out")
     verb.add_argument("--project", metavar="NAME", help="the project the dashboard's Now screen files this order under; an empty name takes it out")
@@ -7831,18 +7831,18 @@ def parser() -> argparse.ArgumentParser:
         "freeze",
         parents=both,
         help=(
-            "in the turn users are unblocked, never before: freeze the broken service's other releases for 12 hours with tools/ci"
+            "in the turn users are unblocked, never before: freeze the broken service's other releases for 12 hours through the release provider"
             " release freeze from the coordinator's checkout, its id on the order's note for the job that merges the root fix to lift"
         ),
     )
     verb.add_argument("id", help="the open incident order")
-    verb.add_argument("components", nargs="+", metavar="COMPONENT", help="the broken service's release component, such as sandsql, covering every stack it deploys")
+    verb.add_argument("components", nargs="+", metavar="COMPONENT", help="the broken service's release component, covering every stack it deploys")
     verb.set_defaults(run=incident_freeze)
 
     boxes = verbs.add_parser("mac-box", help="Mac test boxes the drive's pool hands to jobs").add_subparsers(dest="action", required=True)
     verb = boxes.add_parser("handed", parents=both, help="the pool handed a job a Mac box: its mac-box:<box> or mac-box:any wait ends, so the watch frees it")
     verb.add_argument("job", help="the job the box went to")
-    verb.add_argument("box", help="the box's name, as tools/ci mac-box up named it")
+    verb.add_argument("box", help="the box's name, as the Mac box provider named it")
     verb.add_argument("--host", help="the Mac host the box runs on")
     verb.set_defaults(run=mac_box_handed)
     slot = verbs.add_parser("slot", help="staging slots, a first-in first-out lease on each staging env").add_subparsers(dest="action", required=True)
@@ -8315,7 +8315,7 @@ def parser() -> argparse.ArgumentParser:
         "--pr",
         action="append",
         default=[],
-        help="instead, his open cards holding this PR from landing, a PR url or owner/name#N, repeatable; the landing_guard hook on a Sprite lane asks it before the lane lands a Forge-AI PR, as it holds one here",
+        help="instead, his open cards holding this PR from landing, a PR url or owner/name#N, repeatable; the landing_guard hook on a Sprite lane asks it before the lane lands a PR of the guarded owner, as it holds one here",
     )
     verb.add_argument(
         "--exempt",
@@ -8328,7 +8328,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--verb", dest="release_verb", help="with --release, the release verb the lane runs, such as resume, refused as well while he is not present when it starts, resumes or approves a dangerous release")
     verb.add_argument(
         "--cluster",
-        help="instead, why a Job may not start on this release env now from its suspended CronJob, on staging while another drive's staging claim stands, on a production cluster while he holds every release and no answer of his since orders it, or while he is not present; the landing_guard hook on a Sprite lane asks it before the lane runs `tools/ci cluster-job`, or creates, unblocks or reruns the build it starts",
+        help="instead, why a Job may not start on this release env now from its suspended CronJob, on staging while another drive's staging claim stands, on a production cluster while he holds every release and no answer of his since orders it, or while he is not present; the landing_guard hook on a Sprite lane asks it before the lane runs the release provider's cluster job, or creates, unblocks or reruns the build it starts",
     )
     verb.add_argument("--cronjob", default="", help="with --cluster, the suspended CronJob the Job starts from")
     verb.add_argument("--reason", default="", help="with --cluster, the Job's --reason, as its build keeps it, which names the answer of his that orders it")
@@ -8416,7 +8416,7 @@ def parser() -> argparse.ArgumentParser:
     untapped = verb.add_mutually_exclusive_group()
     untapped.add_argument("--port-of", type=int, metavar="PR", help="a pure port of this PR number in its own repository, work that merged or that he approved: exempt, with no tap card, waiting on and landing after an original the drive tracks until it merges or he approves it; refused for an original the drive does not track that GitHub does not read merged, and for a PR changing a migration, schema or wire format, whose data model is a design part of his order")
     untapped.add_argument("--exempt", choices=state.EXEMPT_CLASSES)
-    untapped.add_argument("--no-tap", action="store_true", help="it lands with no tap of his, outside Forge-AI; needs --why. Every other PR waits on his tap")
+    untapped.add_argument("--no-tap", action="store_true", help="it lands with no tap of his, outside the guarded owner; needs --why. Every other PR waits on his tap")
     verb.add_argument(
         "--waits",
         action="append",
@@ -8463,7 +8463,7 @@ def parser() -> argparse.ArgumentParser:
         "--staging",
         metavar="CASES",
         help=(
-            "the cases a Forge-AI/monorepo PR's staging test runs, as a builder's `STAGING: #N <cases>` line gives them: adds the `staging test of #N before it lands` part"
+            "the cases the staging test of a PR of the providers' repository runs, as a builder's `STAGING: #N <cases>` line gives them: adds the `staging test of #N before it lands` part"
             " to its order, its wait on that part and, while no unended job carries the part, one tester building nothing on this Mac, whose start line it prints"
         ),
     )
@@ -8482,9 +8482,9 @@ def parser() -> argparse.ArgumentParser:
         help=(
             "the flaky test outside its diff that failed it at its head, and that test's fix, a PR the drive tracks: it waits on that fix, waking nobody;"
             " red at its own head, while every check failing there is one this kept, then red again once the fix merges or closes, waking its builder"
-            " once to restack onto it; ejected by Trunk with its own head green, queued again at the same commit with stack-enqueue --flake once the fix"
-            " merges, once; refused unless its checks fail or Trunk ejected it at its head. A FIX that names no PR is the test's cause in words, such as"
-            " a date it reads that changes at midnight UTC: Trunk's ejection of a green head is then queued again at the same commit at once, once, and"
+            " once to restack onto it; ejected by the merge queue with its own head green, queued again at the same commit through the queue's flake requeue once the fix"
+            " merges, once; refused unless its checks fail or the merge queue ejected it at its head. A FIX that names no PR is the test's cause in words, such as"
+            " a date it reads that changes at midnight UTC: the merge queue's ejection of a green head is then queued again at the same commit at once, once, and"
             " a head whose own checks fail is refused"
         ),
     )
@@ -8498,17 +8498,17 @@ def parser() -> argparse.ArgumentParser:
     verb = pr.add_parser(
         "land",
         parents=both,
-        help="what the watch, his Approve and pr add start: queue PRs he approved through stack-enqueue --watch, or merge a yasyf/* PR with --admin and install it",
+        help="what the watch, his Approve and pr add start: queue PRs he approved through the repository's merge queue, or merge a yasyf/* PR with --admin and install it",
     )
     verb.add_argument("urls", nargs="+", help=f"one PR, or a stack bottom first, each as {PR_FORMS}")
-    verb.add_argument("--dry-run", action="store_true", help="run stack-enqueue --check from a fresh worktree of the default branch, say what it would do, refusing as it would, and queue and record nothing")
+    verb.add_argument("--dry-run", action="store_true", help="run the merge queue's check from a fresh worktree of the default branch, say what it would do, refusing as it would, and queue and record nothing")
     verb.add_argument("--outcome", help="land nothing and record this outcome, as a lander reopening on a newer install records what came of its landing")
     verb.add_argument("--below", action="append", default=[], metavar="PR", help="with --outcome, a PR below it without his Approve that held it; repeat for each")
-    verb.add_argument("--asked", action="append", nargs=2, default=[], metavar=("PR", "HEAD"), help="with --outcome, a PR and the head its lander asked forge-pr-reviewer to review; repeat for each")
+    verb.add_argument("--asked", action="append", nargs=2, default=[], metavar=("PR", "HEAD"), help="with --outcome, a PR and the head its lander asked the repository's review bot to review; repeat for each")
     verb.add_argument(
         "--dequeue",
         metavar="WHY",
-        help="land nothing: take the unit Trunk's merge queue holds out of it with stack-enqueue --dequeue from a fresh worktree of the default branch, and record WHY as its outcome, as the watch and his words under its card start it once a hold of his stops its landing",
+        help="land nothing: take the unit the merge queue holds out of it with the queue's dequeue from a fresh worktree of the default branch, and record WHY as its outcome, as the watch and his words under its card start it once a hold of his stops its landing",
     )
     verb.set_defaults(run=pr_land)
     verb = pr.add_parser(
@@ -8557,7 +8557,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--woke-at", help="the moment of the watch's pass that asked for the wake, which each --woke mark is dated")
     verb.set_defaults(run=pr_wake)
 
-    verbs.add_parser("place", parents=both, help="where the next monorepo builder starts").set_defaults(run=place_job)
+    verbs.add_parser("place", parents=both, help="where the next builder in the providers' repository starts").set_defaults(run=place_job)
     verb = verbs.add_parser("drain-read", parents=both, help="mark read the unread mail of every Run Orca still shows unread, binding a Run the drive's terminal does not hold to its binder terminal, so a Run no new mail reaches retires")
     verb.set_defaults(run=drain_read)
     verb = verbs.add_parser("bound", parents=both, help="run one command on a lane's Run as the drive's own terminal, which coordinates the Run from its run-create, or, when Orca fences it there, as the drive's binder terminal once it binds the Run, under the drive's binding lock, a worker-start only until Orca takes its request")
@@ -8998,10 +8998,10 @@ def parser() -> argparse.ArgumentParser:
         parents=[drive_opt],
         help="run one command holding only a stack's admin credentials, minted on this Mac's machine profile to end with its break-glass grant",
         description=(
-            "Start the forge/break-glass grant with bk build create at dev's newest commit, reading nothing first,"
+            "Start the access provider's grant at the default branch's newest commit, reading nothing first,"
             " its reason the job or order and --reason, which may not be"
             " blank, once aws sts assume-role mints the env's account admin role, <namespace>-<account>-admin in the account and region"
-            " the env's infra/envs files name, from the profile in ~/.aws/config that reaches frg-core-gbl-identity-devops from a"
+            " the env's files name, from the profile in ~/.aws/config that reaches the identity account from a"
             " credential_process, never an SSO sign-in, so an env whose admin role STS refuses this Mac's machine posts no grant,"
             " and wait for it to pass. Then mint that admin role again the same way to end a minute"
             " before the grant's recorded end, and the machine-break-glass role the grant opens the same way once STS reads the trust"
@@ -9009,12 +9009,12 @@ def parser() -> argparse.ArgumentParser:
             " seconds, and one still refused 120 seconds after the first try runs nothing and names the grant. Run the command after -- with an AWS config naming those profiles alone, so"
             " a command naming another stack's profile finds none; the credentials are deleted when it exits. The command runs as"
             " a process group of its own, ended with every process it started when it exits, when the grant ends, which exits"
-            " 124, and when drive gets SIGTERM, SIGHUP or SIGINT. Once bk build create prints the grant's link, before the grant"
+            " 124, and when drive gets SIGTERM, SIGHUP or SIGINT. Once the grant's link prints, before the grant"
             " passes, it posts root@<drive> one cci evidence record from lane break-glass naming the job and its order, the link,"
             " the stack, the command and the reason, so the top coordinator reads whose a grant in #releases is; a post cci refuses"
             " runs nothing. A grant ending"
             " within 15 minutes, the shortest credentials STS mints, runs nothing. A team's data is neither read nor written under"
-            " it, since only a service account on a pass box or in the team's cluster reads or writes it; any other production write"
+            " it, since only a service account on a machine the repository grants it or in the team's cluster reads or writes it; any other production write"
             " runs only on his word or an incident order at 0 deletes and 0 replaces. A Sprite lane's run is refused."
         ),
     )

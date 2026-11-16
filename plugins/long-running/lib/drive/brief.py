@@ -112,7 +112,6 @@ STOPPED_RULING = '"fix ur tooling if it stopped on that it shoukd. have brought 
 RELEASE = re.compile(r"^Release:[ \t]*(.+)$", re.MULTILINE)
 MAC = re.compile(r"^Mac:[ \t]*(.+)$", re.MULTILINE)
 AFTER = re.compile(r"^After install:", re.MULTILINE)
-CI_BINARIES = frozenset({"ci", "ci.dev"})
 RELEASE_STARTS = ("start", "hotfix")
 PRESENT_CUTS = ("start", "hotfix", "resume", "approve", "api")
 HOLD_PASSES = ("approve", "api")

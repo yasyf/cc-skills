@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, limits, place, render, shell, state, superseded
+from drive import agents, limits, place, providers, render, shell, state, superseded
 
 CCI_WRITES = {render.CCI_TOOLS + "post", render.CCI_TOOLS + "close"}
 RESUME = re.compile(r"\bdrive job resume\b.*?\b(j\d+)\b")
@@ -31,7 +31,7 @@ def program(command: str) -> list[str]:
     return [Path(commands[0][0]).name, *commands[0][1:]] if commands else []
 
 
-RESEARCH = {"bk", "git", "cc-transcript"}
+GENERIC_RESEARCH = frozenset({"git", "cc-transcript"})
 SENTRY_TOOLS = ("mcp__sentry__", "mcp__plugin_sentry")
 HANDED_OFF = (
     "Refused on purpose: you answer from what you hold, this turn, `drive status <o, j, PR or words>`, your brief and the thread,"
@@ -41,8 +41,8 @@ HANDED_OFF = (
 )
 
 
-def research(command: str) -> str | None:
-    """The research a communicator's own Bash call runs, which its subagent runs instead: bk, tools/ci, git, a transcript read, or a bare `drive status`, which reads every open order for most of a minute."""
+def research(command: str, tools: frozenset[str]) -> str | None:
+    """The research a communicator's own Bash call runs, which its subagent runs instead: one of tools, named alone or by a path ending in it, git, a transcript read, or a bare `drive status`, which reads every open order for most of a minute."""
     try:
         found = shell.simple_commands(shell.runnable(command))
     except ValueError:
@@ -51,19 +51,27 @@ def research(command: str) -> str | None:
         named = [Path(words[0]).name, *words[1:]] if words else []
         if not named:
             continue
-        if ran := next((word for word in named if Path(word).name in RESEARCH or word.endswith("tools/ci") or word.endswith(".jsonl")), None):
+        if ran := next((word for word in named if Path(word).name in GENERIC_RESEARCH or any(word == tool or word.endswith("/" + tool) for tool in tools) or word.endswith(".jsonl")), None):
             return Path(ran).name
         if named[:2] == ["drive", "status"] and not [word for before, word in zip(named[1:], named[2:]) if not word.startswith("-") and before != "--drive"] and "--prs" not in named:
             return "a bare drive status"
     return None
 
 
+def research_tools(cwd: Path) -> frozenset[str]:
+    """The research tools the repository provider at cwd names; none when its providers cannot load, so the communicator's call runs."""
+    try:
+        return providers.at(cwd).repo.research_tools
+    except providers.ProviderError:
+        return frozenset()
+
+
 def communicator_call(payload: dict) -> agents.Unjudged | None:
-    """Why the communicator's own call does not run: a cci write, since the drive's record tool sends its records, and research, bk, tools/ci, git, a transcript or Sentry read or a bare `drive status`, which its background subagent runs while it stays free for his next message, by his words "it needs to strike the balance of replying quickly when it has the context at hand, but handing off to a subagent (with the relevant context handed to it) to do some further research then respond when it's more involved"; its subagents' calls are their own."""
+    """Why the communicator's own call does not run: a cci write, since the drive's record tool sends its records, and research, the repository provider's research tools, git, a transcript or Sentry read or a bare `drive status`, which its background subagent runs while it stays free for his next message, by his words "it needs to strike the balance of replying quickly when it has the context at hand, but handing off to a subagent (with the relevant context handed to it) to do some further research then respond when it's more involved"; its subagents' calls are their own."""
     name = payload["tool_name"]
     if name in CCI_WRITES or name == "Bash" and program(payload["tool_input"].get("command") or "")[:2] in (["cci", "post"], ["cci", "close"]):
         return agents.Unjudged(f"Refused on purpose: {render.RECORDING}")
-    if name == "Bash" and (ran := research(payload["tool_input"].get("command") or "")):
+    if name == "Bash" and (ran := research(payload["tool_input"].get("command") or "", research_tools(Path(payload["cwd"])))):
         return agents.Unjudged(f"{HANDED_OFF} This call runs {ran}.")
     if name == "Read" and str(payload["tool_input"].get("file_path") or "").endswith(".jsonl"):
         return agents.Unjudged(f"{HANDED_OFF} This call reads a transcript.")
