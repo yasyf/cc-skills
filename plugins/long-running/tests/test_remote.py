@@ -6084,9 +6084,9 @@ def test_drain_read_marks_every_run_with_unread_mail_and_counts_the_gone_and_the
 
 def test_marking_lane_mail_read_checks_the_run_until_it_returns_none_as_the_binder_when_fenced_and_skips_a_gone_run(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     replies = {
-        (RUN, None): [orca.OrcaError("This caller is bound to Run run_other", orca.FENCED)],
+        (RUN, DRIVE_TERMINAL): [orca.OrcaError("This caller is bound to Run run_other", orca.FENCED)],
         (RUN, BINDER_TERMINAL): [{"messages": [{"id": "msg_1"}]}, {"messages": []}],
-        ("run_gone", None): [orca.OrcaError("Run run_gone was not found.", orca.RUN_NOT_FOUND)],
+        ("run_gone", DRIVE_TERMINAL): [orca.OrcaError("Run run_gone was not found.", orca.RUN_NOT_FOUND)],
     }
     asked = []
 
@@ -6100,14 +6100,16 @@ def test_marking_lane_mail_read_checks_the_run_until_it_returns_none_as_the_bind
         return reply
 
     monkeypatch.setattr(orca, "call", call)
+    with state.edit(remote) as data:
+        data["terminal"] = DRIVE_TERMINAL
     REAL_MARK_READ(remote, RUN)
     REAL_MARK_READ(remote, "run_gone")
     assert asked == [
-        ("check", "--run", RUN, None),
+        ("check", "--run", RUN, DRIVE_TERMINAL),
         ("run-use", "--id", RUN, BINDER_TERMINAL),
         ("check", "--run", RUN, BINDER_TERMINAL),
         ("check", "--run", RUN, BINDER_TERMINAL),
-        ("check", "--run", "run_gone", None),
+        ("check", "--run", "run_gone", DRIVE_TERMINAL),
     ]
 
 

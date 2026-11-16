@@ -271,8 +271,13 @@ def own_terminal() -> str | None:
 
 
 def speak_as_drive(drive: str) -> None:
-    """Make each Orca call of this process and the processes it starts speak as the drive's own terminal, whatever started it: outside an Orca terminal Orca guesses the caller from the pane he focuses, or refuses with no_active_sender_terminal, and a process a session started would speak as that session's pane, its pane key included."""
-    terminal = drive_terminal(drive)
+    """Make each Orca call of this process and the processes it starts speak as the drive's own terminal, whatever started it: outside an Orca terminal Orca guesses the caller from the pane he focuses, or refuses with no_active_sender_terminal, and a process a session started would speak as that session's pane, its pane key included. The terminal the drive records is spoken as first, so a check of it that fails, as Orca's terminal show does while its terminal surfaces are unavailable, still leaves every call naming it, then the one drive_terminal keeps."""
+    if recorded := state.load(drive)["terminal"]:
+        speak_as(recorded)
+    speak_as(drive_terminal(drive))
+
+
+def speak_as(terminal: str) -> None:
     if os.environ.get("ORCA_TERMINAL_HANDLE") != terminal:
         os.environ.pop("ORCA_PANE_KEY", None)
         os.environ["ORCA_TERMINAL_HANDLE"] = terminal
@@ -911,9 +916,9 @@ def mail(after: int | None) -> list[dict]:
 
 
 def mark_read(drive: str, run: str) -> int | None:
-    """Mark the Run's unread mail read with consuming checks, once the watch took that mail by mail, whose read ignores the read flag, so nothing the drive reads is lost: as the drive's own terminal, or, for a Run Orca fences because that terminal does not hold it, as binder_terminal once binder binds the Run there, as an answer goes; at most MARK_BATCHES batches, the next pass marking the rest, and none for a Run Orca no longer keeps: how many messages it marked, or None for that gone Run."""
+    """Mark the Run's unread mail read with consuming checks, once the watch took that mail by mail, whose read ignores the read flag, so nothing the drive reads is lost: as the drive's own terminal, named by the handle the drive records, never by this process's environment, which a watch whose speak_as_drive failed leaves unset, or, for a Run Orca fences because that terminal does not hold it, as binder_terminal once binder binds the Run there, as an answer goes; at most MARK_BATCHES batches, the next pass marking the rest, and none for a Run Orca no longer keeps: how many messages it marked, or None for that gone Run."""
     try:
-        return marked(run)
+        return marked(run, state.load(drive)["terminal"])
     except OrcaError as error:
         if error.code == RUN_NOT_FOUND:
             return None
