@@ -60,6 +60,8 @@ REPO_VALUES = json.loads(Path(".orca.json").read_text()) if Path(".orca.json").i
 CC_REMOTE = os.environ.get("WORKER_CC_REMOTE") or REPO_VALUES.get("ccRemote") or "cc-remote"
 SPRITE_CLI = os.environ.get("WORKER_SPRITE") or "sprite"
 SPRITE_ORG = re.compile(r"sprite proxy -o (\S+)")
+CONFIG_ORG = re.compile(r"^\s+org: (\S+)", re.MULTILINE)
+CONFIG_REPOSITORY = re.compile(r"^repository: \S+/([^/\s]+?)(?:\.git)?$", re.MULTILINE)
 CHECKPOINTED = re.compile(r"Checkpoint (v\d+) created")
 if "ccRemoteConfig" in REPO_VALUES:
     os.environ.setdefault("CC_REMOTE_CONFIG", str(Path(REPO_VALUES["ccRemoteConfig"]).resolve()))
@@ -640,7 +642,12 @@ class CcRemote:
         return task, Sprite(task["workspace"], task["forward"]["host"], task["forward"]["config"], task["projectRoot"], task["environmentId"])
 
     def sprite(self, workspace: str) -> Sprite | None:
-        return found[1] if (found := self.task(workspace)) else None
+        if found := self.task(workspace):
+            return found[1]
+        if not (self.state / "workspaces" / f"{workspace}.json").is_file():
+            return None
+        config = Path(os.environ["CC_REMOTE_CONFIG"]).read_text()
+        return Sprite(workspace, "", "", f"/home/sprite/{CONFIG_REPOSITORY.search(config)[1]}", "")
 
     def checkout(self, sprite: Sprite) -> Checkout | str:
         git_c = f"git -C {shlex.quote(sprite.root)}"
@@ -677,6 +684,8 @@ class CcRemote:
         )
 
     def ssh(self, sprite: Sprite, script: str, given: str | None = None) -> subprocess.CompletedProcess[str]:
+        if not sprite.host:
+            return self.step(sprite, script, given)
         done = subprocess.run(["ssh", "-F", sprite.ssh_config, "-o", "BatchMode=yes", "-o", f"ConnectTimeout={SSH_CONNECT_S}", sprite.host, script], input=given, capture_output=True, text=True)
         return self.step(sprite, script, given) if done.returncode == 255 else done
 
@@ -701,7 +710,7 @@ class CcRemote:
         return None
 
     def revive(self, sprite: Sprite) -> str | None:
-        org = SPRITE_ORG.search(Path(sprite.ssh_config).read_text())
+        org = SPRITE_ORG.search(Path(sprite.ssh_config).read_text()) if sprite.ssh_config else CONFIG_ORG.search(Path(os.environ["CC_REMOTE_CONFIG"]).read_text())
         named = (*(("-o", org[1]) if org else ()), "-s", sprite.workspace)
         try:
             made = subprocess.run([SPRITE_CLI, "checkpoint", "create", *named], capture_output=True, text=True, timeout=REVIVE_S)
