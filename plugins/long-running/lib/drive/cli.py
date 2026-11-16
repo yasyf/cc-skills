@@ -4050,10 +4050,13 @@ def messaged(args: argparse.Namespace, name: str, job: dict, held: list[dict], n
             orca.place_tools(workspace)
         except orca.Unfit as error:
             unfit = error
-    with state.edit(name) as data:
+    def holds_kept(data: dict) -> str:
         holds = stage.holds_now(data, args.id)
         for left in data["jobs"][args.id]["undelivered"]:
             left.setdefault("holds", holds)
+        return holds
+
+    holds = state.update(name, None, holds_kept)
     hows = []
     for index, kept in enumerate([*held, *filter(None, [note])]):
         try:
