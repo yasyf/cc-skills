@@ -18,6 +18,7 @@ import tomllib
 import traceback
 import uuid
 from calendar import monthrange
+from collections import Counter
 from collections.abc import Callable, Collection, Iterable, Iterator
 from contextlib import AbstractContextManager, closing, contextmanager, suppress
 from contextvars import ContextVar
@@ -4964,8 +4965,8 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
     for job_id in dropped:
         if ("jobs", job_id) in fields:
             fields[("jobs", job_id)].add("undelivered")
-    collections = {collection for collection, _ in held if collection in COLLECTIONS}
-    order = {collection: {key: index for index, key in enumerate(mine[collection])} for collection in collections if collection in mine}
+    collections = Counter(collection for collection, _ in held if collection in COLLECTIONS)
+    order = {collection: {key: index for index, key in enumerate(mine[collection])} for collection, count in collections.items() if count > 1 and collection in mine}
     records = sorted(held, key=lambda record: (record[0], order.get(record[0], {}).get(record[1], -1), record[1]))
     with unlocked(name, budget), closing(connect(database_path(name), min(budget.left(), WRITE_BUDGET_SECONDS))) as db:
         asked = time.monotonic()
