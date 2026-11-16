@@ -6479,6 +6479,9 @@ def served_orders(data: dict, pr: dict) -> list[str]:
     return list(dict.fromkeys([pr["order"], *(order_id for job in jobs for order_id in (job["order"], *job["carries"]))]))
 
 
+RELEASE_FROM = re.compile(r"--from[ =]([0-9a-f]{7,40})\b")
+
+
 class Index(NamedTuple):
     """What one pass over a drive's jobs, PRs and orders finds, for a read-only projection of it: the jobs owned by each order; the jobs listing each PR by its URL; each job's question by its waits id and by its card's Slack message, numbered in the order a scan of the jobs meets them; the open PRs waiting on each wait, by key, and each job's open PRs by their row's job, in the drive's order; the orders holding each part; land.unders and land.landing_stacks of the drive; and its immutable PR topology."""
 
@@ -6493,6 +6496,7 @@ class Index(NamedTuple):
     under: dict[str, str | None]
     stacks: dict[str, tuple[str, ...]]
     graph: PrGraph
+    cuts: list[tuple[str, str]]
 
 
 @contextmanager
@@ -6526,11 +6530,21 @@ def indexed(data: dict) -> Iterator[None]:
         for part in order["parts"]:
             part_orders.setdefault(part, []).append(order_id)
     under = land.unders(data)
-    token = INDEX.set(Index(data["jobs"], ordered_jobs, pr_jobs, waits, cards, waiting, opened, part_orders, under, land.landing_stacks(data, under), PrGraph.read(data["prs"])))
+    token = INDEX.set(Index(data["jobs"], ordered_jobs, pr_jobs, waits, cards, waiting, opened, part_orders, under, land.landing_stacks(data, under), PrGraph.read(data["prs"]), scanned_cuts(data)))
     try:
         yield
     finally:
         INDEX.reset(token)
+
+
+def scanned_cuts(data: dict) -> list[tuple[str, str]]:
+    """Each release job's --from commit beside the job's state, in the drive's job order."""
+    return [(named[1], job["state"]) for job in data["jobs"].values() if (release := (job.get("brief_flags") or {}).get("release")) and (named := RELEASE_FROM.search(release))]
+
+
+def release_cuts(data: dict) -> list[tuple[str, str]]:
+    """Each release job's --from commit and state, read from the projection's index when this thread is building one of this drive."""
+    return index.cuts if (index := index_of(data)) else scanned_cuts(data)
 
 
 def index_of(data: dict) -> Index | None:
