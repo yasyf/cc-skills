@@ -323,7 +323,10 @@ session makes its parts `ORPHAN`s.
    left on that lane's death, and runs one again only once that process is gone and 300 seconds
    have passed, so a watch that restarts never asks a second time while the first still runs.
 7. The reclaim rule: the watch frees each Sprite a job's lanes left, whatever the job's state. A
-   job's own lane goes to `drive job end`, as above. Each Sprite an earlier lane left goes to
+   job's own lane goes to `drive job end`, as above. On this Mac, the dispatch of each earlier lane
+   a relaunch, takeover or resume in another pane left is reclaimed 5 minutes after its death,
+   whatever the job's state, which stops its worker and closes its terminal; the last lane's goes
+   once a finished job has been quiet 5 minutes. Each Sprite an earlier lane left goes to
    `drive job reclaim <j> <workspace>`, in the pass after a relaunch records that lane's death.
    That includes the Sprite of an attempt a relaunch moved off, one an end kept, and one the watch
    adopts. Each pass, the watch starts from `sprite list`, read at most every 10 minutes for every
