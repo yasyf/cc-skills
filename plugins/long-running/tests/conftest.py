@@ -32,6 +32,7 @@ from drive import (
     place,
     providers,
     public_check,
+    reads,
     receiver,
     restack,
     served,
@@ -658,6 +659,91 @@ class SelectRelease(providers.ReleaseProvider):
     def components(self, pr: str, paths: list[str], head: str | None) -> dict:
         request = {"body": "", "paths": paths} | ({"head": head} if head else {})
         return self.json("tools/ci release select --pr {pr}", stdin=json.dumps(request), pr=pr)
+
+
+MONOREPO_DANGEROUS = re.compile(
+    r"migrations?/|backfill|bucketdelete/|sandsql|sanddb|^go/sand/(?:next/)?internal/(?:builtin|irisbuiltins|parser|checker|compiler|vm\w*|runtime-api)/"
+    r"|^api/src/modules/runtimeApi/|^common/src/iris/appShell/",
+    re.IGNORECASE,
+)
+ENV_STAGE = re.compile(r"^stage: *(\S+) *$", re.MULTILINE)
+ENV_PROD = re.compile(r"^prod: *true *$", re.MULTILINE)
+ENV_TENANTS = re.compile(r"^tenants:\n((?:[ -].*(?:\n|$))*)", re.MULTILINE)
+ENV_TEAM_NAME = re.compile(r"^[ -] (?:name|displayName): *(.+?) *$", re.MULTILINE)
+LIVE_SAND_NEXT = re.compile(r"^#\d+\s+passed\s+(?:manual )?(?:release|hotfix|rollback)\s.*?\s(?P<commit>[0-9a-f]{7,40})\s+(?:not )?started\b", re.MULTILINE)
+DRY_RUN = "start the release dry run of each component staging has no copy of: `tools/ci release start <each target holding them> --only <those components> --emergency --dry-run`"
+MAC_BOX_CASES = "; {tested} changes the dashboard, so run its cases on a Mac box too: `tools/ci mac-box prove <box> --commit {live}`"
+MAC_BOX_OWN_HEAD = "; {tested} changes iris-desktop or sand-next too, so run them again after `tools/ci mac-box prove <box> --commit <its head's full sha>`"
+LIVE_UNREAD = "; the drive could not read that commit ({error}), so read it first"
+
+
+class MonorepoRepo(HomeRepo):
+    """The monorepo's landing reads, as its own providers make them."""
+
+    def ci_config(self, path: str) -> bool:
+        return bool(re.match(r"^\.(?:buildkite|github)/", path))
+
+    def checkout_tools(self, path: str) -> bool:
+        return bool(re.search(r"^(?:go|infra)/ci/|^tools/ci(?:-ts)?(?:/|$)", path))
+
+    def dangerous_paths(self, paths: list[str]) -> list[str]:
+        return [path for path in paths if MONOREPO_DANGEROUS.search(path)]
+
+
+class EnvsRelease(providers.ReleaseProvider):
+    """The monorepo's release reads run through reads.run in the checkout, so a test's argv intercepts answer them, and its places read from the checkout's infra/envs files."""
+
+    def live(self) -> list[dict]:
+        return json.loads(reads.run([str(self.checkout / "tools" / "ci"), "release", "live", "--json"], self.checkout))
+
+    def place(self, env: str) -> providers.Place:
+        path = self.checkout / "infra" / "envs" / f"{env}.yaml"
+        text = path.read_text() if path.is_file() else ""
+        stage, block = ENV_STAGE.search(text), ENV_TENANTS.search(text)
+        return providers.Place(stage[1] if stage else None, bool(ENV_PROD.search(text)), tuple(ENV_TEAM_NAME.findall(block[1])) if block else ())
+
+    def freeze(self, components: list[str], why: str, until: str) -> str:
+        argv = [str(self.checkout / "tools" / "ci"), "release", "freeze", *components, "--reason", why, "--until", until, "--json"]
+        return json.loads(reads.run(argv, self.checkout))["freeze"]["id"]
+
+    def unfreeze(self, freeze: str) -> str:
+        return f"tools/ci release unfreeze {freeze}"
+
+
+class SlotStaging(HomeStaging):
+    def exception_steps(self) -> str:
+        return DRY_RUN
+
+    def unread(self, error: str) -> str:
+        return LIVE_UNREAD.format(error=error)
+
+
+class DashboardBoxes(HomeMacBox):
+    def affected(self, components: list[str]) -> bool:
+        return "dashboard" in components
+
+    def live_commit(self) -> str:
+        listed = github.run([str(self.checkout / "tools" / "ci"), "release", "status", "--manual", "sand-next", "--env", "core-usw2-auto"], cwd=str(self.checkout), timeout=60)
+        if not (found := LIVE_SAND_NEXT.search(listed)):
+            raise providers.ProviderError("lists no passed sand-next release among its newest builds, so no live sand-next commit was read")
+        return github.run(["git", "-C", str(self.checkout), "rev-parse", "--verify", f"{found['commit']}^{{commit}}"]).strip()
+
+    def case_steps(self, tested: str, live: str) -> str:
+        return MAC_BOX_CASES.format(tested=tested, live=live)
+
+    def rebuild_steps(self, tested: str) -> str:
+        return MAC_BOX_OWN_HEAD.format(tested=tested)
+
+
+def monorepo(monkeypatch: pytest.MonkeyPatch, checkout: Path) -> None:
+    """Give every drive the monorepo's fixture providers, each running its commands in checkout."""
+    provide(monkeypatch, checkout, repo=MonorepoRepo, release=EnvsRelease, staging=SlotStaging, mac_box=DashboardBoxes)
+
+
+@pytest.fixture
+def envs_release(monkeypatch: pytest.MonkeyPatch, demo: str) -> None:
+    """Give the demo drive a release provider reading its places from the infra/envs files of the coordinator's checkout."""
+    provide(monkeypatch, Path(state.load(demo)["roles"]["coordinator"]["cwd"]), release=EnvsRelease)
 
 
 @pytest.fixture(autouse=True)

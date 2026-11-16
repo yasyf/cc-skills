@@ -184,9 +184,6 @@ class StagingProvider(Provider):
 
     env: str | None = None
 
-    def claim_steps(self, env: str, job: str) -> str:
-        return ""
-
     def unread(self, error: str) -> str:
         return ""
 
