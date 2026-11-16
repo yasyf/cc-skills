@@ -599,7 +599,6 @@ def test_a_page_reaches_him_once_when_first_composed_and_again_only_when_what_it
     asks = applet.basis({"questions": [], "prs": [{"key": "a/b#1", "waits_on_him": True}], "orders": [{"key": "o1", "state": "running"}]})
     asked = asks | {"questions": ["https://x.slack.com/archives/D1/p1"]}
     now = datetime.now().astimezone()
-    quiet = now + applet.PAGE_QUIET
 
     def laid(file: str, seconds: int, **layout: object) -> None:
         (folder / file).write_text(json.dumps({"headline": "h", "summary": "s", "blocks": [], "glance": glance, "changed_for_him": "", "basis": asks} | layout))
@@ -609,6 +608,7 @@ def test_a_page_reaches_him_once_when_first_composed_and_again_only_when_what_it
     [(page, first, layout)] = applet.unannounced(demo, now)
     assert (page["slug"], first) == ("run-page", "first.json")
     applet.announce(demo, "run-page", first, layout)
+    quiet = datetime.now().astimezone() + applet.PAGE_QUIET + timedelta(seconds=1)
     laid("counted.json", 2, headline="Land the run page", glance=glance | {"status": "Blocked on you: 27 approvals", "next": "Approve the 27 PRs"}, changed_for_him="One more PR waits on your approval")
     assert applet.unannounced(demo, quiet) == []
     laid("changed.json", 3, basis=asked, changed_for_him="A decision now waits on you")
