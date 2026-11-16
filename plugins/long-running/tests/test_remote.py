@@ -5492,7 +5492,7 @@ def test_a_finished_job_on_this_mac_has_every_lane_its_relaunches_left_reclaimed
     assert [death["dispatch"] for death in state.load(remote)["jobs"]["j1"]["deaths"]] == ["ctx_first", "ctx_second", "ctx_last"]
 
 
-def test_a_reclaim_that_cannot_read_a_left_sprite_keeps_it_says_so_once_and_no_watch_asks_for_it_again(
+def test_a_reclaim_that_cannot_read_a_left_sprite_keeps_it_says_so_once_and_no_watch_asks_for_it_again_within_the_hour(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cloned(tmp_path, remote)
@@ -5515,7 +5515,7 @@ def test_a_reclaim_that_cannot_read_a_left_sprite_keeps_it_says_so_once_and_no_w
     monkeypatch.setenv(state.DETACHED_ENV, watch.RELAUNCHES_LOG)
     assert cli.main(["job", "reclaim", "j1", sprite]) == 2
     refusal = (
-        f"j1: refused, Sprite {sprite} is kept and no watch asks to destroy it again: {UNREAD}. Destroying it unread may lose what it holds on no remote,"
+        f"j1: refused, Sprite {sprite} is kept, and the watch asks to save and destroy it again in an hour: {UNREAD}. Destroying it unread may lose what it holds on no remote,"
         f" so only his pick does that; drive job reclaim j1 {sprite} asks again, saving it first"
     )
     assert capsys.readouterr().err == f"drive: {refusal}\n"
@@ -8255,12 +8255,16 @@ def test_resume_to_a_local_lane_that_finished_starts_the_next_worker_through_the
         return {"dispatch": "ctx_lane0002", "task": "task_2", "terminal": "term_fresh", "lane": lane, "worktree": workspace, "workspace": None, "environment": None}
 
     monkeypatch.setattr(orca, "launch", fake_launch)
-    assert run("job", "resume", "j1", "The review: fix the one finding") == (
-        0,
+    closed: list[str] = []
+    monkeypatch.setattr(orca, "close_pane", lambda terminal: closed.append(terminal) and None)
+    code, out = run("job", "resume", "j1", "The review: fix the one finding")
+    finished = (
         "j1: the message went to the job's next worker, started in a fresh terminal and Claude session in its worktree /work/root-tooling on this Mac"
         " as dispatch ctx_lane0002 in a handoff carrying its brief, its branch, its last line, its report and its PRs; its lane on this Mac had finished"
-        " (its worker succeeded, and Orca sends nothing to a finished worker on this Mac)",
+        " (its worker succeeded, and Orca sends nothing to a finished worker on this Mac)"
     )
+    assert (code, out) == (0, finished + "".join(f"; its finished worker's terminal {terminal} is closed, its transcript kept" for terminal in closed))
+    assert len(closed) <= 1 and "term_fresh" not in closed
     assert launched == {"lane": "demo-j1-2", "brief": "j1-2.md", "run": FRESH_RUN, "route": state.LOCAL_ROUTE, "workspace": "/work/root-tooling", "session": None}
     kept = state.drive_dir(rooted) / "jobs" / "j1-2.md"
     assert "You continue the job in its worktree on this Mac, as it left it." in orca.brief_of(kept.read_text())
