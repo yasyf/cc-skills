@@ -5499,12 +5499,19 @@ def lives(process: list[int | None] | None) -> bool:
     return process is not None and process[1] is not None and procs.started(process[0], zombies=False) == process[1]
 
 
-def reserve(data: dict, members: tuple[Row, ...]) -> str:
-    """Reserve, inside a write's change, each field members name, as (collection, key, field) of a record that exists, for one launch this process makes once the write commits, the field holding a token record beside the record's other fields: the token, every member, so a child adopts the launch whole or not at all, this process as its starter, by born, no child yet, and reserved; the token, which the launch hands its child as --reserved <token>, and which settle, cancel and adopt take. A member stays held while its holder lives, by holder, so no second launch starts beside it."""
+class Reservation(NamedTuple):
+    """One launch's reservation as its starter keeps it: the token, and every member it reserved, (collection, key, field), so settling or cancelling it reaches each member still holding the token whatever became of the others."""
+
+    token: str
+    members: tuple[Row, ...]
+
+
+def reserve(data: dict, members: tuple[Row, ...]) -> Reservation:
+    """Reserve, inside a write's change, each field members name, as (collection, key, field) of a record that exists, for one launch this process makes once the write commits, the field holding a token record beside the record's other fields: the token, every member, so a child adopts the launch whole or not at all, this process as its starter, by born, no child yet, and reserved; the Reservation, whose token the launch hands its child as --reserved <token>, and which settle and cancel take. A member stays held while its holder lives, by holder, so no second launch starts beside it."""
     token = uuid.uuid4().hex
     for collection, key, field in members:
         data[collection][key][field] = {"token": token, "members": [list(member) for member in members], "starter": born(os.getpid()), "child": None, "state": "reserved"}
-    return token
+    return Reservation(token, members)
 
 
 def holder(value: object) -> int | None:
@@ -5515,20 +5522,20 @@ def holder(value: object) -> int | None:
     return process[0] if lives(process) else None
 
 
-def reserved(data: dict, member: Row, token: str) -> list[dict] | None:
-    """Each record of the reservation member holds, as data holds it, every member the token names in turn, while member still holds that token; None once it holds another value."""
-    if not isinstance(held := row_of(data, member), dict) or held.get("token") != token:
-        return None
-    return [record for each in held["members"] if isinstance(record := row_of(data, tuple(each)), dict) and record.get("token") == token]
+def reserved(data: dict, members: Iterable[Row], token: str) -> list[dict]:
+    """Each record of the members that still holds the token, as data holds it, every other member, gone or holding another value, left out."""
+    return [record for member in members if isinstance(record := row_of(data, tuple(member)), dict) and record.get("token") == token]
 
 
 def adopt(name: str, member: Row, token: str) -> bool:
-    """Adopt, as the child a launch started with --reserved <token>, the reservation member holds, before the child does any work outside the drive, in one write taking every member the token names or none: each must still hold that token, reserved with no child or this process named as its child, or adopted by this process already; whether it took them, False once the token is gone from any member, cancelled, or another child's, when the child ends without working."""
+    """Adopt, as the child a launch started with --reserved <token>, the reservation member holds, before the child does any work outside the drive, in one write taking every member the token names or none: member must still hold that token, and so must every member its record names, each reserved with no child or this process named as its child, or adopted by this process already; whether it took them, False once the token is gone from any member, cancelled, or another child's, when the child ends without working."""
     me = born(os.getpid())
 
     def took(data: dict) -> bool:
-        records = reserved(data, member, token)
-        if records is None or len(records) != len(row_of(data, member)["members"]):
+        if not (anchor := reserved(data, [member], token)):
+            return False
+        records = reserved(data, anchor[0]["members"], token)
+        if len(records) != len(anchor[0]["members"]):
             return False
         if not all(record["state"] == "reserved" and record["child"] in (None, me) or record["state"] == "adopted" and record["child"] == me for record in records):
             return False
@@ -5545,23 +5552,23 @@ def adopt_reserved(name: str, member: Row, token: str | None) -> None:
         raise SystemExit(f"{'.'.join(member)} no longer holds reservation {token} for this process, so it ends without working")
 
 
-def settle(name: str, member: Row, token: str, pid: int) -> None:
-    """Name the child a launch started, by pid, on each member still holding the token reserved with no child, in a patient write, since it records a launch already made; never over a child's adoption, a cancel or a newer reservation, and a child gone before this reads gone, so its reservation frees."""
+def settle(name: str, reservation: Reservation, pid: int) -> None:
+    """Name the child a launch started, by pid, on each member of the reservation still holding its token reserved with no child, in a patient write, since it records a launch already made; never over a child's adoption, a cancel or a newer reservation, and a member another write took leaves the rest named all the same."""
     child = born(pid)
 
     def named(data: dict) -> None:
-        for record in reserved(data, member, token) or []:
+        for record in reserved(data, reservation.members, reservation.token):
             if record["state"] == "reserved" and record["child"] is None:
                 record["child"] = child
 
     write(name, named, patient=True)
 
 
-def cancel(name: str, member: Row, token: str) -> bool:
-    """Cancel the reservation member holds where no child adopted it, as a launch that raised does, since a child it may have started must not work, or a halt for a launch not yet adopted, in a patient write: each member still holding the token reserved reads cancelled, which a late child's adopt refuses and holder reads as free; whether a child adopted it instead, a child then working that only a signal to that child, never to its starter, stops."""
+def cancel(name: str, reservation: Reservation) -> bool:
+    """Cancel the reservation where no child adopted it, as a launch that raised does, since a child it may have started must not work, or a halt for a launch not yet adopted, in a patient write: each member still holding its token reserved reads cancelled, which a late child's adopt refuses and holder reads as free, a member another write took or removed left as that write left it; whether a child adopted it instead, a child then working that only a signal to that child, never to its starter, stops."""
 
     def ended(data: dict) -> bool:
-        records = reserved(data, member, token) or []
+        records = reserved(data, reservation.members, reservation.token)
         for record in records:
             if record["state"] == "reserved":
                 record["state"] = "cancelled"
