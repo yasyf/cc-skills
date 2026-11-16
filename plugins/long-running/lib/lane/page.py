@@ -32,7 +32,7 @@ def keep_view(drive: str, prs: dict[tuple[str, int], dict], moment: datetime) ->
         since = {}
     kept = {}
     for (repo, number), pull in prs.items():
-        kept[f"{repo}#{number}"] = {key: pull[key] for key in ("state", "merged", "head", "rollup")}
+        kept[f"{repo}#{number}"] = {key: pull[key] for key in ("state", "merged", "head", "rollup", "review", "base", "branch")}
         if read := since.get((repo, number)):
             kept[f"{repo}#{number}"] |= {"commits": read["commits"], "whole": read["commit_count"] <= len(read["commits"])}
         elif (repo, number) in moved and "commits" in (last := before.get(f"{repo}#{number}", {})):
@@ -59,6 +59,39 @@ def tapless(lane: dict, seen: dict) -> list[dict]:
         elif row["approved_head"] != pull["head"] and (moved := lane_rows.foreign(pull.get("commits") or [], row["approved_head"], lane_rows.ours(), pull.get("whole", False))) != []:
             rows.append({**row, "checks": pull["rollup"], "moved": moved or ["his approved head is not among its recent commits"]})
     return rows
+
+
+def ready(taps: list[dict], seen: dict) -> tuple[list[dict], dict[str, int]]:
+    """Of a lane's PRs waiting on his tap, the stacks he can tap now, one per bottom PR that is green, reviewed and on no open PR, each with how many of its tapless PRs sit above it, and the rest counted by why each is not ready: behind a parent, red, CI running or no review."""
+    branches = {(key.rpartition("#")[0], pull.get("branch")): key for key, pull in seen.items() if pull["state"] == "OPEN"}
+
+    def parent(key: str) -> str | None:
+        return branches.get((key.rpartition("#")[0], seen[key].get("base")))
+
+    def bottom(key: str) -> str:
+        walked = {key}
+        while (above := parent(key)) and above not in walked:
+            walked.add(key := above)
+        return key
+
+    stacks, counts = {}, {"behind a parent": 0, "red": 0, "CI running": 0, "no review": 0}
+    keyed = {f"{row['repo']}#{row['number']}": row for row in taps}
+    for key, row in keyed.items():
+        pull = seen[key]
+        if parent(key):
+            counts["behind a parent"] += 1
+        elif pull["rollup"] in ("FAILURE", "ERROR"):
+            counts["red"] += 1
+        elif pull["rollup"] != "SUCCESS":
+            counts["CI running"] += 1
+        elif pull.get("review") != "APPROVED":
+            counts["no review"] += 1
+        else:
+            stacks[key] = {**row, "above": 0}
+    for key in keyed:
+        if parent(key) and (base := bottom(key)) in stacks:
+            stacks[base]["above"] += 1
+    return list(stacks.values()), {why: count for why, count in counts.items() if count}
 
 
 def model(drive: str) -> dict:
@@ -89,6 +122,7 @@ def model(drive: str) -> dict:
                 "promise": lanes[lane_id].get("promise"),
                 "unanswered": store.unreplied(lanes[lane_id]),
                 "tapless": tapless(lanes[lane_id], seen["prs"]),
+                "ready": ready(tapless(lanes[lane_id], seen["prs"]), seen["prs"]),
                 "channel": lanes[lane_id].get("channel"),
                 "thread": lanes[lane_id].get("thread"),
             }
@@ -99,6 +133,12 @@ def model(drive: str) -> dict:
 
 def text(value: object) -> str:
     return html.escape(str(value))
+
+
+def tap_line(row: dict) -> str:
+    above = f" <span class=dim>and {row['above']} stacked above</span>" if row["above"] else ""
+    moved = f" <span class=dim>commits since his Approve: {text('; '.join(row['moved']))}</span>" if row["moved"] else ""
+    return f"<li><a href='https://github.com/{text(row['repo'])}/pull/{row['number']}'>#{row['number']}</a> {text(row.get('words') or '')}{above}{moved}</li>"
 
 
 def drawn(drive: str) -> str:
@@ -114,13 +154,16 @@ def drawn(drive: str) -> str:
             store.PARKED: f"parked: {(lane['parked'] or {}).get('words', '')}",
         }[lane["state"]]
         asks = "".join(f"<li><a href='{text(ask.get('link') or '#')}'>{text(ask['words'][:300])}</a> <span class=dim>{text(ask['at'])}</span></li>" for ask in lane["unanswered"])
-        taps = "".join(f"<li>#{row['number']} {text(row.get('words') or '')} <span class=dim>{text(row['repo'])}, checks {text(row['checks'] or 'none')}{(', commits since his Approve: ' + text('; '.join(row['moved']))) if row['moved'] else ''}</span></li>" for row in lane["tapless"])
+        stacks, rest = lane["ready"]
+        taps = "".join(tap_line(row) for row in stacks)
+        if rest:
+            taps += f"<li class=dim>{sum(rest.values())} more not ready: {text(', '.join(f'{count} {why}' for why, count in rest.items()))}</li>"
         cards.append(
             f"<section class='lane {lane['state']}{' hurt' if lane['id'] in shown['hurting'] else ''}'><h2><span class=rank>{lane['rank'] + 1}</span> {text(lane['title'])} <span class=dim>{text(lane['id'])}</span></h2>"
             f"<p class=state>{text(line)}</p><p><b>Next:</b> {text(lane['next'] or 'not written')}</p>"
             + (f"<p><b>Promised:</b> {text(lane['promise']['next'])} by {text(lane['promise']['by'])}</p>" if lane["promise"] else "")
             + (f"<h3>His asks with no answer</h3><ul>{asks}</ul>" if asks else "")
-            + (f"<h3>PRs waiting on his tap</h3><ul>{taps}</ul>" if taps else "")
+            + (f"<h3>Ready for his tap</h3><ul>{taps}</ul>" if taps else "")
             + "</section>"
         )
     return f"""<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><meta http-equiv=refresh content=30><title>Lanes: {text(drive)}</title>

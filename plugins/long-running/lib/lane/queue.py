@@ -1,4 +1,4 @@
-"""Grants from the priority queue for each contended thing beside owner slots: the staging env, release starts and the cards that reach him. A grant goes to the best-ranked lane asking, by rank.json; a re-rank never takes a grant back, except that a lane whose incident hurts users takes the staging env from a lane that is not one."""
+"""Grants from the priority queue for each contended thing beside owner slots: the staging env and release starts. Asking him is never one: a lane posts its card the moment it is ready, and his page orders the open cards by rank, by drive-redesign's ruling. A grant goes to the best-ranked lane asking, by rank.json; a re-rank never takes a grant back, except that a lane whose incident hurts users takes the staging env from a lane that is not one."""
 
 import json
 from datetime import timedelta
@@ -6,7 +6,7 @@ from pathlib import Path
 
 from lane import rank, store
 
-CAPACITY = {"staging-env": 1, "release": 1, "card": 2}
+CAPACITY = {"staging-env": 1, "release": 1}
 PREEMPTS = ("staging-env",)
 
 
@@ -57,13 +57,13 @@ def held_by(name: str, holder: str) -> bool:
 
 def asking(drive: str, lane_id: str) -> list[str]:
     """Each resource the lane stands in line for."""
-    return [resource for resource, requests in kept(drive)["requests"].items() if any(asked["lane"] == lane_id for asked in requests.values())]
+    return [resource for resource, requests in kept(drive)["requests"].items() if resource in CAPACITY and any(asked["lane"] == lane_id for asked in requests.values())]
 
 
 def holding(drive: str, lane_id: str) -> list[str]:
     """Each resource the lane holds a live grant of."""
     moment = store.now()
-    return [resource for resource, leases in kept(drive)["leases"].items() if any(lease["lane"] == lane_id and store.parse(lease["until"]) > moment for lease in leases)]
+    return [resource for resource, leases in kept(drive)["leases"].items() if resource in CAPACITY and any(lease["lane"] == lane_id and store.parse(lease["until"]) > moment for lease in leases)]
 
 
 def take(drive: str, resource: str, holder: str, lane_id: str, ttl_minutes: int) -> dict:

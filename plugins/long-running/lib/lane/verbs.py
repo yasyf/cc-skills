@@ -180,7 +180,7 @@ def parse_event(text: str) -> dict:
         if kind in ("pr_merged", "check"):
             facts.pr_ref(ref)
         return {"kind": kind, "ref": ref}
-    raise store.Refused(f"a wait event is pr_merged:<owner/repo>#<n>, check:<owner/repo>#<n>, staging_result:<cut id>, release:<release id>, queue_grant:<staging-env|release|card> or his_reply, not {text!r}")
+    raise store.Refused(f"a wait event is pr_merged:<owner/repo>#<n>, check:<owner/repo>#<n>, staging_result:<cut id>, release:<release id>, queue_grant:<staging-env|release> or his_reply, not {text!r}")
 
 
 def end_turn(drive: str, lane_id: str, token: str, on: list[dict], until: str, why: str, next_step: str | None = None) -> dict:

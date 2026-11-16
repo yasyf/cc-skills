@@ -678,3 +678,18 @@ def test_his_dashboard_queue_on_a_live_lane_drive_lists_lane_taps_in_queue_order
     assert [(tap["key"], tap["position"]) for tap in board.taps(DRIVE)] == [("acme/app#7", 1), ("acme/app#8", 2)]
     item = view.lane_tap_item(board.taps(DRIVE)[0], {"pr_cards": []})
     assert (item["kind"], item["key"], item["head"], item["checks"], item["reason"]["label"]) == ("tap", "acme/app#7", "h7", "pass", "Lane #1 in the queue")
+
+
+def test_his_page_shows_only_stacks_ready_for_his_tap_and_counts_the_rest_by_why(world: dict) -> None:
+    from lane import page
+
+    opened("a", prs=[("acme/app", 1), ("acme/app", 2), ("acme/app", 3), ("acme/app", 4)])
+    world["prs"][("acme/app", 1)] = pull(head="h1", rollup="SUCCESS", branch="one") | {"review": "APPROVED"}
+    world["prs"][("acme/app", 2)] = pull(head="h2", rollup="SUCCESS", base="one", branch="two") | {"review": "APPROVED"}
+    world["prs"][("acme/app", 3)] = pull(head="h3", rollup="FAILURE", branch="three")
+    world["prs"][("acme/app", 4)] = pull(head="h4", rollup="SUCCESS", branch="four")
+    supervisor.run_pass(DRIVE)
+    shown = {lane["id"]: lane for lane in page.model(DRIVE)["lanes"]}
+    stacks, rest = shown["a"]["ready"]
+    assert ([(row["number"], row["above"]) for row in stacks], rest) == ([(1, 1)], {"behind a parent": 1, "red": 1, "no review": 1})
+    assert "3 more not ready" in page.drawn(DRIVE)
