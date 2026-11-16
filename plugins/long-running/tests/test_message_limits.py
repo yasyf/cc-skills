@@ -1290,6 +1290,16 @@ def test_a_repositorys_post_rule_is_one_more_line_of_the_one_jev_read(jev: Jev) 
     assert jev.asked[-1]["state"]["guidelines"].endswith(rule)
 
 
+def test_a_refused_post_to_one_place_goes_through_with_a_warning_when_the_session_posts_there_again(transcript: Path) -> None:
+    payload = call("slack_reply", transcript, channel_id="C1", thread_ts="1.2", text="x")
+    assert message_limits.refused_once(payload, "refused: a cause with no read") == "refused: a cause with no read"
+    again = message_limits.refused_once(payload, "refused: a cause with no read")
+    assert isinstance(again, message_limits.Warned) and "repeat of one refused once" in again
+    assert message_limits.refused_once(payload | {"tool_input": {"channel_id": "C2", "thread_ts": "1.2"}}, "refused: x") == "refused: x"
+    unsendable = agents.Unjudged("The text $(cat) is a placeholder")
+    assert message_limits.refused_once(payload, unsendable) is unsendable and message_limits.refused_once(payload, unsendable) is unsendable
+
+
 def test_the_communicators_own_post_has_no_brief_to_quote(talker: str, transcript: Path) -> None:
     payload = call("slack_dm_status", transcript, text=said(80), asked="explain the layout in full")
     del payload["agent_id"]

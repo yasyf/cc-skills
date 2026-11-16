@@ -678,11 +678,37 @@ def test_a_report_folds_in_the_unposted_reports_sent_before_it_to_its_thread_and
     talk.report_line(demo, "735816")
     assert "- Report 735764: staging's writer stopped four times" in asked[0] and "735790" not in asked[0]
     assert "passed before it could post" in asked[0]
+    assert "He is away" not in asked[0]
     assert "due" not in spoken[0] and "owes" not in spoken[0]
     data = state.load(demo)
     assert data["carried"]["735764"] == link and "735764" not in data["posts"]["claimed"]
     assert data["carried"]["735790"] == agents.DRIVE_CLAIM
     assert [(record["to"], record["re"]) for records in sent for record in records] == [([f"priority-o1339@{demo}"], ["735816"])]
+
+
+def test_say_drops_the_exact_words_it_already_sent_to_the_same_place(communicator: str, posts: list[tuple[str, ...]]) -> None:
+    first = talk.say(communicator, {"text": "The recommended answer to this question is built and paused."})
+    count = len(posts)
+    again = talk.say(communicator, {"text": "The recommended answer to this question is built and paused."})
+    assert again.startswith("DROPPED these exact words already went to this place at ") and first.split()[1] in again
+    assert len(posts) == count
+    talk.say(communicator, {"text": "The recommended answer is live."})
+    assert len(posts) == count + 1
+
+
+def test_a_report_about_an_order_another_session_holds_goes_to_that_holder_so_its_thread_hears_one_voice(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with edit(demo) as data:
+        data["orders"]["o1"] = state.new_order("why did the run fail?", "terminal", None, {}, ASKED) | {"owner": "communicator"}
+        data["carried"]["736200"] = agents.DRIVE_CLAIM
+        data["posts"]["claimed"] = {"736200": state.stamp()}
+    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {"order": "o1"}, "report": {"kind": "report", "lane": "root", "text": "POST the run failed on a stale lock", "seq": seq}, "thread": None})
+    monkeypatch.setattr(talk, "report_line", lambda name, seq: pytest.fail("posted a report its order's holder should carry"))
+    sent: list[list[dict]] = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append(records) or ["1"])
+    assert talk.report_post(demo, "736200") == "report 736200 handed to communicator, o1's holder: only it posts in that order's thread"
+    assert [(record["to"], record["re"]) for records in sent for record in records] == [([f"communicator@{demo}"], ["736200"])]
+    data = state.load(demo)
+    assert data["carried"]["736200"] == "handed to communicator, o1's holder" and data["posts"]["claimed"] == {}
 
 
 def test_a_correction_of_a_posted_report_rewords_that_post_itself_rather_than_bouncing_to_a_writer_that_cannot_post(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1423,7 +1449,7 @@ def test_a_second_report_closing_one_order_posts_nothing_whoever_wrote_it_and_a_
     assert talk.say(demo, {"text": "The fix is live.", "thread_ts": thread, "record": "684712"}).startswith(f"POSTED {answer}")
     report(monkeypatch, {"close": "o1"}, lane="meta")
     refused = "refused, report 684712 already closes o1, so this second close of it posts nothing: send no close of o1"
-    assert "WARNING report 684712 already closes o1; the post went out without its close of o1" in talk.say(demo, {"text": "The fix is live.", "thread_ts": thread, "record": "684713"})
+    assert "WARNING report 684712 already closes o1; the post went out without its close of o1" in talk.say(demo, {"text": "The fix is live on prod.", "thread_ts": thread, "record": "684713"})
     assert "WARNING" not in talk.say(demo, {"text": "The fix is live again.", "thread_ts": thread, "record": "684714"})
     assert len(sent) == 3
     capsys.readouterr()
@@ -1436,13 +1462,13 @@ def test_a_second_report_closing_one_order_posts_nothing_whoever_wrote_it_and_a_
     monkeypatch.setattr(slack, "cc_slack", failing)
     report(monkeypatch, {"close": "o2"}, lane="watch")
     with pytest.raises(slack.SlackError):
-        talk.say(demo, {"text": "The fix is live.", "thread_ts": thread, "record": "686065"})
+        talk.say(demo, {"text": "The second fix is live.", "thread_ts": thread, "record": "686065"})
     assert state.load(demo)["orders"]["o2"]["closed_on"] is None
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: sent.append(argv) or {"permalink": answer, "thread_ts": thread})
     report(monkeypatch, {"close": "o2"}, lane="meta")
-    assert talk.say(demo, {"text": "The fix is live.", "thread_ts": thread, "record": "686070"}).startswith(f"POSTED {answer}")
+    assert talk.say(demo, {"text": "The second fix is live now.", "thread_ts": thread, "record": "686070"}).startswith(f"POSTED {answer}")
     report(monkeypatch, {"close": "o2"}, lane="watch")
-    assert "WARNING report 686070 already closes o2" in talk.say(demo, {"text": "The fix is live.", "thread_ts": thread, "record": "686065"})
+    assert "WARNING report 686070 already closes o2" in talk.say(demo, {"text": "The second fix is live.", "thread_ts": thread, "record": "686065"})
     assert len(sent) == 5
 
 

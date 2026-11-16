@@ -117,6 +117,7 @@ The mechanics of a drive post:
 - only links the report prints; a release as {release:<its release name or build number>}, never its CI build link; keep each {record:…|…}, {pr:…}, {card:…} and {order:…} reference exactly as written, a card he must answer as {card:<waits id>} so it draws under the post;
 - times as the report writes them in Pacific; a correction says what was wrong and what is right, never "correction" alone;
 - earlier reports listed for the same place go in this one post, in the order sent, a later report replacing what it restates or corrects; a passed due is never promised;
+- while the facts say he is away, post only a change to one of his asks or to something owed him, and skip the rest; a line says what happened, never what is about to;
 - each visual is {"kind": "chart" | "compare" | "mermaid" | "dot", "source": "<its source>", "caption": "<what it shows>"}, one a post; blocks are Block Kit, with text kept as the notification line.
 Shape of a reply: {"text": "<the lead>", "place": "root", "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "*<the lead>*"}}, {"type": "section", "fields": [{"type": "mrkdwn", "text": "*<item>*\\n<its state>"}]}]}
 """
@@ -181,6 +182,7 @@ def report_line(name: str, seq: str) -> str:
                 f"Channel: {channel}" if channel else "",
                 f"The post it corrects: {corrected}" if corrected else "",
                 f"Its typed due, {stale}, passed before it could post: post its substance and leave out every promise tied to that time." if stale else "",
+                f"He is away: {away}." if (away := state.absence(known, state.now())) else "",
                 *(["Earlier reports for this same place, sent before it and not yet posted, oldest first:", *(f"- Report {held}: {said}" for held, said in earlier)] if earlier else []),
             ],
         )
@@ -261,6 +263,31 @@ def timed_out_again(name: str, seq: str) -> str:
     raise AssertionError(REPORT_POST_TRIES)
 
 
+def other_voice(data: dict, read: dict) -> str | None:
+    """The holder of the order a report is about, when a session other than that holder wrote it, so its thread hears one voice, by the design's rule that only an order's holder posts in its thread and everyone else changes state; None for the holder's own report, the watch's, one about no order, or a writer whose role the drive does not know."""
+    order = data["orders"].get(read["attrs"].get("order") or "")
+    writer = state.LANE_ROLES.get(read["report"].get("lane") or "")
+    if not order or not writer or read["report"].get("lane") == agents.LANE_WATCH or read["report"]["kind"] == "correction":
+        return None
+    return order["owner"] if order["owner"] != writer and order["owner"] in state.LANE_ROLES.values() else None
+
+
+def handed_to_holder(name: str, seq: str, read: dict, holder: str) -> str:
+    """Hand a report about an order to the order's holder as a note, for its next post to carry, and count it handled."""
+    from drive import tools
+
+    order = read["attrs"]["order"]
+    lane = next(lane for lane, role in state.LANE_ROLES.items() if role == holder)
+    tools.sent(name, "watch", [{"kind": "note", "to": [f"{lane}@{name}"], "re": [seq], "text": f"report {seq} on {order} goes to you, its holder, since only you post in its thread: carry what it says in your next post there: {render.cut(report_words(read['report']), 600)}"}])
+
+    def handed_write(data: dict) -> None:
+        data["carried"][seq] = f"handed to {holder}, {order}'s holder"
+        data["posts"].get("claimed", {}).pop(seq, None)
+
+    state.write(name, handed_write, patient=True)
+    return f"report {seq} handed to {holder}, {order}'s holder: only it posts in that order's thread"
+
+
 def report_post(name: str, seq: str) -> str:
     """`drive report-post`: hand a report posting in a channel outside the drive's, such as a staging claim to its members, to the communicator as one note, since cc-slack posts there only on the ticket a session's permission hook names; post any other by report_line, or send why it posted nothing back to the session that wrote it, as a refused record re the report, so that session sends it again fixed; one the watch wrote goes to the meta session as a defect."""
     from drive import tools
@@ -274,6 +301,8 @@ def report_post(name: str, seq: str) -> str:
         state.write(name, lambda data: data["posts"].setdefault("handed", {}).__setitem__(seq, {"channel": target, "thread": handed_thread, "order": read["attrs"].get("order")}), patient=True)
         agents.handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'post-{seq}'} Where: {target}, a channel outside the drive's, whose members read it and where cc-slack posts only on the ticket a session's permission hook names, so post it there yourself with say naming record {seq}, which marks it posted so the drive posts it never again")
         return f"report {seq} handed to the communicator: it posts in {target}, outside the drive's channels"
+    if holder := other_voice(state.load(name), read):
+        return handed_to_holder(name, seq, read, holder)
     try:
         return f"report {seq} posted by the drive: {timed_out_again(name, seq)}"
     except (DriveError, slack.SlackError) as error:
@@ -291,6 +320,36 @@ def report_post(name: str, seq: str) -> str:
 
         state.write(name, sent_back_write)
         return f"report {seq} sent back to {made['to'][0]}: {error}"
+
+
+SAID_FILE = "said.json"
+SAID_KEPT = 50
+
+
+def said_key(post: dict) -> tuple[str, str] | None:
+    """Where a post goes and a digest of its exact words, the pair an exact repeat matches on; None for a post with no words of its own, such as a card."""
+    if not (text := (post.get("text") or "").strip()) or post.get("card") or post.get("tap_prs"):
+        return None
+    return f"{post.get('channel_id') or 'dm'}/{post.get('thread_ts') or ''}", hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
+def said_before(name: str, post: dict) -> str | None:
+    """The permalink of the post that already sent these exact words to this place, so say drops the repeat as mechanics, by the design's rule that the same text never goes to the same place twice: 89 of the 1,063 posts one night were exact repeats."""
+    path = state.drive_dir(name) / SAID_FILE
+    if not (key := said_key(post)) or not path.exists():
+        return None
+    return json.loads(path.read_text()).get(key[0], {}).get(key[1])
+
+
+def remember_said(name: str, post: dict, link: str) -> None:
+    """Keep where these words went, the newest SAID_KEPT a place."""
+    if not (key := said_key(post)):
+        return
+    path = state.drive_dir(name) / SAID_FILE
+    kept = json.loads(path.read_text()) if path.exists() else {}
+    place = kept.get(key[0], {}) | {key[1]: link}
+    kept[key[0]] = dict(list(place.items())[-SAID_KEPT:])
+    path.write_text(json.dumps(kept))
 
 
 def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> str:
@@ -323,12 +382,19 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
     claimed = cli.claim_close(name, report)
     if key := request_key(name, post, report):
         post = post | {"request_key": key}
+    if not post.get("edit") and (before := said_before(name, post)):
+        cli.unclaim_close(name, claimed)
+        if seq:
+            state.write(name, lambda data: data["carried"].__setitem__(seq, before), patient=True)
+        return f"DROPPED these exact words already went to this place at {before}, so nothing posted again"
     try:
         reply = posted(name, post, order, {"record": seq, "report": report if close else None} if order else None)
     except (DriveError, slack.SlackError):
         cli.unclaim_close(name, claimed)
         raise
     link = reply["permalink"]
+    if not post.get("edit"):
+        remember_said(name, post, link)
     line = f"{'EDITED' if post.get('edit') else 'POSTED'} {link}"
     if closed_again:
         state.write(name, lambda data: data["posts"].setdefault("closed_again", []).append(closed_again[0]), patient=True)

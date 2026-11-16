@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, cli, fixes, limits, mcp, orca, picture, reads, refs, render, settled, slack, state, talk, tools, view, watch
+from drive import agents, cli, fixes, gate, limits, mcp, orca, picture, reads, refs, render, settled, slack, state, talk, tools, view, watch
 from drive.state import DriveError
 
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
@@ -1107,7 +1107,7 @@ CRAFT_GUIDE = (
     "words are its own URL, where words saying what it opens belong, other than an alert's own Sentry or Datadog link alone"
     ' on its line; tell him something waits or sits somewhere else, such as his card in another thread, without linking it '
     'or showing what it asks right here; ask him to act on a card, such as picking an option on it or tapping it, without '
-    'linking that card so it draws with the post; present a proof that ran a repro or script as the real event, such as a live page or alert, rather than saying which it was; ask him to type a word a card can carry, such as reply merge, rather than '
+    'linking that card so it draws with the post; name a cause or say work is fixed, merged, queued or live without linking what measured it; tell him the drive failed, refused or left a gap without saying how that is prevented; go against, or ask again, what his recorded answers already settle; announce an action before it has happened rather than saying what happened; present a proof that ran a repro or script as the real event, such as a live page or alert, rather than saying which it was; ask him to type a word a card can carry, such as reply merge, rather than '
     'giving him the card; ask him to approve or merge PRs without naming each PR by number, so the '
     'tool links its card; link a release to its build page where its own release post belongs; name'
     " the drive's own machinery or process, such as a job, seat, reader, builder, lane, design job, codex job, fde-scan, an"
@@ -1125,6 +1125,10 @@ CRAFT = {
     "craft.links": settled.Noul("Does `post.text` show a raw URL, or a link whose words are its own URL, where words saying what it opens belong, other than an alert's own Sentry or Datadog link alone on its line?"),
     "craft.elsewhere": settled.Noul('Does `post.text` tell him something waits or sits somewhere else, such as his card in another thread, without linking it or showing what it asks right here?'),
     "craft.card": settled.Noul('Does `post.text` ask him to act on a card, such as picking an option on it or tapping it, without linking that card so it draws with the post?'),
+    "craft.backed": settled.Noul("Does `post.text` name a cause, or say work is fixed, merged, queued or live, without linking what measured it?"),
+    "craft.prevented": settled.Noul("Does `post.text` tell him the drive failed, refused or left a gap without saying how that is prevented?"),
+    "craft.ruled": settled.Noul("Does `post.text` go against, or ask him again, something his recorded answers already settle?"),
+    "craft.after": settled.Noul("Does `post.text` announce an action before it has happened rather than saying what happened?"),
     "craft.repro": settled.Noul("Does `post.text` present a proof that ran a repro or script as the real event, such as a live page or alert, rather than saying which it was?"),
     "craft.word": settled.Noul("Does `post.text` ask him to type a word a card could carry, such as reply merge or go, rather than giving him the card?"),
     "craft.prs": settled.Noul("Does `post.text` ask him to approve or merge PRs without naming each PR by its number?"),
@@ -1142,6 +1146,10 @@ CRAFT_FIXES = {
     "craft.links": 'link each thing on words saying what it opens',
     "craft.elsewhere": 'show what the card or thread it names asks right here, or link it on its words',
     "craft.card": 'link the card he acts on, so it draws right under the post',
+    "craft.backed": "every claim of cause or state links the read that measured it",
+    "craft.prevented": "a failure of the drive's own is told with how it is prevented",
+    "craft.ruled": "his recorded answers stand; never go against or re-ask them",
+    "craft.after": "a line goes out after the action, saying what happened, never before",
     "craft.repro": "a proof that ran a repro is not the real event; say which it was",
     "craft.word": "never ask him to type a word a card can carry; give the card",
     "craft.prs": "name each PR by number, so the tool links its card",
@@ -1230,12 +1238,24 @@ def mechanical(payload: dict) -> dict:
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": tool_input, "additionalContext": "\n".join(filter(None, [context, (said.get("hookSpecificOutput") or {}).get("additionalContext")]))}}
 
 
+def refused_once(payload: dict, reason: str | None) -> str | None:
+    """The finding as checked found it, but a warning when this session already had a post to the same place refused once, since every drive gate blocks at most once, by his words of Nov 16 10:22 "letting the drives be as agentic as possible"; a tool error, a post the tool cannot send as written, refuses every time."""
+    if not reason or isinstance(reason, (Warned, agents.Unjudged)):
+        return reason
+    tool_input = payload["tool_input"]
+    action = f"{payload['tool_name'].rpartition('__')[2]} {tool_input.get('channel_id') or 'dm'}/{tool_input.get('thread_ts') or ''}"
+    if gate.gate(None, action, [reason], payload.get("session_id")) is not None:
+        return reason
+    return Warned(f"message_limits: this post went out as a repeat of one refused once, so fix it next time: {reason}")
+
+
 def hook_output(payload: dict) -> dict:
     """What the say hook prints for a call, empty when it lets the call through unjudged: a deny with the rule it stands for, a warning, and what Jev weighs a post by beside his words; a post too large for Jev's requests goes out as settled.unheard_post lets it, and a check that fails lets the post out unchecked with a warning, since a gate that cannot finish fails open."""
     if own_communicator(payload):
         return mechanical(payload)
     try:
         reason, sent = checked(payload)
+        reason = refused_once(payload, reason)
         reads = [] if isinstance(reason, agents.Unjudged) else read_evidence(payload, sent.get("claims") or [])
         ids = {item["read"]: item["id"] for item in reads if item["id"].startswith("read:")}
         sent = sent | ({"claims": [claim | {"read": ids.get(claim["read"].strip(), claim["read"])} for claim in sent["claims"]]} if sent.get("claims") else {})

@@ -119,7 +119,9 @@ COMMUNICATOR_RULES = (
     (
         "His instruction is the go-ahead, by his words \"why is it asking me to confirm in general when I literally just said it\":"
         " never ask him to confirm or acknowledge what he just said, nor to type a word a card can carry: give the card. A"
-        " proof that ran a repro is not the real event; say which it was. A"
+        " proof that ran a repro is not the real event; say which it was. Every claim of cause or state links the read that"
+        " measured it; a failure of the drive's own says how it is prevented; his recorded answers stand; a line goes out"
+        " after the action, never before. A"
         " status is a plain line with no buttons. A card goes"
         " to him only for a real open choice he has not made: 2 to 4 options with your recommendation first, within a minute."
         " Work, a build, release, fix or PR, a question proposing work such as \"why not just X?\" included, goes to the"
