@@ -29,6 +29,23 @@ class Place(NamedTuple):
     teams: tuple[str, ...]
 
 
+class Queue(NamedTuple):
+    """The merge queue a repository lands through: the script, relative to its checkout, the lander runs to enqueue and dequeue a stack; each command that enqueues, as its words, the flags taking a value and the verbs that only read; and why a drive session may land a PR no other way, its `{key}` the PR."""
+
+    script: str
+    commands: tuple[tuple[tuple[str, ...], frozenset[str], tuple[str, ...]], ...]
+    reason: str
+
+
+class LaneTool(NamedTuple):
+    """A tool a lane runs from its own tree that the drive points at its checkout, which holds the default branch's head: the words that run it, the pattern each such word matches in a command, its path in a checkout, and the source paths whose change in a lane means the lane tests its own copy."""
+
+    words: tuple[str, ...]
+    word: re.Pattern
+    path: str
+    sources: tuple[str, ...]
+
+
 class Provider:
     """One role's provider for the repository cloned at clone, its commands run in checkout, the clone's tree the drive keeps at its default branch's head."""
 
@@ -65,6 +82,14 @@ class RepoProvider(Provider):
     review_ask: str | None = None
     fde_scan: str | None = None
     page_owner: str | None = None
+
+    def queue(self) -> Queue | None:
+        """The merge queue a PR to this repository lands through; None when PRs land through GitHub alone."""
+        return None
+
+    def lane_tool(self) -> LaneTool | None:
+        """The tool a lane runs from its tree that the drive points at its checkout; None when lanes run each tool as their own tree holds it."""
+        return None
 
     def ci_config(self, path: str) -> bool:
         return False
@@ -186,10 +211,16 @@ class BuildProvider(Provider):
     receiver_path: str | None = None
     graders: str = "CI"
 
-    def builds(self, links: list[str]) -> dict[str, dict]:
+    def builds(self, links: list[str], fields: str) -> dict[str, dict | None]:
+        """Each build by its link, as one read of the repository's CI answers its GraphQL fields, None for a build it answers none for."""
         return {}
 
+    def webhook(self, headers: Any, body: bytes, key: bytes) -> list[str] | None:
+        """The build links a CI webhook delivery names once its signature checks against key, [] for one naming no build; None when the delivery is no CI event of this repository's, so the receiver reads it as GitHub's; a ProviderError naming the event when its signature fails."""
+        return None
+
     def log_tip(self, job_url: str) -> str:
+        """Where a failed CI job's own output is read, for the guard refusing a rerun past it."""
         return ""
 
 
@@ -211,7 +242,16 @@ class DataProvider(Provider):
     namespaces: frozenset[str] = frozenset()
 
     def buckets(self) -> set[str] | None:
+        """Each bucket or bucket folder, as `<bucket>/` or `<bucket>/<prefix>/`, the repository's default branch lists as holding a team's data; None when its tree holds no such list, which refuses every bucket but its outputs()."""
         return set()
+
+    def outputs(self) -> set[str]:
+        """The buckets the repository's own code names as its build, release and infra output, which pass while buckets() is None."""
+        return set()
+
+    def refusal(self, kind: str, **fields: str) -> str:
+        """Why the guard refuses a call reaching a team's data where it runs: kind `team` for `{location}` holding it, `unlisted` for `{location}` from `{folder}`, a tree holding no inventory, `namespace` for `{step}` reaching it `{where}`; `rule` carries the drive's own rule."""
+        return f"refused: this reaches a team's data where the job runs, and {fields['rule']}"
 
 
 BASES: dict[str, type[Provider]] = {"repo": RepoProvider, "release": ReleaseProvider, "staging": StagingProvider, "mac_box": MacBoxProvider, "build": BuildProvider, "access": AccessProvider, "data": DataProvider}
