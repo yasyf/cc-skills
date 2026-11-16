@@ -5508,10 +5508,10 @@ def reserve(data: dict, members: tuple[Row, ...]) -> str:
 
 
 def holder(value: object) -> int | None:
-    """The pid of the live process a reservation in a field holds it for: its child once the child adopted it or its starter settled it, while that child runs, else its starter while it runs; None for a cancelled reservation, one whose child ended, one whose starter died before naming a child, which a new reserve may take, and a field holding no reservation. Liveness reads each process's pid and the second it started, never the pid alone."""
-    if not isinstance(value, dict) or value.get("state") not in ("reserved", "adopted"):
+    """The pid of the live process a reservation in a field holds it for, chosen by its state alone: an adopted one's child while it runs, a reserved one's starter while it runs, even when settle named a child, which holds nothing until it adopts; None for a cancelled reservation, an adopted one whose child ended, a reserved one whose starter died, which a new reserve may take and whose late child's adopt then fails, and a field holding no reservation. Liveness reads each process's pid and the second it started, never the pid alone."""
+    if not isinstance(value, dict):
         return None
-    process = value["starter"] if value["child"] is None else value["child"]
+    process = {"adopted": value.get("child"), "reserved": value.get("starter")}.get(value.get("state"))
     return process[0] if lives(process) else None
 
 
