@@ -39,6 +39,8 @@ Then tell its story:
 - options: one for each option of the card, in its order: `title` at most six words naming the path; `consequence` one or two sentences on what is true once he picks it; `metrics` its lab values, each `label` the same across the options and each `value` a few words from the card, none outside a lab; `priority` the words of the priority it serves in an interview, empty outside one.
 - ask: an interview's question on his priority, empty outside an interview.
 - needs_him: why this is his to decide and not the drive's, the one that fits best: "dangerous act" when the answer lets a step run that can break customers' work or lose their data, "customer data" when it touches what customers stored, "money" when it spends money, "his hands" when he must do something himself, such as sign in, tap or hand over a secret, "his own words" when the drive needs a ruling only his words give, "only he knows" when it turns on a fact only he holds.
+- today: one or two sentences on what happens while he has not picked: what a user, a service or the drive sees meanwhile, as the card says.
+- diagram: a Mermaid flowchart of how the paths part when a picture makes the choice clearer, its node labels plain words, never an id, else empty.
 - waits: what waits on his answer, in actions a user of the product or the drive would see and for how long, such as "New chats stop being searchable until you answer; about 40 a day queue up", never code paths, by his words on a card about a lock: "is this all row writes? if so do 2. if its only creation of dbs etc then do 1. this was not clear at all"; one sentence, empty when nothing waits."""
 CHANGE_RULES = f"""You write the interactive story of one pull request card for the dashboard, which he walks chapter by chapter to decide whether to approve it to land: the problem, the change file by file, what it does at runtime, the evidence, then his choice. His words on the cards: "these also need to tell an interactive story, as do the decision cards, to help make decisions and review the changes", and on a card that failed him: "has a lot of facts but is compeltely useless for me figuring ut if I want to meg eit or not, I have no idea why were doing this change, what it does, or what the downstream impacts of it are", and on another that never said where it was tested: "IS THIS FUCKING TRSTED ON STSGIGN WHY DO I HAVE TI KEEO ASKING". {EFFORT}
 
@@ -53,7 +55,7 @@ Tell its story:
 - approve: one or two sentences on what happens once he taps Approve: when it lands and ships and who sees the change.
 - hold: one or two sentences on what stays true while he holds it."""
 NEEDS_HIM = ("dangerous act", "customer data", "money", "his hands", "his own words", "only he knows")
-QUESTION_VERSION = 2
+QUESTION_VERSION = 3
 QUESTION = {
     "type": "object",
     "properties": {
@@ -63,6 +65,8 @@ QUESTION = {
         "ask": {"type": "string"},
         "needs_him": {"enum": list(NEEDS_HIM)},
         "waits": {"type": "string"},
+        "today": {"type": "string"},
+        "diagram": {"type": "string"},
         "options": {
             "type": "array",
             "items": {
@@ -77,7 +81,7 @@ QUESTION = {
             },
         },
     },
-    "required": ["format", "headline", "beats", "ask", "needs_him", "waits", "options"],
+    "required": ["format", "headline", "beats", "ask", "needs_him", "waits", "today", "diagram", "options"],
 }
 CHANGE_VERSION = 2
 CHANGE = {

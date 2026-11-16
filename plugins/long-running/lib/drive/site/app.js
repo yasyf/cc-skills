@@ -611,11 +611,24 @@ function decisionRail(item) {
   </aside>`;
 }
 
+function decisionChapters(item, key, story, state, cause) {
+  const card = item.card;
+  const links = [...(card.links ?? []), ...(card.refs ?? [])].filter((each) => !SLACK.test(each.url));
+  const parts = [
+    ['happened', 'What happened', `<div class="story-beats">${story.beats.map((beat) => `<p><strong>${esc(beat.label)}</strong> ${esc(beat.text)}</p>`).join('')}</div>${cause ? `<p class="story-cause"><b>Root cause:</b> ${esc(cause)}</p>` : ''}`],
+    ['today', 'If you wait', story.today || story.diagram || story.waits ? `${story.today ? `<p class="ch-lead">${esc(story.today)}</p>` : ''}${story.waits ? `<p><b>What waits on you:</b> ${esc(story.waits)}</p>` : ''}${story.diagram ? visual('mermaid', story.diagram, 'How the paths part') : ''}` : ''],
+    ['evidence', 'The evidence', card.body || card.pictures?.length || links.length ? `${prose(card.body)}${pictures(card.pictures)}${links.length ? `<ul class="rail-list">${links.map((each) => `<li>${link(each.label, each.url)}</li>`).join('')}</ul>` : ''}` : ''],
+  ].filter(([, , body]) => body);
+  const at = Math.min(state.chapter ?? 0, parts.length - 1);
+  const nav = parts.length > 1 ? `<nav class="ch-nav" aria-label="Its story, step by step"><ol>${parts.map(([, label], i) => `<li><button class="${i === at ? 'on' : ''}${i < at ? ' seen' : ''}" data-dchapter="${i}" data-dchapter-of="${esc(key)}" aria-current="${i === at}"><span class="n">${i + 1}</span>${label}</button></li>`).join('')}<li><span class="ch-then">then your call below</span></li></ol></nav>` : '';
+  return `${nav}<section class="ch-body ch-${parts[at][0]}">${parts[at][2]}</section>`;
+}
+
 function decisionCard(item, at, total) {
   const key = item.answer;
   const story = item.told?.story;
   if (!story) return `<div class="queue-layout story-layout"><article class="focus-card decision-story" aria-labelledby="item-title" tabindex="-1"><div class="card-content"><div class="card-top"><span class="type-label">Decision</span>${counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(decisionPlain(item.card.title))}</h2>${item.told ? `${untold(item.told)}${choices(item, true)}` : notRead(slice(`/api/card?${new URLSearchParams({ answer: key })}`))}</div></article>${decisionRail(item)}</div>`;
-  if (!decisionStates.has(key)) decisionStates.set(key, { selected: Math.max(0, item.card.options.indexOf(item.card.recommended)), step: 0, compare: false });
+  if (!decisionStates.has(key)) decisionStates.set(key, { selected: Math.max(0, item.card.options.indexOf(item.card.recommended)), step: 0, compare: false, chapter: 0 });
   const state = decisionStates.get(key);
   const showing = picked?.card === key ? picked.index : state.selected;
   const option = story.options[showing];
@@ -630,7 +643,7 @@ function decisionCard(item, at, total) {
   const action = given?.done ? `<p class="answered">✓ ${esc(given.label)}</p>` : `<div class="story-action"><button class="btn" data-story-review="${esc(key)}"${given && !given.error ? ' disabled' : ''}>Review this choice <kbd>↵</kbd></button><small>Choose first. Review before sending.</small>${given?.error ? `<p role="alert">${esc(given.error)}</p>` : ''}</div>`;
   const lab = `<div class="story-lab">${options}${action}${outcome}<button class="linkish" data-story-compare="${esc(key)}" aria-expanded="${state.compare}">${state.compare ? 'Close comparison' : 'Compare every path'}</button>${state.compare ? table([['Path', 'What changes', ...story.options[0].metrics.map((metric) => metric.label)], ...story.options.map((choice) => [choice.title, choice.consequence, ...choice.metrics.map((metric) => metric.value)])]) : ''}</div>`;
   const interview = `<div class="story-interview"><div class="story-steps" aria-label="Step ${state.step + 1} of 2"><span class="on">1 · Your priority</span><span class="${state.step ? 'on' : ''}">2 · Your path</span></div>${state.step ? `<button class="linkish" data-story-back="${esc(key)}">← Change my priority</button>${outcome}${action}` : `<h3>${esc(story.ask)}</h3><div class="story-options">${story.options.map((choice, i) => `<button class="story-option" data-story-priority="${i}" data-story-card="${esc(key)}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.priority)}</strong><small>${esc(choice.title)}</small></span><span aria-hidden="true">→</span></button>`).join('')}</div>`}</div>`;
-  return `<div class="queue-layout story-layout"><article class="focus-card decision-story ${story.format}" aria-labelledby="item-title" tabindex="-1" data-story="${esc(key)}" data-format="${story.format}"><div class="card-content"><div class="card-top"><span class="type-label">${{ cockpit: 'Decision', lab: 'Decision: compare the paths', interview: 'Decision: what matters most' }[story.format]}</span>${counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(story.headline)}</h2><div class="story-beats">${story.beats.map((beat) => `<p><strong>${esc(beat.label)}</strong> ${esc(beat.text)}</p>`).join('')}</div>${cause ? `<p class="story-cause"><b>Root cause:</b> ${esc(cause)}</p>` : ''}${restored.has(key) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : ''}${story.format === 'lab' ? lab : story.format === 'interview' ? interview : `<div class="story-cockpit">${options}<div>${outcome}${action}</div></div>`}</div></article>${decisionRail(item)}</div>`;
+  return `<div class="queue-layout story-layout"><article class="focus-card decision-story ${story.format}" aria-labelledby="item-title" tabindex="-1" data-story="${esc(key)}" data-format="${story.format}"><div class="card-content"><div class="card-top"><span class="type-label">${{ cockpit: 'Decision', lab: 'Decision: compare the paths', interview: 'Decision: what matters most' }[story.format]}</span>${counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(story.headline)}</h2>${decisionChapters(item, key, story, state, cause)}${restored.has(key) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : ''}<h3 class="eyebrow ch-call">Your call</h3>${story.format === 'lab' ? lab : story.format === 'interview' ? interview : `<div class="story-cockpit">${options}<div>${outcome}${action}</div></div>`}</div></article>${decisionRail(item)}</div>`;
 }
 
 function reviewDecision(key) {
@@ -3047,6 +3060,11 @@ document.addEventListener('click', (event) => {
   }
   const moved = event.target.closest('[data-move]');
   if (moved) return move(Number(moved.dataset.move));
+  const dchapter = event.target.closest('[data-dchapter]');
+  if (dchapter) {
+    decisionStates.get(dchapter.dataset.dchapterOf).chapter = Number(dchapter.dataset.dchapter);
+    return render();
+  }
   const chapter = event.target.closest('[data-chapter]');
   if (chapter) {
     prChapters.set(chapter.dataset.chapterOf, Number(chapter.dataset.chapter));
