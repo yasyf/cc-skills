@@ -239,7 +239,7 @@ Posting it:
   for a sign-in or a fact, a vague object or a missing root cause, prints as `weigh before it
   draws:` with its rule: you weigh it and fix the card when the rule applies.
 - A card his question no longer needs is withdrawn at once by the session that holds its job, with
-  `drive cards withdraw <waits> --words "<what happened>"`, so it never asks him for a day about
+  `drive cards withdraw <waits> --words "<what happened>" --via <the link of what overtook it>`, so it never asks him for a day about
   work that went on without it. `drive job report` prints each open card a return no longer names
   as `weigh:`; you decide whether the work still needs his pick.
 - A kept ASK file changes through `drive job ask`. `drive job card` and `drive cards redraw` do not
