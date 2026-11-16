@@ -188,7 +188,7 @@ def ids(pr: dict) -> str:
 
 
 def pr_changes(pr: dict, read: dict, entry: dict) -> list[str]:
-    """What moved on the PR since the watch last read it, saved onto its row, its landing by github.live; ejected once Trunk put the trunk-failed label on entry, the read of the PR whose Trunk queue entry carries it, after the PR's lander started its try, since Trunk labels only the top PR its lander queued and leaves the label on through later pushes; its lander's try ends dequeued, out of the queue, once Trunk put the trunk-cancelled label on entry after that try started and ejected nothing, as when a stack-enqueue --dequeue took it out."""
+    """What moved on the PR since the watch last read it, saved onto its row, its landing by github.live; ejected once Trunk put the trunk-failed label on entry, the read of the PR whose Trunk queue entry carries it, after the PR's lander started its try, since Trunk labels only the top PR its lander queued and leaves the label on through later pushes; its lander's try ends dequeued, out of the queue, once Trunk put the trunk-cancelled label on entry after that try started and ejected nothing, as when a stack-enqueue --dequeue took it out; each review:<login> wait it carries ends once that teammate's newest review is of its head, kept on its reviewed for his card's first line."""
     fresh = github.live(read, pr)
     changes = []
     if fresh["head"] != pr["head"] and pr["head"]:
@@ -208,7 +208,9 @@ def pr_changes(pr: dict, read: dict, entry: dict) -> list[str]:
     if lander and lander["outcome"] == land.QUEUED and not ejected and entry["cancelled_at"] and state.parse_time(entry["cancelled_at"]) > state.parse_time(lander["at"]):
         lander["outcome"] = land.DEQUEUED
         changes.append(land.DEQUEUED)
-    pr.update(fresh, draft=read["isDraft"], ejected=ejected)
+    landed = {wait: review for wait in pr["waits"] if (asked := state.REVIEW_WAIT.fullmatch(wait)) and (review := read["reviews"].get(asked["login"].casefold())) and review["head"] == fresh["head"]}
+    changes += [f"{review['login']} reviewed {review['head'][:7]}" for review in landed.values()]
+    pr.update(fresh, draft=read["isDraft"], ejected=ejected, waits=[wait for wait in pr["waits"] if wait not in landed], reviewed=[*pr["reviewed"], *landed.values()])
     return changes
 
 

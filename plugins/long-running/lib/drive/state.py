@@ -185,6 +185,7 @@ LINE_JOB = re.compile(r"(?<![\w:/.-])j\d+(?![\w@-])")
 SLOT_WAIT = "builder-slot"
 HOLDS_NOW = "## Holds now"
 REPLY_WAIT = re.compile(r"reply:(?P<link>https://[\w.-]+/archives/[A-Z0-9]+/p\d{16}(?:\?[^\s,;]*)?)")
+REVIEW_WAIT = re.compile(r"review:(?P<login>[A-Za-z0-9][A-Za-z0-9-]{0,38})")
 NOT_STARTED = "not started"
 PROVER_GOAL = re.compile(r"prove (?P<keys>.+) live")
 STAGING_LINE = re.compile(r"^[*_`]*STAGING[*_`]*:?[*_`]*[ \t]+(?P<staging>\S.*?)[ \t]*$", re.MULTILINE)
@@ -1117,6 +1118,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         if pr["unstaged"]:
             pr["unstaged"].setdefault("merges_first", False)
         pr.setdefault("reached", False)
+        pr.setdefault("reviewed", [])
         pr.pop("stall", None)
         pr.setdefault("graded", pr["state"] == "merged")
         if checked := pr["checked"]:
@@ -4923,15 +4925,17 @@ def followed_builds(orders: dict[str, dict]) -> set[str]:
 
 
 def card_wait(data: dict, wait: str) -> bool:
-    """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a job's next report, a PR, tracked or not, a part of an order, a release of the drive, a staging test's soak commit, a process on this Mac, a Buildkite build, a teammate's reply to a question the drive asked them or a builder slot on this Mac."""
-    return wait not in data["jobs"] and wait not in data["prs"] and not part_wait(data, wait) and not RELEASE_WAIT.fullmatch(wait) and not STAGING_WAIT.fullmatch(wait) and not PID_WAIT.fullmatch(wait) and not github.BUILD.fullmatch(wait) and not REPLY_WAIT.fullmatch(wait) and not RETURN_WAIT.fullmatch(wait) and not untracked_wait(data, wait) and wait != SLOT_WAIT
+    """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a job's next report, a PR, tracked or not, a part of an order, a release of the drive, a staging test's soak commit, a process on this Mac, a Buildkite build, a teammate's reply to a question the drive asked them, a teammate's review of a PR's head or a builder slot on this Mac."""
+    return wait not in data["jobs"] and wait not in data["prs"] and not part_wait(data, wait) and not RELEASE_WAIT.fullmatch(wait) and not STAGING_WAIT.fullmatch(wait) and not PID_WAIT.fullmatch(wait) and not github.BUILD.fullmatch(wait) and not REPLY_WAIT.fullmatch(wait) and not REVIEW_WAIT.fullmatch(wait) and not RETURN_WAIT.fullmatch(wait) and not untracked_wait(data, wait) and wait != SLOT_WAIT
 
 
 def job_wait_refusal(data: dict, waits: list[str]) -> str | None:
-    """Why a job may not wait on another job: a job view.holds no longer holds on leaves nothing to wait on. Any other job of any kind may be waited on, a reader that just started included, the wait stored as change_wait names it."""
+    """Why a job may not wait on another job: a job view.holds no longer holds on leaves nothing to wait on. Any other job of any kind may be waited on, a reader that just started included, the wait stored as change_wait names it. A teammate's review is a PR's wait alone, since it is of that PR's head."""
     from drive import view
 
     for wait in waits:
+        if REVIEW_WAIT.fullmatch(wait):
+            return f"--waits {wait}: a teammate's review is of one PR's head, so it holds that PR: drive pr set <the PR> --waits {wait}"
         if wait in data["jobs"] and not view.holds(data, wait, None):
             return f"--waits {wait}: {wait} is {data['jobs'][wait]['state']}, so nothing of it is left to wait on"
     return None
@@ -5238,7 +5242,7 @@ def against(pr: dict) -> str:
 
 
 def tap_refused(data: dict, pr: dict) -> str | None:
-    """Why his card on the PR offers no Approve; None when it does: open on a repository this account may merge on, since one by upstream() reads as merged outside the drive, waiting on his tap with no exempt class landing it, not approved by him, and, outside an open incident, no question card of his holding it by land.pr_cards, by his pick CARDS_FIRST, so no tap on a PR card answers a design question he has not, whatever the check against his words says, and not on the branch of a job that has opened no PR there yet, by built_base, since it lands only with that job's PR, whose opening puts the two on one card. His Approve stands until his words rework the PR or he taps Hold, so a card of his that came to hold it since he tapped, which his Approve did not answer, holds it as held, owed by him and naming that card, until his answer on it frees it. His Hold stops only its landing, by his pick 6f2f239, so a held PR offers it, and his Approve there lifts the Hold, as one Approve on a stack card lifts each member's, by his pick eb69825. A red PR offers it, as does one the hold label on GitHub holds, and so does one the check objects to; an incident's repair offers it beside the card that holds it, whose recommended option his Approve picks, by his pick e55b1cd."""
+    """Why his card on the PR offers no Approve; None when it does: open on a repository this account may merge on, since one by upstream() reads as merged outside the drive, waiting on his tap with no exempt class landing it, not approved by him, no teammate's review of its head still awaited by its review:<login> waits, so a PR his order runs by a teammate first draws his card only once that review lands, and, outside an open incident, no question card of his holding it by land.pr_cards, by his pick CARDS_FIRST, so no tap on a PR card answers a design question he has not, whatever the check against his words says, and not on the branch of a job that has opened no PR there yet, by built_base, since it lands only with that job's PR, whose opening puts the two on one card. His Approve stands until his words rework the PR or he taps Hold, so a card of his that came to hold it since he tapped, which his Approve did not answer, holds it as held, owed by him and naming that card, until his answer on it frees it. His Hold stops only its landing, by his pick 6f2f239, so a held PR offers it, and his Approve there lifts the Hold, as one Approve on a stack card lifts each member's, by his pick eb69825. A red PR offers it, as does one the hold label on GitHub holds, and so does one the check objects to; an incident's repair offers it beside the card that holds it, whose recommended option his Approve picks, by his pick e55b1cd."""
     from drive import land
 
     if pr["state"] != "open":
@@ -5251,6 +5255,8 @@ def tap_refused(data: dict, pr: dict) -> str | None:
         return "its author or its own builder lands it with no tap"
     if (pr["tap"] or {}).get("label") == "Approve":
         return "he approved it already"
+    if reviewers := awaited_reviewers(pr):
+        return f"it waits on a GitHub review of its head by {', '.join(reviewers)}, so his card draws once that review lands"
     job = data["jobs"][pr["job"]]
     if not open_incidents(data, [job["order"], *job["carries"]]) and (holding := land.pr_cards(data, pr)):
         return f"his cards {', '.join(holding)} hold it until he answers each, by his pick {CARDS_FIRST}"
@@ -5278,6 +5284,11 @@ def built_base(data: dict, pr: dict) -> str | None:
         ),
         None,
     )
+
+
+def awaited_reviewers(pr: dict) -> list[str]:
+    """The GitHub login of each teammate whose review of the PR's head it still waits on, by its review:<login> waits, which the watch's GitHub read drops as each lands."""
+    return [review["login"] for wait in pr["waits"] if (review := REVIEW_WAIT.fullmatch(wait))]
 
 
 def upstream(pr: dict) -> bool:
@@ -5367,5 +5378,6 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "paths_at": None,
         "unstaged": None,
         "reached": False,
+        "reviewed": [],
         "updated": stamp(),
     }

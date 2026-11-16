@@ -33,6 +33,7 @@ REFRESHER_HEADINGS = ("refresher", "eli5", "in plain words", "context")
 STACK_HEADING = "the stack"
 STACK_CHARS = 700
 LEAD_LABELS = (("why", "Why this exists"), ("what", "What changes"), ("downstream", "Downstream"))
+REVIEWED = {"APPROVED": "approved", "CHANGES_REQUESTED": "asked for changes on", "COMMENTED": "commented on"}
 HATE_HEADINGS = ("what you'll hate most", "what you will hate most", "what you'll hate the most", "what you will hate the most")
 PLAN_HEADINGS = ("against the plan", "differs from the plan", "plan deviations")
 IMPACT_HEADINGS = ("fde impact", "fde impact scan")
@@ -323,9 +324,10 @@ def headline(entry: dict) -> str:
 
 
 def lead_words(entry: dict) -> str:
-    """Why the PR is made, what it does and what it changes downstream, one labelled line each, as its builder gave drive pr add; none for a PR kept without them."""
+    """Each teammate's GitHub review the PR waited on before his card drew, first, then why the PR is made, what it does and what it changes downstream, one labelled line each, as its builder gave drive pr add; none for a PR kept without them."""
     lead = entry.get("lead") or {}
-    return "\n".join(f"**{label}:** {lead[key]}" for key, label in LEAD_LABELS if lead.get(key))
+    reviewed = [f"**Reviewed by {review['login']}:** {REVIEWED[review['state']]} {review['head'][:7]}" for review in entry["reviewed"]]
+    return "\n".join([*reviewed, *(f"**{label}:** {lead[key]}" for key, label in LEAD_LABELS if lead.get(key))])
 
 
 def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, ...] = (), undrawn: tuple[str, ...] = (), picked: tuple[tuple[str, str], ...] = (), charts: int = limits.CHARTS) -> dict:

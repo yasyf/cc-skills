@@ -166,6 +166,7 @@ def read(**overrides: object) -> dict:
         "checks": RUNNING,
         "reviewDecision": None,
         "approvals": [],
+        "reviews": {},
         "mergeable": "MERGEABLE",
         "title": "Fix: the watch",
         "author": "yasyf",
@@ -666,6 +667,7 @@ def pull_node(head: str) -> dict:
         "author": {"login": "yasyf"},
         "reviewDecision": None,
         "latestOpinionatedReviews": {"nodes": []},
+        "reviews": {"nodes": []},
         "mergeable": "MERGEABLE",
         "mergeCommit": None,
         "mergedAt": None,
@@ -5855,6 +5857,24 @@ def test_a_pr_waiting_on_his_tap_draws_his_card_from_the_watch_on_its_first_read
     assert (draws.keys, sent) == ([[KEY]], [])
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
     assert (draws.keys, view.tap_card(data := state.load(demo), data["prs"][KEY], view.live_cards(demo))) == ([[KEY]], draws.link)
+
+
+def test_a_pr_held_on_a_teammates_review_draws_his_card_only_once_their_newest_review_is_of_its_head_opening_with_that_review(
+    demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws, woken: list[tuple[str, str]]
+) -> None:
+    waiting_job(demo)
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"wants_tap": True, "waits": ["review:Octocat"]}
+    reads = {KEY: read(checks=GREEN, reviewDecision="APPROVED", reviews={"octocat": {"login": "octocat", "head": "0ld0000", "state": "APPROVED"}})}
+    serve(monkeypatch, reads)
+    watch.run_pass(watcher(demo), T0)
+    pr = state.load(demo)["prs"][KEY]
+    assert (draws.keys, pr["waits"], pr["stage"]["name"], pr["stage"]["owner"], woken) == ([], ["review:Octocat"], "reviewing", stage.OUTSIDE, [])
+    reads[KEY]["reviews"] = {"octocat": {"login": "octocat", "head": "aaaaaaa111", "state": "COMMENTED"}}
+    lines = watch.run_pass(watcher(demo), T0 + timedelta(minutes=1))
+    data = state.load(demo)
+    assert (f"PR {KEY}: octocat reviewed aaaaaaa [o1 j1]" in lines, draws.keys, data["prs"][KEY]["waits"]) == (True, [[KEY]], [])
+    assert card.lead_words(data["prs"][KEY]).splitlines()[0] == "**Reviewed by octocat:** commented on aaaaaaa"
 
 
 THIRD = "Forge-AI/monorepo#44"

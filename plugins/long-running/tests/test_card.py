@@ -103,6 +103,7 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
         "checker": None,
         "design": None,
         "waits": [],
+        "reviewed": [],
         "updated": "2026-11-09T08:00:00-08:00",
         "native": [],
         "now": stage.Stage(named, "", ""),
@@ -1830,6 +1831,16 @@ def test_pr_55405s_card_as_he_saw_it_says_neither_why_what_nor_downstream_and_it
         [f"**Why this exists:** {LEAD_55405['why']}", f"**What changes:** {LEAD_55405['what']}", f"**Downstream:** {LEAD_55405['downstream']}"],
         seen["prs"],
     )
+
+
+def test_his_card_on_a_pr_held_on_a_teammates_review_opens_with_that_review_before_its_lead() -> None:
+    pr = pr_json(title=TITLE_55405, body=SEEN_55405, url="https://github.com/Forge-AI/monorepo/pull/55405")
+    reviewed = [{"login": "octocat", "head": "aaaaaaa111", "state": "COMMENTED"}, {"login": "hubot", "head": "aaaaaaa111", "state": "APPROVED"}]
+    assert card.render(pr, entry() | {"lead": LEAD_55405, "reviewed": reviewed})["body"].splitlines()[:3] == [
+        "**Reviewed by octocat:** commented on aaaaaaa",
+        "**Reviewed by hubot:** approved aaaaaaa",
+        f"**Why this exists:** {LEAD_55405['why']}",
+    ]
 
 
 @pytest.mark.parametrize(("summary", "rewrite", "named"), [(SUMMARY_55405, LEAD_55405, "drain_one"), (SUMMARY_55337, LEAD_55337, "stream_routed")])

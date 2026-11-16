@@ -4017,9 +4017,14 @@ def pr_add(args: argparse.Namespace) -> int:
         raise DriveError("--no-tap needs --why <reason>: every PR waits on his tap unless it is a port, exempt or drive tooling outside Forge-AI")
     if args.no_tap and state.guarded(key):
         raise DriveError(UNLANDABLE.format(key=key, done="added"))
+    if others := [wait for wait in args.waits if not state.REVIEW_WAIT.fullmatch(wait)]:
+        raise DriveError(
+            f"--waits {', '.join(others)}: refused, nothing added: drive pr add takes only a teammate's review, review:<their GitHub login>,"
+            f" which keeps his card from drawing in this call; set any other wait once it is added, with drive pr set {key} --waits <it>"
+        )
     lead = {line: given for line, flag in limits.LEAD_LINES if (given := getattr(args, flag.removeprefix("--")))}
     kept = data["prs"].get(key, {}).get("lead")
-    pr, testers = add_pr(name, key, args.job, github_pr(key), args.port_of, args.exempt, args.no_tap, lead, args.part)
+    pr, testers = add_pr(name, key, args.job, github_pr(key), args.port_of, args.exempt, args.no_tap, lead, args.part, args.waits)
     shown = view.card_for((view.live_cards(name) or view.NO_CARDS)["pr_cards"], pr["url"])
     drawn = state.after_save(name, lambda: [f"{key}{said}"] if (said := (releaded(pr) if pr["lead"] != kept else "") if shown else drawn_card(name, key)) else [])
     data = state.load(name)
@@ -4090,8 +4095,8 @@ def pr_wake(args: argparse.Namespace) -> int:
     return emit(args, f"{key}: sent to {lane}@{name} for {target}", {"key": key, "job": job_id, "how": f"handoff to {lane}"})
 
 
-def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False, lead: dict | None = None, parts: list[str] | None = None) -> tuple[dict, list[str]]:
-    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title and branch it read, so a PR merged and proved before the watch's next read is named by it and a card naming its branch holds it at once, and the parts of its job's orders it names as delivering, so its first check judges it on those, and, for an open one whose head changes a dangerous class of file, its staging test with a tester, by state.mark_dangerous, before his card draws; the PR as registered, the job's first in place of each wait on its change, and the tester added. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR his words on its order do not name is refused before any check that would have its title or body edited. The lead lines given are kept over those kept before. A PR is refused once, nothing written, naming every one of these it has, so one relayed call or dry run names them all: a title his card cannot name the kind of, a Show me picture that does not draw, and, on a PR his card asks his tap on, a lead that does not tell him why it is made, what it does and what it changes downstream, by limits.lead_problems; a FIX line's PR, given no lead, is someone else's and kept as it reads. An open PR waiting on his tap whose paths reach a component staging runs is kept waiting on its staging test, by staging_reach, so his first card on it names that wait, and a failed read of that reach refuses the add, nothing kept."""
+def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False, lead: dict | None = None, parts: list[str] | None = None, waits: list[str] = ()) -> tuple[dict, list[str]]:
+    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title and branch it read, so a PR merged and proved before the watch's next read is named by it and a card naming its branch holds it at once, and the parts of its job's orders it names as delivering, so its first check judges it on those, and, for an open one whose head changes a dangerous class of file, its staging test with a tester, by state.mark_dangerous, before his card draws; the PR as registered, the job's first in place of each wait on its change, and the tester added. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR his words on its order do not name is refused before any check that would have its title or body edited. The lead lines given are kept over those kept before, and each teammate's review it waits on, as review:<login>, beside its other waits, so his card draws only once each lands on its head. A PR is refused once, nothing written, naming every one of these it has, so one relayed call or dry run names them all: a title his card cannot name the kind of, a Show me picture that does not draw, and, on a PR his card asks his tap on, a lead that does not tell him why it is made, what it does and what it changes downstream, by limits.lead_problems; a FIX line's PR, given no lead, is someone else's and kept as it reads. An open PR waiting on his tap whose paths reach a component staging runs is kept waiting on its staging test, by staging_reach, so his first card on it names that wait, and a failed read of that reach refuses the add, nothing kept."""
     from drive import stage
 
     url = state.pr_url(key)
@@ -4131,6 +4136,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
             pr["wants_tap"] = False
         if lead:
             pr["lead"] = (pr["lead"] or {}) | lead
+        pr["waits"] = list(dict.fromkeys([*pr["waits"], *waits]))
         return pr
 
     pending = registered(dict(known["prs"].get(key) or state.new_pr(url, job_id, added["order"]) | {"wants_tap": wants_tap}), added["order"])
@@ -5573,7 +5579,7 @@ def parser() -> argparse.ArgumentParser:
         "--waits",
         action="append",
         default=[],
-        metavar="CARD|JOB|PR|RELEASE|PART|PID|BUILD",
+        metavar="CARD|JOB|PR|RELEASE|PART|PID|BUILD|REVIEW",
         help=(
             "a design card or PR card of his still open, by its Slack link or waits id, on drive job set alone, since a card holds a PR"
             " only by its question's Holds: line or the PR's DESIGN: line citing it, and drive pr set refuses one, a PR the drive tracks as <owner>/<repo>#<n>,"
@@ -5584,6 +5590,8 @@ def parser() -> argparse.ArgumentParser:
             " a process on this Mac that still runs as pid:<n>, stored pinned to the second it started,"
             " a Buildkite build by its link, https://buildkite.com/<org>/<pipeline>/builds/<n>,"
             " reply:<the permalink of a question the drive asked a teammate>, say's job field setting it,"
+            " on drive pr set alone review:<a teammate's GitHub login>, their review of the PR's head, which holds his card from drawing and the PR from landing"
+            " until the watch's GitHub read finds their newest review is of its head, said on the PR's line,"
             " or a job of this drive still at work, of any kind, it waits on;"
             " repeat for each, a job's wait on a job stored as that job's newest open PR. The watch drops each as he answers or taps it, the PR merges, the job returns DONE, or, once it"
             " stops or fails, each part it carries is delivered, the process ends, crashed or finished, which starts a codex job's next codex-ask run carrying its last report,"
@@ -6404,6 +6412,17 @@ def parser() -> argparse.ArgumentParser:
     untapped.add_argument("--port-of", type=int, metavar="PR", help="a pure port of this PR number in its own repository, work that merged or that he approved: exempt, with no tap card, waiting on and landing after an original the drive tracks until it merges or he approves it; refused for an original the drive does not track that GitHub does not read merged, and for a PR changing a migration, schema or wire format, whose data model is a design part of his order")
     untapped.add_argument("--exempt", choices=state.EXEMPT_CLASSES)
     untapped.add_argument("--no-tap", action="store_true", help="it lands with no tap of his, outside Forge-AI; needs --why. Every other PR waits on his tap")
+    verb.add_argument(
+        "--waits",
+        action="append",
+        default=[],
+        metavar="review:LOGIN",
+        help=(
+            "a teammate's GitHub review of the PR's head, review:<their GitHub login>, as his order runs the change by them first: his card draws only once"
+            " their newest review, an approval, a request for changes or a comment, is of the PR's head as the watch's GitHub read finds it, and opens saying"
+            " they reviewed; repeat for each teammate. drive pr set --waits takes every other wait"
+        ),
+    )
     verb.set_defaults(run=pr_add)
     verb = pr.add_parser("set", parents=[*both, dry_opt, waits_opt])
     verb.add_argument("url", help=f"the PR, as {PR_FORMS}")

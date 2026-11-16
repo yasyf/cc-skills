@@ -6895,7 +6895,7 @@ def test_a_builders_ready_counts_only_on_a_green_required_check_and_one_still_ru
 ) -> None:
     build = "https://buildkite.com/forge/monorepo/builds/7"
     read = {"state": "OPEN", "isDraft": False, "headRefOid": "abc", "baseRefName": "main", "headRefName": "land-it", "mergeCommit": None, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE"}
-    read |= {"title": "Fix: land it", "author": "yasyf", "labels": [], "ejected_at": None, "cancelled_at": None, "native": [], "trunk": None, "required_checks": ["buildkite/test"], "required_reviews": 1, "merge_method": "squash", "permission": "ADMIN", "default": "main", "landing_bases": [], "under": None, "base_pr": None}
+    read |= {"title": "Fix: land it", "author": "yasyf", "labels": [], "ejected_at": None, "cancelled_at": None, "native": [], "trunk": None, "reviews": {}, "required_checks": ["buildkite/test"], "required_reviews": 1, "merge_method": "squash", "permission": "ADMIN", "default": "main", "landing_bases": [], "under": None, "base_pr": None}
     test = {"context": "buildkite/test", "targetUrl": build}
     for posted, held in (
         ([], f"{with_pr}'s required checks still run at abc: return"),
@@ -7587,6 +7587,21 @@ def test_pr_add_refuses_a_pr_his_card_asks_his_tap_on_until_its_lead_says_why_wh
         "Builders also rewrite the lead when the change moves",
         [PR],
     )
+
+
+def test_pr_add_holds_his_card_on_a_teammates_review_refusing_any_other_wait_and_job_set_refuses_a_review_wait(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str], draws: Draws
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    key = "Forge-AI/monorepo#42"
+    assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD, "--waits", "j1"]) == 2
+    assert "--waits j1: refused, nothing added: drive pr add takes only a teammate's review" in capsys.readouterr().err
+    assert run("pr", "add", PR, "--job", "j1", *LEAD, "--waits", "review:octocat") == (0, key)
+    pr = state.load("demo")["prs"][key]
+    assert (pr["waits"], pr["reviewed"], draws.keys) == (["review:octocat"], [], [])
+    assert cli.main(["job", "set", "j1", "--waits", "review:octocat"]) == 2
+    assert "--waits review:octocat: a teammate's review is of one PR's head, so it holds that PR" in capsys.readouterr().err
 
 
 def test_pr_add_and_set_refuse_a_pr_someone_else_opened_unless_the_order_it_serves_names_it(
