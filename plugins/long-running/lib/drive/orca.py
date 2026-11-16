@@ -846,6 +846,15 @@ def unread_notice(message: dict) -> bool:
     return "reason" in payload and "stopReason" not in payload
 
 
+def close_pane(terminal: str) -> str | None:
+    """Close one Orca terminal pane of a drive lane, which ends the Claude session running in it, leaving its tab's other panes and its worktree, whose transcript stays on disk; None once closed or already gone, else why Orca refused."""
+    try:
+        request("terminal", "close", "--terminal", terminal)
+    except OrcaError as error:
+        return None if any(gone in str(error) for gone in ("terminal_not_found", "selector_not_found")) else str(error)
+    return None
+
+
 def worker(dispatch: str) -> dict:
     return call("worker-show", "--dispatch", dispatch)
 

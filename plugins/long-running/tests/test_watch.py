@@ -12548,3 +12548,25 @@ def test_a_wake_writes_the_marks_the_watch_asked_for_only_once_it_delivered_its_
     pr = state.load(demo)["prs"][KEY]
     assert ((pr["stage"]["woke"], pr["stage"]["waking"]), pr["objected"], pr["objecting"]) == ((asked, None), "aaaaaaa111", None)
     assert (state.load(demo)["mains"]["Forge-AI/monorepo"]["test_one"]["woke"], state.load(demo)["mains"]["Forge-AI/monorepo"]["test_one"]["waking"]) == (asked, None)
+
+
+def test_a_lane_on_this_mac_with_no_transcript_since_its_worker_started_is_unprompted_once_the_bound_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    worktree = tmp_path / "lane"
+    monkeypatch.setattr(watch, "lane_transcript", lambda path: transcripts.get(path))
+    transcripts: dict[str, Path] = {}
+    job = {"route": state.LOCAL_ROUTE, "worker_started": state.stamp(T0), "terminal": "term_1"}
+    worker = {"terminal": {"worktreePath": str(worktree)}}
+    assert (watch.unprompted(job, worker, T0 + watch.UNPROMPTED - timedelta(seconds=1)), watch.unprompted(job, worker, T0 + watch.UNPROMPTED)) == (False, True)
+    written = tmp_path / "session.jsonl"
+    written.write_text("{}\n")
+    os.utime(written, (T0.timestamp() + 60, T0.timestamp() + 60))
+    transcripts[str(worktree)] = written
+    assert watch.unprompted(job, worker, T0 + watch.UNPROMPTED) is False
+    os.utime(written, (T0.timestamp() - 60, T0.timestamp() - 60))
+    assert watch.unprompted(job, worker, T0 + watch.UNPROMPTED) is True
+    assert watch.unprompted(job | {"route": None}, worker, T0 + watch.UNPROMPTED) is False
+
+
+def test_a_sprite_a_reclaim_kept_is_asked_for_again_after_an_hour() -> None:
+    kept = state.stamp(T0)
+    assert (watch.kept_lately(kept, T0 + watch.KEPT_RETRY - timedelta(seconds=1)), watch.kept_lately(kept, T0 + watch.KEPT_RETRY), watch.kept_lately(None, T0)) == (True, False, False)

@@ -4003,6 +4003,9 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
             f"{args.id}: {went}, started in a fresh terminal and Claude session in its worktree {own} {orca.ON_MAC}"
             f" as dispatch {started['dispatch']} {carrying}; its lane {was} had finished ({end.why})"
         )
+        if end.terminal and end.terminal != started["terminal"]:
+            refused = orca.close_pane(end.terminal)
+            line += f"; its finished worker's terminal {end.terminal} " + (f"stays open, since Orca refused its close: {refused}" if refused else "is closed, its transcript kept")
     else:
         source = "its worktree" if state.on_mac(job) else ended["workspace"]
         where = f"in the worktree {holder.path} {orca.ON_MAC}, which holds its PR branch {holder.branch}," if holder else f"in a fresh worktree {orca.ON_MAC}" if local else orca.place({**job, **started})
@@ -4237,7 +4240,7 @@ def job_reclaim(args: argparse.Namespace) -> int:
             with state.edit(name) as data:
                 state.death_on(data["jobs"][args.id], args.lane)["kept"] = state.stamp()
             raise Kept(
-                f"{args.id}: refused, Sprite {args.lane} is kept and no watch asks to destroy it again: {error}. Destroying it unread may lose what it holds on no remote,"
+                f"{args.id}: refused, Sprite {args.lane} is kept, and the watch asks to save and destroy it again in an hour: {error}. Destroying it unread may lose what it holds on no remote,"
                 f" so only his pick does that; drive job reclaim {args.id} {args.lane} asks again, saving it first"
             ) from None
         return emit(args, released, {"id": args.id, "lane": args.lane, "released": released})

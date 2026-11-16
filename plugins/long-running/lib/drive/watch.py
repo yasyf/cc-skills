@@ -67,7 +67,9 @@ CUT_OFF = (
 )
 LIVE_JOB_STATES = ("running", "waiting")
 SAFEGUARDED = "stopped by its model's safeguards"
-QUIET_LANE = timedelta(minutes=30)
+QUIET_LANE = timedelta(minutes=5)
+UNPROMPTED = timedelta(minutes=15)
+KEPT_RETRY = timedelta(hours=1)
 RECLAIMED = "reclaimed by the watch's drive job reclaim once its job was quiet"
 ADOPTED = "its Sprite stayed claimed for this job's lane though no row or death of the job named it, so the watch adopted it for drive job reclaim"
 ADOPT_AFTER = timedelta(hours=1)
@@ -3204,6 +3206,23 @@ def remote_gap(job_id: str, worker: dict, moment: datetime) -> str | None:
     return None
 
 
+def unprompted(job: dict, worker: dict, moment: datetime) -> bool:
+    """Whether the live lane on this Mac of a running or waiting job never got its prompt: its worker started UNPROMPTED ago or more and no Claude Code transcript in its worktree was written since, as a launch whose prompt Orca never delivered leaves its session idle at an empty prompt."""
+    if not state.on_mac(job) or not job.get("worker_started") or not job.get("terminal") or moment - state.parse_time(job["worker_started"]) < UNPROMPTED:
+        return False
+    if not (worktree := (worker.get("terminal") or {}).get("worktreePath")):
+        return False
+    transcript = lane_transcript(worktree)
+    return transcript is None or datetime.fromtimestamp(transcript.stat().st_mtime).astimezone() < state.parse_time(job["worker_started"])
+
+
+def unprompted_lines(job_id: str, job: dict) -> list[str]:
+    """Close the terminal of a lane unprompted finds, ending the Claude session that never got its prompt, so the next read finds its worker exited and death_lines hands a running job to drive job resume; one LANE line."""
+    refused = orca.close_pane(job["terminal"])
+    done = f"Orca refused to close its terminal {job['terminal']}: {refused}" if refused else f"the watch closed its terminal {job['terminal']}, so its next read finds the worker exited and a running job is relaunched"
+    return [f"LANE {job_id} {job['order']} never got its prompt {orca.ON_MAC}: no transcript in {UNPROMPTED.seconds // 60} minutes since its worker started; {done}"]
+
+
 def ended_gap(job_id: str, job: dict, ended: dict, moment: datetime) -> str | None:
     """A running job whose lane died or finished, which the watch relaunched, and no next lane replaced in the time a relaunch takes: none while it waits its turn for a builder slot on this Mac, or within the time a relaunch takes since that turn came and started its next worker, or while that relaunch runs, and once that relaunch ended or overran, the line names it and its log."""
     if state.SLOT_WAIT in job["waits"] or (slot := job.get("slot")) and moment - state.parse_time(slot) < RELAUNCH:
@@ -3315,6 +3334,8 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 send_held(watcher, job_id, moment)
             if why := orca.death(worker):
                 deaths[job_id] = (job["dispatch"], why)
+            elif unprompted(job, worker, moment):
+                lines += unprompted_lines(job_id, job)
             elif running:
                 gaps[job_id] = remote_gap(job_id, worker, moment)
                 if (terminal := orca.typed(job, worker)) and (stop := lane_stop(worker, data)):
@@ -3793,7 +3814,12 @@ def lane_holds(job: dict, moment: datetime, live: set[str]) -> set[str]:
     left = {death.get("workspace") for death in job.get("deaths", [])}
     if not state.lane_ended(job) or in_flight(state.lane_death(job, "dispatch")["ended"], moment):
         left.discard(job.get("workspace"))
-    return {workspace for workspace in left - {None} if not state.death_on(job, workspace).get("kept") and orca.holds_sprite({**job, "workspace": workspace})}
+    return {workspace for workspace in left - {None} if not kept_lately(state.death_on(job, workspace).get("kept"), moment) and orca.holds_sprite({**job, "workspace": workspace})}
+
+
+def kept_lately(kept: str | None, moment: datetime) -> bool:
+    """Whether a reclaim kept a Sprite within KEPT_RETRY, since what it holds on no remote could not be read or saved, so the watch asks for it again only after that, as a Sprite ssh could not reach then may answer now; it is never destroyed unsaved."""
+    return bool(kept) and moment - state.parse_time(kept) < KEPT_RETRY
 
 
 def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: datetime) -> list[str]:
