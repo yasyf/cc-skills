@@ -2972,7 +2972,7 @@ def briefed(name: str, job_id: str, job: dict, build: str | None, named: dict) -
 
 
 def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
-    """Write a job's brief from what the drive holds, by rewrite_brief, with the lines named, each flag left out kept from the job's earlier brief, each given as an empty value dropped from it, and each ruling named added to every ruling a brief of any job on its feature binds, every order joined with its order and each it carries, its own earlier ones included, by his approval "carried whole into every brief and handoff", its Serves: line, when neither names one, each `port of #N` part the job takes, else drive tooling on a tooling order and his order on any other, and its mac flag, when neither names one, the step the newest return of the builder of a PR its staging test parts test names on its Mac: line, by brief.returned_mac, which mac_lines then gives before STAGING_MAC; written again when another brief write saved the job's flags as this one ran, so a launch keeps every flag a drive job brief typed meanwhile."""
+    """Write a job's brief from what the drive holds, by rewrite_brief, with the lines named, each flag left out kept from the job's earlier brief, each given as an empty value dropped from it, and each ruling named added to every ruling a brief of any job on its feature binds, every order joined with its order and each it carries, its own earlier ones included, by his approval "carried whole into every brief and handoff", its Serves: line, when neither names one, each `port of #N` part the job takes, else drive tooling on a tooling order and his order on any other, and its mac flag, when neither names one, the step the newest return of the builder of a PR its staging test parts test names on its Mac: line, by brief.returned_mac, which mac_lines then gives before STAGING_MAC; its --done-when check run only on a call naming --done-when and its user-story check only on one naming --native or --interactions, so a write naming neither, such as a reader's report rebriefing a builder, a launch or an install's prover, never refuses on flags another write kept; written again when another brief write saved the job's flags as this one ran, so a launch keeps every flag a drive job brief typed meanwhile."""
     if named.get("after") == [""]:
         named = named | {"after": ""}
     data = state.load(name)
@@ -2992,11 +2992,11 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
             " that needs action, failed checks, requested changes, a new head or his tap; when the watch reports one, brief it"
             " with --handoff <the PR, its head and the event line verbatim>"
         )
-    if refused := brief.unworded_return(job["kind"], {"--done-when": flags["done_when"]}):
+    if named.get("done_when") is not None and (refused := brief.unworded_return(job["kind"], {"--done-when": flags["done_when"]})):
         raise DriveError(f"{job_id}: refused, no brief written: {refused}")
     if unrun := [step for step in named.get("after") or [] if shlex.split(step)[:1] != ["drive"]]:
         raise DriveError(f'{job_id}: --after "{unrun[0]}" is no drive command: drive job prove runs each one once the proof file passes and takes DONE only when it exits 0, so each is a drive verb that exits nonzero when its step did not happen')
-    if (seen := brief.surface({"brief_flags": flags})) and (unstoried := brief.unstoried(seen, flags["interactions"])):
+    if any(named.get(flag) is not None for flag in ("native", "interactions")) and (seen := brief.surface({"brief_flags": flags})) and (unstoried := brief.unstoried(seen, flags["interactions"])):
         raise DriveError(f"{job_id}'s result is something he uses, by --native: {unstoried}")
     if state.starts_cut(job) and not job["release_build"]:
         raise DriveError(
@@ -5635,7 +5635,7 @@ def parser() -> argparse.ArgumentParser:
     )
     brief_opt.add_argument(
         "--interactions",
-        help=f"his user stories on the result, one per `;`, each what he does and what he must then see, which its job writes strict acceptance criteria for before building and proves each on the installed surface with {brief.SEEN}; needed when --native names a surface",
+        help=f"his user stories on the result, `;` only between stories, each what he does, and sees what he then sees, its result inside the story after \", and sees\", never after a `;`, such as \"he presses j on the queue, and sees the next card open with its question as its first line\"; its job writes strict acceptance criteria for each before building and proves each on the installed surface with {brief.SEEN}; needed when --native names a surface",
     )
     brief_opt.add_argument("--would-he-ask", help="what he would still have to ask for if only his words were built")
     brief_opt.add_argument("--runs-as", help="for a pass, a hand repair or any other write of a team's data: the service account in its cluster and how it starts; \"none: <why>\" for a job that writes none")

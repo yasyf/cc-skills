@@ -1248,7 +1248,7 @@ def unseen(data: dict, order: dict, proof: str | None) -> str | None:
 
 
 def stories(interactions: str | None) -> list[str]:
-    """The user stories a brief's Interactions line names, one per `;`: each what he does on its surface and what he must then see."""
+    """The user stories a brief's Interactions line names, `;` only between stories: each what he does on its surface, and sees what he then sees, its result inside it after ", and sees"."""
     return [story.strip() for story in (interactions or "").split(";") if story.strip()]
 
 
@@ -1257,8 +1257,9 @@ def unstoried(native: str, interactions: str | None) -> str | None:
     from drive import settled
 
     shape = (
-        f"name each user story on {native} with --interactions, one per `;`, each what he does there and what he must then see,"
-        ' such as "press j on the queue; the next card opens with its question as its first line", which its job writes strict'
+        f"name each user story on {native} with --interactions, each what he does there, and sees what he then sees, its result"
+        ' inside the story after ", and sees", never after a `;`, which only goes between stories, such as "he presses j on the'
+        ' queue, and sees the next card open with its question as its first line", which its job writes strict'
         f" acceptance criteria for before building and proves each on the installed surface with {SEEN}, by his words {STORIES_RULING}"
     )
     if not (told := stories(interactions)):

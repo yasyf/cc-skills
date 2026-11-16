@@ -5348,6 +5348,19 @@ def test_a_readers_build_line_naming_no_change_names_no_goal_so_its_builder_keep
     assert (builder["goal"], "\nGoal: build the copy\n" in written, "\nResearched: j1\n" in written) == ("build the copy", True, True)
 
 
+def test_a_readers_report_rebriefs_its_builder_without_judging_the_stories_an_earlier_brief_kept_so_it_never_fails_once_kept(
+    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy")
+    run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: read-only, at once: why the copy stalls")
+    assert run("job", "brief", "j2", "--native", "the dashboard's run page", "--interactions", "he opens the run page; he must then see each step")[0] == 0
+    jev.picks("steps")
+    read_before = len(jev.asked)
+    assert keep(monkeypatch, capsys, "j1", RESEARCH)[0] == 0
+    written = Path(state.load("demo")["jobs"]["j2"]["brief"]).read_text()
+    assert ("\nResearched: j1\n" in written, [read for read in jev.asked[read_before:] if "steps.s1" in read["questions"]]) == (True, [])
+
+
 def test_an_order_added_with_no_parts_is_one_part_named_by_its_title_and_its_readers_build_line_names_its_builders_goal(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -8499,7 +8512,7 @@ def test_job_brief_writes_native_interactions_would_he_ask_and_a_readers_researc
     first = ["job", "brief", "j3", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main", "--native", "the dashboard's run page"]
     assert cli.main(first) == 2
     assert capsys.readouterr().err.startswith(
-        "drive: j3's result is something he uses, by --native: name each user story on the dashboard's run page with --interactions, one per `;`,"
+        "drive: j3's result is something he uses, by --native: name each user story on the dashboard's run page with --interactions, each what he does there, and sees what he then sees,"
     )
     code, out = run(*first, "--interactions", "open the run page, click a step, read its log", "--would-he-ask", "a link to the run from his DM")
     written = Path(out.splitlines()[0].removeprefix("Read your brief first: "))
