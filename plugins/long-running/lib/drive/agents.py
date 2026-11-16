@@ -30,7 +30,6 @@ POSTED_KINDS = ("report", "correction")
 TRUNK_FAILED = "failed in Trunk's merge queue"
 HANDLER = "long-running:handler"
 HANDLER_ADVISOR = "opus"
-HANDLER_WINDOW = "200000"
 CCI_CHANNEL = "plugin:cc-inbox@cc-inbox"
 THREAD_KEY = "thread:"
 CARD_KEY = "card:"
@@ -532,14 +531,15 @@ def holder(data: dict, held: dict) -> str | None:
 
 
 def gone(entry: dict) -> bool:
-    """Whether a handler's turn is over, whatever its Stop hook did, read from the records Claude Code keeps of the session its launch named: no running process's `sessions/<pid>.json`, the record Claude Code keeps of each session's process, names that session with a status but idle, and its background job, which `claude --bg` writes `working` before it returns, ended a turn done, blocked, failed or stopped, rests idle or blocked, as one stuck on a startup dialog does, or `claude rm` took it; so a launch whose job ended blocked before it ran a turn holds nothing. A handler whose launch has not named its session yet is in flight for START_WINDOW, many times the seconds a `claude --bg` launch takes, and past it never started, as when an install or a stopped watch ended its start between the drive's save of its entry and its launch's save of the session; one whose start waits its turn in a process still running, by waiting, is not gone, nor one whose turn an API error ended until the resume that wakes it."""
+    """Whether a handler's turn is over, whatever its Stop hook did, read from the records Claude Code keeps of the session its launch named: no running process's `sessions/<pid>.json`, the record Claude Code keeps of each session's process, names that session with a status but idle, and its background job, which `claude --bg` writes `working` before it returns, ended a turn done, blocked, failed or stopped, rests idle or blocked, as one stuck on a startup dialog does, or `claude rm` took it; so a launch whose job ended blocked before it ran a turn holds nothing. A handler whose launch has not named its session yet is in flight for START_WINDOW, many times the seconds a `claude --bg` launch takes, and past it never started, as when an install or a stopped watch ended its start between the drive's save of its entry and its launch's save of the session; one whose start waits its turn in a process still running, by waiting, is not gone, nor one whose turn an API error ended until the resume that wakes it. A pool handler resting between items is not gone while any running process's record names its session, whatever its status."""
     if waiting(entry) or (wakes := entry.get("wakes")) and state.parse_time(wakes) > state.now():
         return False
     if not entry["session"]:
         return state.parse_time(entry["started"]) + START_WINDOW <= state.now()
-    if entry["pool"]:
-        return not alive(entry["session"], session_records())
-    if busy(entry["session"], session_records()):
+    records = session_records()
+    if entry["pool"] and alive(entry["session"], records):
+        return False
+    if busy(entry["session"], records):
         return False
     found = background_job(entry["session"])
     return found is None or found[1]["state"] in ("done", "blocked", "failed", "stopped") or found[1].get("tempo") in ("idle", "blocked")
@@ -964,7 +964,7 @@ def start_handler(name: str, handler: str, prompt: str) -> None:
     data = state.saved(name)
     _, held = beside(data)
     prompt = released(name, data, prompt)
-    env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name, COMPACT_ENV: HANDLER_WINDOW}
+    env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name}
     checkout = orca.checkout(name, held["cwd"])
     settings = trimmed(session_settings(env), checkout)
     argv = [

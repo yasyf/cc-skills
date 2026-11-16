@@ -42,6 +42,10 @@ def start(run: Run, tmp_path: Path) -> str:
     return out.removeprefix("started ")
 
 
+def resting(data: dict) -> list[str]:
+    return [handler for handler, entry in data["handlers"].items() if not entry["busy"]]
+
+
 def bind(monkeypatch: pytest.MonkeyPatch, handler: str, session: str) -> None:
     monkeypatch.setenv(state.HANDLER_ENV, f"demo/{handler}")
     with state.edit("demo") as data:
@@ -157,7 +161,7 @@ def test_a_handler_whose_start_raised_what_the_drive_did_not_expect_leaves_nothi
     assert (code, state.load("demo")["handlers"]) == (0, {})
     [post] = posted
     assert post[-1].startswith(f"BLOCKED handler {out.removeprefix('started ')} did not start: KeyError at agents.py:")
-    assert " in start_handler: 'answers'; its brief is kept in " in post[-1]
+    assert " in released: 'answers'; its brief is kept in " in post[-1]
 
 
 def test_a_handler_is_keyed_at_launch_by_the_session_of_the_job_claude_bg_says_it_backgrounded_past_any_note_naming_another_and_a_launch_naming_no_job_claude_code_keeps_leaves_nothing_behind(
@@ -308,7 +312,7 @@ def test_a_handlers_own_session_reads_as_an_agent_of_the_communicators(
     bind(monkeypatch, handler, "h-session")
     data = state.load("demo")
     holds = {"message": None, "link": None, "thread": "1794380463.481959", "record": None, "re": []}
-    assert data["handlers"][handler] | {"started": None} == {
+    assert data["handlers"][handler] | {"started": None, "given": None} == {
         "session": "h-session",
         "started": None,
         "brief": HIS_BRIEF.format(scratch=tmp_path / "scratch" / "h1"),
@@ -316,6 +320,11 @@ def test_a_handlers_own_session_reads_as_an_agent_of_the_communicators(
         "handed": [],
         "took": [],
         "posted": [],
+        "pool": True,
+        "busy": True,
+        "ended": None,
+        "given": None,
+        "topics": [],
     }
     assert state.session_drives("h-session") == ["demo"]
     assert state.session_role(data, "h-session") == "communicator"
@@ -370,8 +379,9 @@ def test_on_a_drive_with_no_communicator_drive_handler_starts_the_handler_beside
     monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))
     monkeypatch.setattr(one_line_result, "block_reason", lambda payload: None)
     assert stop(monkeypatch, capsys, "h-session", transcript, LINE) == ""
-    assert ran[-1][0] == ["cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "root@demo", "--id", f"handler-{handler}", "--text", LINE]
-    assert state.load("demo")["handlers"] == {}
+    rested = state.load("demo")["handlers"][handler]
+    assert ran[-1][0] == ["cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "root@demo", "--id", f"handler-{handler}-{rested['given']}", "--text", LINE]
+    assert (rested["busy"], rested["brief"], rested["holds"]) == (False, None, None)
 
 
 def test_the_agent_tool_starts_no_handler(communicator: str) -> None:
@@ -409,9 +419,9 @@ def test_a_handler_ending_hands_its_line_to_the_communicator_and_removes_its_ses
     assert run("job", "report", "j1", "-")[0] == 0
     assert stop(monkeypatch, capsys, "h-session", transcript, LINE) == ""
     assert started[-1] == [
-        "cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--id", f"handler-{handler}", "--text", LINE,
+        "cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--id", f"handler-{handler}-{state.load('demo')['handlers'][handler]['given']}", "--text", LINE,
     ]
-    assert removed == [[*agents.REMOVE, BACKGROUND_JOB]]
+    assert removed == []
     assert slack_calls[-1] == ("unfollow", "--channel", "D123", "--session", "h-session", "--cwd", str(tmp_path))
     data = state.load("demo")
     assert data["handlers"] == {}
@@ -676,21 +686,21 @@ def test_a_post_reports_handler_that_ends_posting_nothing_leaves_it_owed_for_a_f
     bind(monkeypatch, first, "first-session")
     assert stop(monkeypatch, capsys, "first-session", tmp_path / "first.jsonl", refusal, brief=entry["brief"]) == ""
     data = state.load("demo")
-    assert (data["handlers"], data["posts"]["unposted"], data["carried"]) == ({}, {"719148": refusal}, {})
+    assert (resting(data), data["posts"]["unposted"], data["carried"]) == ([first], {"719148": refusal}, {})
     assert watch.post_lines(watching, state.now()) == []
     [(again, entry)] = state.load("demo")["handlers"].items()
-    assert entry["brief"] == f"Record: 719148 Drive: demo Scratch: {state.drive_dir('demo') / 'scratch' / 'post-719148'}\n{agents.UNPOSTED} {refusal}"
+    assert again == first and entry["brief"] == f"Record: 719148 Drive: demo Scratch: {state.drive_dir('demo') / 'scratch' / 'post-719148'}\n{agents.UNPOSTED} {refusal}"
     bind(monkeypatch, again, "again-session")
     monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or (json.dumps({"seq": 719200}) if argv[:2] == ["cci", "post"] else ""))
     assert stop(monkeypatch, capsys, "again-session", tmp_path / "again.jsonl", "DEFECT say: drive: nothing posted again", brief=entry["brief"]) == ""
     assert started[-1] == [
-        "cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--to", "root@demo", "--id", f"handler-{again}",
+        "cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--to", "root@demo", "--id", f"handler-{again}-{entry['given']}",
         "--text", "UNPOSTED 719148; DEFECT say: drive: nothing posted again", "--or-heir", "--json",
     ]
     data = state.load("demo")
-    assert (data["handlers"], data["posts"]["unposted"], data["carried"]) == ({}, {}, {"719148": "done record 719200"})
+    assert (resting(data), data["posts"]["unposted"], data["carried"]) == ([first], {}, {"719148": "done record 719200"})
     assert watch.post_lines(watching, state.now()) == []
-    assert (state.load("demo")["handlers"], state.load("demo")["posts"]["mark"]) == ({}, 719148)
+    assert (resting(state.load("demo")), state.load("demo")["posts"]["mark"]) == ([first], 719148)
     with pytest.raises(state.DriveError, match="POST report 719148 needs no handler, since done record 719200 carries it"):
         tools.run("handler", "demo", {"brief": f"Record: 719148 Drive: demo Scratch: {tmp_path / 'handler-719148'}"})
 
@@ -861,7 +871,7 @@ def test_a_handler_is_gone_once_no_running_process_names_its_session_at_work_and
     for short, kept in jobs.items():
         (config / "jobs" / short).mkdir(parents=True)
         (config / "jobs" / short / "state.json").write_text(json.dumps(kept))
-    entries = {session: {"session": session, "started": state.stamp()} for session in [*(kept["sessionId"] for kept in jobs.values()), "removed"]}
+    entries = {session: {"session": session, "started": state.stamp(), "pool": False} for session in [*(kept["sessionId"] for kept in jobs.values()), "removed"]}
     try:
         assert {session: GONE(entry) for session, entry in entries.items()} == {
             "busy": False,
@@ -874,9 +884,10 @@ def test_a_handler_is_gone_once_no_running_process_names_its_session_at_work_and
             "launching": False,
             "removed": True,
         }
-        assert GONE({"session": None, "started": state.stamp()}) is False
+        assert GONE({"session": None, "started": state.stamp(), "pool": True}) is False
         assert GONE({"session": None, "started": state.stamp(state.now() - agents.START_WINDOW)}) is True
         assert GONE(entries["done"] | {"wakes": state.stamp(state.now() + timedelta(minutes=1))}) is False
+        assert {session: GONE(entries[session] | {"pool": True}) for session in ("busy", "idle", "died", "done")} == {"busy": False, "idle": False, "died": True, "done": True}
     finally:
         spare.kill()
     assert agents.background_job("blocked") == ("2a74ab93", jobs["2a74ab93"])
@@ -888,7 +899,7 @@ def test_a_handler_is_gone_once_no_running_process_names_its_session_at_work_and
         ({"state": "blocked", "tempo": "blocked", "firstTerminalAt": None}, None, True),
         ({"state": "working", "tempo": "blocked", "firstTerminalAt": None}, None, True),
         ({"state": "failed", "tempo": "idle"}, None, True),
-        ({"state": "done", "tempo": "idle"}, "idle", True),
+        ({"state": "done", "tempo": "idle"}, "idle", False),
         (None, None, True),
         ({"state": "working", "tempo": "active", "firstTerminalAt": None}, None, False),
         ({"state": "done", "tempo": "idle"}, "busy", False),

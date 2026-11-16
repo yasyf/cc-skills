@@ -12634,7 +12634,7 @@ def test_a_post_report_whose_handler_start_raised_what_the_drive_did_not_expect_
     [quiet, still, [line]] = said
     assert (quiet, still, state.load(demo)["posts"]["mark"], state.load(demo)["handlers"]) == ([], [], 717768, {})
     assert line.startswith("WATCH start of the POST reports' handlers failed 3 times in a row: the handler on POST report 717769 did not start: KeyError at agents.py:")
-    assert line.endswith(" in start_handler: 'answers'")
+    assert line.endswith(" in released: 'answers'")
     started: list[str] = []
     monkeypatch.setattr(agents, "start_handler", lambda name, handler, prompt: started.append(prompt.split()[1]))
     posts_to_communicator += ["717769", "717816"]
