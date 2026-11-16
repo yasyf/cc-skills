@@ -855,9 +855,14 @@ def run_of(worker: dict) -> dict:
     return {"run": worker["dispatch"]["runId"], "task": worker["dispatch"]["taskId"], "terminal": worker["worker"]["agentTerminalHandle"]}
 
 
+def tasks(run: str) -> list[dict]:
+    """The Tasks on a Run, each open one naming its Dispatch and the terminal it is assigned to."""
+    return request("orchestration", "task-list", "--run", run)["tasks"]
+
+
 def task_title(run: str, task: str) -> str:
     """The title of a Task on a Run, which a launch names after the lane it starts."""
-    return next(found["title"] for found in request("orchestration", "task-list", "--run", run)["tasks"] if found["id"] == task)
+    return next(found["title"] for found in tasks(run) if found["id"] == task)
 
 
 def receipt(dispatch: str) -> dict:
@@ -905,14 +910,14 @@ def gone(error: OrcaError) -> str | None:
 
 
 def lane_end(drive: str, job_id: str, job: dict, wake: bool = True) -> LaneEnd | None:
-    """None while the lane's worker takes messages; else why it does not, the branch its terminal was on, and, for a worker that finished, on its Sprite or on this Mac, the worktree, terminal and Run it finished in, where a next worker on this Mac starts, read from Orca, since a dispatch recorded by hand records neither. A finished worker is read before its liveness, which Orca cannot always tell once the worker is done, and its terminal is the one Orca recorded for it, since a worker-show that cannot tie that terminal to the worker's process shows none; one whose terminal Orca shows no longer connected ends as a dead one does. A lane whose Sprite Orca cannot reach is read again after woken wakes that Sprite; without wake, as a move to this Mac reads it, that lane, or one whose worker Orca cannot show live, ends unreached at once, its Sprite left as it is. A lane on this Mac that Orca cannot tell is live takes messages while typed finds its terminal. A lane a `drive job end` ended is read from the end its job records, never from Orca, since that end stopped its worker and destroyed its Sprite, which Orca then reads as a lane it no longer holds or pairs with, and a lane whose death records the end died kept is read from that end, never from Orca, so a resume, launch or PR wake after it never shows or wakes that lane again. OrcaError when Orca cannot tell either way."""
+    """None while the lane's worker takes messages; else why it does not, the branch its terminal was on, and, for a worker that finished, on its Sprite or on this Mac, the worktree, terminal and Run it finished in, where a next worker on this Mac starts, read from Orca, since a dispatch recorded by hand records neither. A finished worker is read before its liveness, which Orca cannot always tell once the worker is done, and its terminal is the one Orca recorded for it, since a worker-show that cannot tie that terminal to the worker's process shows none; one whose terminal Orca shows no longer connected ends as a dead one does. A lane whose Sprite Orca cannot reach is read again after woken wakes that Sprite; without wake, as a move to this Mac reads it, that lane, or one whose worker Orca cannot show live, ends unreached at once, its Sprite left as it is. A lane on this Mac that Orca cannot tell is live takes messages while typed finds its terminal. A lane a `drive job end` ended is read from the end its job records, never from Orca, since that end stopped its worker and destroyed its Sprite, which Orca then reads as a lane it no longer holds or pairs with, and a lane whose death records the end died kept is read from that end, never from Orca, so a resume, launch or PR wake after it never shows or wakes that lane again. A finished worker whose terminal holds the follow-up Orca opened to carry the mail it had not read is read from that follow-up, which followed records on the job in its place, so the lane's next send reaches it rather than a worker started beside it. OrcaError when Orca cannot tell either way."""
     death = state.lane_death(job, "dispatch") or {}
     if ended := death.get("ended"):
         return LaneEnd(f"the drive job end of {ended['at']} ended it", None, None, ended=True)
     if kept := death.get("lane_end"):
         return LaneEnd(**kept)
     try:
-        return shown_end(job, worker(job["dispatch"]))
+        return shown_end(job, followed(drive, job_id, job, worker(job["dispatch"])))
     except OrcaError as error:
         if why := gone(error):
             return LaneEnd(why, None, None)
@@ -989,6 +994,28 @@ def death_kept(drive: str, job_id: str, dispatch: str, why: str, kept: dict) -> 
         if job.get("dispatch") == dispatch:
             state.lane_died(job, dispatch, why, state.now())
             state.lane_death(job, "dispatch").update(kept)
+
+
+def followed(drive: str, job_id: str, job: dict, shown: dict) -> dict:
+    """The worker-show of the open Dispatch Orca's task-list for its Run assigns the terminal of the job's finished worker, whose followUpOf chain by follow_up reaches that worker's Dispatch, as the follow-up Orca opens there to carry the mail a worker had not read when it reported, recorded on the job and in its state in place of that worker with its Run, task and terminal by run_of, unless a lane since replaced it; shown for an unfinished worker or a finished one with no such follow-up."""
+    if shown["worker"]["state"] not in FINISHED:
+        return shown
+    terminal = shown["worker"]["agentTerminalHandle"]
+    for task in tasks(shown["dispatch"]["runId"]):
+        if task.get("assignee") != terminal or not task.get("dispatchId"):
+            continue
+        reached = opened = follow_up(task["dispatchId"])
+        while reached and reached["dispatch"]["followUpOf"] != job["dispatch"]:
+            reached = follow_up(reached["dispatch"]["followUpOf"])
+        if not reached:
+            continue
+        lane = {"dispatch": task["dispatchId"], **run_of(opened)}
+        with state.edit(drive) as data:
+            if data["jobs"][job_id].get("dispatch") == job["dispatch"]:
+                data["jobs"][job_id].update(lane)
+        job.update(lane)
+        return opened
+    return shown
 
 
 def shown_end(job: dict, shown: dict) -> LaneEnd | None:

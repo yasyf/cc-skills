@@ -8239,3 +8239,32 @@ def test_a_pool_sprite_claimed_for_a_jobs_lane_that_neither_its_row_nor_its_deat
     watch.adopt_sprites(watch.Watcher(remote, offset=state.events_end(remote)), T0)
     watch.adopt_sprites(watch.Watcher(remote, offset=state.events_end(remote)), T0)
     assert [(death["workspace"], death["why"]) for death in state.load(remote)["jobs"]["j1"]["deaths"]] == [("pool-left", watch.ADOPTED)]
+
+
+def test_a_lane_on_this_mac_whose_worker_finished_with_orcas_follow_up_open_in_its_terminal_records_that_follow_up_and_sends_it_the_resumes_text(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    calls = []
+    carrying = {
+        "worker": {"state": "ready", "stage": "input_accepted", "agentTerminalHandle": "term_lane", "startOptions": {"worktree": "id:repo-1::/work/lane"}},
+        "dispatch": {"id": FOLLOW_UP, "followUpOf": DISPATCH, "runId": RUN, "taskId": "task_carry", "status": "dispatched"},
+        "projection": {"liveness": {"verdict": "live"}, "outcome": "in_progress", "attention": {"categories": []}},
+        "terminal": {"handle": "term_lane", "connected": True, "writable": True},
+    }
+    tasks = [
+        {"id": "task_1", "status": "completed", "title": "demo-j1"},
+        {"id": "task_other", "status": "dispatched", "title": "demo-j2", "dispatchId": "ctx_other", "assignee": "term_other"},
+        {"id": "task_carry", "status": "dispatched", "title": "New messages", "dispatchId": FOLLOW_UP, "assignee": "term_lane"},
+    ]
+    monkeypatch.setattr(orca, "worker", {DISPATCH: FINISHED_WORKER, FOLLOW_UP: carrying}.__getitem__)
+    monkeypatch.setattr(orca, "tasks", {RUN: tasks}.__getitem__)
+    monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {})
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("no worker starts beside the follow-up that takes messages"))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(route=state.LOCAL_ROUTE, task="task_1", terminal="term_lane", lane="demo-j1")
+    assert cli.main(["job", "launch", "j1"]) == 2
+    assert capsys.readouterr().err == f"drive: j1 already started as dispatch {FOLLOW_UP}, whose worker takes messages: drive job resume j1 <the event> sends it one\n"
+    assert run("job", "resume", "j1", "PR checks failed") == (0, f"j1: {queued(FOLLOW_UP)}")
+    assert calls == [("send", "--to", f"dispatch:{FOLLOW_UP}", "--run", RUN, "--subject", "From the coordinator", "--body", Unheld("PR checks failed"), "--retry-request", ANY)]
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["dispatch"], job["run"], job["task"], job["terminal"], job["lane"], job.get("deaths", []), job["undelivered"]) == (FOLLOW_UP, RUN, "task_carry", "term_lane", "demo-j1", [], [])

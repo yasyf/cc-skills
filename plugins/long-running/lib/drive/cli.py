@@ -3440,7 +3440,7 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None, resume: bool
         taker = other_sessions_agent(data, job)
         if taker and resume:
             return hand_over(args, name, data, taker)
-        if job.get("where") == "remote" and (dispatch := job.get("dispatch")):
+        if job.get("where") == "remote" and job.get("dispatch"):
             if resume:
                 if text is not None:
                     hold(name, args.id, text, state.held_sender(data))
@@ -3454,8 +3454,8 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None, resume: bool
                     f"{args.id}'s lane cannot be checked, so nothing was started: {error}; launch it again once Orca reaches its lane {orca.ON_MAC if state.on_mac(job) else 'on its Sprite'}"
                 ) from None
             if end or local or step:
-                return restart(args, name, dispatch, end or live_end(job), None, local, step)
-            raise DriveError(f"{args.id} already started as dispatch {dispatch}, whose worker takes messages: drive job resume {args.id} <the event> sends it one")
+                return restart(args, name, job["dispatch"], end or live_end(job), None, local, step)
+            raise DriveError(f"{args.id} already started as dispatch {job['dispatch']}, whose worker takes messages: drive job resume {args.id} <the event> sends it one")
         if text is not None and not job.get("agent") and args.id in (places := place.positions(data)):
             sender = state.held_sender(data)
             with state.edit(name) as data:
