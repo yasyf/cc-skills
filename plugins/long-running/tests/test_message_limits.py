@@ -38,7 +38,7 @@ ELEVEN_FIXES = {
 WHOLE = "pass as asked each message of his it answers, word for word or by its permalink, one per line."
 RELAY_BRIEF = (
     "Record: 670054 report from meta (job j1546, closes o598)\nDrive: demo\nContext: read 670054 whole. Post it in o598's thread if it"
-    " has one, else at his DM root. He is away, so say may hold it for his catch-up.\nDeliverable: the line from 670054 posted, or held for his catch-up"
+    " has one, else at his DM root.\nDeliverable: the line from 670054 posted"
 )
 NOT_HIS = (
     "Copy each message of his this post answers word for word, one per line, with … where you skip words, or pass its permalink"
@@ -1698,7 +1698,7 @@ def test_a_state_of_work_told_by_a_session_posting_on_its_own_carries_the_read_t
         "sand-next: 🐛 back off rate-limited model calls by their headers and name the limit on give-up is live in its merge commits",
     ],
 )
-def test_the_watchs_own_live_line_of_a_proved_order_passes_the_say_hooks_checks_as_the_communicators_own_post_and_is_held_while_he_is_away(
+def test_the_watchs_own_live_line_of_a_proved_order_passes_the_say_hooks_checks_as_the_communicators_own_post(
     talker: str, monkeypatch: pytest.MonkeyPatch, words: str
 ) -> None:
     shown = {"seq": 724499, "kind": "report", "lane": "watch", "at": state.stamp(), "text": f"POST {words}", "refs": {}, "fields": {"attrs": {"close": "o1"}}}
@@ -1706,10 +1706,6 @@ def test_the_watchs_own_live_line_of_a_proved_order_passes_the_say_hooks_checks_
     post = {"text": f"{words} ({{record:724499|proof}}).", "record": "724499"}
     payload = {"hook_event_name": "PreToolUse", "session_id": talker, "cwd": str(Path.cwd()), "tool_name": message_limits.SAY, "tool_use_id": "watch-724499", "tool_input": post}
     assert message_limits.hook_output(payload) == {}
-    with state.edit("demo") as data:
-        data["owner"] = {"heard": (heard := state.stamp()), "away": heard}
-    held = message_limits.hook_output(payload)["hookSpecificOutput"]["permissionDecisionReason"]
-    assert (held.startswith("Refused on purpose: he is "), "724499" in state.load("demo")["held"]) == (True, True)
 
 
 def test_jev_judges_each_finding_by_the_rule_it_names_and_an_order_or_job_id_refuses_unjudged(talker: str, transcript: Path, checked: Checked) -> None:
@@ -3035,62 +3031,6 @@ def test_a_say_naming_an_alert_orders_thread_with_no_channel_id_is_told_its_chan
     assert talk.posted_order(state.load("demo"), {"edit": reply, "text": "The fix is live."}, None) == "o1"
 
 
-def test_while_he_is_away_only_cards_incident_lines_and_answers_go_out(run: Run, talker: str, transcript: Path) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    with state.edit("demo") as data:
-        data["owner"] = {"heard": (heard := state.stamp()), "away": heard}
-        data["orders"]["o1"].update(thread=[DM, "1.2"], incident=True)
-    reason = posted(transcript, text="The fix merged.")
-    assert reason.startswith(f"Refused on purpose: he is away since he said so at {message_limits.render.when(heard)}, and while he is away only cards,")
-    assert "this news waits for his return, when the drive owes its thread a line" in reason
-    card = {"title": said(10), "body": said(40), "options": ["Land it", "Hold it"], "waits": "demo:j1-7"}
-    assert posted(transcript, card=card) is None
-    assert posted(transcript, text="Users are unblocked.", thread_ts="1.2") is None
-    assert posted(transcript, text="The fix merged.", asked="did it merge?") is None
-    with state.edit("demo") as data:
-        data["owner"]["away"] = state.stamp(state.now() + state.AWAY_AFTER)
-    assert posted(transcript, text="The fix merged.") is None
-
-
-def test_a_line_naming_a_clock_time_still_to_come_goes_out_while_he_is_away_and_a_line_whose_only_time_promises_the_next_line_waits(run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(limits, "now", state.now)
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    heard = state.now() - timedelta(hours=2)
-    with state.edit("demo") as data:
-        data["owner"] = {"heard": state.stamp(heard), "away": state.stamp(heard + state.AWAY_AFTER)}
-    soon = message_limits.render.clock(state.now() + timedelta(minutes=20))
-    assert posted(transcript, text=f"The release freeze ends at {soon}.") is None
-    reason = posted(transcript, text=f"The fix merged; next line by {soon}.")
-    assert reason.startswith(
-        f"Refused on purpose: he is away since {message_limits.render.when(state.stamp(heard + state.AWAY_AFTER))}: last heard {message_limits.render.when(state.stamp(heard))}, an hour with no word or tap,"
-    )
-
-
-def test_a_line_names_a_time_to_come_by_the_drives_own_reader_of_typed_times_a_promise_of_the_next_line_aside() -> None:
-    at = datetime.fromisoformat("2026-11-13T16:38:00-08:00")
-    assert talk.time_to_come("Release freeze 45ab54019c ends at 5:00 PM, and auric-stein applies plat-usw2-prod by itself.", at)
-    assert talk.time_to_come("The cutover runs at 9:15 AM tomorrow.", at)
-    assert not talk.time_to_come("The fix merged at 4:20 PM.", at)
-    assert not talk.time_to_come("The fix merged; next line by 5:00 PM.", at)
-    assert talk.time_to_come("The fix merged; next line by 5:00 PM, and the freeze ends at 5:30 PM.", at)
-
-
-def test_while_he_is_away_a_handlers_update_to_teammates_in_a_staging_claims_thread_goes_out(talker: str, transcript: Path) -> None:
-    with state.edit("demo") as data:
-        data["owner"] = {"heard": (heard := state.stamp()), "away": heard}
-    update = "Staging stays frozen another half hour while the batch writer test finishes."
-    assert say(transcript, text=update).startswith("Refused on purpose: he is away")
-    reads(lane_of(transcript), "1794676871.132409", channel="C0STAGING1")
-    assert say(transcript, text=update, channel_id="C0STAGING1", thread_ts="1794676871.132409") is None
-
-
-def test_the_rule_jev_weighs_a_line_held_while_he_is_away_is_the_one_away_rule_say_holds_reports_by(run: Run, talker: str, transcript: Path) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    with state.edit("demo") as data:
-        data["owner"] = {"heard": (heard := state.stamp()), "away": heard}
-    assert agents.ruled(posted(transcript, text="The fix merged."))["rule"] == state.AWAY_HOLD + "."
-
-
 def test_an_incident_report_keeps_its_alert_links_bare_by_the_incident_its_order_or_record_marks(
     run: Run, talker: str, transcript: Path, checked: Checked, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3142,82 +3082,6 @@ def test_his_messages_a_handler_answers_in_his_thread_record_him_heard_never_bac
     say(transcript, text="Both are in the merge queue.", thread_ts="1.2", asked="Status?")
     assert state.parse_time(state.load("demo")["owner"]["heard"]) == later
 
-def test_a_report_held_while_he_is_away_is_marked_held_once_and_sends_its_writer_no_record(
-    run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "unblock the users")
-    with state.edit("demo") as data:
-        data["owner"] = {"heard": (heard := state.stamp()), "away": heard}
-        data["orders"]["o2"]["incident"] = True
-    posted = []
-
-    def cci(argv: list[str], checkout: Path, env: dict | None = None) -> str:
-        if argv[1] == "show":
-            attrs = {"700": {"order": "o1"}, "710": {"order": "o2"}, "720": {"order": "o1", "customer_outage": "true"}}[argv[2]]
-            return json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": state.stamp(), "fields": {"attrs": attrs}})
-        posted.append(argv)
-        return json.dumps({"seq": 701})
-
-    monkeypatch.setattr(message_limits.cli.reads, "run", cci)
-    reason = say(transcript, text="The fix merged.", record="700")
-    assert reason.startswith("Refused on purpose: he is away")
-    assert agents.ruled(reason) == {"judged": False}
-    assert reason.endswith("Report 700 is marked held: `drive status` lists it until the line carrying it posts once he is back. Return NOTHING held for his return.")
-    at = state.load("demo")["held"]["700"]["at"]
-    assert say(transcript, text="The fix merged.", record="700") == reason
-    assert (posted, state.load("demo")["held"]) == ([], {"700": {"order": "o1", "at": at, "record": None}})
-    assert say(transcript, text="Users are unblocked.", record="710") is None
-    assert say(transcript, text="The sandsql outage is mitigated.", record="720") is None
-    assert list(state.load("demo")["held"]) == ["700"]
-
-
-def test_a_due_reports_line_while_he_is_away_is_refused_unheld_since_the_watch_owes_it_at_his_return(
-    run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    due = "2026-11-14T04:00:00-08:00"
-    with state.edit("demo") as data:
-        data["owner"] = {"heard": (heard := state.stamp()), "away": heard}
-    attrs = {"order": "o1", "progress": "true", "quiet": "true", "due": due}
-    monkeypatch.setattr(
-        message_limits.cli.reads,
-        "run",
-        lambda argv, checkout, env=None: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": state.stamp(), "fields": {"attrs": attrs}}),
-    )
-    reason = say(transcript, text="The fix is in review. Next line by 9:00 AM.", record="705373")
-    assert reason == (
-        f"Refused on purpose: he is away since he said so at {message_limits.render.when(heard)}, and report 705373 owes the line promised"
-        f" him by {message_limits.render.when(due)}, which is owed at his return: the watch writes its report again the first pass after he is heard,"
-        " so it is never held. Post nothing and return NOTHING owed at his return."
-    )
-    assert agents.ruled(reason) == {"judged": False}
-    assert (state.load("demo")["held"], state.load("demo")["catch_up"]) == ({}, None)
-
-
-def test_a_report_too_big_for_jevs_prompt_held_while_he_is_away_is_refused_as_held_with_nothing_for_jev_to_size(
-    run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    with state.edit("demo") as data:
-        data["owner"] = {"heard": (heard := state.stamp()), "away": heard}
-    monkeypatch.setattr(
-        message_limits.cli.reads,
-        "run",
-        lambda argv, checkout, env=None: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": state.stamp(), "fields": {"attrs": {"order": "o1"}}}),
-    )
-    tool(lane_of(transcript), CCI_READ, {"seqs": [704431]}, "704431 report root>communicator " + said(3000))
-    claims = [{"claim": "The fix merged", "read": "record:704431"}]
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text="The fix merged.", record="704431", claims=claims) | {"tool_name": message_limits.SAY})))
-    message_limits.main()
-    printed = json.loads(capsys.readouterr().out)
-    reason = printed["hookSpecificOutput"]["permissionDecisionReason"]
-    assert printed == message_limits.denial(reason) | {"judged": False}
-    assert reason.startswith("Refused on purpose: he is away")
-    assert "Report 704431 is marked held" in reason
-    assert list(state.load("demo")["held"]) == ["704431"]
-
-
 def test_a_handlers_own_session_hands_jev_none_of_its_brief_as_his_words_and_his_own_message_still_posts(
     talker: str, tmp_path: Path, slack_thread: Thread, records: dict[str, str]
 ) -> None:
@@ -3225,11 +3089,9 @@ def test_a_handlers_own_session_hands_jev_none_of_its_brief_as_his_words_and_his
     own = tmp_path / "handler.jsonl"
     handler(own, RELAY_BRIEF, "1.2")
     with state.edit("demo") as data:
-        data["owner"] = {"heard": (heard := state.stamp()), "away": heard}
         data["handlers"]["f796ccf3"] = {"session": "handler-session", "started": state.stamp(), "holds": None, "handed": []}
     relayed = {"session_id": "handler-session", "transcript_path": str(own), "agent_type": "long-running:handler", "tool_name": message_limits.SAY}
     root = agents.seen(relayed | {"tool_input": {"text": "Resume works from any session now."}})
-    assert message_limits.deny_reason(root).startswith("Refused on purpose: he is away")
     assert message_limits.his_words(root) == []
     his(slack_thread, "tell me when resume works from the meta session")
     answer = agents.seen(relayed | {"tool_input": {"text": "Resume works from the meta session now.", "thread_ts": "1.2", "asked": "tell me when resume works from the meta session"}})
@@ -3323,10 +3185,7 @@ def test_a_drive_tooling_card_naming_his_product_pr_never_claims_a_post_about_th
 
 
 def test_a_say_post_to_a_channels_members_gets_a_readers_checks_in_place_of_a_line_to_hims(talker: str, transcript: Path, run: Run, checked: Checked, slack_thread: Thread) -> None:
-    with state.edit("demo") as data:
-        data["owner"] = {"heard": (heard := state.stamp()), "away": heard}
     claim = " ".join(["Claiming staging for 30 minutes to test the batch writer."] * 5) + " Does anyone object?"
-    assert say(transcript, text=claim).startswith("Refused on purpose: he is away")
     assert say(transcript, text=claim, channel_id="C0STAGING1") is None
     assert message_limits.his_words(call("slack_dm_status", transcript, text=claim, channel_id="C0STAGING1") | {"tool_name": message_limits.SAY}) == [message_limits.MEMBERS_WORDS]
     long = say(transcript, text=said(61), channel_id="C0STAGING1")

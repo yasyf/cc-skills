@@ -214,7 +214,7 @@ def misnamed_part(drive: dict, record: dict) -> str | None:
 def unfinished(drive: dict, record: dict) -> str | None:
     """Why a report to post leaves its handler guessing what it finishes: it names no close, part or progress attr, or the parts it delivers are the last ones undelivered of an open order it does not close, which would leave that order open once its last answer is posted. An order of work he ordered names no part, since no post delivers it."""
     named = attrs(record)
-    if named.get("catch_up") or named.get("progress"):
+    if named.get("progress") or named.get("milestone"):
         return None
     order_id = state.report_order(drive, named)
     items = state.part_items(named, order_id)

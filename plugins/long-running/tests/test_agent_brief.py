@@ -132,8 +132,8 @@ def test_a_ninth_builder_here_starts_on_a_sprite_at_once_and_only_one_whose_brie
     wrote = state.now() - timedelta(minutes=3)
     monkeypatch.setattr(watch, "last_write", lambda job, data: (wrote, None))
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs", "--parts", *(f"part {number}" for number in range(1, 9)), "docs")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the card", "--due", "+2h", "--thread", "1.2")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the watch", "--due", "+1h", "--thread", "1.3", "--parts", "here", "on a Sprite")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the card", "--thread", "1.2")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the watch", "--thread", "1.3", "--parts", "here", "on a Sprite")
     run("job", "add", "builder", "--order", "o3", "--part", "here", "--goal", "fix the watch")
     for number in range(1, 9):
         run("job", "add", "builder", "--order", "o1", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"a{number}")
@@ -157,9 +157,8 @@ def test_a_ninth_builder_here_starts_on_a_sprite_at_once_and_only_one_whose_brie
         refused = agent_brief.deny_reason(briefed("long-running:builder", f"{mac}order {order_id}, job {job_id}"))
     assert refused.startswith(
         f"refused: 8 builders already run on this Mac, its cap of 8 on builders that compile here, where a staging tester, a merged PR's prover or another builder marked --builds-nothing holds no slot ({counted}), so j1 waits its turn for a builder slot on this Mac, 1 of 3 in line."
-        " The watch's FREE line names each job waiting its turn as a slot opens, earliest due first: j1 (due "
+        " The watch's FREE line names each job waiting its turn as a slot opens, earliest due first: j1 \"fix the watch\"; j10 \"tidy the docs\"; j11 \"fix the card\"."
     )
-    assert refused.index('"fix the watch"; j11 (due ') < refused.index('"fix the card"; j10 (no time promised) "tidy the docs".')
     assert "j12" not in refused
     assert "j13" not in refused
     assert refused.endswith(
@@ -170,25 +169,25 @@ def test_a_ninth_builder_here_starts_on_a_sprite_at_once_and_only_one_whose_brie
     held = state.load(demo)["jobs"]["j1"]
     assert (held["state"], held["waits"], held["said"], held["where"]) == ("waiting", [state.SLOT_WAIT], "waits its turn for a builder slot on this Mac", "local")
     run("job", "set", "j2", "--state", "stopped")
-    for job_id, spot in (("j1", "1 of 3"), ("j11", "2 of 3"), ("j10", "3 of 3")):
+    for job_id, spot in (("j1", "1 of 3"), ("j10", "2 of 3"), ("j11", "3 of 3")):
         assert agent_brief.deny_reason(briefed("long-running:builder", f"{mac}order o3, job {job_id}")).startswith(
             f"refused: {job_id} waits its turn for a builder slot on this Mac, {spot} in line. The watch's FREE line names"
         )
     assert agent_brief.deny_reason(briefed("long-running:builder", f"{sprite}order o1, job j10")).startswith(
-        "refused: j10 waits its turn for a builder slot on this Mac, 3 of 3 in line, so j10 starts on a Sprite at once,"
+        "refused: j10 waits its turn for a builder slot on this Mac, 2 of 3 in line, so j10 starts on a Sprite at once,"
     )
     assert agent_brief.deny_reason(briefed("long-running:builder", "Order (his words): fix the watch\nServes: his order\nGoal: fix it")).startswith(
-        "refused: builders already wait their turn for a slot on this Mac ahead of it, earliest due first (j1, j11, j10), so this one waits:"
+        "refused: builders already wait their turn for a slot on this Mac ahead of it, earliest due first (j1, j10, j11), so this one waits:"
         " start it once a slot opens here with no builder waiting its turn. The watch's FREE line"
     )
     assert agent_brief.deny_reason(briefed("long-running:builder", f"{mac}order o1, job j13")).startswith(
-        "refused: builders already wait their turn for a slot on this Mac ahead of it, earliest due first (j1, j11, j10), so this one waits:"
+        "refused: builders already wait their turn for a slot on this Mac ahead of it, earliest due first (j1, j10, j11), so this one waits:"
     )
     assert state.load(demo)["jobs"]["j13"]["waits"] == []
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(waits=[], slot=state.stamp())
     assert agent_brief.deny_reason(briefed("long-running:builder", f"{sprite}order o3, job j1")) is None
-    assert agent_brief.deny_reason(briefed("long-running:builder", f"{mac}order o2, job j11")).startswith("refused: j11 waits its turn for a builder slot on this Mac, 1 of 2 in line.")
+    assert agent_brief.deny_reason(briefed("long-running:builder", f"{mac}order o1, job j10")).startswith("refused: j10 waits its turn for a builder slot on this Mac, 1 of 2 in line.")
 
 
 def test_an_open_incidents_fix_builder_and_an_immediate_fix_start_here_at_once_while_eight_hold_the_slots_and_others_start_on_a_sprite(demo: str, run: Run) -> None:
@@ -253,7 +252,7 @@ def test_a_builder_added_to_build_nothing_such_as_an_agentinbox_live_proof_start
     run("job", "add", "builder", "--order", "o1", "--part", "docs", "--goal", "tidy the docs")
     with state.edit(demo) as data:
         place.queue(data["jobs"]["j9"], state.now())
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the AgentInbox", "--due", "+1h", "--thread", "1.3")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the AgentInbox", "--thread", "1.3")
     assert run("job", "add", "builder", "--order", "o2", "--goal", "prove the AgentInbox fix live: a Datadog APM read", "--builds-nothing") == (0, "j10")
     proof = state.load(demo)["jobs"]["j10"]
     assert (proof["state"], proof["waits"], proof["where"], proof["builds_nothing"]) == ("waiting", [], "local", True)

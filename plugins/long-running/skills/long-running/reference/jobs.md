@@ -90,8 +90,7 @@ Contents:
   marks a builder already added the same way, a waiting one included, so a message wakes it past a full
   cap and one waiting its turn leaves the line.
   Each watch pass counts this Mac's builders once and gives each open slot to the builder job waiting
-  its turn that is due first: the earliest time promised him on an order it serves, then the oldest
-  added. Its `FREE` line goes once to the session holding its order, which starts its agent then. The
+  its turn that was added first. Its `FREE` line goes once to the session holding its order, which starts its agent then. The
   `agent_brief` hook refuses any other builder here while one waits its turn, naming each builder it
   counted and the line: one whose brief declares no such step starts on a Sprite at once with
   `drive job launch <j> <brief>`, and one whose brief declares one, that no agent runs, it holds waiting its
@@ -496,7 +495,7 @@ lane reads those, and Slack, through this Mac with a blocking question.
   the line says the watch types no more. A running job whose agent or lane on this Mac a model's
   safeguards stopped is set `stopped` at once instead, with nothing resumed or relaunched, since
   Claude Code's notice on that stop asks for it to go to him and for no one to do the agent's work:
-  a POST report passes the notice to him, its `LANE … stopped by its model's safeguards` line says
+  the watch posts the notice to him itself, its `LANE … stopped by its model's safeguards` line says
   so, its parts make no `ORPHAN`, and only his word adds the job that takes its work, by `drive job add` on its parts. A PR's next step goes to its lane by `drive pr wake`, as its
   stage owes. While its job stays `running`, a lane that finished, or ended with
   no next lane started within 30 minutes, or whose relaunch ended without one, makes its parts

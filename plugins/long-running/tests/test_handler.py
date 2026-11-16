@@ -11,7 +11,7 @@ import handed_records
 import one_line_result
 import pytest
 from conftest import HELD_RELEASES, LANE_SPEC, REAL_PLUGIN_SERVERS, UNFROZEN, Answers, Thread
-from drive import agents, install, orca, place, procs, reads, render, slack, state, talk, tools, watch
+from drive import agents, install, orca, place, procs, reads, render, slack, state, talk, tools
 
 Run = Callable[..., tuple[int, str]]
 HIS_BRIEF = "Message (his words): why is this card asking again?\nThread: D123 1794380463.481959\nDrive: demo\nScratch: {scratch}\nDeliverable: his answer, in his thread"
@@ -20,6 +20,7 @@ BACKGROUND_JOB = "b7f2e0aa"
 GONE = agents.gone
 LAUNCHED = agents.launched
 ALERT_THREAD = "1794625385.692939"
+POST_REPORT = {"kind": "report", "lane": "root", "to": ["communicator@demo"], "text": "POST staging is claimed for the cut 2 test", "fields": {"attrs": {}}}
 
 
 @pytest.fixture
@@ -654,160 +655,18 @@ def test_the_watchs_brief_names_its_record_by_the_bare_seq_the_communicators_bri
     assert len([argv for argv in started if argv[:2] == ["claude", "--bg"]]) == 1
 
 
-POST_REPORT = {"kind": "report", "lane": "root", "to": ["communicator@demo"], "text": "POST staging is claimed for the cut 2 test", "fields": {"attrs": {}}}
 POSTED_LINK = "https://acme.slack.com/archives/C0BQSADC7SS/p1794776178711529"
 
 
-def test_a_post_report_gets_one_handler_whichever_of_the_handler_tool_and_the_watchs_read_comes_first_and_stays_owed_until_a_post_carries_it(
-    communicator: str, tmp_path: Path, started: list[list[str]], cci_records: dict[str, dict], posts_to_communicator: list[str]
-) -> None:
-    for seq in ("706844", "706845"):
-        cci_records[seq] = POST_REPORT | {"seq": int(seq)}
-    watching = watch.Watcher("demo", offset=state.events_end("demo"))
-    posts_to_communicator += ["706844", "706845"]
-    first = tools.run("handler", "demo", {"brief": f"Record: 706844 Drive: demo Scratch: {tmp_path / 'handler-706844'}"}).removeprefix("started ")
-    assert watch.post_lines(watching, state.now()) == []
-    [second] = set(state.load("demo")["handlers"]) - {first}
-    assert tools.run("handler", "demo", {"brief": f"Record: 706845 Drive: demo Scratch: {tmp_path / 'handler-706845'}"}) == f"handed to {second}"
-    with state.edit("demo") as data:
-        data["handlers"].clear()
-    assert watch.post_lines(watching, state.now()) == []
-    for carried, held, went in (
-        (POSTED_LINK, False, f"{POSTED_LINK} carries it"),
-        (None, True, "its line is held for his return"),
-        (None, False, "the line its handler ended on carries it"),
-    ):
-        with state.edit("demo") as data:
-            data["handlers"].clear()
-            data["carried"] = {} if held else {"706845": carried}
-            data["held"] = {"706845": {"order": None, "at": state.stamp()}} if held else {}
-        with pytest.raises(state.DriveError, match=f"refused, no handler started: POST report 706845 needs no handler, since {went}"):
-            tools.run("handler", "demo", {"brief": f"Record: 706845 Drive: demo Scratch: {tmp_path / 'handler-706845'}"})
-    assert watch.post_lines(watching, state.now()) == []
-    assert [argv[-1].split()[1] for argv in started if argv[:2] == ["claude", "--bg"]] == ["706844", "706845", "706844", "706845", "706844"]
-    assert state.load("demo")["posts"]["mark"] == 706843
-
-
-def test_the_post_reports_of_one_thread_inside_a_minute_go_to_one_handler_and_a_report_after_its_handler_ended_starts_a_fresh_one(
-    communicator: str, started: list[list[str]], cci_records: dict[str, dict], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    thread, moment = "1794440505.483109", state.now()
-    for seq in ("706844", "706845", "706846"):
-        cci_records[seq] = POST_REPORT | {"seq": int(seq), "fields": {"attrs": {"thread": thread}}}
-    read = [("706844", moment - timedelta(seconds=90), thread), ("706845", moment - timedelta(seconds=10), thread)]
-    monkeypatch.setattr(agents, "posts", lambda name, since: (read, int(read[-1][0])))
-    monkeypatch.setattr(agents, "seeded", lambda name: 0)
-    agents.start_posts("demo", moment)
-    launches = [argv for argv in started if argv[:2] == ["claude", "--bg"]]
-    [handler] = state.load("demo")["handlers"]
-    assert ([argv[-1].split()[1] for argv in launches], "--resume" in launches[0]) == (["706844"], False)
-    assert [brief.split()[1] for brief in state.load("demo")["handlers"][handler]["handed"]] == ["706845"]
-    with state.edit("demo") as data:
-        data["handlers"].clear()
-        data["carried"] |= {"706844": "posted", "706845": "posted"}
-    read[:] = [("706846", moment - timedelta(seconds=10), thread)]
-    agents.start_posts("demo", moment)
-    assert len([argv for argv in started if argv[:2] == ["claude", "--bg"]]) == 1
-    agents.start_posts("demo", moment + timedelta(minutes=1))
-    fresh = [argv for argv in started if argv[:2] == ["claude", "--bg"]][-1]
-    assert (fresh[-1].split()[1], "--resume" in fresh) == ("706846", False)
-    settings = json.loads(fresh[fresh.index("--settings") + 1])
-    assert (settings["autoMemoryEnabled"], [Path(path).name for path in settings["claudeMdExcludes"]]) == (False, ["CLAUDE.md", "CLAUDE.md", "AGENTS.md"])
-
-
-def test_while_he_is_away_the_watchs_quiet_report_is_marked_held_by_says_rule_and_a_correction_of_it_carried_with_no_handler_started_on_either(
-    communicator: str, tmp_path: Path, started: list[list[str]], cci_records: dict[str, dict], posts_to_communicator: list[str]
-) -> None:
-    quiet = {"kind": "report", "lane": "watch", "to": ["communicator@demo"], "at": "2026-11-15T10:00:00Z", "text": "POST order o1 has news since the thread's last line: post what changed there"}
-    cci_records["720100"] = quiet | {"seq": 720100, "fields": {"attrs": {"order": "o1", "progress": "true", "quiet": "true"}}}
-    cci_records["720101"] = {"seq": 720101, "kind": "correction", "lane": "watch", "re": 720100, "text": "POST the PR is #2, not #1", "fields": {"attrs": {}}}
-    cci_records["720102"] = quiet | {"seq": 720102, "text": "POST order o1 owes him the line it promised by 9:15 PM", "fields": {"attrs": {"quiet": "true", "due": "2026-11-15T21:15:00-08:00"}}}
-    cci_records["720103"] = quiet | {"seq": 720103, "lane": "root", "fields": {"attrs": {"quiet": "true"}}}
-    with state.edit("demo") as data:
-        data["owner"] = {"heard": (heard := state.stamp()), "away": heard, "absence": None}
-    posts_to_communicator += ["720100", "720101", "720102", "720103"]
-    assert watch.post_lines(watch.Watcher("demo", offset=state.events_end("demo")), state.now()) == []
-    data = state.load("demo")
-    assert (list(data["held"]), data["carried"]) == (["720100"], {"720101": "held report 720100"})
-    assert [argv[-1].split()[1] for argv in started if argv[:2] == ["claude", "--bg"]] == ["720102", "720103"]
-    with pytest.raises(state.DriveError, match="refused, no handler started: POST report 720100 needs no handler, since its line is held for his return"):
-        tools.run("handler", "demo", {"brief": f"Record: 720100 Drive: demo Scratch: {tmp_path / 'handler-720100'}"})
-
-
-def test_a_post_reports_handler_that_ends_posting_nothing_leaves_it_owed_for_a_fresh_handler_naming_its_line_and_a_second_such_end_gives_it_up_to_its_writer(
-    communicator: str, tmp_path: Path, started: list[list[str]], cci_records: dict[str, dict], posts_to_communicator: list[str], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    cci_records["719148"] = POST_REPORT | {"seq": 719148}
-    watching = watch.Watcher("demo", offset=state.events_end("demo"))
-    posts_to_communicator.append("719148")
-    assert watch.post_lines(watching, state.now()) == []
-    [(first, entry)] = state.load("demo")["handlers"].items()
-    monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: None)
-    monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))
-    refusal = "DEFECT say: drive: nothing posted: this session runs handler f65372a2 and is unbound"
-    bind(monkeypatch, first, "first-session")
-    assert stop(monkeypatch, capsys, "first-session", tmp_path / "first.jsonl", refusal, brief=entry["brief"]) == ""
-    data = state.load("demo")
-    assert (resting(data), data["posts"]["unposted"], data["carried"]) == ([first], {"719148": refusal}, {})
-    assert watch.post_lines(watching, state.now()) == []
-    [(again, entry)] = state.load("demo")["handlers"].items()
-    assert again == first and entry["brief"] == f"Record: 719148 Drive: demo Scratch: {state.drive_dir('demo') / 'scratch' / 'post-719148'}\n{agents.UNPOSTED} {refusal}"
-    bind(monkeypatch, again, "again-session")
-    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or (json.dumps({"seq": 719200}) if argv[:2] == ["cci", "post"] else ""))
-    assert stop(monkeypatch, capsys, "again-session", tmp_path / "again.jsonl", "DEFECT say: drive: nothing posted again", brief=entry["brief"]) == ""
-    assert started[-1] == [
-        "cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--to", "root@demo", "--id", f"handler-{again}-1",
-        "--text", "UNPOSTED 719148; DEFECT say: drive: nothing posted again", "--or-heir", "--json",
-    ]
-    data = state.load("demo")
-    assert (resting(data), data["posts"]["unposted"], data["carried"]) == ([first], {}, {"719148": "done record 719200"})
-    assert watch.post_lines(watching, state.now()) == []
-    assert (resting(state.load("demo")), state.load("demo")["posts"]["mark"]) == ([first], 719148)
-    with pytest.raises(state.DriveError, match="POST report 719148 needs no handler, since done record 719200 carries it"):
-        tools.run("handler", "demo", {"brief": f"Record: 719148 Drive: demo Scratch: {tmp_path / 'handler-719148'}"})
-
-
-def test_a_post_reports_handler_that_never_starts_or_dies_leaves_it_owed_for_a_fresh_handler_and_a_second_such_end_gives_it_up_to_its_writer(
-    communicator: str, started: list[list[str]], cci_records: dict[str, dict], posts_to_communicator: list[str], ended_sessions: set[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    cci_records["719148"] = POST_REPORT | {"seq": 719148}
-    watching = watch.Watcher("demo", offset=state.events_end("demo"))
-    posts_to_communicator.append("719148")
-    assert watch.post_lines(watching, state.now()) == []
-
-    def dies() -> str:
-        [(handler, entry)] = state.load("demo")["handlers"].items()
-        ended_sessions.add(entry["session"])
-        return handler
-
-    first = dies()
-    assert watch.post_lines(watching, state.now()) == []
-    [(again, entry)] = state.load("demo")["handlers"].items()
-    assert (again != first, entry["brief"]) == (True, f"Record: 719148 Drive: demo Scratch: {state.drive_dir('demo') / 'scratch' / 'post-719148'}\n{agents.UNPOSTED} {agents.DIED}")
-    dies()
-    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or (json.dumps({"seq": 719201}) if argv[:2] == ["cci", "post"] else ""))
-    assert watch.post_lines(watching, state.now()) == []
-    assert started[-1] == [
-        "cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--to", "root@demo", "--id", "posts-given-up-719148",
-        "--text", f"UNPOSTED 719148; its handler ended before it returned a line, after the handler before it ended without posting: {agents.DIED}", "--or-heir", "--json",
-    ]
-    data = state.load("demo")
-    assert (data["posts"], data["carried"]) == ({"mark": 719148, "unposted": {}}, {"719148": "done record 719201"})
-    assert len([argv for argv in started if argv[:2] == ["claude", "--bg"]]) == 2
-
-
-def test_a_handlers_first_post_carries_each_record_it_held_or_took_and_one_that_posted_nothing_keeps_each_owed_post_report_owed_but_gives_up_a_second_end_or_a_verdict() -> None:
-    data: dict = {"carried": {}, "held": {"719160": {"order": None, "at": "2026-11-15T20:00:00Z"}}, "posts": {"mark": 719100, "unposted": {"719151": "DEFECT say refused"}}}
+def test_a_handlers_first_post_carries_each_record_it_held_or_took_and_one_that_posted_nothing_carries_none() -> None:
+    data: dict = {"carried": {}}
     took = ["Record: 719151 Drive: demo Scratch: /s/719151", HIS_MESSAGE.format(scratch="/s/his")]
     entry = {"holds": {"record": "719150"}, "handed": [], "took": took, "posted": [f"POSTED {POSTED_LINK}; waits id demo:j1-7", "EDITED https://acme.slack.com/archives/D123/p1794447012004417"]}
-    assert agents.settled(data, entry, {}, "POSTED") == {}
-    assert (data["carried"], data["posts"]["unposted"]) == ({"719150": POSTED_LINK, "719151": POSTED_LINK}, {})
-    data["posts"]["unposted"]["719153"] = "DEFECT say refused"
+    assert agents.settled(data, entry) is None
+    assert data["carried"] == {"719150": POSTED_LINK, "719151": POSTED_LINK}
     unposted = entry | {"holds": {"record": "719152"}, "took": ["Record: 719153 Drive: demo Scratch: /s/719153", "Record: 719160 Drive: demo Scratch: /s/719160"], "posted": []}
-    assert agents.settled(data, unposted, {"719152": "root", "719153": "iris", "719160": "root"}, "MISSING /s/repro.py") == {"719153": "iris"}
-    assert data["posts"]["unposted"] == {"719153": "DEFECT say refused", "719152": "MISSING /s/repro.py"}
-    for verdict in ("NOTHING owed at his return", "RECORDED 719170"):
-        assert agents.settled(data, unposted | {"holds": {"record": "719154"}, "took": []}, {"719154": "watch"}, verdict) == {"719154": "watch"}
+    agents.settled(data, unposted)
+    assert data["carried"] == {"719150": POSTED_LINK, "719151": POSTED_LINK}
 
 
 LIVE_RECORDS = {
@@ -1043,7 +902,7 @@ def test_a_handler_whose_launch_never_named_its_session_holds_its_thread_only_th
     fresh = tools.run("handler", "demo", {"brief": his}).removeprefix("started ")
     assert {key: entry["handed"] for key, entry in state.load("demo")["handlers"].items()} == {fresh: [*([briefs["715733"]] if kept else []), briefs["716199"]]}
     first, second = [argv[-1] for argv in started if argv[:2] == ["claude", "--bg"]]
-    assert first == f"{briefs['716199']}\n{agents.UNPOSTED} {agents.DIED}{UNFROZEN}"
+    assert first == f"{briefs['716199']}{UNFROZEN}"
     assert second.startswith(f"{his}\n{agents.IN_THREAD}:\n- o1512 ") and second.endswith(UNFROZEN)
 
 

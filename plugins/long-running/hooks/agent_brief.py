@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import agents, brief, place, state, view
-from drive.render import cut, when
+from drive.render import cut
 
 BUILDER = "long-running:builder"
 BRIEFED = ("long-running:reader", BUILDER, agents.DESIGNER)
@@ -169,15 +169,14 @@ def started_alone(data: dict, text: str) -> str | None:
 def line(data: dict) -> str:
     waiting = "; ".join(in_line(data, job_id) for job_id in place.waiting_builders(data))
     return (
-        f". The watch's FREE line names each job waiting its turn as a slot opens, earliest due first: {waiting or 'none'}."
+        f". The watch's FREE line names each job waiting its turn as a slot opens, oldest first: {waiting or 'none'}."
         f" Only a builder whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits here; start any other on a Sprite at once with drive job launch <j> <brief>"
     )
 
 
 def in_line(data: dict, job_id: str) -> str:
     job = data["jobs"][job_id]
-    due = place.promised(data, job)
-    return f'{job_id} ({f"due {when(due)}" if due else "no time promised"}) "{cut(job["goal"], 60)}"'
+    return f'{job_id} "{cut(job["goal"], 60)}"'
 
 
 def deny_reason(payload: dict) -> str | None:

@@ -1,6 +1,6 @@
 ---
 name: watchdog
-description: Reads why one stall of a long-running drive stands, a PR stack, a PR's release, a staging env or a job that jobs wait on and that has not moved past its deadline, and answers in four lines. The drive's watch starts one per stall as its own `claude -p` session and says its answer to the session holding the stall's order, the coordinator or the meta session, then starts a fresh one before its report to him. Runs on Sonnet.
+description: Reads why one stall of a long-running drive stands, a PR stack, a PR's release, a staging env or a job that jobs wait on and that has not moved past its deadline, and answers in four lines. The drive's watch starts one per stall as its own `claude -p` session and says its answer to the session holding the stall's order, the coordinator or the meta session; no line of a stall goes to him. Runs on Sonnet.
 model: sonnet
 tools: Bash, Read, Grep, Glob
 ---

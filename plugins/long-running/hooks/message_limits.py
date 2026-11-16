@@ -49,7 +49,6 @@ PROMISED_START = re.compile(
 )
 PROMISE_RULING = 'his words b4b64f5 "fix your toolking so tracking this stuff beciomes deterministic and it cant get lost at the whims of an agent"'
 DOWN_RULING = "his Nov 8 ruling: \"The coordinator is down? Then why the fuck haven't you restarted it?\" and \"It's unacceptable to just say it's down\""
-AWAY_RULE = state.AWAY_HOLD + "."
 REPORTER_RULE = (
     "The thread someone else reported a bug or asked him a question in hears from the drive once: that the bug is fixed once its fix"
     " is proven live, or the answer once it is posted to him, by his words \"we have authorization to message once in bug fix threads"
@@ -677,7 +676,7 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
     if not posts_to(payload, drive, dm):
         return (payload["tool_name"] == SAY and unread(payload, dm)) or teammate_findings(payload)
     report, order_id = said_order(payload, drive)
-    if refusal := held_while_away(payload, drive, report, order_id) or talk.misplaced(drive, tool_input) or unread(payload, dm):
+    if refusal := talk.misplaced(drive, tool_input) or unread(payload, dm):
         return refusal
     try:
         messages = thread_messages(payload, dm)
@@ -904,19 +903,6 @@ def edited_order(name: str, link: str) -> str | None:
     """The order the post at link went out on, as the said event say kept when it made that post names it."""
     key = view.message_key(link)
     return next((event["order"] for event, _ in state.read_events(name) if event["kind"] == "said" and not event.get("edited") and view.message_key(event["url"]) == key), None)
-
-
-def held_while_away(payload: dict, drive: dict, report: dict, order_id: str | None) -> str | None:
-    """Why a line in his DM waits while he is away, by talk.away, the rule say reads too: a report's line say holds by talk.held_away, marked held or owed at his return, refused before Jev reads or sizes it, since say posts nothing of it whatever Jev reads; a handler's line carrying no report Jev weighs by AWAY_RULE; a line outside his DM, such as an update in a staging claim's thread, speaks to that channel's members and goes out."""
-    tool_input = payload["tool_input"]
-    if edited(payload):
-        return None
-    if held := talk.held_away(drive["name"], drive, tool_input, report, order_id):
-        return agents.Unjudged(f"Refused on purpose: {held}")
-    if not payload.get("agent_id") or not (gone := talk.away(drive, tool_input, report, order_id, state.now())):
-        return None
-    away = f"Refused on purpose: {gone}. Post nothing: this news waits for his return, when the drive owes its thread a line."
-    return agents.Ruled(away, AWAY_RULE, found=gone)
 
 
 def long_ack(payload: dict) -> str | None:

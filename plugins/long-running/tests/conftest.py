@@ -627,20 +627,6 @@ def trunk_queue(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
 
 
 @pytest.fixture(autouse=True)
-def posts_to_communicator(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """The seq of each `POST` report to the communicator cci holds, each read from the drive's mark on, the drive's read starting at 0, each taken long before any batch window closes and naming no thread."""
-    kept: list[str] = []
-
-    def read(name: str, since: int) -> tuple[list[tuple[str, datetime, str | None]], int]:
-        seqs = [seq for seq in dict.fromkeys(kept) if int(seq) > since]
-        return [(seq, datetime(2026, 1, 1, tzinfo=UTC), None) for seq in seqs], max(map(int, seqs), default=since)
-
-    monkeypatch.setattr(agents, "posts", read)
-    monkeypatch.setattr(agents, "seeded", lambda name: 0)
-    return kept
-
-
-@pytest.fixture(autouse=True)
 def ended_sessions(monkeypatch: pytest.MonkeyPatch) -> set[str]:
     ended: set[str] = set()
     monkeypatch.setattr(agents, "gone", lambda entry: entry["session"] in ended)
@@ -705,18 +691,15 @@ def unopened_links(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
 
 
 REAL_ANSWER = answer.answer
-REAL_ASKED_LINES = watch.asked_lines
 
 
 @pytest.fixture(autouse=True)
 def unanswered(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The drive's own answer of his message escalates, the watch reads each owed message as claimed, no report is the drive's own to write, and every order's thread is owed lines on news, unless a test says otherwise, so no test calls a model, adds eyes in Slack or detaches an answer."""
+    """The drive's own answer of his message escalates and the watch reads each owed message as claimed, unless a test says otherwise, so no test calls a model, adds eyes in Slack or detaches an answer."""
     monkeypatch.setattr(answer, "answer", lambda name, link, words, dry_run=False: {"answered": None, "why": "escalated in tests"})
     monkeypatch.setattr(answer, "claim_path", lambda name, ts: Path(__file__))
-    monkeypatch.setattr(answer, "scripted", lambda record: False)
     monkeypatch.setattr(route, "owed_ts", lambda data: set())
     monkeypatch.setattr(route, "on_it", lambda name, link, words, thread: {"on_it": "escalated in tests"})
-    monkeypatch.setattr(watch, "asked_lines", lambda order: True)
 
 
 @pytest.fixture(autouse=True)

@@ -134,16 +134,6 @@ DRIVE_TOOLING = (
     " sessions reach each other and him, and the install of a released tool"
 )
 WAITS_ON_HIM = "WAITING-ON-HIM"
-AWAY_HOLD = (
-    "He is away from the moment the owner row's away holds: when he says he is going to sleep or stepping out, else an hour"
-    " after his last word or tap. While he is away a line to him in his DM goes out only as a card, a PR card, the watch's"
-    " reply under a card holding built work, an edit of a post already out, his catch-up, an answer passing asked, a line"
-    f" carrying {WAITS_ON_HIM}, an incident's line, a line marked customer_outage=true, or a line naming a clock time still to"
-    " come, which a promise of the next line is not. say holds every other report for his return, news that work moved or"
-    " that the drive failed him included; a report owing a line promised by a time is owed at his return instead, and a"
-    ' handler\'s line carrying no report is refused, by his words "Just do less realtime more summary / batching, with a catch'
-    " up post once I'm back\""
-)
 ABOUT_DRIVE = "drive"
 ABOUT_HIS_WORK = "his work"
 ABOUTS = (ABOUT_DRIVE, ABOUT_HIS_WORK)
@@ -260,7 +250,6 @@ DAY_OFFSETS = {"yesterday": -1, "today": 0, "tonight": 0, "tomorrow": 1}
 OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 AWAY_AFTER = timedelta(minutes=60)
 PRESENT_WITHIN = timedelta(minutes=15)
-QUIET_THREAD = timedelta(minutes=5)
 PRESENCE_WORDS = '"merging or rleasing dangerous things should only be done wehn the human is present"'
 TAKEN_BY_PASS = "its staging test passed after your Approve"
 STANDING_EVERY = timedelta(minutes=30)
@@ -865,14 +854,12 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "routes": {},
         "slots": {},
         "stand_ins": {},
-        "held": {},
         "owed_replies": {},
         "carried": {},
-        "posts": {"mark": None, "unposted": {}},
+        "posts": {"mark": None},
         "mains": {},
         "dropped_waits": {},
         "posted": {},
-        "catch_up": None,
         "launched": {},
         "closed_from_cards": True,
         "designs_cited": True,
@@ -1168,12 +1155,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order["owner"] = "meta" if order["text"].startswith(TOOLING) else order.get("owner")
         if "from_thread" in order or isinstance(order.get("thread", ""), str):
             order["thread"] = saved_thread(data, order)
-        order.setdefault("promises", [])
-        if order.get("due") and not order.get("withdrawn"):
-            where = promise_thread(order | {"threads": order.get("threads", [])})
-            new_promise(order, where, order["due"], order.get("promised") or order["updated"]).update({field: order[field] for field in ("kept", "due_said", "next_due", "next_set") if field in order})
-        order.update({field: None for field in OLDER_INSTALL_PROMISE if field in order})
-        order.setdefault("withdrawn", None)
+        for field in ("promises", "withdrawn", *OLDER_INSTALL_PROMISE):
+            order.pop(field, None)
         order["parts"] = {part.strip(): held for part, held in order["parts"].items()}
         for part in order["parts"].values():
             part.pop("kind", None)
@@ -1331,14 +1314,14 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         answer.setdefault("jobs", {})
         answer.setdefault("approves", None)
     data.setdefault("stand_ins", {})
-    data.setdefault("held", {})
+    data.pop("held", None)
+    data.pop("catch_up", None)
     data.setdefault("owed_replies", {})
     data.setdefault("routed", {})
     data.setdefault("routes", {})
-    for mark in data["held"].values():
-        mark.setdefault("record", None)
     data.setdefault("carried", {})
-    data.setdefault("posts", {"mark": None, "unposted": {}})
+    data.setdefault("posts", {"mark": None})
+    data["posts"].pop("unposted", None)
     data.setdefault("dropped_waits", {})
     data.pop("resumable", None)
     data.setdefault("posted", {})
@@ -1350,13 +1333,6 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         for kept in owned.values():
             kept.setdefault("waking", None)
             kept.setdefault("job", kept["owner"] and data["prs"][kept["owner"]]["job"])
-    if "catch_up" not in data:
-        data["catch_up"] = new_catch_up(min(mark["at"] for mark in data["held"].values())) if data["held"] else None
-    if data["catch_up"]:
-        data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
-        if data["catch_up"].pop("orders", None) is not None and data["catch_up"]["record"]:
-            for mark in data["held"].values():
-                mark["record"] = mark["record"] or data["catch_up"]["record"]
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
     keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_cases_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("stopped_handed_off")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped")) and bool(data.get("staging_approves_restored")) and bool(data.get("proofs_rehomed")) and bool(data.get("unowed_fails_undone")) and bool(data.get("carried_proofs_delivered")) and bool(data.get("old_dones_kept")) and bool(data.get("change_waits_stacked")) and bool(data.get("cut_provers_marked"))
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev", "delivered_by_prs", "delivered_restored", "proofs_posted", "proofs_proven", "tap_cards_kept"):
@@ -3100,8 +3076,6 @@ def stack_on(data: dict, design_id: str, source_id: str) -> str:
     return f"{report}; stack on {source_id}'s PR {pr['url']}" + (f", branch {pr['branch']}" if pr["branch"] else "") + (f", head {pr['head']} as it returned" if pr["head"] else "")
 
 
-
-
 def wait_on_earlier(data: dict, order_id: str, changes: list[tuple[list[str], list[int]]]) -> None:
     """Give each builder of a change no agent or lane took a wait on each job building an earlier change it waits on, by part_builders, its parts not yet delivered, that it neither waits on nor stacks on and whose work is still to come, a builder added after it for that change included, so no change starts on a base without one it needs; each ends once its job registers a PR, the watch naming that PR's branch to stack on."""
     from drive import view
@@ -3788,10 +3762,10 @@ def deliver_posted(data: dict, job_id: str, link: str, moment: str) -> None:
 
 
 def answered(data: dict, order_id: str) -> bool:
-    """Whether an open answer order is left nothing owed, so it closes done: every part posted, every job finished, no promised line owed and every reporter told."""
+    """Whether an open answer order is left nothing owed, so it closes done: every part posted, every job finished and every reporter told."""
     order = data["orders"][order_id]
     finished = all(data["jobs"][other]["state"] in FINISHED_JOB_STATES for other in order["jobs"])
-    return order["kind"] == "answer" and order["state"] not in CLOSED_ORDER_STATES and finished and not owed(order) and not untold_reporters(data, order) and all(held["posted"] for held in order["parts"].values())
+    return order["kind"] == "answer" and order["state"] not in CLOSED_ORDER_STATES and finished and not untold_reporters(data, order) and all(held["posted"] for held in order["parts"].values())
 
 
 def merge_proven(order: dict) -> bool:
@@ -3934,9 +3908,6 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "threads": [],
         "claims": {},
         "state": "open",
-        "promises": [],
-        **dict.fromkeys(OLDER_INSTALL_PROMISE),
-        "withdrawn": None,
         "jobs": [],
         "alerts": [],
         "recovered": None,
@@ -5616,20 +5587,6 @@ def read_lines(path: Path, offset: int = 0) -> Iterator[tuple[dict, int]]:
                 yield json.loads(line), offset
 
 
-def new_catch_up(since: str) -> dict:
-    """The catch-up the drive owes him at his DM root until it posts: from since, when he was last heard before he went away, with the report of it the watch wrote, the handler last started to post it and the time he was heard that start answered."""
-    return {"since": since, "record": None, "handler": None, "tried": None}
-
-
-def let_go(data: dict, withdrawn: list[str]) -> None:
-    """Let go of reports held for his return that their writers withdrew, which no post carries, giving back the close of each open order one claimed."""
-    for seq in withdrawn:
-        del data["held"][seq]
-    for order in data["orders"].values():
-        if order["closed_on"] in withdrawn and order["state"] not in CLOSED_ORDER_STATES:
-            order["closed_on"] = None
-
-
 def owner_away(data: dict, moment: datetime) -> bool:
     """Whether he is away at moment, from the moment the owner row's away holds: when he said so, else an hour after he was last heard; a drive that never heard him counts him present."""
     away = (data.get("owner") or {}).get("away")
@@ -5657,9 +5614,8 @@ def present(data: dict, since: datetime, moment: datetime) -> timedelta:
 
 
 def timed(data: dict, job: dict, moment: datetime) -> bool:
-    """Whether a time is set to come for the job: its own clock from drive job set --due, or a time an order it serves promised him in one of its threads."""
-    dues = [job["due"], *(held["due"] for order_id in [job["order"], *job["carries"]] for held in data["orders"][order_id]["promises"])]
-    return any(due and parse_time(due) > moment for due in dues)
+    """Whether a time is set to come for the job: its own clock from drive job set --due."""
+    return bool(job["due"]) and parse_time(job["due"]) > moment
 
 
 def open_orders(data: dict) -> dict[str, dict]:
@@ -5667,7 +5623,7 @@ def open_orders(data: dict) -> dict[str, dict]:
 
 
 def clocks(data: dict) -> list[dict]:
-    """Each open order he waits on a line from, by its due: the time a line was promised him, else five quiet minutes after its thread's last line while a job of the order runs or it is top priority, else the minutes he asked a line every after it, by his words "And give me updates, every 15 mins, concise, on all 3 of these, in this thread, until all done" and "And for future when I say something is top priority it’s not acceptable that it's been an hour and there's no motion or updates on it" and his picks "Owe a line only on news: while a job works or something it names changed; silent while all waits." and "a line every five quiet minutes"; with when that thread last got a line, the session of the role holding it and of each handler holding a message in its thread, and the agent of each job of it running. A job runs only while `at_work` reads it so. The orders are those the watch's news_groups owes a line, an incident or one with a thread that no recovery, close report, close or proof finished, each on its own line, and a thread's last line the newest of its orders', else when the first was opened, as the watch's quiet_lines reads it, but never when the watch's own report reached a handler, which is no line to him. Each edit and batch saves it as one row, which hooks/role_rules.py reads alone with no lock, so a session's call learns how long he has waited from a read that stays one row however many orders and jobs the drive keeps."""
+    """Each open order he asked a line every so many minutes on, by his words "And give me updates, every 15 mins, concise, on all 3 of these, in this thread, until all done", due that many minutes after its thread's last line, with when that thread last got a line, the session of the role holding it and of each handler holding a message in its thread, and the agent of each job of it running, an incident or one with a thread that no recovery, close report, close or proof finished; a promised time and five quiet minutes owe no line, by his words "clearly these reports are useless / not valuable / spammy, so remove them entirely or rethink the whole model". Each edit and batch saves it as one row, which hooks/role_rules.py reads alone with no lock."""
     from drive import view
 
     waited = {
@@ -5688,7 +5644,7 @@ def clocks(data: dict) -> list[dict]:
     for order_id, order in waited.items():
         since = heard[keyed[order_id]]
         running = [job for job in orders_jobs(data, [order_id]).values() if at_work(job)]
-        if not (dues := [*([parse_time(owed_at(order))] if owed(order) else []), *([since + QUIET_THREAD] if running or order["priority"] else []), *([since + timedelta(minutes=order["every"])] if order["every"] else [])]):
+        if not order["every"]:
             continue
         where = own_thread(order)
         sessions = [holding_role(data, order)[1].get("session"), *(handled.get(where[1], []) if where else [])]
@@ -5697,7 +5653,7 @@ def clocks(data: dict) -> list[dict]:
                 "order": order_id,
                 "title": view.order_title(order),
                 "since": stamp(since),
-                "due": stamp(min(dues)),
+                "due": stamp(since + timedelta(minutes=order["every"])),
                 "incident": order["incident"],
                 "sessions": list(dict.fromkeys(session for session in sessions if session)),
                 "agents": [job["agent"] for job in running if job.get("agent")],
@@ -5832,8 +5788,8 @@ def unasked_tooling(order: dict) -> bool:
 
 
 def watch_posts_itself(order: dict) -> bool:
-    """Whether the drive's watch posts the live line of the close report an order keeps itself, through say, with no handler: a report drive job prove kept on an order with no reporter, which hears its own note, and no incident, whose line the incident rules shape; a drive tooling order a session opened closes on its proof with no line, by unasked_tooling."""
-    return order["close_report"]["id"].startswith(PROVED_REPORT) and not order["reporters"] and not order["incident"] and not unasked_tooling(order)
+    """Whether the drive's watch posts the live line of the close report an order keeps itself, through say, with no handler: a close report drive job prove or the watch's DONE at a merge kept on an order with no reporter, which hears its own note, an incident's included; a drive tooling order a session opened closes on its proof with no line, by unasked_tooling."""
+    return not order["reporters"] and not unasked_tooling(order)
 
 
 def watch_posting(data: dict) -> set[str]:
@@ -5931,70 +5887,6 @@ def incident_threads(data: dict, order_ids: list[str]) -> list[str]:
     return [where[1] for order_id in order_ids if (where := promise_thread(data["orders"][order_id]))]
 
 
-def promised_in(order: dict, thread: tuple[str, str] | list[str] | None) -> dict | None:
-    """The line an order owes him in one thread, kept or not, by the channel and thread its promise names; None in place of a thread names the drive's own time of an order with no thread."""
-    return next((held for held in order["promises"] if held["thread"] == (list(thread) if thread else None)), None)
-
-
-def owing(order: dict) -> list[dict]:
-    """The lines an order owes him for promised times, each in the thread whose line promised it: those no drive post in that thread has kept. An incident owes none, since the watch owes him its line five quiet minutes after its last once it has news, whatever that line promised."""
-    return [] if order["incident"] else [held for held in order["promises"] if not held["kept"]]
-
-
-def owed(order: dict) -> bool:
-    return bool(owing(order))
-
-
-def owed_at(order: dict) -> str:
-    """The earliest time an order owes him a line by, of every thread it owes one in."""
-    return min(map(due_at, owing(order)), key=parse_time)
-
-
-def due_at(held: dict) -> str:
-    return min((due for due in (held["due"], held["next_due"]) if due), key=parse_time)
-
-
-def owed_at_return(data: dict, held: dict, moment: datetime) -> bool:
-    """Whether the line promised him in a thread by a time already past is owed at his return: he reads away, so the watch writes no report owing it until the first pass after he is heard, by his words "Just do less realtime more summary / batching, with a catch up post once I'm back"; the drive's own time of an order with no thread keeps its time."""
-    return owner_away(data, moment) and not held["kept"] and parse_time(due_at(held)) <= moment and bool(held["thread"])
-
-
-def promise(order: dict, thread: tuple[str, str], due: str, moment: datetime) -> None:
-    """Promise a line by due in the thread, owed from the next line there, the one that tells him the time; a time already owed there holds until that line lands."""
-    held = promised_in(order, thread)
-    if not held or held["kept"]:
-        held = new_promise(order, thread, due, stamp(moment))
-    held.update(next_due=due, next_set=stamp(moment))
-
-
-def remind(order: dict, thread: tuple[str, str] | None, due: str, moment: datetime) -> None:
-    """Owe due in the thread from moment in place of any time owed or waiting there before: the time a drive post made at moment promised in its own thread, which the next drive post in that thread keeps, or, with no thread, the time an order with none wakes the drive at, which no post keeps, so it is said once."""
-    new_promise(order, thread, due, moment.isoformat())
-
-
-def new_promise(order: dict, thread: tuple[str, str] | list[str] | None, due: str, promised: str) -> dict:
-    held = {"thread": list(thread) if thread else None, "due": due, "promised": promised, "kept": None, "due_said": None, "next_due": None, "next_set": None}
-    order["promises"] = [*(other for other in order["promises"] if other["thread"] != held["thread"]), held]
-    return held
-
-
-def keep(held: dict, posts: list[datetime], announced: bool = True) -> None:
-    """Record the first drive post in a promise's thread after the promise as keeping it; a post that lands before the next time starts that time from it."""
-    kept = next((post for post in posts if post > parse_time(held["promised"])), None)
-    if kept is None:
-        return
-    upcoming, set_at = held["next_due"], held["next_set"]
-    held.update(kept=kept.isoformat(), next_due=None, next_set=None)
-    if not announced or not upcoming or kept >= parse_time(upcoming):
-        return
-    if set_at and kept < parse_time(set_at):
-        held.update(due=upcoming, promised=set_at, kept=None, due_said=None, next_due=upcoming)
-        keep(held, posts)
-        return
-    held.update(due=upcoming, promised=kept.isoformat(), kept=None, due_said=None)
-    keep(held, posts, announced=False)
-
-
 def closed_orders(report: dict) -> list[str]:
     """The orders a report's close attr names, separated by commas, spaces or both, as `o1,o2` or `o1 o2`."""
     return [order for order in ORDER_LIST.split(report.get("close") or "") if order]
@@ -6017,14 +5909,6 @@ def part_items(report: dict, order_id: str | None) -> list[tuple[str | None, str
     """The order and part each item of a report's part attr names: `<order>:<part>` items separated by `;`, as `o491:fix;o504:increase the search worker's RAM`, so one post in a thread two orders share delivers on both; an item with no order before it is a part of order_id, the order the post is recorded on."""
     items = [(named[1], named[2].strip()) if (named := ORDER_PART.fullmatch(item.strip())) else (order_id, item.strip()) for item in PART_ITEMS.split(report.get("part") or "")]
     return [(on, part) for on, part in items if part]
-
-
-def keep_closing(held: dict, posts: list[datetime], written: datetime) -> None:
-    """Record the line of a report that closes the order as keeping the time it owes in that line's thread: the first drive post there after the promise, or the post that told him the time when the report was written before it, since that post is also the order's last line."""
-    promised = parse_time(held["promised"])
-    kept = next((post for post in posts if post > promised or post == promised >= written), None)
-    if kept is not None:
-        held.update(kept=kept.isoformat(), next_due=None, next_set=None)
 
 
 def open_pr_keys(data: dict) -> list[str]:
@@ -6117,7 +6001,6 @@ def stacked_on(data: dict, job: dict) -> str:
     base = max(heads, key=lambda key: len(land.chain(under, key)))
     merged = ", ".join(f"{data['prs'][key]['branch']} ({key})" for key in heads if key not in land.chain(under, base))
     return f"on {data['prs'][base]['branch']} ({base})" + (f", with {merged} merged in" if merged else "")
-
 
 
 def job_news(job_state: str, waits: list[str], cards: list[str], said: str | None) -> list:

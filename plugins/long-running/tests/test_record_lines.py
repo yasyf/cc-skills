@@ -288,22 +288,10 @@ def test_a_reports_url_names_what_it_measured_never_his_message_its_thread_names
     assert record_lines.decision(post(kind="owner", text="why is it read-only?", url=his, attrs={"about": "his work"})) is None
 
 
-def test_a_catch_up_goes_at_his_dm_root_without_its_thread(demo: str, turn: Path) -> None:
-    for attrs in ({"thread": THREAD, "catch_up": "true"}, {"thread": THREAD, "progress": "true"}):
-        made = record_lines.decision(coordinator(turn, kind="report", text="POST *Catch-up since 9 PM*", to=TO, attrs=attrs))
-        assert made["updatedInput"]["attrs"] == {key: value for key, value in attrs.items() if key != "thread"}
-    assert record_lines.decision(coordinator(turn, kind="report", text="POST *Catch-up since 9 PM*", to=TO, attrs={"catch_up": "true"})) is None
-
-
 def test_a_report_attr_a_separator_or_one_letter_from_one_the_drive_reads_is_refused_naming_it(demo: str, turn: Path) -> None:
-    catch_up = "POST his catch-up: the import fix merged and the upload page is live"
-    for key in ("catchup", "catch-up", "catchUp"):
-        reason = refusal(record_lines.decision(coordinator(turn, kind="report", text=catch_up, to=TO, attrs={key: "1:46 AM-3:10 AM"})))
-        assert f"no `{key}` attr" in reason and "`--attr catch_up=true`" in reason
     for key, attr in (("closes", "close"), ("Part", "part"), ("jobs", "job"), ("thred", "thread"), ("wait", "waits"), ("incidents", "incident")):
         assert f"no `{key}` attr on a report" in (reason := refusal(record_lines.decision(post(kind="report", text="POST j702 merged", to=TO, attrs={key: "x"}))))
         assert f"`--attr {attr}=" in reason
-    assert record_lines.decision(coordinator(turn, kind="report", text=catch_up, to=TO, attrs={"catch_up": "true"})) is None
     assert record_lines.decision(post(kind="report", text="POST j702 merged", to=TO, attrs={"order": "o1", "incident": "i3", "close": "o1"})) is None
     assert record_lines.decision(post(kind="note", text=IDLE, attrs={"catchup": "true"})) is None
 
@@ -430,7 +418,7 @@ def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_orde
     assert "here o1, the open order it is about" in reason and 'one of "cause", "fix"' in reason and "`--attr progress=true`" in reason
     reason = refusal(record_lines.decision(coordinator(turn, **merged)))
     assert "`--attr close=<o,…>` naming each order it finishes, `--attr part=<o>:<part>` naming the part it delivers, or" in reason
-    for named in ({"job": "j1", "close": "o1"}, {"job": "j1", "part": "cause"}, {"job": "j1", "progress": "true"}, {"catch_up": "true"}, {"close": "o1"}):
+    for named in ({"job": "j1", "close": "o1"}, {"job": "j1", "part": "cause"}, {"job": "j1", "progress": "true"}, {"close": "o1"}):
         assert record_lines.decision(coordinator(turn, **merged, attrs=named)) is None
     assert record_lines.decision(coordinator(turn, kind="report", text="FYI the search worker's fix merged", to=TO, attrs={"job": "j1"})) is None
     with state.edit(demo) as data:

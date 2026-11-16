@@ -2132,7 +2132,7 @@ def test_drive_answer_refuses_to_drop_a_merged_pr_or_supersede_a_part_and_droppi
         "his answer 8427b3c recorded: 0 standing, 2 dropped, 0 superseded, 0 reopened by it\no1 dropped by his answer 8427b3c\nj1 stopped with its order: end its agent, or its lane with drive job end j1",
     )
     drive = state.load(demo)
-    assert (drive["orders"]["o1"]["state"], drive["orders"]["o1"]["withdrawn"], list(drive["orders"]["o1"]["parts"]), drive["jobs"]["j1"]["state"]) == ("dropped", UNDER_CARD, list(SANDSQL_PARTS), "stopped")
+    assert (drive["orders"]["o1"]["state"], list(drive["orders"]["o1"]["parts"]), drive["jobs"]["j1"]["state"]) == ("dropped", list(SANDSQL_PARTS), "stopped")
 
 
 def test_drive_answer_marks_each_part_it_lists_after_their_builder_returned_done_and_says_why_it_refuses_a_key_marked_already(

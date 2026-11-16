@@ -835,23 +835,6 @@ def tap_item(drive: dict, pr: dict, card: dict | None) -> dict:
     }
 
 
-def late_item(drive: dict, order_id: str, order: dict, team_url: str) -> dict:
-    return {
-        "kind": "late",
-        "tasks": [order_id],
-        "title": order_title(order),
-        "detail": said(order.get("note")),
-        "since": order["created"],
-        "due": state.owed_at(order),
-        "url": thread_url(drive, team_url, order),
-        "links": [],
-    }
-
-
-def is_late(order: dict, moment: datetime) -> bool:
-    return order["state"] not in state.CLOSED_ORDER_STATES and state.owed(order) and state.parse_time(state.owed_at(order)) <= moment
-
-
 def queue(drive: dict, found: dict, moment: datetime, features: list[dict], answering: dict[str, str]) -> list[dict]:
     from drive import land
 
@@ -862,7 +845,6 @@ def queue(drive: dict, found: dict, moment: datetime, features: list[dict], answ
     items = [
         *(question_item(drive, card, features, waiting, holding) for card in found["questions"]),
         *(tap_item(drive, pr, card) for pr, card in taps),
-        *(late_item(drive, order_id, order, found["team_url"]) for order_id, order in drive["orders"].items() if is_late(order, moment)),
     ]
     filed = {entry["id"]: entry for entry in features}
     urgent = {entry["id"]: entry["title"] for entry in incidents(drive)}
@@ -873,15 +855,14 @@ def queue(drive: dict, found: dict, moment: datetime, features: list[dict], answ
         rank, item["rank_why"] = ranking(drive, item, item["tasks"], urgent, moment, answering.get(item.get("thread")))
         ranked.append((rank, item))
     return [
-        item | {"priority": {"rank": position, "answering": rank[0], "incident": not rank[1], "overdue": not rank[2], "weight": -rank[4]}}
+        item | {"priority": {"rank": position, "answering": rank[0], "incident": not rank[1], "weight": -rank[3]}}
         for position, (rank, item) in enumerate(sorted(ranked, key=lambda entry: entry[0]), 1)
     ]
 
 
 def ranking(drive: dict, item: dict, orders: list[str], urgent: dict[str, str], moment: datetime, asked: str | None) -> tuple[tuple, str]:
-    """Where an item ranks in his queue, and why in plain words: below every other while the drive answers words of his typed under its card, then an open incident it serves, past due, a built job it holds, how much it holds, then how long it has waited."""
+    """Where an item ranks in his queue, and why in plain words: below every other while the drive answers words of his typed under its card, then an open incident it serves, a built job it holds, how much it holds, then how long it has waited."""
     incident = next((urgent[order_id] for order_id in orders if order_id in urgent), None)
-    late = item["due"] or next((state.owed_at(drive["orders"][order_id]) for order_id in orders if order_id in drive["orders"] and is_late(drive["orders"][order_id], moment)), None)
     built = len(item.get("built") or [])
     if item["kind"] == "question":
         weight = item["holds"] + len(item["blocks"])
@@ -897,12 +878,11 @@ def ranking(drive: dict, item: dict, orders: list[str], urgent: dict[str, str], 
     why = [
         f"sent down while the drive answers your words of {when(asked)}" if asked else "",
         f"incident: {cut(incident, TITLE_CHARS)}" if incident else "",
-        f"past due since {when(late)}" if late else "",
         f"{counted(built, 'built job')} {'waits' if built == 1 else 'wait'} on it" if built else "",
         holding,
-        f"waiting since {when(since)}" if since and not late else "",
+        f"waiting since {when(since)}" if since else "",
     ]
-    rank = (asked is not None, incident is None, late is None, not built, -weight, state.parse_time(late or since) if late or since else datetime.max.replace(tzinfo=moment.tzinfo))
+    rank = (asked is not None, incident is None, not built, -weight, state.parse_time(since) if since else datetime.max.replace(tzinfo=moment.tzinfo))
     return rank, "; ".join(part for part in why if part)
 
 
@@ -1060,8 +1040,6 @@ def feature(drive: dict, order_id: str, order: dict, moment: datetime, found: di
         "now": latest_line(order, jobs),
         "project": order["project"],
         "workstream": order["workstream"],
-        "due": state.owed_at(order) if state.owed(order) else None,
-        "late": is_late(order, moment),
         "proof": order.get("proof"),
         "updated": order["updated"],
         "url": thread_url(drive, found["team_url"], order),
@@ -1075,7 +1053,6 @@ def status(drive: dict, moment: datetime, found: dict) -> list[dict]:
     served = served_prs(drive)
     features = [feature(drive, order_id, order, moment, found, list(served.get(order_id, {}).values())) for order_id, order in drive["orders"].items() if shown(order, moment)]
     features.sort(key=lambda entry: state.parse_time(entry["updated"]), reverse=True)
-    features.sort(key=lambda entry: (entry["due"] is None, entry["due"] and state.parse_time(entry["due"])))
     spellings = {}
     for entry in features:
         for place in ("project", "workstream"):
@@ -1286,7 +1263,7 @@ def sweep(drive: dict, model: dict, events: list[dict], owed: list[dict], read: 
     recent = list(itertools.takewhile(lambda event: moment - state.parse_time(event["at"]) <= SWEEP_EVERY, reversed(events)))[::-1]
     waits = slack_waits(drive, recent, owed, moment)
     waits["cards"] = sorted(
-        ({"link": item["url"], "at": item["since"], "project": item["project"]} for item in model["queue"] if item["kind"] != "late" and item["since"] and moment - state.parse_time(item["since"]) > CARD_WAIT),
+        ({"link": item["url"], "at": item["since"], "project": item["project"]} for item in model["queue"] if item["since"] and moment - state.parse_time(item["since"]) > CARD_WAIT),
         key=lambda wait: state.parse_time(wait["at"]),
     )
     spelled = {entry["project"].casefold(): entry["project"] for group in model["status"] for entry in group["features"] if entry["project"]}

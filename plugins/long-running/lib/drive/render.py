@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from drive import slack
-from drive.state import AWAY_HOLD, CLOCKS, DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owed, owed_at, owed_at_return, owing, owner_away, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, present, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
+from drive.state import CLOCKS, DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owner_away, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, present, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -105,8 +105,8 @@ COMMUNICATOR_RULES = (
         " nothing, since cc-slack records it."
     ),
     (
-        "Nothing else runs in your turn, since work there holds his next message behind it: every card, due"
-        " line, draft, check-post, read of any kind and anything taking more than one call runs in a handler the drive's"
+        "Nothing else runs in your turn, since work there holds his next message behind it: every card,"
+        " draft, check-post, read of any kind and anything taking more than one call runs in a handler the drive's"
         " handler tool starts, which posts its own result. A record's body and"
         " any path it names are the handler's to read. Your own calls are "
         + OWN_CALLS
@@ -141,19 +141,23 @@ COMMUNICATOR_RULES = (
     ),
     RECORDING,
     (
-        "After a compaction or a restart, your first call is the `ToolSearch` below; then one handler posts a line in"
-        " each thread where he waits on a handler whose line has not come back: what is happening and when he hears next."
+        "After a compaction or a restart, your first call is the `ToolSearch` below; then one handler answers each message"
+        " of his whose answer has not come back."
     ),
-    "Post nothing on your own clock: summaries come as reports, and while he is away say holds for his return each report its away rule keeps from him.",
+    "Post nothing on your own clock: his DM gets only the answer to a message of his, a card he must answer, a milestone he acts on and an incident's line; progress stays on the dashboard and in the records.",
 )
 COORDINATOR_RULES = (
     (
-        "You have no AskUserQuestion: everything he sees goes to communicator@<drive> as a report or ready record, or as a card drive job ask draws,"
-        " since his reply under a post"
-        " reaches only the session that posted it. Write a report as the facts of the post he reads, one per thread per"
-        " turn: its first line says what changed for him, each thing he could open has its URL beside it, and its facts"
+        "You have no AskUserQuestion, and his DM gets only four things: the answer to a message of his, a card drive job ask"
+        " draws, a milestone the watch posts itself from the drive's rows (a fix he reported live, a release started, finished"
+        " or failed, a PR of his landed) and an incident's line. Send communicator@<drive> a report opening POST, since his"
+        " reply under a post reaches only the session that posted it, only for a line he gets: the answer to a message of his"
+        " that still waits for one, a line closing his order or delivering its part, an open incident's line, a line on an"
+        " order he asked a line every so many minutes on, a staging claim, or a milestone the watch does not post, such as a"
+        " release starting, ending or failing, marked --attr milestone=true; any other report is progress, kept in the records"
+        " and the dashboard, and promises him no next line. Write that report as the facts of the post he reads: its first line says what changed for him, each thing he could open has its URL beside it, and its facts"
         " fit a line of 60 words or a summary of 120, with nothing for a second record. A POST names what it"
-        " finishes, --attr close=<o>, part=<o>:<part> or progress=true. What he reads names things by their proper"
+        " finishes, --attr close=<o> or part=<o>:<part>. What he reads names things by their proper"
         " technical terms, never a stand-in, and no drive id he cannot open. "
         + STAMPS
         + " "
@@ -207,15 +211,15 @@ COORDINATOR_RULES = (
 META_RULES = (
     (
         "He never reads this terminal, which has no AskUserQuestion, and you post nothing to Slack, since his reply"
-        " under a post reaches only the session that posted it: what he should see goes to communicator@<drive> as a report record opening POST, its"
-        " first line what changed for him and each thing he could open with its URL beside it, naming what it finishes"
-        " (--attr close=<o> on the line that finishes a tooling order, thread or none, else --attr progress=true), and a"
-        " question for him kept with drive job ask, which draws his card on it; the communicator's handler posts the report. "
+        " under a post reaches only the session that posted it. His DM gets only the answer to a message of his, a card,"
+        " a milestone the watch posts from the drive's rows and an incident's line: the answer goes to communicator@<drive>"
+        " as a report record opening POST, its first line what changed for him and each thing he could open with its URL"
+        " beside it, --attr close=<o> on the line that finishes a tooling order, and a question for him is kept with drive"
+        " job ask, which draws his card on it; the communicator's handler posts that report. Progress goes to no one. "
         + STAMPS
         + " "
         + PREVENTED
     ),
-    f"{AWAY_HOLD}.",
     REACHING,
     (
         f"You hold drive tooling alone, {DRIVE_TOOLING}, each piece of work a background job you start, and each change"
@@ -243,7 +247,7 @@ JOB = {
     "meta": f"you hold drive tooling, {DRIVE_TOOLING}",
 }
 REPROS_SHOWN = 5
-OVERDUE_HEADING = "Orders he waits on a line from, most overdue first; due is the time promised him, else five quiet minutes after the thread's last line while a job of the order runs:"
+OVERDUE_HEADING = "Orders he asked a line every so many minutes on, most overdue first; due is that many minutes after the thread's last line:"
 OVERDUE_TITLE_CHARS = 60
 OVERDUE_SHOWN = 5
 OVERDUE_STEP = timedelta(minutes=15)
@@ -351,7 +355,7 @@ def overdue(drive: dict, moment: datetime) -> tuple[list[list], list[str]]:
     for entry in sorted(held, key=lambda entry: (-late[entry["order"]], parse_time(entry["due"])))[:OVERDUE_SHOWN]:
         quiet = int((moment - parse_time(entry["since"])).total_seconds() // 60)
         if away and not entry["incident"]:
-            standing, step = "; he is away, so its line is owed at his return", None
+            standing, step = "; he is away, so no nudge goes out until he is back", None
         else:
             standing = f", {int(late[entry['order']].total_seconds() // 60)} min past due" if late[entry["order"]] else ", not past due"
             step = 1 + late[entry["order"]] // OVERDUE_STEP if late[entry["order"]] else 0
@@ -370,7 +374,7 @@ def when(iso: str, seconds: bool = False) -> str:
 
 
 def owner_reading(owner: dict) -> str | None:
-    """Where he reads, from the moment the owner row's away holds, which every hold on a line to him and every catch-up takes: away from the moment he said so, else from an hour after he was last heard; none for a drive that never heard him."""
+    """Where he reads, from the moment the owner row's away holds: away from the moment he said so, else from an hour after he was last heard; none for a drive that never heard him."""
     if not (away := owner["away"]):
         return None
     heard = when(owner["heard"])
@@ -379,14 +383,6 @@ def owner_reading(owner: dict) -> str | None:
     if now() >= parse_time(away):
         return f"away since {when(away)}: last heard {heard}, an hour with no word or tap"
     return f"here until {when(away)}: last heard {heard}, and an hour with no word or tap reads him away"
-
-
-def corrected_by(seqs: list[str]) -> str:
-    return f", corrected by record{'s' if len(seqs) > 1 else ''} {', '.join(seqs)}" if seqs else ""
-
-
-def withdrawn_by(seqs: list[str]) -> str:
-    return f", withdrawn by record{'s' if len(seqs) > 1 else ''} {', '.join(seqs)}, so no post carries it and no order closes on it" if seqs else ""
 
 
 def start_now(prompt: str) -> str:
@@ -429,9 +425,8 @@ def prs_by_job(drive: dict) -> dict[str, list[str]]:
 
 
 def order_line(drive: dict, order_id: str, order: dict, limit: int = 120, thread: tuple[str, str] | None = None) -> str:
-    due = f" due {when(owed_at(order))}{', waiting on his return' if any(owed_at_return(drive, held, now()) for held in owing(order)) else ''}" if owed(order) else ""
     where = f", its lines go in {thread[0]} thread {thread[1]}" if thread else ""
-    return f"{order_id} {order['state']}{' incident' if order['incident'] else ''}{due}{where}{reporter_said(drive, order)}: {cut(order['text'], limit)}"
+    return f"{order_id} {order['state']}{' incident' if order['incident'] else ''}{where}{reporter_said(drive, order)}: {cut(order['text'], limit)}"
 
 
 def reporter_said(drive: dict, order: dict) -> str:
@@ -759,8 +754,6 @@ def status_data(drive: dict, seen: dict[str, str], named: bool = False, runs: Ca
         "orca": seen,
         "slack": {"channel": slack.dm(), "watch": drive["slack"].get("watch", [])},
         "owner": drive["owner"],
-        "held": drive["held"],
-        "catch_up": drive["catch_up"],
     }
     if not named:
         return data | {"orders": {order_id: order_line(drive, order_id, order, 80, promise_thread(order)) for order_id, order in open_orders(drive).items() if runs is None or runs(order)}}
@@ -787,15 +780,6 @@ def status_text(drive: dict, seen: dict[str, str], shown: dict | None = None, ru
     orders = {order_id: order for order_id, order in open_orders(drive).items() if runs is None or runs(order)}
     if incidents := [incident_line(order_id, order) for order_id, order in orders.items() if order["incident"]]:
         lines.extend(["Open incident orders; an alert on the same failing service joins one with drive order add --joins <o>:", *incidents])
-    if held := {seq: mark for seq, mark in drive["held"].items() if runs is None or mark["order"] in orders}:
-        lines.append("Held for his return, since he was away; once he is back the watch's line in its order's thread, or his catch-up for one with no thread, carries each its writer did not withdraw:")
-        lines.extend(
-            f"- report {seq} ({mark['order'] or 'no order'}), held {when(mark['at'])}{corrected_by(mark['corrections'])}{withdrawn_by(mark['withdrawn'])}"
-            for seq, mark in held.items()
-        )
-    if owed := drive["catch_up"]:
-        started = f", its handler {owed['handler']} last started when he was heard at {when(owed['tried'])}" if owed["handler"] else ""
-        lines.append(f"His catch-up is owed since {when(owed['since'])}: the watch posts it at his DM root through a handler once he is heard while here{started}")
     lines.append(
         f"Open orders{'' if runs is None else ' you run'}: {len(orders)}, a line each and one under it for each standing part and each part an ORPHAN named until it heals or a job on it moves;"
         " drive status <id> prints one whole, with its jobs, PRs and questions:"

@@ -1,5 +1,4 @@
 import json
-import re
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -20,7 +19,6 @@ AGENT_DEFECT = (
     " holding an order owes on it, such as redrawing its card, is a `handoff` record on the drive's `record` tool, its"
     " order as `attrs: {order: <o>}`, which reaches that session"
 )
-CATCH_UP = re.compile(r"Catch-up since\b", re.IGNORECASE)
 READY_GONE = (
     "refused: no ready record draws his card: drive pr add draws it when the PR is registered, and the watch draws it on"
     " a PR still uncarded and redraws it in place as its stage moves; send none, and `drive status <pr>` names its stage"
@@ -39,10 +37,9 @@ def unready(record: dict) -> str | None:
 
 
 def trimmed(record: dict) -> dict:
-    """The record without the attrs it never carries: a `max_words`, since nothing reads it and his word limits for a post never yield to it, a catch-up report's `thread`, since a catch-up covers many orders and goes at his DM root, and a `thread` of none, which names no thread, so its post goes where one with no thread attr goes, as the meta session's rule "thread or none" has it."""
+    """The record without the attrs it never carries: a `max_words`, since nothing reads it and his word limits for a post never yield to it and a `thread` of none, which names no thread, so its post goes where one with no thread attr goes, as the meta session's rule "thread or none" has it."""
     named = attrs(record)
-    catch_up = kind(record) == "report" and addressed(record, "communicator") and (named.get("catch_up") or CATCH_UP.search(record.get("text") or ""))
-    kept = {key: value for key, value in named.items() if key != LIMIT_ATTR and not (key == "thread" and (catch_up or str(value).casefold() == "none"))}
+    kept = {key: value for key, value in named.items() if key != LIMIT_ATTR and not (key == "thread" and str(value).casefold() == "none")}
     return record if kept == named else record | {"attrs": kept}
 
 

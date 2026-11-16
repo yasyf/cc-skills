@@ -73,9 +73,7 @@ RECORD = {
             "description": (
                 "handoff asks the session holding the order its attrs.order names, or the coordinator session whose agent runs the job its attrs.job names, for a step only it takes, such as"
                 " starting a builder, with no re, since cci also delivers a record to the writer of the record its re names; the"
-                " communicator's side's handoff is kept on the order it serves, and five quiet minutes after it the watch owes that"
-                " order's thread a line naming it and each record re it until a job of that order is made, a job it, or a record re it, names works or the"
-                " communicator withdraws it with the cci close tool's how: withdraw; a"
+                " communicator's side's handoff is kept on the order it serves until the communicator withdraws it with the cci close tool's how: withdraw; a"
                 " report goes through the cci `post` tool instead, whose hook reads it, and no record draws his card on a PR"
             ),
         },
@@ -192,8 +190,8 @@ def verb_tools() -> list[dict]:
         {
             "name": "heard",
             "description": (
-                "Record that he wrote, each time he does. Returns heard, or away when away is set, and nothing to act on:"
-                " the drive's watch posts his catch-up through a handler it starts. last with why takes back what it heard after his last"
+                "Record that he wrote, each time he does. Returns heard, or away when away is set, and nothing to act on."
+                " last with why takes back what it heard after his last"
                 " word or tap that was not his, such as a job's test tap, returning unheard."
             ),
             "inputSchema": {"type": "object", "properties": {**schema(leaf("heard", root=root))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}},
@@ -215,7 +213,7 @@ def verb_tools() -> list[dict]:
                 " his DM, its until attr naming no thread, such as a staging claim, holds no thread, and one whose post goes elsewhere"
                 " than the thread of the message of his its re chain reaches holds no message of his, so neither waits on the handler"
                 " of his messages; it refuses only a POST report to the communicator"
-                " a post, his catch-up's hold or a given-up handler's done record already carries, naming it, and starts no other report. records, the record tool's owner records of his words"
+                " a post already carries, naming it, and starts no other report. records, the record tool's owner records of his words"
                 " for an order or alert, go out first in the same call, so a card his words withdraw or change ends before the"
                 " handler starts, and the brief's Context: line names them, so the handler sends no second record of those words;"
                 " a ruling's record, whose cc-notes answer the handler adds first, stays the handler's. For his read-only question, answer"

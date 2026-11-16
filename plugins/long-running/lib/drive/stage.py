@@ -438,7 +438,7 @@ def kept(pr: dict, now: Stage) -> None:
 
 
 def shown(data: dict, cards: dict | None, keys: list[str]) -> None:
-    """Put on each open PR of the drive the keys name, as loaded, never saved, the stage stage.of names now from the watch's last GitHub read, its since kept while the watch kept that stage, so drive status, drive pr set and every view.build surface, the dashboard, the status page and his catch-up, show what a decision made now reads."""
+    """Put on each open PR of the drive the keys name, as loaded, never saved, the stage stage.of names now from the watch's last GitHub read, its since kept while the watch kept that stage, so drive status, drive pr set and every view.build surface, the dashboard and the status page, show what a decision made now reads."""
     under = land.unders(data)
     stacks = land.landing_stacks(data, under)
     for key in keys:

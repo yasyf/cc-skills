@@ -25,7 +25,7 @@ failing or stopped that the drive did not cause, such as after a teammate's rele
 customer's own build, is no incident and pages nobody, yet he hears it at once in his DM, while he
 is away too: one `report` to `communicator@<drive>` names the team, what fails since when and the
 alert's link, and it and every later report on that outage, on any order, a reader's answer
-included, carry `--attr customer_outage=true`, which the away hold lets through. No job starts on it until
+included, carry `--attr customer_outage=true`. No job starts on it until
 his words order one. His pick: "Only the drive's own outages page you; a teammate's customer outage
 posts at once in your DM, paging nobody". Anything else he asks you to fix is an
 ordinary order, by [coordinator.md](coordinator.md). When his words on an order ask for options or
@@ -309,43 +309,19 @@ check's verdict, or from the order when none ran.
 | First check: the live build's commit, and the default branch's newest build tried on a test machine | 10 minutes | A second job on the first check |
 | Rollback started on the proven target, or the evidence that no build can serve | 10 minutes | A second job on the rollback |
 | Every later step, until live | at most 10 minutes out | A second job on that step |
-| His next line, until users are unblocked | 5 minutes after the incident's last line, while a job of it works or once something it names moved | The watch's report, and a handler posting what moved and where it stands |
 
-- His next line's clock is the watch's, never a time a line promises, by his pick "Watch-owned
-  clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the
-  jobs; costs one handler session each". Five minutes after the newest drive post on any order of
-  the open incidents in one thread, or after the newest of them opened, the watch's `quiet_lines`
-  sends the communicator one `report` carrying `quiet=true` and that thread, naming each incident
-  there that owes it with its orders, each job and each PR as the watch last read it from GitHub, never as an
-  order's note says it stands, so two incidents in one thread get one line, not one each. It
-  starts one handler on that report, which reads the jobs and posts where each incident stands in
-  that thread; a handler already at work in the thread takes the report at its next step.
-  - It owes that line only on news, by his pick "Owe a line only on news: while a job works or
-    something it names changed; silent while all waits.": while a job of the incidents works, or
-    once an order, job or PR of them moved since the thread's last line or the watch's last report on
-    it, a job by its state, whether anything holds it,
-    returned line or the cards of his its questions are open on, a PR by its state, head, checks,
-    Trunk ejection, card or his tap, a `handoff` the communicator's side sent five minutes before
-    with no job of its order made, nor the job it names started, since, never which waits hold a job, so a release ending one of
-    several is no news, nor a PR's stage relabelled with none of those changed, such as red to behind once a PR below it goes red. The watch keeps those facts on each incident at its first pass after each line and once each
-    report reaches a handler, so news a handler did not post goes out once, and the report names what
-    moved and which jobs are at work. An incident whose every job waits, on his
-    card, a release or a PR, gets no line until one of them moves. Every open order
-    shares this rule and its five-minute clock, and a job at work owes a head's line only when it is
-    a job of that head's own orders, by [When it goes out](messages.md#when-it-goes-out).
-  - It runs while he is away too. It restarts once a handler has the report, which keeps the facts
-    it tells as told, so a handler that cannot post loses that line and the next move, or a job of
-    the incident at work, brings the next.
-  - It stops once an order of the incident keeps proof that users are unblocked, by his pick "Proof
-    ends the line: none once users are unblocked; the incident stays open until its root fix is
-    live.": a builder's `DONE` on its `stop` or `rollback` part keeps its proof as the order's
-    until that builder's next return is not `DONE`, which takes it back and restarts the line, and
-    after a hand repair `drive order set <o> --proof <that run>` keeps it. One on its `fix` part
-    keeps none, since a merged fix is not yet running where users are. The watch closing the
-    incident stops it too, and it closes the incident only once every merged fix PR of it runs in
-    production, by his words "werte still in incident until its fixed".
-  - An incident keeps no promised time: "Next line by" in its line sets no due, `drive incident
-    open` takes no `--due`, and no `DUE o<n>` comes for it.
+- His next line comes the moment a step of the incident happens, never on a clock: the session
+  holding it sends the report, and the handler the watch starts on a report of an open incident
+  posts it in the incident's thread, by his words "clearly these reports are useless / not valuable
+  / spammy, so remove them entirely or rethink the whole model". No line goes out for quiet
+  minutes, and an incident keeps no promised time: "Next line by" in its line sets none, and
+  `drive incident open` takes no `--due`.
+- Users are unblocked once an order of the incident keeps proof of it: a builder's `DONE` on its
+  `stop` or `rollback` part keeps its proof as the order's until that builder's next return is not
+  `DONE`, which takes it back, and after a hand repair `drive order set <o> --proof <that run>`
+  keeps it. One on its `fix` part keeps none, since a merged fix is not yet running where users
+  are. The watch closes the incident only once every merged fix PR of it runs in production, by
+  his words "werte still in incident until its fixed".
 - A job's clock is its own, set with `drive job set <j> --due <time>`: the watch says `DUE j<n>` once
   if the job still runs then. Read its transcript, never wait for its message, since a stuck job
   sends none.
@@ -459,9 +435,7 @@ the alert's thread, the alert's with `say(channel_id=<the alert's channel>, thre
 report per thread per turn that `record_lines` holds the coordinator and the meta session to never holds one, by his words "this is incident so uyou should be faster and communicating more with
 me". These rules bind the communicator, its handlers and any reader that posts for it.
 
-- Until users are unblocked he hears a line five quiet minutes after the last while a job works on
-  it or something it names moved, the watch owing it by [Clocks](#clocks), and until the fix is live
-  each step below the moment it happens. A link
+- Until the fix is live he hears each step below the moment it happens, and nothing between. A link
   appears once, inline, where the sentence names the thing it points at.
 - Each line names the failing service, function, file or table by its proper term, never a
   stand-in, and carries no "not proven" paragraph under any label, by [messages.md](messages.md).
@@ -484,7 +458,7 @@ The steps, in order:
 3. **Rollback started:** the build it rolls back to, and that it lacks the failing change.
 4. **Users unblocked:** whose runs succeed again, on a real machine, and the freeze on the
    service's other releases until its root fix releases. The order keeps that run as its proof,
-   which ends the five-minute line by [Clocks](#clocks): a builder's `DONE` on the `fix`, `stop` or
+   by [Clocks](#clocks): a builder's `DONE` on the `fix`, `stop` or
    `rollback` part keeps it, and a hand repair gets `drive order set <o> --proof <that run>` first.
    On an order with a reporter this report's handler then posts the fix-live note in each thread the
    bug was reported in, by [messages.md](messages.md).
@@ -525,7 +499,6 @@ of every order of the incident. Then it:
   `RECOVERED o<n>`.
 
 A monitor that recovers alone, a rollback, or a stop's release never closes it: while its monitors
-read OK and a merged fix PR is not live, it stays open on the strip, its five-minute line owed
-until an order of it keeps proof that users are unblocked.
+read OK and a merged fix PR is not live, it stays open on the strip.
 Your step 8 closes only an incident the watch has no read for: one that ends with no fix PR, such
 as one a rollback or a hand repair ended, or whose fix PR is outside `<monorepo>`.

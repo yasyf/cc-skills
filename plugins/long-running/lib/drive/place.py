@@ -122,7 +122,7 @@ def waiting_builders(data: dict) -> list[str]:
         for job_id, job in data["jobs"].items()
         if state.SLOT_WAIT in job["waits"] and (job["state"] == "waiting" or on_sprite(job) and job["state"] not in state.FINISHED_JOB_STATES)
     ]
-    return sorted(waiting, key=lambda job_id: (not state.first_in_line(data, data["jobs"][job_id]), *due_first(data, data["jobs"][job_id])))
+    return sorted(waiting, key=lambda job_id: (not state.first_in_line(data, data["jobs"][job_id]), state.parse_time(data["jobs"][job_id]["created"])))
 
 
 def positions(data: dict) -> dict[str, str]:
@@ -304,7 +304,7 @@ def sprite_line(data: dict) -> list[str]:
     """The jobs waiting their turn for a Sprite lane under this Mac's cap, a priority order's first, by state.first_in_line, then earliest due, as waiting_builders orders builders, less each whose project spent its daily budget, by spend.over, which waits for the next day."""
     moment = state.now()
     waiting = [job_id for job_id, job in data["jobs"].items() if state.SPRITE_WAIT in job["waits"] and job["state"] == "waiting" and (preempts(data, job) or not spend.over(data, job, moment))]
-    return sorted(waiting, key=lambda job_id: (not state.first_in_line(data, data["jobs"][job_id]), *due_first(data, data["jobs"][job_id])))
+    return sorted(waiting, key=lambda job_id: (not state.first_in_line(data, data["jobs"][job_id]), state.parse_time(data["jobs"][job_id]["created"])))
 
 
 def sprite_turns(data: dict, moment: datetime) -> tuple[list[str], int]:
@@ -393,11 +393,3 @@ def turns(data: dict, moment: datetime) -> tuple[list[str], int]:
     return [*first, *line[len(first) :][: max(room - len(first), 0)]], held
 
 
-def promised(data: dict, job: dict) -> str | None:
-    """The earliest time promised him on an order the job serves, its own or one it carries."""
-    return min((held["due"] for order_id in [job["order"], *job["carries"]] for held in data["orders"][order_id]["promises"]), key=state.parse_time, default=None)
-
-
-def due_first(data: dict, job: dict) -> tuple[bool, datetime]:
-    due = promised(data, job)
-    return due is None, state.parse_time(due or job["created"])

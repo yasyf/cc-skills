@@ -96,19 +96,14 @@ def tap_row(item: dict) -> tuple[str, ...]:
     )
 
 
-def late_row(item: dict) -> tuple[str, ...]:
-    return (link(item["title"], item["url"]), when(item["due"]), cell(item["detail"]) or "—")
-
-
 def built_words(built: dict) -> str:
     return f"🟣 built on `{built['branch']}`, {'no PR yet' if built['waits'] else 'its PR opens next'}"
 
 
 def feature_row(entry: dict) -> tuple[str, ...]:
-    due = f"<br>⏰ {'late, was due' if entry['late'] else 'due'} {when(entry['due'])}" if entry["due"] else ""
     cards = (f"❓ waits on {link(card['title'], card['url'], NAME_CHARS)}" for card in entry["cards"])
     now = [cell(entry["now"]), *map(built_words, entry["built"]), *cards]
-    return (link(entry["title"], entry["url"]) + due, cell(entry["project"] or "—", NAME_CHARS), "<br>".join(filter(None, now)) or "—", pr_marks(entry["prs"]))
+    return (link(entry["title"], entry["url"]), cell(entry["project"] or "—", NAME_CHARS), "<br>".join(filter(None, now)) or "—", pr_marks(entry["prs"]))
 
 
 def finished_row(entry: dict) -> tuple[str, ...]:
@@ -139,13 +134,12 @@ def table_of(heading: str, columns: tuple[str, ...], row: Callable[[dict], tuple
 def layout(model: dict, dashboard: str, shown: int | None = ROWS) -> list[Table]:
     """The status page as typed rows: a strip counting what waits on him and each state, then a table for each part of his queue, every project's count by state, each open state's features and finished work, each at most `shown` rows, all of them when None, with its total, so `rest` on the dashboard holds the others. A table with no rows is left out."""
     groups = {group["state"]: group["features"] for group in model["status"]}
-    queue = {kind: [item for item in model["queue"] if item["kind"] == kind] for kind in ("question", "tap", "late")}
+    queue = {kind: [item for item in model["queue"] if item["kind"] == kind] for kind in ("question", "tap")}
     finished = sorted((entry for name in FINISHED_STATES for entry in groups[name]), key=lambda entry: state.parse_time(entry["updated"]), reverse=True)
     tables = [
         counts_table(model["counts"]),
         table_of("❓ Your questions", ("Question", "Holds up", "Asked", "Recommended"), question_row, queue["question"], f"{dashboard}#/queue/question", shown),
         table_of("👆 PRs waiting on your tap", ("Pull request", "Checks", "Card since"), tap_row, queue["tap"], f"{dashboard}#/queue/tap", shown),
-        table_of("⏰ Promised times that passed", ("Order", "Promised", "Now"), late_row, queue["late"], f"{dashboard}#/queue/all", shown),
         projects_table(groups, dashboard, shown),
         *(table_of(f"{STATE_MARKS[name]} {STATE_TITLES[name]}", ("Feature", "Project", "Now", "PRs"), feature_row, groups[name], f"{dashboard}#/now", shown) for name in OPEN_STATES),
         table_of("✅ Finished", ("Feature", "State", "Now", "When"), finished_row, finished, f"{dashboard}#/history", shown),

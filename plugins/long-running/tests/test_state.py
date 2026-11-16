@@ -1536,53 +1536,6 @@ def test_pr_url_round_trips() -> None:
     assert state.pr_url("yasyf/cc-skills#9") == "https://github.com/yasyf/cc-skills/pull/9"
 
 
-THREAD = ("D123", "1794200000.000100")
-
-
-def test_a_moved_time_is_kept_only_by_lines_after_it_was_set() -> None:
-    at = lambda minutes: REFERENCE + timedelta(minutes=minutes)
-    order = {"promises": [], "incident": False}
-    state.remind(order, THREAD, state.stamp(at(0)), at(-60))
-    state.promise(order, THREAD, state.stamp(at(120)), at(30))
-    [held] = order["promises"]
-    state.keep(held, [at(-10), at(10)])
-    assert (held["due"], held["promised"], held["kept"]) == (state.stamp(at(120)), state.stamp(at(30)), None)
-    state.keep(held, [at(-10), at(10), at(40)])
-    assert (held["promised"], held["kept"]) == (at(40).isoformat(), None)
-    state.keep(held, [at(-10), at(10), at(40), at(50)])
-    assert held["kept"] == at(50).isoformat()
-
-
-def test_a_time_promised_in_one_thread_is_owed_there_alone_whatever_another_threads_post_keeps() -> None:
-    at = lambda minutes: REFERENCE + timedelta(minutes=minutes)
-    card = ("D123", "1794200600.000200")
-    order = {"promises": [], "incident": False}
-    state.remind(order, THREAD, state.stamp(at(10)), at(0))
-    state.remind(order, card, state.stamp(at(8)), at(4))
-    state.keep(state.promised_in(order, card), [at(6)])
-    assert ([held["thread"] for held in state.owing(order)], state.owed_at(order)) == ([list(THREAD)], state.stamp(at(10)))
-
-
-def test_the_line_of_a_report_closing_the_order_keeps_the_time_it_told_him_and_a_line_before_the_report_does_not() -> None:
-    at = lambda minutes: REFERENCE + timedelta(minutes=minutes)
-    order = {"promises": [], "incident": False}
-    state.promise(order, THREAD, state.stamp(at(28)), at(0))
-    [held] = order["promises"]
-    state.keep(held, [at(16)])
-    state.keep(held, [at(16)], announced=False)
-    assert (held["due"], held["promised"], state.owed(order)) == (state.stamp(at(28)), at(16).isoformat(), True)
-    state.keep_closing(held, [at(16)], at(17))
-    assert state.owed(order)
-    state.keep_closing(held, [at(16)], at(15))
-    assert (held["kept"], held["next_due"], state.owed(order)) == (at(16).isoformat(), None, False)
-
-
-def test_an_incident_owes_no_promised_time_since_the_watch_owes_its_line_five_quiet_minutes_after_its_last() -> None:
-    order = {"promises": [], "incident": False}
-    state.remind(order, THREAD, state.stamp(REFERENCE), REFERENCE - timedelta(minutes=5))
-    assert (state.owed(order), state.owed(order | {"incident": True})) == (True, False)
-
-
 MONOREPO = "Forge-AI/monorepo"
 
 
@@ -2400,17 +2353,15 @@ def test_each_seq_an_older_install_saved_with_the_hash_cci_prints_loads_as_its_d
     question = state.new_question(None, "Which ring?", state.stamp(), closed=state.new_close("answered", "Ring", None, seq="#697591"))
     undelivered = {"seq": "#697592", "words": "Ring", "at": state.stamp(), "said": None, "request": "req-ring"}
     data["jobs"] = {"j1": state.new_job("o1", "builder", "fix it", ["fix it"], state.stamp()) | {"questions": [question], "undelivered": [undelivered]}}
-    data["catch_up"] = state.new_catch_up(state.stamp()) | {"record": "#697595"}
     state.create(data)
     loaded = state.load("demo")
     order, job = loaded["orders"]["o1"], loaded["jobs"]["j1"]
-    assert (order["closed_on"], order["quiet"]["record"], order["watch"]["record"], job["questions"][0]["closed"]["seq"], job["undelivered"][0]["seq"], loaded["catch_up"]["record"]) == (
+    assert (order["closed_on"], order["quiet"]["record"], order["watch"]["record"], job["questions"][0]["closed"]["seq"], job["undelivered"][0]["seq"]) == (
         "697590",
         "697593",
         "697594",
         "697591",
         "697592",
-        "697595",
     )
 
 

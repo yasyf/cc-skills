@@ -23,11 +23,11 @@ SAY_RESULT = re.compile(r"\b(POSTED|EDITED|CARD)((?:\s+https://[^\s;]+)+)\s*;?\s
 RE_HOPS = 8
 BACKGROUND_WAITS = (5, 15, 30)
 BACKGROUND_UNREACHED = "Couldn't reach the background service"
+SETTLE_WINDOW = timedelta(seconds=30)
+LANE_WATCH = "watch"
 AMENDING = ("correction", "withdraw")
 AMENDMENT_BYTES = 1 << 20
 TRUNK_DRIVE = "trunk"
-POSTS_CURSOR = "watch-posts"
-POSTED_KINDS = ("report", "correction")
 TRUNK_FAILED = "failed in Trunk's merge queue"
 HANDLER = "long-running:handler"
 HANDLER_ADVISOR = "opus"
@@ -44,7 +44,6 @@ OUTAGE_WAITS = (1, 2, 4, 8)
 START_WINDOW = timedelta(minutes=5)
 REMOVE = ["sh", "-c", 'sleep 2; claude stop "$1"; claude rm "$1"', "remove"]
 STOP = ["sh", "-c", 'sleep 2; claude stop "$1"', "stop"]
-BATCH_WINDOW = timedelta(minutes=1)
 EFFORT_CEILING = "high"
 ABOVE_CEILING = ("xhigh", "max")
 HANDLER_SKILLS = ("db-read", "iris-thread")
@@ -84,9 +83,6 @@ WATCHDOG_RUNS = (
 )
 WATCHDOG_USD = "2"
 HIS_WORDS = "Message (his words)"
-UNPOSTED = "Context: the handler before you on this record ended without posting:"
-VERDICT = re.compile(r"^(?:NOTHING|RECORDED)\b")
-DIED = "no line, since its session ended before it returned one"
 ORDER = "Order"
 PAIRS = "Pairs in use"
 IN_THREAD = "In his thread"
@@ -417,24 +413,24 @@ def answering(name: str, seq: str) -> list[dict]:
     return [record for record in map(json.loads, reversed(lines)) if str(record.get("re")) == seq]
 
 
-def posts(name: str, since: int) -> tuple[list[tuple[str, datetime, str | None]], int]:
-    """The seq of each `POST` report or correction to communicator@<drive> after since, oldest first, with when cci took it and the thread its thread attr names, read in one cci tail, so a correction of a report already posted gets the handler that rewords that post, and the newest seq the read reached, which is short of the drive's newest when the read held more than AMENDMENT_BYTES, since cci then prints the oldest records and the next read goes on from there."""
-    argv = ["cci", "tail", "--drive", name, "--to", "communicator", *(flag for kind in POSTED_KINDS for flag in ("--kind", kind)), "--since", f"#{since}", "--budget", str(AMENDMENT_BYTES), "--json"]
+def posts(name: str, since: int) -> tuple[list[tuple[str, datetime]], int]:
+    """The seq of each `POST` report or correction to communicator@<drive> after since, oldest first, with when cci took it, read in one cci tail, and the newest seq the read reached, which is short of the drive's newest when the read held more than AMENDMENT_BYTES, since cci then prints the oldest records and the next read goes on from there."""
+    argv = ["cci", "tail", "--drive", name, "--to", "communicator", "--kind", "report", "--kind", "correction", "--since", f"#{since}", "--budget", str(AMENDMENT_BYTES), "--json"]
     try:
         records = [json.loads(line) for line in reads.run(argv, Path.cwd()).splitlines()]
     except reads.ReadError as error:
         raise state.DriveError(f"the POST reports to communicator@{name} could not be read: {error}") from None
-    found = [(str(record["seq"]), state.parse_time(record["at"]), record["fields"].get("attrs", {}).get("thread")) for record in records if posting(name, record)]
+    found = [(str(record["seq"]), state.parse_time(record["at"])) for record in records if posting(name, record)]
     return found, max((record["seq"] for record in records), default=since)
 
 
+def posting(name: str, record: dict) -> bool:
+    """Whether a record cci holds is a `POST` report or correction to communicator@<drive>."""
+    return bool({"communicator", f"communicator@{name}"} & set(record.get("to", ()))) and record["kind"] in ("report", "correction") and record["text"].startswith("POST")
+
+
 def seeded(name: str) -> int:
-    """Where the read of a drive's POST reports starts on a drive that keeps no mark yet: where POSTS_CURSOR stands, the cci cursor an older install's read moved past each report it started a handler on, else at the drive's newest record, as that cursor was seeded, so no report goes unread and none replays."""
-    try:
-        return int(re.search(r"#(\d+)", reads.run(["cci", "cursor", "show", POSTS_CURSOR, "--drive", name], Path.cwd()))[1])
-    except reads.ReadError as error:
-        if "has not been set" not in str(error):
-            raise state.DriveError(f"the POST reports' cursor could not be read: {error}") from None
+    """Where the read of a drive's POST reports starts on a drive that keeps no mark yet: its newest record, so none replays."""
     try:
         newest = reads.run(["cci", "tail", "--drive", name, "--since", "#1", "-n", "1", "--json"], Path.cwd())
     except reads.ReadError as error:
@@ -442,85 +438,55 @@ def seeded(name: str) -> int:
     return json.loads(newest)["seq"] if newest.strip() else 0
 
 
-def posting(name: str, record: dict) -> bool:
-    """Whether a record cci holds is a `POST` report or correction to communicator@<drive>, one the drive owes a post until one carries it."""
-    return bool({"communicator", f"communicator@{name}"} & set(record.get("to", ()))) and record["kind"] in POSTED_KINDS and record["text"].startswith("POST")
-
-
-def owing(data: dict, seq: str) -> bool:
-    """Whether the drive still owes a post to a `POST` report or correction: neither a post, his catch-up or a handler's given-up done record carries it, nor is it held for his catch-up."""
-    return seq not in data["carried"] and seq not in data["held"]
+def handled_post(data: dict, seq: str, owed: set[str]) -> bool:
+    """Whether a `POST` report gets a handler, by his words "clearly these reports are useless / not valuable / spammy, so remove them entirely or rethink the whole model": one closing an order or delivering a part, one on a customer team's outage, and of progress lines only one answering a message of his that cc-slack still owes an answer, one on an open incident or an order he asked a line every so many minutes on, one answering a teammate's messages in a thread an order watches, or one posting at the root of a channel outside his DM, such as a staging claim; every other report is progress, kept on the drive's dashboard and records alone."""
+    read = answered(seq)
+    attrs = read["attrs"]
+    order_id = state.report_order(data, attrs)
+    if read["report"]["lane"] == LANE_WATCH and attrs.get("progress") == "true" and attrs.get("watch") != "true":
+        return False
+    if attrs.get("progress") != "true" or attrs.get("milestone") == "true" or attrs.get("close") or attrs.get("part") or attrs.get("customer_outage") == "true":
+        return True
+    return read["message"] in owed or attrs.get("watch") == "true" or rooted(attrs) or bool(order_id and (data["orders"][order_id]["incident"] or data["orders"][order_id]["every"]))
 
 
 def start_posts(name: str, moment: datetime) -> None:
-    """Start a handler on each POST report the drive owes a post from its mark on, but one a live handler holds, by its record or a brief handed to it, or the watch posts itself, by state.watch_posting, as the watch's read of them: each stays owed until a post carries it, so one whose handler did not start, never started, died or ended posting nothing gets a fresh one on the next read, and the mark moves past a report only once it is carried or held, in one save after every start, so a read that dies anywhere leaves each report it read owed. A report cci took less than BATCH_WINDOW before the moment waits for a later read unless a live handler, one this read started included, holds the thread its thread attr names, so the reports of one thread inside a minute go to one handler, by the Nov 15 pick "Handlers batched + trimmed". A report whose handler died or never started after the one before it ended without posting is given up, by give_up, as a second such end of a handler's turn is. A handler that did not start, whatever its start raised, raises a refusal naming its report and its error, once the rest started."""
+    """Start one handler on each `POST` report handled_post keeps, once, from the drive's mark on, and carry every other as progress, so no report gets a second handler and none waits on a post; the watch's own close reports it posts itself, by state.watch_posting, and a report cci took under SETTLE_WINDOW ago waits for the next read, so the watch's save of a close report's seq lands first."""
     data = state.load(name, ("posts",))
     since = seeded(name) if data["posts"]["mark"] is None else data["posts"]["mark"]
     read, newest = posts(name, since)
-    seqs = [seq for seq, _, _ in read]
-    data = state.load(name, ("posts", "handlers", "carried", "held", "orders"))
-    holders = [(gone(entry), held_records(entry)) for entry in data["handlers"].values()]
-    live = {seq for ended, records in holders if not ended for seq in records}
-    dead = {seq for ended, records in holders if ended for seq in records}
-    posting = state.watch_posting(data)
-    errors = []
-    for seq, at, thread in read:
-        if not owing(data, seq) or seq in live or seq in posting:
+    if not read:
+        with state.edit(name) as data:
+            data["posts"]["mark"] = newest
+        return
+    data = state.load(name)
+    owed = {reply["ts"] for reply in slack.owed(beside(data)[1]["session"])}
+    errors, carried, young = [], {}, []
+    for seq, at in read:
+        if at + SETTLE_WINDOW > moment:
+            young.append(int(seq))
             continue
-        if at + BATCH_WINDOW > moment and not live_thread(state.load(name, ("handlers",)), thread):
+        if seq in data["carried"] or seq in state.watch_posting(data) or any(seq in held_records(entry) for entry in data["handlers"].values()):
             continue
-        if seq in dead and (line := data["posts"]["unposted"].get(seq)):
-            try:
-                give_up(name, seq, line)
-            except state.DriveError as error:
-                errors.append(str(error))
+        if not handled_post(data, seq, owed):
+            carried[seq] = "progress: the dashboard and records alone"
             continue
+        carried[seq] = "a handler"
         try:
-            handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'post-{seq}'}", owed=True)
-        except Carried:
-            continue
+            handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'post-{seq}'}")
         except Exception as error:
             errors.append(f"the handler on POST report {seq} did not start: {start_error(error)}")
     with state.edit(name) as data:
-        owed = [seq for seq in seqs if owing(data, seq)]
-        mark = data["posts"]["mark"] = int(owed[0]) - 1 if owed else newest
-        data["posts"]["unposted"] = {seq: line for seq, line in data["posts"]["unposted"].items() if int(seq) > mark}
+        for seq, why in carried.items():
+            data["carried"].setdefault(seq, why)
+        data["posts"]["mark"] = min(young) - 1 if young else newest
     if errors:
         raise state.DriveError("; ".join(errors))
-
-
-def live_thread(data: dict, thread: str | None) -> bool:
-    """Whether a handler whose turn is not over holds the thread."""
-    return bool(thread) and any(entry["holds"] and entry["holds"].get("thread") == thread and not gone(entry) for entry in data["handlers"].values())
 
 
 def held_records(entry: dict) -> list[str]:
     """Each record a handler holds: its own, then each one a brief handed to it names, taken or not."""
     return list(dict.fromkeys([*filter(None, [(entry["holds"] or {}).get("record")]), *(named[1] for brief in [*entry["handed"], *entry["took"]] if (named := RECORD.search(brief)))]))
-
-
-class Carried(state.DriveError):
-    """A refusal to start a handler on a `POST` report a post already carries."""
-
-
-def give_up(name: str, seq: str, line: str) -> None:
-    """Give up a `POST` report whose handler died or never started after the one before it ended without posting, as end_handler gives up a report on a second such end: a done record to the report's writer too, naming the line the one before ended on, carries it."""
-    try:
-        done = done_record(name, Path.cwd(), f"posts-given-up-{seq}", f"UNPOSTED {seq}; its handler ended before it returned a line, after the handler before it ended without posting: {line}", [shown(seq)["lane"]])
-    except reads.ReadError as error:
-        raise state.DriveError(f"POST report {seq} could not be given up: {error}") from None
-    carry(name, [seq], done)
-
-
-def carry(name: str, seqs: list[str], done: str) -> None:
-    """Keep the done record that gave up each of seqs as what carries it, so the drive owes it no post."""
-
-    def carried(data: dict) -> None:
-        for seq in seqs:
-            data["carried"].setdefault(seq, f"done record {done}")
-            data["posts"]["unposted"].pop(seq, None)
-
-    state.update(name, (("", "carried"), ("", "posts")), carried)
 
 
 def trunk_failures(keys: list[str], since: str) -> list[dict]:
@@ -619,34 +585,21 @@ def signalled(pid: int) -> bool:
     return True
 
 
-def handle(name: str, brief: str, detached: bool = False, answer: str | None = None, briefs: bool = False, owed: bool = False, prefer: str | None = None) -> tuple[str, bool]:
+def handle(name: str, brief: str, detached: bool = False, answer: str | None = None, briefs: bool = False, prefer: str | None = None) -> tuple[str, bool]:
     """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time, but for a message of his reaching a handler waiting its turn on this Mac to start, by its wakes, which starts a handler of its own at once, since his answer never waits on a report's start: a brief for another record or another message of his, on that message, in that thread or on its record's re chain, is handed to that handler, which takes it at its next step, and a copy, the same record or the same message of his, is handed to it with nothing added, since that handler already holds it; the id of the handler at work on the brief, and whether it was handed. A record whose brief, attrs and re chain name no thread and reach no message of his is in the thread its order's lines go in, as the thread attr the drive stamps on its own records names it, and one whose post goes elsewhere than that thread or the thread of the message of his its chain reaches, at the root of a channel outside his DM such as a staging claim or in another thread its thread attr names, holds that place alone, so it waits on no handler of his messages there. A handler whose turn is over holds nothing, however it ended: it leaves the drive, and each brief handed to it that it never took goes to the handler this brief reaches, but one for the record this brief names; one that never started leaves its own brief with them, by forget. With briefs, the brief a new handler starts on is written from its id by cli.briefing, with answer its --answer title, in the process that starts it, recording what it adds, so the call returns before those writes and reads take the drive's lock; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool and the watch's hand of each message of his cc-slack owes run it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch's other stages start it in the call, so a start that fails is tried again at their next read. Owed, as the handler tool's and the watch's read's start on a `POST` report is, a report the drive owes no post is refused, naming the post or done record that carries it or his catch-up holding it, and one whose last handler ended posting nothing, died or never started starts on a brief closing on the line that handler ended on, checked in the same save that starts it, a handler that died or never started keeping DIED as its line, and the brief briefed writes closes on that line too. A brief for a record a post carries goes to no handler., nor one for a record say's own rules settle with no post, such as a quiet report held for his return while he is away, by talk.unhandled, which is refused as Carried naming why."""
-    from drive import talk
-
     read = holds(brief)
-    if read["record"] and (went := talk.unhandled(name, read)):
-        raise Carried(f"refused, no handler started: POST report {read['record']} needs no handler, since {went}")
     asked = brief
     handler_id = uuid.uuid4().hex[:8]
     with state.edit(name) as data:
-        if owed and not owing(data, read["record"]):
-            went = f"{post} carries it" if (post := data["carried"].get(read["record"])) else "its line is held for his return" if read["record"] in data["held"] else "the line its handler ended on carries it"
-            raise Carried(f"refused, no handler started: POST report {read['record']} needs no handler, since {went}")
         held_now = threaded(data, read)
         left: list[str] = []
-        lost: list[str] = []
         keys = route_keys(data, read, held_now)
         prefer = prefer or sticky(data, keys)
         while (held := holder(data, held_now) or picked_handler(data, prefer)) and gone(data["handlers"][held]):
-            lost += held_records(data["handlers"][held])
             left += forget(data, held)
         if held and his_message(held_now) and not data["handlers"][held]["session"] and waiting(data["handlers"][held]):
             held = None
         left = [one for one in dict.fromkeys(left) if one != brief.strip() and (not (named := RECORD.search(one)) or (named[1] != held_now["record"] and named[1] not in data["carried"]))]
-        if owed and read["record"] in lost:
-            data["posts"]["unposted"].setdefault(read["record"], DIED)
-        context = f"\n{UNPOSTED} {line}" if owed and (line := data["posts"]["unposted"].get(read["record"])) and UNPOSTED not in brief else ""
-        brief = f"{brief.strip()}{context}" if context else brief
         woken = held if held and resting(data["handlers"][held]) else None if held else free_handler(data)
         holder_id = woken or held or fewest_handed(data) or handler_id
         if woken:
@@ -659,7 +612,7 @@ def handle(name: str, brief: str, detached: bool = False, answer: str | None = N
         else:
             data["handlers"][handler_id] = new_handler(brief.strip(), held_now, left)
         keep_routes(data, holder_id, keys, brief)
-    later = {"brief": asked, "answer": answer, "context": context} if briefs else None
+    later = {"brief": asked, "answer": answer, "context": ""} if briefs else None
     if held and not woken:
         return held, True
     try:
@@ -819,7 +772,7 @@ def started(name: str, handler_id: str, brief: str, prompt: str, detached: bool,
 
     if folder := scratch(brief):
         folder.mkdir(parents=True, exist_ok=True)
-    if not detached and later is None and not drive_written(holds(brief)) and (preempting(state.load(name), holds(brief)) or not place.admission(state.load(name), None, "handlers", state.now())):
+    if not detached and later is None and (preempting(state.load(name), holds(brief)) or not place.admission(state.load(name), None, "handlers", state.now())):
         start_handler(name, handler_id, prompt)
         return []
     kept = brief_path(name, handler_id)
@@ -829,38 +782,6 @@ def started(name: str, handler_id: str, brief: str, prompt: str, detached: bool,
         kept.with_suffix(".json").write_text(json.dumps(later))
     state.detach(name, ["handler-start", handler_id], "handlers.log")
     return []
-
-
-def drive_written(held: dict) -> bool:
-    """Whether a brief's record is a report whose line the drive writes from its own rows, by answer.scripted, which start_kept posts in its own process with no handler session; a record cci cannot show is a handler's."""
-    from drive import answer
-
-    if not held["record"]:
-        return False
-    try:
-        return answer.scripted(shown(held["record"]))
-    except state.DriveError:
-        return False
-
-
-def scripted_post(name: str, handler: str) -> str | None:
-    """Post the line of the report a kept handler holds from the drive's rows, by answer.post_report, and take that handler off the drive, which never started: only while nothing else was handed to it; None when the line needs a handler, the model escalating, or a read or post failing."""
-    from drive import answer
-
-    data = state.load(name)
-    if not (entry := data["handlers"].get(handler)) or entry["handed"] or not entry["brief"] or not (seq := holds(entry["brief"])["record"]):
-        return None
-    try:
-        found = answer.post_report(name, seq)
-    except (reads.ReadError, state.DriveError, slack.SlackError):
-        return None
-    if not found:
-        return None
-    if entry["session"]:
-        rest(name, handler)
-    else:
-        unstarted(name, handler)
-    return f"{state.stamp()} {found['verb']} {seq} by the drive's rows, no handler {handler}: {found['posted'] or found['why']}"
 
 
 def his_message(held: dict) -> bool:
@@ -912,8 +833,6 @@ def start_kept(name: str, handler: str) -> str:
 
     kept = brief_path(name, handler)
     began = time.time()
-    if line := scripted_post(name, handler):
-        return line
     woken = bool(state.saved(name)["handlers"][handler]["session"])
     try:
         prompt = kept_prompt(name, handler)
@@ -1327,20 +1246,17 @@ def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | N
     try:
         if reason := refused(payload):
             return reason
-        saved = state.saved(name)
-        ending = saved["handlers"][payload["agent_id"]]
-        writers = {} if ending["posted"] else {seq: record["lane"] for seq in held_records(ending) if posting(name, record := shown(seq))}
         held_job = state.agent_job(state.load(name), payload["agent_id"])
 
-        def end(data: dict) -> tuple[dict, list, dict[str, str]]:
-            ended_handler, given_up = data["handlers"][payload["agent_id"]], {}
+        def end(data: dict) -> tuple[dict, list]:
+            ended_handler = data["handlers"][payload["agent_id"]]
             if briefs := ended_handler["handed"]:
                 ended_handler["handed"] = []
                 ended_handler["took"] += briefs
             else:
                 if job_id := state.agent_job(data, payload["agent_id"]):
                     data["jobs"][job_id]["transcript"] = payload["agent_transcript_path"]
-                given_up = settled(data, ended_handler, writers, " ".join((payload.get("last_assistant_message") or "").split()))
+                settled(data, ended_handler)
                 if ended_handler["pool"]:
                     if job_id:
                         data["jobs"][job_id]["agent"] = f"{payload['agent_id']}@{ended_handler['given']}"
@@ -1348,56 +1264,43 @@ def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | N
                     data["handlers"][payload["agent_id"]] |= {"session": payload["handler_session"], "busy": False, "brief": None, "holds": None, "took": [], "posted": [], "ended": state.stamp(), "items": ended_handler["items"] + 1}
                 else:
                     data["handlers"].pop(payload["agent_id"])
-            return ended_handler, briefs, given_up
+            return ended_handler, briefs
 
-        ended_handler, briefs, given_up = state.update(name, (("handlers", payload["agent_id"]), ("", "carried"), *((("jobs", held_job),) if held_job else ())), end)
+        ended_handler, briefs = state.update(name, (("handlers", payload["agent_id"]), ("", "carried"), *((("jobs", held_job),) if held_job else ())), end)
         if briefs:
             return Unjudged(f"Refused on purpose: {handed(briefs)}")
     except Exception:
         post_done(name, payload, state.saved(name)["handlers"][payload["agent_id"]])
         raise
-    done = post_done(name, payload, ended_handler, given_up)
-    if given_up:
-        carry(name, list(given_up), done)
+    post_done(name, payload, ended_handler)
 
 
-def settled(data: dict, entry: dict, writers: dict[str, str], line: str) -> dict[str, str]:
-    """Settle each record a handler that ended held or took: its first post carries every one; with none, each `POST` report of writers, by the lane that wrote it, still owed keeps the line it ended on for the fresh handler the watch's next read starts on it, but one whose last handler ended posting nothing too, or each on a NOTHING or RECORDED verdict, which a fresh handler would only repeat: those, by their writers, to give up."""
+def settled(data: dict, entry: dict) -> None:
+    """Settle each record a handler that ended held or took: its first post carries every one."""
     if entry["posted"]:
         link = SAY_RESULT.search(entry["posted"][0])[2].split()[0]
         for seq in held_records(entry):
             data["carried"].setdefault(seq, link)
-            data["posts"]["unposted"].pop(seq, None)
-        return {}
-    owed = {seq: writer for seq, writer in writers.items() if owing(data, seq)}
-    given_up = {seq: writer for seq, writer in owed.items() if seq in data["posts"]["unposted"] or VERDICT.match(line)}
-    data["posts"]["unposted"] |= {seq: line or "no line" for seq in owed if seq not in given_up}
-    return given_up
 
 
-def post_done(name: str, payload: dict, ended_handler: dict, given_up: dict[str, str] | None = None) -> str:
-    """Post the line a handler ended on as its done record to the lane it runs beside, and to the writer of each report it gives up, readdressed to its heir when that lane stood down; the seq cci gave a done record that gives reports up."""
+def post_done(name: str, payload: dict, ended_handler: dict) -> None:
+    """Post the line a handler ended on as its done record to the lane it runs beside."""
     line = (payload.get("last_assistant_message") or "").strip()
     if posted := ended_handler["posted"]:
         line = "; ".join(filter(None, [SAY_RESULT.sub("", line).strip(" ;"), *named_once(posted)]))
-    if given_up:
-        line = f"UNPOSTED {' '.join(given_up)}; {line}"
     if took := [f"{found[2]}.{found[3]}" for brief in ended_handler["took"] if HIS_WORDS in brief and (linked := LINK.search(brief)) and (found := state.CARD_LINK.search(linked[1]))]:
         line = f"TOOK {' '.join(took)}; {line}"
-    done = done_record(name, Path(payload["cwd"]), f"handler-{payload['agent_id']}" + (f"-{ended_handler['items']}" if ended_handler["items"] else ""), line, list((given_up or {}).values())) if ended_handler["brief"] or not ended_handler["pool"] else ""
+    if ended_handler["brief"] or not ended_handler["pool"]:
+        done_record(name, Path(payload["cwd"]), f"handler-{payload['agent_id']}" + (f"-{ended_handler['items']}" if ended_handler["items"] else ""), line)
     if ended_handler["pool"]:
         slack.cc_slack("unfollow", "--channel", slack.dm(), "--session", payload["handler_session"], "--cwd", payload["cwd"])
     else:
         remove_session(name, payload)
-    return done
 
 
-def done_record(name: str, cwd: Path, key: str, line: str, writers: list[str]) -> str:
-    """Post a done record from lane handler, idempotent on key, to the session the drive's handlers run beside, and to each writer of a report it gives up, readdressed to its heir when that lane stood down; the seq cci gave a record that gives reports up."""
-    to = [flag for lane in dict.fromkeys([beside(state.saved(name))[0], *writers]) for flag in ("--to", f"{lane}@{name}")]
-    gives = ["--or-heir", "--json"] if writers else []
-    out = reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", *to, "--id", key, "--text", line, *gives], cwd, reads.posting())
-    return str(json.loads(out)["seq"]) if writers else ""
+def done_record(name: str, cwd: Path, key: str, line: str) -> None:
+    """Post a done record from lane handler, idempotent on key, to the session the drive's handlers run beside."""
+    reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"{beside(state.saved(name))[0]}@{name}", "--id", key, "--text", line], cwd, reads.posting())
 
 
 def named_once(posted: list[str]) -> list[str]:
