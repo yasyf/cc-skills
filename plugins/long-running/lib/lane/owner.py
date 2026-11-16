@@ -5,7 +5,7 @@ import os
 import re
 import shlex
 import subprocess
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from lane import store
@@ -156,12 +156,39 @@ def cwd(drive: str, lane: dict) -> Path:
     return Path(lane["worktree"])
 
 
+RESUME_WITHIN = timedelta(minutes=30)
+RESUME_BYTES = 400_000
+
+
+def transcript(session: str) -> Path | None:
+    return next((config_dir() / "projects").glob(f"*/{session}.jsonl"), None)
+
+
+def resumable(lane: dict, moment: datetime) -> str | None:
+    """The session of the lane's last owner when it ended its turn under RESUME_WITHIN ago and its transcript is under RESUME_BYTES, which a wake resumes in place of a fresh start to save its re-read; else None."""
+    last = lane.get("last_owner") or {}
+    if not last.get("session") or not last.get("ended") or moment - store.parse(last["ended"]) > RESUME_WITHIN:
+        return None
+    kept = transcript(last["session"])
+    return last["session"] if kept and kept.stat().st_size < RESUME_BYTES else None
+
+
 def launch(drive: str, lane: dict, token: str, woke: str) -> dict:
-    """Start the lane's owner as its own background session; the job and session it runs as."""
+    """Start the lane's owner as its own background session, resuming its last owner's session when that is fresh and small and starting fresh when it is not or the resume fails; the job and session it runs as."""
+    if session := resumable(lane, datetime.now(UTC)):
+        try:
+            return {**started(drive, lane, token, ["--resume", session], f"You own this lane again with a new token. {woke}\n\n{brief(drive, lane, woke)}"), "resumed": session}
+        except store.Refused:
+            pass
+    return started(drive, lane, token, [], brief(drive, lane, woke))
+
+
+def started(drive: str, lane: dict, token: str, resume: list[str], prompt: str) -> dict:
     shape = store.config(drive)
     argv = [
         "claude",
         "--bg",
+        *resume,
         "--model",
         shape["model"],
         "--effort",
@@ -173,7 +200,7 @@ def launch(drive: str, lane: dict, token: str, woke: str) -> dict:
         json.dumps(settings(drive, lane["id"], token)),
         "-n",
         f"lane {drive} {lane['id']}",
-        brief(drive, lane, woke),
+        prompt,
     ]
     env = {key: value for key, value in os.environ.items() if key not in ("CLAUDE_CODE_SESSION_ID", "LANE_OWNER", "LANE_TOKEN", "LANE_TOKEN_FILE", "LONG_RUNNING_JOB", "CLAUDE_LONG_RUNNING_LANE")}
     done = subprocess.run(argv, cwd=cwd(drive, lane), env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, timeout=120)

@@ -68,7 +68,14 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
             prs = facts.read_prs(facts.pr_keys(store.load_all(drive)))
         except store.Refused as failed:
             errors.append(str(failed))
-        order = rank.ranked(drive, facts.viewed(store.load_all(drive), prs), moment)
+        lanes_now = store.load_all(drive)
+        try:
+            monitors = facts.monitor_states(drive, {str(lane["incident"]["monitor"]) for lane in lanes_now.values() if (lane.get("incident") or {}).get("monitor") and not lane["incident"].get("fix_live")})
+        except store.Refused as failed:
+            errors.append(str(failed))
+            monitors = {}
+        hurt = {lane_id for lane_id, lane in lanes_now.items() if facts.hurting(lane, monitors)}
+        order = rank.ranked(drive, facts.viewed(lanes_now, prs), moment, hurt)
         if order.get("error"):
             errors.append(f"rank kept its last order: {order['error']}")
     else:
@@ -92,7 +99,7 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
                     held += 1
                     continue
                 lane["owner"] = located
-                if state == "lapsed":
+                if state == "lapsed" and owners.lease(located, store.now(), shape["launch_grace_seconds"]) == "lapsed":
                     lapsed.append(lane_id)
                 else:
                     held += 1

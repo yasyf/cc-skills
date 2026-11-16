@@ -75,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     opening.add_argument("--worktree", required=True)
     opening.add_argument("--next")
     opening.add_argument("--incident-link")
-    opening.add_argument("--hurting-users", action="store_true")
+    opening.add_argument("--monitor", help="the Datadog monitor whose alert says the incident still hurts users")
 
     messaging = verbs_parser.add_parser("message", help="his message in a lane's channel, which wakes its owner")
     messaging.add_argument("lane")
@@ -93,6 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     ruled.add_argument("--link")
     ruled.add_argument("--binds", required=True)
     verbs_parser.add_parser("unpark").add_argument("lane")
+    verbs_parser.add_parser("adopt", help="write lane files of the first shape, such as the rebuild's, into the drive in the agreed shape").add_argument("paths", nargs="+")
     placing = verbs_parser.add_parser("worktree", help="set the checkout a lane's owner starts in")
     placing.add_argument("lane")
     placing.add_argument("path")
@@ -134,8 +135,9 @@ def main(argv: list[str] | None = None) -> int:
     granting.add_argument("--ttl", type=int, default=30)
     granting.add_argument("--lane")
     incident = verbs_parser.add_parser("incident")
-    incident.add_argument("hurting", choices=["yes", "no"])
     incident.add_argument("--link")
+    incident.add_argument("--monitor")
+    incident.add_argument("--fix-live", help="the proof the fix is live: a permalink or release link, which ends its first rank")
     incident.add_argument("--lane")
 
     verbs_parser.add_parser("show").add_argument("--lane")
@@ -161,7 +163,7 @@ def run(args: argparse.Namespace) -> int:
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             if not drive:
                 raise store.Refused("name the drive with --drive")
-            incident = {"hurting_users": args.hurting_users, "link": args.incident_link} if args.incident_link or args.hurting_users else None
+            incident = {"link": args.incident_link, "monitor": args.monitor, "fix_live": None} if args.incident_link or args.monitor else None
             lane = verbs.open_lane(drive, args.lane, args.title, args.words, args.channel, args.thread, args.link, args.ts, args.parks, args.park_words, [pr_ref(ref) for ref in args.pr], args.worktree, args.next, incident)
             print(f"opened {lane['id']}: {lane['state']}, owner {(lane.get('owner') or {}).get('session') or 'none'}")
         case "message":
@@ -172,6 +174,8 @@ def run(args: argparse.Namespace) -> int:
         case "ruling":
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             verbs.ruling(drive, args.lane, args.words, args.link, args.binds)
+        case "adopt":
+            print("\n".join(verbs.adopt(args.drive, args.paths)))
         case "worktree":
             verbs.set_worktree(*where(args), args.path)
         case "unpark":
@@ -209,7 +213,7 @@ def run(args: argparse.Namespace) -> int:
                     queue.release(drive, args.resource, holder)
         case "incident":
             drive, lane_id = where(args)
-            verbs.set_incident(drive, lane_id, token(), args.hurting == "yes", args.link)
+            verbs.set_incident(drive, lane_id, token(), args.link, args.monitor, args.fix_live)
         case "show":
             print(show(store.load(*where(args))))
         case "list" | "check":

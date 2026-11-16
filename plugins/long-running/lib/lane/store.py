@@ -32,7 +32,7 @@ DEFAULTS = {
 PRESENCE = "presence.json"
 LIVE = "live"
 NOT_LANES = ("rank", "config", "supervisor", "staging-env", "presence", "rulings", "queue")
-RULINGS = "rulings.json"
+RULINGS = "rulings.shared.json"
 
 
 class Refused(Exception):
@@ -190,7 +190,10 @@ def log_tail(drive: str, lane_id: str, lines: int) -> list[str]:
 
 def shared_rulings(drive: str) -> list[dict]:
     path = drive_dir(drive) / RULINGS
-    return json.loads(path.read_text()) if path.is_file() else []
+    if not path.is_file():
+        return []
+    kept = json.loads(path.read_text())
+    return kept["shared"] if isinstance(kept, dict) else kept
 
 
 @contextmanager

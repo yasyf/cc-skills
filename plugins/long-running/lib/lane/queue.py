@@ -30,8 +30,8 @@ def written(drive: str, queue: dict) -> None:
 
 
 def hurting(drive: str, lane_id: str) -> bool:
-    lane = store.load_all(drive).get(lane_id) or {}
-    return bool((lane.get("incident") or {}).get("hurting_users"))
+    """Whether the lane's incident hurt users at the last rank, which reads it from the incident's facts."""
+    return lane_id in rank.last(drive).get("hurting", [])
 
 
 def take(drive: str, resource: str, holder: str, lane_id: str, ttl_minutes: int) -> dict:

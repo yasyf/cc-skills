@@ -33,14 +33,14 @@ def ago(text: str | None, moment: datetime) -> str:
     return "under 2h" if hours < 2 else "under a day" if hours < 24 else "over a day"
 
 
-def facts(lane: dict, moment: datetime) -> dict:
+def facts(lane: dict, moment: datetime, hurting: bool = False) -> dict:
     asks = lane.get("asks", [])
     return {
         "id": lane["id"],
         "title": lane["title"],
         "parked": lane["state"] == store.PARKED,
         "pinned": bool(lane.get("pinned")),
-        "incident": lane.get("incident"),
+        "incident": {"hurting_users": hurting, "fix_live": bool((lane.get("incident") or {}).get("fix_live"))} if lane.get("incident") else None,
         "his_last_words": ago(asks[-1]["at"] if asks else None, moment),
         "unanswered_asks": len(store.unreplied(lane)),
         "open_asks": sum(1 for ask in asks if not ask.get("done")),
@@ -66,10 +66,10 @@ def judge(text: str, told: list[dict]) -> dict[str, float]:
     return {key: answer.score for key, answer in decision.answers.items() if isinstance(answer, ScoreAnswer)}
 
 
-def ranked(drive: str, lanes: dict[str, dict], moment: datetime) -> dict:
+def ranked(drive: str, lanes: dict[str, dict], moment: datetime, hurt: set[str] = frozenset()) -> dict:
     """The order lanes take slots and staging in, best first: the model's scores when the rule or the facts changed since the last ask, else the last ones; a failed ask keeps the last scores and says why."""
     text = rule(drive)
-    told = [facts(lane, moment) for lane in lanes.values()]
+    told = [facts(lane, moment, lane["id"] in hurt) for lane in lanes.values()]
     key = hashlib.sha256(json.dumps({"rule": text, "lanes": told}, sort_keys=True).encode()).hexdigest()[:16]
     kept = last(drive)
     scores, error = kept.get("scores", {}), None
@@ -81,7 +81,7 @@ def ranked(drive: str, lanes: dict[str, dict], moment: datetime) -> dict:
             key = kept.get("key")
     order = sorted(lanes, key=lambda lane_id: (lanes[lane_id]["state"] == store.PARKED, -scores.get(lane_id, 0.0), lanes[lane_id]["created"]))
     asks = [{"lane": lane_id, "ts": ask.get("ts"), "at": ask["at"], "words": ask["words"][:200], "replied": ask.get("replied")} for lane_id in order for ask in sorted(lanes[lane_id].get("asks", []), key=lambda ask: ask["at"]) if not ask.get("done")]
-    result = {"at": store.stamp(moment), "key": key, "order": order, "scores": scores, "asks": asks, "error": error}
+    result = {"at": store.stamp(moment), "key": key, "order": order, "scores": scores, "asks": asks, "hurting": sorted(hurt), "error": error}
     fresh = path(drive).with_name(".rank.json.tmp")
     fresh.parent.mkdir(parents=True, exist_ok=True)
     fresh.write_text(json.dumps(result, indent=1) + "\n")

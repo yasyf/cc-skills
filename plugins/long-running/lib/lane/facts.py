@@ -1,8 +1,10 @@
 """The outside facts a wait names, each read from its source: pull requests in one batched GraphQL query, a staging cut's or release's result file, and his messages in a lane's channel."""
 
 import json
+import os
 import re
 import subprocess
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from functools import cache
 from pathlib import Path
@@ -12,6 +14,7 @@ from lane import store
 DONE_ROLLUPS = ("SUCCESS", "FAILURE", "ERROR")
 PRS_PER_QUERY = 50
 READERS = 8
+ALERTING = ("Alert", "Warn", "No Data")
 CHANNEL_EVENT = re.compile(r"^(<@\w+> has (joined|left) the channel|set the channel (description|topic|purpose|name)|renamed the channel)")
 
 
@@ -140,3 +143,40 @@ def his_messages(lane: dict) -> list[dict]:
         link = f"{who['team_url']}archives/{lane['channel']}/p{message['ts'].replace('.', '')}" + (f"?thread_ts={lane['thread']}&cid={lane['channel']}" if lane.get("thread") else "")
         found.append({"words": message.get("text") or "", "link": link, "at": store.stamp(), "ts": message["ts"], "replied": None, "done": None})
     return sorted(found, key=lambda ask: float(ask["ts"]))
+
+
+def datadog_keys(drive: str) -> dict[str, str]:
+    """The Datadog API and application keys: DD_API_KEY and DD_APPLICATION_KEY in the environment, else the JSON object the drive config's datadog_keys command prints."""
+    if os.environ.get("DD_API_KEY") and os.environ.get("DD_APPLICATION_KEY"):
+        return {"DD_API_KEY": os.environ["DD_API_KEY"], "DD_APPLICATION_KEY": os.environ["DD_APPLICATION_KEY"]}
+    if not (command := store.config(drive).get("datadog_keys")):
+        raise store.Refused("no Datadog keys: set DD_API_KEY and DD_APPLICATION_KEY, or the drive config's datadog_keys command")
+    done = subprocess.run(command, capture_output=True, text=True, check=False, timeout=60)
+    if done.returncode:
+        raise store.Refused(f"the datadog_keys command failed: {done.stderr.strip()[:200]}")
+    return json.loads(done.stdout)
+
+
+def monitor_states(drive: str, ids: set[str]) -> dict[str, str]:
+    """Each Datadog monitor's overall state, one read per monitor."""
+    if not ids:
+        return {}
+    keys = datadog_keys(drive)
+    site = os.environ.get("DD_SITE", "datadoghq.com")
+    states = {}
+    for monitor in sorted(ids):
+        request = urllib.request.Request(f"https://api.{site}/api/v1/monitor/{monitor}", headers={"DD-API-KEY": keys["DD_API_KEY"], "DD-APPLICATION-KEY": keys["DD_APPLICATION_KEY"]})
+        try:
+            with urllib.request.urlopen(request, timeout=20) as answer:
+                states[monitor] = json.loads(answer.read())["overall_state"]
+        except OSError as failed:
+            raise store.Refused(f"Datadog read of monitor {monitor} failed: {failed}") from None
+    return states
+
+
+def hurting(lane: dict, monitors: dict[str, str]) -> bool:
+    """Whether a lane's incident hurts users now, from facts and never a hand-set flag: its record is open with no fix live, and its Datadog monitor, when it names one, still alerts; a monitor whose state could not be read counts as alerting."""
+    incident = lane.get("incident") or {}
+    if not incident or incident.get("fix_live"):
+        return False
+    return not incident.get("monitor") or monitors.get(str(incident["monitor"]), "Alert") in ALERTING

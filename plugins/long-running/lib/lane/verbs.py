@@ -118,7 +118,7 @@ def ruling(drive: str, lane_id: str | None, words: str, link: str | None, binds:
             path = store.drive_dir(drive) / store.RULINGS
             kept = store.shared_rulings(drive)
             fresh = path.with_name(".rulings.json.tmp")
-            fresh.write_text(json.dumps([*kept, row], indent=1, ensure_ascii=False) + "\n")
+            fresh.write_text(json.dumps({"shared": [*kept, row]}, indent=1, ensure_ascii=False) + "\n")
             fresh.replace(path)
         return
 
@@ -171,6 +171,7 @@ def end_turn(drive: str, lane_id: str, token: str, on: list[dict], until: str, w
         kept = min(bound, store.parse(promised)) if promised and store.parse(promised) > moment else bound
         owner = lane["owner"]
         lane["owner"] = None
+        lane["last_owner"] = {"session": owner.get("session"), "job": owner.get("job"), "ended": store.stamp()}
         if next_step:
             lane["next"] = next_step
         if parked := lane.pop("park", None):
@@ -234,10 +235,13 @@ def done(drive: str, lane_id: str, token: str | None, ts: str) -> None:
     owner_write(drive, lane_id, token, marking)
 
 
-def set_incident(drive: str, lane_id: str, token: str | None, hurting: bool, link: str | None) -> None:
+def set_incident(drive: str, lane_id: str, token: str | None, link: str | None = None, monitor: str | None = None, fix_live: str | None = None) -> None:
+    """Record a lane's incident: its link, the Datadog monitor whose alert says it still hurts users, and the proof its fix is live, which ends its first rank; whether it hurts users is read from those facts each pass, never set here."""
+
     def setting(lane: dict) -> None:
-        lane["incident"] = {"hurting_users": hurting, "link": link or (lane.get("incident") or {}).get("link")}
-        store.note(lane, f"incident {'hurts' if hurting else 'no longer hurts'} users")
+        kept = lane.get("incident") or {}
+        lane["incident"] = {"link": link or kept.get("link"), "monitor": monitor or kept.get("monitor"), "fix_live": fix_live or kept.get("fix_live")}
+        store.note(lane, f"incident: {lane['incident']}")
 
     owner_write(drive, lane_id, token, setting)
     store.kick(drive)
@@ -255,3 +259,70 @@ def set_worktree(drive: str, lane_id: str, path: str) -> None:
 
     store.update(drive, lane_id, setting)
     store.kick(drive)
+
+
+OLD_PR_FACTS = {"merged": "pr_merged", "closed": "pr_merged", "checks_done": "check"}
+
+
+def adopted(lane: dict) -> tuple[dict, list[str]]:
+    """A lane written in the first lane-file shape, as the rebuild's files and the first shadow lanes are, in the agreed one: flat channel and thread, waits on the closed list, asks with replied, no PR state on rows, the log out of the file; and the log lines it held."""
+    lane = json.loads(json.dumps(lane))
+    if isinstance(lane.get("channel"), dict):
+        lane["channel"], lane["thread"] = lane["channel"].get("id"), lane["channel"].get("thread")
+    lane.setdefault("thread", None)
+    for ask in lane.get("asks", []):
+        ask.pop("seen", None)
+        ask.setdefault("replied", None)
+        ask.setdefault("done", None)
+    lane.setdefault("rulings", [])
+    for row in lane.get("prs", []):
+        for field in ("head", "checks", "merged", "under"):
+            row.pop(field, None)
+        row.setdefault("words", None)
+        row.setdefault("staging", None)
+    logs = lane.pop("log", [])
+    if isinstance(lane.get("parked"), str):
+        lane["state"], lane["parked"], lane["wait"], lane["owner"] = store.PARKED, {"words": lane["parked"], "link": None}, None, None
+    if lane.get("wait"):
+        on = []
+        for event in lane["wait"].get("on", []):
+            match event["kind"]:
+                case "pr":
+                    on.append({"kind": OLD_PR_FACTS[event["fact"]], "ref": f"{event['repo']}#{event['number']}"} if event["fact"] in OLD_PR_FACTS else {"kind": "his_reply"})
+                case "cut":
+                    on.append({"kind": "staging_result", "ref": event["id"]})
+                case "reply":
+                    on.append({"kind": "his_reply"})
+                case _:
+                    on.append(event)
+        lane["wait"]["on"] = on or [{"kind": "his_reply"}]
+    if lane["state"] == store.RUNNING:
+        moment = store.stamp()
+        lane["state"], lane["owner"] = store.WAITING, None
+        lane["wait"] = {"on": [{"kind": "his_reply"}], "until": moment, "why": "adopted", "set": moment, "fired": moment, "fired_why": "adopted into the lane drive"}
+    return lane, [f"{row['at']} {row['text']}" for row in logs if isinstance(row, dict)]
+
+
+def adopt(drive: str, paths: list[str]) -> list[str]:
+    """Write lane files of the first shape into the drive in the agreed shape, each checked by the writer, with the drive's shared rulings beside them; a line per lane, naming each with no worktree, whose owner cannot start until `lane worktree` sets one."""
+    from pathlib import Path
+
+    said = []
+    for given in paths:
+        source = Path(given)
+        if source.name == store.RULINGS:
+            with store.locked(drive):
+                (store.drive_dir(drive) / store.RULINGS).write_text(source.read_text())
+            said.append(f"shared rulings: {len(store.shared_rulings(drive))}")
+            continue
+        lane, lines = adopted(json.loads(source.read_text()))
+
+        def placing(lanes: dict[str, dict], lane: dict = lane, lines: list[str] = lines) -> None:
+            lanes[lane["id"]] = lane
+            for line in lines:
+                store.note(lane, line)
+
+        store.transact(drive, placing)
+        said.append(f"{lane['id']}: {lane['state']}, {len(lane['asks'])} asks ({len(store.unreplied(lane))} unanswered), {len(lane['rulings'])} rulings" + ("" if lane.get("worktree") else ", NO WORKTREE: set one with `lane worktree`"))
+    store.kick(drive)
+    return said

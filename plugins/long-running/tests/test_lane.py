@@ -324,7 +324,8 @@ def test_the_queue_grants_by_rank_and_an_incident_hurting_users_takes_staging(wo
     assert queue.take(DRIVE, "staging-env", "tester-a", "a", 30)["granted"] is True
     waiting = queue.take(DRIVE, "staging-env", "tester-b", "b", 30)
     assert (waiting["granted"], waiting["position"]) == (False, 1)
-    verbs.set_incident(DRIVE, "c", None, True, None)
+    verbs.set_incident(DRIVE, "c", None, link="https://alert")
+    supervisor.run_pass(DRIVE)
     taken = queue.take(DRIVE, "staging-env", "tester-c", "c", 30)
     assert taken["granted"] is True
     with pytest.raises(store.Refused, match="incident hurts users"):
@@ -355,3 +356,73 @@ def test_the_lane_model_imports_nothing_of_the_old_drive() -> None:
     probe = "import sys, lane.command, lane.supervisor, lane.say, lane.queue; print(sorted(name for name in sys.modules if name == 'drive' or name.startswith('drive.')))"
     done = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True, env={"PYTHONPATH": str(LIB), "PATH": "/usr/bin:/bin"})
     assert done.stdout.strip() == "[]"
+
+
+def test_a_start_while_the_lease_is_held_is_refused_and_no_machine_is_stopped(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    opened("a")
+    owner = store.load(DRIVE, "a")["owner"]
+    reads = iter(["lapsed", "held"])
+    monkeypatch.setattr(owners, "lease", lambda owner, moment, grace: next(reads, "held"))
+    world["launched"].clear()
+    assert supervisor.run_pass(DRIVE)["started"] == []
+    assert store.load(DRIVE, "a")["owner"]["token"] == owner["token"]
+    assert (world["launched"], world["stopped"]) == ([], [])
+
+
+def test_a_wake_resumes_a_short_fresh_session_and_starts_fresh_otherwise(world: dict, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(owners, "config_dir", lambda: tmp_path / "claude")
+    opened("a")
+    session = store.load(DRIVE, "a")["owner"]["session"]
+    ended("a", ["his_reply"])
+    lane = store.load(DRIVE, "a")
+    kept = tmp_path / "claude" / "projects" / "-checkout" / f"{session}.jsonl"
+    kept.parent.mkdir(parents=True)
+    kept.write_text("x" * 1000)
+    assert owners.resumable(lane, store.now()) == session
+    assert owners.resumable(lane, store.now() + timedelta(minutes=31)) is None
+    kept.write_text("x" * owners.RESUME_BYTES)
+    assert owners.resumable(lane, store.now()) is None
+
+
+def test_adopt_writes_a_first_shape_lane_in_the_agreed_one(world: dict, tmp_path: Path) -> None:
+    old = {
+        "id": "carried",
+        "title": "Carried",
+        "created": store.stamp(),
+        "updated": store.stamp(),
+        "state": "waiting",
+        "parked": None,
+        "channel": {"id": "C1", "thread": "1.2"},
+        "asks": [{"at": store.stamp(), "words": "old words", "link": None, "ts": "1.3", "seen": True, "replied": "carried at the rebuild", "from_orders": ["o1"]}],
+        "prs": [{"repo": "acme/app", "number": 7, "head": "abc", "approved_head": "abc", "held": None, "dangerous": None}],
+        "rulings": [{"words": "ship it", "link": None, "at": store.stamp(), "binds": "release", "answer_id": "a1"}],
+        "also": ["a second title"],
+        "next": "land it",
+        "wait": {"on": [{"kind": "reply"}], "until": store.stamp(), "why": "rebuilt", "set": store.stamp()},
+        "owner": None,
+        "log": [{"at": store.stamp(), "text": "rebuilt"}],
+    }
+    source = tmp_path / "carried.json"
+    source.write_text(json.dumps(old))
+    verbs.adopt(DRIVE, [str(source)])
+    lane = store.load(DRIVE, "carried")
+    assert (lane["channel"], lane["thread"], lane["wait"]["on"]) == ("C1", "1.2", [{"kind": "his_reply"}])
+    assert not store.unreplied(lane)
+    assert (lane["asks"][0]["from_orders"], lane["also"], lane["rulings"][0]["answer_id"]) == (["o1"], ["a second title"], "a1")
+    assert "head" not in lane["prs"][0]
+    assert "rebuilt" in store.log_path(DRIVE, "carried").read_text()
+
+
+def test_an_incident_hurts_users_by_its_facts_until_its_fix_is_live(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    opened("a", incident={"link": "https://alert", "monitor": "42", "fix_live": None})
+    states = {"42": "Alert"}
+    monkeypatch.setattr(facts, "monitor_states", lambda drive, ids: {key: states[key] for key in ids})
+    supervisor.run_pass(DRIVE)
+    assert rank.last(DRIVE)["hurting"] == ["a"]
+    states["42"] = "OK"
+    supervisor.run_pass(DRIVE)
+    assert rank.last(DRIVE)["hurting"] == []
+    states["42"] = "Alert"
+    verbs.set_incident(DRIVE, "a", token_of("a"), fix_live="https://release/live")
+    supervisor.run_pass(DRIVE)
+    assert rank.last(DRIVE)["hurting"] == []
