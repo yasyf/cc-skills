@@ -141,8 +141,6 @@ def report_line(name: str, seq: str) -> str:
         raise DriveError(f"its post links {strays[0]}, which the report does not print")
     if findings := slack.post_findings(text, bool(made.get("blocks")) and "{card:" in text):
         text = fixes.mended(text, findings, state.now())
-        if findings := slack.post_findings(text, False):
-            raise DriveError(f"`cc-slack check-post` still finds in its words: {' | '.join(findings)}; send it again with each fixed")
     shown = {"text": text} | {key: made[key] for key in ("blocks", "visuals") if made.get(key)}
     if made.get("place") == "edit":
         if not corrected.startswith("https://"):
@@ -164,12 +162,17 @@ def report_post(name: str, seq: str) -> str:
     if target and target not in slack.homes(state.load(name)):
         agents.handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'post-{seq}'} Where: {target}, a channel outside the drive's, whose members read it and where cc-slack posts only on the ticket a session's permission hook names, so post it there yourself")
         return f"report {seq} handed to the communicator: it posts in {target}, outside the drive's channels"
+    if link := state.load(name)["carried"].get(seq):
+        return f"report {seq} already posted at {link}: nothing posted again"
     try:
         return f"report {seq} posted by the drive: {report_line(name, seq)}"
     except (DriveError, slack.SlackError) as error:
+        if link := state.load(name)["carried"].get(seq):
+            return f"report {seq} posted at {link}, then: {error}"
         writer = agents.shown(seq)["lane"]
         made = {"kind": "defect", "to": [f"meta@{name}"]} if writer == "watch" else {"kind": "refused", "re": [seq], "to": [f"{writer}@{name}"]}
-        tools.sent(name, "watch", [limits.shortened(made | {"text": f"report {seq} posted nothing: {error}"}) or made | {"text": f"report {seq} posted nothing: {error}"}])
+        said = f"report {seq} is not posted, by the drive or the communicator, as the drive's carried posts read: {error}"
+        tools.sent(name, "watch", [limits.shortened(made | {"text": said}) or made | {"text": said}])
         return f"report {seq} sent back to {made['to'][0]}: {error}"
 
 
