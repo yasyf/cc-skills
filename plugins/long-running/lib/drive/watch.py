@@ -3823,7 +3823,7 @@ def stranded(job_id: str, data: dict, gap: str, unlisted: dict[str, dict]) -> st
 
 
 def release_lanes(watcher: Watcher, moment: datetime) -> None:
-    """Free what each job it hears is done with still holds, never what a running job holds, starting each drive verb that frees one as a process of its own, by state.detach, and keeping that process's pid and time on the drive, so a restarted watch reads what every earlier watch asked. First, by one rule, a remote job that is not running holds no Sprite once its worker's turn is over: the own lane of each job whose line set it done, failed or stopped, or set it waiting or built and whose worker then ended its turn or died, by unended, so a live lane waiting on its own question or on a read it asked keeps it, is ended by `drive job end`, which keeps its transcripts, saves what its Sprite holds on no remote and destroys it, every due job's in the pass that reads the event ending its turn, so lanes end as fast as they start, kept as the job's end, so no watch ends that lane again while that end is in_flight, and its Sprite left to that end alone while the end it records on the lane is, ahead of every reclaim, so no reclaim and no install delays an end. Then each Sprite cc-remote still records that an earlier or ended lane of any job left, such as the Sprite a relaunch moved off or one an end kept, destroyed with its Orca environment by --destroy once what it holds on no remote is saved to GitHub as saved/<the job's lane>/<branch>, or else kept by that reclaim, said once and never asked for again; and the dispatch of a done, failed or stopped lane on this Mac once its job has been quiet for QUIET_LANE, as lr's gc --done waited after a lane's last word, whose terminal --run --done closes and whose worktree it removes once clean and pushed, the reclaimer skipping whatever its pauses hold, its death recorded first. Each of those goes to `drive job reclaim`, whose orca.reclaimer kills the reclaimer with every process it started past RECLAIM_SECONDS, kept as the reclaim on the death of the lane that left it, and none asked again while its own is in_flight; what each run printed goes to the watch log."""
+    """Free what each job it hears is done with still holds, never what a running job holds, starting one drive verb of each kind per pass, carrying every lane due, as a process of its own, by state.detach, so the ends and reclaims of a pass move the drive's checkout once each and hold the drive's lock twice and once, not once per lane, and keeping that process's pid and time on each lane it carries, so a restarted watch reads what every earlier watch asked. First, by one rule, a remote job that is not running holds no Sprite once its worker's turn is over: the own lane of each job whose line set it done, failed or stopped, or set it waiting or built and whose worker then ended its turn or died, by unended, so a live lane waiting on its own question or on a read it asked keeps it, is ended by the pass's one `drive job end`, which keeps its transcripts, saves what its Sprite holds on no remote and destroys it, every due job's in the pass that reads the event ending its turn, so lanes end as fast as they start, kept as the job's end, so no watch ends that lane again while that end is in_flight, and its Sprite left to that end alone while the end it records on the lane is, ahead of every reclaim, so no reclaim and no install delays an end. Then each Sprite cc-remote still records that an earlier or ended lane of any job left, such as the Sprite a relaunch moved off or one an end kept, destroyed with its Orca environment by --destroy once what it holds on no remote is saved to GitHub as saved/<the job's lane>/<branch>, or else kept by that reclaim, said once and never asked for again; and the dispatch of a done, failed or stopped lane on this Mac once its job has been quiet for QUIET_LANE, as lr's gc --done waited after a lane's last word, whose terminal --run --done closes and whose worktree it removes once clean and pushed, the reclaimer skipping whatever its pauses hold, its death recorded first. All of those go to the pass's one `drive job reclaim`, whose orca.reclaimer kills the reclaimer with every process it started past RECLAIM_SECONDS, kept as the reclaim on the death of the lane that left it, and none asked again while its own is in_flight; what each run printed goes to the watch log."""
     if state.scratch():
         return
     adopt_sprites(watcher, moment)
@@ -3836,13 +3836,18 @@ def release_lanes(watcher: Watcher, moment: datetime) -> None:
         return
     log = state.watch_log_path(watcher.name, watcher.project).name
     with state.edit(watcher.name) as data:
-        for job_id in ending:
-            data["jobs"][job_id]["end"] = {"pid": end_lane(watcher.name, job_id), "at": state.stamp(moment)}
-        for job_id, lane in reclaiming:
-            job = data["jobs"][job_id]
-            if state.on_mac(job) and lane == job.get("dispatch"):
-                state.lane_died(job, lane, RECLAIMED, moment)
-            state.death_on(job, lane)["reclaim"] = {"pid": state.detach(watcher.name, ["job", "reclaim", job_id, lane], log), "at": state.stamp(moment)}
+        if ending:
+            end = {"pid": end_lanes(watcher.name, ending), "at": state.stamp(moment)}
+            for job_id in ending:
+                data["jobs"][job_id]["end"] = end
+        if reclaiming:
+            pairs = [*reclaiming[0], *(word for pair in reclaiming[1:] for word in ("--and", *pair))]
+            reclaim = {"pid": state.detach(watcher.name, ["job", "reclaim", *pairs], log), "at": state.stamp(moment)}
+            for job_id, lane in reclaiming:
+                job = data["jobs"][job_id]
+                if state.on_mac(job) and lane == job.get("dispatch"):
+                    state.lane_died(job, lane, RECLAIMED, moment)
+                state.death_on(job, lane)["reclaim"] = reclaim
 
 
 def adopt_sprites(watcher: Watcher, moment: datetime) -> None:
@@ -4004,9 +4009,9 @@ def carrier(job_id: str, job: dict, data: dict, cards: dict | None) -> list[str]
     return ["job", "resume", job_id] if remote else ["job", "launch", job_id, *(["--local"] if local else [])]
 
 
-def end_lane(name: str, job_id: str) -> int:
-    """Run `drive job end` as its own process on a job that is not running whose worker's turn is over and whose lane on a Sprite no end ended, by unended, so that idle Sprite, its forward and its Orca environment go once its transcripts are kept and what it holds is saved, and a waiting job's next event starts its next lane on a fresh one; its output appended to the drive's relaunches log; its pid."""
-    return state.detach(name, ["job", "end", job_id], RELAUNCHES_LOG)
+def end_lanes(name: str, job_ids: list[str]) -> int:
+    """Run one `drive job end` as its own process on every job that is not running whose worker's turn is over and whose lane on a Sprite no end ended, by unended, so each idle Sprite, its forward and its Orca environment go once its transcripts are kept and what it holds is saved, and a waiting job's next event starts its next lane on a fresh one; its output appended to the drive's relaunches log; its pid."""
+    return state.detach(name, ["job", "end", *job_ids], RELAUNCHES_LOG)
 
 
 def can_wake(watcher: Watcher, job_id: str, job: dict, data: dict, moment: datetime) -> bool:

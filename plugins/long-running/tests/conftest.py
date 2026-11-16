@@ -1011,7 +1011,7 @@ def relaunches(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 def ended_lanes(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Each waiting job whose dead lane on a Sprite the watch ended, as a drive job end that still runs."""
     ended: list[str] = []
-    monkeypatch.setattr(watch, "end_lane", lambda name, job_id: ended.append(job_id) or os.getpid())
+    monkeypatch.setattr(watch, "end_lanes", lambda name, job_ids: ended.extend(job_ids) or os.getpid())
     return ended
 
 

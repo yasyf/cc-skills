@@ -306,7 +306,7 @@ session makes its parts `ORPHAN`s.
 6. A remote job that is not running holds no Sprite once its worker's turn is over: in the pass
    that reads its worker's `worker_done` or Orca's escalation, or its death, or two minutes after a
    done, failed or stopped job returns its line while its worker's turn is still open, the watch
-   runs `drive job end <j>` on it in a process of its own, every due job's in that pass, ahead of
+   runs one `drive job end` on every due job of that pass, in a process of its own, ahead of
    any reclaim, its output in the drive's `relaunches.log`, so no session runs it. A worker waiting inside its own question, to
    you or as his `ASK`, or on a read it asked after its line, keeps its turn open, so its Sprite
    and session stay until the answer `drive job resume` or its reader sends reaches it there. The job
@@ -320,13 +320,13 @@ session makes its parts `ORPHAN`s.
    none, what the save found: that the Sprite held nothing unpushed or uncommitted, or that
    cc-remote records no Sprite under that name, so nothing on it was read or saved. When the Sprite does not
    answer or the save fails, end refuses, ending nothing and naming why. The watch keeps each end's
-   pid and start on the job's row, and each `drive job reclaim` it starts on what an earlier lane
-   left on that lane's death, and runs one again only once that process is gone and 300 seconds
+   pid and start on the job's row, and the one `drive job reclaim` it starts each pass on what earlier lanes
+   left on each such lane's death, and runs one again only once that process is gone and 300 seconds
    have passed, so a watch that restarts never asks a second time while the first still runs. A
    reclaim that cannot destroy a Sprite, since it does not answer, holds what could not be saved or
    cc-remote would not destroy it, marks it kept on that lane's death, and the watch says that
-   refusal once and never asks for it again: destroying it unread may lose what it holds on no
-   remote, so that is his pick, and `drive job reclaim <j> <workspace>` run by hand asks again.
+   refusal and asks for it again only an hour later, as a Sprite ssh could not reach may answer
+   then: destroying it unread may lose what it holds on no remote, so that is his pick, and `drive job reclaim <j> <workspace>` run by hand asks again.
 
 ## Remote lanes
 

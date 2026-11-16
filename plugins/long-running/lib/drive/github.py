@@ -659,11 +659,14 @@ def saved_branches(repo: str, lane: str, every: bool = False) -> list[str]:
 
 
 def fetched(clone: str, branch: str) -> str:
-    """The sha of branch's head as origin holds it now, read with ls-remote and fetched by that sha into the clone's objects, writing no ref, so it never loses refs/remotes/origin/<branch>'s ref lock to another fetch of the shared clone, the lander's, a launch's or a session's, and needs no lock of its own. The fetch starts no git maintenance: its detached worktree-prune task deletes a .git/worktrees entry holding neither gitdir nor locked, as the worktree add each caller runs next holds its own for a moment, and that add then fails writing its locked file."""
-    git = ["git", "-C", clone]
-    sha = run([*git, "ls-remote", "origin", f"refs/heads/{branch}"]).split()[0]
-    run([*git, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--no-auto-maintenance", "origin", sha])
+    """The sha of branch's head as origin holds it now, by head, fetched by that sha into the clone's objects by fetch_commit, so it needs no lock of its own."""
+    fetch_commit(clone, sha := head(clone, branch))
     return sha
+
+
+def head(clone: str, branch: str) -> str:
+    """The sha of branch's head as origin holds it now, read with ls-remote, which fetches nothing."""
+    return run(["git", "-C", clone, "ls-remote", "origin", f"refs/heads/{branch}"]).split()[0]
 
 
 def carrier(clone: str) -> Callable[[str, str, int], bool]:
@@ -691,9 +694,9 @@ def carrier(clone: str) -> Callable[[str, str, int], bool]:
 
 
 def fetch_commit(clone: str, sha: str) -> None:
-    """Fetch a commit the clone lacks by its sha, writing no ref, as fetched does."""
-    if subprocess.run(["git", "-C", clone, "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True, check=False).returncode:
-        run(["git", "-C", clone, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", sha])
+    """Fetch a commit the clone lacks by its sha, writing no ref, so it never loses refs/remotes/origin/<branch>'s ref lock to another fetch of the shared clone, the lander's, a launch's or a session's. The read of whether the clone holds it fetches nothing, as a lazy fetch of a partial clone would, and the fetch starts no git maintenance: its detached worktree-prune task deletes a .git/worktrees entry holding neither gitdir nor locked, as the worktree add a caller runs next holds its own for a moment, and that add then fails writing its locked file."""
+    if subprocess.run(["git", "--no-lazy-fetch", "-C", clone, "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True, check=False).returncode:
+        run(["git", "-C", clone, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--no-auto-maintenance", "origin", sha])
 
 
 def uncarried(clone: str, build: str, head: str, base: str) -> list[str]:

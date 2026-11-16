@@ -791,9 +791,9 @@ def test_launch_runs_from_the_drives_own_worktree_made_once_with_ccx_and_moved_w
     for job_id in ("j1", "j2"):
         (state_folder / f"{job_id}-brief.md").write_text(f"Researched: j0\nDrive: demo, order o1, job {job_id}\n")
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
-    fetches, pins = [], []
-    fetched = github.fetched
-    monkeypatch.setattr(github, "fetched", lambda clone, branch: fetches.append(branch) or fetched(clone, branch))
+    heads, pins = [], []
+    head = github.head
+    monkeypatch.setattr(github, "head", lambda clone, branch: heads.append(branch) or head(clone, branch))
     fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
 
     def launch(drive: str, lane: str, brief: Path, checkout: Path, *rest: object) -> dict:
@@ -814,7 +814,7 @@ def test_launch_runs_from_the_drives_own_worktree_made_once_with_ccx_and_moved_w
     repinned = cloned(tmp_path, demo, {"versions.toml": "cc-remote 0.27.38\n"})
     assert run("job", "launch", "j2", "j2-brief.md")[0] == 0
     assert pins == [(kept, pinned, "cc-remote 0.27.37\n"), (kept, repinned, "cc-remote 0.27.38\n")]
-    assert fetches == ["main", "main", "main"]
+    assert heads == ["main", "main", "main"]
     assert (ccx_worktrees / "made").read_text() == "drive-demo\n"
     assert (git_in(clone, "rev-parse", "HEAD"), git_in(clone, "status", "--porcelain")) == untouched
 
@@ -854,6 +854,30 @@ def test_a_verb_that_cannot_take_the_checkout_lock_within_its_wait_runs_from_the
         assert (orca.checkout(demo, str(clone), wait=0), git_in(kept, "rev-parse", "HEAD")) == (kept, first)
     monkeypatch.setattr(orca, "CHECKOUT_FRESH", 60)
     assert (orca.checkout(demo, str(clone)), git_in(kept, "rev-parse", "HEAD")) == (kept, first)
+
+
+def test_a_move_reads_and_fetches_the_new_head_before_it_waits_on_the_checkout_lock_and_says_once_what_it_waits_on(
+    demo: str, tmp_path: Path, ccx_worktrees: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    clone = tmp_path / "clone"
+    cloned(tmp_path, demo)
+    kept = orca.checkout(demo, str(clone))
+    head = cloned(tmp_path, demo, {"versions.toml": "cc-remote 0.27.38\n"})
+    capsys.readouterr()
+    held = (state.drive_dir(demo) / orca.CHECKOUT_LOCK).open("a")
+    fcntl.flock(held, fcntl.LOCK_EX)
+    steps: list[str] = []
+    read, fetch, taken, said = github.head, github.fetch_commit, state.taken, state.said
+    monkeypatch.setattr(github, "head", lambda clone, branch: steps.append("ls-remote") or read(clone, branch))
+    monkeypatch.setattr(github, "fetch_commit", lambda clone, sha: steps.append("fetch") or fetch(clone, sha))
+    monkeypatch.setattr(state, "taken", lambda handle, seconds: steps.append(f"lock within {seconds:.0f} s") or taken(handle, seconds))
+    monkeypatch.setattr(state, "said", lambda who, step: said(who, step) or held.close())
+    monkeypatch.setattr(state, "holders", lambda path: f"pid 50612 drive job end j1 j2 on {path.name}")
+    assert (orca.checkout(demo, str(clone), wait=30), git_in(kept, "rev-parse", "HEAD")) == (kept, head)
+    assert steps == ["ls-remote", "fetch", "lock within 0 s", "lock within 30 s"]
+    assert [line.split(" ", 3)[3] for line in capsys.readouterr().err.splitlines()] == [
+        f"it waits up to 30 s on the drive's checkout lock to move to {head[:12]}: pid 50612 drive job end j1 j2 on {orca.CHECKOUT_LOCK}"
+    ]
 
 
 def test_a_sprite_brief_copies_in_no_drive_file_it_names_and_a_read_of_its_words_serves_each_a_lanes_report_kept_only_in_the_drive_included(
@@ -5410,6 +5434,60 @@ def test_end_destroys_the_sprite_cc_remote_still_records_or_names_what_keeps_it(
     assert run("job", "end", "j1") == (0, "nothing to reclaim\npool-one is kept: orca-reclaim.py exited 1: uncommitted changes\nj1's lane ended; j1 stays done")
 
 
+def test_one_end_of_many_finished_lanes_moves_the_drives_checkout_and_edits_the_drive_as_often_as_an_end_of_one(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kept_transcripts: list[tuple[str, str]]
+) -> None:
+    cloned(tmp_path, remote)
+    many = [f"j{n}" for n in range(2, 2 + (1000 if os.environ.get("FORGE_CI_AT_SCALE") == "1" else 100))]
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["state"] = "done"
+        data["jobs"] |= {job_id: copy.deepcopy(data["jobs"]["j1"]) | {"dispatch": f"ctx_{job_id}"} for job_id in many}
+        data["orders"]["o1"]["jobs"] += many
+    calls: list[str] = []
+    checkout, edit = orca.checkout, state.edit
+    monkeypatch.setattr(orca, "checkout", lambda drive, clone, wait=orca.CHECKOUT_WAIT: calls.append("checkout") or checkout(drive, clone, wait))
+    monkeypatch.setattr(state, "edit", lambda name: calls.append("edit") or edit(name))
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: f"closed {dispatch}")
+    assert run("job", "end", "j1")[0] == 0
+    one, calls[:] = list(calls), []
+    assert run("job", "end", *many)[0] == 0
+    jobs = state.load(remote)["jobs"]
+    assert (calls, sorted(kept_transcripts), all(state.lane_ended(jobs[job_id]) for job_id in ["j1", *many])) == (
+        one,
+        sorted([("j1", DISPATCH), *((job_id, f"ctx_{job_id}") for job_id in many)]),
+        True,
+    )
+
+
+@pytest.mark.parametrize("count", [1, 1000 if os.environ.get("FORGE_CI_AT_SCALE") == "1" else 100])
+def test_a_watch_pass_starts_one_end_and_one_reclaim_carrying_every_lane_due_whatever_their_count(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, count: int
+) -> None:
+    earlier = state.stamp(T0 - timedelta(minutes=10))
+    jobs = [f"j{n}" for n in range(2, 2 + count)]
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="done", workspace="pool-1", turn_open=False, returned=earlier)
+        data["jobs"] |= {
+            job_id: copy.deepcopy(data["jobs"]["j1"])
+            | {"dispatch": f"ctx_{job_id}", "workspace": f"pool-{job_id}", "deaths": [{"dispatch": f"ctx_old_{job_id}", "workspace": f"pool-old-{job_id}", "why": "its worker exited", "at": earlier}]}
+            for job_id in jobs
+        }
+        data["orders"]["o1"]["jobs"] += jobs
+    workspaces = tmp_path / "cc-remote-workspaces"
+    workspaces.mkdir()
+    for workspace in ("pool-1", *(f"pool{old}-{job_id}" for job_id in jobs for old in ("", "-old"))):
+        (workspaces / f"{workspace}.json").write_text("{}")
+    monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
+    monkeypatch.setattr(state, "scratch", lambda: False)
+    ends: list[list[str]] = []
+    monkeypatch.setattr(watch, "end_lanes", lambda name, job_ids: ends.append(job_ids) or os.getpid())
+    started: list[list[str]] = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: started.append(args) or os.getpid())
+    watch.release_lanes(watch.Watcher(remote, offset=state.events_end(remote)), T0)
+    assert (len(ends), len(started), started[0][:2]) == (1, 1, ["job", "reclaim"])
+    assert (sorted(ends[0]), sorted(" ".join(started[0][2:]).split(" --and "))) == (sorted(["j1", *jobs]), sorted(f"{job_id} pool-old-{job_id}" for job_id in jobs))
+
+
 def test_the_watch_frees_each_finished_lane_once_a_sprite_by_destroy_and_a_quiet_one_on_this_mac_by_its_dispatch_never_one_a_live_job_shares(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -5433,12 +5511,12 @@ def test_the_watch_frees_each_finished_lane_once_a_sprite_by_destroy_and_a_quiet
     monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
     monkeypatch.setattr(state, "scratch", lambda: False)
     ends: list[str] = []
-    monkeypatch.setattr(watch, "end_lane", lambda name, job_id: ends.append(job_id) or os.getpid())
+    monkeypatch.setattr(watch, "end_lanes", lambda name, job_ids: ends.extend(job_ids) or os.getpid())
     started: list[list[str]] = []
     monkeypatch.setattr(state, "detach", lambda name, args, log: started.append(args) or os.getpid())
     watch.release_lanes(watch.Watcher(remote, offset=state.events_end(remote)), T0)
     watch.release_lanes(watch.Watcher(remote, offset=state.events_end(remote)), T0 + timedelta(minutes=1))
-    assert (started, ends) == ([["job", "reclaim", "j1", "pool-one"], ["job", "reclaim", "j2", "ctx_mac"]], ["j6"])
+    assert (started, ends) == ([["job", "reclaim", "j1", "pool-one", "--and", "j2", "ctx_mac"]], ["j6"])
     mac = state.load(remote)["jobs"]["j2"]["deaths"]
     assert [(death["dispatch"], death["why"], death["reclaim"]) for death in mac] == [("ctx_mac", watch.RECLAIMED, {"pid": os.getpid(), "at": state.stamp(T0)})]
 
@@ -5535,7 +5613,7 @@ def test_a_finished_job_on_this_mac_has_every_lane_its_relaunches_left_reclaimed
     monkeypatch.setattr(state, "detach", lambda name, args, log: started.append(args) or ENDED_READER)
     monkeypatch.setattr(state, "scratch", lambda: False)
     watch.release_lanes(watch.Watcher(remote, offset=state.events_end(remote)), T0)
-    assert started == [["job", "reclaim", "j1", "ctx_first"], ["job", "reclaim", "j1", "ctx_last"], ["job", "reclaim", "j1", "ctx_second"]]
+    assert started == [["job", "reclaim", "j1", "ctx_first", "--and", "j1", "ctx_last", "--and", "j1", "ctx_second"]]
     assert [death["dispatch"] for death in state.load(remote)["jobs"]["j1"]["deaths"]] == ["ctx_first", "ctx_second", "ctx_last"]
 
 

@@ -721,18 +721,22 @@ def unfinished(name: str, mode: str, keys: list[str], done: subprocess.Completed
 
 @contextmanager
 def fresh(name: str, coordinator: Path, repo: str, branch: str) -> Iterator[tuple[Path, str]]:
-    """A worktree of repo at the head of branch as origin holds it now, made for one landing in the drive's landing folder and removed once it ends: its path and that head's sha. It comes from the one clone of repo this Mac keeps for landings, which holds every object with no blob filter and checks out no files of its own, so neither its checkout nor stack-enqueue's merge checks ask origin for an object by its id, as a checkout of a partial clone such as the coordinator's does and as origin may answer without the object: the first landing clones it from the origin the coordinator's checkout names, made whole before it takes the clone's place, and each fetches branch into its refs/remotes/origin/<branch>, which stack-enqueue reads as the default branch it knows, both under the clone's lock, since landings run at once and each moves that one ref. Its LFS files check out as their pointers, since no landing step reads one and smudging it would ask GitHub's LFS store by id. A landing runs the repository's scripts, and the toolchain its mise.toml pins for them, as that head holds them, never as the coordinator's checkout holds them at whatever commit and edits it carries, which it leaves untouched; enqueued() and dequeue() run them with MISE_TRUST naming the worktree, since a mise shim on the lander's PATH, such as the uv of stack-enqueue's shebang, refuses the worktree's untrusted mise configs and this Mac's mise trusts no path under the drive's folder. Every core checks it out at once, with no hook, since the monorepo's post-checkout hook warms node_modules that no landing step reads."""
+    """A worktree of repo at the head of branch as origin holds it now, made for one landing in the drive's landing folder and removed once it ends: its path and that head's sha. It comes from the one clone of repo this Mac keeps for landings, which holds every object with no blob filter and checks out no files of its own, so neither its checkout nor stack-enqueue's merge checks ask origin for an object by its id, as a checkout of a partial clone such as the coordinator's does and as origin may answer without the object: the first landing clones it from the origin the coordinator's checkout names, made whole before it takes the clone's place, under the clone's lock; each reads branch's head with ls-remote and fetches it by fetch_commit with no lock held, then takes that lock, since landings run at once and each moves that one ref, only to move refs/remotes/origin/<branch>, which stack-enqueue reads as the default branch it knows, to that head, unless another landing moved it past, when it lands from that newer head. Its LFS files check out as their pointers, since no landing step reads one and smudging it would ask GitHub's LFS store by id. A landing runs the repository's scripts, and the toolchain its mise.toml pins for them, as that head holds them, never as the coordinator's checkout holds them at whatever commit and edits it carries, which it leaves untouched; enqueued() and dequeue() run them with MISE_TRUST naming the worktree, since a mise shim on the lander's PATH, such as the uv of stack-enqueue's shebang, refuses the worktree's untrusted mise configs and this Mac's mise trusts no path under the drive's folder. Every core checks it out at once, with no hook, since the monorepo's post-checkout hook warms node_modules that no landing step reads."""
     clone = state.root() / CLONES / repo
     git = ["git", "-C", str(clone)]
-    with state.flocked(clone.with_name(f"{clone.name}.lock")):
+    lock, ref = clone.with_name(f"{clone.name}.lock"), f"refs/remotes/origin/{branch}"
+    with state.flocked(lock):
         if not clone.exists():
             making = clone.with_name(f"{clone.name}.making")
             shutil.rmtree(making, ignore_errors=True)
             origin = github.run(["git", "-C", str(coordinator), "remote", "get-url", "origin"]).strip()
             github.run(["git", "clone", "-q", "--no-checkout", "--no-tags", "--single-branch", "--branch", branch, origin, str(making)], timeout=CLONE_SECONDS)
             making.rename(clone)
-        github.run([*git, "fetch", "-q", "--no-tags", "origin", f"+refs/heads/{branch}:refs/remotes/origin/{branch}"], timeout=CHECKOUT_SECONDS)
-        sha = github.run([*git, "rev-parse", f"refs/remotes/origin/{branch}"]).strip()
+    github.fetch_commit(str(clone), head := github.head(str(clone), branch))
+    with state.flocked(lock):
+        if not subprocess.run([*git, "merge-base", "--is-ancestor", ref, head], capture_output=True, check=False).returncode:
+            github.run([*git, "update-ref", ref, head])
+        sha = github.run([*git, "rev-parse", ref]).strip()
     checkout = state.drive_dir(name) / LANDINGS / str(os.getpid())
     subprocess.run([*git, "-c", "core.hooksPath=/dev/null", "-c", "checkout.workers=0", "worktree", "add", "-q", "--detach", str(checkout), sha], env=os.environ | {"GIT_LFS_SKIP_SMUDGE": "1"}, check=True, timeout=CHECKOUT_SECONDS)
     try:

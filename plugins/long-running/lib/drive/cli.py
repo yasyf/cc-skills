@@ -12,7 +12,7 @@ import textwrap
 from collections.abc import Callable, Iterable
 from functools import cache
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -4191,11 +4191,19 @@ def job_prove(args: argparse.Namespace) -> int:
 
 
 def job_end(args: argparse.Namespace) -> int:
-    """Free the Orca lane a job's row records by its dispatch and workspace, whatever its where names, so a job an agent on this Mac holds beside a lane a launch recorded frees that lane too: its Sprite, destroyed once what it holds on no remote is saved to GitHub, whatever the job's state, or its terminal and clean worktree on this Mac; refused, ending nothing, for a row that records no lane. The job keeps the state its line set, with its waits, PRs and carried parts, so a waiting job's next event starts its next lane and nothing waiting on it is freed. A lane whose death the watch recorded first has its Sprite's Orca runtime and worker logs copied to the drive's folder by orca.keep_logs, and every lane's Sprite has each Claude Code transcript it holds copied whole there by orca.keep_transcripts before anything can destroy it, kept on the lane's death. A job still at work first has what its Sprite holds that its next lane would not get saved to GitHub, by lane_saved, and each text queued for its worker that its Dispatch mailbox shows unread held for that lane, by hold_unread, since the end drops that mailbox with the Sprite, and its line, as that lane's handoff will, names each branch GitHub then holds under saved/<its lane>/, by one read, or, when GitHub holds none, what that save found; refused, ending nothing, when that Sprite or mailbox cannot be read or the save fails, and for a running job, whose lane has returned no line, so its next event, never its end, comes next. The end holds the job's own lock, as a launch, resume or PR wake does, so it never destroys a Sprite a relaunch is starting the job's next lane on and refuses a job that relaunch set running. The end is recorded on the lane's dispatch before anything is saved, stopped or destroyed, so the watch reads none of it as the lane dying, and an end of a lane another end already ended changes nothing."""
+    """Free the Orca lane each job's row records by its dispatch and workspace, whatever its where names, so a job an agent on this Mac holds beside a lane a launch recorded frees that lane too: its Sprite, destroyed once what it holds on no remote is saved to GitHub, whatever the job's state, or its terminal and clean worktree on this Mac; refused, ending nothing, for a row that records no lane. The job keeps the state its line set, with its waits, PRs and carried parts, so a waiting job's next event starts its next lane and nothing waiting on it is freed. A lane whose death the watch recorded first has its Sprite's Orca runtime and worker logs copied to the drive's folder by orca.keep_logs, and every lane's Sprite has each Claude Code transcript it holds copied whole there by orca.keep_transcripts before anything can destroy it, kept on the lane's death. A job still at work first has what its Sprite holds that its next lane would not get saved to GitHub, by lane_saved, and each text queued for its worker that its Dispatch mailbox shows unread held for that lane, read by freed and held by kept_end, since the end drops that mailbox with the Sprite, and its line, as that lane's handoff will, names each branch GitHub then holds under saved/<its lane>/, by one read, or, when GitHub holds none, what that save found; refused, ending nothing, when that Sprite or mailbox cannot be read or the save fails, and for a running job, whose lane has returned no line, so its next event, never its end, comes next. The end holds each job's own lock, as a launch, resume or PR wake does, so it never destroys a Sprite a relaunch is starting the job's next lane on and refuses a job that relaunch set running. Many jobs share one end, as the watch's release_lanes starts one for every lane due in a pass, by end_lanes, which moves the drive's checkout once and edits the drive once before and once after the Sprite work of them all, and each lane refused is said, and for an end the watch started written as its job's event, by refused, once every other lane is ended. The end is recorded on the lane's dispatch before anything is saved, stopped or destroyed, so the watch reads none of it as the lane dying, and an end of a lane another end already ended changes nothing."""
     name = state.resolve(args.drive)
-    with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
-        line, ended = end_lane(name, args.id)
-    return emit(args, line, ended)
+    with ExitStack() as held:
+        free, refusals = [], []
+        for job_id in dict.fromkeys(args.ids):
+            try:
+                held.enter_context(state.job_locked(name, job_id, orca.LAUNCH_SECONDS))
+                free.append(job_id)
+            except DriveError as error:
+                refusals.append((job_id, error))
+        ended = end_lanes(name, free)
+    refusals += [(job_id, result) for job_id, result in ended.items() if isinstance(result, DriveError)]
+    return emit_freed(args, [result for result in ended.values() if not isinstance(result, DriveError)], refusals)
 
 
 def stopped_lane(name: str, job_id: str) -> list[str]:
@@ -4208,8 +4216,46 @@ def stopped_lane(name: str, job_id: str) -> list[str]:
 
 
 def end_lane(name: str, job_id: str) -> tuple[str, dict]:
-    """drive job end's work under the job's lock its caller holds: the line it prints and what it ended."""
+    """drive job end's work on one job, under the job's lock its caller holds, by end_lanes: the line it prints and what it ended."""
+    if isinstance(ended := end_lanes(name, [job_id])[job_id], DriveError):
+        raise ended
+    return ended
+
+
+def end_lanes(name: str, job_ids: list[str]) -> dict[str, tuple[str, dict] | DriveError]:
+    """drive job end's work on each job, under the job's lock its caller holds, by job: the line it prints and what it ended, or its refusal. The drive's checkout moves once for them all and the drive is edited twice, once marking each lane ended before anything is saved, stopped or destroyed, so the watch reads none of it as the lane dying and an end of a lane another end already ended changes nothing, and once keeping what each end came to, by kept_end, while each lane's Sprite and Orca work runs in a thread of its own, by freed, so the ends of many lanes queue on neither lock."""
     data = state.load(name)
+    results, jobs = {}, {}
+    for job_id in job_ids:
+        try:
+            jobs[job_id] = endable(data, job_id)
+        except DriveError as error:
+            results[job_id] = error
+    if not jobs:
+        return results
+    try:
+        root = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
+    except DriveError as error:
+        return {job_id: results.get(job_id, error) for job_id in job_ids}
+    fresh = {}
+    with state.edit(name) as data:
+        for job_id, job in jobs.items():
+            if state.lane_ended(ended := data["jobs"][job_id]):
+                line = f"{job_id}'s lane was already ended by the drive job end of {state.lane_death(ended, 'dispatch')['ended']['at']}, so nothing changed; {job_id} stays {ended['state']}"
+                results[job_id] = line, {"id": job_id, "state": ended["state"], "already": True}
+            else:
+                fresh[job_id] = state.lane_died(ended, job["dispatch"], "ended by drive job end", state.now())
+                state.lane_death(ended, "dispatch")["ended"] = {"pid": os.getpid(), "at": state.stamp()}
+    if fresh:
+        with ThreadPoolExecutor(len(fresh)) as pool:
+            done = dict(zip(fresh, pool.map(lambda job_id: freed(name, job_id, jobs[job_id], fresh[job_id], root), fresh), strict=True))
+        with state.edit(name) as data:
+            results |= {job_id: kept_end(data["jobs"][job_id], job_id, result) for job_id, result in done.items()}
+    return {job_id: results[job_id] for job_id in job_ids}
+
+
+def endable(data: dict, job_id: str) -> dict:
+    """The job whose lane drive job end may end; refused, ending nothing, for a row that records no Orca lane and for a running job."""
     job = find(data["jobs"], job_id, "job")
     if not job.get("dispatch"):
         raise DriveError(f"{job_id}: refused, nothing ended: its row records no Orca lane, on a Sprite or on this Mac, so nothing is left to end")
@@ -4218,83 +4264,116 @@ def end_lane(name: str, job_id: str) -> tuple[str, dict]:
             f"{job_id}: refused, nothing ended: it is running, so its lane has returned no line to end it on; drive job resume {job_id} sends a lane that stopped"
             f" without one its next event, and drive job set {job_id} --state stopped ends it unfinished"
         )
-    root = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
-    with state.edit(name) as data:
-        ended = data["jobs"][job_id]
-        if not (already := state.lane_ended(ended)):
-            fresh = state.lane_died(ended, job["dispatch"], "ended by drive job end", state.now())
-            state.lane_death(ended, "dispatch")["ended"] = {"pid": os.getpid(), "at": state.stamp()}
-    if already:
-        line = f"{job_id}'s lane was already ended by the drive job end of {state.lane_death(ended, "dispatch")['ended']['at']}, so nothing changed; {job_id} stays {ended['state']}"
-        return line, {"id": job_id, "state": ended["state"], "already": True}
-    if not (fresh or state.on_mac(job)):
-        orca.keep_logs(name, job_id, job, job["dispatch"])
-    saved = None
-    if job["state"] not in state.FINISHED_JOB_STATES:
-        try:
-            saved = lane_saved(name, job_id, job, root)
-            if job["queued"]:
-                hold_unread(name, job_id, job)
-        except orca.OrcaError as error:
-            end_kept(name, job_id, {"failed": True, "fresh": fresh, "saved": None})
-            raise DriveError(
-                f"{job_id}: refused, nothing ended: it is {job['state']}, and what {job['workspace']} holds on no remote, or the texts its worker has not read,"
-                f" could not be saved for its next lane: {error}. End it again once that Sprite answers"
-            ) from None
-    transcript = None if state.on_mac(job) else orca.keep_transcripts(name, job_id, job, job["dispatch"], root)
-    reclaimed = orca.reclaim(job["run"], job["dispatch"], root)
-    released = release_sprite(name, job_id, job, root)
-    ended = end_kept(name, job_id, {"failed": False, "fresh": fresh, "saved": saved, "transcript": transcript and str(transcript)})
-    branches = orca.saved(name, job_id, job, root) if saved else []
-    line = f"{job_id}'s lane ended; {job_id} stays {ended['state']}" + (f", and what its Sprite held on no remote is saved on GitHub as {', '.join(branches)}" if branches else f", and {saved}" if saved else "")
-    return "\n".join(filter(None, [reclaimed, released, line])), {"id": job_id, "reclaim": reclaimed, "released": released, "state": ended["state"], "saved": saved, "branches": branches}
+    return job
 
 
-def end_kept(name: str, job_id: str, result: dict) -> dict:
-    """Keep on the job what its lane's end came to once it saved, reclaimed and released: the branches saved and its kept transcript, its open question kept for the next worker's handoff to answer, the job left unstamped, since the end of a lane at rest changes nothing it does and so says none of its parts again, or, when the save failed, the end mark taken back, so the lane reads as it did."""
-    with state.edit(name) as data:
-        ended = data["jobs"][job_id]
-        death = state.lane_death(ended, "dispatch")
-        if result["failed"]:
-            if result["fresh"]:
-                ended["deaths"].remove(death)
-            else:
-                del death["ended"]
+def freed(name: str, job_id: str, job: dict, fresh: bool, root: Path) -> dict:
+    """One lane's work of drive job end once its end is marked, editing nothing on the drive, so the lanes of one end run it side by side: the Sprite's logs copied when the watch recorded its death first, by orca.keep_logs; for a job still at work, what its Sprite holds that its next lane would not get saved to GitHub, by lane_saved, and its worker's Dispatch mailbox read when the job has texts queued, since the end drops that mailbox with the Sprite; each Claude Code transcript its Sprite holds copied whole, by orca.keep_transcripts; its terminal reclaimed and its Sprite released; then each branch GitHub holds under saved/<its lane>/, by one read. What it came to, for kept_end, with the refusal that stopped it, a failed save or mailbox read marked failed."""
+    done: dict = {"fresh": fresh, "branches": []}
+    try:
+        if not (fresh or state.on_mac(job)):
+            orca.keep_logs(name, job_id, job, job["dispatch"])
+        if job["state"] not in state.FINISHED_JOB_STATES:
+            try:
+                done["saved"] = lane_saved(name, job_id, job, root)
+                if job["queued"]:
+                    done["box"] = orca.mailbox(job, job["dispatch"])
+            except orca.OrcaError as error:
+                why = f"what {job['workspace']} holds on no remote, or the texts its worker has not read, could not be saved for its next lane: {error}. End it again once that Sprite answers"
+                return done | {"failed": True, "refusal": DriveError(f"{job_id}: refused, nothing ended: it is {job['state']}, and {why}")}
+        done["transcript"] = None if state.on_mac(job) else orca.keep_transcripts(name, job_id, job, job["dispatch"], root)
+        done["reclaimed"] = orca.reclaim(job["run"], job["dispatch"], root)
+        done["released"] = release_sprite(name, job_id, job, root)
+        done["branches"] = orca.saved(name, job_id, job, root) if done.get("saved") else []
+    except VERB_ERRORS as error:
+        done["refusal"] = error
+    return done
+
+
+def kept_end(job: dict, job_id: str, done: dict) -> tuple[str, dict] | DriveError:
+    """Keep on the job, in end_lanes' second edit, what freed came to for its lane: when its save or mailbox read failed, the end mark taken back, so the lane reads as it did; else the branches saved and its kept transcript on its death, each text its worker's mailbox shows unread held for its next lane and each it shows read or holds taken off the job's queued list, by state.take_mail, and the job left unstamped, since the end of a lane at rest changes nothing it does and so says none of its parts again. The line drive job end prints for it, naming each branch GitHub holds under saved/<its lane>/ or, when GitHub holds none, what its save found, and what it ended, or the refusal that stopped it."""
+    death = state.lane_death(job, "dispatch")
+    if done.get("failed"):
+        if done["fresh"]:
+            job["deaths"].remove(death)
         else:
-            if result["saved"]:
-                death["saved"] = result["saved"]
-            if result.get("transcript"):
-                death["transcript"] = result["transcript"]
-    return ended
+            del death["ended"]
+        return done["refusal"]
+    if saved := done.get("saved"):
+        death["saved"] = saved
+    if done.get("transcript"):
+        death["transcript"] = str(done["transcript"])
+    if "box" in done:
+        state.take_mail(job, done["box"], True)
+    if "refusal" in done:
+        return done["refusal"]
+    branches = done["branches"]
+    line = f"{job_id}'s lane ended; {job_id} stays {job['state']}" + (f", and what its Sprite held on no remote is saved on GitHub as {', '.join(branches)}" if branches else f", and {saved}" if saved else "")
+    payload = {"id": job_id, "reclaim": done["reclaimed"], "released": done["released"], "state": job["state"], "saved": saved, "branches": branches}
+    return "\n".join(filter(None, [done["reclaimed"], done["released"], line])), payload
+
+
+def emit_freed(args: argparse.Namespace, done: list[tuple[str, dict]], refusals: list[tuple[str, DriveError]]) -> int:
+    """Print what a drive job end or reclaim freed, each lane's line and payload, then raise every lane's refusal at once, as Refusals."""
+    if done:
+        emit(args, "\n".join(line for line, _ in done), [payload for _, payload in done])
+    if refusals:
+        raise Refusals(refusals)
+    return 0
+
+
+class Refusals(DriveError):
+    """Each refusal of the lanes one drive job end or reclaim was given, by job, raised once every other lane is freed, so refused says each and writes each one's event as the refusal of a verb of its own."""
+
+    def __init__(self, refusals: list[tuple[str, DriveError]]) -> None:
+        super().__init__("\n".join(str(error) for _, error in refusals))
+        self.refusals = refusals
 
 
 class Kept(DriveError):
-    """A Sprite drive job reclaim could not destroy without losing what it may hold on no remote, marked kept on the death of the lane that left it, so no watch asks for it again and one state.detach started writes the one relaunch_refused event that says so."""
+    """A Sprite drive job reclaim could not destroy without losing what it may hold on no remote, marked kept on the death of the lane that left it, so the watch asks for it again only an hour later and one state.detach started writes the one relaunch_refused event that says so."""
 
 
 def job_reclaim(args: argparse.Namespace) -> int:
-    """Free one thing an earlier or ended lane of the job left, which the watch's release_lanes starts as a process of its own: on a Sprite, the one cc-remote records under that workspace, destroyed by orca.release once what it holds on no remote is saved to GitHub as saved/<the job's lane>/<branch>, or else marked kept on that lane's death and refused with Kept, since a Sprite that does not answer, holds what could not be saved or that cc-remote would not destroy may still hold work on no remote, and destroying it unread is his pick, so no watch asks for it again; on this Mac, that dispatch, whose terminal orca.reclaim closes and whose worktree it removes once clean and pushed, then marked freed on its death, so no watch reclaims it again. Either runs the orca plugin's reclaimer from the drive's checkout, moved to its default branch's head first, through orca.reclaimer, which kills it with every process it started past RECLAIM_SECONDS; refused, naming why, for a lane no death of the job records, when the checkout is not moved, or when the reclaimer fails or overruns."""
+    """Free each thing an earlier or ended lane of a job left, named as the job then that lane, and each further pair by --and, which the watch's release_lanes starts as one process for every one due in a pass: on a Sprite, the one cc-remote records under that workspace, destroyed by orca.release once what it holds on no remote is saved to GitHub as saved/<the job's lane>/<branch>, or else marked kept on that lane's death and refused with Kept, since a Sprite that does not answer, holds what could not be saved or that cc-remote would not destroy may still hold work on no remote, and destroying it unread is his pick, so the watch asks for it again only an hour later; on this Mac, that dispatch, whose terminal orca.reclaim closes and whose worktree it removes once clean and pushed, then marked freed on its death, so no watch reclaims it again. Either runs the orca plugin's reclaimer from the drive's checkout, moved to its default branch's head first, through orca.reclaimer, which kills it with every process it started past RECLAIM_SECONDS, moved once for them all, each reclaimer running in a thread of its own, by reclaimed_lane, and the drive edited once after every one has run; refused, naming why, for a lane no death of its job records, when the checkout is not moved, or when the reclaimer fails or overruns, each lane refused said, and a Kept one written as its job's event, by refused, once every other lane is freed."""
     name = state.resolve(args.drive)
     data = state.load(name)
-    job = find(data["jobs"], args.id, "job")
-    if not state.death_on(job, args.lane):
-        raise DriveError(f"{args.id}: refused, nothing reclaimed: no death of its lanes records {args.lane}, so no lane of it left that")
+    refusals, due = [], []
+    for job_id, lane in [(args.id, args.lane), *args.more]:
+        if state.death_on(job := find(data["jobs"], job_id, "job"), lane):
+            due.append((job_id, job, lane))
+        else:
+            refusals.append((job_id, DriveError(f"{job_id}: refused, nothing reclaimed: no death of its lanes records {lane}, so no lane of it left that")))
+    if not due:
+        return emit_freed(args, [], refusals)
     root = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
+    with ThreadPoolExecutor(len(due)) as pool:
+        done = list(pool.map(lambda lane: reclaimed_lane(name, *lane, root), due))
+    with state.edit(name) as data:
+        for (job_id, job, lane), result in zip(due, done, strict=True):
+            if isinstance(result, Kept):
+                state.death_on(data["jobs"][job_id], lane)["kept"] = state.stamp()
+            elif state.on_mac(job) and not isinstance(result, DriveError):
+                state.death_on(data["jobs"][job_id], lane)["freed"] = state.stamp()
+    refusals += [(job_id, result) for (job_id, _, _), result in zip(due, done, strict=True) if isinstance(result, DriveError)]
+    freed_lanes = [(result, {"id": job_id, "lane": lane, "reclaimed" if state.on_mac(job) else "released": result}) for (job_id, job, lane), result in zip(due, done, strict=True) if not isinstance(result, DriveError)]
+    return emit_freed(args, freed_lanes, refusals)
+
+
+def reclaimed_lane(name: str, job_id: str, job: dict, lane: str, root: Path) -> str | DriveError:
+    """What drive job reclaim did with one lane a job left, run in a thread of its own: on a Sprite, what orca.release destroyed, or Kept naming why it was not, since a Sprite that does not answer, holds what could not be saved or that cc-remote would not destroy may still hold work on no remote, and destroying it unread is his pick; on this Mac, what orca.reclaim closed, or the OrcaError naming why not."""
     if not state.on_mac(job):
         try:
-            released = orca.release(name, args.id, {**job, "workspace": args.lane}, root)
+            return orca.release(name, job_id, {**job, "workspace": lane}, root)
         except orca.OrcaError as error:
-            with state.edit(name) as data:
-                state.death_on(data["jobs"][args.id], args.lane)["kept"] = state.stamp()
-            raise Kept(
-                f"{args.id}: refused, Sprite {args.lane} is kept, and the watch asks to save and destroy it again in an hour: {error}. Destroying it unread may lose what it holds on no remote,"
-                f" so only his pick does that; drive job reclaim {args.id} {args.lane} asks again, saving it first"
-            ) from None
-        return emit(args, released, {"id": args.id, "lane": args.lane, "released": released})
-    reclaimed = orca.reclaim(job["run"], args.lane, root)
-    with state.edit(name) as data:
-        state.death_on(data["jobs"][args.id], args.lane)["freed"] = state.stamp()
-    return emit(args, reclaimed, {"id": args.id, "lane": args.lane, "reclaimed": reclaimed})
+            return Kept(
+                f"{job_id}: refused, Sprite {lane} is kept, and the watch asks to save and destroy it again in an hour: {error}. Destroying it unread may lose what it holds on no remote,"
+                f" so only his pick does that; drive job reclaim {job_id} {lane} asks again, saving it first"
+            )
+    try:
+        return orca.reclaim(job["run"], lane, root)
+    except orca.OrcaError as error:
+        return error
 
 
 def pr_add(args: argparse.Namespace) -> int:
@@ -6881,19 +6960,19 @@ def parser() -> argparse.ArgumentParser:
         "end",
         parents=both,
         help=(
-            "free the Orca lane a job's row records by its dispatch and workspace once it returned its line, whatever its where names: its Sprite, destroyed once what it holds on no remote is saved to GitHub as saved/<its lane>/<branch>-<sha>, or its terminal and clean worktree on this Mac. The job"
+            "free the Orca lane each job's row records by its dispatch and workspace once it returned its line, whatever its where names: its Sprite, destroyed once what it holds on no remote is saved to GitHub as saved/<its lane>/<branch>-<sha>, or its terminal and clean worktree on this Mac. The job"
             " stays in the state its line set, with its waits, PRs and carried parts. A job not yet done first has what its Sprite holds"
             " on no remote, uncommitted changes included, saved to GitHub as saved/<its lane>/<branch>-<sha>; its output and its next lane's handoff"
             " name each branch GitHub then holds under saved/<its lane>/; refused, naming why, for a row that records no lane, when that Sprite cannot be read or the save fails, and for a running job, whose lane returned no line: drive job resume sends it its next event"
         ),
     )
-    verb.add_argument("id")
+    verb.add_argument("ids", nargs="+", metavar="id", help="each job whose lane to end; the jobs one end is given share its one move of the drive's checkout and its two edits of the drive")
     verb.set_defaults(run=job_end)
     verb = job.add_parser(
         "reclaim",
         parents=both,
         help=(
-            "what the watch runs in a process of its own on each thing an earlier or ended lane of the job left, and a session runs only to ask again for a kept Sprite: the Sprite cc-remote records under the workspace given, destroyed with its Orca environment"
+            "what the watch runs in one process of its own on every thing an earlier or ended lane of a job left in a pass, and a session runs only to ask again for a kept Sprite: the Sprite cc-remote records under the workspace given, destroyed with its Orca environment"
             " once what it holds on no remote is saved to GitHub as saved/<its lane>/<branch>-<sha>, or else marked kept on that lane's death and refused, which the watch says once and never asks for again; or, for a job on this Mac, the dispatch given, whose terminal it closes and whose worktree it removes once clean and pushed,"
             " then marks freed so no watch reclaims it again; the reclaimer runs from the drive's checkout and is killed with every process it started past 300 seconds; refused, naming why, for a lane no death of the job records,"
             " or when the reclaimer fails or overruns"
@@ -6901,6 +6980,15 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("id")
     verb.add_argument("lane", help="the cc-remote workspace of the Sprite, or the dispatch of the lane on this Mac, that a lane of the job left")
+    verb.add_argument(
+        "--and",
+        dest="more",
+        nargs=2,
+        action="append",
+        default=[],
+        metavar=("ID", "LANE"),
+        help="another job and a lane it left, freed by the same reclaim, whose pairs share its one move of the drive's checkout and its one edit of the drive",
+    )
     verb.set_defaults(run=job_reclaim)
     verb = job.add_parser(
         "prove",
@@ -7662,13 +7750,16 @@ def folded_waits(name: str | None, value: str | tuple | list) -> str | tuple | l
 
 
 def refused(args: argparse.Namespace, error: Exception, detached: str | None, lane_job: str | None) -> int:
-    """Print the verb's refusal and exit 2. A launch, resume or end state.detach started, which only the watch runs, also writes the refusal as an event of the watch hearing its job's order, naming the log its output went to, so it reaches the watch's lines, unless it stood down for another verb acting on its job, and so does a reclaim that kept a Sprite, which no watch asks for again, so it is said once; the job and its order are read from the drive as saved, which a newer install's save never refuses."""
-    print(f"drive: {error}", file=sys.stderr)
+    """Print the verb's refusal and exit 2, each lane's of a drive job end or reclaim given many, by Refusals. A launch, resume or end state.detach started, which only the watch runs, also writes each refusal as an event of the watch hearing its job's order, naming the log its output went to, so it reaches the watch's lines, unless it stood down for another verb acting on its job, and so does a reclaim that kept a Sprite, which no watch asks for again, so it is said once; the job and its order are read from the drive as saved, which a newer install's save never refuses."""
+    refusals = error.refusals if isinstance(error, Refusals) else [(getattr(args, "id", None), error)]
+    for _, each in refusals:
+        print(f"drive: {each}", file=sys.stderr)
     if lane_job and (steps := reads.mac_steps(str(error), parser(), lane_job)):
         print(steps, file=sys.stderr)
-    if detached and (args.run in (job_launch, job_resume, job_end) or isinstance(error, Kept)) and not isinstance(error, StoodDown):
-        name = state.resolve(args.drive)
-        order = state.saved_row(name, "jobs", args.id)["order"]
-        heard = state.heard_lane(state.saved(name) | state.stored(name, ("orders",)), order)
-        state.append_event(name, watch.RELAUNCH_REFUSED, job=args.id, order=order, verb=args.action, refusal=str(error), log=detached, lane=heard)
+    for job_id, each in refusals:
+        if detached and (args.run in (job_launch, job_resume, job_end) or isinstance(each, Kept)) and not isinstance(each, StoodDown):
+            name = state.resolve(args.drive)
+            order = state.saved_row(name, "jobs", job_id)["order"]
+            heard = state.heard_lane(state.saved(name) | state.stored(name, ("orders",)), order)
+            state.append_event(name, watch.RELAUNCH_REFUSED, job=job_id, order=order, verb=args.action, refusal=str(each), log=detached, lane=heard)
     return 2
