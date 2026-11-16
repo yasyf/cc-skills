@@ -35,6 +35,16 @@ EFFORT_CEILING = "high"
 ABOVE_CEILING = ("xhigh", "max")
 HANDLER_SKILLS = ("db-read", "iris-thread")
 SKILL_NAME = re.compile(r"^name:[ \t]*(\S+)", re.MULTILINE)
+COMPACT_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
+ROOT_WINDOW = "400000"
+COMMUNICATOR_WINDOW = "300000"
+ADVISOR_OFF = {"CLAUDE_CODE_DISABLE_ADVISOR_TOOL": "1"}
+LANE_RULES_ARGS = ("--add-dir", str(Path(__file__).resolve().parents[2] / "lane-rules"))
+LANE_RULES_ENV = {"CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD": "1"}
+LANE_RULES_HOLE = "<lane rules>"
+TOP_SEATS = ("coordinator", "communicator", "meta")
+SEAT = re.compile(r"^cci session register <drive>-(\S+) ")
+LEAF_PLUGINS_OFF = ("cc-present@cc-present", "codex@skills", "design-doc@skills", "incident-retro@skills", "open-pr@skills", "plans@skills", "slop-cop@skills", "slop-cop@slop-cop")
 RESUMED = "Resumed: an API error ended your last turn before it was done, so do now what the prompt it answered asked, from where it stopped."
 MESSAGE_ORIGIN = "coordinator"
 DESIGNER = "long-running:designer"
@@ -727,29 +737,31 @@ def start_handler(name: str, handler: str, prompt: str) -> None:
     prompt = "\n".join([*lines, f"{RELEASES}: {releases(name, data)}"])
     env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name}
     checkout = orca.checkout(name, held["cwd"])
-    settings = session_settings(env) | trimmed(checkout)
-    argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} handler {handler}", prompt]
+    settings = trimmed(session_settings(env), checkout)
+    argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), *LANE_RULES_ARGS, "-n", f"{name} handler {handler}", prompt]
     session = launched(reads.run(argv, checkout, {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
     with state.edit(name) as data:
         data["handlers"][handler]["session"] = session
 
 
-def trimmed(checkout: Path) -> dict:
-    """The settings a handler starts on beyond every drive session's: no auto-memory, so the repository's MEMORY.md stays out, no CLAUDE.md or AGENTS.md at the checkout's root, and every skill but HANDLER_SKILLS that a user, the checkout or claude.ai sync installed turned off in the listing, since a handler's own definition carries what it does, by the Nov 15 pick "Handlers batched + trimmed"; a plugin's skills stay listed, since skillOverrides cannot turn them off."""
+def trimmed(settings: dict, checkout: Path) -> dict:
+    """The settings of a session below the top roots, as leaf gives them, that reads and answers and writes no code, a handler or a watchdog: no auto-memory, so the repository's MEMORY.md stays out, no CLAUDE.md or AGENTS.md at the checkout's root, every skill but HANDLER_SKILLS that a user, the checkout or claude.ai sync installed turned off in the listing, and the plugins of LEAF_PLUGINS_OFF off with their skills, hooks and servers, since its own definition carries what it does, by the Nov 15 pick "Handlers batched + trimmed"; a plugin's skills stay listed while it is on, since skillOverrides cannot turn them off."""
     names = {found[1] if (found := SKILL_NAME.search(path.read_text())) else path.parent.name for root in (install.config_dir() / "skills", checkout / ".claude" / "skills") for path in [*root.glob("*/SKILL.md"), *root.glob("synced/*/*/SKILL.md")]}
-    return {
+    leafed = leaf(settings)
+    return leafed | {
         "autoMemoryEnabled": False,
-        "claudeMdExcludes": [str(checkout / "CLAUDE.md"), str(checkout / "AGENTS.md")],
+        "claudeMdExcludes": [*leafed["claudeMdExcludes"], str(checkout / "CLAUDE.md"), str(checkout / "AGENTS.md")],
         "skillOverrides": {skill: "off" for skill in sorted(names - set(HANDLER_SKILLS))},
+        "enabledPlugins": leafed["enabledPlugins"] | dict.fromkeys(LEAF_PLUGINS_OFF, False),
     }
 
 
 def start_job(name: str, job_id: str, agent: str, call: dict, held: dict, cwd: Path) -> str:
-    """Start a builder's or reader's agent as its own `claude --bg` session on the Agent call its starter would make, its type, model and prompt, in cwd, the drive's checkout at the head of its default branch, as a handler starts, JOB_ENV naming the drive, the job, the agent id it is recorded as and the session holding its order, by which seen binds every hook of it as that session's agent, `CCI_PARENT_SESSION` naming that session, so cci posts from it as that session's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive; the session `claude --bg` names."""
+    """Start a builder's or reader's agent as its own `claude --bg` session on the Agent call its starter would make, its type, model and prompt, in cwd, the drive's checkout at the head of its default branch, as a handler starts, JOB_ENV naming the drive, the job, the agent id it is recorded as and the session holding its order, by which seen binds every hook of it as that session's agent, `CCI_PARENT_SESSION` naming that session, so cci posts from it as that session's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, on lane_session's settings and flags, so it compacts, loads its rules and runs its effort as an Orca lane does and with no advisor; the session `claude --bg` names."""
     env = {state.JOB_ENV: f"{name}/{job_id}/{agent}/{held['session']}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name}
-    settings = session_settings(env)
+    settings, flags = lane_session(env)
     model = ["--model", call["model"]] if call.get("model") else []
-    argv = ["claude", "--bg", "--agent", call["subagent_type"], *model, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} {job_id}", call["prompt"]]
+    argv = ["claude", "--bg", "--agent", call["subagent_type"], *model, *flags, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} {job_id}", call["prompt"]]
     return launched(reads.run(argv, cwd, {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
 
 
@@ -768,14 +780,24 @@ def take_pointed(name: str, job_id: str) -> list[str]:
     return pointed
 
 
+def leaf(settings: dict) -> dict:
+    """The settings of a session the drive starts below its top roots, the coordinator, communicator and meta session, which keep the user's whole ~/.claude/CLAUDE.md: that file excluded and the plugin's lane-rules/CLAUDE.md loaded in its place, as the directory LANE_RULES_ARGS adds once LANE_RULES_ENV lets Claude Code read an added directory's CLAUDE.md, so the session carries only the rules a lane needs, by his Nov 15 words "consider that we can exclude this claude.md for some of the middle or leaf nodes of our tree specifically for long-running"; each launch puts LANE_RULES_ARGS before another flag, since `--add-dir` takes every word after it up to the next one, a prompt included."""
+    return settings | {"claudeMdExcludes": [*settings.get("claudeMdExcludes", []), str(install.config_dir() / "CLAUDE.md")], "env": settings["env"] | LANE_RULES_ENV}
+
+
 def watchdog(name: str, brief: str, cwd: str, out: Path) -> int:
     """Start a watchdog agent on a stall's brief as its own `claude -p` process on its agent definition, which sets its model and tools, in the drive's checkout, its answer written to out and its spend capped at WATCHDOG_USD; its environment names the drive and marks it the watchdog, by which the bash_guard hook lets it run WATCHDOG_RUNS alone, the reads and the two acts of his pick "Report, plus two safe acts, rerunning a failed build and messaging the owning job"; its pid."""
-    settings = session_settings({state.WATCHDOG_ENV: name, state.DRIVE_ENV: name})
-    argv = ["claude", "-p", "--agent", WATCHDOG, "--permission-mode", "bypassPermissions", "--max-budget-usd", WATCHDOG_USD, "--settings", json.dumps(settings), brief]
+    settings = trimmed(session_settings({state.WATCHDOG_ENV: name, state.DRIVE_ENV: name, **ADVISOR_OFF}), Path(cwd))
+    argv = ["claude", "-p", "--agent", WATCHDOG, "--permission-mode", "bypassPermissions", *LANE_RULES_ARGS, "--max-budget-usd", WATCHDOG_USD, "--settings", json.dumps(settings), brief]
     out.parent.mkdir(parents=True, exist_ok=True)
     env = {key: value for key, value in os.environ.items() if key not in ("CLAUDE_LONG_RUNNING_LANE", "CLAUDE_CODE_SESSION_ID")} | settings["env"]
     with out.open("w") as written:
         return subprocess.Popen(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, stdout=written, stderr=subprocess.STDOUT, start_new_session=True).pid
+
+
+def lane_session(env: dict[str, str]) -> tuple[dict, tuple[str, ...]]:
+    """The `--settings` value and the flags a lane the drive starts as its own Claude Code session on this Mac runs on, such as a builder or reader the watch starts with `claude --bg`: leaf's settings with no advisor, the 350,000-token window of lib/lane.json, and EFFORT_CEILING, the flags going before any other flag or prompt, as LANE_RULES_ARGS must."""
+    return leaf(session_settings(env | ADVISOR_OFF)), (*LANE_RULES_ARGS, "--effort", EFFORT_CEILING)
 
 
 def session_settings(env: dict[str, str]) -> dict:
@@ -806,19 +828,26 @@ def env_words(settings: dict) -> list[str]:
 
 
 def filled(page: str) -> str:
-    """A skill page with each `orca terminal create` and `cci session register` line's `<session env>` and `<session settings>` filled from session_settings, quoted for the double-quoted `--command` they sit in: `env` with every variable a session the drive starts carries, so the `claude daemon` its `claude --bg` starts inherits them too, and the one `--settings` value it runs on."""
-    settings = session_settings({})
-    holes = {
-        SESSION_ENV: shlex.join(env_words(settings)),
-        SESSION_SETTINGS_HOLE: shlex.quote(json.dumps(settings, separators=(",", ":"))),
-    }
-    quoted = {hole: DOUBLE_QUOTED.sub(r"\\\g<0>", words) for hole, words in holes.items()}
+    """A skill page with each `orca terminal create` and `cci session register` line's `<session env>`, `<session settings>` and `<lane rules>` filled from session_settings, quoted for the double-quoted `--command` they sit in: `env` with every variable a session the drive starts carries, so the `claude daemon` its `claude --bg` starts inherits them too, the one `--settings` value it runs on, and the lane rules' directory; each root compacts at ROOT_WINDOW and the communicator at COMMUNICATOR_WINDOW, by his Nov 15 words "also roots should have 400k compaction, communicator 300k, and builders/readers/all else 350k", and a sub-coordinator, the one root below the top three, runs on leaf's settings."""
+
+    def holes(line: str) -> dict[str, str]:
+        seat = SEAT.search(line)
+        window = COMMUNICATOR_WINDOW if seat and seat[1] == "communicator" else ROOT_WINDOW
+        settings = session_settings({COMPACT_ENV: window})
+        below = bool(seat) and seat[1] not in TOP_SEATS
+        settings = leaf(settings) if below else settings
+        words = {
+            SESSION_ENV: shlex.join(env_words(settings)),
+            SESSION_SETTINGS_HOLE: shlex.quote(json.dumps(settings, separators=(",", ":"))),
+            LANE_RULES_HOLE: shlex.join(LANE_RULES_ARGS) if below else "",
+        }
+        return {hole: DOUBLE_QUOTED.sub(r"\\\g<0>", said) for hole, said in words.items()}
 
     def fill(line: str) -> str:
         if not line.lstrip().startswith(("orca terminal create", "cci session register")):
             return line
-        for hole, words in quoted.items():
-            line = line.replace(hole, words)
+        for hole, words in holes(line).items():
+            line = line.replace(f" {hole}", f" {words}" if words else "").replace(hole, words)
         return line
 
     return "\n".join(fill(line) for line in page.split("\n"))

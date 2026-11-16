@@ -32,7 +32,8 @@ NOT_LANE = re.compile(r"[^a-z0-9-]+")
 PLUGIN = Path(__file__).resolve().parents[2]
 AGENTS = PLUGIN / "agents"
 LANE_SECTIONS = ("## On a Sprite\n", "## Waits and reads\n")
-LANE_ENV = f"{state.REMOTE_LANE_ENV}=1"
+LANE_RULES = PLUGIN / "lane-rules" / "CLAUDE.md"
+LANE_ENV = " ".join([f"{state.REMOTE_LANE_ENV}=1", *(f"{key}={value}" for key, value in agents.ADVISOR_OFF.items())])
 LAUNCH_SECONDS = 1800
 RECLAIM_SECONDS = 300
 WAKE_SECONDS = 90
@@ -480,7 +481,7 @@ def place(job: dict) -> str:
 
 
 def vm_brief(drive: str, job_id: str, kind: str, brief: str, route: str | None) -> str:
-    """What a job started as an Orca worker reads, on a Sprite with no copy of this plugin or on this Mac: the role state.JOB_AGENTS starts its kind as, by role_body, its brief, on a Sprite each of its Transcripts: a READ cannot serve named by sprite_transcripts and each other file of this Mac it names that no READ serves copied in by sprite_files."""
+    """What a job started as an Orca worker reads, on a Sprite with no copy of this plugin or on this Mac: the role state.JOB_AGENTS starts its kind as, by role_body, its brief, on a Sprite the plugin's lane rules, which a lane on this Mac loads as a CLAUDE.md by agents.leaf, and each of its Transcripts: a READ cannot serve named by sprite_transcripts and each other file of this Mac it names that no READ serves copied in by sprite_files."""
     on_mac = route == state.LOCAL_ROUTE
     running = (
         'on this Mac, so it reports through Orca as its "On a Sprite" section says; the rest of that section is for a Sprite'
@@ -488,11 +489,13 @@ def vm_brief(drive: str, job_id: str, kind: str, brief: str, route: str | None) 
         else 'on a Sprite, so its "On a Sprite" section applies'
     )
     role = state.JOB_AGENTS[kind][0].partition(":")[2]
+    rules = "" if on_mac else f"{LANE_RULES.read_text().strip()}\n\n"
     borrowed = "" if role == "builder" else " Its On a Sprite and Waits and reads sections are the builder's, for how a lane reads, waits and reports, and their steps for a PR are a builder's: you open none."
     return (
         f"Remote lane: drive {drive}, job {job_id}. You are the long-running {role} below, running as an Orca "
         f"worker {running}.{borrowed}\n\n"
         f"{role_body(role)}\n"
+        f"{rules}"
         f"{BRIEF_HEADING}{(brief if on_mac else sprite_files(drive, job_id, sprite_transcripts(drive, brief))).strip()}\n"
     )
 
@@ -727,7 +730,7 @@ def sprites_org(checkout: Path) -> str:
 
 
 def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: str | None, workspace: str | None, session: str | None, transcript: Path | None = None) -> dict:
-    """Start one builder through the orca plugin's launcher, on a fresh Sprite or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given, or on a fresh Sprite resuming the given session from the transcript given, which prepare places there first, either way giving its `~/.local/bin` the `drive` that asks each verb of this Mac, or, on the local route, in the worktree on this Mac the workspace names, as it stands, else in a fresh worktree of the checkout's Orca repository, with `CCI_PARENT_SESSION` set, so cci binds the lane's session to no lane and its `cci post` as `root` or `builder` goes out as its brief says, and, under the launcher's `--strict-mcp-config`, the installed Datadog plugin's servers in a file beside the brief; its success line, with the Sprite's prepared server. Each run's whole output goes to the attempt's launch.log by launch_log, and a refusal names that file last."""
+    """Start one builder through the orca plugin's launcher, on a fresh Sprite or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given, or on a fresh Sprite resuming the given session from the transcript given, which prepare places there first, either way giving its `~/.local/bin` the `drive` that asks each verb of this Mac, or, on the local route, in the worktree on this Mac the workspace names, as it stands, else in a fresh worktree of the checkout's Orca repository, with `CCI_PARENT_SESSION` set, so cci binds the lane's session to no lane and its `cci post` as `root` or `builder` goes out as its brief says, and, under the launcher's `--strict-mcp-config`, the installed Datadog plugin's servers in a file beside the brief, and on this Mac the lane rules in place of `~/.claude/CLAUDE.md`, as agents.leaf gives a session below the top roots; every lane runs with no advisor, by his pick to opt the drive's lanes out per session; its success line, with the Sprite's prepared server. Each run's whole output goes to the attempt's launch.log by launch_log, and a refusal names that file last."""
     env = {**os.environ, "WORKER_RUN": run, "WORKER_ENV": LANE_ENV, "WORKER_BIND": f"{DRIVE} bound --drive {drive} {run} --"}
     if workspace:
         env["WORKER_WORKSPACE"] = workspace
@@ -740,7 +743,10 @@ def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: 
         repo = request("repo", "show", "--repo", f"path:{main_checkout(str(checkout))}")["repo"]["id"]
         servers = brief.with_suffix(".mcp.json")
         servers.write_text(json.dumps(agents.datadog_servers()))
-        env |= {"WORKER_LOCAL": "1", "WORKER_REPO": repo, "WORKER_ENV": f"{LANE_ENV} CCI_PARENT_SESSION={drive}", "WORKER_MCP_CONFIG": str(servers)}
+        rules = " ".join(f"{key}={value}" for key, value in agents.LANE_RULES_ENV.items())
+        leafed = agents.leaf({"env": {}} | json.loads(os.environ.get("CLAUDE_LANE_SETTINGS") or "{}"))
+        lane_settings = {key: value for key, value in leafed.items() if key != "env"}
+        env |= {"WORKER_LOCAL": "1", "WORKER_REPO": repo, "WORKER_ENV": f"{LANE_ENV} {rules} CCI_PARENT_SESSION={drive}", "WORKER_MCP_CONFIG": str(servers), "WORKER_ADD_DIR": agents.LANE_RULES_ARGS[1], "CLAUDE_LANE_SETTINGS": json.dumps(lane_settings)}
     else:
         env["WORKER_TOOLS"] = SPRITE_TOOLS
     attempt = brief.with_suffix(".worker")

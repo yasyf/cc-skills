@@ -679,6 +679,7 @@ def test_a_readers_lane_runs_the_reader_with_the_builders_sprite_and_waits_secti
     composed = orca.vm_brief(demo, "j2", "reader", "Drive: demo, order o1, job j2\n", state.LOCAL_ROUTE)
     assert composed.startswith("Remote lane: drive demo, job j2. You are the long-running reader below")
     assert [heading in composed for heading in ("Answer the one question your brief asks", "## On a Sprite", "## Waits and reads", "# Land a change", "## Return\n", "## Build\n")] == [True, True, True, False, False, False]
+    assert ("# Lane rules" in composed, "# Lane rules" in orca.vm_brief(demo, "j2", "reader", "Drive: demo, order o1, job j2\n", None)) == (False, True)
     assert orca.brief_of(composed) == "Drive: demo, order o1, job j2"
 
 
@@ -8137,7 +8138,7 @@ def test_a_local_launch_runs_the_launcher_in_the_checkouts_orca_repo_with_the_da
         "WORKER_LOCAL": "1",
         "WORKER_REPO": "repo-local",
         "WORKER_RUN": RUN,
-        "WORKER_ENV": f"{orca.LANE_ENV} CCI_PARENT_SESSION=demo",
+        "WORKER_ENV": f"{orca.LANE_ENV} CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1 CCI_PARENT_SESSION=demo",
         "WORKER_MCP_CONFIG": str(tmp_path / "j1.mcp.json"),
     }
     assert json.loads((tmp_path / "j1.mcp.json").read_text()) == {"mcpServers": {"plugin:datadog:mcp": server}}
