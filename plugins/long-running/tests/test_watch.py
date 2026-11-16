@@ -11141,6 +11141,34 @@ def test_23_staging_waits_of_4_jobs_on_one_env_make_one_stall_one_watchdog_and_o
 
 
 @pytest.mark.parametrize("count", [2, 16])
+def test_stall_chains_resolve_shared_waits_once_per_snapshot(demo: str, monkeypatch: pytest.MonkeyPatch, count: int) -> None:
+    data = state.load(demo)
+    data["prs"] = {}
+    data["jobs"] = {f"j{n}": job(state="waiting") for n in range(1, count + 1)}
+    resolved = []
+    link = stall.link
+
+    def resolve(data: dict, cards: dict, subject: str) -> tuple[str, list[str]]:
+        resolved.append(subject)
+        return link(data, cards, subject)
+
+    monkeypatch.setattr(stall, "link", resolve)
+    for commit in ("6d44e8728ec1", "5d44e8728ec1"):
+        wait = staged_on("api", commit)
+        for held in data["jobs"].values():
+            held["waits"] = [wait]
+        resolved.clear()
+        with state.indexed(data):
+            found = stall.chains(data, NO_CARDS, False, T0)
+        assert list(found) == list(data["jobs"])
+        for job_id, links in found.items():
+            assert len(links) == 2
+            assert links[0] == (job_id, f"{job_id} waiting on {wait}", False)
+            assert (links[-1][0], links[-1][2]) == (wait, True)
+        assert sorted(resolved) == sorted([*data["jobs"], wait])
+
+
+@pytest.mark.parametrize("count", [2, 16])
 def test_stall_projection_indexes_questions_and_release_cuts_once_per_pass(demo: str, monkeypatch: pytest.MonkeyPatch, count: int) -> None:
     wait = staged_on("api", "6d44e8728ec1")
     with state.edit(demo) as data:
