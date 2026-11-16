@@ -466,7 +466,15 @@ def pr_line(drive: dict, key: str, card: str | None) -> str:
     waits = f", waits on {', '.join(pr['waits'])}" if pr.get("waits") else ""
     held = ", held by its hold label" if pr["hold_label"] else ""
     title = f' "{cut(pr["title"], 80)}"' if pr["title"] else ""
-    return f"{key}{title} {pr['state']}, checks {pr['checks']}, review {pr['review']}, {tap}{held}{exempt}{port}{waits}{design_words(pr)}{stage_words(pr)}; {view.staging(drive, key)}"
+    return f"{key}{title} {pr['state']}, checks {pr['checks']}{landed_words(pr)}, review {pr['review']}, {tap}{held}{exempt}{port}{waits}{design_words(pr)}{stage_words(pr)}; {view.staging(drive, key)}"
+
+
+def landed_words(pr: dict) -> str:
+    """On a merged PR whose checks fail, the lander's merge of it as its outcome says it, which names each failing check it merged past as the default branch's, so its red never reads as its own; none on any other PR, or one the lander did not merge."""
+    outcome = (pr["lander"] or {}).get("outcome") or ""
+    if pr["state"] != "merged" or pr["checks"] != "fail" or not outcome.startswith("merged"):
+        return ""
+    return f" (the lander {outcome.partition('; ')[0]})"
 
 
 def design_words(pr: dict) -> str:
