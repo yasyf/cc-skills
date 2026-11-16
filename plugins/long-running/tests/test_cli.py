@@ -4828,10 +4828,22 @@ def test_slot_queue_lists_the_work_queues_stage_test_items_marked_in_the_queue_s
     assert cli.queue_items(data, work.env(data)) == []
 
 
-def test_a_slot_hold_goes_before_the_work_queues_next_cut_only_when_urgent_and_the_queue_owes_nothing_while_it_is_off(run: Run, demo: str) -> None:
-    data = {"jobs": {"j1": {"priority": True}, "j2": {}}, "work": {"kinds": []}}
-    assert [state.urgent_hold(data, hold) for hold in (None, {"for": "j9", "urgent": True}, {"for": "j1"}, {"for": "j9"})] == [False, True, True, False]
-    assert work.owed(state.load(demo), work.env(state.load(demo)), state.now()) is False
+def test_a_named_hold_keeps_a_free_staging_slot_from_the_work_queue_until_its_end_and_the_queues_lease_tells_its_go_and_rides(monkeypatch: pytest.MonkeyPatch) -> None:
+    moment = state.parse_time("2026-11-16T06:37:00-08:00")
+    env = "plat-usw2-staging"
+    data = {"name": "demo", "work": {"kinds": [work.STAGE_TEST]}, "jobs": {"j7977": {"state": "done"}}, "slots": {env: {"holder": None, "queue": [], "hold": None}}}
+    monkeypatch.setattr(work, "env", lambda data: env)
+    monkeypatch.setattr(work, "admitted", lambda data, kind, moment: None)
+    monkeypatch.setattr(work.StageTest, "line", lambda self, data: ["j7394", "j7632"])
+    state.slot_hold(data, env, "j7977", state.parse_time("2026-11-16T07:15:00-08:00"), "root's apply", moment)
+    assert work.owed(data, env, moment) is False
+    assert work.STAGE.why_not(data, moment).startswith(f"waits on {env}, held for j7977 until ")
+    assert work.owed(data, env, state.parse_time("2026-11-16T07:16:00-08:00")) is True
+    monkeypatch.setattr(state, "packed", lambda queue: (queue[0], queue[1:]))
+    monkeypatch.setattr(state, "tested_prs", lambda data, job: [])
+    data["jobs"] |= {"j7394": {}, "j7632": {}}
+    group, _ = work.STAGE.group_of(data, "j7989", ["j7394", "j7632"], moment)
+    assert (group, [line.split(":")[0] for line in data["work"]["told"]]) == (["j7394", "j7632"], [f"SLOT {env} to j7394 until {data['slots'][env]['holder']['until']}", f"SLOT {env} RIDE j7632 on j7394's cut until {data['slots'][env]['holder']['until'].split(':')[0]}"])
 
 
 def test_slot_queue_runs_end_to_end_with_stage_test_on_and_lists_a_queued_tester_before_any_slot_is_claimed(run: Run, demo: str) -> None:

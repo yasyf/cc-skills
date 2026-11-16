@@ -4917,7 +4917,7 @@ def slot_hold(args: argparse.Namespace) -> int:
         else:
             if args.held not in data["jobs"]:
                 raise DriveError(f"{args.held}: refused, no job of this drive: a hold names one job, never an order")
-            line = state.slot_hold(data, args.env, args.held, state.parse_time(args.until), args.reason, state.now(), args.urgent)
+            line = state.slot_hold(data, args.env, args.held, state.parse_time(args.until), args.reason, state.now())
         return "; ".join([line, *(state.slot_take(data, args.env, job_id) for job_id in args.take)])
 
     line = state.write(name, slot_held)
@@ -7899,7 +7899,6 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--until", help="when the hold ends, an RFC 3339 time with its offset")
     verb.add_argument("--reason", help="why, in plain words, naming the record that set it")
     verb.add_argument("--clear", action="store_true", help="drop the slot's hold")
-    verb.add_argument("--urgent", action="store_true", help="an apply he ordered urgent, which goes before the work queue's next staging cut; a hold without it waits for that cut")
     verb.add_argument("--take", action="append", default=[], metavar="JOB", help="take the slot back from a job it went to by mistake, holding or riding its cut, without handing it on: the job goes back first in the queue and hears NO-START; repeatable")
     verb.set_defaults(run=slot_hold)
     verb = slot.add_parser("hand", parents=both, help="hand a staging env's slot to a job in its queue now, from its holder or the top coordinator")
