@@ -289,7 +289,10 @@ def start(name: str, keys: list[str]) -> None:
     """Start one check of each stack, or PR in none, that a PR in keys sits in and no check runs on, as its own process: each of its PRs is marked under the drive's lock as checked at its head by this process, so no second check starts there, the checks' processes start once that lock is let go, however many there are, and a second hold of it gives each mark its own check's process, but a mark a check already replaced with its outcome, which stands, and a mark whose process never started goes back to the check it replaced."""
     from drive import land
 
-    with state.edit(name) as data:
+    stacks = land.landing_stacks(state.load(name))
+    rows = tuple(("prs", member, field) for key in keys for member in stacks.get(key, (key,)) for field in ("checker", "head"))
+
+    def mark(data: dict) -> tuple[str, dict[tuple[str, ...], tuple[str, list]]]:
         stacks, at, marked = land.landing_stacks(data), state.stamp(), {}
         for key in keys:
             unit = stacks.get(key, (key,))
@@ -298,19 +301,25 @@ def start(name: str, keys: list[str]) -> None:
                 marked[unit] = (key, [pr["checker"] for pr in prs])
                 for pr in prs:
                     pr["checker"] = {"head": pr["head"], "pid": os.getpid(), "at": at, "orders": None, "answers": None, "outcome": None, "against": "", "faulted": [], "uncited": [], "until": None}
+        return at, marked
+
+    at, marked = state.update(name, rows, mark)
     if not marked:
         return
     started: dict[tuple[str, ...], int] = {}
+
+    def own(data: dict) -> None:
+        for unit, (_, replaced) in marked.items():
+            for member, before in zip(unit, replaced, strict=True):
+                pr = data["prs"][member]
+                if pr["checker"] and pr["checker"]["pid"] == os.getpid() and pr["checker"]["at"] == at and pr["checker"]["outcome"] is None:
+                    pr["checker"] = pr["checker"] | {"pid": started[unit]} if unit in started else before
+
     try:
         for unit, (key, _) in marked.items():
             started[unit] = spawn(name, key)
     finally:
-        with state.edit(name) as data:
-            for unit, (_, replaced) in marked.items():
-                for member, before in zip(unit, replaced, strict=True):
-                    pr = data["prs"][member]
-                    if pr["checker"] and pr["checker"]["pid"] == os.getpid() and pr["checker"]["at"] == at and pr["checker"]["outcome"] is None:
-                        pr["checker"] = pr["checker"] | {"pid": started[unit]} if unit in started else before
+        state.update(name, tuple(("prs", member, "checker") for unit in marked for member in unit), own)
 
 
 def spawn(name: str, key: str) -> int:
