@@ -163,6 +163,7 @@ MERGED_LINE = re.compile(rf"DONE (?:{PR_URL.pattern} )+merged: ")
 HELD_DONE = re.compile(rf"WAITING (?:{PR_URL.pattern} )+to merge: DONE\b")
 PROOF = re.compile(r".+? live: \S+ exits 0 on .+")
 PROVEN_LINE = re.compile(rf"DONE (?P<proof>{PROOF.pattern})")
+HANDED_OFF = re.compile(r"(?:replaced by|handed to|superseded by his answer \S+, folded into|folded into) (?P<into>j\d+)")
 POST_PROOFS_MERGED = datetime.fromisoformat("2026-11-15T06:49:27-08:00")
 COMMIT_LINK = re.compile(r"https://github\.com/(?P<repo>[^/\s]+/[^/\s]+)/commit/(?P<sha>[0-9a-f]{7,40})")
 RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]+#\d+)(?:@(?P<env>[\w.-]+))?")
@@ -771,6 +772,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "replaced_ended": True,
         "change_builders_unwaited": True,
         "finished_replacers_undone": True,
+        "stopped_handed_off": True,
         "work_proofs_owned": True,
         "proof_results_marked": True,
         "own_done_proofs_since": None,
@@ -1168,7 +1170,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_runs_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped")) and bool(data.get("staging_approves_restored")) and bool(data.get("proofs_rehomed")) and bool(data.get("unowed_fails_undone"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_runs_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("stopped_handed_off")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped")) and bool(data.get("staging_approves_restored")) and bool(data.get("proofs_rehomed")) and bool(data.get("unowed_fails_undone"))
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev", "delivered_by_prs", "delivered_restored", "proofs_posted", "proofs_proven", "tap_cards_kept"):
         data.pop(flag, None)
     data["slack"].pop("channel", None)
@@ -1224,6 +1226,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         data["replaced_ended"] = True
     if not data.get("finished_replacers_undone"):
         undo_finished_replacers(name, data)
+    if not data.get("stopped_handed_off"):
+        hand_off_stopped(data)
     if unkept := any("threads" not in order for order in data["orders"].values()):
         keep_threads(name, data)
     if not data.get("members_kept"):
@@ -1437,6 +1441,20 @@ def undo_finished_replacers(name: str, data: dict) -> None:
                     del into["carries"][order_id]
         job.update(state="failed", said=next((opening(reply["body"]) for reply in returns(name, job_id)), job["said"]), updated=stamp())
     data["finished_replacers_undone"] = True
+
+
+def hand_off_stopped(data: dict) -> None:
+    """Hand off each job an older install stopped as handing its work to another, by HANDED_OFF, to the last job down that chain of handoffs, by hand_off, since such a stop kept its parts, so a STAGE line named it over the live job doing its work; marked so this runs once."""
+    ends = {}
+    for job_id in data["jobs"]:
+        into, seen = job_id, set()
+        while into not in seen and data["jobs"][into]["state"] == "stopped" and (handed := HANDED_OFF.fullmatch(data["jobs"][into]["said"] or "")) and handed["into"] in data["jobs"]:
+            seen.add(into)
+            into = handed["into"]
+        if into != job_id:
+            ends[job_id] = into
+    hand_off(data, ends)
+    data["stopped_handed_off"] = True
 
 
 def drop_waits(data: dict, job_id: str, why: dict[str, str]) -> None:
@@ -1961,6 +1979,15 @@ def hand_held(data: dict, job_id: str, into: str) -> None:
     taker = data["jobs"][into]
     taker["undelivered"] += [kept for kept in data["jobs"][job_id]["undelivered"] if all(held["words"] != kept["words"] for held in taker["undelivered"])]
     data["jobs"][job_id]["undelivered"] = []
+
+
+def hand_off(data: dict, ends: dict[str, str]) -> None:
+    """Leave each job whose work another job took, by a replace, a hand-over, his superseding answer or a fold, mapped to that job, nothing to own: its texts move by hand_held, it keeps no part, so no walk of a part's jobs, such as the one naming a STAGE line's owner, reaches it, and each wait on it of an unfinished job or unlanded PR waits on that job instead, but that job's own, since a wait on a stopped job holding no part ends."""
+    for job_id, into in ends.items():
+        hand_held(data, job_id, into)
+        data["jobs"][job_id].update(parts=[], carries={})
+    for holder_id, holder in [*((job_id, job) for job_id, job in data["jobs"].items() if job["state"] not in FINISHED_JOB_STATES), *((key, pr) for key, pr in data["prs"].items() if pr["state"] in github.UNLANDED)]:
+        holder["waits"] = list(dict.fromkeys(ends.get(wait, wait) for wait in holder["waits"] if ends.get(wait) != holder_id))
 
 
 def take_mail(job: dict, box: list[dict], hold: bool) -> list[str]:
@@ -2693,9 +2720,10 @@ def end_replaced(data: dict, order_ids: Iterable[str], moment: str) -> list[str]
         for job_id in list(data["orders"][order_id]["jobs"]):
             job = data["jobs"][job_id]
             if job["order"] == order_id and job["state"] == "failed" and job["kind"] in CHANGE_KINDS and (into := replacer(data, job_id)):
+                carried = list(job["carries"])
                 moved = fold(data, job_id, into)
                 job.update(state="stopped", said=f"replaced by {into}", updated=moment)
-                ended.append("; ".join([f"{job_id} stopped: replaced by {into}", *(f"{key} now answers to {into}" for key in moved), *(f"{carried} rides on {into}" for carried in job["carries"])]))
+                ended.append("; ".join([f"{job_id} stopped: replaced by {into}", *(f"{key} now answers to {into}" for key in moved), *(f"{order} rides on {into}" for order in carried)]))
     return ended
 
 
@@ -2714,14 +2742,14 @@ def replacer(data: dict, job_id: str) -> str | None:
 
 
 def fold(data: dict, job_id: str, into: str) -> list[str]:
-    """Move a job's parts, each order it carries, each text it holds and each open PR it answers for onto another job, so every wake, check and lander of those PRs reaches that job; the PRs moved."""
+    """Move a job's parts, each order it carries, each open PR it answers for and, by hand_off, each text it holds and each wait on it onto another job, so every wake, check, lander and STAGE line of those PRs reaches that job; the PRs moved."""
     job = data["jobs"][job_id]
     for order_id, parts in [(job["order"], job["parts"]), *job["carries"].items()]:
         deliver(data, into, order_id, parts)
-    hand_held(data, job_id, into)
     moved = [key for key, pr in data["prs"].items() if pr["job"] == job_id and pr["state"] == "open"]
     for key in moved:
         take_pr(data, into, key)
+    hand_off(data, {job_id: into})
     return moved
 
 
@@ -2920,7 +2948,7 @@ def change_job(data: dict, order_id: str, parts: list[str], waits: list[str] = (
 
 
 def hand_over(data: dict, held: tuple[str, dict, str], job_id: str, order_id: str, parts: list[str], moment: str) -> str:
-    """Give the job drive job add adds on these parts of an order what the returned change job change_job found carries of them, a part having one change job: those parts, each PR it opened serving one, and each part such a PR serves, since one PR builds one change, a PR serving the parts its row names or else every part of its job. The old job stops, handed to the new one with the texts it holds, by hand_held, only when that leaves it no part; else it keeps its other parts and PRs and its state, so a staging tester also carrying another part keeps its staging test; the line saying which."""
+    """Give the job drive job add adds on these parts of an order what the returned change job change_job found carries of them, a part having one change job: those parts, each PR it opened serving one, and each part such a PR serves, since one PR builds one change, a PR serving the parts its row names or else every part of its job. The old job stops, handed to the new one with the texts it holds and the waits on it, by hand_off, only when that leaves it no part; else it keeps its other parts and PRs and its state, so a staging tester also carrying another part keeps its staging test; the line saying which."""
     old_id, old, shared = held
     lists = [(old["order"], old["parts"]), *old["carries"].items()]
     carried = {(held_order, part) for held_order, kept in lists for part in kept}
@@ -2940,7 +2968,7 @@ def hand_over(data: dict, held: tuple[str, dict, str], job_id: str, order_id: st
             data["jobs"][job_id]["prs"].append(url)
     named = ", ".join(map(pr_key, taken)) or "no PR"
     if whole:
-        hand_held(data, old_id, job_id)
+        hand_off(data, {old_id: job_id})
         old.update(state="stopped", said=f"handed to {job_id}", updated=moment)
         return f"{job_id} replaces {old_id}, which carried {shared} and returned, a part having one change job: it takes {old_id}'s parts and {named}, and {old_id} stopped, handed to {job_id}"
     left = ", ".join(json.dumps(part, ensure_ascii=False) for held_order, kept in lists for part in kept if (held_order, part) not in moved)

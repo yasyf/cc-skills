@@ -393,7 +393,7 @@ def kin(drive: dict, wait: str, *named: str) -> dict[str, tuple[str | None, str]
 
 
 def coming(drive: dict, job_id: str) -> bool:
-    """Whether the work a waited-on job was given is still to come: the job is not finished, or it is a builder or codex job that ended other than done while a part of an open order it carries is not delivered, which its own next run or the job that takes that part on delivers, so a wait on its change never ends on a HANDOFF, a BLOCKED or a stop that handed its work to another job."""
+    """Whether the work a waited-on job was given is still to come: the job is not finished, or it is a builder or codex job that ended other than done while a part of an open order it carries is not delivered, which its own next run or the job that takes that part on delivers, so a wait on its change never ends on a HANDOFF or a BLOCKED; a stop that handed its work to another job leaves it no part and moves each wait on it to that job, by state.hand_off."""
     job = drive["jobs"][job_id]
     if job["state"] not in state.FINISHED_JOB_STATES:
         return True

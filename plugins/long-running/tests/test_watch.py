@@ -6986,6 +6986,28 @@ def test_replayed_720960_a_pr_waiting_on_its_staging_test_is_owed_by_that_tester
     }
 
 
+@pytest.mark.parametrize("older", [False, True], ids=["replaced now", "replaced under an older install"])
+def test_replayed_722384_a_pr_waiting_on_its_staging_test_is_owed_by_the_live_tester_that_replaced_a_failed_one_never_the_stopped_one(demo: str, older: bool) -> None:
+    part = state.STAGING_TEST.format(number=KEY.split("#")[1])
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(jobs=["j5559", "j6760"], parts={part: state.new_part()})
+        data["jobs"]["j5559"] = job(order="o2", goal="test #42 on staging", parts=[part], state="stopped" if older else "failed", said="replaced by j6760" if older else "BLOCKED the soak never served")
+        data["jobs"]["j6760"] = job(order="o2", goal="test #42 on staging again", parts=[part])
+        data["jobs"]["j2"] = job(goal="build on the soak", state="waiting", waits=["j5559"])
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved", "waits": [f"o2:{part}"]}
+        if older:
+            del data["stopped_handed_off"]
+    if not older:
+        with state.edit(demo) as data:
+            state.end_replaced(data, ["o2"], state.stamp(T0))
+    approve(demo, KEY)
+    data = state.load(demo)
+    now = stage.of(data, KEY, NO_CARDS)
+    assert (now.name, now.owner, now.why.split(", ")[0]) == ("waiting", "j6760", "it waits on its staging run by j6760")
+    assert (data["jobs"]["j5559"]["state"], data["jobs"]["j5559"]["parts"], data["jobs"]["j5559"]["carries"], data["jobs"]["j2"]["waits"]) == ("stopped", [], {}, ["j6760"])
+
+
 @pytest.mark.parametrize("named", [True, False], ids=["its waits name his cards", "no wait names his cards"])
 def test_replayed_56278_an_approved_pr_whose_waits_end_at_his_open_cards_reads_blocked_on_him_over_an_older_unlanded_try_and_wakes_no_one_until_they_close(
     demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]], named: bool
