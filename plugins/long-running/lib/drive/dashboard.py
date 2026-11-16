@@ -53,6 +53,7 @@ DRIVE_BIN = Path(__file__).resolve().parents[2] / "bin" / "drive"
 CHANGE_POLL_SECONDS = 2
 REBUILD_GAP_SECONDS = 3
 REBUILD_SHARE = 0.25
+CARDS_SECONDS = 60
 HEARD_SINCE = "1d"
 FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
@@ -435,11 +436,14 @@ class Board:
             self.changed.notify_all()
 
     def follow(self) -> Path:
-        """Rebuild on a change to the drive's stored state, at most once every REBUILD_GAP_SECONDS and never more than REBUILD_SHARE of one core, the gap after a slow rebuild growing to match, so a burst of writes, as a busy drive commits about twice a second, costs one rebuild and a change inside the gap shows at the first wake after it, until a newer long-running is installed; then return that install's drive, so this code never reads a drive it saved."""
-        built, due = None, 0.0
+        """Rebuild on a change to the drive's stored state, at most once every REBUILD_GAP_SECONDS and never more than REBUILD_SHARE of one core, the gap after a slow rebuild growing to match, so a burst of writes, as a busy drive commits about twice a second, costs one rebuild and a change inside the gap shows at the first wake after it, until a newer long-running is installed; then return that install's drive, so this code never reads a drive it saved. On a live lane drive, whose old watch no longer runs, it stores his cards as cc-slack lists them every CARDS_SECONDS itself, so his cards and the lane taps drawn on them stay current."""
+        built, due, cards_due = None, 0.0, 0.0
         for _ in changes(self.name):
             if newer := install.upgraded():
                 return newer
+            if lane_store.live(self.name) and time.monotonic() >= cards_due:
+                view.refresh_cards(self.name)
+                cards_due = time.monotonic() + CARDS_SECONDS
             if time.monotonic() >= due and (stamp := self.stamp()) != built:
                 started = time.monotonic()
                 self.rebuild()
