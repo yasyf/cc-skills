@@ -1,0 +1,9 @@
+(?i)\bforge-ai\b
+(?i)\bsandsql\b
+(?i)\bsand-next\b
+(?i)(?<![\w.-])go/ci\b
+(?i)(?<![\w.-])tools/ci\b
+(?i)\biris\b
+(?i)\bplaty\b
+\bC0[A-Z0-9]{8,}\b
+(?<![\w.-])(?:go/sand|api/src|common/src|dashboard/src|infra/envs|release/targets\.yaml|\.agents/skills)\b

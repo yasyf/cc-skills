@@ -115,8 +115,6 @@ MAC = re.compile(r"^Mac:[ \t]*(.+)$", re.MULTILINE)
 AFTER = re.compile(r"^After install:", re.MULTILINE)
 CI_BINARIES = frozenset({"ci", "ci.dev"})
 RELEASE_STARTS = ("start", "hotfix")
-RELEASE_FOLLOWS = ("approve", "resume", "rollback", "rerun")
-RECORD_SECONDS = 45
 PRESENT_CUTS = ("start", "hotfix", "resume", "approve", "api")
 HOLD_PASSES = ("approve", "api")
 REHEARSAL_CLUSTERS = frozenset({state.STAGING_ENV, "plat-usw2-sandbox"})
@@ -299,17 +297,17 @@ def approval_refusal(command: str, data: dict, reading: str | None = None) -> st
     return f'refused: `--order {answer_id}` names his answer to "{asked}", "{said}", and {why}. {RELEASE_APPROVAL}'
 
 
-def followed(words: list[str]) -> str | None:
-    """The release a `ci release approve`, `resume`, `rollback` or `rerun` names, its first word past the verb that is no flag: the release's name or build."""
-    if Path(words[0]).name not in CI_BINARIES or words[1:2] != ["release"] or words[2:3] not in ([verb] for verb in RELEASE_FOLLOWS):
+def followed(words: list[str], verb: str) -> str | None:
+    """The release a release verb past its start names, its first word past the verb that is no flag: the release's name or build."""
+    return next((word for word in words[words.index(verb) + 1 :] if not word.startswith("-")), None) if verb in words else None
+
+
+def release_record(release: str, data: dict) -> dict | None:
+    """What the repository's release tool keeps of a release, by the `status` command of its [release] table with `{release}` filled, run by the shell in the drive's checkout: a JSON object naming the release's `name`, `build`, the `order` approving it, its `commit` and the targets it `carries`, those it picked and each one the tool pulled in; None when the repository names no such command or the command reads none."""
+    if not (command := state.repo_config(data).get("release", {}).get("status")):
         return None
-    return next((word for word in words[3:] if not word.startswith("-")), None)
-
-
-def release_record(release: str, cwd: str) -> dict | None:
-    """The record go/ci keeps of a release, by `tools/ci release status <release> --json` in the drive's checkout: its build, the --order approving it, the commit and the targets the build carries, its picks and each target go/ci pulled in; None when go/ci reads none."""
-    done = subprocess.run([str(Path(cwd) / "tools" / "ci"), "release", "status", release, "--json"], cwd=cwd, capture_output=True, text=True, timeout=RECORD_SECONDS)
-    return json.loads(done.stdout)["record"] if done.returncode == 0 else None
+    done = subprocess.run(command.replace("{release}", shlex.quote(release)), shell=True, cwd=data["roles"]["coordinator"]["cwd"], capture_output=True, text=True, timeout=settled.RELEASE_COMMAND_SECONDS)
+    return json.loads(done.stdout) if done.returncode == 0 else None
 
 
 def recorded_job(record: dict, data: dict) -> dict | None:
@@ -323,7 +321,7 @@ def recorded_job(record: dict, data: dict) -> dict | None:
 
 
 def scope_refusal(release: str, record: dict, data: dict, said: str) -> str | None:
-    """Why a production release of the whole platform may go on no further, by the targets its build carries as go/ci's record lists them, its picks and each target go/ci pulled in, never the flags it started with: it leaves out a target, by settled.unexcused, that said, the goal and brief of the job that started it, neither records as `<target> fails: <the failing test>` nor as `<target> left out by his <id>: "<his words>"` quoting the answer of his its --order names, his ruling on this release; none for a rehearsal() or a release his words name target by target, by his words settled.SCOPE_WORDS."""
+    """Why a production release of the whole platform may go on no further, by the targets it carries as release_record() reads them, never the flags it started with: it leaves out a target, by settled.unexcused, that said, the goal and brief of the job that started it, neither records as `<target> fails: <the failing test>` nor as `<target> left out by his <id>: "<his words>"` quoting the answer of his its --order names, his ruling on this release; none for a rehearsal() or a release his words name target by target, by his words settled.SCOPE_WORDS."""
     if rehearsal(release):
         return None
     cwd = data["roles"]["coordinator"]["cwd"]
@@ -331,7 +329,7 @@ def scope_refusal(release: str, record: dict, data: dict, said: str) -> str | No
     if order := record.get("order"):
         with contextlib.suppress(state.DriveError):
             rulings.append({"answer": order, "words": settled.his(settled.shown(order, cwd)["body"])})
-    if not (dropped := settled.unexcused({*(record.get("picks") or ()), *(record.get("targets") or ())}, cwd, said, rulings)):
+    if not (dropped := settled.unexcused(set(record.get("carries") or ()), settled.platform_targets(data), said, rulings)):
         return None
     return (
         f"refused: release {record.get('name')} ({record.get('build')}) carries no {', '.join(dropped)}, and a release ships every target his latest ruling on it does not exclude, read fresh from his words,"

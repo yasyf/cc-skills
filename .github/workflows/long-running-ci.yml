@@ -41,3 +41,15 @@ jobs:
           UV_PYTHON: "3.14"
           LONG_RUNNING_STATE: ${{ github.workspace }}/plugins/long-running/capt-hook/hooks/tests/fixtures/state
         run: uvx --isolated 'capt-hook>=12.121.70' pack test plugins/long-running
+
+  foreign-names:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: no repository specifics added to long-running
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD~1' }}
+        run: plugins/long-running/tools/foreign-names "$BASE"

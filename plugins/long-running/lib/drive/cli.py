@@ -2377,20 +2377,21 @@ def release_holds(data: dict, job: dict, asked: limits.Question, text: str) -> l
 
 
 def release_scope(data: dict, asked: limits.Question, text: str, recorded: list[dict]) -> list[str]:
-    """Why an ASK naming a production `ci release start` in backticks may not draw: a start of the whole platform leaving out a target, by settled.unexcused, that the card does not draw as `<target> fails: <the failing test>` and the ASK does not say is `<target> left out by his <id>: "<his words>"`, quoting his newest recorded answer on a release that the brief binds or the ASK cites, by his words settled.SCOPE_WORDS: a release ships everything his latest ruling on it does not exclude, read fresh from that ruling, never carried from an earlier plan or a reader's choice. brief.scope_refusal checks the start itself."""
-    cwd = data["roles"]["coordinator"]["cwd"]
-    starts = [flags for release in brief.card_releases(text) if not brief.rehearsal(release) for flags in brief.started(release) if flags.get("targets") and not flags.get("hotfix")]
-    if not starts:
+    """Why an ASK naming a production release start in backticks may not draw: a start of the whole platform, the targets settled.platform_targets reads, leaving out a target, by settled.unexcused, that the card does not draw as `<target> fails: <the failing test>` and the ASK does not say is `<target> left out by his <id>: "<his words>"`, quoting his newest recorded answer on a release that the brief binds or the ASK cites, by his words settled.SCOPE_WORDS: a release ships everything his latest ruling on it does not exclude, read fresh from that ruling, never carried from an earlier plan or a reader's choice. A start carries each platform target it names as a target, and every one when it names the `whole` word of the repository's [release] table; brief.scope_refusal checks what the release carries once it runs."""
+    releases = [release for release in brief.card_releases(text) if brief.started(release) and not brief.rehearsal(release)]
+    if not releases or not (whole := settled.platform_targets(data)):
         return []
+    every = state.repo_config(data).get("release", {}).get("whole")
     drawn = "\n".join([*asked.summary, *asked.show_me, *asked.options, *asked.hints.values()])
     cited = "\n".join(line for line in text.splitlines() if " left out by his " in line)
     latest = max((answer for answer in recorded if RELEASE_WORD.search(f"{answer['asked']}\n{answer['words']}")), key=lambda answer: answer["at"], default=None)
     newest = f'his newest ruling on a release, {latest["answer"]}: "{render.cut(latest["words"], settled.QUOTED_CHARS)}"' if latest else "no recorded ruling of his on a release, so none leaves it out"
+    named = [set(flags.get("targets", ())) for release in releases for flags in brief.started(release)]
     return [
         f"its release leaves out {target}, which no failing test and no ruling of his excludes: a release ships every target his latest ruling on it does not exclude, read fresh from"
         f" his words, never from an earlier plan or a reader's choice. Ship {target}, or draw `{target} fails: <the failing test>` on the card, or write"
         f' `{target} left out by his <id>: "<his words>"` quoting {newest} ({settled.SCOPE_WORDS})'
-        for target in dict.fromkeys(target for flags in starts for target in settled.unexcused(settled.carried_targets(settled.shipped(flags), cwd), cwd, f"{drawn}\n{cited}", [latest] if latest else []))
+        for target in dict.fromkeys(target for words in named for target in settled.unexcused(set(whole) if every in words else words & set(whole), whole, f"{drawn}\n{cited}", [latest] if latest else []))
     ]
 
 

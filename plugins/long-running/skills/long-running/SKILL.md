@@ -77,4 +77,4 @@ Read a page, or its parts naming `<row>`, with `drive manual <page> [<row>]`, ne
 
 ## Tooling
 
-Drive tooling, every tool fix, skill rewrite and install, is the meta session's (`meta`). A defect anyone hits is a `defect` record to `meta@<drive>` quoting the refusal, whose fix starts that turn, and the blocked work goes ahead another way, with no excuse or question to him. A tooling change folds a new check, step, hook, flag or verb into what exists, or deletes one, before adding one.
+Drive tooling, every tool fix, skill rewrite and install, is the meta session's (`meta`). A defect anyone hits is a `defect` record to `meta@<drive>` quoting the refusal, whose fix starts that turn, and the blocked work goes ahead another way, with no excuse or question to him. A tooling change folds a new check, step, hook, flag or verb into what exists, or deletes one, before adding one. It names no one repository's specifics, such as its org, paths, release targets, tool verbs or channel ids: those go in that repository's `.claude/long-running.toml`, which the drive reads, by his ruling b2dcaba, and `tools/foreign-names` refuses a line that adds one.

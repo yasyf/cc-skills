@@ -2,6 +2,7 @@ import html
 import json
 import mmap
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -47,10 +48,8 @@ ALL_BUT = re.compile(r" (?:all|everything)(?: else)? (?:but|except|other than|be
 TARGETS = re.compile(r"^targets:\n((?:[ -].*(?:\n|$))*)", re.MULTILINE)
 TARGET = re.compile(r"^  ([a-z0-9][a-z0-9-]*):\n((?:    .*(?:\n|$))*)", re.MULTILINE)
 INLINE_PARTS = re.compile(r"^    components: \[([^\]]*)\]", re.MULTILINE)
-COMPONENTS = re.compile(r"^components:\n((?:[ -].*(?:\n|$))*)", re.MULTILINE)
-PART_ENVS = re.compile(r"^    envs: \[([^\]]*)\]", re.MULTILINE)
-SCOPE_WORDS = 'his words on Nov 15, 2026, "why are you leaving stuff out? you should make sure everything including sand-next is working and has not broken anything and then release it all"'
-MANUAL_TARGET = re.compile(r"^    manual: true\s*$", re.MULTILINE)
+SCOPE_WORDS = 'his words on Nov 15, 2026, "why are you leaving stuff out? you should make sure everything [...] is working and has not broken anything and then release it all"'
+RELEASE_COMMAND_SECONDS = 45
 LISTED_PARTS = re.compile(r"^    components:\n((?:    - .*(?:\n|$))+)", re.MULTILINE)
 OPUS_RULES = (
     "You answer a drive's questions about the JSON `state` it gives you, most of them about his words: the words of the one person whose"
@@ -1271,17 +1270,12 @@ def shipped_parts(release: dict, cwd: str) -> set[str]:
     return ships & {only.partition("/")[0] for only in release["only"]} if release.get("only") else ships
 
 
-def target_blocks(cwd: str) -> list[tuple[str, str]]:
-    """Each release target and its block, as release/targets.yaml in the drive's checkout lists them under `targets:`; none when the checkout has no such file."""
+def target_parts(cwd: str) -> dict[str, tuple[str, ...]]:
+    """Each release target's components, as the release targets file in the drive's checkout lists them under `targets:`; none when the checkout has no such file."""
     path = Path(cwd) / "release" / "targets.yaml"
     section = TARGETS.search(path.read_text()) if path.is_file() else None
-    return TARGET.findall(section[1] if section else "")
-
-
-def target_parts(cwd: str) -> dict[str, tuple[str, ...]]:
-    """Each release target's components, by target_blocks()."""
     parts = {}
-    for target, block in target_blocks(cwd):
+    for target, block in TARGET.findall(section[1] if section else ""):
         if inline := INLINE_PARTS.search(block):
             parts[target] = tuple(filter(None, (part.strip() for part in inline[1].split(","))))
         elif listed := LISTED_PARTS.search(block):
@@ -1289,37 +1283,20 @@ def target_parts(cwd: str) -> dict[str, tuple[str, ...]]:
     return parts
 
 
-def off_production_parts(cwd: str) -> set[str]:
-    """The components release/targets.yaml lists under `components:` whose `envs:` names no place go/ci counts as production, by prod(), as staging-smoke's [plat-usw2-staging] does."""
-    path = Path(cwd) / "release" / "targets.yaml"
-    section = COMPONENTS.search(path.read_text()) if path.is_file() else None
-    return {part for part, block in TARGET.findall(section[1] if section else "") if (envs := PART_ENVS.search(block)) and not any(prod(env.strip(), cwd) for env in envs[1].split(","))}
+def platform_targets(data: dict) -> list[str]:
+    """The targets a release of the whole platform ships, as the JSON list of names the `targets` command of the repository's [release] table prints, run in the drive's checkout; none when the repository names no such command."""
+    if not (command := state.repo_config(data).get("release", {}).get("targets")):
+        return []
+    cwd = data["roles"]["coordinator"]["cwd"]
+    return json.loads(subprocess.run(shlex.split(command), cwd=cwd, capture_output=True, text=True, check=True, timeout=RELEASE_COMMAND_SECONDS).stdout)
 
 
-def platform_targets(cwd: str) -> list[str]:
-    """The targets of the whole platform, in the order the targets file lists them: every one target_blocks() lists but those its `manual: true` keeps for a hand deploy and those whose every component runs off production, by off_production_parts()."""
-    parts, off = target_parts(cwd), off_production_parts(cwd)
-    return [target for target, block in target_blocks(cwd) if not MANUAL_TARGET.search(block) and target in parts and not set(parts[target]) <= off]
-
-
-def left_out(release: dict, cwd: str) -> list[str]:
-    """Each target of the whole platform, by platform_targets(), none of whose components a release ships, by shipped_parts()."""
-    ships, parts = shipped_parts(release, cwd), target_parts(cwd)
-    return [target for target in platform_targets(cwd) if not set(parts[target]) & ships]
-
-
-def unexcused(carried: set[str], cwd: str, said: str, rulings: list[dict]) -> list[str]:
-    """Each target of the whole platform, by platform_targets(), a release carrying the targets in carried leaves out, that said neither records as `<target> fails: <the failing test>` nor as `<target> left out by his <id>: "<his words>"` quoting one of rulings, each an answer of his as {answer, words}, by his words SCOPE_WORDS; none for a release carrying half the platform's targets or fewer, one his words name target by target, such as SandSQL's own."""
-    whole = platform_targets(cwd)
+def unexcused(carried: set[str], whole: list[str], said: str, rulings: list[dict]) -> list[str]:
+    """Each target of whole, the platform's targets by platform_targets(), that a release carrying the targets in carried leaves out and that said neither records as `<target> fails: <the failing test>` nor as `<target> left out by his <id>: "<his words>"` quoting one of rulings, each an answer of his as {answer, words}, by his words SCOPE_WORDS; none for a release carrying half the platform's targets or fewer, one his words name target by target."""
     dropped = [target for target in whole if target not in carried]
     if (len(whole) - len(dropped)) * 2 <= len(whole):
         return []
     return [target for target in dropped if not excused(target, said, rulings)]
-
-
-def carried_targets(release: dict, cwd: str) -> set[str]:
-    """The targets a start's flags name whose components it ships, by left_out(): what a card's start carries before go/ci pulls anything in."""
-    return set(platform_targets(cwd)) - set(left_out(release, cwd))
 
 
 def excused(target: str, said: str, rulings: list[dict]) -> bool:
