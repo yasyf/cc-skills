@@ -83,6 +83,7 @@ UNSTARTED = 75
 UNFIT = 76
 CC_REMOTE = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "cc-remote"
 CC_REMOTE_WORKSPACES = CC_REMOTE / "workspaces"
+KEPT_SPRITES = CC_REMOTE.parent / "orca-gc" / "kept"
 SPRITE_CLI = "sprite"
 SPRITES_FRESH = 600
 SPRITE_LIST_SECONDS = 60
@@ -810,6 +811,12 @@ def release(drive: str, job_id: str, job: dict, checkout: Path, unverified: bool
     """Destroy the Sprite at the job's workspace, with its Orca environment and forward, once the reclaimer's --destroy has saved what it holds on no remote to GitHub as save does, or, unverified, at once when ssh cannot read its checkout even after a revive, as for a superseded attempt's Sprite: what it saved and destroyed; OrcaError naming why its checkout could not be read, the save failed, what it still holds, or cc-remote's refusal, which keeps it, or that cc-remote records no such Sprite, so nothing was destroyed."""
     state.said(job_id, f"it destroys Sprite {job['workspace']} with {RECLAIMER} --destroy{' --unverified' if unverified else ''}, for at most {RECLAIM_SECONDS} s")
     return reclaimer(checkout, "--destroy", job["workspace"], lane_of(drive, job_id, job), *(("--unverified",) if unverified else ()), seconds=RECLAIM_SECONDS)
+
+
+def keep_sprite(workspace: str) -> None:
+    """Mark the Sprite at workspace kept for its job's next lane, so a reclaim pass leaves it paused once its dispatch settles and only a --destroy, which drops the mark, takes it down."""
+    KEPT_SPRITES.mkdir(parents=True, exist_ok=True)
+    (KEPT_SPRITES / workspace).touch()
 
 
 def holds_sprite(job: dict) -> bool:

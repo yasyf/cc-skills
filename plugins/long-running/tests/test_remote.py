@@ -5488,6 +5488,37 @@ def test_end_destroys_the_sprite_cc_remote_still_records_or_names_what_keeps_it(
     assert run("job", "end", "j1") == (0, "nothing to reclaim\npool-one is kept: orca-reclaim.py exited 1: uncommitted changes\nj1's lane ended; j1 stays done")
 
 
+def test_end_of_a_waiting_jobs_lane_keeps_its_sprite_marked_for_its_next_lane_and_destroys_the_oldest_kept_past_the_cap(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, remote)
+    carrying(run, remote)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="waiting", workspace="pool-one")
+    workspaces = tmp_path / "cc-remote-workspaces"
+    workspaces.mkdir()
+    (workspaces / "pool-one.json").write_text("{}")
+    monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
+    monkeypatch.setattr(orca, "KEPT_SPRITES", tmp_path / "kept")
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
+    monkeypatch.setattr(orca, "keep_transcripts", lambda drive, job_id, job, dispatch, root: None)
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: f"closed {dispatch}")
+    released = []
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root, unverified=False: released.append(job["workspace"]) or f"destroyed {job['workspace']}")
+    assert run("job", "end", "j1") == (0, f"closed {DISPATCH}\nSprite pool-one is kept, to pause once idle, for the next lane of j1, which resumes its Claude session there\nj1's lane ended; j1 stays waiting")
+    assert (tmp_path / "kept" / "pool-one").exists()
+    assert released == []
+    assert state.lane_death(state.load(remote)["jobs"]["j1"], "dispatch")["ended"]["kept"] is True
+
+    monkeypatch.setattr(cli, "KEPT_SPRITE_CAP", 0)
+    with state.edit(remote) as data:
+        data["jobs"]["j2"] = {**data["jobs"]["j1"], "workspace": "pool-two", "dispatch": "ctx_lane0002", "deaths": []}
+    (workspaces / "pool-two.json").write_text("{}")
+    assert run("job", "end", "j2")[1].splitlines()[-1] == "destroyed pool-one"
+    assert released == ["pool-one"]
+    assert state.lane_death(state.load(remote)["jobs"]["j1"], "dispatch")["ended"]["kept"] is False
+
+
 def test_the_watch_frees_each_finished_lane_once_a_sprite_by_destroy_and_a_quiet_one_on_this_mac_by_its_dispatch_never_one_a_live_job_shares(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

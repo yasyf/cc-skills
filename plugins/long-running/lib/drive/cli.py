@@ -25,6 +25,7 @@ from drive.state import DriveError
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 ROLE_NAMES = {"coordinator": "top coordinator", "communicator": "communicator", "meta": "meta session"}
 FREEZE_FOR = timedelta(hours=12)
+KEPT_SPRITE_CAP = 60
 RELEASE_WORD = re.compile(r"\breleas", re.IGNORECASE)
 INCIDENT_EXEMPTION = "incident fix"
 UNLANDABLE = (
@@ -4218,6 +4219,13 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
         return restart(args, name, dispatch, orca.LaneEnd(f"{end.why}, and {stale}", end.branch, None, unfit=True), text)
     death = state.lane_death(job, "dispatch") or {}
     left = death.get("unsaved") if answered else f"no save was tried, since {read}"
+    if end.ended and death.get("ended", {}).get("kept") and not here and "unresumed" not in death and orca.holds_sprite(job) and (session := orca.session_of(args.id, job["workspace"], dispatch)):
+        yield_to_launch(name, args.id)
+        try:
+            return resume_session(args, name, dispatch, end, message, text, session, root, cause)
+        except orca.Unstarted as error:
+            unresumed = end._replace(why=f"{end.why}, and its Claude session {session} did not resume on the Sprite that end kept: {error}")
+            return restart(args, name, dispatch, orca.died(name, args.id, dispatch, unresumed, unresumed=str(error)), text)
     if finished and not same and "unresumed" not in death and (session := orca.session_of(args.id, job["workspace"], dispatch)):
         yield_to_launch(name, args.id)
         try:
@@ -4345,11 +4353,11 @@ def resume_session(args: argparse.Namespace, name: str, dispatch: str, end: orca
     attempt = f"{args.id}-{len(job['deaths']) + 1}"
     kept = state.drive_dir(name) / "jobs" / f"{attempt}.resume.md"
     kept.parent.mkdir(exist_ok=True)
-    receipt = orca.adopted(kept) or launch_attempt(name, job, attempt, kept, orca.resumed(ended, message, stage.holds_now(data, args.id), bool(end.worktree)), root, ended["workspace"], session)
+    receipt = orca.adopted(kept) or launch_attempt(name, job, attempt, kept, orca.resumed(ended, message, stage.holds_now(data, args.id), bool(end.worktree or end.ended)), root, ended["workspace"], session)
     started = {field: receipt[field] for field in LAUNCHED}
     record_start(name, args.id, started, str(kept), text)
     went = "the message went to the job's worker, which" if message is not None else "the job's worker"
-    line = f"{args.id}: {went} resumed its own Claude session {session} on Sprite {ended['workspace']} as dispatch {started['dispatch']}, in the checkout its lane left there {"finished" if end.worktree else "dead"} ({state.why_died(end.why, cause)})"
+    line = f"{args.id}: {went} resumed its own Claude session {session} on Sprite {ended['workspace']} as dispatch {started['dispatch']}, in the checkout its lane left there {"finished" if end.worktree or end.ended else "dead"} ({state.why_died(end.why, cause)})"
     return emit(args, line, {"id": args.id, "how": "resumed", "ended": ended, "handoff": str(kept), "session": session, **started})
 
 
@@ -4469,7 +4477,7 @@ def job_prove(args: argparse.Namespace) -> int:
 
 
 def job_end(args: argparse.Namespace) -> int:
-    """Free the Orca lane a job's row records by its dispatch and workspace, whatever its where names, so a job an agent on this Mac holds beside a lane a launch recorded frees that lane too: its Sprite, destroyed once what it holds on no remote is saved to GitHub, whatever the job's state, or its terminal and clean worktree on this Mac; refused, ending nothing, for a row that records no lane. The job keeps the state its line set, with its waits, PRs and carried parts, so a waiting job's next event starts its next lane and nothing waiting on it is freed. A lane whose death the watch recorded first has its Sprite's Orca runtime and worker logs copied to the drive's folder by orca.keep_logs, and every lane's Sprite has each Claude Code transcript it holds copied whole there by orca.keep_transcripts before anything can destroy it, kept on the lane's death. A job still at work first has what its Sprite holds that its next lane would not get saved to GitHub, by lane_saved, and each text queued for its worker that its Dispatch mailbox shows unread held for that lane, by hold_unread, since the end drops that mailbox with the Sprite, and its line, as that lane's handoff will, names each branch GitHub then holds under saved/<its lane>/, by one read, or, when GitHub holds none, what that save found; refused, ending nothing, when that Sprite or mailbox cannot be read or the save fails, and for a running job, whose lane has returned no line, so its next event, never its end, comes next. The end holds the job's own lock, as a launch, resume or PR wake does, so it never destroys a Sprite a relaunch is starting the job's next lane on and refuses a job that relaunch set running. The end is recorded on the lane's dispatch before anything is saved, stopped or destroyed, so the watch reads none of it as the lane dying, and an end of a lane another end already ended changes nothing."""
+    """Free the Orca lane a job's row records by its dispatch and workspace, whatever its where names, so a job an agent on this Mac holds beside a lane a launch recorded frees that lane too: its worker stopped and, for a job done, failed or stopped, its Sprite destroyed once what it holds on no remote is saved to GitHub, while a job that will run again keeps its Sprite, marked by orca.keep_sprite so it pauses once idle and its next lane resumes the same Claude session there, past the newest KEPT_SPRITE_CAP kept the oldest destroyed by evict_kept; or its terminal and clean worktree on this Mac; refused, ending nothing, for a row that records no lane. The job keeps the state its line set, with its waits, PRs and carried parts, so a waiting job's next event starts its next lane and nothing waiting on it is freed. A lane whose death the watch recorded first has its Sprite's Orca runtime and worker logs copied to the drive's folder by orca.keep_logs, and every lane's Sprite has each Claude Code transcript it holds copied whole there by orca.keep_transcripts before anything can destroy it, kept on the lane's death. A job still at work first has what its Sprite holds that its next lane would not get saved to GitHub, by lane_saved, and each text queued for its worker that its Dispatch mailbox shows unread held for that lane, by hold_unread, since the end drops that mailbox with the Sprite, and its line, as that lane's handoff will, names each branch GitHub then holds under saved/<its lane>/, by one read, or, when GitHub holds none, what that save found; refused, ending nothing, when that Sprite or mailbox cannot be read or the save fails, and for a running job, whose lane has returned no line, so its next event, never its end, comes next. The end holds the job's own lock, as a launch, resume or PR wake does, so it never destroys a Sprite a relaunch is starting the job's next lane on and refuses a job that relaunch set running. The end is recorded on the lane's dispatch before anything is saved, stopped or destroyed, so the watch reads none of it as the lane dying, and an end of a lane another end already ended changes nothing."""
     name = state.resolve(args.drive)
     with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         line, ended = end_lane(name, args.id)
@@ -4520,12 +4528,37 @@ def end_lane(name: str, job_id: str) -> tuple[str, dict]:
                 f" could not be saved for its next lane: {error}. End it again once that Sprite answers"
             ) from None
     transcript = None if state.on_mac(job) else orca.keep_transcripts(name, job_id, job, job["dispatch"], root)
+    kept = job["state"] not in state.FINISHED_JOB_STATES and orca.holds_sprite(job)
+    if kept:
+        orca.keep_sprite(job["workspace"])
     reclaimed = orca.reclaim(job["run"], job["dispatch"], root)
-    released = release_sprite(name, job_id, job, root)
-    ended = end_kept(name, job_id, {"failed": False, "fresh": fresh, "saved": saved, "transcript": transcript and str(transcript)})
+    released = f"Sprite {job['workspace']} is kept, to pause once idle, for the next lane of {job_id}, which resumes its Claude session there" if kept else release_sprite(name, job_id, job, root)
+    ended = end_kept(name, job_id, {"failed": False, "fresh": fresh, "saved": saved, "transcript": transcript and str(transcript), "kept": kept})
+    evicted = evict_kept(name, job_id, root) if kept else []
     branches = orca.saved(name, job_id, job, root) if saved else []
     line = f"{job_id}'s lane ended; {job_id} stays {ended['state']}" + (f", and what its Sprite held on no remote is saved on GitHub as {', '.join(branches)}" if branches else f", and {saved}" if saved else "")
-    return "\n".join(filter(None, [reclaimed, released, line])), {"id": job_id, "reclaim": reclaimed, "released": released, "state": ended["state"], "saved": saved, "branches": branches}
+    return "\n".join(filter(None, [reclaimed, released, line, *evicted])), {"id": job_id, "reclaim": reclaimed, "released": released, "evicted": evicted, "state": ended["state"], "saved": saved, "branches": branches}
+
+
+def evict_kept(name: str, job_id: str, root: Path) -> list[str]:
+    """Destroy, by release_sprite under each one's own lock, the Sprites a drive job end kept for a job's next lane past the newest KEPT_SPRITE_CAP of them, oldest end first, never the job given, whose end kept one just now, and passing over a job whose lock another verb holds, as a relaunch resuming on its kept Sprite does; a line for each one destroyed or kept by a refusal."""
+    data = state.load(name)
+    kept = sorted(((death["ended"]["at"], other) for other, job in data["jobs"].items() if (death := state.lane_death(job, "dispatch")) and death.get("ended", {}).get("kept") and orca.holds_sprite(job)), reverse=True)
+    lines = []
+    for _, other in kept[KEPT_SPRITE_CAP:]:
+        if other == job_id:
+            continue
+        try:
+            with state.job_locked(name, other, 0):
+                job = state.load(name)["jobs"][other]
+                if not (state.lane_death(job, "dispatch") or {}).get("ended", {}).get("kept"):
+                    continue
+                lines.append(release_sprite(name, other, job, root) or f"{other}'s kept Sprite {job['workspace']} was already gone")
+                with state.edit(name) as data:
+                    state.lane_death(data["jobs"][other], "dispatch")["ended"]["kept"] = False
+        except DriveError:
+            continue
+    return lines
 
 
 def end_kept(name: str, job_id: str, result: dict) -> dict:
@@ -4543,6 +4576,8 @@ def end_kept(name: str, job_id: str, result: dict) -> dict:
                 death["saved"] = result["saved"]
             if result.get("transcript"):
                 death["transcript"] = result["transcript"]
+            if result.get("kept"):
+                death["ended"]["kept"] = True
     return ended
 
 

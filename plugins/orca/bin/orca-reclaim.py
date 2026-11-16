@@ -69,6 +69,7 @@ RESUMED = STATE_HOME / "orca-gc" / "resumed"
 FILES_PAUSED = STATE_HOME / "orca-gc" / "files-paused"
 REMOVING = STATE_HOME / "orca-gc" / "remove.lock"
 DESTROYING = STATE_HOME / "orca-gc" / "destroying"
+KEPT = STATE_HOME / "orca-gc" / "kept"
 SWEPT = STATE_HOME / "orca-gc"
 BACKOFF = STATE_HOME / "orca-gc" / "backoff.json"
 SWEPT_BATCH = 40
@@ -689,7 +690,10 @@ class CcRemote:
             done = subprocess.run([CC_REMOTE, "destroy", sprite.workspace], capture_output=True, text=True, timeout=DESTROY_S)
         except subprocess.TimeoutExpired:
             return f"cc-remote destroy {sprite.workspace} gave no answer in {DESTROY_S} s, so it was killed"
-        return None if done.returncode == 0 else (done.stderr.strip().splitlines() or [f"cc-remote destroy exited {done.returncode}"])[-1]
+        if done.returncode:
+            return (done.stderr.strip().splitlines() or [f"cc-remote destroy exited {done.returncode}"])[-1]
+        (KEPT / sprite.workspace).unlink(missing_ok=True)
+        return None
 
     def revive(self, sprite: Sprite) -> str | None:
         org = SPRITE_ORG.search(Path(sprite.ssh_config).read_text())
@@ -897,6 +901,8 @@ def github_token() -> str:
 def sprite_action(worker: Worker, sprite: Sprite, live_workspaces: set[str], ended: dict[str, str], orca: Orca, cc_remote: CcRemote) -> Action:
     if worker.workspace in live_workspaces:
         return Action("keep", sprite.workspace, "serves an unsettled dispatch")
+    if (KEPT / sprite.workspace).exists():
+        return Action("keep", sprite.workspace, f"a drive job end kept it for its job's next lane, by {KEPT / sprite.workspace}")
     if worker.dispatch not in ended and (idle := orca.idle(worker.terminal, sprite.environment)) is not True:
         return Action("keep", sprite.workspace, f"terminal {worker.terminal} is {NOT_IDLE}" if idle is False else f"terminal {worker.terminal} is unreadable or disconnected, so its idleness is unknown")
     checkout = cc_remote.checkout(sprite)
@@ -1259,6 +1265,7 @@ def main() -> int:
         "has nothing left to reclaim, and is named gone with no terminal close or worktree read. "
         "A settled dispatch whose worktree and terminal a cc-remote Sprite task records, with the workspace still recorded, has its Sprite destroyed "
         "with cc-remote destroy, WORKER_CC_REMOTE, else ccRemote in the working directory's .orca.json, else cc-remote on PATH, under the CC_REMOTE_CONFIG it inherits, else ccRemoteConfig in that .orca.json, which refuses a machine without that workspace's label and removes its Orca environment, once no unsettled dispatch "
+        "shares the workspace, no file under $XDG_STATE_HOME/orca-gc/kept names it, as a drive job end writes to keep the Sprite paused for its job's next lane, no file under $XDG_STATE_HOME/orca-gc/kept names it, which a drive job end writes to keep the Sprite paused for its job's next lane and --destroy removes, "
         "shares the workspace, its terminal reads idle twice (skipped under --done), and its checkout, read over ssh, after a read the Sprite gives no answer to revives it with sprite checkpoint create and a restore of that checkpoint, WORKER_SPRITE else sprite on PATH, and reads it once more, is clean in every worktree, holds no other branch or stash with commits on no remote, whose tip GitHub holds neither as a branch's head, an open or merged PR's head, whatever its base, nor in its default branch, and has its HEAD on origin "
         "or landed, which GitHub answers for the Sprite's own origin from any working directory; when GitHub cannot answer, such as under a rate limit, the Sprite is kept and named. A removal Orca answers with an error, such as runtime_unavailable when the runtime drops the connection, still counts as removed when "
         "the worktree's directory is gone afterwards, and the Orca error follows on its own error line. A worktree Orca answers selector_not_found for, because it "
