@@ -12923,14 +12923,15 @@ def test_a_watch_text_reaches_a_job_once_until_its_next_return_and_a_possessive_
     run("order", "add", "--title", "Short title", "--workstream", "Staging", "prove the cut on staging")
     for goal in ("test the cut", "the tip", "the bridge"):
         run("job", "add", "reader", "--order", "o1", "--goal", goal)
-    stop = state.SLOT_STOP.format(env="plat-usw2-staging", to="j2")
+    tester, tip, bridge = state.load("demo")["orders"]["o1"]["jobs"][-3:]
+    stop = state.SLOT_STOP.format(env="plat-usw2-staging", to=tip)
     with edit("demo") as data:
-        assert state.hold_text(data["jobs"]["j1"], stop, state.WATCH_SENDER)
-        data["jobs"]["j1"]["undelivered"] = []
-        assert not state.hold_text(data["jobs"]["j1"], stop, state.WATCH_SENDER)
-        assert state.hold_text(data["jobs"]["j1"], stop, state.HIM)
-        data["jobs"]["j1"]["undelivered"] = []
-    cli.take_report("demo", "j1", "WAITING j2: its tip, carrying j3's eb6227aa4f3c and j3’s seat lines\n", read_prs=False)
-    assert state.load("demo")["jobs"]["j1"]["waits"] == ["j2"]
+        assert state.hold_text(data["jobs"][tester], stop, state.WATCH_SENDER)
+        data["jobs"][tester]["undelivered"] = []
+        assert not state.hold_text(data["jobs"][tester], stop, state.WATCH_SENDER)
+        assert state.hold_text(data["jobs"][tester], stop, state.HIM)
+        data["jobs"][tester]["undelivered"] = []
+    cli.take_report("demo", tester, f"WAITING {tip}: its tip, carrying {bridge}'s eb6227aa4f3c and {bridge}’s seat lines\n", read_prs=False)
+    assert state.load("demo")["jobs"][tester]["waits"] == [tip]
     with edit("demo") as data:
-        assert state.hold_text(data["jobs"]["j1"], stop, state.WATCH_SENDER)
+        assert state.hold_text(data["jobs"][tester], stop, state.WATCH_SENDER)
