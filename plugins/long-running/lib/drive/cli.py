@@ -3765,7 +3765,7 @@ def job_start(args: argparse.Namespace) -> int:
             raise DriveError(f"{args.id}: refused, not started: drive job start starts only a briefed builder, reader or design job on this Mac, and this is a {job['kind']}{' on a Sprite' if job.get('where') == 'remote' else ''}{'' if job.get('brief') else ' with no brief'}")
         if (bg := job.get("bg")) and not agents.gone(bg):
             raise DriveError(f"{args.id}: refused, not started: its start at {bg['started']}, session {bg['session'] or 'not named yet'}, is in flight or at work")
-        if job["agent"] and job["state"] == "running" and state.session_role(data, job.get("session")):
+        if job["agent"] and job["agent"] != (bg or {}).get("agent") and job["state"] == "running" and state.session_role(data, job.get("session")):
             raise DriveError(f"{args.id}: refused, not started: agent {job['agent']} of session {job['session']} runs it")
         _, held = state.holding_role(data, data["orders"][job["order"]])
         if not held.get("session"):
@@ -3796,6 +3796,7 @@ def job_start(args: argparse.Namespace) -> int:
             raise DriveError(f"{args.id}: refused, not started: claude --bg started no agent: {error}") from None
         def job_start_write2(data: dict):
             data["jobs"][args.id]["bg"]["session"] = session
+            data["jobs"][args.id].update(agent=agent, launching=None)
 
         state.update(name, None, job_start_write2)
     return emit(args, f"{args.id} started as agent {agent}, its own claude --bg session {session}: start no agent for it", {"id": args.id, "agent": agent, "session": session})
