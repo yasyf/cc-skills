@@ -1169,6 +1169,24 @@ def test_a_record_a_wider_read_held_reaches_jev_alone_at_its_own_size_never_that
     assert shows == [["cci", "show", "711800", "--drive", "demo"]]
 
 
+def test_the_line_his_pr_tap_card_goes_under_hands_jev_the_reads_its_claims_name(
+    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    url = "https://github.com/Forge-AI/monorepo/pull/56153"
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#56153"] = state.new_pr(url, "j1", "o1")
+    quiet = "722806 report watch>communicator POST order o1 has news since the thread's last line\n- Forge-AI/monorepo#56153 open, checks pass, wants tap"
+    record = {"seq": "722806", "kind": "report", "lane": "watch", "at": state.stamp(), "text": quiet, "refs": {}, "fields": {"attrs": {}}}
+    monkeypatch.setattr(refs.reads, "run", lambda argv, checkout: json.dumps(record) if "--json" in argv else quiet)
+    status = ("Bash", {"command": "drive status o1"}, "Forge-AI/monorepo#56153 open, checks pass, wants his Approve")
+    tool(lane_of(transcript), CCI_READ, {"seqs": [722806]}, quiet)
+    tool(lane_of(transcript), *status)
+    claims = [{"claim": "Its checks pass", "read": "record:722806"}, {"claim": "it waits on your Approve", "read": "drive status o1"}]
+    text = "Its checks pass, and it waits on your Approve."
+    reads = evidence(transcript, monkeypatch, capsys, text=text, thread_ts="1.2", record="722806", claims=claims, tap_prs=[url])
+    assert [(read["id"], read["quote"]) for read in reads] == [("read:1", shown(*status)), ("record:722806", f"cci show 722806\n{quiet}")]
+
+
 def test_the_communicators_own_post_and_a_card_hand_jev_no_reads_and_claims_whose_text_is_not_json_are_refused_outright(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
