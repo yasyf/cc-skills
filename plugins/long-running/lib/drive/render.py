@@ -701,13 +701,18 @@ def context(drive: dict, role: str, project: str | None = None) -> str:
 
 def rules(drive: dict, role: str) -> list[str]:
     """The role's rules as its block draws them, numbered under their heading, with the filing line that closes them, then the rules of the repository the drive works in."""
-    repo = repo_rules(drive)
     return [
         f"{title(role).capitalize()} rules:",
         *(f"{number}. {rule}" for number, rule in enumerate(RULES[role], 1)),
         FILED,
-        *([REPO_RULES_HEADING, *(f"- {rule}" for rule in repo)] if repo else []),
+        *repo_block(drive),
     ]
+
+
+def repo_block(drive: dict) -> list[str]:
+    """The rules of the repository the drive works in under their heading, as every role session, every job brief, each handler's prompt and each watchdog's brief carry them; none when it sets none."""
+    repo = repo_rules(drive)
+    return [REPO_RULES_HEADING, *(f"- {rule}" for rule in repo)] if repo else []
 
 
 def rules_digest(drive: dict, role: str) -> str:

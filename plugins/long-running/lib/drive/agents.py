@@ -1024,9 +1024,9 @@ def backgrounded(argv: list[str], checkout: Path, env: dict[str, str]) -> str:
 
 
 def released(name: str, data: dict, prompt: str) -> str:
-    """A handler's prompt closing on the release freezes and holds as they stand now, in place of any its brief carried."""
-    lines = [line for line in prompt.strip().splitlines() if not line.startswith(f"{RELEASES}:")]
-    return "\n".join([*lines, f"{RELEASES}: {releases(name, data)}"])
+    """A handler's prompt closing on the release freezes and holds as they stand now, then the repository's rules, by render.repo_block, in place of any its brief carried."""
+    lines = [line for line in prompt.strip().partition(render.REPO_RULES_HEADING)[0].strip().splitlines() if not line.startswith(f"{RELEASES}:")]
+    return "\n".join([*lines, f"{RELEASES}: {releases(name, data)}", *render.repo_block(data)])
 
 
 def light(settings: dict, role: str, checkout: Path) -> dict:
@@ -1128,8 +1128,9 @@ def leaf(settings: dict) -> dict:
 
 
 def watchdog(name: str, brief: str, cwd: str, out: Path) -> int:
-    """Start a watchdog agent on a stall's brief as its own `claude -p` process on its agent definition, which sets its model and tools, in the drive's checkout, its answer written to out and its spend capped at WATCHDOG_USD; its environment names the drive and marks it the watchdog, by which the bash_guard hook lets it run WATCHDOG_RUNS alone, the reads and the two acts of his pick "Report, plus two safe acts, rerunning a failed build and messaging the owning job"; its pid."""
+    """Start a watchdog agent on a stall's brief as its own `claude -p` process on its agent definition, which sets its model and tools, in the drive's checkout, its brief closing on the repository's rules, by render.repo_block, its answer written to out and its spend capped at WATCHDOG_USD; its environment names the drive and marks it the watchdog, by which the bash_guard hook lets it run WATCHDOG_RUNS alone, the reads and the two acts of his pick "Report, plus two safe acts, rerunning a failed build and messaging the owning job"; its pid."""
     settings = light(session_settings({state.WATCHDOG_ENV: name, state.DRIVE_ENV: name, **ADVISOR_OFF}), WATCHDOG, Path(cwd))
+    brief = "\n\n".join([brief, *filter(None, ["\n".join(render.repo_block(state.load(name)))])])
     argv = ["claude", "-p", "--agent", WATCHDOG, "--permission-mode", "bypassPermissions", *LANE_RULES_ARGS, *mcp_flags(WATCHDOG, Path(cwd)), "--max-budget-usd", WATCHDOG_USD, "--settings", json.dumps(settings), brief]
     out.parent.mkdir(parents=True, exist_ok=True)
     env = {key: value for key, value in os.environ.items() if key not in ("CLAUDE_LONG_RUNNING_LANE", "CLAUDE_CODE_SESSION_ID")} | settings["env"]
