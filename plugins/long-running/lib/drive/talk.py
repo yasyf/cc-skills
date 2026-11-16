@@ -7,13 +7,15 @@ import re
 import sys
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from drive import agents, brief, cli, dashboard, limits, picture, reads, refs, render, slack, state, view
 from drive.state import DriveError
 
 CATCH_UP_TITLE = re.compile(r"\A\s*\**\s*catch-up since\b[^\n]*\n*", re.IGNORECASE)
+SPAN = re.compile(r"\bfor (?:about |~)?(?:(\d+(?:\.\d+)?)(?: ?(m|mins?|minutes?|h|hrs?|hours?))?|(an|half an) hour)\b", re.IGNORECASE)
+SPAN_SLACK = timedelta(minutes=5)
 CARDS_A_MESSAGE = 5
 CARD_KINDS = (("question", "question"), ("tap", "PR card"))
 TICKET_FLAGS = {"ticket_id": "--ticket", "ticket_tree": "--ticket-tree", "ticket_agent": "--ticket-agent", "ticket_call": "--ticket-call", "ticket_fingerprint": "--ticket-fingerprint"}
@@ -453,7 +455,7 @@ def returned(name: str, post: dict, report: dict, refused: str) -> str:
 
 
 def unended(data: dict, post: dict, report: dict) -> str | None:
-    """Why a report naming an end goes nowhere: its until attr is the end of a post at the root of a channel outside his DM, such as a staging claim, or of a line in that post's thread moving it, from which the watch owes that thread its closing line, so a post anywhere else would keep no end, and one whose words leave out that end's clock time would tell the channel's members another end than the one the watch holds it to."""
+    """Why a report naming an end goes nowhere: its until attr is the end of a post at the root of a channel outside his DM, such as a staging claim, or of a line in that post's thread moving it, from which the watch owes that thread its closing line, so a post anywhere else would keep no end, and one whose words name neither that end's clock time nor how long it holds, within SPAN_SLACK of it, would tell the channel's members another end than the one the watch holds it to."""
     if not (until := report.get("until")):
         return None
     if not to_members(data, post):
@@ -462,13 +464,26 @@ def unended(data: dict, post: dict, report: dict) -> str | None:
             " a line moving it in that post's thread, and this post goes to neither: pass that channel as channel_id, and that post's ts as thread_ts for a line in its thread"
         )
     end = state.parse_time(until)
-    if any((int(found[1]), int(found[2] or 0), found[3].upper()) == (int(end.strftime("%I")), end.minute, end.strftime("%p")[0]) for found in limits.CLOCK_TIME.finditer(post.get("text") or "")):
+    text = post.get("text") or ""
+    if any((int(found[1]), int(found[2] or 0), found[3].upper()) == (int(end.strftime("%I")), end.minute, end.strftime("%p")[0]) for found in limits.CLOCK_TIME.finditer(text)):
         return None
+    left = end - state.now()
+    if any(abs(span(found) - left) <= SPAN_SLACK for found in SPAN.finditer(text)):
+        return None
+    minutes = round(left / timedelta(minutes=1))
     return (
-        f'report {report["seq"]}\'s until attr ends this claim at {render.when(until)}, and its words name no such time: say "until {render.clock(end)}",'
-        " since the repository's staging-claim rule has each claim say how long it holds; an end you read as too short goes back to"
+        f'report {report["seq"]}\'s until attr ends this claim at {render.when(until)}, {minutes} minutes from now, and its words name neither that time nor how long'
+        f' it holds: say "until {render.clock(end)}" or "for {minutes} minutes", within {SPAN_SLACK // timedelta(minutes=1)} minutes of it, since the repository\'s'
+        " staging-claim rule has each claim say how long it holds; an end you read as too short goes back to"
         f" {report['writer']}, which wrote report {report['seq']}, as a refused record on the cci post tool re {report['seq']}, never left out"
     )
+
+
+def span(found: re.Match) -> timedelta:
+    """How long a claim's words say it holds, as "for 30", "for 2 hours" or "for half an hour" say it, a bare number counting minutes."""
+    if found[3]:
+        return timedelta(minutes=30 if found[3].lower() == "half an" else 60)
+    return timedelta(hours=float(found[1])) if (found[2] or "m")[0].lower() == "h" else timedelta(minutes=float(found[1]))
 
 
 def outside(data: dict, thread: str) -> str | None:

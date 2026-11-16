@@ -1764,9 +1764,20 @@ def test_a_claim_at_a_channels_root_naming_no_end_or_a_past_one_posts_nothing_an
     ] * 2
     assert f"ends this claim at {render.when(stale)}, which passed" in sent[1][1][0]["text"] + sent[1][1][0].get("body", "")
     report(monkeypatch, {"progress": "true", "order": "o1", "until": later})
-    with pytest.raises(DriveError, match=re.escape(f'its words name no such time: say "until {render.clock(state.parse_time(later))}"')):
+    with pytest.raises(DriveError, match=re.escape(f'its words name neither that time nor how long it holds: say "until {render.clock(state.parse_time(later))}" or "for ')):
         talk.say(demo, {"text": unended, "channel_id": "C0STAGING1", "record": "677158"})
     assert len(sent) == 2 and state.load(demo)["orders"]["o1"]["claims"] == {}
+
+
+@pytest.mark.parametrize(
+    ("words", "named"),
+    [("for 30", True), ("for 28 mins", True), ("for about half an hour", True), ("until {end}", True), ("for an hour", False), ("for 2 hours", False), ("for 3 PRs", False)],
+)
+def test_a_claims_words_name_its_end_as_its_clock_time_or_as_how_long_it_holds_within_five_minutes(demo: str, words: str, named: bool) -> None:
+    until = ended(30)
+    text = f"Testing the release on staging {words.format(end=render.clock(state.parse_time(until)))}, as the repository's rule for claiming staging asks; lmk if anyone objects"
+    refused = talk.unended(state.load(demo), {"text": text, "channel_id": "C0STAGING1"}, {"seq": "677158", "writer": "root", "until": until})
+    assert (refused is None) is named
 
 
 def test_an_incident_added_from_the_terminal_takes_its_first_line_at_his_dm_root_as_its_own_thread_so_its_next_line_replies_under_it(
