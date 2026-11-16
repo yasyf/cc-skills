@@ -4569,9 +4569,10 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
             *(functools.partial(stage, watcher, moment) for stage in (watched_lines, withdrawn_lines, owed_lines)),
         ]
     later += [
+        functools.partial(superseded_lines, watcher, moment),
         functools.partial(event_lines, watcher),
         *(owed_reads(watcher, moment) if lands else []),
-        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, quiet_lines, clock_lines, undelivered_lines, close_answered, tell_lines, standing_lines, orphan_lines, superseded_lines)),
+        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, quiet_lines, clock_lines, undelivered_lines, close_answered, tell_lines, standing_lines, orphan_lines)),
     ]
     names = [stage.func.__name__ for stage in later]
     resume, watcher.resume = watcher.resume, None
@@ -4583,10 +4584,10 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
 
 
 def superseded_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """End, from the drive's own watch alone, each `drive job prove` and `drive reload --seat` an older install left with no parent, by superseded_procs.end, said in the watch's log, never to a session, since nothing waits on them."""
-    if watcher.project or state.scratch():
+    """End, first in each pass of every watch of the drive, each `drive pr check`, `drive pr wake` and `drive job prove` an older install left with no parent, and from the drive's own watch alone each `drive reload --seat`, whose end starts the drive's reload once, by superseded_procs.end, said in the watch's log, never to a session, since nothing waits on them."""
+    if state.scratch():
         return []
-    for line in superseded_procs.end(watcher.name):
+    for line in superseded_procs.end(watcher.name, not watcher.project):
         print(f"{state.stamp(moment)} {line}", flush=True)
     return []
 
@@ -5035,13 +5036,13 @@ def watching(watcher: Watcher) -> None:
     try:
         with relaying(watcher):
             for _ in rests(watcher.name):
-                if newer := upgraded():
+                if newer := install.watch_upgraded():
                     print(f"ended on long-running {state.VERSION} for {newer}, before {watcher.resume or 'its next pass'}", flush=True)
                     break
                 if watcher.relay_error:
                     raise watcher.relay_error
                 read_from, moment = watcher.offset, state.now()
-                for said in [handed(watcher, watcher.made, moment)] if watcher.made else passed(watcher, moment, upgraded):
+                for said in [handed(watcher, watcher.made, moment)] if watcher.made else passed(watcher, moment, install.watch_upgraded):
                     for line in sent(watcher, watcher.lane, said, moment):
                         print(line, flush=True)
                 if watcher.offset != read_from:

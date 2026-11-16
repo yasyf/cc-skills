@@ -7351,19 +7351,20 @@ def main(argv: list[str] | None = None) -> int:
     lane = os.environ.pop(reads.SPRITE_LANE, None)
     own = lane and os.environ[state.OWN_JOB_ENV]
     try:
-        keyed_prs(args)
-        for key in WAITS_ARGS:
-            if value := getattr(args, key, None):
-                setattr(args, key, folded_waits(getattr(args, "drive", None), value))
-        if lane:
-            if refusal := reads.lane_refusal(args, parsed, os.environ[state.DRIVE_ENV], own):
-                print(refusal, file=sys.stderr)
-                return 2
-            if args.verb == "status" and not args.ids:
-                args.ids = [own]
-        if "TMUX" in os.environ and (attached := orca.own_terminal()):
-            os.environ["ORCA_TERMINAL_HANDLE"] = attached
-        return args.run(args)
+        with children.held(args.run):
+            keyed_prs(args)
+            for key in WAITS_ARGS:
+                if value := getattr(args, key, None):
+                    setattr(args, key, folded_waits(getattr(args, "drive", None), value))
+            if lane:
+                if refusal := reads.lane_refusal(args, parsed, os.environ[state.DRIVE_ENV], own):
+                    print(refusal, file=sys.stderr)
+                    return 2
+                if args.verb == "status" and not args.ids:
+                    args.ids = [own]
+            if "TMUX" in os.environ and (attached := orca.own_terminal()):
+                os.environ["ORCA_TERMINAL_HANDLE"] = attached
+            return args.run(args)
     except VERB_ERRORS as error:
         return refused(args, error, detached, own)
 

@@ -33,15 +33,17 @@ def test_each_check_or_wake_holds_one_of_the_slots_every_watch_shares_until_it_e
     assert taken(folder) == []
 
 
-def test_a_verb_the_watch_started_ends_once_the_watch_ends_and_one_anything_else_started_runs_on(tmp_path: Path) -> None:
+def test_a_verb_started_anywhere_under_the_watch_ends_once_the_watch_ends_and_one_no_watch_started_runs_on() -> None:
     script = f"import sys, time; sys.path.insert(0, {str(LIB)!r}); from drive import children; children.die_with_watch(); time.sleep(30)"
+    loop = f"import subprocess, sys; print(subprocess.Popen([sys.executable, '-c', {script!r}], start_new_session=True).pid, flush=True)"
     watch = subprocess.Popen(
-        [sys.executable, "-c", f"import os, subprocess, sys; os.environ[{children.WATCH_PID_ENV!r}] = str(os.getpid()); print(subprocess.Popen([sys.executable, '-c', {script!r}], start_new_session=True).pid, flush=True); import time; time.sleep(2)"],
+        [sys.executable, "-c", f"import subprocess, sys, time; sys.path.insert(0, {str(LIB)!r}); from drive import children; children.mark_watch(); subprocess.run([sys.executable, '-c', {loop!r}]); time.sleep(2)"],
         stdout=subprocess.PIPE,
         text=True,
     )
     started = int(watch.stdout.readline())
-    other = subprocess.Popen([sys.executable, "-c", script], env={**os.environ, children.WATCH_PID_ENV: "1"}, start_new_session=True)
+    other = subprocess.Popen([sys.executable, "-c", script], env={key: value for key, value in os.environ.items() if key != children.WATCH_PID_ENV}, start_new_session=True)
+    assert state.alive(started)
     watch.wait()
     deadline = time.time() + 10
     while state.alive(started) and time.time() < deadline:
@@ -49,3 +51,20 @@ def test_a_verb_the_watch_started_ends_once_the_watch_ends_and_one_anything_else
     assert not state.alive(started)
     assert other.poll() is None
     other.kill()
+
+
+def test_a_capped_verb_waits_for_its_slot_before_the_cli_reads_anything_and_any_other_verb_runs_as_it_is(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(children, "SLOTS", 1)
+    monkeypatch.delenv(children.WATCH_PID_ENV, raising=False)
+    held = []
+
+    @children.capped
+    def capped(args: object) -> int:
+        held.append(taken(state.root() / "slots"))
+        return 0
+
+    with children.held(capped):
+        capped(None)
+    with children.held(lambda args: 0):
+        held.append(taken(state.root() / "slots") if (state.root() / "slots").exists() else [])
+    assert held == [[0], []]

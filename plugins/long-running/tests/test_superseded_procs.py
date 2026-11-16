@@ -15,8 +15,9 @@ def test_the_watch_ends_only_parentless_reloads_and_long_proofs_an_older_install
         14: f"{PYTHON}/1.0.1300/bin/drive reload --seat meta --drive demo",
         15: f"{PYTHON}/1.0.1094/bin/drive reload --seat meta --drive other",
         16: f"{PYTHON}/1.0.1094/bin/drive reload --seat meta --drive demo",
+        17: f"{PYTHON}/1.0.1299/bin/drive pr check https://github.com/Forge-AI/monorepo/pull/5 --drive demo",
     }
-    parents = {11: 1, 12: 1, 13: 1, 14: 1, 15: 1, 16: 4242}
+    parents = {11: 1, 12: 1, 13: 1, 14: 1, 15: 1, 16: 4242, 17: 1}
     monkeypatch.setattr(procs, "table", lambda: [procs.Process(pid, parents[pid], pid, False) for pid in commands])
     monkeypatch.setattr(procs, "command", commands.get)
     monkeypatch.setattr(procs, "started", lambda pid: 0 if pid == 12 else 10_000)
@@ -25,6 +26,8 @@ def test_the_watch_ends_only_parentless_reloads_and_long_proofs_an_older_install
     monkeypatch.setattr(os, "kill", lambda pid, signum: killed.append(pid))
     detached: list[list[str]] = []
     monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append([name, *args]) or 1)
-    lines = superseded_procs.end("demo")
-    assert (killed, detached) == ([11, 12], [["demo", "reload"]])
-    assert lines == [f"ended pid 11, left by an older install: {commands[11]}", f"ended pid 12, left by an older install: {commands[12]}", "started drive reload on demo from long-running 1.0.1300"]
+    assert superseded_procs.end("demo", False) == [f"ended pid 12, left by an older install: {commands[12]}", f"ended pid 17, left by an older install: {commands[17]}"]
+    assert (killed, detached) == ([12, 17], [])
+    lines = superseded_procs.end("demo", True)
+    assert (killed[2:], detached) == ([11, 12, 17], [["demo", "reload"]])
+    assert lines == [f"ended pid {pid}, left by an older install: {commands[pid]}" for pid in (11, 12, 17)] + ["started drive reload on demo from long-running 1.0.1300"]

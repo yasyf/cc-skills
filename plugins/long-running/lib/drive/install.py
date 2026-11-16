@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import plistlib
@@ -495,6 +496,22 @@ def upgraded() -> Path | None:
         return None
     drive = newest_drive()
     return None if drive.resolve() == DRIVE else drive
+
+
+def watch_upgraded() -> Path | None:
+    """The drive of the newest installed long-running when it runs other code than this one's, so the watch moves onto an install only when that install changes what the watch runs: a newer install whose lib and bin/drive are byte for byte this one's is not one, unless this install's folder is gone, as a pruned cache leaves it."""
+    if not (newer := upgraded()):
+        return None
+    return newer if not DRIVE.exists() or code_digest(newer.resolve().parents[1]) != code_digest(DRIVE.parents[1]) else None
+
+
+@cache
+def code_digest(plugin: Path) -> str:
+    """One digest of the Python the drive runs from an install's folder: bin/drive and each module under lib, by path and bytes."""
+    digest = hashlib.sha256()
+    for path in sorted([plugin / "bin" / "drive", *(plugin / "lib").rglob("*.py")]):
+        digest.update(str(path.relative_to(plugin)).encode() + b"\0" + path.read_bytes() + b"\0")
+    return digest.hexdigest()
 
 
 def reopen(argv: list[str]) -> None:

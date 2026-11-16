@@ -3099,7 +3099,7 @@ def test_a_watch_that_finds_a_newer_install_between_two_stages_ends_before_the_n
     posts(monkeypatch)
     install = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
     newer: list[Path] = []
-    monkeypatch.setattr(watch, "upgraded", lambda: newer[-1] if newer else None)
+    monkeypatch.setattr(watch.install, "watch_upgraded", lambda: newer[-1] if newer else None)
     ran = spied(monkeypatch, ("settle_lines", "release_lanes", "standing_lines"))
     mid_pass(monkeypatch, lambda: newer.append(install))
     monkeypatch.setattr(watch.time, "sleep", lambda seconds: None)

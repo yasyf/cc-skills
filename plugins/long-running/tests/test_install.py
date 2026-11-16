@@ -2855,3 +2855,22 @@ def test_a_workflow_with_no_finished_main_run_in_its_range_says_nothing_of_any_t
 
     monkeypatch.setattr(github, "read", gh_printing_an_empty_runs_list)
     assert install.main_failures(REPO, 7, ">=2026-11-15T13:20:00Z") is None
+
+
+def test_the_watch_moves_onto_a_newer_install_only_when_its_python_differs_or_its_own_folder_is_gone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def plugin(version: str, module: str) -> Path:
+        root = tmp_path / version
+        (root / "bin").mkdir(parents=True)
+        (root / "lib" / "drive").mkdir(parents=True)
+        (root / "bin" / "drive").write_text("#!/usr/bin/env python3\n")
+        (root / "lib" / "drive" / "watch.py").write_text(module)
+        return root / "bin" / "drive"
+
+    own, same, changed = plugin("1.0.1", "PASS = 1\n"), plugin("1.0.2", "PASS = 1\n"), plugin("1.0.3", "PASS = 2\n")
+    monkeypatch.setattr(install, "DRIVE", own)
+    for newer, moved in ((same, None), (changed, changed)):
+        monkeypatch.setattr(install, "upgraded", lambda newer=newer: newer)
+        assert install.watch_upgraded() == moved
+    shutil.rmtree(own.parents[1])
+    monkeypatch.setattr(install, "upgraded", lambda: same)
+    assert install.watch_upgraded() == same
