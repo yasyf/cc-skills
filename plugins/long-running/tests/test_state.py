@@ -1284,7 +1284,7 @@ def test_a_pr_reworked_to_his_words_owes_no_card_until_its_builders_ready_says_h
     data = kept_prs()
     data["jobs"] |= {job_id: state.new_job("o226", "builder", "fix", [], state.stamp(REFERENCE)) for job_id in ("j9", "j622")}
     pr = data["prs"][f"{MONOREPO}#4289"]
-    pr["tap"] = {"label": "Approve", "at": state.stamp(REFERENCE), "head": "abc", "source": "slack", "picks": {}}
+    pr["tap"] = {"label": "Approve", "at": state.stamp(REFERENCE), "head": "abc", "source": "slack", "picks": {}, "card": None}
     state.rework(pr, "o227", "Topology should be local metadata", "https://acme.slack.com/archives/D123/p1794300000000600")
     assert (bool(pr["rework"]), state.asks_tap(data, pr), pr["tap"]["label"]) == (True, False, "Approve")
     state.take_result(data, "j9", "READY #4289", "READY #4289\nPR: #4289\nCHANGE: topology moves to the session's meta table")
@@ -1733,7 +1733,7 @@ def test_a_job_following_a_release_it_started_on_a_staging_test_part_is_no_stagi
     assert (state.staging_parts(data, data["jobs"]["j2"]), staging_reads(data), state.staging_tester(data, "j2"), state.staging_tester(data, f"o1:{STAGING}")) == ([], (True, PROOF, "j1"), None, "j1")
 
 
-APPROVE = {"label": "Approve", "at": "2026-11-14T10:30:00-08:00", "head": "aaaaaaa111", "source": "slack", "picks": {}}
+APPROVE = {"label": "Approve", "at": "2026-11-14T10:30:00-08:00", "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}
 
 
 def test_a_staging_tests_full_pass_keeps_his_approve_given_before_it_on_the_pr_its_part_holds_as_56802s_rehearsal_did_not(state_root: Path) -> None:
@@ -1768,6 +1768,34 @@ def test_a_drive_saved_with_approves_a_staging_pass_took_back_gives_each_open_pr
         None,
         True,
     )
+
+
+def test_a_drive_saved_before_taps_kept_their_card_gives_each_card_press_the_prs_of_the_newest_stored_card_on_its_pr_asked_by_it_and_his_words_their_pr_alone_once(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["tap_cards_kept"]
+    created = "2026-11-15T04:00:00-08:00"
+    data["orders"] = {"o1": state.new_order("ship the writer", "slack:D123/1794600000.000100", ("D123", "1794600000.000100"), {"ship it": state.new_part()}, created) | {"kind": "build", "jobs": ["j1"]}}
+    data["jobs"] = {"j1": state.new_job("o1", "builder", "ship it", ["ship it"], created)}
+    approved, joined, worded, uncarded = (f"{MONOREPO}#{number}" for number in (56802, 56935, 56773, 42))
+    data["prs"] = {key: state.new_pr(state.pr_url(key), "j1", "o1") | {"stack": [approved, joined, worded]} for key in (approved, joined, worded)} | {uncarded: state.new_pr(state.pr_url(uncarded), "j1", "o1")}
+    for key, source, action, tapped in (
+        (approved, "slack", "1794765737.000100", "2026-11-15T09:02:17-08:00"),
+        (joined, "slack", "1794778800.000100", "2026-11-15T12:40:00-08:00"),
+        (worded, "slack:https://acme.slack.com/archives/D123/p1794783600000100", None, "2026-11-15T15:09:00-08:00"),
+        (uncarded, "slack", "1794765600.000100", "2026-11-15T09:00:00-08:00"),
+    ):
+        data["prs"][key]["tap"] = state.new_tap("Approve", "aaaaaaa111", source, action, at=tapped)
+    state.create(data)
+
+    def stored(url: str, asked: str, *keys: str) -> dict:
+        return {"url": url, "prs": [state.pr_url(key) for key in keys], "asked": asked, "card": {"title": "Fix: land the writer"}}
+
+    shared = stored("https://acme.slack.com/archives/D123/p1794781000000100", "2026-11-15T12:35:47-08:00", approved, joined, worded)
+    alone = stored("https://acme.slack.com/archives/D123/p1794770000000100", "2026-11-15T04:23:52-08:00", approved) | {"answer": {"label": "Approve", "at": "2026-11-15T09:02:17-08:00"}}
+    state.cards_path("demo").write_text(json.dumps({"source": "live", "team_url": "", "questions": [], "pr_cards": [shared], "closed": [alone]}))
+    data = state.load("demo")
+    assert ([data["prs"][key]["tap"]["card"] for key in (approved, joined, worded, uncarded)], data["tap_cards_kept"]) == ([[approved], [approved, joined, worded], [worded], [uncarded]], True)
 
 
 def test_a_drive_saved_reading_staging_passes_by_prose_case_lines_and_release_followers_reads_each_again_from_its_testers_returns_dated_by_the_first_carrying_it_as_56594s_and_56677s_were_not(

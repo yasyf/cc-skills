@@ -445,7 +445,12 @@ stack that replaces the older cards: the PRs of his card that share a stack, a n
 or PRs each on the one below's head branch, with every PR under them and the PRs of that PR's card,
 once each of them is ready. A PR stacked above them on a card of its own, such as one red, held, in
 conflict or still waiting on his Approve, holds none of them, and his Approve on one card never passes
-to a PR of another. While a PR his Approve lands with it cannot land, a ready PR reads `behind` it, and
+to a PR of another. His Approve keeps the PRs the card he pressed listed then, so a PR that joined
+the card after his press holds nothing below it: the PR he approved lands alone while the card asks
+Approve for the newcomer alone. An Approve in his words, which `drive pr set --tapped` records, or
+on the dashboard answers no card and keeps its PR alone, so it lands with the PRs under it and a PR
+above on the card holds none of them. A card press an older install kept takes that list once, from
+the newest of his stored cards listing its PR asked by his press. While a PR his Approve lands with it cannot land, a ready PR reads `behind` it, and
 while one below conflicts, every PR above it reads `behind` it whatever its own row reads,
 owed by that PR's owner or the card holding it, so no builder above it is woken: none of them lands
 before it, and only its restack moves them. Each other PR of his card lands in a call of its own, since `stack-enqueue`

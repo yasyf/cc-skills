@@ -301,9 +301,10 @@ def held(data: dict, keys: list[str]) -> str:
 
 
 def together(data: dict, stacks: dict[str, tuple[str, ...]], key: str) -> list[str]:
-    """The open PRs his card drew with key that share its landing stack, bottom first, else key alone, since stack-enqueue refuses PRs named together that no stack links, such as the sibling PRs of one order his card draws together."""
+    """The open PRs his card drew with key that share its landing stack, bottom first, else key alone, since stack-enqueue refuses PRs named together that no stack links, such as the sibling PRs of one order his card draws together; on his Approve, the PRs the card his press answered listed, by the tap's card, never the card as drawn since, so a PR that joined the card after his press holds nothing below it."""
+    pr = data["prs"][key]
     landed = stacks.get(key, (key,))
-    return [member for member in data["prs"][key].get("stack") or [key] if data["prs"][member]["state"] == "open" and member in landed]
+    return [member for member in (pr["tap"]["card"] if approved(pr) else pr.get("stack")) or [key] if member in landed and data["prs"][member]["state"] == "open"]
 
 
 def landed_with(data: dict, under: dict[str, str | None], stacks: dict[str, tuple[str, ...]], key: str) -> tuple[str, ...]:
@@ -427,7 +428,7 @@ def held_landings(data: dict, keys: list[str], cards: dict | None, away: dict[st
 
 
 def stopping(data: dict, key: str, cards: dict | None) -> str:
-    """What stops a Forge-AI/monorepo landing on the PR, whether its lander still runs or Trunk's merge queue holds what it queued, as the outcome its unit records: a hold of his, by held(), a wait of the PR that still stands, by state.job_waits, a staging test of it or of its job's work included, his words ordering its rework, or nothing clearing it now, as once his words under its card took back his Approve; "" while what let it land stands, and for a PR of any other repository, whose lander merges it at once."""
+    """What stops a Forge-AI/monorepo landing on the PR, whether its lander still runs or Trunk's merge queue holds what it queued, as the outcome its unit records: a hold of his, by held(), a wait of the PR that still stands, by state.job_waits, its own staging tests included, his words ordering its rework, or nothing clearing it now, as once his words under its card took back his Approve; "" while what let it land stands, and for a PR of any other repository, whose lander merges it at once."""
     pr = data["prs"][key]
     if not state.queued_by_lander(key):
         return ""

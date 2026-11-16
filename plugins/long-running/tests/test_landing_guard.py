@@ -42,7 +42,7 @@ def bash(command: str, cwd: str = "/work", **fields: object) -> dict:
 
 def approve(key: str) -> None:
     with state.edit("demo") as data:
-        data["prs"][key].update(tap={"label": "Approve", "at": state.stamp(), "head": "abc", "source": "slack", "picks": {}}, fundamental=None)
+        data["prs"][key].update(tap=state.new_tap("Approve", "abc", "slack", card=data["prs"][key].get("stack") or [key]), fundamental=None)
 
 
 @pytest.mark.parametrize(
@@ -391,11 +391,11 @@ def stored_stack(drive_pr: str, run: Run) -> list[str]:
     for url in SIBLINGS:
         run("pr", "add", url, "--job", "j1", *LEAD)
     keys = [state.pr_key(SIBLINGS[0]), drive_pr, state.pr_key(SIBLINGS[1])]
-    for key in keys:
-        approve(key)
     with state.edit("demo") as data:
         for key in keys:
             data["prs"][key] |= {"stack": keys, "native": keys}
+    for key in keys:
+        approve(key)
     return keys
 
 
@@ -404,7 +404,7 @@ def test_enqueueing_a_pr_of_a_stored_stack_needs_every_pr_his_card_drew_and_thos
 ) -> None:
     with state.edit("demo") as data:
         for key in stored_stack[:2]:
-            data["prs"][key]["stack"] = stored_stack[:2]
+            data["prs"][key]["stack"] = data["prs"][key]["tap"]["card"] = stored_stack[:2]
         data["prs"][stored_stack[2]] |= {"stack": stored_stack[2:], "hold_label": True, "tap": None}
     assert landing_guard.deny_reason(bash("stack-enqueue 41")) == landing_guard.STACK_REASON.format(named=stored_stack[0], left=stored_stack[1], every="41 42")
     reason = landing_guard.deny_reason(bash("stack-enqueue 42"))

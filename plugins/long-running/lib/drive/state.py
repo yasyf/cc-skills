@@ -765,6 +765,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "stale_queued_dropped": True,
         "staging_approves_restored": True,
         "proofs_rehomed": True,
+        "tap_cards_kept": True,
     }
 
 
@@ -1063,7 +1064,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         if (tap := pr["tap"]) and pr["state"] == "open" and tap.get("via"):
             pr["tap"] = None
         elif tap:
-            pr["tap"] = new_tap(tap["label"], tap["head"], tap["source"], tap.get("action_ts"), tap["at"], tap.get("picks"))
+            pr["tap"] = new_tap(tap["label"], tap["head"], tap["source"], tap.get("action_ts"), tap["at"], tap.get("picks"), tap.get("card"))
     data.setdefault("answers", {})
     data.setdefault("stalls", {})
     for answer in data["answers"].values():
@@ -1082,7 +1083,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_runs_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped")) and bool(data.get("staging_approves_restored")) and bool(data.get("proofs_rehomed"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_runs_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped")) and bool(data.get("staging_approves_restored")) and bool(data.get("proofs_rehomed")) and bool(data.get("tap_cards_kept"))
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev", "delivered_by_prs", "delivered_restored", "proofs_posted", "proofs_proven"):
         data.pop(flag, None)
     data["slack"].pop("channel", None)
@@ -1163,6 +1164,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         restore_staging_approves(name, data)
     if not data.get("proofs_rehomed"):
         rehome_proofs(name, data)
+    if not data.get("tap_cards_kept"):
+        keep_tap_cards(name, data)
     return data, keep and not unkept and not unkinded
 
 
@@ -1274,6 +1277,21 @@ def restore_staging_approves(name: str, data: dict) -> None:
         if event["kind"] == "tap" and event["label"] == "Approve":
             data["prs"][key].update(tap=new_tap("Approve", event["head"], event["source"], event.get("action_ts"), event["at"]), fundamental=None)
     data["staging_approves_restored"] = True
+
+
+def keep_tap_cards(name: str, data: dict) -> None:
+    """Keep on each tap an older install kept the PRs of the card his tap answered, the newest of his stored cards listing its PR asked by the tap's time for a card press, which carries its Slack action, else its PR alone, as for his words or a dashboard press, since an older install landed an Approve with the PRs its card lists now, so a PR that joined the card after his press held the PR he approved below it; marked so this runs once, from cards read live or never stored, after restore_staging_approves."""
+    from drive import view
+
+    found, source = view.stored_cards(name)
+    if source not in ("live", view.UNREAD):
+        return
+    cards = [*found["pr_cards"], *found["closed"]]
+    for key, pr in data["prs"].items():
+        if (tap := pr["tap"]) and tap["card"] is None:
+            asked = [card for card in cards if tap["action_ts"] and pr["url"] in card["prs"] and parse_time(card["asked"]) <= parse_time(tap["at"])]
+            tap["card"] = [pr_key(url) for url in max(asked, key=lambda card: parse_time(card["asked"]))["prs"]] if asked else [key]
+    data["tap_cards_kept"] = True
 
 
 def post_proofs(data: dict) -> None:
@@ -3041,12 +3059,11 @@ def done_or_held(job: dict) -> bool:
 
 
 def job_waits(data: dict, pr: dict) -> list[str]:
-    """A PR's waits, each `staging test of #N before it lands` part any open PR of its job, in any repository, waits on, so every PR of a job lands only once each staging test of the job's work passes, as part_cards holds a job's PRs on his card, each staging run of the PR itself by staging_runs, and, for a yasyf/* PR, each open Forge-AI PR of its job that does not wait on it, which only his tap or an exempt class lands, so tooling that lands with no tap never ships ahead of the code it calls, as a drive reader shipped hours before the go/ci verb it runs."""
+    """A PR's waits, its own staging test parts among them, never one another PR of its job waits on, each staging run of the PR itself by staging_runs, and, for a yasyf/* PR, each open Forge-AI PR of its job that does not wait on it, which only his tap or an exempt class lands, so tooling that lands with no tap never ships ahead of the code it calls, as a drive reader shipped hours before the go/ci verb it runs."""
     key = pr_key(pr["url"])
     mates = index.opened.get(pr["job"], []) if (index := index_of(data)) else [other for other in data["prs"].values() if other["job"] == pr["job"] and other["state"] == "open"]
-    staged = [wait for other in mates for wait in other["waits"] if (part := part_wait(data, wait)) and STAGING_PART.fullmatch(part[1])]
     tapped = [mate for other in mates if guarded(mate := pr_key(other["url"])) and key not in other["waits"]] if merges_untapped(key) else []
-    return list(dict.fromkeys([*pr["waits"], *staged, *tapped, *staging_runs(data, pr)]))
+    return list(dict.fromkeys([*pr["waits"], *tapped, *staging_runs(data, pr)]))
 
 
 def staging_runs(data: dict, pr: dict) -> list[str]:
@@ -5160,9 +5177,9 @@ def rework_reason(pr: dict) -> str:
     return f'Being reworked to your words "{pr["rework"]["words"]}". A fresh card asks your tap once its builder says how they are met'
 
 
-def new_tap(label: str, head: str, source: str, action_ts: str | None = None, at: str | None = None, picks: dict[str, dict] | None = None) -> dict:
-    """His tap on a PR, the one shape every writer stores: what he pressed or said, when, on which head, its source, the card press's Slack action, and on his Approve each card of his holding the PR whose recommended option it picks, by card.picks as he tapped, under its waits id with the seq of the answer land.start recorded for it, None until then."""
-    return {"label": label, "at": at or stamp(), "head": head, "source": source, "action_ts": action_ts, "picks": picks or {}}
+def new_tap(label: str, head: str, source: str, action_ts: str | None = None, at: str | None = None, picks: dict[str, dict] | None = None, card: list[str] | None = None) -> dict:
+    """His tap on a PR, the one shape every writer stores: what he pressed or said, when, on which head, its source, the card press's Slack action, on his Approve each card of his holding the PR whose recommended option it picks, by card.picks as he tapped, under its waits id with the seq of the answer land.start recorded for it, None until then, and the PRs the card his tap answered listed as he tapped, the PR alone for a tap that answered no card, his words or a dashboard press, which land.together lands it with, None until keep_tap_cards reads it for a tap an older install kept."""
+    return {"label": label, "at": at or stamp(), "head": head, "source": source, "action_ts": action_ts, "picks": picks or {}, "card": card}
 
 
 def new_pr(url: str, job_id: str, order_id: str) -> dict:

@@ -119,7 +119,7 @@ def test_a_ready_record_naming_a_pr_is_refused_since_drive_pr_add_and_the_watch_
     with state.edit(demo) as data:
         data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(TAPPED, "j1", "o1") | {
             "head": "4a4d1f0aa1",
-            "tap": {"label": "Approve", "at": "2026-11-10T18:40:00-08:00", "head": "abc", "source": "slack", "picks": {}},
+            "tap": {"label": "Approve", "at": "2026-11-10T18:40:00-08:00", "head": "abc", "source": "slack", "picks": {}, "card": None},
         }
     for ready in (
         post(kind="ready", text="j1 green, his order o1", pr=[TAPPED], to=TO),

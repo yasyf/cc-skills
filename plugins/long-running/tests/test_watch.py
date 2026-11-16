@@ -4617,7 +4617,7 @@ def test_a_yasyf_stack_lands_its_ready_bottom_pr_alone_since_gh_pr_merge_merges_
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         for key, head, base, branch, under in ((YASYF, "aaaaaaa111", "main", "the-watch", None), (above, "bbbbbbb222", "the-watch", "above-the-watch", YASYF)):
-            tap = {"label": "Approve", "at": state.stamp(T0), "head": head, "source": "pressed the button", "picks": {}}
+            tap = {"label": "Approve", "at": state.stamp(T0), "head": head, "source": "pressed the button", "picks": {}, "card": None}
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {
                 "head": head, "base": base, "branch": branch, "under": under, "checks": "pass", "review": "approved", "tap": tap, "checked": CHECKED | {"head": head}
             }
@@ -4733,7 +4733,7 @@ def test_a_pr_he_approved_that_waits_on_a_running_job_waits_on_it_and_is_freed_w
     waits_on(demo, "j2")
     waiting_job(demo)
     with state.edit(demo) as data:
-        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}
+        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
@@ -4757,7 +4757,7 @@ def test_a_pr_he_approved_that_waits_on_a_staging_test_is_owed_by_him_while_its_
     waits_on(demo, f"o1:{part}")
     waiting_job(demo)
     with state.edit(demo) as data:
-        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}
+        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
@@ -4782,7 +4782,7 @@ def test_a_pr_he_approved_that_waits_on_a_part_of_an_order_lands_only_once_a_pro
     waits_on(demo, "o2:stack 1")
     waiting_job(demo)
     with state.edit(demo) as data:
-        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}
+        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
@@ -4819,7 +4819,7 @@ def test_a_part_open_prs_of_two_jobs_outside_one_stack_wait_on_frees_neither_on_
     waits_on(demo, "o2:stack 1")
     waiting_job(demo)
     with state.edit(demo) as data:
-        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}
+        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED"), OTHER: read(checks=GREEN, headRefOid="bbbbbbb222", headRefName="other-fix")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
@@ -4858,7 +4858,7 @@ def test_a_builders_done_while_its_own_pr_is_open_waits_on_that_pr_its_change_un
     waits_on(demo, f"o1:{staging}")
     waiting_job(demo)
     with state.edit(demo) as data:
-        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}
+        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
@@ -5431,7 +5431,7 @@ def test_a_wait_added_to_a_pr_he_approved_never_withdraws_or_redraws_his_card_an
     demo: str, withdrawals: Withdrawals, redraws: Redraws
 ) -> None:
     with state.edit(demo) as data:
-        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}
+        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}
     watching = carded(demo, drawn_pr_card(demo, KEY))
     assert (watch.redraw_lines(watching, T0), redraws.asked, redraws.drawn) == ([], [], [])
     assert cli.main(["pr", "set", KEY, "--waits", "j1", "--drive", demo]) == 0
@@ -5474,7 +5474,7 @@ def test_his_open_card_drawn_asking_his_tap_on_a_pr_that_no_longer_asks_it_is_re
         data["prs"][KEY]["wants_tap"] = True
     asked = drawn_pr_card(demo, KEY)
     with state.edit(demo) as data:
-        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}
+        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}
     watching = carded(demo, asked)
     redraws.failure = "cc-slack exited 1"
     assert (asked["card"]["waits"].startswith("merge:42:"), watch.redraw_lines(watching, T0), redraws.asked, redraws.drawn) == (True, [], [state.pr_url(KEY)], [])
@@ -5831,7 +5831,7 @@ def test_a_ports_change_after_his_approve_lands_at_its_first_green_head_and_star
     state.keep_report(demo, "j1", f"READY {state.pr_url(KEY)}", f"READY {state.pr_url(KEY)}\nSERVES: port of #50974\n")
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
-        data["prs"][KEY] |= {"wants_tap": True, "checked": None, "port_of": 50974, "tap": {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}}
+        data["prs"][KEY] |= {"wants_tap": True, "checked": None, "port_of": 50974, "tap": {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}}
     serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")})
     watch.run_pass(watcher(demo), T0)
     assert (checkers, landers) == ([], [(KEY,)])
@@ -6247,7 +6247,7 @@ def test_a_held_green_approved_pr_is_never_said_to_have_no_card(demo: str, monke
     ("tap", "labels", "field", "says"),
     [
         ({"label": "Hold", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed the button"}, [], "lands", f"you approve, lifting your Hold of {render.when(state.stamp(T0))} and CI passes"),
-        ({"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}, [github.HOLD_LABEL], "blocks", "Approved by you. Held by the hold label on GitHub. CI failed; the agent is fixing it"),
+        ({"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}, [github.HOLD_LABEL], "blocks", "Approved by you. Held by the hold label on GitHub. CI failed; the agent is fixing it"),
     ],
     ids=["his hold", "the hold label on a pr he approved"],
 )
@@ -6597,17 +6597,17 @@ def test_j4802_an_approved_pr_waiting_on_a_job_whose_open_question_no_wait_names
     assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("blocked", stage.HIM, f"it waits on j2, his answer on {view.link('his question card', CARD)}")
 
 
-def test_each_open_pr_of_a_job_in_any_repository_waits_on_each_staging_test_another_pr_of_that_job_waits_on(demo: str) -> None:
+def test_a_pr_waits_only_on_its_own_staging_test_never_on_one_another_pr_of_its_job_waits_on_as_56813_did(demo: str) -> None:
     part = state.STAGING_TEST.format(number=42)
     with state.edit(demo) as data:
         data["orders"]["o1"]["parts"][part] = state.new_part()
         data["orders"]["o1"]["jobs"].append("j2")
         data["jobs"]["j2"] = job(goal="run it twice on staging", parts=[part], builds_nothing=True)
-        data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {state.pr_url(YASYF)}", prs=[state.pr_url(KEY), state.pr_url(YASYF)])
-        data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j1", "o1") | {"head": "aaaaaaa111", "checks": "pass", "wants_tap": False}
+        data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {state.pr_url(OTHER)}", prs=[state.pr_url(KEY), state.pr_url(OTHER)])
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "bbbbbbb222", "checks": "pass", "review": "approved"}
         data["prs"][KEY] |= {"waits": [f"o1:{part}"]}
-    now = stage.of(state.load(demo), YASYF, NO_CARDS)
-    assert (now.name, now.owner, now.why) == ("waiting", "j2", f"it waits on its staging run by j2, running, {KEY}, and the watch frees it once each ends")
+    data = state.load(demo)
+    assert (f"o1:{part}" in state.job_waits(data, data["prs"][KEY]), state.job_waits(data, data["prs"][OTHER])) == (True, [])
 
 
 @pytest.mark.parametrize("freed", [{"state": "merged"}, {"state": "closed"}, {"waits": [YASYF]}], ids=["it merged", "it closed", "it waits on the yasyf PR"])
@@ -6941,7 +6941,7 @@ NO_CARDS = {"team_url": "", "questions": [], "closed": [], "pr_cards": []}
 def approve(name: str, *keys: str) -> None:
     with state.edit(name) as data:
         for key in keys:
-            data["prs"][key] |= {"wants_tap": True, "tap": {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed the button", "picks": {}}}
+            data["prs"][key] |= {"wants_tap": True, "tap": state.new_tap("Approve", "aaaaaaa111", "pressed the button", at=state.stamp(T0), card=data["prs"][key].get("stack") or [key])}
 
 
 def stacked(name: str, native: list[str] | None = None, cards: list[list[str]] | None = None) -> None:
@@ -7489,6 +7489,34 @@ def test_a_red_pr_above_holds_the_green_approved_bottom_of_its_own_card_and_neve
     now = stage.of(state.load(demo), KEY, NO_CARDS)
     assert (now.name, now.why.startswith(why)) == (name, True)
     assert land.start(demo, [KEY, OTHER], NO_CARDS) == unit
+
+
+def test_his_approve_of_56802_on_its_card_alone_lands_it_alone_once_56935_joins_that_card_after_his_press_which_asks_his_approve_for_56935_alone(
+    demo: str, landers: list[tuple[str, ...]]
+) -> None:
+    stacked(demo, cards=TWO_CARDS)
+    approve(demo, KEY)
+    stacked(demo)
+    data = state.load(demo)
+    now = stage.of(data, KEY, NO_CARDS)
+    assert (data["prs"][KEY]["stack"], data["prs"][KEY]["tap"]["card"], now.name, now.why.startswith("green and approved by him")) == ([KEY, OTHER], [KEY], "ready", True)
+    assert drawn_pr_card(demo, KEY, OTHER)["card"]["waits"].startswith("merge:43:")
+    assert land.start(demo, [KEY, OTHER], NO_CARDS) == [(KEY,)]
+    assert landers == [(KEY,)]
+
+
+def test_his_approve_in_words_of_the_bottom_of_a_card_lands_it_while_a_red_pr_above_on_that_card_holds_none_of_it_as_56919_held_56773(
+    demo: str, run: Callable[..., tuple[int, str]], landers: list[tuple[str, ...]]
+) -> None:
+    stacked(demo)
+    approve(demo, OTHER)
+    assert run("pr", "set", state.pr_url(KEY), "--tapped", "Approve", "--tap-source", "https://acme.slack.com/archives/D123/p1794783600000100")[0] == 0
+    with state.edit(demo) as data:
+        data["prs"][OTHER]["checks"] = "fail"
+    data = state.load(demo)
+    assert (data["prs"][KEY]["tap"]["card"], stage.of(data, KEY, NO_CARDS).name) == ([KEY], "ready")
+    assert land.start(demo, [KEY, OTHER], NO_CARDS) == [(KEY,)]
+    assert landers == [(KEY,)]
 
 
 def test_his_approve_of_49869_and_53227_lands_them_while_55258_stacked_later_on_its_own_card_grades_and_passes_none_of_it_to_55258(
@@ -8103,7 +8131,7 @@ def test_a_lander_merges_a_pr_he_approved_in_another_repository_with_gh_pr_merge
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     docs = "Forge-AI/design-docs#5"
-    tap = {"label": "Approve", "at": state.stamp(T0), "head": "ddddddd444", "source": "pressed the button", "picks": {}}
+    tap = {"label": "Approve", "at": state.stamp(T0), "head": "ddddddd444", "source": "pressed the button", "picks": {}, "card": None}
     with state.edit(demo) as data:
         data["prs"][docs] = state.new_pr(state.pr_url(docs), "j1", "o1") | {"head": "ddddddd444", "tap": tap, "merge_method": "rebase"}
     runs: list[list[str]] = []
@@ -10561,7 +10589,7 @@ def test_a_pr_someone_else_opened_stays_refused_while_his_card_on_it_cannot_be_w
     for minute in range(watch.FAILURES_BEFORE_SAYING):
         watch.run_pass(watching, T0 + timedelta(minutes=minute))
     with state.edit(demo) as data:
-        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}
+        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}
     assert state.foreign_pr(state.load(demo), KEY) == state.foreign(KEY, "rowan", [])
     with pytest.raises(state.DriveError, match="opened on GitHub by rowan"):
         land.run(demo, [KEY])

@@ -1190,7 +1190,7 @@ def approve_waits(drive: dict, key: str, pr: dict, found: dict) -> str | None:
 
     if not state.queued_by_lander(key):
         return None
-    return land.unready(drive | {"prs": drive["prs"] | {key: pr | {"tap": state.new_tap("Approve", pr["head"], "dashboard")}}}, key, found) or ""
+    return land.unready(drive | {"prs": drive["prs"] | {key: pr | {"tap": state.new_tap("Approve", pr["head"], "dashboard", card=[key])}}}, key, found) or ""
 
 
 def landing_words(pr: dict) -> str | None:
