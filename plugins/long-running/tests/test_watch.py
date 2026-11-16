@@ -516,27 +516,40 @@ def test_a_pr_merged_into_another_open_prs_branch_reads_folded_holding_its_wait_
     assert data["jobs"]["j1"]["said"] == f"DONE {state.pr_url(KEY)} merged: {KEY} at ddd444"
 
 
-def test_a_job_waiting_on_a_builders_change_waits_on_its_first_pr_and_the_watch_frees_it_once_that_pr_merges(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_job_waiting_on_a_builders_change_is_free_once_that_builder_registers_its_pr_never_at_its_merge_its_line_and_brief_naming_the_branch_to_stack_on(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     built = "Forge-AI/monorepo#43"
     serve(monkeypatch, {})
+    briefed = str(state.drive_dir(demo) / "jobs" / "j3.brief.md")
     with state.edit(demo) as data:
         data["jobs"]["j2"] = job(goal="build the store")
-        data["jobs"]["j3"] = state.new_job("o1", "builder", "build on the store", [], state.stamp(T0))
+        data["jobs"]["j3"] = state.new_job("o1", "builder", "build on the store", [], state.stamp(T0)) | {"brief": briefed, "brief_flags": {"plan": "j1's design"}}
     assert cli.main(["job", "set", "j3", "--waits", "j2", "--drive", demo]) == 0
     assert (state.load(demo)["jobs"]["j3"]["state"], state.load(demo)["jobs"]["j3"]["said"]) == ("waiting", state.NOT_STARTED)
     watching = watcher(demo)
     assert not [line for line in watch.run_pass(watching, T0) if line.startswith("FREE ")]
     assert cli.main(["pr", "add", state.pr_url(built), "--job", "j2", "--drive", demo, *LEAD]) == 0
-    assert cli.main(["pr", "add", state.pr_url(built), "--job", "j2", "--drive", demo, *LEAD]) == 0
-    jobs = state.load(demo)["jobs"]
-    assert (jobs["j3"]["waits"], jobs["j1"]["waits"]) == ([built], [])
-    serve(monkeypatch, {built: read(state="MERGED", mergeCommit="ccc333")})
-    said = watch.run_pass(watching, T0 + timedelta(seconds=61)) + watch.run_pass(watching, T0 + timedelta(seconds=122))
-    assert [line for line in said if line.startswith("FREE ")] == [f"FREE j3 o1: {built} answered or done, nothing else holds it"]
-    assert state.load(demo)["jobs"]["j3"]["waits"] == []
+    assert state.load(demo)["jobs"]["j3"]["waits"] == ["j2"]
+    said = watch.run_pass(watching, T0 + timedelta(seconds=61))
+    assert [line for line in said if line.startswith("FREE ")] == [f"FREE j3 o1: j2 registered {built}, nothing else holds it, stacked on land-it ({built}); Read your brief first: {briefed}"]
+    waiting = state.load(demo)["jobs"]["j3"]
+    assert (waiting["waits"], waiting["stacks_on"], state.load(demo)["prs"][built]["state"]) == ([], [built], "open")
+    assert f"Where: Cut your branch on land-it ({built}), so your PR stacks on the changes it waited on.\n" in Path(briefed).read_text()
 
 
-def test_a_wait_on_another_builders_pr_closed_unmerged_moves_to_that_builder_then_its_next_pr_while_its_own_pr_closing_frees_it(
+def test_a_job_freed_by_several_earlier_changes_stacks_on_the_one_with_the_most_open_prs_under_it_and_merges_in_each_other(demo: str) -> None:
+    bottom, top, apart = "Forge-AI/monorepo#43", "Forge-AI/monorepo#44", "Forge-AI/monorepo#45"
+    with state.edit(demo) as data:
+        for key, job_id, branch, under in ((bottom, "j2", "the-store", None), (top, "j3", "the-reads", bottom), (apart, "j4", "the-writes", None)):
+            data["prs"][key] = state.new_pr(state.pr_url(key), job_id, "o1") | {"branch": branch, "under": under}
+        data["jobs"]["j5"] = job(goal="build on all three", stacks_on=[apart, top, bottom])
+        assert state.stacked_on(data, data["jobs"]["j5"]) == f"on the-reads ({top}), with the-writes ({apart}) merged in"
+        data["prs"][top].update(state="folded", into=bottom)
+        assert state.stacked_on(data, data["jobs"]["j5"]) == f"on the-writes ({apart}), with the-store ({bottom}) merged in"
+
+
+def test_a_wait_on_another_builders_pr_closed_unmerged_moves_to_that_builder_and_ends_once_it_registers_its_next_pr_while_its_own_pr_closing_frees_it(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     closed, rebuilt = "Forge-AI/monorepo#43", "Forge-AI/monorepo#44"
@@ -545,10 +558,9 @@ def test_a_wait_on_another_builders_pr_closed_unmerged_moves_to_that_builder_the
         data["jobs"]["j2"] = job(goal="build the store", state="built", branch="blobstore-refcounts")
         data["jobs"]["j3"] = state.new_job("o1", "builder", "build on the store", [], state.stamp(T0))
     assert cli.main(["pr", "add", state.pr_url(closed), "--job", "j2", "--drive", demo, *LEAD]) == 0
-    assert cli.main(["job", "set", "j3", "--waits", "j2", "--drive", demo]) == 0
     with state.edit(demo) as data:
         data["jobs"]["j2"]["waits"] = [closed]
-    assert state.load(demo)["jobs"]["j3"]["waits"] == [closed]
+        data["jobs"]["j3"].update(state="waiting", said=f"waits on {closed}", waits=[closed])
     serve(monkeypatch, {closed: read(state="CLOSED")})
     watching = watcher(demo)
     said = watch.run_pass(watching, T0) + watch.run_pass(watching, T0 + timedelta(seconds=61))
@@ -556,10 +568,9 @@ def test_a_wait_on_another_builders_pr_closed_unmerged_moves_to_that_builder_the
     jobs = state.load(demo)["jobs"]
     assert (jobs["j2"]["waits"], jobs["j3"]["waits"]) == ([], ["j2"])
     assert cli.main(["pr", "add", state.pr_url(rebuilt), "--job", "j2", "--drive", demo, *LEAD]) == 0
-    assert state.load(demo)["jobs"]["j3"]["waits"] == [rebuilt]
-    serve(monkeypatch, {rebuilt: read(state="MERGED", mergeCommit="ccc333")})
-    said = watch.run_pass(watching, T0 + timedelta(seconds=122)) + watch.run_pass(watching, T0 + timedelta(seconds=183))
-    assert [line for line in said if line.startswith("FREE ")] == [f"FREE j3 o1: {rebuilt} answered or done, nothing else holds it"]
+    serve(monkeypatch, {})
+    said = watch.run_pass(watching, T0 + timedelta(seconds=122))
+    assert [line for line in said if line.startswith("FREE ")] == [f"FREE j3 o1: j2 registered {rebuilt}, nothing else holds it, stacked on land-it ({rebuilt})"]
 
 
 def test_a_release_wait_on_a_pr_closed_unmerged_frees_the_job_that_opened_it_and_moves_every_other_waiter_to_that_jobs_change(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -581,10 +592,10 @@ def test_a_release_wait_on_a_pr_closed_unmerged_frees_the_job_that_opened_it_and
     data = state.load(demo)
     assert (data["jobs"]["j2"]["waits"], data["jobs"]["j3"]["waits"], data["prs"][KEY]["waits"]) == ([], ["j2"], ["j2"])
     assert cli.main(["pr", "add", state.pr_url(rebuilt), "--job", "j2", "--drive", demo, *LEAD]) == 0
-    assert state.load(demo)["jobs"]["j3"]["waits"] == [rebuilt]
-    serve(monkeypatch, {rebuilt: read(state="MERGED", mergeCommit="ccc333")})
-    said = watch.run_pass(watching, T0 + timedelta(seconds=122)) + watch.run_pass(watching, T0 + timedelta(seconds=183))
-    assert [line for line in said if line.startswith("FREE ")] == [f"FREE j3 o1: {rebuilt} answered or done, nothing else holds it"]
+    serve(monkeypatch, {})
+    said = watch.run_pass(watching, T0 + timedelta(seconds=122))
+    assert [line for line in said if line.startswith("FREE ")] == [f"FREE j3 o1: j2 registered {rebuilt}, nothing else holds it, stacked on land-it ({rebuilt})"]
+    assert state.load(demo)["prs"][KEY]["waits"] == ["j2"]
 
 
 def test_a_wait_on_a_staging_testers_pr_closed_unmerged_ends_and_never_moves_onto_the_tester_whose_test_holds_no_such_pr(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -6192,7 +6203,7 @@ def test_job_set_moves_a_builder_off_a_card_his_words_replaced_onto_a_reader_tha
     assert cli.main(["job", "set", "j2", "--waits", "j5", "--drive", demo]) == 2
     assert capsys.readouterr().err.strip().endswith("--waits j5: j5 is done, so nothing of it is left to wait on")
     assert cli.main(["job", "set", "j2", "--waits", "j1", "--drive", demo]) == 0
-    assert state.load(demo)["jobs"]["j2"]["waits"] == ["j3", "j4", KEY]
+    assert state.load(demo)["jobs"]["j2"]["waits"] == ["j3", "j4", "j1"]
 
 
 def test_a_pr_whose_head_moved_to_a_change_nobody_judged_gets_its_card_and_its_check_against_his_words_at_that_head_whatever_its_jobs_state(

@@ -626,6 +626,41 @@ def test_j3771_a_drive_saved_with_his_cards_on_an_unstarted_design_builders_wait
     assert (drive["dropped_waits"], drive["change_builders_unwaited"]) == ({"j2": ended, "j3": ended}, True)
 
 
+def test_j6083_a_drive_saved_with_unstarted_jobs_waiting_on_earlier_changes_prs_waits_on_their_jobs_again_and_on_each_earlier_changes_builder_its_design_lists(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["change_waits_stacked"]
+    moment = "2026-11-15T04:00:00-08:00"
+    first, second, merged, outside = (f"yasyf/cc-skills#{number}" for number in (1, 2, 3, 4))
+    changes = ["the interface", "the reads", "the cache", "the writes"]
+    data["orders"] = {
+        "o1": state.new_order("copy the store", "terminal", None, {part: state.new_part() for part in ["copy the store", *changes]}, moment) | {"jobs": ["j1", "j2", "j3", "j4", "j5", "j6"]},
+        "o2": state.new_order("the other store", "terminal", None, {"the other store": state.new_part()}, moment) | {"jobs": ["j7"]},
+    }
+    waits = [first, second, outside]
+    data["jobs"] = {
+        "j1": state.new_job("o1", "design", "cards: the copy", ["copy the store"], moment) | {"state": "done"},
+        "j2": state.new_job("o1", "builder", "build j1's change: the interface", ["the interface"], moment) | {"state": "built", "agent": "a2", "prs": [state.pr_url(first)]},
+        "j3": state.new_job("o1", "builder", "build j1's change: the reads", ["the reads"], moment) | {"state": "built", "agent": "a3", "prs": [state.pr_url(merged), state.pr_url(second)]},
+        "j4": state.new_job("o1", "builder", "build j1's change: the writes", ["the writes"], moment) | {"waits": waits},
+        "j5": state.new_job("o1", "builder", "build the cache", ["the cache"], moment),
+        "j6": state.new_job("o1", "builder", "test the copy on staging", [], moment) | {"state": "waiting", "waits": [first, merged], "said": "waits on them"},
+        "j7": state.new_job("o2", "builder", "build the other store", ["the other store"], moment) | {"state": "built", "agent": "a7", "prs": [state.pr_url(outside)]},
+    }
+    data["prs"] = {key: state.new_pr(state.pr_url(key), job_id, order_id) for key, job_id, order_id in ((first, "j2", "o1"), (second, "j3", "o1"), (merged, "j3", "o1"), (outside, "j7", "o2"))}
+    data["prs"][merged]["state"] = "merged"
+    state.create(data)
+    listed = "".join(f"Change: {change}\n" for change in changes[:3]) + f"Change: {changes[3]} (waits on change 1 and change 2 and change 3)\n"
+    state.keep_report("demo", "j1", "DESIGN copy the store in four changes", f"DESIGN copy the store in four changes\n{listed}")
+    drive = state.load("demo")
+    assert {job_id: (job["state"], job["waits"], job["said"]) for job_id, job in drive["jobs"].items() if job_id in ("j4", "j5", "j6")} == {
+        "j4": ("waiting", ["j2", "j3", outside, "j5"], state.NOT_STARTED),
+        "j5": ("waiting", [], state.NOT_STARTED),
+        "j6": ("waiting", ["j2", merged], "waits on them"),
+    }
+    assert drive["change_waits_stacked"] is True
+
+
 def test_j3986_a_drive_saved_keying_his_rulings_as_typed_keys_each_by_its_full_id_and_folds_one_kept_twice(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     make("demo")
     data = state.load("demo")
