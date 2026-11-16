@@ -14,7 +14,6 @@ from drive.state import DriveError
 
 COMPOSE_SECONDS = 900
 PAGE_QUIET = timedelta(minutes=15)
-PAGE_SETTLE = timedelta(minutes=5)
 RETRY_SECONDS = 900
 KIND = "applet"
 SLICE_PRS = 40
@@ -276,7 +275,7 @@ def seen_path(name: str, slug: str) -> Path:
 
 
 def unannounced(name: str, moment: datetime) -> list[tuple[dict, str, dict]]:
-    """Each applet page whose newest layout he has not been sent: a page never sent, or one whose basis, the decisions waiting on him, whether any PR waits on his approval and whether its orders are all done, or whose glance's tone differs from what he was last sent; never one recomposed on the same basis, whatever its words say, so a page reaches him once per material change; no changed page until its newest layout has stood PAGE_SETTLE unreplaced, so a compose from a slice read short, as the two that read 5 and 7 of 36 PRs during the 10:55 install handover, keeps the summary he was last sent; and none within PAGE_QUIET of the last one he was sent, so a decision he answers and undoes, or several changing in a few minutes, reach him as one post of where they settled, or none when they settle where he was last sent. Each with the name of its newest layout and the layout."""
+    """Each applet page whose newest layout he has not been sent: a page never sent, or one whose basis, the decisions waiting on him, whether any PR waits on his approval and whether its orders are all done, or whose glance's tone differs from what he was last sent; never one recomposed on the same basis, whatever its words say, so a page reaches him once per material change; and none within PAGE_QUIET of the last one he was sent, so a decision he answers and undoes, or several changing in a few minutes, reach him as one post of where they settled, or none when they settle where he was last sent. Each with the name of its newest layout and the layout."""
     due = []
     for page in pages.listed(name):
         if page.get("kind") != KIND:
@@ -287,8 +286,7 @@ def unannounced(name: str, moment: datetime) -> list[tuple[dict, str, dict]]:
             continue
         seen = seen_path(name, page["slug"])
         sent = json.loads(seen.read_text()) if seen.is_file() else None
-        stood = moment - datetime.fromtimestamp(laid[-1].stat().st_mtime, moment.tzinfo) >= PAGE_SETTLE
-        if sent is None or stood and (layout["basis"], layout["glance"]["tone"]) != (sent["basis"], sent["tone"]) and moment - datetime.fromtimestamp(seen.stat().st_mtime, moment.tzinfo) >= PAGE_QUIET:
+        if sent is None or (layout["basis"], layout["glance"]["tone"]) != (sent["basis"], sent["tone"]) and moment - datetime.fromtimestamp(seen.stat().st_mtime, moment.tzinfo) >= PAGE_QUIET:
             due.append((page, laid[-1].name, layout))
     return due
 
