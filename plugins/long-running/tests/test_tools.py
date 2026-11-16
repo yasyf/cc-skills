@@ -976,15 +976,18 @@ def test_the_communicators_records_about_the_drive_reach_the_meta_session_alone_
         ("root", [("defect", ["meta@demo"])]),
     ]
     assert [record["attr"]["about"] for record in posted[0][1][1:]] == ["drive", "drive", "his work", "his work"]
+    orders = state.load(demo)["orders"]
+    asked = {ask["words"]: (order_id, ask_id, ask["parts"], ask["link"]) for order_id, order in orders.items() for ask_id, ask in order["asks"].items()}
+    dashboard_ask, product_ask = asked[dashboard["text"]], asked[product["text"]]
+    assert (dashboard_ask[0], dashboard_ask[2], dashboard_ask[3], product_ask[0], product_ask[2]) == ("o2", [f"ask {dashboard_ask[1]}"], "terminal", "o1", [f"ask {product_ask[1]}"])
     assert [{key: record["attr"].get(key) for key in ("order", "part")} for record in posted[0][1][1:]] == [
         {"order": "o3", "part": None},
-        {"order": "o2", "part": "o2:the dashboard drops my cards"},
-        {"order": "o1", "part": "o1:and the logs page"},
+        {"order": "o2", "part": f"o2:ask {dashboard_ask[1]}"},
+        {"order": "o1", "part": f"o1:ask {product_ask[1]}"},
         {"order": None, "part": None},
     ]
-    orders = state.load(demo)["orders"]
-    assert (orders["o3"]["text"], orders["o3"]["owner"], list(orders["o2"]["parts"])) == (rewrite["words"], "meta", ["Short title", "the dashboard drops my cards"])
-    assert list(orders["o1"]["parts"]) == ["Short title", "and the logs page"]
+    assert (orders["o3"]["text"], orders["o3"]["owner"], list(orders["o2"]["parts"])) == (rewrite["words"], "meta", ["Short title", f"ask {dashboard_ask[1]}"])
+    assert list(orders["o1"]["parts"]) == ["Short title", f"ask {product_ask[1]}"]
 
 
 def test_his_ruling_typed_into_the_communicators_terminal_goes_out_at_terminal_and_words_he_never_typed_there_are_refused(
@@ -1091,10 +1094,12 @@ def test_his_badge_ask_of_record_672014_reaches_the_meta_session_holding_the_dri
     assert tools.run("record", demo, {"records": [more]}).splitlines()[-1] == "1 owner 672016"
     with pytest.raises(DriveError, match=r"^refused, nothing posted: these records went out already, at \S+ as 672016;"):
         tools.run("record", demo, {"records": [more]})
-    assert (list(state.load(demo)["orders"]), list(state.load(demo)["orders"]["o1"]["parts"])) == (["o1"], [badge["title"], more["text"]])
+    (more_ask,) = [(ask_id, ask) for ask_id, ask in state.load(demo)["orders"]["o1"]["asks"].items() if ask["words"] == more["text"]]
+    assert (more_ask[1]["link"], more_ask[1]["parts"]) == (more["url"], [f"ask {more_ask[0]}"])
+    assert (list(state.load(demo)["orders"]), list(state.load(demo)["orders"]["o1"]["parts"])) == (["o1"], [badge["title"], f"ask {more_ask[0]}"])
     assert [(record["to"], record["attr"]["order"], record["attr"].get("part")) for record in posted] == [
         (["meta@demo"], "o1", None),
-        (["meta@demo"], "o1", f"o1:{more['text']}"),
+        (["meta@demo"], "o1", f"o1:ask {more_ask[0]}"),
     ]
     with pytest.raises(DriveError, match="1: refused, nothing posted: order is the order the communicator's owner record about the drive goes to"):
         tools.run("record", demo, {"records": [{"kind": "owner", "text": "ship the run page", "about": "his work", "order": badge}]})
@@ -1166,9 +1171,10 @@ def test_his_words_carrying_on_an_order_of_his_work_are_its_parts_the_watch_name
         tools.run("record", demo, {"records": [words]})
     with pytest.raises(DriveError, match=r"^refused, nothing posted: these records went out already, at \S+ as 1;"):
         tools.run("record", demo, {"records": [iterate]})
-    assert list(state.load(demo)["orders"]["o1"]["parts"]) == [state.IMMEDIATE_FIX, iterate["text"], options["text"]]
+    asks = {ask["words"]: f"ask {ask_id}" for ask_id, ask in state.load(demo)["orders"]["o1"]["asks"].items()}
+    assert list(state.load(demo)["orders"]["o1"]["parts"]) == [state.IMMEDIATE_FIX, asks[iterate["text"]], asks[options["text"]]]
     assert [(record["to"], record["attr"]["order"], record["attr"]["part"]) for record in posted] == [
-        (["root@demo"], "o1", f"o1:{words['text']}") for words in (iterate, options)
+        (["root@demo"], "o1", f"o1:{asks[words['text']]}") for words in (iterate, options)
     ]
     watching = watch.Watcher(demo, offset=state.events_end(demo))
     later = state.now() + timedelta(minutes=6)
@@ -1176,10 +1182,10 @@ def test_his_words_carrying_on_an_order_of_his_work_are_its_parts_the_watch_name
     with edit(demo) as data:
         data["jobs"]["j1"].update(state="done", said="DONE j1 live: repro/j1.sh exits 0 on no plugin of this Mac")
         state.deliver_proven(data, "j1", "j1 live: repro/j1.sh exits 0 on no plugin of this Mac")
-    unstaffed = [f'ORPHAN o1 "{words["text"]}": no job' for words in (iterate, options)]
+    unstaffed = [f'ORPHAN o1 "{asks[words["text"]]}": no job' for words in (iterate, options)]
     assert watch.orphan_lines(watching, later) == unstaffed
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
-    carried = ["--part", iterate["text"], "--part", options["text"]]
+    carried = ["--part", asks[iterate["text"]], "--part", asks[options["text"]]]
     code, out = run("job", "add", "reader", "--order", "o1", *carried, "--goal", "options for a zero-stall writer handover", "--agent", "reader-1")
     assert (code, out.splitlines()[0]) == (0, "j2")
     assert watch.orphan_lines(watching, later + timedelta(minutes=10)) == []

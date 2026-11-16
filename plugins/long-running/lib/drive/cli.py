@@ -455,6 +455,8 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
     name = state.resolve(args.drive)
     created = state.stamp()
     refuse_unquotable_parts("--parts", args.parts or [])
+    if unparted := [part for part, _ in args.ask or [] if part not in (args.parts or [args.title])]:
+        raise DriveError(f"--ask {json.dumps(unparted[0], ensure_ascii=False)}: refused, no order added: an ask names the part that delivers it, one of --parts, or the title's part when there are none")
     if args.incident and not args.joins and state.INCIDENT_FIX not in (args.parts or []):
         raise DriveError(
             f'an incident order starts its fix job at the alert, beside diagnosis: name "{state.INCIDENT_FIX}" among --parts, such as'
@@ -532,6 +534,8 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
             "note": joined and joined["note"],
             "joins": joined and (joined["joins"] or args.joins),
         }
+        for part, words in args.ask or [(None, args.words)]:
+            state.add_ask(data, order_id, words, args.source, [part] if part else [named for named in parts if not state.STAGING_PARTS.fullmatch(named)], created)
         if data["tooling_backlog"] and tooling and not args.incident and state.unasked_tooling(order) and not joined:
             why = state.promote(order, args.promote, state.parse_time(created)) if args.promote else None
             backlogged = [backlog_line(order_id, order, why)]
@@ -1452,6 +1456,25 @@ def owed_done(args: argparse.Namespace) -> int:
         return f"{args.id} on {order_id} done: {args.because}"
 
     return emit(args, state.write(name, done_write), {"id": args.id})
+
+
+def order_ask(args: argparse.Namespace) -> int:
+    """Keep one thing he asked for on an order in his words, at his message's permalink, on the part that delivers it: the part --part names, added when the order lacks it, else a part of its own named for the ask, ask <id>, so an ask no job carries raises its ORPHAN line, and never a part named from the opening words of his message. The hearing session splits his message into asks and calls this once per ask; its line opens with the ask's id."""
+    name = state.resolve(args.drive)
+    refuse_unquotable_parts("--part", [args.part] if args.part else [])
+
+    def order_asked(data: dict):
+        order = find(data["orders"], args.id, "order")
+        ask_id = state.add_ask(data, args.id, args.words, args.link, [], state.stamp())
+        part = args.part or state.ASK_PART.format(ask=ask_id)
+        order["asks"][ask_id]["parts"] = [part]
+        if part not in order["parts"]:
+            change_parts(name, data, args.id, [part], [])
+        order["updated"] = state.stamp()
+        return ask_id, part, data
+
+    ask_id, part, data = state.write(name, order_asked)
+    return emit(args, "\n".join([f'{ask_id} {args.id} "{part}": his words kept as an ask; a release naming it with --asks {ask_id} carries the merged PRs of the jobs on that part', *repeated_lines(data, args.id, [part])]), {"ask": ask_id, "order": args.id, "part": part})
 
 
 def order_check(args: argparse.Namespace) -> int:
@@ -7838,6 +7861,13 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--rework", action="append", default=[], type=rework_mark, metavar="PR=LINK", help=REWORK_HELP)
     verb.add_argument("--parts", nargs="+", type=str.strip, metavar="PART", help="each deliverable his words name; default: one, the whole order")
     verb.add_argument(
+        "--ask",
+        nargs=2,
+        action="append",
+        metavar=("PART", "WORDS"),
+        help="one thing his message asks for, in his words, and the part delivering it, once per thing he asks: the hearing session splits his message, code keeps each ask; default: one ask, his whole words, on every part",
+    )
+    verb.add_argument(
         "--incident",
         action="store_true",
         help=(
@@ -8057,6 +8087,12 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("switch", choices=("on", "off"), help="on or off")
     verb.set_defaults(run=order_backlog)
+    verb = order.add_parser("ask", parents=[*both, dry_opt], help="keep one thing he asked for on an order, in his words, on the part that delivers it")
+    verb.add_argument("id", help="the order")
+    verb.add_argument("--words", required=True, help="his words asking this one thing, verbatim, split from his message by the hearing session")
+    verb.add_argument("--link", required=True, help="his message's permalink, or terminal")
+    verb.add_argument("--part", type=str.strip, help="the part delivering it, added when the order lacks it; default: a part of its own, ask <id>")
+    verb.set_defaults(run=order_ask)
     verb = order.add_parser("check", parents=both, help="run a standing part's check, the pass the watch starts in place of a codex job, keeping its exit code and closing line on the part")
     verb.add_argument("id", help="the order")
     verb.add_argument("--part", required=True, type=str.strip, help="the standing part whose check it runs")

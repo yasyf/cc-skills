@@ -5552,6 +5552,31 @@ def test_an_order_added_with_no_parts_is_one_part_named_by_its_title_and_its_rea
     assert (builder["goal"], "\nGoal: build one store_copy_at call per stalled store\n" in Path(builder["brief"]).read_text()) == ("build one store_copy_at call per stalled store", True)
 
 
+def test_his_asks_are_kept_in_his_words_on_the_parts_delivering_them_and_a_later_ask_gets_a_part_of_its_own_never_one_named_from_his_opening_words(run: Run, meta: str) -> None:
+    words = "Drive tooling: show only agents I started, and hide creation from non-employees"
+    link = "slack:D123/1794506760.000100"
+    added = run(
+        "order", "add", "--title", "Cloud agent list", "--project", "The drive", "--workstream", "Drive tooling", words, "--from", link,
+        "--parts", "own agents", "employee creation", "--ask", "own agents", "show only agents I started", "--ask", "employee creation", "hide creation from non-employees",
+    )
+    assert added[0] == 0
+    asks = state.load("demo")["orders"]["o1"]["asks"]
+    assert [(ask["words"], ask["link"], ask["parts"]) for ask in asks.values()] == [
+        ("show only agents I started", link, ["own agents"]),
+        ("hide creation from non-employees", link, ["employee creation"]),
+    ]
+    later = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794507840000200"
+    code, out = run("order", "ask", "o1", "--words", "remove the env picker too, it confuses people", "--link", later)
+    ask_id = out.split()[0]
+    data = state.load("demo")
+    assert (code, data["orders"]["o1"]["asks"][ask_id]["parts"], f"ask {ask_id}" in data["orders"]["o1"]["parts"]) == (0, [f"ask {ask_id}"], True)
+    assert list(state.open_asks(data, "o1")) == [*asks, ask_id]
+    assert run("order", "add", "--title", "Bad ask", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: x", "--ask", "no such part", "x")[0] != 0
+    run("order", "add", "--title", "Whole message", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: one thing")
+    (whole,) = state.load("demo")["orders"]["o2"]["asks"].values()
+    assert (whole["words"], whole["parts"]) == ("Drive tooling: one thing", ["Whole message"])
+
+
 def test_a_build_jobs_research_is_a_reader_of_its_own_part_a_designs_change_counting_as_the_designs_part(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -12,7 +12,7 @@ from drive import brief, cli, limits, reads, render, reports, settled, state, su
 from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json", "dry_run"}
-OPS = {"order": ("add", "set", "posted", "told", "go"), "job": ("add", "set", "brief"), "pr": ("add", "set"), "incident": ("open", "stop", "freeze")}
+OPS = {"order": ("add", "set", "ask", "posted", "told", "go"), "job": ("add", "set", "brief"), "pr": ("add", "set"), "incident": ("open", "stop", "freeze")}
 ONE_VERB = {"heard": ("heard",), "status": ("status",), "search_plan": ("plan", "search"), "page": ("page", "make")}
 POST_SECONDS = 60
 POSTED_KEPT = 100
@@ -60,8 +60,8 @@ RECORD_ORDER = (
     f'the order the communicator\'s owner record about the drive goes to, written before it goes out so his words reach the meta session'
     f' holding an order: the fields of drive order add for a new order the meta session holds, such as "{state.TOOLING} <what his words'
     ' ask for>" with its title, or his question in his own words with its title, project and workstream, added from his message at url in'
-    " his thread, or the id of the open order the meta session holds that his words carry on, whatever its words open with, which takes"
-    " them as a new part; left out, they carry on the open one the record's attr order, job or thread names, and with none the record is refused."
+    " his thread, or the id of the open order the meta session holds that his words carry on, which keeps"
+    " them as asks, by the record's asks field; left out, they carry on the open one the record's attr order, job or thread names, and with none the record is refused."
     " The record goes out naming it as attr order, and the part it added as attr part, <o>:<part>. Only the communicator names it:"
     " any other session sends words of his it heard first with no order and no to, reaching the communicator, which takes them as his message"
 )
@@ -97,6 +97,22 @@ RECORD = {
             ),
         },
         "thread": {"type": "string", "description": "the thread it is about, kept as attr thread"},
+        "asks": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "words": {"type": "string", "description": "his words asking this one thing, verbatim, a span of text"},
+                    "part": {"type": "string", "description": "the part of the order that delivers it, a few words of yours; left out, the ask gets a part of its own named ask <id>"},
+                },
+                "required": ["words"],
+            },
+            "description": (
+                "on the communicator's owner record of his words adding work to an open order: each thing his message asks for, split by you,"
+                " kept on the order in his words, drive order ask, so a release names the asks it ships and each stays open until delivered;"
+                " left out, his whole message is one ask"
+            ),
+        },
         "waits": {
             "type": "string",
             "description": (
@@ -134,8 +150,8 @@ RECORD = {
                 " his ruling or feedback on any of it included, which reaches the meta session alone whatever lane to names,"
                 " holding the order its order field adds or carries on;"
                 f' "{state.ABOUT_HIS_WORK}" for everything else, his product orders and the code they change, which reaches'
-                " the coordinator session hearing its order, his words kept first as a new part of the open order its attrs or"
-                " thread serve, which the watch names until a job or card carries it"
+                " the coordinator session hearing its order, his words kept first as asks on the open order its attrs or"
+                " thread serve, by the record's asks field, each on a part the watch names until a job or card carries it"
             ),
         },
         "re": {
@@ -714,7 +730,7 @@ def ordered_first(name: str, records: list[dict], posts: list[dict], ordering: l
 
 
 def carried(name: str, said: list[str], index: int, item: dict, attrs: dict, dry_run: bool) -> None:
-    """Write the order or part the communicator's owner record makes before it goes out, so no word of his adding work goes unchased: about the drive, the new order the meta session holds that its order field's fields make, else his words as a new part of the open order the meta session holds that its order field names or its attrs or thread serve, whatever its words open with, refused when it serves none, the order's own words naming its title's part; about his work, his words as a new part of the open order a coordinator holds that its attrs or thread serve, and none when it serves none, since the coordinator files his new order. Words whose message shares someone else's report and serves an open order another message added go to the order reporters_order names in place of a part. The record names the order as attr order, and a part it added as attr part."""
+    """Write the order or part the communicator's owner record makes before it goes out, so no word of his adding work goes unchased: about the drive, the new order the meta session holds that its order field's fields make, else his words as asks on the open order the meta session holds that its order field names or its attrs or thread serve, refused when it serves none, the order's own words naming its title's part; about his work, his words as asks on the open order a coordinator holds that its attrs or thread serve, and none when it serves none, since the coordinator files his new order. Each ask is one thing the record's asks field splits from his message, his whole message when it names none, kept by drive order ask on the part it names or one of its own, never a part named from the opening words of his message. Words whose message shares someone else's report and serves an open order another message added go to the order reporters_order names in place of an ask. The record names the order as attr order, and the parts its asks went on as attr part."""
     named = item.get("order")
     if isinstance(named, dict):
         fields = {"kind": "build", "owner": "meta"} | sourced(item) | named
@@ -740,10 +756,14 @@ def carried(name: str, said: list[str], index: int, item: dict, attrs: dict, dry
     if message and order["from"] != cli.slack_key(item["url"], message) and (shared := cli.shared_reports(item["url"], message)):
         attrs["order"] = reporters_order(name, said, index, item, attrs, shared, data, order_id, dry_run)
         return
-    part = order["title"] if state.whole_order(item["text"]) == state.whole_order(order["text"]) else state.whole_order(item["text"])
-    attrs |= {"order": order_id, "part": f"{order_id}:{part}"}
-    if part not in order["parts"]:
-        ran(name, said, index, ("order", "set"), {"id": order_id, "add_part": [part]}, dry_run)
+    if state.whole_order(item["text"]) == state.whole_order(order["text"]):
+        attrs |= {"order": order_id, "part": f"{order_id}:{order['title']}"}
+        return
+    parts = []
+    for asked in item.get("asks") or [{"words": item["text"]}]:
+        printed = ran(name, said, index, ("order", "ask"), {"id": order_id, "words": asked["words"], "link": item.get("url") or "terminal", "part": asked.get("part")}, dry_run)
+        parts.append(f"{order_id}:{asked.get('part') or state.ASK_PART.format(ask=first(printed))}" if printed else f"{order_id}:{asked.get('part')}")
+    attrs |= {"order": order_id, "part": ";".join(parts)}
 
 
 def reporters_order(name: str, said: list[str], index: int, item: dict, attrs: dict, shared: list[dict], data: dict, served: str, dry_run: bool) -> str:

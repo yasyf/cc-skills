@@ -1199,7 +1199,11 @@ def bare_seq(seq: str | None) -> str | None:
 def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     """The drive as saved brought up to the fields this install reads, and whether shaping it read only the database: true once every once-only pass over files on this Mac had run before this shaping, the cards closed included."""
     data, order_fields = bound(saved), order_defaults().keys()
+    seeded = 0
     for order_id, order in data["orders"].items():
+        if "asks" not in order:
+            seeded += order["state"] not in CLOSED_ORDER_STATES
+            order["asks"] = {} if order["state"] in CLOSED_ORDER_STATES else {f"a{seeded}": {"words": order["text"], "link": order["from"], "at": order["created"], "parts": [part for part in order.get("parts") or {} if not STAGING_PARTS.fullmatch(part)]}}
         order["priority"] = priority_seat(order_id) if order.get("priority") is True else order.get("priority") or None
         if "parts" not in order:
             whole = whole_order(order["text"])
@@ -4228,6 +4232,32 @@ def whole_order(text: str) -> str:
     return " ".join(text.split())[:PART_CHARS].rstrip()
 
 
+ASK_PART = "ask {ask}"
+
+
+def add_ask(data: dict, order_id: str, words: str, link: str | None, parts: list[str], moment: str) -> str:
+    """Keep one thing he asked for on its order, in his words, with the permalink of the message that asked it and the parts that deliver it: its id, drive-wide, which a release's --asks names. The hearing session splits his message into asks, and code only stores them, by his rethink step 5."""
+    ask_id = next_id({held: None for order in data["orders"].values() for held in order["asks"]}, "a")
+    data["orders"][order_id]["asks"][ask_id] = {"words": words, "link": link, "at": moment, "parts": parts}
+    return ask_id
+
+
+def find_ask(data: dict, ask_id: str) -> tuple[str, dict] | None:
+    """The order holding an ask and the ask, or None for an id no order holds."""
+    return next(((order_id, order["asks"][ask_id]) for order_id, order in data["orders"].items() if ask_id in order["asks"]), None)
+
+
+def ask_delivered(data: dict, order_id: str, ask: dict) -> bool:
+    """Whether an ask is delivered: each part it names that its order still holds is delivered, by delivered(); an ask whose parts were all dropped is not, since nothing delivered it. Live where he uses it is the fix_live owed item's to read."""
+    held = [part for part in ask["parts"] if part in data["orders"][order_id]["parts"]]
+    return bool(held) and all(delivered(data, order_id, part) for part in held)
+
+
+def open_asks(data: dict, order_id: str) -> dict[str, dict]:
+    """Each ask of an order not delivered yet, by ask_delivered, oldest first."""
+    return {ask_id: ask for ask_id, ask in data["orders"][order_id]["asks"].items() if not ask_delivered(data, order_id, ask)}
+
+
 def unquotable_part(name: str) -> bool:
     """Whether words cannot name a part of an order, the one check every writer of a part's name runs: longer than PART_CHARS, or holding a backtick, double quote, $ or backslash, which double quotes do not keep as typed, since the coordinator types each part as --part "<the part>" and a design's Change: line names its change in those same words."""
     return len(name) > PART_CHARS or bool(re.search(r'[`"$\\]', name))
@@ -4283,6 +4313,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "updated": created,
         "last_line": None,
         "owed": [],
+        "asks": {},
     }
 
 
@@ -5980,7 +6011,7 @@ def unrecorded(role: str | None, kind: str, attrs: dict) -> str | None:
     if attrs.get("about") != ABOUT_DRIVE:
         return (
             f'refused, nothing posted: his words go out on the drive\'s `record` tool, kind owner, about "{ABOUT_HIS_WORK}", which keeps'
-            " them as a new part of the open order its attrs or thread serve in the same call, so the watch names that part until a job"
+            " them as asks on the open order its attrs or thread serve in the same call, each on a part the watch names until a job"
             " or card carries it"
         )
     return (

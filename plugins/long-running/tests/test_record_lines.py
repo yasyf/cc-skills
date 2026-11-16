@@ -689,7 +689,7 @@ def test_the_communicators_record_for_a_coordinator_goes_to_the_lane_it_names_an
     assert record_lines.decision(post("iris-1", "iris", **about_drive)) is None
     for words in ({"text": "also the logs page", "attrs": {"thread": THREAD, "about": "his work"}}, {"text": "a new order", "attrs": {"about": "his work"}}):
         unparted = refusal(record_lines.decision(post("talker", kind="owner", to=root, **words)))
-        assert isinstance(unparted, agents.Unjudged) and "keeps them as a new part of the open order its attrs or thread serve" in unparted
+        assert isinstance(unparted, agents.Unjudged) and "keeps them as asks on the open order its attrs or thread serve" in unparted
         assert record_lines.decision(post("iris-1", "iris", kind="owner", to=root, **words)) is None
     unsaid = {"kind": "owner", "text": "a new order", "to": root}
     assert 'an owner record names what his words are about, about "drive" for drive tooling' in refusal(record_lines.decision(post("talker", **unsaid)))
