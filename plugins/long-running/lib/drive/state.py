@@ -350,6 +350,7 @@ TABLES = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
 CREATE TABLE rows (collection TEXT NOT NULL, key TEXT NOT NULL, place INTEGER NOT NULL, body TEXT, PRIMARY KEY (collection, key)) WITHOUT ROWID;
 """
+PENDING_OWNER_PAGES = "collection = 'orders' AND json_extract(body, '$.incident') = 1 AND json_extract(body, '$.state') NOT IN ('done', 'dropped') AND ((json_extract(body, '$.paged') IS NULL AND json_extract(body, '$.users') > 0) OR (json_extract(body, '$.paged') IS NOT NULL AND json_type(body, '$.page_post') = 'object' AND json_extract(body, '$.page_post.link') IS NULL))"
 LISTED = (
     "CREATE TABLE IF NOT EXISTS changed (rev INTEGER PRIMARY KEY, collection TEXT NOT NULL, key TEXT NOT NULL)",
     "CREATE TRIGGER IF NOT EXISTS row_inserted AFTER INSERT ON rows BEGIN INSERT INTO changed (collection, key) VALUES (NEW.collection, NEW.key); END",
@@ -357,6 +358,7 @@ LISTED = (
     "CREATE TRIGGER IF NOT EXISTS row_deleted AFTER DELETE ON rows BEGIN INSERT INTO changed (collection, key) VALUES (OLD.collection, OLD.key); END",
     "CREATE INDEX IF NOT EXISTS pending_outboxes ON rows (collection, place) WHERE collection = 'jobs' AND json_array_length(body, '$.outbox') > 0",
     "CREATE INDEX IF NOT EXISTS pending_close_reports ON rows (collection, place) WHERE collection = 'orders' AND json_type(body, '$.close_report') = 'object' AND json_extract(body, '$.state') NOT IN ('done', 'dropped')",
+    f"CREATE INDEX IF NOT EXISTS pending_owner_pages ON rows (collection, place) WHERE {PENDING_OWNER_PAGES}",
 )
 VERSION = json.loads((Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json").read_text())["version"]
 
@@ -826,6 +828,12 @@ def has_close_reports(name: str) -> bool:
     """Whether an open order holds a close report, read through its pending index without loading the drive."""
     with closing(connect(database_path(name).resolve(strict=True))) as db:
         return db.execute("SELECT 1 FROM rows WHERE collection = 'orders' AND json_type(body, '$.close_report') = 'object' AND json_extract(body, '$.state') NOT IN ('done', 'dropped') ORDER BY place LIMIT 1").fetchone() is not None
+
+
+def has_owner_pages(name: str) -> bool:
+    """Whether an open incident needs a page or a retry of its page's channel post, read through its pending index."""
+    with closing(connect(database_path(name).resolve(strict=True))) as db:
+        return db.execute(f"SELECT 1 FROM rows WHERE {PENDING_OWNER_PAGES} ORDER BY place LIMIT 1").fetchone() is not None
 
 
 def owed(name: str, job_id: str) -> list[dict]:

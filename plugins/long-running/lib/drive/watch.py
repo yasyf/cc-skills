@@ -1586,6 +1586,8 @@ def page_post_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 def owner_page_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Page him once for each incident order the watch hears that opened since he was last heard, is open while he is not present, by state.absence, the presence the landing gate reads, and carries the cci record showing real users failing, by state.PAGE_RULE, so a failure only the drive's own callers or proofs hit pages nobody and one whose record lands later pages then, each by page_with_line; a page that fails is said as a failed read is and tried again next pass, and each paged line that did not post goes again by page_post_lines."""
+    if not state.has_owner_pages(watcher.name):
+        return []
     lines = page_post_lines(watcher, moment)
     data = state.load(watcher.name)
     if not state.absence(data, moment):

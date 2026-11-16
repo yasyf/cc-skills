@@ -10892,6 +10892,16 @@ def test_o761s_incident_on_a_surface_he_uses_holds_its_live_line_with_one_prove_
     assert state.load(demo)["orders"]["o1"]["proof"] == f"{fixed}; {recording}"
 
 
+def test_idle_owner_page_stage_does_not_load_the_drive(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    with edit(demo) as data:
+        for order in data["orders"].values():
+            order.update(incident=False)
+    watching = watcher(demo)
+    monkeypatch.setattr(state, "load", lambda *args, **kwargs: pytest.fail("an idle owner-page stage must not load the drive"))
+    assert watch.owner_page_lines(watching, T0) == []
+
+
 def test_a_page_for_real_users_failing_while_he_is_away_starts_its_fix_and_diagnosis_and_goes_out_though_slack_refuses_its_line_which_the_watch_posts_in_the_drive_channel_next_pass_once(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
     posts: list[dict] = []
