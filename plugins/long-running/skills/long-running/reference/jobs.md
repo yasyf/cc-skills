@@ -11,824 +11,618 @@ Contents:
 
 ## Who owns a job and where it runs
 
-- Every job is the coordinator's except two kinds. A drive tooling order's reader, designer and
-  builder are the meta session's, started under its own "Drive tooling:" order by [meta.md](meta.md),
-  so neither the communicator nor the coordinator starts a tooling job. The reader of his read-only
-  question is the communicator's, under its `answer` order, which `drive handler --answer` adds
-  with that reader job, the handler its agent. An order of the coordinator's whose
-  builder serves drive tooling becomes the meta session's when
-  `drive job brief <j> --serves "drive tooling"` writes that brief: from then on only the meta
-  session starts its agents and posts its reports, and the watch sends it the order's lines. The
-  coordinator starts no agent on it and sends `meta@<drive>` a `defect` record naming the job and its
-  `Read your brief first:` line.
-- A session on this Mac that stops on Claude Code's usage limit, "You've hit your weekly limit ·
-  resets …", keeps working on paid usage, by his words "Keep working on paid usage": the StopFailure
-  hook sends Escape alone to the dialog in the session's own Orca terminal once it draws, never one of
-  its options, since "if u answer it with the paid limit it makes you log in again", and Escape again
-  to a login screen the session lands on, never a login, by "if u end up at teh login prompt esc out
-  of that too", until a re-read shows neither screen, then resumes the turn as it resumes any API
-  error. Each hit
-  goes on the job whose lane runs in that session's worktree, under `limit_hits`, and neither fails nor
-  relaunches it, and one line of `claude-usage-limits.jsonl` under the state folder, which every drive
-  on this Mac shares since they share one account, names the session, its job, the reset and whether Escape
-  dismissed the dialog.
-- Every drive and watch on this Mac shares two caps on the Claude lanes it starts, set in
-  `caps.json` under the drive's state root, `{"local": 12, "sprite": 30, "handlers": 8,
-  "load_per_core": 1, "free_memory": 15}` for each key it leaves out, read at each start so a change holds at once:
-  at most `local` Claude lanes of any role work here at once, builder, reader, designer
-  and watchdog alike, while at most `handlers` handler sessions work in a pool of their own the
-  local cap never closes, and at most `sprite` lanes run on Sprites. No new local lane starts while
-  the 1-minute load average is over the core count times `load_per_core` or under `free_memory`
-  percent of memory is free. A builder here then waits its turn on `builder-slot`, or starts
-  on a Sprite when its brief declares no step only this Mac runs; a reader or designer the
-  `agent_brief` hook refuses starts on a Sprite; a report's or digest's handler waits for its
-  turn, while a handler on a message of his starts at once past every cap and gate, and its
-  `claude --bg` tries again at 5, 15 and 30 seconds when Claude Code's background service does not
-  answer; a stall's watchdog waits for a later pass. A first lane on a Sprite past the `sprite` cap
-  waits its turn on `sprite-slot`, and the watch's `FREE` line names it, earliest due first, as a
-  lane frees. Work on a priority or open incident order, or an `immediate fix` part, starts past
-  both caps and the gate. Queued work waits; it never fails.
-- The same `caps.json` sets each project's daily budget in dollars: `daily_usd`, the day's total,
-  `15000` unless set, of which drive tooling, every order whose words open `Drive tooling:`, may
-  spend `tooling_share`, `0.25`, and `project_usd`, `5000`, what each other project may spend a
-  day unless `projects` names its own, as `{"projects": {"Billing": 4000}}`. Spend prices each
-  message of a job's transcripts dated today at its model's list price: input and output at their
-  own, a cache write at 1.25 times input or 2 times for one kept an hour, a cache read at 5% of
-  input. It sums over every drive that files work under the project's name; the watch reads it
-  again every five minutes from where its last read ended, and a lane on a Sprite counts once its
-  transcripts are copied here at its end. A project past its budget starts no new lane, relaunch
-  or takeover until the next day, its jobs waiting their turn as at a full cap; work on a priority
-  or open incident order, or a job marked `--priority`, still starts; and the watch tells him once
-  a day, in dollars, as "Drive tooling hit today's $3.8k budget; non-urgent tooling waits until
-  tomorrow."
-- At most eight builders hold this Mac's builder slots at once: each builder job here the watch's
-  `FREE` line gave its turn for a slot whose agent has not started yet, each job on a Sprite whose
-  turn to move here came, for the 30 minutes its launch may take or until its lane here starts, each builder the `agent_brief`
-  hook let an Agent call start here, from that call until its agent's first step records it, so a burst of starts fills the
-  cap rather than passing it, each agent here still in its turn, and each Orca
-  worker started here with `drive job launch --local` while it launches or runs. An agent that ended its turn, on a result line or a question, does not count, nor
-  does a launch that started no worker or a lane on a Sprite, nor a job freed from a card, PR or other wait whose agent has not started. `drive job add builder` past eight, or
-  while builders wait their turn, records the job to start on a Sprite at once, `where` remote, and
-  prints why, naming each builder it counted with its order and when its agent last wrote, and its
-  `drive job launch <j> <brief>`. Only a builder whose brief declares a step only this Mac runs, on
-  its `Mac:` or `Release:` line below, waits its turn for a slot, held on `builder-slot`;
-  `drive status` shows its place, and the watch reads the job waiting, never abandoned.
-  A builder on an open incident's order, on an open order `drive order set <o> --priority` marked
-  first in line, or on an `immediate fix` part never waits its turn: it starts here at once past the
-  cap and the line, and holds a slot against later builders once it runs. A priority order's
-  builder also starts here past the load gate, and one already waiting its turn takes it on the
-  watch's next pass, ahead of every other job in line; his words: "they aren't slowed down at any
-  cost by anything". A drive verb or drive MCP call naming that order, one of its jobs or a PR one
-  carries takes the drive's lock ahead of every other writer waiting for it. The mark also starts a coordinator session for that order alone, the
-  sub-coordinator for `Priority <o>`, so no other order's events queue ahead of its own; his words:
-  "when something gets marked as priority it gets its own dedicated coordinator spun uo for it".
-  A builder added with `drive job add builder --order <o> --goal "<goal>" --builds-nothing`, one whose whole work holds no
-  checkout or compiler, such as a read, or one whose goal reads `prove <PRs> live`, a merged PR's
-  live proof, marked or not, holds no slot at all, and `drive job prove` proves live only the PRs a `prove <PRs> live`
-  goal names, never one a staging tester's brief cites: it starts
-  here at once past the cap and the line, and no later builder counts it. `drive job set <j> --builds-nothing`
-  marks a builder already added the same way, a waiting one included, so a message wakes it past a full
-  cap and one waiting its turn leaves the line.
-  Each watch pass counts this Mac's builders once and gives each open slot to the builder job waiting
-  its turn that is due first: the earliest time promised him on an order it serves, then the oldest
-  added. Its `FREE` line goes once to the session holding its order, which starts its agent then. The
-  `agent_brief` hook refuses any other builder here while one waits its turn, naming each builder it
-  counted and the line: one whose brief declares no such step starts on a Sprite at once with
-  `drive job launch <j> <brief>`, and one whose brief declares one, that no agent runs, it holds waiting its
-  turn the same way, unless a wait, a card of his or an open PR of its still holds it.
-  Every start here meets this one count, and no judge lifts its refusal: an Agent call, through the
-  `agent_brief` hook; `drive job launch --local`, for a first lane, which starts on a Sprite or
-  waits its turn the same way; a move from a Sprite, below, or a takeover from an agent here whose
-  brief declares such a step, which waits its turn on `builder-slot` whatever its worker, waits or PRs, its Sprite lane running on meanwhile and the texts the job holds
-  kept for the handoff, until the watch's turn stamps its slot and starts the move itself with
-  `drive job launch <j> --local`, a refusal of that launch reaching the coordinator as its
-  `relaunch_refused` event; and a SendMessage that would wake an agent here
-  whose turn ended, which the `communicator_calls` hook refuses while the slots are full, and after
-  which `drive job resume <j> "<the message>"` hands the job to a lane on a Sprite with the message
-  in its handoff, or holds the message for that takeover when its brief declares such a step.
-- A <monorepo> builder is placed when it starts, from the step its brief declares, by his pick
-  "Decide at start: a brief naming a Mac-only step starts here at any load, others keep the load
-  check". `drive job add` never refuses one for load. The brief's writer names the step only this
-  Mac runs that the job itself runs with `drive job brief <j> --mac "<the step>"`, its `Mac:` line:
-  break-glass, `drive install`, the drive's dashboard, a Mac box (`ci mac-box`) or test Mac, or a
-  devbox (`ci devbox`). A drive tooling builder whose Goal names a step to take once its change is
-  installed, such as redrawing a card or resuming a job, needs no `Mac:` line for it: a `yasyf/*`
-  merge reaches no lane, so the brief's writer names each such step as a drive command with
-  `drive job brief <j> --after "<command>"`, its `After install:` line, which `drive job prove`
-  runs here once the proof file passes on the installed build, taking `DONE` only when each exits
-  0, and `brief_refusal` refuses its launch while Jev answers 0.7 or more that its Goal does and no
-  `After install:` line names one. A `Release:` line declares one too, since its
-  agent follows and approves the release with this Mac's Buildkite token. `place.mac_step` reads those two lines and no
-  other word of the brief, since its fields quote where his words were typed, an alert he shared
-  from Datadog, the `Incident:` rule's `<ci> release start` and what earlier jobs found: no word
-  of his `Order`, a `Goal`, `Plan` or `Handoff` places a job. The `agent_brief` hook refuses a
-  builder started with the Agent tool while this Mac's CPU is at or over its load gate's limit, the
-  `remote` that `drive place` prints, unless its brief declares such a step. Every later start of
-  a Sprite job reads the same lines once, by the same `place.mac_step`, before it sends or starts
-  anything: `drive job resume`, `drive job launch` and `drive pr wake` read its brief alone, never its
-  report, a text it holds, the resume's text or a takeover section a handoff added, and a job declaring one moves to a fresh worktree here, as `--local` moves one,
-  whatever its Sprite worker is doing and never in the Sprite's own Claude session: a worker still
-  at work or still taking messages is stopped by `orca.reclaim`, as `drive job end` stops one, and
-  gets nothing, and every text the job holds goes in the handoff. A builder that builds nothing
-  moves at once past the cap. A builder return's `Mac:` line, the step its `PROVE:` needs, goes onto
-  the brief of the prover added at its merge, so that prover starts here while a red check on the
-  job's own PR reaches its Sprite lane. Such a brief starts here
-  at any load, and `drive job launch <j>` refuses its Sprite start, naming the step: start it with
-  the Agent tool or with `--local`. A brief whose writer left its `Mac:` line out starts on a Sprite,
-  which refuses or lacks the step. A refused builder starts on its own Sprite with `drive job launch <j>`,
-  which also starts one waiting its turn there at once. A Sprite holds no Buildkite token or Datadog
-  key and reads Datadog with `drive datadog`, which runs on this Mac with ai-oncall's keys; its AWS session reads Buildkite and starts `ci db-read` builds only through the sprite door, and `ci mac-box` and `ci devbox` run on this Mac's machine profile
-  through `DEVBOX_AWS_PROFILE`, with no sign-in. Readers, codex jobs and any job that touches this
-  Mac's processes always run here.
-- A Mac box comes down with the job that holds it. `<ci> mac-box up <name> --holder <drive>/<job>`
-  refuses a box with no holder; the lane names the drive and job its brief's `Drive:` line names,
-  which tags the box `mac-box:holder`. The save that moves a job into done, failed or stopped
-  starts `drive mac-boxes-down <job>`, a process of its own that runs `<ci> mac-box down --holder
-  <drive>/<job>` in the drive's checkout and whose output goes to the drive's `mac-boxes.log`, so no box outlives its job and no sweep
-  looks for one. A waiting job, such as one waiting for a staging slot, keeps its box, and a job
-  that needs a Mac runs its own `up`. A box handed to another job moves before the old job's save
-  with `<ci> mac-box up <box> --holder <drive>/<new job> --from <drive>/<old job>`, run by either
-  job, which moves the box's `mac-box:holder` tag instead of launching one, so that save leaves the
-  box up for the new job and the new job's own save takes it down; a box handed on with no such `up`
-  comes down at the old job's save, under the new job, and its host sits in AWS's scrub for an hour
-  or more.
+- **Owner.** A job is the coordinator's, with two exceptions. A drive tooling order's reader,
+  designer and builder are the meta session's, started under its own "Drive tooling:" order by
+  [meta.md](meta.md). The reader of his read-only question is the communicator's:
+  `drive handler --answer` adds the `answer` order and its reader job, the handler its agent. A
+  coordinator order whose builder serves drive tooling moves to the meta session when
+  `drive job brief <j> --serves "drive tooling"` writes that brief. From then on the meta session
+  starts its agents and posts its reports, and the watch sends it the order's lines. The coordinator
+  sends `meta@<drive>` one `defect` record naming the job and its `Read your brief first:` line.
+- **Usage limit.** A session here that stops on Claude Code's usage limit ("You've hit your weekly
+  limit · resets …") keeps working on paid usage. The StopFailure hook sends Escape to the dialog in
+  the session's Orca terminal, and Escape again to a login screen, because picking the paid option
+  or logging in forces a fresh login. It then resumes the turn as it resumes any API error. Each hit
+  is counted on the job under `limit_hits` and logged as one line of `claude-usage-limits.jsonl`
+  under the state folder, which every drive on this Mac shares. A hit does not fail or relaunch the
+  job.
+- **Caps.** `caps.json` under the drive's state root is read at each start, so a change holds at
+  once. Its defaults are `{"local": 12, "sprite": 30, "handlers": 8, "load_per_core": 1,
+  "free_memory": 15}`. At most `local` Claude lanes of any role work here at once, `handlers`
+  handler sessions in a pool of their own, and `sprite` lanes on Sprites. No new local lane starts
+  while the 1-minute load average is over the core count times `load_per_core`, or less than
+  `free_memory` percent of memory is free. What happens at a full cap:
+  - A builder waits on `builder-slot`, or starts on a Sprite when its brief declares no step only
+    this Mac runs.
+  - A reader or designer the `agent_brief` hook refuses starts on a Sprite.
+  - A report's or digest's handler waits its turn. A handler on a message of his starts at once
+    past every cap and gate, and its `claude --bg` retries at 5, 15 and 30 seconds when Claude
+    Code's background service does not answer.
+  - A stall's watchdog waits for a later pass.
+  - A first Sprite lane past the `sprite` cap waits on `sprite-slot`. The watch's `FREE` line
+    names it, earliest due first, as a lane frees.
+  - Work on a priority or open incident order, or an `immediate fix` part, starts past both caps
+    and the gate. Queued work waits. It does not fail.
+- **Budget.** The same file sets each project's daily budget in dollars. `daily_usd` is the day's
+  total, `15000` unless set. Drive tooling, every order whose words open `Drive tooling:`, may spend
+  `tooling_share` of it, `0.25`. Each other project may spend `project_usd`, `5000`, unless
+  `projects` names its own, as `{"projects": {"Billing": 4000}}`. Spend prices each message of a
+  job's transcripts dated today at its model's list price: input and output at their own, a cache
+  write at 1.25 times input (2 times when kept an hour), a cache read at 5% of input. It sums over
+  every drive filing work under the project's name. The watch re-reads it every five minutes, and a
+  Sprite lane counts once its transcripts are copied here at its end. A project past its budget
+  starts no new lane, relaunch or takeover until the next day, and its jobs wait as at a full cap.
+  Work on a priority or open incident order, or a job marked `--priority`, still starts. The watch
+  tells him once a day, in dollars.
+- **Builder slots.** Eight builders hold this Mac's builder slots at once. A slot is held by: a
+  builder the `FREE` line gave its turn whose agent has not started; a Sprite job whose turn to move
+  here came, for 30 minutes or until its lane starts; a builder the `agent_brief` hook let start,
+  from that call on; an agent still in its turn; an Orca worker started with
+  `drive job launch --local` while it launches or runs. An agent that ended its turn, a launch that
+  started no worker, a Sprite lane, and a job freed from a wait whose agent has not started hold
+  none.
+  - `drive job add builder` past eight, or while builders wait, records the job to start on a Sprite
+    at once (`where` remote) and prints why, with its `drive job launch <j> <brief>`.
+  - A builder whose brief declares a step only this Mac runs, on its `Mac:` or `Release:` line,
+    waits on `builder-slot` instead. `drive status` shows its place.
+  - Each watch pass gives each open slot to the waiting builder due first: the earliest time
+    promised him on an order it serves, then the oldest added. Its `FREE` line goes once to the
+    session holding its order.
+  - A builder on an open incident's order, on an order `drive order set <o> --priority` marked, or
+    on an `immediate fix` part starts here at once past the cap and the line, and holds a slot once
+    it runs. A priority order's builder also starts past the load gate, and a drive verb or MCP call
+    naming that order, its jobs or its PRs takes the drive's lock ahead of other writers. The mark
+    also starts a coordinator session for that order alone, the sub-coordinator for `Priority <o>`.
+  - A builder that builds nothing holds no slot and starts at once: one added with
+    `drive job add builder --order <o> --goal "<goal>" --builds-nothing`, such as a read, or one
+    whose goal reads `prove <PRs> live`. `drive job set <j> --builds-nothing` marks one already
+    added, a waiting one included. `drive job prove` proves live only the PRs a `prove <PRs> live`
+    goal names.
+  - Every start here meets this one count, and Jev does not judge it: an Agent call through the
+    `agent_brief` hook, `drive job launch --local`, a move or takeover from a Sprite, and a
+    `SendMessage` that would wake an agent here whose turn ended, which the `communicator_calls`
+    hook refuses while slots are full. After that refusal `drive job resume <j> "<the message>"`
+    hands the job to a Sprite lane with the message in its handoff, or holds the message for the
+    takeover when the brief declares a Mac step. A move from a Sprite waits on `builder-slot` with
+    its Sprite lane running on, until the watch starts it with `drive job launch <j> --local`. A
+    refused launch reaches the coordinator as a `relaunch_refused` event.
+- **Placement.** A <monorepo> builder is placed when it starts, from the step its brief declares.
+  `drive job add` does not refuse one for load.
+  - `drive job brief <j> --mac "<the step>"` writes the brief's `Mac:` line: the step only this Mac
+    runs that the job itself runs, such as break-glass, `drive install`, the drive's dashboard, a
+    Mac box (`ci mac-box`), a test Mac or a devbox (`ci devbox`). A `Release:` line declares one
+    too, since its agent follows and approves the release with this Mac's Buildkite token.
+  - `place.mac_step` reads those two lines and nothing else in the brief, at every start:
+    `drive job resume`, `drive job launch` and `drive pr wake` included. So name the step on the
+    `Mac:` line. Words in the Order, Goal, Plan or Handoff place nothing.
+  - A brief with such a line starts here at any load, and `drive job launch <j>` refuses its Sprite
+    start, naming the step: start it with the Agent tool or `--local`. A Sprite job that gains one
+    moves to a fresh worktree here, its Sprite worker stopped by `orca.reclaim` and every text the
+    job holds carried in the handoff. A brief with no `Mac:` line starts on a Sprite, which lacks
+    the step.
+  - Without such a line, the `agent_brief` hook refuses a builder started with the Agent tool while
+    this Mac's CPU is at or over the load gate's limit, the `remote` that `drive place` prints.
+    Start it on its own Sprite with `drive job launch <j>`.
+  - A drive tooling builder whose Goal names a step to take after its change is installed, such as
+    redrawing a card or resuming a job, needs no `Mac:` line, because a `yasyf/*` merge reaches no
+    lane. Name each step as a drive command with `drive job brief <j> --after "<command>"`, the
+    `After install:` line. `drive job prove` runs each here once the proof file passes on the
+    installed build and takes `DONE` when each exits 0. `brief_refusal` refuses the launch when Jev
+    reads the Goal as naming such a step and no `After install:` line declares it.
+  - A builder return's `Mac:` line, the step its `PROVE:` needs, goes onto the brief of the prover
+    added at its merge, so the prover starts here.
+  - A Sprite holds no Buildkite token or Datadog key. It reads Datadog with `drive datadog`, which
+    runs on this Mac. Its AWS session reads Buildkite and starts `ci db-read` builds through the
+    sprite door. `ci mac-box` and `ci devbox` run on this Mac's machine profile through
+    `DEVBOX_AWS_PROFILE`, with no sign-in. Codex jobs and any job that touches this Mac's
+    processes run here, and so does a reader unless a cap sends it to a Sprite.
+- **Mac boxes.** A Mac box comes down with the job that holds it.
+  `<ci> mac-box up <name> --holder <drive>/<job>` refuses a box with no holder. The lane names the
+  drive and job from its brief's `Drive:` line, which tags the box `mac-box:holder`. The save that
+  moves a job to done, failed or stopped starts `drive mac-boxes-down <job>`, which runs
+  `<ci> mac-box down --holder <drive>/<job>` and logs to the drive's `mac-boxes.log`. A waiting job
+  keeps its box. To hand a box on, run
+  `<ci> mac-box up <box> --holder <drive>/<new job> --from <drive>/<old job>` before the old job's
+  save: it moves the tag. A box handed on without it comes down at the old job's save, and its host
+  sits in AWS's scrub for an hour or more.
 
 ## Start one on this Mac
 
 1. Add the job and write its brief in one `job` call:
    `[{add: {kind: "builder", order: "<o>", goal: "<one line>", part: ["<part>"]}}, {brief: {serves: "<his order's words, a port of #N, or drive tooling>", done_when: "<…>", where: "<repo and branch>", native: "<his surface, with links, or none>", interactions: "<his user stories on it, each what he does, and sees what he then sees, ; only between stories>", ruling: ["<answer id>"]}}]`.
-   An old-tree port takes the part `port of #N`, which the `add` gives its order when missing, so
-   ports named together each start a builder, and its brief's `Serves:` line reads that part.
-2. Start nothing for a builder, reader or design job: once its brief is kept and nothing holds
-   it, the watch starts it, on this Mac with `drive job start <j>`, which runs its agent as its own
-   `claude --bg` session on the line the `brief` op printed, or on a Sprite with
-   `drive job launch <j>` when the job was placed there. `drive job start` meets every check the
-   `agent_brief` hook runs on an Agent start, counting its builder slot or holding it waiting its
-   turn, and refuses a second start while one is in flight or at work, so the `FREE` line and each
-   line naming a briefed job say the watch starts it. Every hook of that session reads it as the
-   job's agent of the session holding its order, its return reaches you as any agent's does, and
-   `drive job resume <j> "<text>"` posts each text to its own cci address, which its next step
-   reads or a `claude --bg --resume` wakes it on, so you send it no `SendMessage`. Its session
-   outlives yours: after a restart of the drive's sessions it reads as the coordinator's agent.
-   A local job runs with no Orca terminal, dispatch or Run, by his words "consider if for some
-   things we don't have to go through orca": it starts faster and leaves no Orca state, but shows in
-   no Orca sidebar and has no terminal for Orca to reclaim, so `claude --bg` and the drive's own
-   death and gap reads alone track it. A Sprite lane, and any role that needs a visible terminal or
-   Orca's ask and reply, still runs through Orca. A refused start reaches you as its
-   `relaunch_refused` event: then start it with the Agent tool, `subagent_type`
-   `long-running:builder`, `long-running:reader` or `long-running:designer`,
-   `run_in_background: true`, a short `description` and that line as the whole `prompt`, or on a
-   Sprite as the refusal names. A codex job runs no agent: start it with `drive job launch <j>`,
-   as [Codex jobs](#codex-jobs) says.
-3. Its agent runs on the Opus its definition sets; on an Agent start after a refusal, pass no model,
-   or `model: "sonnet"` only for a reader whose question is a one-fact lookup. A design job's model
-   is in [Design first](design.md).
+   `ruling` is optional: name an answer of his when it helps the job. An old-tree port takes the
+   part `port of #N`, which the `add` gives its order when missing, and its `Serves:` line reads
+   that part.
+2. The watch starts a briefed builder, reader or design job once nothing holds it: here with
+   `drive job start <j>`, which runs its agent as its own `claude --bg` session on the line the
+   `brief` op printed, or on a Sprite with `drive job launch <j>` when the job was placed there.
+   `drive job start` runs every check the `agent_brief` hook runs and refuses a second start while
+   one is in flight. The session reads as the job's agent of the session holding its order, and its
+   return reaches you as any agent's does. `drive job resume <j> "<text>"` posts to its cci address,
+   which its next step reads or a `claude --bg --resume` wakes it on, so it needs no `SendMessage`.
+   It outlives your session.
+3. A local job has no Orca terminal, dispatch or Run. It starts faster and leaves no Orca state,
+   but shows in no Orca sidebar, so `claude --bg` and the drive's own death and gap reads track it.
+   A Sprite lane, and a role that needs a visible terminal or Orca's ask and reply, runs through
+   Orca.
+4. A refused start reaches you as a `relaunch_refused` event. Start it with the Agent tool:
+   `subagent_type` `long-running:builder`, `long-running:reader` or `long-running:designer`,
+   `run_in_background: true`, a short `description` and the `Read your brief first:` line as the
+   whole `prompt`. Or start it on a Sprite as the refusal names. Pass no model, or
+   `model: "sonnet"` for a reader whose question is a one-fact lookup. A design job's model is in
+   [Design first](design.md). A codex job runs no agent: see [Codex jobs](#codex-jobs).
 
-The `agent_brief` hook sets each Agent call to the shape the drive runs it: it drops `name`, since a
-named agent joins the agent team and never wakes on events, drops Fable from any agent but
-`long-running:designer`, starts a design job as `long-running:designer` whatever type the call
-names, and drops `sonnet` or `haiku` from any lane of a build order or of an answer order you marked
-`--complex`, so it runs on its definition's model. It refuses a reader, builder or designer whose
-prompt reads in no brief file of the drive's `jobs/` folder, where `drive job brief`, a handoff and a
-launch write every brief, naming each path the prompt names that does not exist and
-`drive job brief <j>`, so a prompt typed whole or naming a brief nothing wrote starts no agent. It
-refuses a builder whose brief lacks `Serves:`
-or `Handoff:`, whose `Serves:` names none of the three, whose job no worker started while a wait of its still holds, as `drive job launch` refuses it, so it starts on its `FREE` line, or whose Goal's own action backfills,
-bulk-repairs, migrates, converts or repairs, or runs such a pass, with no `Runs as:` line; a Goal
-that only names a PR, stack or check for a pass is not one; and a builder, other than one on an
-open incident's order or an `immediate fix` part or building nothing, marked with `--builds-nothing` or its goal reading `prove <PRs> live`, while eight hold this Mac's builder slots or one
-waits its turn ahead of it, sending one whose brief declares no step only this Mac runs to a
-Sprite at once and holding one whose brief declares one, that no agent runs and nothing else holds, waiting
-its turn and naming the line, earliest due first. The `scratch_folder` hook refuses a build
-order's builder, designer or codex lane whose brief lacks the `Researched:` line the `brief` op
-writes once its reader's or design's research is kept, the one check of that research, since `drive job add`
-adds such a job at once, unless its job ships the order's `immediate fix` part or its `Handoff:` line hands it a PR
-the drive tracks, such as proving a merged PR live, retrying its proof or rebasing it,
-or its order is a reader-pilot order of the project `drive order pilot` names, whose lane researches in its own session.
-Each refusal names its fix: do it, never route around it. These hooks run in the long-running
-capt-hook pack, which sends each refusal to Jev first: one Jev finds the rule never meant lets the
-call through, and a merge, release or public-body refusal of `landing_guard` blocks outright.
+What the hooks do to an Agent call:
 
-The brief's `Drive:` line names the job, or, when it names none, the job `--agent` already recorded
-the agent on. The agent's first Bash, Read, Write or Edit call, or its stop, records the agent on that
-job, and its first call after a prompt that reached it after its return, such as a `SendMessage`,
-marks the job running again, when its type is one the job's kind runs as: `long-running:builder` on a builder, `long-running:reader` on a reader,
-`long-running:designer` on a design job, and an incident's second-lane `long-running:builder` on
-a codex job; a call or stop after its return with no such prompt leaves
-the return standing. Every worker start runs its job but a stopped one, which stays stopped, and ends its turn in line for a builder slot: this record, `drive job launch` and `drive job resume`, which both refuse a stopped one, and `drive job set <j> --agent` naming a worker other
-than the one recorded. Each start also ends a question the job's last lane asked, holding that lane's said line for the new worker, dated when the lane asked and sent by no one, so a brief, handoff or opening prompt quoting it takes it off and one lacking it leaves it to the watch's `ANSWER undelivered` line, never an `ORPHAN`; `drive job set <j> --agent` naming an agent on this Mac hears that agent's opening prompt, as its first step would. A pass of a standing part is the exception: the watch alone starts each, so `drive job launch` and `drive job resume` refuse one that finished, done, failed or stopped. A stopped job keeps its stop whatever agent starts on it, so that agent's later return is kept in the job's history and sets nothing, the agent ending on its line, and `drive job add` on its parts adds the job that takes its work. An agent of any other type is never recorded this way, even
-when its brief, the brief file it names or the record it is briefed with names a job: a
-`long-running:handler` started to run `drive job launch <j>` leaves `<j>` to the lane it launches
-and its return sets nothing on `<j>`, and an `orca:orca-doctor` or Explore agent that reads a lane's
-brief leaves the job to that lane. No agent is recorded over a remote job's dispatch either: its
-Orca lane holds it, and `drive job resume` restarts that lane once it dies. Nor is one recorded, by an Agent start or by `drive job set <j> --agent`, which refuses it with nothing changed, while a `drive job launch` or `drive job resume` holds the job's lock to start its next lane on a Sprite and has recorded no dispatch yet, since that lane would run beside the agent. A handler holds a job
-only when `drive handler --answer` adds a read-only question's reader job with the handler as its
-`agent`. `drive job set <j> --agent <the dispatch the job records>` puts a
-remote job an agent took back on its own lane, recording the Run, Task, terminal, lane and Sprite
-Orca shows for that dispatch, so `drive job resume` reaches it. The first line the agent pipes to `drive job report <j> -` sets the state and said line of every job
-an agent holds, and nothing else does but a codex job's run: the stop sends back a line not kept, `drive job set` refuses
-every state but `stopped`, a job still stopped keeps what `drive job report` is piped and takes nothing from it, and `drive job report` refuses, naming the fix, a line
-opening with no result, a `WAITING` naming nothing the watch frees it on, a design lane's `DESIGN`
-that Jev reads as building less or later than his words or answers name with no fork asking him, or a strategy before the
-abstraction it shares, and a reader's `DESIGN` that `drive job ask` refuses as his card. Each drive PR, `release:<service>:<owner>/<repo>#<n>[@<env>]`, `staging:<target>/<env>@<commit>`, `<order>:<part>` and Buildkite build link a
-`READY` or `PUSHED` first line names becomes a wait, and each a `WAITING` first line names that still holds, the build a `--release` job started among them, never one the lines below it name, a `pid:<n>` of a process on this Mac that still runs, a teammate's reply as `reply:<the question's permalink>` and another drive's next record as `reply:cci:<the seq of its record the job waits after>` among them, and on a `WAITING` each other job it names as `j<n>`, stored as `drive job set --waits <j>` stores it, that job's next report while its newest open PR waits on the waiting job, by a wait naming it or a part it carries; no take keeps a wait of the job's on a PR waiting on the job or a part it carries, as the PR a staging tester tests or a builder's own PR waiting on its own staging test, which waits on the job in turn, so a
-`WAITING` is taken only while something can wake the job, by the one rule `drive job report`, a codex job's take and the watch's stall check share: its due time or an order's, a wait it stores that still holds, an open question card of its own, a wait its first line names that still holds, a card its `waits on` names, or a PR the drive does not track that it keeps by `drive job set --pr`, which its `WAITING` then waits on until the watch's GitHub read finds it merged or closed; one naming only PRs that merged or closed, parts delivered, processes that ended or such a PR is refused, its fix naming only what its lane can do, no `pid:<n>` on a Sprite; the watch's `FREE` line ends a wait once
-the PR merges, every cluster of the release wait's service, or the one env it names, serves the PR's merge, or at once once the PR merged where `<ci> release live` cannot follow it, `release live` reads the staging wait's env running its target at its commit or a build carrying it on the default branch's first-parent line, as a promotion of dev holding a merge does, the watch's Buildkite read finds the build passed, failed, canceled or stopped at an approve step, the process ends or a builder or codex job on the part returns `DONE` with no PR of its own unlanded, a `staging test of #N before it lands` part once the `DONE` of a builder or codex job testing it, never one following a release it started, one line per case of the test reading `CASE <case>: <verdict>`, one or more of the PR's reading `pass` and each other `pass` or `not exercised`, which the PR's card asks him to land it without, and a line naming the part's PR by link or `#N`, keeps on it the first `CHECK:` proof heading that PR's `CASE` lines, a `DONE` testing several PRs in turn heading each PR's with a `CHECK:` line naming it, and only while that job still holds that `DONE` and each tester added after it is done or stopped, so a newer tester at work, waiting or failed, or that job's next other return, reopens it, while a `DONE` whose every `CASE` line reads `not exercised`, as one following a release another job started does, ran none and leaves the part as it stood; a case that failed or was skipped is a `CASE` line reading neither `pass` nor `not exercised`, its job still returns `DONE`, and `drive job report` refuses a `DONE` on the part with no `CASE` line; or once the PR it names, one of the job's own, closes unmerged, while another job's PR closing unmerged
-moves either wait to that job's newest open PR, else to that job until its work is done; a staging test pausing until staging runs
-its soak commit, or an after-merge staging pass until staging serves a build carrying its merge commit, returns one `WAITING staging:<target>/<env>@<commit>` per stack, the target and env as `<ci> release live` names
-them, such as `WAITING staging:db/<staging env>@044e8552b694`, never a line opening with no result word; a release wait whose service `<ci> release select
---pr` finds the PR's changed paths never reach is kept with a note naming the components they reach, since a release wait is a wake the job sets, never a gate:
+- `agent_brief` sets its shape. It drops `name`, since a named agent joins the agent team and does
+  not wake on events. It drops Fable from any agent but `long-running:designer`, starts a design job
+  as `long-running:designer` whatever type the call names, and drops `sonnet` or `haiku` from a lane
+  of a build order or of an answer order marked `--complex`.
+- `agent_brief` refuses a reader, builder or designer whose prompt names no brief file in the
+  drive's `jobs/` folder, where `drive job brief`, a handoff and a launch write every brief. It
+  names `drive job brief <j>`.
+- `agent_brief` refuses a builder whose brief lacks `Serves:` or `Handoff:`, whose `Serves:` names
+  none of the three kinds, whose job still holds a wait with no worker started, or whose Goal's own
+  action backfills, bulk-repairs, migrates, converts or repairs with no `Runs as:` line. A Goal
+  that only names a PR, stack or check is not such a pass. It also applies the builder slot count
+  above.
+- `scratch_folder` refuses a build order's builder, designer or codex lane whose brief lacks the
+  `Researched:` line. The `brief` op writes it once the reader's or design's research is kept. Not
+  checked: a job shipping the order's `immediate fix` part, a `Handoff:` handing it a PR the drive
+  tracks, and a reader-pilot order of the project `drive order pilot` names.
+- These hooks run in the long-running capt-hook pack, which sends each refusal to Jev first. Jev
+  lets through a call the rule was not meant for. A merge, release or public-body refusal of
+  `landing_guard` blocks outright.
+
+A refusal names its fix and is information. Take the fix when it fits. When it does not, do the work
+another way and send one `defect` record to the meta session.
+
+How an agent is recorded on a job:
+
+- The brief's `Drive:` line names the job. The agent's first Bash, Read, Write or Edit call, or its
+  stop, records it on that job when its type matches the job's kind: `long-running:builder` on a
+  builder, `long-running:reader` on a reader, `long-running:designer` on a design job, and an
+  incident's second-lane `long-running:builder` on a codex job. Its first call after a prompt that
+  reached it after its return, such as a `SendMessage`, marks the job running again.
+- An agent of another type is not recorded, even when its prompt names a job: a
+  `long-running:handler` that runs `drive job launch <j>`, an `orca:orca-doctor`, an Explore agent.
+  A handler holds a job only when `drive handler --answer` adds a reader job with the handler as
+  its `agent`.
+- No agent is recorded over a remote job's dispatch, or while a `drive job launch` or
+  `drive job resume` holds the job's lock to start a Sprite lane. `drive job set <j> --agent`
+  refuses it then. `drive job set <j> --agent <the dispatch the job records>` puts a remote job an
+  agent took back on its own lane.
+- Each worker start sets the job running, by this record, `drive job launch`, `drive job resume` or
+  `drive job set <j> --agent`. It also ends a question the last lane asked and holds that lane's
+  said line for the new worker. A stopped job stays stopped: launch and resume refuse it, a later
+  return is kept in its history and sets nothing, and `drive job add` on its parts adds the job
+  that takes its work. The watch alone starts each pass of a standing part.
+
+The first line piped to `drive job report <j> -` sets the job's state and said line. Nothing else
+does, except a codex job's run and `drive job set <j> --state stopped`. `drive job report` refuses,
+naming the fix: a line opening with no result word, a `WAITING` nothing can wake, a design lane's
+`DESIGN` that Jev reads as building less or later than his words name with no fork for him, a
+strategy designed before the abstraction it shares, and a reader's `DESIGN` that `drive job ask`
+refuses as his card.
 
 | First line | The job's state |
 |---|---|
-| `DONE`, or a reader's answer | done; a builder's or codex job's `DONE` while a PR it opened is open waits on that PR as `WAITING <its links> to merge: <the DONE>`, so its change is delivered only once they merge and `drive job prove` runs its proof file and sees it exit 0, never before it lands |
+| `DONE`, or a reader's answer | done; a builder's or codex job's `DONE` while a PR it opened is open waits on that PR as `WAITING <its links> to merge: <the DONE>`, so its change is delivered once they merge and `drive job prove` runs its proof file and sees it exit 0 |
 | `READY`, `PUSHED` or `DESIGN` from any job but a reader, `WAITING`, `ASK` | waiting; an `ASK` keeps as its said line the question's title `drive job ask` set |
-| `READY`, `PUSHED` or `BUILT` from a reader | refused, naming the builder on its part: a reader ships no change, and the watch proves only a builder's merged PR live; a reader's or design's `DONE` or `DESIGN` links on a `PR:` line each PR the drive does not track that already builds its part, one it built or a teammate's, which stops each builder of that part no agent took, keeping the PR, so the watch names its prover once it merges and frees no builder with nothing to build |
+| `READY`, `PUSHED` or `BUILT` from a reader | refused, naming the builder on its part, since a reader ships no change; a reader's or design's `DONE` or `DESIGN` links on a `PR:` line each PR the drive does not track that already builds its part, which stops each builder of that part no agent took and keeps the PR, so the watch names its prover once it merges |
 | `BLOCKED` | failed |
 | `HANDOFF <path>`, a job its session stopped before done | stopped |
-| `BUILT <branch>, waits on <cards>` | built on that branch, waiting on each card it names and each open card of his holding its work as the lander reads it, none whose `Holds:` line reads none; each holds a PR of the job only as the lander reads that card |
+| `BUILT <branch>, waits on <cards>` | built on that branch, waiting on each card it names and each open card of his holding its work as the lander reads it |
+
+Waits a first line sets, and what ends them:
+
+- A `READY` or `PUSHED` first line turns each of these it names into a wait: a drive PR,
+  `release:<service>:<owner>/<repo>#<n>[@<env>]`, `staging:<target>/<env>@<commit>`,
+  `<order>:<part>` and a Buildkite build link, the build a `--release` job started included.
+- A `WAITING` first line does the same for each that still holds, and also takes `pid:<n>` for a
+  process on this Mac that still runs (not on a Sprite), `reply:<the question's permalink>` for a
+  teammate's reply, `reply:cci:<the seq of its record the job waits after>` for another drive's next
+  record, and `j<n>` for another job, stored as `drive job set --waits <j>` stores it. Lines below
+  the first set no wait.
+- A `WAITING` is taken only while something can wake the job: its due time or an order's, a stored
+  wait that still holds, an open question card of its own, a first-line wait that still holds, a
+  card its `waits on` names, or a PR the drive does not track that it keeps by `drive job set --pr`.
+  One naming only merged or closed PRs, delivered parts or ended processes is refused.
+- No wait is kept on a PR that itself waits on the job or a part it carries, such as the PR a
+  staging tester tests.
+- The watch's `FREE` line ends a wait: a PR's when it merges; a release wait's when every cluster of
+  its service, or the one env it names, serves the PR's merge, or at once where `<ci> release live`
+  cannot follow it; a staging wait's when `release live` reads the env running its target at its
+  commit or a build carrying it; a build's when it passed, failed, was canceled or stopped at an
+  approve step; a process's when it ends; a part's when a builder or codex job on it returns `DONE`
+  with no PR of its own unlanded.
+- A wait on the job's own PR ends when that PR closes unmerged. A wait on another job's PR that
+  closes unmerged moves to that job's newest open PR, else to that job until its work is done.
+- A `staging test of #N before it lands` part ends on its tester's `DONE`. That return holds one
+  line per case, `CASE <case>: <verdict>`, at least one of the PR's reading `pass` and each other
+  `pass` or `not exercised`, and a line naming the PR by link or `#N`. A `DONE` testing several PRs
+  heads each PR's cases with a `CHECK:` line naming it. A failed or skipped case is a `CASE` line
+  reading neither word, and the job still returns `DONE`. `drive job report` refuses a `DONE` on the
+  part with no `CASE` line. A `DONE` whose every case reads `not exercised` ran none and leaves the
+  part as it stood. A newer tester at work, waiting or failed, or the tester's next other return,
+  reopens the part.
+- A staging test pausing until staging runs its soak commit, or an after-merge pass waiting for a
+  build carrying its merge, returns one `WAITING staging:<target>/<env>@<commit>` per stack, such
+  as `WAITING staging:db/<staging env>@044e8552b694`.
+- A release wait whose service the PR's changed paths do not reach, by
+  `<ci> release select --pr`, is kept with a note naming the components they reach. A release wait
+  is a wake the job sets, not a gate.
 
 ### Codex jobs
 
 A codex job runs no agent. `drive job launch <j>` starts its codex-ask run on this Mac from the
-session's folder, `codex-ask --dispatch -s <the job's scratch>/codex --schema <the job's
-scratch>/codex-result.json --effort high` on the job's brief, with `-m <model>` on a job added with `--model`, the
-model his order names, and `--incident` on an incident, after the checks the Agent hooks run on
-every other job's brief, and records the run folder on the job in place of any agent an earlier
-lane left on it, so the watch never reads that agent's old turn as this run's result. Its brief carries each text the job
-holds under a heading naming its sender, his answers under `His answers since:` and the coordinator's under
-`From the coordinator since:`, and each answer of his it has not heard under `His answers since:`, but one cc-notes marks superseded, as a first launch does,
-and the launch drops those texts off the job and marks it sent those answers. A text held while
-the run goes reaches it at its next Bash call: `landing_guard`, which codex runs before each of the
-run's Bash calls, hands each text the job holds to the run as that call's `additionalContext`, which
-codex records into the running turn, and drops it off the job. A codex job that asks over cci is
-answered on the drive's `record` tool with `to` its id, which holds the record on the job the same way;
-cci's own tools refuse that lane. The watch starts no launch while the
-run goes, and its next launch carries a text still held when the run ends. The `scratch_folder` hook refuses a
-`codex:` agent started on a codex job's brief. The schema holds codex's final message to three
-required fields: `state`, a result word of the table above but `DESIGN`, since a visual design is its
-builder's own `codex-ask` call, `line`, the rest of the result line, and `report`, the return below it,
-so no reply lacks its state.
+session's folder: `codex-ask --dispatch -s <the job's scratch>/codex --schema <the job's
+scratch>/codex-result.json --effort high` on the job's brief, with `-m <model>` on a job added with
+`--model` and `--incident` on an incident. It runs the checks the Agent hooks run and records the
+run folder on the job in place of any earlier agent. The `scratch_folder` hook refuses a `codex:`
+agent started on a codex job's brief.
 
-Once the run ends, the watch's relay, which runs every 2 seconds beside its passes, takes it as the job's return,
-so the coordinator hears it within seconds however long a pass runs. The relay reads the run with `codex-ask --collect`
-only once the run folder holds the `status` file the run writes as it exits, or a `pid` file naming a process that
-is gone, so a run still going starts no process.
-A completed run's `state` and `line` set the state and said line by the table above, as every job's
-line does, so a `HANDOFF` stops the job and a `READY` waits on its PR, and the line and report are
-kept as the job's report. A `DONE` on a brief naming his user stories is taken once it keeps its
-`REPRO:` file, which the watch's `drive job prove` runs as it runs a builder's, reading each story's
-lines in what it prints. A reply `drive job report` would refuse, such as a cause naming no fix,
-is kept, and the same pass starts the job's next codex-ask run, its brief carrying under
-`From the watch since:` the refusal and the refused reply; once the run carrying a refusal is
-refused again, the job sets failed on `BLOCKED codex-ask completed, its reply refused:` and why,
-with that reply kept as its report; a failed or dead run sets failed on `BLOCKED codex-ask <state>:` and its log's last line; a run still
-going sets nothing. A running job with no run left to take, none recorded or its run's reply taken
-before its last return, sets failed on `BLOCKED` and why as the relay reads it, and one whose run
-`codex-ask --collect` cannot read counts as lost, as a lane Orca cannot read does, so the watch fails it
-once every read for six hours found it so. Codex leaves its edits uncommitted, so a codex job that changed code returns
-`HANDOFF`, and the builder that ships it is briefed `Handoff: drive job report <the codex job>`.
-A codex job waiting on a long run it started on this Mac, such as a pass-box command's observer,
-returns `WAITING … waits on pid:<n>`, naming that process; the drive keeps the wait as
-`pid:<n>@<the second it started>`, so the number taken by another process once it ends holds
-nothing. Once the process ends, crashed or finished, the watch's `FREE` line says so and the same
-pass starts the job's next codex-ask run, its brief carrying under `From the watch since:` which process
-ended and the job's last report, so nobody launches it.
-On an open incident's `fix` whose fix is not live, the watch adds that builder at each return of
-the codex job and names it on a `JOB` line for the coordinator to start in that turn.
+- **Texts.** The brief carries each text the job holds under a heading naming its sender:
+  `His answers since:` for his, `From the coordinator since:` for yours. A text held while the run
+  goes reaches it at its next Bash call, where `landing_guard` hands it over as that call's
+  `additionalContext`. Answer a codex job that asks over cci on the drive's `record` tool with `to`
+  its id. cci's own tools refuse that lane.
+- **Result.** The schema holds codex's final message to three fields: `state`, a result word of
+  the table above but `DESIGN`; `line`, the rest of the result line; and `report`. The watch's
+  relay, which runs every 2 seconds, takes an ended run as the job's return with
+  `codex-ask --collect`, so you hear it within seconds. `state` and `line` set the job's state by
+  the table above.
+- **Stories.** A `DONE` on a brief naming his user stories is taken once it keeps its `REPRO:`
+  file, which `drive job prove` runs as it runs a builder's.
+- **Refused reply.** A reply `drive job report` would refuse is kept, and the same pass starts the
+  next run with the refusal under `From the watch since:`. A second refusal fails the job on
+  `BLOCKED codex-ask completed, its reply refused:`. A failed or dead run fails it on
+  `BLOCKED codex-ask <state>:` and its log's last line. A run the relay cannot read for six hours
+  counts as lost.
+- **Edits.** Codex leaves its edits uncommitted, so a codex job that changed code returns
+  `HANDOFF`, and the builder that ships it is briefed `Handoff: drive job report <the codex job>`.
+- **Long runs.** A codex job waiting on a long run it started here returns
+  `WAITING … waits on pid:<n>`. The drive keeps it as `pid:<n>@<the second it started>`. When the
+  process ends, the `FREE` line says so and the same pass starts the next run, so nobody launches
+  it.
+- **Incidents.** On an open incident's `fix` whose fix is not live, the watch adds that builder at
+  each return of the codex job and names it on a `JOB` line for the coordinator to start that turn.
 
-The watch reads the agent's transcript, never the stored state, and takes no result. A running job
-whose agent ended its turn on a result line, ended it 30 minutes ago on any other line, wrote nothing for 30 minutes, or belonged to an earlier
-session makes its parts `ORPHAN`s.
+The watch reads the agent's transcript, not the stored state, and takes no result itself. A running
+job makes its parts `ORPHAN`s when its agent ended its turn on a result line, ended it 30 minutes
+ago on any other line, wrote nothing for 30 minutes, or belonged to an earlier session.
 
 ## Start one on a Sprite
 
-1. Add the job with a `job` call holding its `add` alone, `remote: true` on it, then brief and start
-   it in one command, `drive job launch <j> --serves "<…>" --done-when "<…>" --where "<repo and branch>"`,
-   with any other `drive job brief` flag it takes, from the monorepo checkout's root with
-   `run_in_background: true`. It writes the brief from those flags before it starts anything, so a
-   flag that fails to parse or that the brief's checks refuse starts no worker, where a brief call
-   and a launch run one after the other start the lane on a brief missing the refused call's lines.
-   Words holding quotes, such as his words in a `--handoff`, go in as `--handoff "$(cat <<'EOF'`,
-   the words, then `EOF` and `)"`. A local job no agent holds launches the same way.
-2. It starts the job through the `orca` skill's launcher as an Orca worker on a Sprite, on an
-   Orca Run of its own that only this drive's watch reads, and its notification says where it
-   started or why it could not. The worker runs the agent its kind starts as, a reader's or
-   designer's with the builder's On a Sprite and Waits and reads sections for how a lane reads,
-   waits and reports.
-3. A first try on a fresh Sprite that started no worker, its prepare failing or its Sprite refusing
-   the tools a worker needs, launches once more. When no worker started on that try either, start
-   the job here with the Agent tool on its brief and say so in the order's next report, never
-   silently. A try whose worker-start Orca answered with no ready receipt, even one that
-   failed because an earlier start's worker holds its terminal, needs no reader: `drive job launch
-   <j>` or `drive job resume <j>` runs again. When Orca's Run holds no task for its lane, the
-   attempt counts as one that sent nothing and the next launch reuses its Sprite. Otherwise the
-   next launch sets the attempt aside, stops each worker Orca's answer names, and prepares again
-   on that Sprite while the cc-remote config SHA-256 the attempt kept at prepare matches the one it
-   launches with. When the config changed, Orca's answer is unreadable, or a stop is refused, it
-   destroys that Sprite and claims a warm one, as it does when Orca answers `Unknown environment`
-   for it. A launch whose worker started and was never recorded needs no reader either: `drive job
-   launch <j>` again records it from the ready receipt its attempt keeps, or launches afresh once
-   Orca answers `Unknown environment` for it.
-4. Send a handoff or message to a lane on stdin, `drive job resume <j> -` from a quoted heredoc,
-   never in a file you write: Claude Code reads the files a session wrote back into its context
-   after every compaction.
-5. Lane Runs belong to the drive's own Orca terminal, a shell running no agent that the drive's
-   `drive.db` keeps under `terminal`, so Orca types no "You have N orchestration messages" line into your
-   session; the watch turns lane mail into `JOB` events. Leave any `orca orchestration check` such
-   a line names unrun.
-6. A remote job that is not running holds no Sprite once its worker's turn is over: in the pass
-   that reads its worker's `worker_done` or Orca's escalation, or its death, or two minutes after a
-   done, failed or stopped job returns its line while its worker's turn is still open, the watch
-   runs `drive job end <j>` on it in a process of its own, every due job's in that pass, ahead of
-   any reclaim, its output in the drive's `relaunches.log`, so no session runs it. A worker waiting inside its own question, to
-   you or as his `ASK`, or on a read it asked after its line, keeps its turn open, so its Sprite
-   and session stay until the answer `drive job resume` or its reader sends reaches it there. The job
-   keeps the state its line set, with its waits, PRs and carried parts: a `WAITING` job stays
-   waiting, so nothing waiting on it is freed, and its next event starts its next lane on a fresh
-   Sprite. Whatever the job's state, end saves what its Sprite holds on no remote to GitHub as
-   `saved/<lane>/<branch>-<sha>`, uncommitted changes included, before it destroys the Sprite, and keeps
-   the Sprite, naming why, when the save fails. While the job is not finished, end saves before it
-   ends the lane, and end's output and that lane's handoff name each branch GitHub holds under
-   `saved/<lane>/`, read from its refs, never from what a save printed, or, when GitHub holds
-   none, what the save found: that the Sprite held nothing unpushed or uncommitted, or that
-   cc-remote records no Sprite under that name, so nothing on it was read or saved. When the Sprite does not
-   answer or the save fails, end refuses, ending nothing and naming why. The watch keeps each end's
-   pid and start on the job's row, and each `drive job reclaim` it starts on what an earlier lane
-   left on that lane's death, and runs one again only once that process is gone and 300 seconds
-   have passed, so a watch that restarts never asks a second time while the first still runs.
-7. The reclaim rule: the watch frees each Sprite a job's lanes left, whatever the job's state. A
-   job's own lane goes to `drive job end`, as above. On this Mac, the dispatch of each earlier lane
-   a relaunch, takeover or resume in another pane left is reclaimed 5 minutes after its death,
-   whatever the job's state, which stops its worker and closes its terminal; the last lane's goes
-   once a finished job has been quiet 5 minutes. Each Sprite an earlier lane left goes to
-   `drive job reclaim <j> <workspace>`, in the pass after a relaunch records that lane's death.
-   That includes the Sprite of an attempt a relaunch moved off, one an end kept, and one the watch
-   adopts. Each pass, the watch starts from `sprite list`, read at most every 10 minutes for every
-   watch on this Mac. It joins each live Sprite cc-remote records to a job by its pool record's
-   lane, whatever that record's state, else by the Sprite's own name. It adopts as a death any
-   Sprite of a job's lane that the job's row and deaths do not name, when no launch of the job is
-   in flight. It adopts at once when the job is done, failed or stopped. Otherwise it waits until
-   the Sprite's records are an hour old, and it adopts only when the job's row names the Sprite of
-   its current lane and this Sprite belongs to another lane. A job whose launch recorded no
-   Sprite, or this Sprite of its current lane, may have its live worker there, so the watch keeps
-   that Sprite. A reclaim saves the Sprite's unpushed work to GitHub and destroys it. A Sprite whose
-   ssh gives no answer is first revived by `sprite restore` of a fresh checkpoint and then read
-   again. If ssh still cannot read it, a superseded attempt's Sprite, one left by an earlier lane
-   while the job's row names a newer one, is destroyed unverified, and the reclaim says so. Any
-   other Sprite the reclaim cannot read or save, or that cc-remote would not destroy, is marked
-   kept on that lane's death, and the reclaim says so once. A job's current Sprite is never
-   destroyed unread. The watch asks again an hour later, and `drive job reclaim <j> <workspace>`
-   run by hand asks at once. A live Sprite cc-remote holds no workspace record for is not the
-   drive's to free.
+1. Add the job with a `job` call holding its `add` alone, `remote: true` on it. Then brief and
+   start it in one command from the monorepo checkout's root with `run_in_background: true`:
+   `drive job launch <j> --serves "<…>" --done-when "<…>" --where "<repo and branch>"`, with any
+   other `drive job brief` flag. It writes the brief before it starts anything, so a refused flag
+   starts no worker. Pass words holding quotes as `--handoff "$(cat <<'EOF'`, the words, then `EOF`
+   and `)"`. A local job no agent holds launches the same way.
+2. It starts the job through the `orca` skill's launcher as an Orca worker on a Sprite, on an Orca
+   Run of its own that this drive's watch reads. Its notification says where it started or why it
+   could not. The worker runs the agent its kind starts as.
+3. A first try that started no worker launches once more by itself. When that starts none, start
+   the job here with the Agent tool on its brief. When Orca answered a worker start with no ready
+   receipt, run `drive job launch <j>` or `drive job resume <j>` again: it reuses, re-prepares or
+   replaces the Sprite as its config and Orca's answer allow, and records a worker that started
+   unrecorded from its ready receipt.
+4. Send a handoff or message on stdin, `drive job resume <j> -` from a quoted heredoc. A file you
+   write would be read back into your context after every compaction.
+5. Lane Runs belong to the drive's own Orca terminal, a shell running no agent, kept under
+   `terminal` in `drive.db`. Orca types no "You have N orchestration messages" line into your
+   session, and the watch turns lane mail into `JOB` events. An `orca orchestration check` such a
+   line names needs no run.
+6. The watch frees Sprites by itself. A remote job that is not running loses its Sprite once its
+   worker's turn is over: the watch runs `drive job end <j>` in a process of its own, logged to
+   `relaunches.log`. A worker waiting inside its own question keeps its Sprite and session until
+   the answer reaches it. The job keeps its state, waits, PRs and parts, and its next event starts
+   its next lane on a fresh Sprite. End saves what the Sprite holds on no remote to GitHub as
+   `saved/<lane>/<branch>-<sha>`, uncommitted changes included, before it destroys the Sprite. When
+   the Sprite does not answer or the save fails, end refuses and keeps the Sprite, naming why. The
+   handoff names the saved branches from GitHub's refs.
+7. Sprites that earlier lanes left go to `drive job reclaim <j> <workspace>`, which saves unpushed
+   work and destroys the Sprite. The watch starts it after a relaunch records a lane's death, finds
+   strays from `sprite list` every 10 minutes, and asks again an hour after a reclaim that could
+   not read or save a Sprite, which it marks kept. Run it by hand to ask at once. A job's current
+   Sprite is not destroyed unread. A superseded attempt's unreadable Sprite is destroyed unverified,
+   and the reclaim says so. A live Sprite with no cc-remote workspace record is not the drive's to
+   free.
 
 ## Remote lanes
 
-**Drive verbs.** A lane types the drive's verbs as a job on this Mac does. Its `drive`, which
-`drive job launch` has the `orca` skill's launcher place in the Sprite's `~/.local/bin`, asks each
-as one blocking Orca question, `DRIVE <its words>` over the JSON of its stdin and of each file a
-word names, and the watch's responder starts its reader within seconds. `drive job read` runs it in the coordinator's
-checkout with no session of this Mac's, as the lane's own job on its own drive, and answers
-all it printed under a first line naming its exit status, each file named by the lane's own path,
-which the lane's `drive` prints and exits with. A `job report <its job> -`, a `pr add` and a `job set` are answered before they run, as kept for the drive to run, and the reader then runs each with every check it meets on this Mac; one that refuses changes nothing and wakes the lane by `drive job resume` with what it printed. Any other verb still running 225 s after the lane asked is answered as still running, and the reader carries what it prints to the lane by `drive job resume` once it ends, so no lane waits past its 5-minute prompt cache. While no answer comes, that `drive` says so on
-stderr every 30 s, naming the question, and gives up at 240 s, exiting 1. It runs `job report`, `job ask`, `job set --repro`,
-`job replies`, `job held`, `pr add`, `pr set --flaky` on a PR its own job carries, `plan search`, `datadog`, `fde-scan`, `manual`, `page-owner` and `status`, its reads on any job as a Mac lane's,
-so a lane reads the `job report` or `job replies` of any job its brief names, and a bare `status`
-on its own job. It refuses, running nothing, any other verb, such as `pr set --tap` or an order
-verb, a write naming another job, which is a `job report` keeping stdin, `job ask`, `job set` or
-`pr add`, and another drive. It
-refuses `break-glass` too, since its command would run on this Mac as your user, by his pick
-"No Sprite lane runs break-glass: a step needing a grant moves to a lane on this Mac": the lane returns `BLOCKED` naming the step and its command, and you move that step to a
-lane on this Mac.
+**Drive verbs.** A lane types the drive's verbs as a job here does. The launcher puts a `drive` in
+the Sprite's `~/.local/bin` that asks each as one blocking Orca question, `DRIVE <its words>`, and
+the watch's responder starts `drive job read` within seconds. That runs the verb in the
+coordinator's checkout as the lane's own job and answers with its output under a line naming its
+exit status.
+
+- It runs `job report`, `job ask`, `job set --repro`, `job replies`, `job held`, `pr add`,
+  `pr set --flaky` on a PR its own job carries, `plan search`, `datadog`, `fde-scan`, `manual`,
+  `page-owner` and `status`. Reads work on any job, so a lane reads the `job report` or
+  `job replies` of any job its brief names.
+- It refuses any other verb, such as `pr set --tap` or an order verb, a write naming another job,
+  and another drive. It refuses `break-glass`, since that command would run on this Mac as your
+  user. The lane returns `BLOCKED` naming the step and its command, and the step moves to a lane on
+  this Mac.
+- A `job report <its job> -`, a `pr add` and a `job set` are answered before they run, as kept. One
+  that then refuses changes nothing and wakes the lane by `drive job resume` with what it printed.
+- Any other verb still running 225 s after the lane asked is answered as still running, and its
+  output follows by `drive job resume`. With no answer, the lane's `drive` says so on stderr every
+  30 s and exits 1 at 240 s.
 
 **Reports.** A lane keeps its report with `drive job report <j> -` and an `ASK` block with
-`drive job ask <j> <file>`, each refusing it as it refuses yours, then ends its turn through Orca
-mail: a `worker_done` carrying the report it kept, or an `ASK <path> [<path>…]` question naming each
-block `drive job ask` kept. Each is a `JOB <j> <o> <line>` event, as a job's own return is: the report's
-result line the moment `drive job report` takes it, on a Sprite or on this Mac, a `PUSHED` aside,
-which waits on its checks, so the `worker_done` after it is no second event, and `ASK <path>` when
-that question comes. A report `drive job report` never took, such as one
-from a lane launched before its Sprite had `drive`, the watch takes itself, setting the job's state
-as a local agent's line does, and its line names each PR a `READY`, `PUSHED` or `PR:` line links
-that the drive does not track, since only `drive pr add <url> --job <j>`, which you run, registers
-one. A report sent as an Orca question, one whose first line opens with a result word other than
-`ASK`, is that result and asks nothing, and a report ends any question the lane asked before it,
-since the lane no longer waits on that answer. Any other `ASK` question is a `JOB` line saying that
-`drive job ask <j>`, which you run, keeps it. A `status` the lane sends while it works is a
-`JOB <j> <o> MESSAGE <msg id>: <subject>` event whose record carries its body whole, and sets no
-state. The watch gives each message to the job that recorded its worker, by its `dispatch:` handle,
-the dispatch its payload names or the worker's terminal, whatever Run Orca filed it on and whatever
-the job's state. The watch takes each message once: one the job's kept
-history already holds is never an event again, so a watch that restarts after an install says
-nothing it said before. `drive job report <j>` prints every result the lane sent, newest first, and
-`drive job replies <j>` prints every result and question the lane sent and every return
-`drive job report <j> -` kept, oldest first with its time, for a line that points at an earlier
-reply.
+`drive job ask <j> <file>`, then ends its turn through Orca mail: a `worker_done` carrying the
+report, or an `ASK <path> [<path>…]` question naming each block.
 
-**Reads.** A lane on a Sprite reads a red check's whole log itself, by his pick "Give Sprites a
-scoped AWS read role, so every step runs where its lane runs": a Buildkite job's with
-`<ci> bk log` through the sprite door under the Sprite's AWS session, and a GitHub Actions
-job's with `ccx vcs job-log`. A Sprite holds no copy of the drive's cci or cc-notes records and no Slack credential, so a
-lane reads those, and Slack, through this Mac with a blocking question.
+- Each reaches you as a `JOB <j> <o> <line>` event: the result line the moment `drive job report`
+  takes it, and `ASK <path>` when the question comes. A `PUSHED` waits on its checks and makes no
+  event.
+- A report `drive job report` did not take, the watch takes itself. Its line names each PR a
+  `READY`, `PUSHED` or `PR:` line links that the drive does not track. You register one with
+  `drive pr add <url> --job <j>`.
+- A report sent as an Orca question, its first line a result word other than `ASK`, is that result.
+  Any other `ASK` question is a `JOB` line saying that `drive job ask <j>`, which you run, keeps it.
+- A `status` a lane sends while it works is a `JOB <j> <o> MESSAGE <msg id>: <subject>` event whose
+  record carries the body. It sets no state.
+- The watch takes each message once, so a restart repeats nothing. `drive job report <j>` prints
+  every result the lane sent, newest first. `drive job replies <j>` prints every result, question
+  and kept return, oldest first with its time.
 
-- Its first line opens with the read, after the lane's job id when it writes one: `READ <command>`
-  for a `cci`, `ccn` or `cc-slack` read the builder agent lists, or `READ <path>` for a file under the drive's
-  `reports/`, `asks/`, `repro/`, `scratch/` or `jobs/` folder, which `orca.drive_files` reads whole,
-  naming a file that is not UTF-8 text by its path and size and refusing a path that resolves
-  outside the folder. A `READ` naming one of those five folders itself, as `jobs` or `asks/`,
-  lists what it holds one level deep, through `reads.carried_folders`, a file by its path and size
-  and a folder by its path and a `/`, so a lane learns which paths to read next. A `READ` question runs its first line alone. A `LOG <url>` question, which a lane started under the builder
-  rules from before this Mac's log read was deleted still asks, reads nothing: its answer is the
-  builder rule that has the lane read the log on its Sprite, or return `BLOCKED` when `<ci> bk`
-  refuses there.
-- The watch answers it itself, with no event, as it answers a `DRIVE` question. Its relay, a process
-  of its own each watch starts beside its passes and ends as it ends, moves onto the newest install
-  every 2 s, then reads Orca's mail past the newest message its last read reached in one call while a
-  Sprite lane is live, so no question drops out of a window however fast lanes ask, and starts
-  `drive job read` as a process of its own on each new read one asked, taking no drive lock, so no
-  GitHub read, landing or install a pass runs holds it, and a pass that runs for an hour on the
-  install it started on leaves the reads to the code installed now; lane mail each minute starts one
-  on any the relay had not taken. A question its worker asked again with the same first line before
-  either took it runs once, on the later question. The reader claims its question by creating the question's
-  file in the drive's `answers/` folder, so a second reader started on it exits, and runs nothing on a
-  question asked over 240 s ago, past which its lane's `drive` gave up, or whose lane ended. It runs
-  `cci`, `ccn` or the drive's own cc-slack launcher in
-  the directory the coordinator started the drive from, or reads the drive files, and replies with
-  the output the moment it ends, a command's cut to 12,000 characters but for a `cc-slack thread`
-  or `history` read, which goes whole, an answer past the 64 KiB one Orca relay message carries
-  written onto the lane's Sprite before the reply, within a minute, and named in it, in one Orca
-  reply of its own from the drive's terminal, which coordinates every lane's Run from its
-  `run-create` and binds none, so a read that runs for minutes holds up no pass and no answer
-  waits for a pass or for another answer. The reader writes into that file first the answer its own end leaves, then
-  the one it finishes with, so the relay sends again an answer Orca refused, and a read stopped
-  mid-run is answered as stopped, never run twice. A read that fails, such as a command off that list, a tool that exits
-  non-zero or a long answer its lane's Sprite could not take, replies with why and arrives as a `JOB <j> <o> READ unanswered` line.
-- A question that opens any other way, such as `READ: please send <file>`, is a `JOB` line for you
-  to answer, its first line, whose record carries the whole question as its body, which cci's read
-  tool prints; one opening with another result word is a report, by **Reports**. One
-  no resume answered for 30 minutes makes its parts `ORPHAN`s, said once, whatever card or PR
-  the job has, since a card drawn before the question asks him something else; when he answered
-  its card since, the line leads with his answer and the `drive job resume` that carries it.
-- A question kept for you that reads as a `READ`, such as one kept before the watch read it
-  that way, gets its reader at the watch's next read of lane mail, and the lane runs again.
-- A lane whose wait ends waits again on the same question, so the relay sends again every 2 s each
-  answer its file still marks unsent once its reader ended, past a refused reply or a watch restart,
-  until the answer goes through, Orca says it already holds another answer or that the question's
-  dispatch closed, or 240 s pass since the lane asked, which drops it with no line. Its
+**Reads.** A Sprite lane reads a red check's whole log itself: a Buildkite job's with `<ci> bk log`
+through the sprite door, a GitHub Actions job's with `ccx vcs job-log`. A Sprite holds no copy of
+the drive's cci or cc-notes records and no Slack credential, so a lane reads those through this Mac
+with a blocking question.
+
+- The question's first line is `READ <command>` for a `cci`, `ccn` or `cc-slack` read the builder
+  agent lists, or `READ <path>` for a file under the drive's `reports/`, `asks/`, `repro/`,
+  `scratch/` or `jobs/` folder. A `READ` naming one of those folders lists it one level deep. A
+  `LOG <url>` question reads nothing: its answer tells the lane to read the log on its Sprite.
+- The watch's relay answers it with no event, as it answers a `DRIVE` question. It checks Orca's
+  mail every 2 s and starts `drive job read` in a process of its own that takes no drive lock, so a
+  long pass delays no read. A command's output is cut to 12,000 characters, except a
+  `cc-slack thread` or `history` read. An answer past the 64 KiB one Orca message carries is
+  written onto the lane's Sprite and named in the reply. A question older than 240 s is dropped,
+  since the lane's `drive` gave up.
+- A read that fails replies with why and reaches you as a `JOB <j> <o> READ unanswered` line. A
   `WATCH the answer to <j>'s read failed` line needs nothing from you.
+- A question that opens any other way, such as `READ: please send <file>`, is a `JOB` line for you
+  to answer. Its record carries the whole question. One no resume answered for 30 minutes makes its
+  parts `ORPHAN`s, said once. When he answered its card since, the line leads with his answer and
+  the `drive job resume` that carries it.
 
 **What the watch reads each minute.**
 
-- The lane's Dispatch, from Orca: a lane that sat at its prompt for 30 minutes makes its parts
-  `ORPHAN`s, and a running job's lane whose worker died or whose Sprite's Orca environment is gone
-  is one `LANE … died` line. A waiting job's dead lane is recorded with no line, its Sprite freed
-  by `drive job end`, since his answer reaches the job by `drive job resume` either way.
-- A running job's dead lane is relaunched in the pass that finds it: the watch runs
-  `drive job resume <j>` as a process of its own, its output in the drive's `relaunches.log`, and
-  its `LANE … died` line says so. So is a running job's agent on this Mac whose last response ended
-  on an API error, once the session holding it has had a response answered since, so
-  its next worker does not start inside the outage that stopped it: its `LANE … died as agent`
-  line says the watch ran that resume, which starts the next worker on a Sprite, or on this Mac
-  when its brief declares a step only this Mac runs. A running lane on this Mac whose newest transcript
-  in its worktree ends the same way, once any session bound to the drive has had a response
-  answered since, has the resume prompt the StopFailure hook sends typed into its terminal, once
-  per stop, and its `LANE … stopped on this Mac` line says so; after four resumes met the same stop
-  the line says the watch types no more. A running job whose agent or lane on this Mac a model's
-  safeguards stopped is set `stopped` at once instead, with nothing resumed or relaunched, since
-  Claude Code's notice on that stop asks for it to go to him and for no one to do the agent's work:
-  a POST report passes the notice to him, its `LANE … stopped by its model's safeguards` line says
-  so, its parts make no `ORPHAN`, and only his word adds the job that takes its work, by `drive job add` on its parts. A PR's next step goes to its lane by `drive pr wake`, as its
-  stage owes. While its job stays `running`, a lane that finished, or ended with
-  no next lane started within 30 minutes, or whose relaunch ended without one, makes its parts
-  `ORPHAN`s even when another job or a posted answer carries them, as does work he ordered that only
-  a reader, a design with no builder, his card or a post holds. Those lines also name each open PR
-  from GitHub on the job's branch or its lane's that the drive does not track, which alone makes no
-  line, since a working builder opens its PR before its `drive pr add` registers it.
+- A lane that sat at its prompt for 30 minutes makes its parts `ORPHAN`s. A running job's lane
+  whose worker died, or whose Sprite's Orca environment is gone, is one `LANE … died` line. A
+  waiting job's dead lane is recorded with no line and its Sprite freed.
+- The watch relaunches a running job's dead lane in the same pass, with `drive job resume <j>` as a
+  process of its own, and the `LANE … died` line says so. It does the same for an agent here whose
+  last response ended on an API error, once the session holding it has had a response since
+  (`LANE … died as agent`). A lane here whose transcript ends that way gets the StopFailure resume
+  prompt typed into its terminal, once per stop, four times at most
+  (`LANE … stopped on this Mac`).
+- A job whose agent or lane a model's safeguards stopped is set `stopped` at once, with nothing
+  resumed. Claude Code's notice asks that it go to him and that nobody do the agent's work, so a
+  POST report passes it to him (`LANE … stopped by its model's safeguards`), its parts make no
+  `ORPHAN`, and a job taking its work is added by `drive job add` on its parts on his word.
+- While a job stays `running`, a lane that finished, ended with no next lane within 30 minutes, or
+  whose relaunch started none makes its parts `ORPHAN`s. So does work he ordered that only a
+  reader, a design with no builder, his card or a post holds. Those lines also name each open PR on
+  the job's branch that the drive does not track.
+- A PR's next step goes to its lane by `drive pr wake`.
 
 **Resume and launch.** `drive job resume` and `drive job launch` are one relaunch under the job's
-own lock: a second one waits for the first, about 150 s, then acts on the worker it started, so a
-resume that arrives while a worker starts reaches that worker as a message. Each checks the worker
-before it sends or starts.
+own lock. A second call waits for the first, about 150 s, then acts on the worker it started. The
+`bash_guard` hook runs it in the foreground with `timeout: 20000`: a message to a live lane returns
+in about five seconds, and a relaunch moves to the background at 20 seconds and notifies you.
 
-- A worker that starts on this Mac, by a relaunch, a takeover or a move from a Sprite, starts in
-  the worktree that holds the branch of the job's newest open PR, as `git worktree list` of the
-  drive's repository shows it, the main checkout aside, since git checks a branch out in one
-  worktree at a time; its handoff names that worktree, the branch, its HEAD there and the PR's head
-  the drive last read. A fresh worktree is cut only when no worktree holds that branch.
-- A launch of a job whose lane's worker ended starts its next worker as a resume does, with no
-  message; one whose worker takes messages is refused, naming the resume that sends it one. With
-  `--local`, or a step only this Mac runs that its brief declares, a job
-  on a Sprite moves here: its worker, when it still works or takes messages, is stopped by
-  `orca.reclaim`, what its Sprite holds on no remote is saved to GitHub, its next worker starts in
-  a fresh worktree on this Mac whether the last one finished, died, does not answer, returned its
-  line and still takes messages or was still at work, as a Sprite lane does after `BLOCKED` on a
-  step only this Mac runs, and the Sprite is destroyed once it holds nothing on no remote. A failed save still moves the job,
-  keeping the Sprite, and its handoff names what each lane of the job saved on GitHub.
-- An agent on this Mac that ended with its session, which no role holds any more, or whose last
-  response ended on an API error or a refusal takes no `SendMessage`: either verb hands its job to
-  a lane on a Sprite, or on this Mac with `drive job launch <j> --local` or when its brief declares
-  a step only this Mac runs, on a handoff carrying the job's brief, branch, last line, report, PRs
-  and the message.
-- A live worker gets the message, ending with the Holds now block below, read at its first try so a
-  retry under its request id sends the same words: the answer to its open question, or a new message to its Dispatch
-  when it asked none or Orca already holds another answer to it, which the output says is queued in that Dispatch for its live worker, read at its next check, and carried by the job's next worker if this one ends with it unread. A live Sprite lane no start this
-  drive recorded put the tools on, as one started before the drive forwarder existed or recorded by
-  hand, first gets the tools a launch puts there, `drive` among them; a refusal is named after the
-  send, and the next message tries again. On a finished worker on this Mac, it starts the job's
-  next worker through the launcher in a fresh terminal and Claude session, in the worktree Orca
-  recorded for that worker, or the one holding the job's open PR branch, on a Run this terminal
-  makes, never in the finished worker's own terminal, whose session every earlier worker there
-  filled; when that start starts no worker, as when the worktree is gone, it relaunches in a fresh
-  worktree as a dead worker's. On a
-  finished worker whose Sprite is still up, it prepares that Sprite again with
-  `cc-remote orca prepare <Sprite> --existing`, which gives it the tool payload and keys a fresh
-  Sprite gets, and starts the next worker there in the checkout the last one left, on a Run this
-  terminal makes. A finished worker is read before its liveness, which Orca cannot always tell
-  once a worker is done; when Orca no longer finds
-  that terminal or worktree, or shows that terminal no longer connected, the worker counts as
-  dead, and when its Sprite faulted, as below, refuses the tools a worker needs, or was made from a
-  cc-remote config other than the one the default branch holds now, as the SHA-256 its launch recorded on the job
-  shows, that Sprite is passed over as a dead one's. A dead worker, or one whose
-  Sprite's Orca environment is gone, as `drive job end` leaves it, or no longer paired with this
-  Mac's Orca (`peer_changed`), is relaunched on a fresh Sprite
-  on a Run this terminal makes, since Orca binds a Run only to the terminal that made it. A
-  relaunch whose earlier try prepared a Sprite and started no worker on it reuses that Sprite, and
-  the launcher copies the new handoff onto it, unless that Sprite's own install refused the tools
-  a worker needs, a full disk or a toolchain directory it cannot write: the launcher then destroys
-  it and exits 76. A launch or relaunch on a fresh Sprite that started no worker tries once more,
-  the launcher preparing another Sprite or retrying worker-start on the one it prepared, and fails
-  with his answer unsent when that try starts none either, his answer still held.
-- A delivered message marks the job sent each answer of his given by then whose words it holds
-  verbatim: a text `drive job resume` sent its live worker, kept as `jobs/<j>.sent-<request>.md`
-  dated when it was held, or any launch, relaunch, resume or handoff text in `jobs/` a worker of the
-  job started on, an attempt whose launcher started no worker aside, each read again whenever an
-  answer of his lists the job later; a first launch adds
-  each text the job holds that its brief lacks under the heading naming its sender, `His answers since:` for his alone, and each answer it has not heard that its brief lacks under `His answers since:`, but one cc-notes marks superseded; a `SendMessage`
-  from the coordinator session to its agent on this Mac does the same once that agent's transcript
-  holds it, as a queued command while the agent works or a meta user row once it waits, which the
-  watch and `drive answer` read before either says the job has not heard them.
-- Either new worker gets a handoff carrying the job's brief, rebuilt from its `drive job brief`
-  call so it holds the rulings and carried orders the drive holds now, branch, last line, report,
-  PRs and the message, and the output says which ran. It also carries each text the job's workers
-  were given since its last return that the brief lacks, so a worker that died before its line
-  leaves its next one the texts it was started on.
-- Every handoff, resumed session's brief and message to a live worker ends with one `## Holds now`
-  block, the drive's read as it sends it. It names each wait of the job still holding, each card of
-  his by its question and link, and what of his holds each of the job's open PRs from landing: his
-  Hold, the hold label or his open cards on its work, none of which stops its worker keeping it
-  rebased and green. A worker reads it over any older line, report or message.
-- A dead lane whose Sprite answers with the Claude session its worker ran there, found by the
-  dispatch id in that session's transcript, as after the Sprite's VM restarts, is resumed instead,
-  unless that Sprite faulted, as below:
-  `cc-remote orca prepare --existing --resume <session>` starts that session again in the
-  checkout it left, with a short brief saying why it died, which dispatch it reports on now, the
-  message and the Holds now block, and nothing is saved, moved or destroyed. A resume that starts no worker falls back
-  to the relaunch below, its why naming the refusal.
-- First, a running job's resume reads one cause line from the logs it copied off the dead lane's
-  Sprite: the kernel's lines at error level or worse since it started init, `memory.high` when the
-  lane's cgroup went over it, OOM kills, a full home volume and how long the VM and its init process
-  had run, or why the Sprite did not answer. The death record, the next worker's brief and the
-  resume's output carry it. A Sprite that failed on its own, its kernel logging an error line after
-  init with no OOM kill and its home volume not full, as an nbd0 I/O error does, leaves no cause:
-  that line goes in the death's why, and the death counts against no job. So does a Sprite that did
-  not answer once GitHub holds the job's branch, and the lane relaunches on a fresh Sprite from it.
-  When another lane of the job died with a cause since its last line, a second death with a cause
-  starts no worker on a Sprite. Its session resumes there first only when the logs show that
-  Sprite's VM booted after its worker started. Otherwise the resume moves the job to a fresh
-  worktree on this Mac, as a builder whose brief has a `Mac:` line moves, its output naming both
-  deaths. A builder that finds this Mac's builder slots full waits its turn on `builder-slot`
-  instead, and the watch moves it with `drive job launch <j> --local` when its turn comes.
-- Before a relaunch on a fresh Sprite it saves the dead lane's Sprite, found by the job's workspace
-  even when Orca dropped its dispatch or environment. Over ssh it commits each worktree's uncommitted
-  changes there and pushes each commit, branch or stash GitHub holds nowhere as
-  `saved/<the dead lane>/<its branch>`, on the token `gh auth token` prints, lent to that one push
-  through the ssh session's stdin, so it never reaches the Sprite's disk. The output and the new
-  worker's handoff name each branch GitHub then holds under `saved/<the dead lane>/`, by one read
-  of its refs, never from text a save printed, so neither names a branch that is missing. When
-  that Sprite does not answer or the save fails, the relaunch runs on that Sprite instead, through
-  `cc-remote orca prepare --existing`, in the checkout the dead lane left, and the handoff and the
-  output name why the save failed. A Sprite that refused a worker's tools is never run on again: it
-  is kept, and the relaunch runs on a fresh Sprite. Nor is a faulted one: before any reuse of a
-  lane's Sprite, its worker dead or finished, the resume copies that Sprite's logs and reads from
-  them whether its kernel logged a line at error level or worse after init, as an nbd0 I/O error
-  that remounts its root disk read-only does, or its home volume was full. On a fault no session
-  resumes there and no worker continues there, even for a lane Orca could not reach: the lane is
-  saved as above, relaunched on a fresh Sprite, and the faulted Sprite destroyed once saved, else
-  kept.
-- When Orca cannot reach the lane's Sprite, its worker-show refused as `remote_runtime_unavailable`,
-  the resume, a launch and `drive pr wake` first wake that Sprite with `orca-reclaim.py --wake`,
-  which runs `cc-remote orca reconnect`, then read the lane again. A worker that takes messages gets
-  the text. A lane Orca still cannot reach is asked of its Sprite over cc-remote's ssh: with nothing
-  listening on the port its cc-remote task runs Orca's runtime on, as when a full disk crash-loops
-  that runtime while the lane's Claude works on, the lane is saved as above and relaunched on a
-  fresh Sprite with its held texts, the save first deleting `~/.cache` on a home under 64 MiB free;
-  with that runtime listening, the text is held and nothing restarts, since Orca on this Mac is what
-  fails. Any other lane resumes its own Claude session there, as a dead lane above does, else
-  relaunches on that Sprite through `cc-remote orca prepare --existing`, in the checkout it left,
-  with no save. When that resume or that Sprite starts no worker, the relaunch runs on a
-  fresh Sprite from the job's pushed branches, after the save above, and the old Sprite is kept when
-  the save fails. The lane's death keeps what its wake, that start and the save came to, so a
-  resume, launch or PR wake after it reads the lane from that death and wakes, starts in place and saves once per death.
-- A remote lane's text is held on the job's undelivered list under one Orca request id before any
-  Orca call, so an outage delays it and never drops it. While launchd restarts Orca's app server,
-  Orca refuses every call as `runtime_unavailable`: the resume, a launch, `drive pr wake` and the
-  `drive bound` a launch's worker start runs through then say so on stderr, read `orca status`
-  every 2 s and make the refused call again once Orca's runtime reads ready, for at most 600 s
-  from the first refusal, so they carry on once Orca is back, while the watch, a hook or a read
-  takes that refusal at once. When Orca cannot tell whether the lane lives, or refuses the send,
-  the resume exits 0 saying the text is held. A lane on this Mac that
-  Orca shows as its own unfinished worker in a terminal it can write to takes the text whatever
-  liveness Orca reads, as after an Orca restart, and when Orca reads it not live, the send is
-  followed by a line typed into that terminal telling the lane to read its orchestration mail.
-  The watch, once Orca reads that worker alive and unfinished, or once a lane that returned has no
-  card of his asking it anything, runs `drive job resume <j>` with no text as a process of its own, which sends each held text under the id it was held with, so Orca
-  replays a retry and never applies one twice; a relaunch meanwhile carries every held text in its
-  handoff, oldest first. A relaunch Orca refuses exits 0 with Orca's refusal, saying the text is still held, which the
-  watch carries again ten minutes on; `drive job resume <j>` delivers it once Orca reads the lane.
-- A text sent to a live worker stays in the mailbox of the Orca keeping its Dispatch, this Mac's
-  for a lane here and the lane's Sprite's for a lane there, and on the job as queued, until a
-  mailbox read finds it read: the watch's lane pass reads a live worker's mailbox each pass while
-  its job keeps a text queued, and a relaunch onto a new Dispatch drops the list, since its
-  handoff carries every text given since the job's last return. Once the watch's lane pass reads a
-  lane's worker finished or exited while its job runs or waits, it reads that dispatch's mailbox
-  once from that Orca, `orca orchestration inbox --environment <the job's environment>` for a
-  Sprite lane, takes each text it shows read off the queued list, holds each it shows unread on
-  the job, and runs `drive job resume <j>` with no text, whose relaunch carries them in the next
-  worker's handoff, unless the death it read starts that relaunch already, and names them on a
-  `JOB` line. A worker that reports with mail unread gets an Orca follow-up: a `New messages`
-  Dispatch whose `followUpOf` names the reported one, started in its terminal, its unread mail
-  moved to the follow-up's mailbox. The watch reads that follow-up as the job's mail delivery,
-  never its worker: each turn it ends takes the texts its mailbox shows read off the queued list,
-  and when its start fails, as when the worker is still busy past Orca's 60-second wait, no
-  `STOPPED` line goes up; the watch holds each text its mailbox shows unread, runs
-  `drive job resume <j>`, and says on one `JOB` line that delivery failed. Orca's own notice that
-  mail did not reach a finished worker says nothing more. `drive status`'s job row names each
-  held and each queued text.
-- The `bash_guard` hook runs it in the foreground with `timeout: 20000` however it is called: a
-  message to a live lane returns in about five seconds, and a relaunch, which takes minutes, moves itself to the background at 20 seconds and
-  notifies you when it ends.
+- **Live worker.** It gets the message as the answer to its open question, or as a new message to
+  its Dispatch, queued for its next check. A launch of a job whose worker takes messages is
+  refused, naming the resume.
+- **Finished worker.** The next worker starts in a fresh terminal and Claude session: here in the
+  worktree Orca recorded or the one holding the job's open PR branch, on a Sprite in the checkout
+  the last one left after `cc-remote orca prepare <Sprite> --existing`.
+- **Dead worker.** A dead lane whose Sprite still holds its Claude session is resumed in place with
+  `cc-remote orca prepare --existing --resume <session>`. Otherwise the relaunch saves the dead
+  lane's Sprite to GitHub as `saved/<the dead lane>/<its branch>`, on a token lent over ssh stdin,
+  and starts on a fresh Sprite. When the save fails, it runs on the old Sprite instead and the
+  handoff says why.
+- **Faulted Sprite.** A Sprite that refused a worker's tools, or whose kernel logged an error after
+  init (such as an nbd0 I/O error) or whose home volume filled, is not reused. A resume reads one
+  cause line from the dead lane's logs into the death record and the next brief. A Sprite that
+  failed on its own counts against no job. A second death with a cause since the job's last line
+  moves the job to a fresh worktree here, as a `Mac:` line does.
+- **Agent here that cannot take `SendMessage`.** One that ended with its session, or whose last
+  response was an API error or a refusal, hands its job to a Sprite lane, or to this Mac with
+  `drive job launch <j> --local` or a declared Mac step.
+- **Move here.** With `--local`, or a declared Mac step, a Sprite job moves here whatever its
+  worker is doing: the worker is stopped, its unpushed work saved, and the Sprite destroyed once it
+  holds nothing unsaved. A worker starting here starts in the worktree that holds the branch of the
+  job's newest open PR, since git checks a branch out in one worktree. A fresh worktree is cut only
+  when none holds it.
+- **Handoff.** A new worker gets the job's brief, rebuilt from its `drive job brief` call so it
+  holds what the drive holds now, plus branch, last line, report, PRs, the message, and each text
+  given since the job's last return. Every handoff, resumed brief and message ends with one
+  `## Holds now` block: each wait still holding, each card of his by question and link, and what
+  holds each open PR from landing. A worker reads it over any older line. A hold does not stop it
+  keeping a PR rebased and green.
+- **Delivery.** A text to a remote lane is held on the job under one Orca request id before any
+  Orca call, so an outage delays it and a retry is not applied twice. While Orca refuses calls as
+  `runtime_unavailable`, resume, launch, `drive pr wake` and `drive bound` retry for up to 600 s.
+  When Orca cannot tell whether the lane lives, the resume exits 0 saying the text is held, and the
+  watch sends it later with a bare `drive job resume <j>`. A lane Orca cannot reach
+  (`remote_runtime_unavailable`) is first woken with `orca-reclaim.py --wake`. The drive tracks
+  which of his answers each job has been sent, and the watch's `ANSWER undelivered` line names one
+  a job has not heard. `drive status`'s job row names each held and queued text.
+- **Unread mail.** A text stays queued until a mailbox read finds it read. A worker that reports
+  with mail unread gets an Orca follow-up Dispatch, `New messages`, which the watch reads as mail
+  delivery. When that fails the watch holds the texts, runs `drive job resume <j>` and says so on
+  one `JOB` line.
 - A remote lane registers its PR with `drive pr add`, its `--port-of` or `--exempt` included, as a
-  job here does, and its `SERVES: port of #N` line still gets the `READY` row's check against #N.
+  job here does.
 
 ## The brief
 
-The brief is the job's whole context, the same here and on a Sprite. The `brief` op writes each line
-below from what the drive holds, `Runs as`, `Release`, `Handoff`, `Plan`, `Incident`, `Native`,
-`Interactions` and `Would he ask` from the call's fields when given, and prints
-`Read your brief first: <path>`. A brief whose `native` names his surface needs `interactions`
-naming his user stories on it, and the op refuses one Jev reads as steps with no result he must see,
-by his words "you're supposed to proactively view and click through every user story and have strict
-acceptance critera for yourself".
+The brief is the job's whole context, the same here and on a Sprite. Write it so a capable agent
+can finish without you: the goal, what done looks like, and the facts it cannot find itself. The
+`brief` op fills the lines below from what the drive holds and from your flags, and prints
+`Read your brief first: <path>`. His words ride along where they help the job. They are context,
+not a condition for starting. A brief whose `native` names his surface needs `interactions`, and
+the op refuses stories Jev reads as steps with no result he must see.
 
 ```
-Order (his words): <verbatim; for drive tooling, its order's own "Drive tooling: …" words; then the words of each order the job carries, each on its own line>
-Linked messages: <each Slack message those words link, read through the cc-slack bot as the brief is written: its link, who posted it and when, its text and each message it shares, so no job reads Slack for the message its order came from; one that does not read is kept as `<link>, not read: <cc-slack's words>`, and `drive job brief` refuses in those words only while nothing stands in for it: no linked message read, no word of his outside the links, and no `Handoff`>
-Serves: <"port of #N", "drive tooling" for a fix to a tool the drive runs on, under its own order and never his feature order's, or "his order" when the Order line asks for this build; a job for anything else is never started>
-Decisions that bind: <his words on the feature, by `brief.spec`, newest first, each whole with its question, id or link and when: each answer of his a ruling field, a reader's or design's `rulings:` line or a question it settled names, each answer `drive answer` kept that marks or tells an order or job of the feature, his words on each question of its readers and designs he answered with no answer recorded, and each other order of the feature; an answer cc-notes marks superseded shows only as replaced by his newer answers, binding nothing; "none named; search his answers on the area" when none of these names one>
+Order (his words): <the order's stored words, then each order the job carries on its own line>
+Its parts (his words): <each part of the job his words named that the Order line does not hold>
+From: <the record or message the order came from>
+Linked messages: <each Slack message those words link, read through the cc-slack bot: link, who, when, text; one that does not read is kept as `<link>, not read: <cc-slack's words>`>
+Serves: <which of three this is: "port of #N", "drive tooling" for a fix to a tool the drive runs on, or "his order">
+Decisions that bind: <his recorded answers on the feature, newest first, each with its question and id or link, written by `brief.spec`; a replaced answer shows as replaced; "none named; search his answers on the area" when there are none>
+Fresh: <only when his words order the work designed from the ground up: those words and where he said them>
 Goal: <the deliverable, one sentence>
-Done when: <the check that proves it where he will see or use it, such as the installed command's output, the live post or a picture of each user story, since data fetched from an API proves no screen>
+Done when: <the check that proves it where he will see or use it, such as the installed command's output, the live post or a picture of each user story>
 Where: <repo, base branch, existing branch or PR to adopt>
-Runs as: <only for a pass, migration, backfill, conversion, bulk or hand repair or any other write of a team's data: the service account in that team's cluster it runs as, and how it starts with no person's role and not from this Mac, such as a pipeline or an in-cluster schedule; `none: <why>` when the hook reads such a write in a Goal that makes none>
-Release: <only for a job a release started on: the one `<ci> release start` or `<ci> release hotfix` that `drive job add --release` started, written by the process that call started it in; it reads whether the answer its `--order` names orders that release, by the one reading of his pick [landing.md](landing.md#after-merge) states, unless the answer is an incident's, and the `landing_guard` hook refuses every start or hotfix a drive session or agent runs itself>
+Runs as: <only for a pass, migration, backfill, conversion, bulk or hand repair or other write of a team's data: the service account in that team's cluster it runs as and how it starts, such as a pipeline or an in-cluster schedule, not from this Mac; `none: <why>` when the Goal makes no such write>
+Release: <only for a job a release started on: the one `<ci> release start` or `<ci> release hotfix` that `drive job add --release` started, written by the process that started it>
 Release build: <beside Release only: the build that start printed, which the job's agent follows and approves>
-Handoff: <a PR event or a built branch freed only: the PR URLs or the built branch, its head, the event line verbatim, and the INSTALL: and PROVE: lines the first builder returned>
-Repo rules: <each `[[rule]]` the `.claude/long-running.toml` of the drive's repository holds at its default branch's head, as `<id>: <text>`, which every job of every drive working in that repository follows; left out when it holds no such file>
+Release freezes: <the release freezes standing now>
+Mac: <the step only this Mac runs that the job itself runs, from `--mac`>
+After install: <each drive command `drive job prove` runs here once the change is installed, from `--after`>
+Handoff: <a PR event or a built branch freed only: the PR URLs or the built branch, its head, the event line, and the INSTALL: and PROVE: lines the first builder returned>
+Repo rules: <each `[[rule]]` of the repository's `.claude/long-running.toml` at its default branch's head, as `<id>: <text>`>
 Research: <a build order's reader only: the Researched: block this build needs>
-Researched: <a build order's builder, designer or codex lane only, but a reader-pilot order's, which needs none: the reader or design job of its own part, a change a design or builder listed counting as that job's part, whose kept report holds the order's rulings, what exists and its open questions, or, for a change a builder left unbuilt that nothing researched, that builder's return; another order's reader or design is one once `drive job set <it> --carries <order> --part "<part>"` gives it the part, so no second reader restates its research>
-Native: <where he sees or uses the result, such as a Slack post or card, the dashboard, a CLI he runs or a product UI, and what that platform already does for it, with links, such as Block Kit's chart and table blocks; "none" for work he never sees>
-Interactions: <when Native names his surface: his user stories on the result, `;` only between stories, each what he does, a click, key or hover, and sees what he then sees, its result inside the story after ", and sees", never after a `;`, such as "he presses j on the queue, and sees the next card open with its question as its first line"; its job writes each story's strict acceptance criteria into its proof file before building, which `drive pr add` refuses its PR without, and proves each on the installed surface with a picture or recording of it, the live post's link its proof file reads back, or, for a command, the file holding the output of its run, which only `drive job prove` proves, reading in code each story's `STORY`, `CRITERION`, `PASS` or `FAIL` and `SEEN` lines in what the proof file prints, as the builder's proof-file step states them, so a builder's or codex job's `DONE` on such a brief is refused whatever it names; its order is proven done by them or the live post>
+Researched: <a build order's builder, designer or codex lane only: the reader or design job of its part whose kept report holds what exists and the open questions; another order's reader counts once `drive job set <it> --carries <order> --part "<part>"` gives it the part>
+Answer: <a reader on his read-only question only: how its answer goes out first>
+Staging: <a staging tester only: where and how its cases run, and his tap on each PR it tests>
+Native: <where he sees or uses the result, such as a Slack post or card, the dashboard, a CLI or a product UI, and what that platform already does for it, with links; "none" for work he does not see>
+Interactions: <when Native names his surface: his user stories on it, `;` only between stories, each what he does, and sees what he then sees, such as "he presses j on the queue, and sees the next card open with its question as its first line">
 Would he ask: <what he would still have to ask for if only his words were built, such as the next piece, a link, or a native piece passed over>
-Plan: <the plan section this implements, quoted; a builder the drive added for a design's change gets `<design>'s design, change "<change>": drive job report <design>` from that add, so no brief writer leaves it out, and a lane on a Sprite reads that report with the same `drive job report`>
-Incident: <an incident job only: the record's id, which its owner, the first check or the cause job, keeps and every other job appends what it observed to; roll back to the newest build provably without the failing change, however many releases back; never a revert, which lands only on his tap; when no rollback stops the harm, the stop ships the immediate fix at once as an incident fix; the fix starts at the alert's code path or the failed release's step and is the root fix of the cause, which deletes any immediate fix and leaves no pin, flag, header, prefix rule, cap, retry, timeout raise, timer, wait, cache or special case standing; a card of his that blocks it never stops it, unless his words on the order ask for options and no fix; from the merged fix to its build nothing stops, no dry run, no cover or cause read, no comparison of open builds, no question; the job that merges the fix lifts the service's freeze, named here by its id, with <ci> release unfreeze <id>; start the build at the fix commit the regular way, by the release rule of reference/incidents.md that `drive job brief` adds to a builder's line, and report its link; the approve hold, which the job reads, is the only check and other reads run while it builds; return the inputs to a write-up, not the write-up; and last, the rule its kind follows on a choice, word for word, which `drive job brief` adds and `brief_refusal` refuses an incident brief without, so its writer types none>
+Plan: <the plan section this implements; a builder added for a design's change gets `<design>'s design, change "<change>": drive job report <design>` from that add>
+Incident: <an incident job only: the record's id; `drive job brief` adds the rule its kind follows from reference/incidents.md, so you type none>
 Scratch: <the job's scratch folder>
-Earlier parts: <a builder's brief only: each other builder of this order whose return kept a `SUMMARY:` block, its parts and those lines, at most 15, which it reads before the code they name>
-Transcripts: <the transcript path of every earlier job on this order, so it reads instead of being told; a Sprite lane's brief names each a READ cannot serve, a transcript on this Mac outside the drive's folder, as `drive job replies <j>` instead, and keeps a codex run's folder, which a READ lists file by file>
+Earlier parts: <a builder's brief only: each other builder of this order whose return kept a `SUMMARY:` block, at most 15 lines>
+Transcripts: <the transcript path of every earlier job on this order; a Sprite lane's brief names `drive job replies <j>` for one a READ cannot serve>
 Drive: <name>, order <o>, job <j>
 ```
 
-Ask only for what the builder's definition and the drive's refusals allow, such as no picture of the
-live drive or teammate's name in a public repository's PR body, which `drive pr add` refuses.
+How a story is proven: the job writes each story's acceptance criteria into its proof file before
+it builds, and `drive pr add` refuses its PR without one. `drive job prove` runs the file on the
+installed surface and reads each story's `STORY`, `CRITERION`, `PASS` or `FAIL` and `SEEN` lines in
+what it prints. The proof is a picture or recording, the live post's link, or a command's output
+file. A builder's or codex job's `DONE` on such a brief is refused until then.
+
+`drive pr add` refuses a public repository's PR body that pictures the live drive or names a
+teammate, so a brief does not ask for either.
 
 ## What a job returns
 
-A job's result goes to another agent, never to him, so it is the inputs to a write-up, never the
-write-up; only the handler that writes to him writes prose.
+A job's result goes to another agent, so it is the inputs to a write-up. The handler that writes to
+him writes the prose.
 
-- The job pipes its whole return on stdin into `drive job report <j> -`, its only report even when
-  a delegation hook names a file, because Claude Code refuses a subagent's Write of a report file.
-- It returns the first line alone, opening with a result word the state table lists. The
+- The job pipes its whole return on stdin into `drive job report <j> -`. Claude Code refuses a
+  subagent's Write of a report file, so this is its one report.
+- Its final message is the first line alone, opening with a result word the state table lists. The
   `one_line_result` hook sends back a final message past one line of 500 characters, and a
-  builder's, designer's or build order reader's line until the job's newest return opens with it,
-  whatever its said line reads since, such as the watch's `READY refused`, and `drive job report`
-  refuses a builder's or designer's report that opens with any other word.
-- The rest of the kept report is one fact a line: links, numbers, paths, exact quotes, and what it
-  could not prove.
-- The job's history, `jobs/<j>.replies.jsonl`, is its report: each `drive job report <j> -` adds
-  its return there beside every earlier one, so no return, its own agent's, its lane's or anyone
-  else's such as a coordinator restating its result, takes the place of another. Whoever acts on it
-  reads it with `drive job report <j>`, which prints the returns the job took, newest first, the
-  newest whole, each earlier one as a line naming when the drive kept it and its first line, every
-  one whole under `--all`, and an identical return once; an `ASK`
-  keeps its block through `drive job ask` instead. `drive job replies <j>` prints each return
-  oldest first, beside each message a remote lane sent.
+  builder's, designer's or build order reader's line until the job's newest return opens with it.
+- The rest of the kept report is one fact a line: links, numbers, paths, exact quotes, what it
+  could not prove, and each choice it made at a fork.
+- The job's history, `jobs/<j>.replies.jsonl`, is its report. Each `drive job report <j> -` adds a
+  return beside the earlier ones. `drive job report <j>` prints them newest first, the newest whole
+  and each earlier one as its time and first line, all whole under `--all`. An `ASK` keeps its block
+  through `drive job ask`. `drive job replies <j>` prints each return oldest first, beside each
+  message a remote lane sent.
 
 ## Rules for every job
 
-His words travel verbatim. A brief's `Order` and `Decisions that bind` carry what he wrote, word for
-word, and so does every cc-notes answer: never a paraphrase, a bot's summary, a card option's label
-or an answer id in their place. Your reading of his words in a brief is labeled as yours, beside
-them, since the job obeys its brief and an unlabeled reading becomes the spec. A tap's label is his
-answer only to that card's question. A ruling travels by its words and what they imply through every
-compaction, restart, handoff and `SendMessage`; an id carried alone loses them, since an answer's
-title is the question and his words are in its body.
+**A job decides.** A job that meets a fork picks, proceeds and names the choice in its return. His
+next word steers it. It returns `ASK` for what is his: product scope, an architecture fork with
+lasting cost, his own workflow, money, and the limits below.
 
-His words are never the whole spec. A job whose result he sees or uses does three things its brief's
-`Native`, `Decisions that bind` and `Would he ask` lines start it on. It reads that platform's own
-docs and builds on what the platform already does over anything hand-made, and its visual design is
-codex's, by his words "get codex to design and stop doing the bare minimum". It searches his recorded
-answers on the whole area and quotes each one it follows. Before it returns, it clicks through each
-user story on that surface as he will, against the criteria it wrote first, and closes each thing he
-would still have to ask for.
+**His words in a brief.** A brief carries his words where they help the reader, and a paraphrase is
+fine when marked as one. Quote him where his exact words matter. A tap's label answers only its
+card's question.
 
-His approval of a release starts it, right then. His order or card pick to ship, release or approve a
-release, or the coordinator's record of either, approves starting that release, never what its approve
-hold holds. The top coordinator starts it with `drive job add builder --order <o> --goal "<what it
-ships>" --release "<the start> --order <his answer id>"` with no second card or question first. That
-one call starts it from the top's checkout, prints its build link and writes the job's brief on that
-build. With no such answer, the top reads the release's plan and asks him with `drive job ask` whether
-to start that exact command, but for a release on `<staging env>` or `<sandbox env>` alone,
-which it starts with no `--order` and no card. At the approve hold the job's agent reads each held migration, delete and replace against the
-code at the release's commit, then runs `<ci> release approve <id> --via <agent>`, naming in
-`--leave-out` each stack it cannot vouch for, never cancelling the release or asking him, by his pick
-"Land whole stacks and read the gate: no schema change merges without its writer; a stack's bottom
-waits for its top".
+**A result he sees.** A job whose result he sees or uses builds on what the platform already does,
+from its own docs, over anything hand-made. Its visual design is codex's. It checks his recorded
+answers on the area, and before it returns it clicks through each user story on that surface as he
+will, and closes what he would still have to ask for.
 
-A resume or re-plan of a release he ordered keeps his order. No agent approves a release or its gate
-without his approval of that release, and a pick on a card that asked anything else is none. A
-release he started himself is his: never cancel, retry, reorder or approve it. An incident's order
-approves starting its own cut and rollback, by [incidents.md](incidents.md). While he holds every
-release, only his answer recorded after the hold approves one, by [landing.md](landing.md#after-merge).
+**Releases.** The top coordinator starts a release his words cover, on its own reading of them,
+with no card or question first:
+`drive job add builder --order <o> --goal "<what it ships>" --release "<the start> --order <his answer id>" --reading "<why his words cover it>"`.
 
-Answers resume; PR events start fresh. His answer to a job's `ASK` goes back by `SendMessage` to
-its agent, or `drive job resume <j> -` with it on stdin for a remote lane or for an agent another
-session started, which `SendMessage` cannot reach: there it prints a handoff brief's
-`Read your brief first:` line, and the agent you start on it takes the job as yours. A PR event after a builder
-returned gets a fresh builder, since a resumed one re-reads all it ever did on every event: the
-`communicator_calls` hook refuses `SendMessage` to a builder that returned `BUILT` or `DONE` outside
-an incident unless it carries an answer of his the job holds, by `superseded.delivery`, the rule each watch line names its step by. Run `drive job add builder` for the same order and parts, which takes each PR the old job opened that serves them and stops it
-`handed to <new>` once it is left no part, since a part or branch has one change job, or takes a failed old job's open PRs and stops it
-`replaced by <new>`, then write its brief with the `Handoff:` line and every earlier
-job's transcript under `Transcripts:`.
+- The call starts the release from the top's checkout, prints its build link and writes the job's
+  brief on that build. `--release` takes one `<ci> release start` or `<ci> release hotfix`. A start
+  typed directly is blocked by `landing_guard`, so this flag is the way in.
+- The start's own `--order` names the answer of his the release rests on. A release on
+  `<staging env>` or `<sandbox env>` alone needs none. An incident's order covers its own cut and
+  rollback, by [incidents.md](incidents.md).
+- `--reading` records your reading, and the job keeps it for the release's resume, approve, rerun
+  and rollback. Say in one line to him what you started and why.
+- The release job works out the order of what ships and holds itself. At the approve hold its agent
+  reads each held migration, delete and replace against the code at the release's commit, then runs
+  `<ci> release approve <id> --via <agent>`, naming in `--leave-out` each stack it cannot vouch
+  for.
+- The one limit: a dangerous release starts, resumes or passes its approve hold only while he is
+  present, meaning his word or tap in the last 15 minutes. Dangerous is what the repository's root
+  AGENTS.md lists, such as a migration, a backfill or a delete of user data, because those can
+  break customer runs or lose data with nobody watching. Until then the job returns `WAITING` on
+  his word with the release held. A rollback, an incident's hotfix that changes nothing dangerous
+  and a release off production run without him.
+- While he holds every release, one starts on his word given after the hold, by
+  [landing.md](landing.md#after-merge). A release he started himself stays running as he left it:
+  tell him what you see unless his words hand it to you.
 
-A built job's `FREE` line is a PR event too: the fresh builder's `Handoff:` names the built branch,
-and `Decisions that bind` carries his answer to each card it waited on, verbatim. An incident's job
-is the one exception, resumed for every event by [incidents.md](incidents.md), because minutes to
-users matter more there than tokens. The roots compact at 400,000 tokens, the communicator at
-300,000, and every other session and lane the drive starts, handlers, watchdogs, builders and remote
-lanes included, at 350,000, by his Nov 15 words "roots should have 400k compaction, communicator 300k,
-and builders/readers/all else 350k": `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the orca plugin's
-`lib/lane.json` sets the 350,000. Each leaf session, a builder, reader, designer, handler, watchdog or
-Orca lane, runs headless by `agents.light` and `agents.mcp_flags`: `--strict-mcp-config` with only the
-servers its role calls (a handler's drive, cc-slack, cci and Datadog; none for the rest, which use the
-CLIs), only its role's plugins and the plugins the drive depends on, no user skills, no auto-memory
-and no nonessential traffic, by his Nov 15 words "make them as lightweight as possible".
-Nothing the drive starts runs above `high` effort, its roots, agents, Orca and Sprite lanes and
-codex-ask runs alike, by his Nov 15 words "nothing should be running at xhigh": an Agent call, launch
-or `codex-ask` naming an effort names `high` or lower.
+**Answers resume. PR events start fresh.** His answer to a job's `ASK` goes back by `SendMessage`
+to its agent, or `drive job resume <j> -` with it on stdin for a remote lane or an agent another
+session started. There it prints a handoff brief's `Read your brief first:` line, and the agent you
+start on it takes the job as yours. A PR event after a builder returned gets a fresh builder, since
+a resumed one re-reads all it ever did on every event. The `communicator_calls` hook refuses
+`SendMessage` to a builder that returned `BUILT` or `DONE` outside an incident, unless it carries
+an answer of his the job holds. Run `drive job add builder` for the same order and parts. It takes
+each PR the old job opened that serves them and stops it `handed to <new>`, or takes a failed job's
+open PRs and stops it `replaced by <new>`. Then write its brief with the `Handoff:` line. A built
+job's `FREE` line is a PR event too: the `Handoff:` names the built branch, and the drive writes
+his answer to each card it waited on into the brief. An incident's job is resumed for every event,
+by [incidents.md](incidents.md), because minutes matter more there than tokens.
 
-A reproduction leaves one file. A job that reproduces a bug, of any kind, saves one pick-up-and-run
-file before it returns: the steps in order, the exact prompt and code, the build and versions, and
-the numbers measured. It records the file with `drive job set <j> --repro <file>`, which keeps a
-copy that `drive status` lists, so a share reads it instead of rebuilding the steps from a
-transcript. A brief for such a job says so. A reproduction's scratch drive, one whose state root
-`LONG_RUNNING_STATE` or `XDG_STATE_HOME` moves, gets no watch process from `drive start` or `drive watch`, so the file runs
+**Session settings.** The roots compact at 400,000 tokens, the communicator at 300,000, and every
+other session and lane at 350,000, set by `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the orca plugin's
+`lib/lane.json`. Each leaf session runs headless and light, by `agents.light` and
+`agents.mcp_flags`: `--strict-mcp-config` with the servers its role calls (a handler's drive,
+cc-slack, cci and Datadog; none for the rest, which use the CLIs), its role's plugins and the
+drive's, no user skills, no auto-memory. An Agent call, launch or `codex-ask` naming an effort
+names `high` or lower.
+
+**A reproduction leaves one file.** A job that reproduces a bug saves one pick-up-and-run file
+before it returns: the steps in order, the exact prompt and code, the build and versions, and the
+numbers measured. It records it with `drive job set <j> --repro <file>`, which keeps a copy
+`drive status` lists. A reproduction's scratch drive, one whose state root `LONG_RUNNING_STATE` or
+`XDG_STATE_HOME` moves, gets no watch process from `drive start` or `drive watch`, so the file runs
 the watch's passes in-process with `watch.run_pass`.
 
-One deliverable per job, one job per deliverable, and no job waits on another. Before a job starts on
-a PR, branch, worktree or finding, read who holds it: `drive status` for the drive's jobs and PRs,
-and `cci who --pr <n>` for any session's claim on that PR. Work someone holds goes to its holder by
-`SendMessage`, `drive job resume`, or its order added with `--joins`, and no second job starts on it,
-since two owners each restack, watch and fix the same change and their PRs fold into one later. A job
-whose chain stops moving gets the watch's `STUCK` line once, by [The coordinator](coordinator.md),
-and its owner takes that line's NEXT step that turn. When B needs A merged, B starts on A's `DONE`.
+**One deliverable, one job.** Two owners of one PR, branch or finding each restack, watch and fix
+the same change, and their PRs fold into one later. `drive status` shows who holds what, and
+`cci who --pr <n>` shows any session's claim on a PR. Work someone holds goes to its holder by
+`SendMessage`, `drive job resume`, or its order added with `--joins`. When B needs A merged, B
+starts on A's `DONE`. A job whose chain stops moving gets the watch's `STUCK` line once, by
+[The coordinator](coordinator.md).
 
-A sweep over many units is one job running a Workflow, and you start it: a builder has no Agent
-tool, so the session that owns a job starts every agent its work needs.
+**Sweeps.** A sweep over many units is one job running a Workflow, and you start it. A builder has
+no Agent tool, so the session that owns a job starts every agent its work needs.
 
-A job's state is its transcript. Before you report on a running job or message it, read its
-transcript: `cc-transcript` on the file its agent id names, or for a remote lane `drive job replies
-<j>` or `orca orchestration worker-read --dispatch <its dispatch> --limit 50 --full --json`. An
-absent message is never evidence. The `communicator_calls` hook refuses a `SendMessage` or
-`drive job resume` that tells a running job it stopped, stalled, went quiet or is stuck, or asks it
-whether it is, such as `status?`, with no such read in your last 10 minutes or earlier in the same
-command. Only words about the job a message goes to count: a question whose subject is another job
-or CI, such as `is CI still running?`, and another `drive job resume`'s words in the same command
-are not about it, and each resume in a command is checked on its own words. An order, ruling, answer
-or relayed refusal goes through unread, even one that says stop, land or stuck.
+**A job's state is its transcript.** Check a fact about a job in the turn you tell it to him:
+`cc-transcript` on the file its agent id names, or for a remote lane `drive job replies <j>` or
+`orca orchestration worker-read --dispatch <its dispatch> --limit 50 --full --json`. The
+`communicator_calls` hook refuses a `SendMessage` or `drive job resume` that tells a running job it
+stalled, or asks whether it did, such as `status?`, with no such read in your last 10 minutes. An
+order, ruling, answer or relayed refusal goes through unread.
 
-A close job closes only what he named: each session or terminal his words or tapped card name, by
-its exact id after a fresh idle check and never a live drive lane, returning the closed count with
-the ids. A close cannot be undone, so his naming is the whole authorization.
+**Closing sessions.** A close job closes the sessions or terminals his words or tapped card name,
+by exact id after a fresh idle check, and returns the count with the ids. It does not close a live
+drive lane or anything else, because a close cannot be undone and the session may be someone's
+work.
 
-A stack draws one card whatever its size. The card names every PR, and the PR sections past the 50
-blocks one Slack message holds open under its Explain more.
+**Stack cards.** A stack draws one card whatever its size. The card names every PR, and the PR
+sections past the 50 blocks one Slack message holds open under its Explain more.

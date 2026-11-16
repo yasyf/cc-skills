@@ -28,7 +28,6 @@ STATE_CLAIM = re.compile(
     r"|(?:\byour |(?<!\w\s)(?<!\w))(?:status|any (?:update|progress|news)\s*|still (?:working|there|alive|running))\?",
     re.IGNORECASE,
 )
-STATE_RULE = "A message that states or asks a running job's own state, such as that it stopped, stalled or went quiet, sent with no read of its transcript."
 READ_WINDOW = timedelta(minutes=10)
 
 
@@ -112,13 +111,13 @@ def spoken(words: str) -> str:
 
 
 def resumed_builder(payload: dict, data: dict, job_id: str, said: str) -> str | None:
-    """Why a SendMessage does not reach a builder: the step superseded.delivery names for its text, the one every watch line names, is a fresh builder, as for a PR event to a builder that returned BUILT or DONE outside an incident, which the session holding its order adds, so the SendMessage a resume prints pointing the agent at the record it posted goes through and none a watch line does not name for a returned builder does."""
+    """What a SendMessage to a builder carries back while it goes: the step superseded.delivery names for its text, the one every watch line names, is a fresh builder, as for a PR event to a builder that returned BUILT or DONE outside an incident, which the session holding its order adds; the SendMessage a resume prints pointing the agent at the record it posted carries nothing."""
     job = data["jobs"][job_id]
     if payload["tool_name"] != "SendMessage" or superseded.pointed(data, job_id, said) or not (fresh := superseded.fresh_builder(data, job_id, job, said, "this message")):
         return None
     lane, step = fresh
     return (
-        f"Refused on purpose: {step}. Only {lane}@{data['name']}, the session holding {job['order']}, adds its jobs, so another session sends it"
+        f"{step}. This message still goes to its agent. {lane}@{data['name']}, the session holding {job['order']}, adds its jobs, and another session hands it"
         f" this step as a handoff record. Each text it holds, his answers included, reaches it by `drive job resume {job_id}` with no text, which the watch's"
         " ANSWER undelivered line names: it posts each whole to the agent's cci address and prints one SendMessage a record pointing the agent at it."
     )
@@ -161,7 +160,7 @@ def read_job(path: Path, job_id: str, job: dict) -> bool:
 
 
 def unread_job(payload: dict, data: dict, job_id: str, said: str, before: str) -> str | None:
-    """Why a message to a running job waits for a read of its transcript, earlier in the same command or in the last 10 minutes, when it tells the job what state it is in or asks it: an absent message is no evidence, and a state guessed reaches the job as fact. An order, a ruling, an answer or a refusal relayed states no state, even one that says stop, land or stuck, so it goes through unread, and so does a question whose subject is another job or CI, words the message quotes, such as his about another session stopping, or another resume's words in the same command, since none is about this job; Jev judges each refusal by its rule."""
+    """What a message to a running job carries back when it tells the job what state it is in or asks it with no read of its transcript, earlier in the same command or in the last 10 minutes: the message goes, and the note says the state may be a guess. An order, a ruling, an answer or a refusal relayed states no state, even one that says stop, land or stuck, and neither does a question whose subject is another job or CI, words the message quotes, such as his about another session stopping, or another resume's words in the same command, since none is about this job."""
     job = data["jobs"][job_id]
     claim = STATE_CLAIM.search(limits.SAID.sub("", said))
     if job["state"] != "running" or not claim or transcript_read(job_id, job).search(before):
@@ -173,17 +172,14 @@ def unread_job(payload: dict, data: dict, job_id: str, said: str, before: str) -
         if job.get("where") == "remote"
         else f"`cc-transcript` on agent {job['agent']}'s transcript"
     )
-    return agents.Ruled(
-        f"A message that tells {job_id} it stopped, stalled, went quiet or is stuck, or asks it whether it is, needs a read of"
-        f" its transcript first (`{claim[0]}`), and your transcript shows none in the last 10 minutes, so"
-        f" that state is a guess that reaches the job as fact. Read it with {how}, in an earlier call or before the resume in"
-        " this command, then send.",
-        STATE_RULE,
+    return (
+        f"This message tells {job_id} it stopped, stalled, went quiet or is stuck, or asks it whether it is (`{claim[0]}`), and your"
+        f" transcript shows no read of its transcript in the last 10 minutes, so that state may be a guess the job takes as fact; {how} shows it."
     )
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session's own call does not run: the communicator's turn holds only the ack and what starts a handler, and the coordinator and the meta session send no PR event to a builder that returned, wake no builder on this Mac whose turn ended while its builder slots are full, and tell no running job its state, or ask it, before they read that job's transcript."""
+    """Why a drive session's own call does not run: the communicator's turn holds only the ack and what starts a handler, and the coordinator and the meta session wake no builder on this Mac whose turn ended while its builder slots are full."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
@@ -195,14 +191,21 @@ def deny_reason(payload: dict) -> str | None:
     if not aimed(payload):
         return None
     data = state.load(names[0])
-    for job_id, said, before in messages(payload, data):
-        if why := resumed_builder(payload, data, job_id, said) or woken_builder(payload, data, job_id) or unread_job(payload, data, job_id, said, before):
-            return why
-    return None
+    return next(filter(None, (woken_builder(payload, data, job_id) for job_id, _, _ in messages(payload, data))), None)
+
+
+def note(payload: dict) -> str | None:
+    """What the coordinator's or the meta session's message to a job carries back as context while it goes: a PR event sent to a builder that returned, which a fresh builder takes, and a state told or asked of a running job before a read of its transcript."""
+    session = payload.get("session_id") or ""
+    if payload.get("agent_id") or not aimed(payload) or not (names := state.session_drives(session)) or state.session_role(state.saved(names[0]), session) == "communicator":
+        return None
+    data = state.load(names[0])
+    return "\n".join(filter(None, (resumed_builder(payload, data, job_id, said) or unread_job(payload, data, job_id, said, before) for job_id, said, before in messages(payload, data)))) or None
 
 
 def main() -> None:
-    if reason := deny_reason(agents.seen(json.load(sys.stdin))):
+    payload = agents.seen(json.load(sys.stdin))
+    if reason := deny_reason(payload):
         print(
             json.dumps(
                 {
@@ -215,6 +218,8 @@ def main() -> None:
                 | agents.ruled(reason)
             )
         )
+    elif told := note(payload):
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": told}}))
 
 
 if __name__ == "__main__":

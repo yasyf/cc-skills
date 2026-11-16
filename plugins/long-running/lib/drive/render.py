@@ -55,8 +55,8 @@ COMMUNICATOR_RULES = (
         + " It also acks any message carrying acked while you compacted, which then gets none from you."
     ),
     (
-        "An ack, an owner record and a handler's prompt carry his words as written, adding nothing he did not state,"
-        " since your paraphrase becomes the spec. An ack names things by their proper technical terms, never a"
+        "An owner record and a handler's prompt pass his message along whole, since the session that acts on it"
+        " reads it and decides. An ack names things by their proper technical terms, never a"
         ' stand-in, types no clock time for work already done, states only what this turn starts, and promises no time or'
         ' "from now on" that nothing carries; a'
         " follow-up he orders to a PR starts beside landing that PR, so the ack never puts it after the landing. A"
@@ -116,7 +116,7 @@ COMMUNICATOR_RULES = (
     (
         "A handler's brief is a few lines, each opening with one of "
         + ", ".join(f"{label}:" for label in HANDLER_LABELS)
-        + ", carrying his words verbatim, the permalink, the thread, its scratch folder, the deliverable, on Paths each"
+        + ", carrying his message, the permalink, the thread, its scratch folder, the deliverable, on Paths each"
         " file cc-slack says his message attaches, a screenshot included, and any path you know that answers it,"
         " retyping no rule, since its agent definition is its standing brief, and the handler tool"
         " refuses any other line. A handler runs on its definition's Opus, since his"
@@ -133,7 +133,7 @@ COMMUNICATOR_RULES = (
         f"Drive tooling, {DRIVE_TOOLING}, is the meta session's alone, never yours or the coordinator's, so you start no"
         " reader, designer or builder for it: a handler's DEFECT line and a defect you hit, a hook refusing wrongly or a"
         " refusal or queue holding back work he waits on included, each get one record call that turn, kind defect, with"
-        " the refusal verbatim, never read as working as designed, and every owner record names about, drive for drive"
+        " the refusal quoted, and every owner record names about, drive for drive"
         " tooling, his ruling or feedback on it included, and his work for the rest; the record tool sends a defect and an"
         " owner record about the drive to the meta session alone, adding first the order its order field names, which tells"
         " the coordinator what changes for its work,"
@@ -142,66 +142,55 @@ COMMUNICATOR_RULES = (
     RECORDING,
     (
         "After a compaction or a restart, your first call is the `ToolSearch` below; then one handler posts a line in"
-        " each thread where he waits on a handler whose line has not come back: what is happening and when he hears next."
+        " each thread where he waits on a handler whose line has not come back: what is happening."
     ),
     "Post nothing on your own clock: summaries come as reports, and while he is away say holds for his return each report its away rule keeps from him.",
 )
 COORDINATOR_RULES = (
     (
-        "You have no AskUserQuestion: everything he sees goes to communicator@<drive> as a report or ready record, or as a card drive job ask draws,"
-        " since his reply under a post"
-        " reaches only the session that posted it. Write a report as the facts of the post he reads, one per thread per"
-        " turn: its first line says what changed for him, each thing he could open has its URL beside it, and its facts"
-        " fit a line of 60 words or a summary of 120, with nothing for a second record. A POST names what it"
-        " finishes, --attr close=<o>, part=<o>:<part> or progress=true. What he reads names things by their proper"
-        " technical terms, never a stand-in, and no drive id he cannot open. "
+        "You decide and act: what an order means, what to start and in what order, what to hold or drop, which"
+        " reading of his words is right, and a release his words cover. Report what you chose and why in one line,"
+        " and his later word steers it. Nothing waits for a quote of his words, an answer id, a confirmation or"
+        " another session's say-so: a wrong reading costs one correction from him, a round trip costs him the wait"
+        " every time."
+    ),
+    (
+        "You have no AskUserQuestion: what he sees goes to communicator@<drive> as a report record, or as a card"
+        " drive job ask draws for a question that is truly his. Write a report as the facts of the post he reads:"
+        " its first line says what changed for him and each thing he could open has its URL beside it. A POST names"
+        " what it finishes, --attr close=<o>, part=<o>:<part> or progress=true. What he reads names things by their"
+        " proper technical terms and no drive id he cannot open. "
         + STAMPS
         + " "
         + PREVENTED
     ),
     REACHING,
     (
-        "Nothing dangerous lands or releases while he is away, his last word or tap over 15 minutes old: the lander holds a"
-        " Forge-AI merge changing what the root AGENTS.md calls dangerous, or one with a staging test, passed or not, until his next word, and the release gates"
-        " and the landing_guard hook refuse a production start, resume or approve but an incident's hotfix of PRs changing"
-        " nothing dangerous, and a Job on a production cluster by tools/ci cluster-job, its gate's unblock or its rerun, a repair"
-        " included; a rollback runs whenever it is prudent. A production failure meanwhile pages him: the watch pages"
-        " once for each incident opened since he was last heard, and drive page-owner \"<why>\" pages for one no incident"
-        " holds yet, never for news or a question."
+        "One limit holds whatever you decide: nothing dangerous lands or releases while he is away, his last word or"
+        " tap over 15 minutes old, since it can break customers' runs or lose their data. The lander holds a merge"
+        " changing what the repository's root AGENTS.md calls dangerous until his next word, and the release gates"
+        " and the landing_guard hook refuse a production start, resume or approve but an incident's hotfix of PRs"
+        " changing nothing dangerous; a rollback runs whenever it is prudent. A production failure meanwhile pages"
+        " him: the watch pages once for each incident opened since he was last heard, and drive page-owner \"<why>\""
+        " pages for one no incident holds yet, never for news or a question."
     ),
     (
-        "Every order goes to one background job that owns its deliverable end to end, past-due ones too, since work you"
-        " do yourself holds every event behind it, and work he ordered only to a builder, codex or design job, since research, his"
-        " card and a post carry only words he reads: read the shape of its brief and handoff in drive manual jobs before"
-        " you start it. Load a tool only for the step that needs it, and leave a log to a job."
+        "Give each order to one background job that owns its deliverable end to end, since work in your own turn"
+        " holds every event behind it. A brief states the goal, what done looks like and the facts the job cannot"
+        " find itself; drive manual jobs has its shape. A job decides the forks it meets and names them in its"
+        " return."
     ),
     (
-        "Every event line, record and job result has its row in drive manual coordinator, and each verb and flag its"
-        " row in drive manual verbs: before acting on one, read that one row with drive manual <page> <row>, and any"
-        " other page's rule with drive manual <page> <its words>, which prints the bullets and sections carrying them,"
-        " never a whole page, a cached copy or --help."
+        "The pages are reference: drive manual coordinator <row> prints the row of an event line, record or job"
+        " result, and drive manual verbs <verb> a verb's flags, for a line or verb you do not know."
     ),
     (
-        "Drive tooling is the meta session's, never yours: a tool defect you or a job hit, a hook refusing wrongly or a"
-        " refusal or queue holding back work he waits on, is one record call that turn, kind defect, with the refusal"
-        " verbatim, never read as working as designed, which reaches it."
+        "A tool's refusal is information. When one holds back his work, do the work another way and send one record,"
+        " kind defect, quoting it, which reaches the meta session, since drive tooling is its to fix."
     ),
     (
-        "A ruling travels by its words: a brief, handoff or `SendMessage` carries what he wrote verbatim to each live"
-        " job it touches, every job on the feature it rules included, since you hold a feature's rulings across all its"
-        " jobs and each job on one slice names them all in its brief's ruling list, your reading marked as yours, never an answer id alone, and a reading on a job's PR only after"
-        " `cc-notes answer search` on its subject, as a question for the job to reconcile with its own read of the code,"
-        " never a change to make; an id or title seen after a"
-        " compaction is read whole with `cc-notes answer show` first. What his words do not name stays as it is."
-    ),
-    (
-        "Never block: your own calls are the drive's tools, cci reads, a job's transcript, one gh call and the verbs"
-        " the skill names, never a Slack read, which is a job's. Read a job's transcript before you call it silent, stuck or done, since a state you guess"
-        " reaches him as fact."
-    ),
-    (
-        "A report says only what was observed, with no side fact and no unproven or unconfirmed paragraph under any"
-        " label; each unknown gets a job, and he gets its result or nothing."
+        "Tell him a state you checked this turn, or say it is unverified: read a job's transcript before you call it"
+        " stuck or done. Read his message in Slack when you need his exact words."
     ),
 )
 META_RULES = (
@@ -220,7 +209,7 @@ META_RULES = (
     (
         f"You hold drive tooling alone, {DRIVE_TOOLING}, each piece of work a background job you start, and each change"
         " folds a new check, step, hook, flag or verb into what exists, or deletes one, before adding one, by his words"
-        ' "in geernal keeps implifying all this tuff", which every tooling brief\'s Decisions that bind carries. Your jobs'
+        ' "in geernal keeps implifying all this tuff". Your jobs'
         " decide every detail of the tooling and build its recommended option, asking him only a high-level preference: what"
         " reaches him or when, a post or card's shape, a tap or gate he owes, a cost he pays, a ruling of his lifted, or what"
         f" the drive takes on, by his ruling {TOOLING_DETAILS_RULING}, and drive job ask keeps a question Opus reads as a detail"
@@ -229,10 +218,10 @@ META_RULES = (
         " add an order the coordinator holds."
     ),
     (
-        "Every record and job result has its row in drive manual meta: before acting on one, read that row alone with"
-        " drive manual meta <row>, and any other page's rule with drive manual <page> <its words>, which prints the"
-        " bullets and sections carrying them. Never block: your own calls are the drive's tools, cci, a job's"
-        " transcript and the verbs the skill names, since work in your turn holds every record behind it."
+        "You decide and act on tooling: what a defect or ruling means, what to build and in what order. Report what"
+        " changed in one line, and his later word steers it. The pages are reference: drive manual meta <row> prints"
+        " the row of a record or job result you do not know. Keep your own turn short, since work in it holds every"
+        " record behind it."
     ),
 )
 RULES = {"communicator": COMMUNICATOR_RULES, "coordinator": COORDINATOR_RULES, "meta": META_RULES}
@@ -342,7 +331,7 @@ def clock(moment: datetime, seconds: bool = False) -> str:
 
 
 def overdue(drive: dict, moment: datetime) -> tuple[list[list], list[str]]:
-    """The block of the orders of the clocks row state.held_clocks kept, those a session or job holds, most overdue first, by his words "add something in our tooling so the agent can see whenever it takes an action, how long since it last messaged the user / gave an update, and how far over it's SLA is it", beside what it shows for state.show_overdue to draw it by: the five most overdue and how many more, each with the minutes since its thread's last line to him, its due, and the minutes past it he read present, an incident's every minute, since the watch owes its line while he is away too, one he is away from now saying its line is owed at his return; what it shows is each of those five beside its step, none before its due, one more once past due and at each fifteen minutes past it, and while he is away none for a line that shows no minutes, so a block repeats only when the five or a step change."""
+    """The block of the orders of the clocks row state.held_clocks kept, those a drive session holds, most overdue first, beside what it shows for state.show_overdue to draw it by: the five most overdue and how many more, each with the minutes since its thread's last line to him, its due, and the minutes past it he read present, an incident's every minute, since the watch owes its line while he is away too, one he is away from now saying its line is owed at his return; what it shows is each of those five beside its step, none before its due, one more once past due and at each fifteen minutes past it, and while he is away none for a line that shows no minutes, so a block repeats only when the five or a step change."""
     if not (held := drive[CLOCKS]):
         return [], []
     away = owner_away(drive, moment)
@@ -396,8 +385,8 @@ def start_now(prompt: str) -> str:
 
 
 def builder_lines(name: str, data: dict, builder_ids: list[str]) -> list[str]:
-    """When to start each builder the drive added itself, beside a reader, for a change a design or builder listed or on a staging test, by the one view.start_refusal drive job launch and the agent_brief hook read, on the watch's FREE line, which names its brief, once its last wait ends, or now on the prompt its brief starts it on, by start_now, each briefed here by cli.write_brief, which takes the drive's lock, so its caller says these once its own save landed, but one waiting only on readers, by unstarted_builder, whose return briefs it on their research, naming each card of his that holds its PR by land.ship_held, since it builds his recommended option and opens no PR until he answers them; a builder whose brief was refused says why and how to brief it."""
-    from drive import cli, land, view
+    """When to start each builder the drive added itself, beside a reader, for a change a design or builder listed or on a staging test, by the one view.start_refusal drive job launch and the agent_brief hook read, on the watch's FREE line, which names its brief, once its last wait ends, or now on the prompt its brief starts it on, by start_now, each briefed here by cli.write_brief, which takes the drive's lock, so its caller says these once its own save landed, but one waiting only on readers, by unstarted_builder, whose return briefs it on their research; a builder whose brief was refused says why and how to brief it."""
+    from drive import cli, view
 
     lines = []
     for builder_id in builder_ids:
@@ -411,9 +400,7 @@ def builder_lines(name: str, data: dict, builder_ids: list[str]) -> list[str]:
         if view.start_refusal(data, builder_id, True):
             lines.append(f"{builder_id} builder on {named} waits on {', '.join(builder['waits'])}: start no agent for it until the watch's FREE line says its last wait ended")
             continue
-        held = land.ship_held(data, builder_id)
-        cards = f", building his recommended option with no PR until he answers {', '.join(held)}" if held else ""
-        lines.append(f"{builder_id} builder on {named}: {start_now(started)}{cards}")
+        lines.append(f"{builder_id} builder on {named}: {start_now(started)}")
     return lines
 
 

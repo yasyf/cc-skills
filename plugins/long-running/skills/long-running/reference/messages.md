@@ -1,11 +1,14 @@
 # Messages to the owner
 
-Only the communicator's side writes to him, from his own messages and from the `report`
-records the coordinator sends, and on the question cards `drive job ask` draws. The communicator posts the ack alone in its first message, with `say`, and
-nothing else. Its handlers write, check and post every other post, one handler at a time per message of his or
-per thread: the coordinator's record carries the facts, the handler writes the words, and a handler
-answers his read-only questions itself. Every post is short, says what changed for him, and carries
-the card with its buttons whenever it says something waits on him.
+He reads only Slack, so a post is the whole of what he knows. The default: answer him
+directly, once, as soon as the answer is known, in plain words with links. No placeholder goes out
+first and no promise line stands in for the answer. If the work will take long, the first post says
+so once.
+
+The communicator posts the ack. A handler writes every other post, from his message or from a
+`report` record the coordinator, the meta session or the watch sends. The drive draws the cards.
+You are trusted to judge what a post should say. The rules below are his style rulings and the
+facts about how `say` and the cards behave.
 
 ## Contents
 
@@ -21,12 +24,10 @@ the card with its buttons whenever it says something waits on him.
 
 ## Limits
 
-The tooling holds every post to a length, counted on the words its writer typed, so a `report`
-record names no cap of its own. A link, a `{card:…}`, `{pr:…}`, `{order:…}`, `{record:…}`,
-`{answer:…}`, `{started:…}` or `{at:…}` reference included, counts as the words after its `|`, or as
-one word, never the title or time `say` draws for it, and what `say` adds itself, such as a
-catch-up's title and its open cards, counts for nothing. The limits are the coordinator's reading of
-his words "your messages need to be way shorter rewrite this for a human".
+He asked for short messages, so the tooling counts each post. It counts the words its writer
+typed. A link or a `{card:…}`, `{pr:…}`, `{order:…}`, `{record:…}`, `{answer:…}`, `{started:…}` or
+`{at:…}` reference counts as the words after its `|`, or as one word. What `say` adds itself, such
+as a catch-up's title and its open cards, counts for nothing.
 
 | What he reads | At most |
 |---|---|
@@ -37,677 +38,336 @@ his words "your messages need to be way shorter rewrite this for a human".
 | A question card's Show me, the worked example between its summary and options | none: drawn whole as its visuals, outside the 150 |
 | Each option on a card | one line of 25 words, saying what he gets and what it costs |
 | Each option's plain-text description, drawn under it on the card | 60 words, drawn whole outside the 150 |
-| A findings post | none, ever: findings stay on disk |
+| A findings post | none goes out: findings stay on disk, and Explain more posts the part he asks for |
 | An answer to a question or order of his in that thread, his words quoted as `asked` | no limit: the whole answer goes out |
 | An edit that rewords a line already posted | that line's own length and 10 words more, or the line's limit when that is longer |
 
-- The message-limits hook refuses a post or edit in his DM over its limit, from the communicator or
-  any handler, naming the count, the limit and what would pass. `drive job ask` refuses an `ASK`
-  whose card runs over its limit, or that cc-slack refuses to draw, in cc-slack's own words.
-- Text passed beside a question card is drawn atop its body and counts toward its 150 words, so post
-  the card with no text beside it.
-- A post that answers a question or order of his, a ruling he gave, or his tap on Explain more goes
-  out whole at any length, because a cut answer loses what he asked. To lift the limit, pass as
-  `asked` each message of his the post answers, word for word, one per line or list entry (a list
-  sent as a JSON string counts as its entries), with `…` where you skip words, or the message's
-  permalink in his DM as its entry. A post outside the thread his message is in, such as a share he
-  ordered from his thread to another person's group DM, passes that permalink, since the thread it
-  goes to holds no word of his.
-- The hook looks for each quote in his messages in the thread the post goes to, in the answers of his
-  its cards there show, whole for words he wrote in a card's Other box, which the card's ✓ line clips
-  and the drive reads from that card's answer, in his Explain more tap, which a card there shows on cc-slack's "You asked for
-  more" line so a reply passes `asked="Explain more"`, and in each message of his in his DM an `asked`
-  permalink links, read from Slack, with straight and curly quote marks alike; one found quote is
-  enough. The handler's brief
-  and the record it was started with are other agents' words, never his, whatever they quote. A
-  refusal says which limit applied and why: no `asked`, so not an answer; quotes it could not find,
-  named; or an edit's own length.
-- An edit that rewords a posted line may grow it by 10 words, so a correction can add the proper
-  terms without the cap cutting what the line says.
-- A question card keeps its 150 words whatever it quotes, and its Show me counts toward none of them,
-  so never cut a Show me to fit.
+- An answer goes out whole because a cut answer loses what he asked. Pass `asked` to lift the
+  limit: each message of his the post answers, one per line or list entry, with `…` where you skip
+  words, or the message's permalink in his DM. A reply to his Explain more tap passes
+  `asked="Explain more"`. A post outside the thread his message is in, such as a share he ordered to
+  another person's group DM, passes the permalink.
+- The hook looks for each quote in his messages in that thread, in his answers on its cards and in
+  each message an `asked` permalink links. One found quote is enough, and straight and curly quote
+  marks match alike.
+- Text passed beside a question card is drawn atop its body and counts toward its 150 words, so
+  post the card with no text beside it. A Show me counts toward none of them, so do not cut one to
+  fit.
 
 ## The short form
 
-- Lead with what changed for him, in his words, never with how the machinery got there.
-- Write a bold line and at most two sentences; use a table only for three or more parallel items.
-- Keep every card and line in a thread about that thread's work alone: the open orders with a
-  thread there, their jobs and the cards and PRs those wait on, as a handler's `In his thread:`
-  line lists them. A line there reaches past that work only when his words there name more, such as
-  a project or the whole drive. His words: "Why the fuck do you keep asking me about everything in
-  the drive we're talking about the work this thread is about Jesus". Post drive tooling, such as a
-  fix to the launcher its builders start from, in the thread his words ordering it came in, else at
-  his DM root under its own words, its later lines replying under that first one, never in a
-  feature's thread it only unblocks, because a tooling line he did not ask for there makes no sense
-  to him. A tooling order a session opened that has posted nothing, with no teammate's report,
-  posts no fix-live line at all: it closes on its proof, and the dashboard shows it live.
+- Lead with what changed for him, in his words, not with how the machinery got there.
+- Write a bold line and at most two sentences. Use a table for three or more parallel items.
+- Keep a thread about that thread's work: its open orders, their jobs and the cards and PRs those
+  wait on, as a handler's `In his thread:` line lists them. Reach past it when his words there name
+  more, such as a project or the whole drive.
+- Drive tooling news goes in the thread his words ordering it came in, else at his DM root under
+  its own words. It does not go in a feature's thread it only unblocks, where it makes no sense to
+  him. A tooling order a session opened on its own, with nothing posted yet, closes on its proof and
+  posts no fix-live line: the dashboard shows it live.
 - The coordinator sends one `report` per thread per turn, opening `POST` or `FYI`, because four
-  posts of 60 words are the same wall as one of 240; `record_lines` refuses a second, or a `POST`
-  past 60 words, 120 for a summary. A turn runs from a wake, whether a cci record, a task
-  notification or his message, to the end of that response. The handler writes the post from its
-  facts.
-- The report's first sentence says what changed for him, and no cut takes it. What does not fit
-  waits for the next turn, each item that waits on him kept first with its card's permalink or
-  `waits` id, which `record_lines` refuses a report without, so the handler never searches.
-- When a line names a card or says something waits on him, name the card as `{card:<its waits id>}`
-  in `say`'s text, which `say` links under words that name it. A line naming a PR or quoting an
-  error one of his open question cards already asks about names that card too: `say`'s hook refuses
-  a handler's post in his DM without it, naming the card, and never asks it of a line outside his DM,
-  such as one in a teammate channel's thread, whose readers cannot open his card, so a failure he was already told about reads as
-  that card's news. The match is on the card's subject, what it asks him to decide, the PR its
-  question names or the error its root cause quotes: a file, path or name both texts mention is no
-  shared subject, and the rule Jev weighs the finding by says so, so Jev passes a post sharing only one. Slack then draws the card with its buttons under the line, so he answers it
-  where it sits. In that card's own thread `say` writes it
-  as the words after its `|` or as "this card", with no link, and cc-slack writes any link to a
-  thread's own parent as its words, since he is already under the card. His words: "why are you
-  showing me a card in the thread of the same post that this is a thread of".
-- Never paste the bare URL, which shows him a raw address, use the URL as its own label,
-  `<permalink|permalink>`, which Slack never draws, or copy the card's words. `cc-slack check-post`
-  refuses a waiting line with no open card linked, and a card link shown as a raw URL.
-- Slack draws a message's first five Slack-message and alert links, and none it drew in the same
-  thread a moment before. Put each card on its own line: cc-slack sends a post to his DM that links
-  more than five as pages, each cut at the last blank line before the line holding its sixth, so
-  every card draws ("if you're telling me to tap something you need to include the unfurled card
-  here"), and refuses one line linking six.
-- A table cell draws no card under a link and opens nothing from it, so no table links a card or
-  any other Slack message: link each card on a line under the table, where Slack draws it. A table
-  row saying a PR waits on his tap or Approve, read with its column headers, as "what holds it: your
-  Approve" reads, carries that PR's open tap card on such a line, and `say` refuses the row while
-  its card is linked only in a cell or nowhere, by his words "Those links to the approve cards in
-  the table aren't doing anything t".
-- A line that waits on him and links a PR draws that PR's tap card, as `tap_prs` does. When the PR
-  draws no card, such as one merged or one the card command skips, `say` is refused and nothing goes
-  out, so name a PR he has nothing to tap in a line that waits on nothing.
-- Only cards have buttons, so anything that asks for his action or decision is a card: "Anything that
-  says waiting on me you always need to embed the card with the buttons".
-- When a post to him names a clock time after "by" or "before", in any words, such as "Next line
-  by 9:45" or "its count of cards comes by 2:58 PM", the post's record (`say` or `drive order
-  posted`) makes the earliest such time still to come a line the order owes him in that post's own
-  thread, from the words Slack holds for the post, a time with no AM or PM read as the one nearest
-  the post, so the
-  watch holds the drive to it from Slack's own record, not a session's memory, and no `--due` follows
-  the line. `drive order add --due` counts from when the order is added, and `drive order set --due`
-  from the next line in the order's thread. A time can name its day, such as "Next line by 10:00 AM
-  tomorrow". Five minutes before that time while he is here, and at it otherwise, the watch writes
-  the report owing the line and starts the handler that posts it, as it does for a quiet thread,
-  then every 10 minutes, until a drive post is in that same thread, a post in any other thread of
-  the order keeping nothing, each report calling the line late once he read present 10 minutes past the time,
-  never counting the minutes he was away; an order with no thread gets one `DUE` line instead. A time
-  that falls while he is away is owed at his return: no report owes it while he is away, `drive status`
-  prints its order's time as waiting on his return, and the first pass after he is heard writes the
-  report at once, saying when he went away rather than calling the line late. The order cannot close before a post is there. An open
-  incident keeps no such time: the watch owes its next line five quiet minutes after its last once it has news, by
-  [Clocks](incidents.md#clocks).
-- In the thread of an open order he asked a line of every so many minutes, every line, an ack or a
-  status answer included, and every edit of one promises its next line within the fewest of those
-  minutes, as "Next line by 9:36 PM.", and `say` refuses one promising it later or not at all,
-  naming the latest time it may promise, by his words "ur supposed to give updates every 15 mins you
-  forgot that you just promised next like 30 mins". A card, a PR card, a line closing each such
-  order and an incident's line owe none. The minutes are the drive's from his words: when `drive order
-  add` finds "every 15 mins", "every half hour" or "every hour" in them and Jev reads them as asking
-  that line, it sets the cadence itself on the first open order whose lines go in the thread he
-  said them in, which outlives the order holding his words, else on the order it adds, so no
-  session remembers it.
-- The handler records each post on an order through the post itself,
-  `say(record=<the report's seq>)`, on the order the report is about, in whatever thread it goes, which delivers each part
-  the report's `part` attr names, or each part of an order its `close` attr names, whatever the
-  post's words say, and makes a thread the order holds not yet one of its threads. No post delivers
-  work he ordered, every part of a build order or an incident, but an incident's first check and cause and a part
-  `drive order set <o> --kind answer --part "<part>"` sorted as an answer that no builder, codex or design job holds, since only the proof file a
-  builder or codex job keeps on it exiting 0 under `drive job prove` does, so `record_lines` refuses a report naming one
-  on an order it does not close. A progress
-  line's report names neither, whatever job it names, and carries `progress=true`, since
-  `record_lines` refuses a `POST` naming none of the three: it keeps the time and delivers no part,
-  on an order of one part as on one of several. An incident and every alert's order joined to it
-  with `--joins` share their threads both ways, whichever job carries the alert.
-  `drive order posted <o> <link> --record <the report's seq>` records a post already made. Only the communicator's side records a post, the communicator and each handler the drive binds to it, so `say`
-  posts nothing on an order from any other session and says why, naming a handler's session the drive binds to nothing unbound; the session the
-  order's `ORPHAN` lines reach still marks a part a post of the drive already answered with `drive order posted <o> <that post's link> --part "<part>"`, with or without
-  `--record`, posting nothing.
+  posts of 60 words are the same wall as one of 240. A turn runs from a wake to the end of that
+  response. The report's first sentence says what changed for him. What does not fit waits for the
+  next turn, with each item that waits on him kept first and its card named by permalink or `waits`
+  id. The handler writes the post from the report's facts.
+- Only cards have buttons, so anything that asks for his action or decision is a card. When a line
+  names a card or says something waits on him, write `{card:<its waits id>}` in `say`'s text. `say`
+  links it under words that name it, and Slack draws the card with its buttons under the line. In
+  the card's own thread `say` writes it as the words after its `|` or as "this card", with no link.
+- A line in his DM that is news on something an open card of his already asks about names that
+  card too, so he reads it as that card's news. Outside his DM, readers cannot open his card, so
+  leave it off.
+- Do not paste a bare URL or write a link whose label is its own URL. Slack shows the first as a
+  raw address and does not draw the second.
+- Slack draws a message's first five Slack-message and alert links. Put each card on its own line.
+  cc-slack splits a post to his DM that links more than five into pages so every card draws. One
+  line cannot link six.
+- A table cell draws no card under a link. Link each card on a line under the table instead. This
+  matters most for a row saying a PR waits on his tap.
+- A line that waits on him and links a PR draws that PR's tap card, as `tap_prs` does. A PR that is
+  merged, or one the card command skips, draws no card, so name it in a line that waits on nothing.
+- A clock time you type after "by" or "before" is a promise the drive keeps: `say` and
+  `drive order posted` record it on the order, and the watch chases a line in that thread when the
+  time comes, or sends one `DUE` line for an order with no thread. Type one when he needs a time and
+  you mean it. No post needs one.
+- When his words ask for a line every so many minutes, `drive order add` reads "every 15 mins",
+  "every half hour" or "every hour" and sets that cadence on the order. The watch then starts a
+  handler for each line. You keep no clock.
+- A handler records its post on the order through the post itself, `say(record=<the report's seq>)`.
+  That delivers each part the report's `part` attr names, or every part of an order its `close`
+  attr names. A progress report carries `progress=true`: it keeps the time and delivers no part.
+  Built work is delivered by its proof passing under `drive job prove`, not by a post. A part
+  `drive order set <o> --kind answer --part "<part>"` sorted as an answer is delivered by its post.
+  `drive order posted <o> <link> --record <the report's seq>` records a post already made, and
+  `drive order posted <o> <that post's link> --part "<part>"` marks a part an earlier post answered.
+  The communicator's side records posts, so `say` from another session records nothing on an order.
+- An incident and every alert's order joined to it with `--joins` share their threads both ways.
 
 ## The shapes
 
-**An ack.**
-
-- Post it in the thread of his message, alone in the communicator's first message, inside 5 to 10
-  seconds; cc-slack put the eyes on his message when it landed.
-- Write one sentence the communicator already knows: what he asked, in his words, and what happens
-  next; a hook refuses a longer ack. Never read, draft or check for it, because any of those delays it.
-- Restate only what his words carry, adding no reach, condition or outcome he did not say, because
-  jobs downstream treat the ack as his words; mark any reading of your own as yours, beside his words.
-- The ack names no time: the coordinator sets the order's due time, and the first summary says it.
+**An ack.** The communicator posts it first, alone, in the thread of his message, inside 5 to 10
+seconds, from what it already knows. It is one sentence: what he asked and what happens next.
+cc-slack already put the eyes on his message. It names no time.
 
 **A summary.** A handler writes it from a `POST` report and posts it with
 `say(text=…, thread_ts=<his thread>)`: what changed for him since the last summary, grouped by
-feature. Each feature gets one bold line and at most two sentences under it, 120 words in all, and a
+feature. Each feature gets one bold line and at most two sentences under it, 120 words in all. A
 summary of one feature is a line of at most 60 words.
 
 ```
 *<feature>: <what is true now, for him, in under 12 words>*
-<one or two sentences: what it means and what happens next, by when>
+<one or two sentences: what it means and what happens next>
 ```
 
-**A question card.**
+**A question card.** A card is for what is his to decide: product scope, an architecture fork with
+lasting cost, his own workflow, money, and the hard limits. Decide the rest yourself and say what
+you chose.
 
-- `drive job ask` draws it in the call that keeps the job's `ASK`, from the file it kept, with
-  nothing posted before or after it.
-- Its title is its question, one sentence of plain words that names what it decides by the terms he
-  uses for it, such as the memory move or expiry, never a stand-in such as "the copy change".
-  Neither it nor the summary's first line names code, a table, column, function, file or flag: the
-  code goes in the summary's later lines and the findings, as a PR card's lead leaves its code to
-  the Summary. `drive job ask` refuses a title or first line that names any, by his feedback 3a053f1, "What the fuck is this?", on a card asking whether "the memory move's recheck" should
-  "re-project each skipped memory's search readers and expiry from iris_memory_states".
-  `drive job ask` refuses a title naming its object only as "the change", "the fix" or "this" while
-  its summary or findings name the proper terms.
-- Each code name below the first line keeps its proper term, with a clause saying what it is the
-  first time the card names it, as "the run_claims table, which records the runner holding each run" does,
-  that clause its own short sentence or after the sentence's verb, never stacked between a subject and
-  its verb, and each record link at the end of the sentence or clause it backs, so each sentence reads once,
-  and the card names nothing by a word the drive coined for a rule, check, gate, line or judge, such
-  as a Forbids line.
-  `drive job ask` asks Jev of each code name in its question, summary, options, their descriptions
-  and Show me, and each run id or drive word `cc-slack check-post` finds there, whether the card
-  says what it is, one yes-or-no question a name, then of the whole card, read cold, whether it uses
-  any of them, or a capitalised word its writer coined, as if he knew it, and prints each finding
-  Jev answers 0.7 or more, and as unsure each name it answers between 0.3 and 0.7, with each raw id
-  check-post finds on the card, refusing no card, by his pick 320b7a7, his ruling e405d69, "Explain
-  what this is what do you mean check", his words on a card naming the run_claims table bare: "also
-  what is run claims", and on a card asking whether a release-order rule should be a Forbids line:
-  "Explain this I don't get it".
-- Slack draws a card's title and buttons as plain text, so a link or markdown there shows raw and
-  `drive job ask` refuses it; put the link in the summary.
-- Its body is its summary, one to three lines: what was found and what is being decided, and the
-  recommendation, naming the immediate fix or rollback already shipping when a bug hurts someone
-  now. What is built while he decides is the drive's line above the card's buttons, read from its
-  jobs at each draw by `meanwhile`, so the summary says nothing of it: being built on a branch and
-  paused on his pick when the asking job is a builder or the card holds a part only a builder
-  carries, landing on the recommendation on an open incident, and nothing built until he picks on
-  an order he limited to options or an answer order. The first line says what the card is: the work it serves, as
-  `{order:<o>}`, which his card draws as his order's title linked to its thread, `port of #N` as
-  the text of that PR's link, or Drive tooling, and what his pick changes for him, said as "your
-  pick", such as "For {order:o518}: your pick decides whether restoring a database env to an earlier
-  point keeps its moved tables readable once the reader switch ships." `drive job ask` refuses a first
-  line missing either, by his words on a card that opened on its findings: "what is this and what the
-  fuck are you talking about". It also counts the words his card draws for each reference in the
-  summary: an `{order:<o>}` draws its order's title, so give it a few words of its own,
-  `{order:<o>|<a few words>}`, when the card runs near 150. When the block has a Show me, a `*Show me*` line
-  and the Show me follow as written.
-- Each thing the summary, `Root cause:` or `Interim fix:` line says happened or is happening says in
-  plain words how it came about and what it does to the teams it touches, or to whoever reads that,
-  never only by a count, rate or system's name, and each sentence reads once. `drive job ask` refuses
-  a paragraph his card draws that `cc-slack check-post` finds a wall of text in, more than 3
-  sentences, and prints Opus's read of the rest beside his words e10ccc1 on a card about a database
-  migration: "explain more why all these DBs are being created and what’s happening use proper English". That card failed it with "It made production's database system fleet, the
-  servers holding each team's platform databases, create 2,451 databases." Its redraw passes with
-  "The database service now upgrades those databases to the current schema, team by team at 3 a minute, because a
-  bug makes every database it closes look out of date."
-- His card draws the findings' `Root cause:` line under the summary's first line, as `*Root cause:*`
-  and its words, a cause not found without the job measuring it, and counts it outside the 150 words:
-  `drive job ask` refuses one over 60 words, a named cause with no number measuring it, and one
-  holding a drive job or order id, by his words "this still doesnt tell us why its so slow/how to
-  speed it up". It is the cause of what his order asks about, such as why a step is slow, and a
-  bound, cap, retry or time budget around it goes on the `Interim fix:` line.
-- His card draws the `Interim fix:` line under the Root cause line, as `*Interim fix:*` and its words,
-  who is hurt now or the fix shipping while he picks, a fix a job builds without that job, and counts
-  it outside the 150 words too: `drive job ask` refuses one over 60 words or holding a drive job or
-  order id.
-- The card starts from the root cause, the structure that lets the defect happen, and one option is
-  always the one that removes it so the defect cannot occur, recommended, every other option saying
-  it keeps that structure and what that costs. The recommended option is the block's first, which `drive job ask` refuses otherwise. `drive job ask` refuses a block whose findings carry no `Simplest:` line
-  naming by its words the option that is the simplest design doing his words, by his words "in geernal keeps implifying all this tuff", or no `Root cause:` line
-  with a `First principles:` line naming that option by its words, `Root cause: fixed: <the structure>,
-  removed by <the merged PR's link>` on a card asking only whether to release that PR, `Root cause: not
-  found: <what measures it>, by <the job measuring it>` or `Root cause: none: <why>`, as on his approval of an action his rules
-  hold for him (his ruling "Update your skill to not just brush over the root cause ever"), and, on a bug hurting someone now, an incident's
-  or one a reporter shared, one whose findings carry no `Interim fix:` line linking the immediate fix
-  shipping while he picks, `Interim fix: <that fix>, by <the job building it>`, or `Interim fix: none:
-  <why nobody is hurt now>`.
-- The findings carry a `Holds:` line naming each PR its options alter, by link or `#N`, and each
-  branch building an option, in backticks; a reader's or design's also names, in each change's own
-  words, every change of the order its options alter, a part of the order or a design's `Change:`
-  line; or `Holds: none: <why>`. His open card holds from landing each PR it names, a PR of a branch
-  it names included, and, among the PRs of jobs working a change it names, only those its design's
-  builder, a job briefed on its research or a job it names by id carries, by his pick "Each
-  question names the changes it holds, kept with it", but a `Drive tooling:` order's card holds no PR of
-  his product, by his ruling de88d49. `drive job ask` refuses a block without it.
-- Give two to four options, each one line of at most 25 words saying what he gets and what it
-  costs; `drive job ask` refuses any other count or length. cc-slack adds Other, which takes his own
-  words, and Explain more to every card that waits on him, and refuses an option that repeats either.
-- Explain each option on the card in one plain-text description under it, indented two spaces in
-  the block, which `drive job card` passes as the card's `hints` and cc-slack draws under that
-  option. In at most 60 words of prose, short but clear and whole, it says what the option is: what
-  runs and on what trigger, where its data lives and how it is written and read, and what it
-  requires touching or building, by name, with any cost every user pays, such as a database's write
-  path for every table. A table or Show me never stands in for it. His words, on a card whose
-  options never said one changed a shared database: "you need to always fucking explain each optopn properly as prose in additon tot he table or whatever and what it requires touching/building"; on the next card: "where is that data stored
-  then and how"; and on the `Does:`, `Data:` and `Touches:` lines that first carried it:
-  "this does/data/toches is not as helpful as each option just having a plain-text shot concise but clear and comprehensive description of what it is". `drive job ask` refuses an option with no description, more than one line under it, a
-  field label such as `Does:` in it, or one over 60 words. The card draws each file name and path in
-  its body and descriptions as code, so Slack links no `clone.rs` as a website; the title and
-  options take no markup, so a file name goes in the description.
-- Name each mechanism by what it does, such as "the Mac reruns the check function every 30 seconds
-  and compares its output; a change sends one inbox message that wakes the agent". After its first
-  line, the summary says this of what every option shares, and the title asks only what the options differ
-  on. `drive job ask` refuses a title or option that leaves polling, a push, a subscription, a
-  notification, a listener or an event a bare word, as "Polls only", "a Poll source" and "the event
-  system" do, because he cannot tell what is polled and what wakes whom: "That wasn't clear from the
-  card, polling is fine for seeing when the function output changed". A Sand name such as
-  `event::on` is a proper term and passes.
-- Write each option to stand alone: cc-slack draws the recommended option first and numbers the rest
-  after it, so the numbers in an `ASK` block are not the ones he sees. An option that builds on
-  another repeats what that one does, such as "Own process plus a memory cap per script".
-  `cc-slack check-post` and `drive job ask` refuse "as 1", "same as 2" or "the first option".
+- `drive job ask` keeps the job's `ASK` block and draws the card from it in the same call. Nothing
+  is posted before or after it.
+- The title is the question: one plain sentence naming what it decides by the terms he uses for it,
+  such as the memory move or expiry. Slack draws a title and buttons as plain text, so links and
+  markdown go in the summary. Code names go below the summary's first line, each with a clause
+  saying what it is the first time, as "the claims table, which records the runner holding each
+  run" does. Leave out words the drive coined for its own rules and checks.
+- The body is the summary, one to three lines. Its first line says what work the card serves, as
+  `{order:<o>}`, `port of #N` or Drive tooling, and what his pick changes for him, said as "your
+  pick". Then what was found, what is being decided and the recommendation. An `{order:<o>}` draws
+  its order's whole title, so write `{order:<o>|<a few words>}` when the card runs near 150 words.
+- Say how each thing came about and what it does to the people it touches, not only a count or a
+  system's name. Keep paragraphs to three sentences.
+- The drive adds the line above the buttons that says what is built while he decides, from the
+  card's jobs: built on a branch and paused on his pick, landing on the recommendation on an open
+  incident, or nothing built until he picks. Leave that out of the summary.
+- The findings in the block carry labelled lines the code reads:
+  - `Root cause:` names the structure that lets the defect happen, with a number that measures it.
+    Its forms are `Root cause: <the structure>`, `Root cause: fixed: <the structure>, removed by
+    <the merged PR's link>`, `Root cause: not found: <what measures it>, by <the job measuring it>`
+    and `Root cause: none: <why>`. The card draws it under the summary's first line as
+    `*Root cause:*`, at most 60 words, outside the 150.
+  - `First principles:` names, by its words, the option that removes the root cause. That option is
+    recommended and comes first in the block. Each other option says it keeps the structure and
+    what that costs.
+  - `Simplest:` names, by its words, the option that is the simplest design doing his words.
+  - `Interim fix:` is for a bug hurting someone now: `Interim fix: <that fix>, by <the job building
+    it>` with its link, or `Interim fix: none: <why nobody is hurt now>`. The card draws it under
+    the root cause as `*Interim fix:*`, at most 60 words. A bound, cap, retry or time budget goes
+    here, not on the root cause line.
+  - `Holds:` names each PR the options alter, by link or `#N`, and each branch building an option,
+    in backticks, or reads `Holds: none: <why>`. A reader's or design's also names each change of
+    the order its options alter. His open card holds those PRs from landing. A `Drive tooling:`
+    order's card holds no PR of his product.
+- Give two to four options. Each is one line of at most 25 words saying what he gets and what it
+  costs, and each stands alone, because cc-slack draws the recommended option first and renumbers
+  the rest. Do not write "as 1" or "same as 2". cc-slack adds Other, which takes his own words, and
+  Explain more.
+- Under each option, indented two spaces, goes one plain-text description of at most 60 words,
+  which `drive job card` passes as the card's `hints`. It says what the option is: what runs and on
+  what trigger, where its data lives and how it is written and read, and what it touches or
+  builds, by name, with any cost every user pays. File names go here, since the card draws them as
+  code and the title and options take no markup.
+- Name a mechanism by what it does, such as "the Mac reruns the check function every 30 seconds
+  and compares its output; a change sends one inbox message that wakes the agent". A bare
+  "polling" or "the event system" does not tell him what is polled or what wakes whom.
+- No option asks a reporter or anyone else to retry or confirm, because the drive proves a fix
+  itself.
+- List every member of a set the card counts, as "four strategies: spill values, insertion order,
+  hash by key, and equal cut" does. Give him an option for each amount his words named, such as 30
+  days.
 - The findings stay in the job's file. Explain more on the card posts the one section its question
-  rests on, in plain words, and that is the only way findings reach him. Each option's description
-  is on the card, never only in the findings.
+  rests on, in plain words.
 
 Its Show me:
 
-- A card that offers a design to build, a fix included, works each option out in its Show me to
-  what it will look like once built: its real calls, the rows or bytes it writes, its flow, or the
-  reply or screen a caller gets, as a ```compare panel named with the option's words, a markdown
-  table, or a diagram or picture captioned with its number, never only the files it touches and its
-  cost. `drive job ask` asks Jev of each option whether the card works it out and prints each one left
-  unworked, naming it, refusing no card, by his words on a card whose options each named files and a cost:
-  "you need to flesh out what that will look like not just wave your hands, likewise for 2 and 3"; and his ruling 77b577b,
-  "flash this out wayu more and od that for everyhtrfing in the future". A post in the card's
-  thread explaining an option, an Explain more reply included, shows it the same way, which the say
-  judge holds it to.
-- Any other card, such as one asking whether or when to release, land or run something, includes a
-  Show me only when it shows him what the summary and options cannot. That is the flow
-  between the parts the options change, the numbers they turn on, the options side by side, or the
-  real calls of an API choice. A constant, a name, a value or a call the words already say is no Show me, and a
-  card with nothing that adds clarity has none.
-- Fill every row and cell with real contents, measured or worked out from the code and marked as
-  such, never the names of what will be measured later; `drive job ask` refuses a table with one
-  value in every cell, and a table of one column, which compares nothing: give each field a column
-  of its own.
-- Each visual is one fence whose language names its kind, and one render layer,
-  `lib/drive/site/visuals.js`, draws that one source for each surface. Slack gets a picture of it,
-  since a Slack message takes no code or diagram blocks, except a chart, which Slack draws as its own
-  [chart block](https://docs.slack.dev/reference/block-kit/blocks/data-visualization-block). Code gets
-  a picture only when Jev reads it as illustrating a shape the words cannot, such as a function, a type
-  or a query, by his pick 29865ea, "drop the ones where the code is not illustrative or is just one
-  line or something": a one-line fence, a value flipped such as `write = 0` to `write = 1`, or an
-  argument or list item dropped shows as Slack's code block under its caption. The
-  dashboard and other web pages draw each kind's source natively, as highlighted code, a live diagram or chart, or a compare, never as a picture. A
-  markdown table is native on both: a Slack data table and an HTML table.
+- A card that offers a design to build, a fix included, works each option out to what it will look
+  like once built: its real calls, the rows or bytes it writes, its flow, or the reply or screen a
+  caller gets. A post in the card's thread that explains an option shows it the same way.
+- Any other card has a Show me when it shows what the summary and options cannot: the flow between
+  the parts, the numbers the choice turns on, or the options side by side. A constant or a call the
+  words already say needs none.
+- In the block it sits under a `Show me:` line, between the summary and the options. The card draws
+  it under `*Show me*`.
+- Fill every cell with real contents, measured or worked out from the code and marked as such.
+- Each visual is one fence whose language names its kind. `lib/drive/site/visuals.js` draws that
+  source for each surface. Slack gets a picture of it, except a chart, which Slack draws as its own
+  [chart block](https://docs.slack.dev/reference/block-kit/blocks/data-visualization-block), and
+  short code that illustrates no shape, which shows as Slack's code block. The dashboard draws each
+  kind natively. A markdown table is native on both.
 - Pick the kind that shows what the words cannot:
 
 | The question turns on | Kind | Fence holds |
 |---|---|---|
-| the shape of an API, call, query or schema the options change | code | the real calls, in a fence naming its language: ```sand, ```sql, ```go |
-| components, data layout or flow between them | arch | `{"arch": 1, "name", "title", "nodes": [{"id", "kind", "name", "role"}], "edges": [{"from", "to", "label"}]}`: each id lowercase letters, digits and dashes; kind actor, app, service, worker, store, log, external, artifact or doc; a store or log node adds "medium", one of memory, disk, bucket, keys or pages; an edge may add "kind", one of sync, async, copy or control. `drive pr add` draws it and refuses one that does not draw. Options that choose between architectures carry one `arch` per option, captioned `N · …`, so he compares each option's components side by side |
+| the shape of an API, call, query or schema the options change | code | the real calls, in a fence naming its language, such as `sql` or `go` |
+| components, data layout or flow between them | arch | `{"arch": 1, "name", "title", "nodes": [{"id", "kind", "name", "role"}], "edges": [{"from", "to", "label"}]}`: each id lowercase letters, digits and dashes; kind actor, app, service, worker, store, log, external, artifact or doc; a store or log node adds "medium", one of memory, disk, bucket, keys or pages; an edge may add "kind", one of sync, async, copy or control. Options that choose between architectures carry one `arch` per option, captioned `N · …` |
 | routing, ownership, steps over time, a state machine, a small graph | mermaid | Mermaid source |
 | a graph whose layout carries the point, such as clusters of what runs where | dot | Graphviz source |
-| numbers: sizes, counts, timings, before and after | chart | a Vega-Lite JSON spec with its data inline: a bar, line or area mark, or an arc for a pie, which Slack draws as its own chart |
-| a tradeoff between options' code | compare | `{"options": [{"name", "recommended", "language", "code", "points": ["+ a gain", "- a cost"]}]}`, drawn side by side, each `code` real code under the language it is written in, never words under `markdown`, `text` or no language, which go in `points` |
-| words compared across rows | table | a markdown table, which cc-slack draws as a native Slack table |
+| numbers: sizes, counts, timings, before and after | chart | a Vega-Lite JSON spec with its data inline: a bar, line or area mark, or an arc for a pie |
+| a tradeoff between options' code | compare | `{"options": [{"name", "recommended", "language", "code", "points": ["+ a gain", "- a cost"]}]}`, drawn side by side, each `code` real code under its language; words go in `points` |
+| words compared across rows | table | a markdown table of two or more columns, which cc-slack draws as a native Slack table |
 | a draft message or a quote | quote | its sentences, each line opening with `> `, which Slack shows as its own quote, links and all |
-| a UI or anything only a picture shows | image | `![what it shows](/absolute/path.png)` on a line of its own, a screenshot or a gen-image or codex imagegen picture; options that differ in how a screen looks carry one real screenshot each, captioned `N · …` |
+| a UI or anything only a picture shows | image | `![what it shows](/absolute/path.png)` on a line of its own, a screenshot or a generated picture; options that differ in how a screen looks carry one real screenshot each, captioned `N · …` |
 
 - Put a caption line of at most 25 words just above each fence. `drive job card` makes it the
-  picture's title, as `say` does with a post's `visuals` caption: it replaces the fence with
-  `![caption](/abs.png)`, which cc-slack posts as a Block Kit image block, so the words stay text and
-  the picture holds only the visual. A fence with no caption line is titled by its kind, such as
-  "go code" or "Diagram", never a bare "Show me".
-- When the Show me draws two or more pictures, Slack shows them side by side as one gallery titled by
-  their captions, so open each caption with its option's number as the card numbers them, the
-  recommended option 1 and the rest in their order, and a middle dot, as `1 · Feed first`.
-- Leave a ```chart as its fence on the card, which cc-slack draws as Slack's chart. Its title is at
-  most 50 characters and each label at most 20; it draws at most 12 series or slices and 20
-  categories, and a card holds at most 2 charts. Each row's value is a number, above 0 in a pie, each
-  label is text or a number, and each series holds exactly one row for each category.
-- Draw a Mermaid flow whose longest chain runs past four nodes top to bottom, `flowchart TD`, because
-  drawn left to right it shrinks its words to about 5 px on his phone.
-- Name the code's language on its fence, because the picture highlights the code in that language,
-  Sand by its own grammar.
-- Split a mixed visual into its parts: the diagram in its own fence, and each table as a markdown
-  table, never one picture made from both.
-- Never draw text as a picture. A draft message or a quote shows as Slack's quote of its sentences,
-  and `drive job card` draws a fence holding one the same way, links and all.
-- Keep other words and raw data out of fences. `drive job ask` refuses:
-  - a fence naming no language or `text` that holds no message or quote, and one holding JSON, YAML, logs, a terminal session,
-    an HTTP exchange, command output or a stack trace, whatever language it names, as a hook does `say`'s `code` visuals;
-  - a chart, compare or arch whose JSON does not parse;
-  - a compare panel whose `code` names no language, or `markdown`, `text` or another language of words, or holds raw
-    data or tool output, the check `say` gives its `compare` visuals too;
-  - a chart past Slack's limits above, or more than 2, naming the limit and the value;
-  - a markdown table of one column;
-  - two or more pictures whose captions do not each open with an option's number;
-  - a `flowchart LR` or `graph LR` whose longest chain runs past four nodes;
-  - a fence of one or two lines declaring a constant;
-  - as many code fences as options, which go in one `compare` fence labeled per option;
-  - a picture kept in the drive's asks or pictures folder, drawn by hand instead of from a fence, which a before and an
-    after screenshot kept there is not;
-  - two or more PRs listed by number, which their stack's PR card shows;
-  - a `Show me:` with no visual under it, and a picture inside a sentence or a table cell;
-  - options Jev reads as differing in how a screen looks, such as where rows draw in a sidebar, with
-    no `![N · …](path)` screenshot for each option, by his ruling 0d2b7df, "this should have
-    included images; you include images when they are usless and dont add anyhtng, and then dont
-    when its things like this, its totlly backwards";
-  - options Jev reads as choosing between architectures, which components run, where data lives
-    or how they connect, with no ```arch fence captioned `N · …` for each option, by his ruling
-    aac1ff4, "when ur comparing 2 architecture design things like this you always need to do an
-    architecvutre diagram (the component, not an imagez) to compare and contrast".
-- List every member of a set the card counts. `drive job ask` refuses a question, summary or option
-  that counts two to twelve things, as "four strategies" or "5 oversized tables" does, unless the
-  card lists that many, and so does the post hook on a card no drive kept. It lists them as options,
-  Show me table rows or columns, list lines, numbered captions, pictures or fences, or by name right
-  after the count, as "four strategies: spill values, insertion order, hash by key, and equal cut"
-  does. A measure such as "30 days", "3 requests" or "2 threads", a bound such as "at most 3" and a
-  rate or swap such as "four tests at a time" or "eight machines instead of two" pass.
-- Give him a tap for each amount he named. Jev reads the card against his order and his messages in
-  its thread, without the lines he quoted from others, and `drive job ask` prints to the agent each
-  amount or choice Jev reads them as naming that the card offers no tap for, as "30 day bonding"
-  names 30 days, and keeps the card, by his pick 320b7a7. His message in a thread two orders share is about the order it started, else the one that
-  came into the thread last before he sent it, so another order's amount there is not counted. Offer it
-  as its own option, in his words.
-- A visual that still fails to draw leaves the Slack card with its caption and nothing in its place,
-  and the dashboard with its source as text.
+  picture's title, as `say` does with a post's `visuals` caption. A fence with no caption is titled
+  by its kind, such as "go code" or "Diagram".
+- Two or more pictures draw as one gallery. Open each caption with its option's number and a middle
+  dot, as `1 · Feed first`, the recommended option being 1.
+- A chart's title is at most 50 characters and each label at most 20. It draws at most 12 series or
+  slices and 20 categories, and a card holds at most 2 charts. Each value is a number, above 0 in a
+  pie, and each series holds one row for each category.
+- Draw a Mermaid flow whose longest chain runs past four nodes as `flowchart TD`. Left to right, it
+  shrinks its words to about 5 px on his phone.
+- Keep one kind per fence: a diagram in its own fence and each table as a markdown table. As many
+  code fences as options go in one `compare` fence instead.
+- Raw data does not belong in a fence: JSON, YAML, logs, a terminal session, command output or a
+  stack trace show him nothing. Draw pictures from fences, not by hand, except real before and
+  after screenshots.
+- A visual that fails to draw leaves the Slack card with its caption alone, and the dashboard with
+  its source as text.
 
 Posting it:
 
-- `drive job ask` posts the card itself, in the same call that keeps the question, as `drive pr add`
-  posts a PR card, and the watch posts on its next read each kept question whose card did not draw
-  then. No session posts a question card, and none is put together by hand.
-- A kept ASK file changes only through `drive job ask`, which checks the new words against every
-  rule. `drive job card` and `drive cards redraw` refuse a kept file whose words no longer hash to its
-  name, naming the `drive job ask <j> <file>` that keeps them. A question already asked under a waits
-  id redraws under the rules it was asked under, held to no rule at all once its words parse, so no
-  rule set since it was asked refuses a card he was shown, and the post hook never counts a drive's
-  question card again; once its file's words changed, it redraws from his card as cc-slack stores
-  it, and once cc-slack forgot that card, from the file only while its question, summary,
-  recommended option and options are the ones his card's message in Slack shows. A file rebuilt from
-  his card draws only while those four are the ones his card shows, as cc-slack stores it, else as
-  its message in Slack shows it. A block no job kept meets every rule a new block meets before it
-  draws.
+- `drive job ask` posts the card, as `drive pr add` posts a PR card. The watch posts on its next
+  read any kept question whose card did not draw then.
+- A kept ASK file changes through `drive job ask`. `drive job card` and `drive cards redraw` do not
+  draw a kept file whose words no longer hash to its name. A question already asked redraws under
+  the rules it was asked under.
 - A card draws in the thread of his DM the lines of the job's order go in, an open incident's
-  thread first, so the card and every line about it stay in one thread, by his words "in the future
-  let's not create split threads like this"; with no such thread it draws at his DM root. A thread
-  outside his DM, such as an alert's, gets the card's line instead, the card drawing at his DM
-  root alone, through a report record `drive job ask` sends the communicator, whose handler posts it with `say`, since only a `say` call carries the ticket
-  cc-slack spends on a write outside his DM, so the line is the card's one message in that thread.
-  `say` keeps each post it makes in a thread as the line that thread holds about each card of his it
-  links, on the card's question. A card asked again sends that thread a line only on news, by his
-  pick "Owe a line only on news": the record's cci id names the card's `waits` id and the hash of
-  the two facts its line states that the drive's records hold, the open incidents the card blocks
-  and whether a job builds its recommended option, so a card asked again with neither changed, its
-  words reworded, its builder's PR merged or its builder handed on to another job, returns the
-  record cci already holds and starts no handler, and a change of either sends a report naming the
-  thread's earlier line. His tap comes back as an `answer` record, so "card posted" and "he
-  answered" stay two states.
-- Every question card carries its `waits` id, `<drive>:<job>-<n>`, which `drive job ask` mints when
-  it first keeps the question. One question keeps one `waits` id, which every copy of it in Slack and
-  the dashboard draws from: `drive job ask` keeps a block asking an open question again as that
-  question and redraws its card where it sits under that `waits` id; every other open card of
-  the job asking the same shows asked again with a link to the live one and no buttons, and each
-  wait on it moves to the live one; his answer closes every copy at once. A question that ended draws under no
-  `waits` id: `drive job card` refuses it, naming the words it ended on. `drive job ask` refuses a block another
-  job's open card asks.
-- Set `drive` to the drive's name on every card, so cc-slack reads a `waits` card as the drive's
-  question, whose home is Slack, and posts it with no cc-present board warning.
+  thread first, so the card and its lines stay together. With no such thread it draws at his DM
+  root. A thread outside his DM, such as an alert's, gets one line about the card through a report
+  `drive job ask` sends, and the card draws at his DM root.
+- Every question card carries its `waits` id, `<drive>:<job>-<n>`, which `drive job ask` mints. One
+  question keeps one `waits` id. Asking an open question again redraws its card where it sits.
+  Older copies lose their buttons and link the live one, and his answer closes every copy.
+- His tap comes back as an `answer` record, so "card posted" and "he answered" are two states.
+- Set `drive` to the drive's name on every card, so cc-slack posts it as the drive's question with
+  no cc-present board warning.
 
 When it is answered, replaced or redone:
 
-- His words written under a card answer it when they pick an option or say what to build: the card
-  closes showing them, and the work goes ahead on them. A question of his answers nothing, one
-  proposing a way such as "could we X?" or "why not just X?" included: it is answered in its thread
-  while the card waits, and a way it proposes is offered on the card, redrawn with `--redraws`. `drive job card` refuses to redraw that card with another question, so put a question his
-  words leave open on a new card.
-- When an answer or ruling he gave elsewhere decides a card, mark it on that answer's `drive answer`,
-  which lists only the cards of the answered card's job and order, those of an order a lifted pick
-  binds and those his words name, but marks any card still asking him, and `--settled` shows his
-  words and a link to them in place where its buttons were, so a late tap records nothing. A card it decides only in part is
-  redrawn under its `waits` id to the ASK its job keeps asking only what is left, linking his answer,
-  by `drive job ask <j> <file> --redraws <key>`, then marked with `--settled <key>=<file>`. His words, on a card a later decision of his had settled: "didnt we
-  alrady say to move all those to lazy? we need to update tehse old cards based on future desicions".
-- To change the words of a card he has not answered, draw it again under its `waits` id. That one
-  call edits the card where it sits to the new words, buttons kept, and posts nothing, and every
-  older copy loses its buttons and reads one line linking the card, so one card stays answerable.
-  `say` points every job's or PR's wait on an older copy at the card, the copies read from his open
-  cards before the post; when his cards cannot be read, nothing is posted. `drive cards redraw`
-  draws every open question of the drive again the same way, over the card where it sits even once cc-slack
-  forgot it. Never edit a card with
-  `say(edit=…)` or `slack_edit`: an edit with text alone replaces its layout and buttons with plain text, and a hook refuses
-  it, naming the redraw.
-- Words of his that supersede a card he has not answered, wherever he writes them after it was
-  asked, withdraw it the moment they are recorded: words that answer its subject, change its question or options, such as
-  more options or a new constraint, or send its work back to be redone. `drive cards withdraw <its
-  waits id> --words "<his words>" --via <his permalink>` settles it in place, showing his words and a
-  link to them with no buttons, so a late tap records nothing, and its question, asked again on any
-  job once the work is back, keeps that card's waits id and redraws it. An event that leaves a
-  card's tap nothing to pick, such as a teammate lifting a freeze so the deploy the card would hold
-  applies, withdraws it the moment the drive reads it: `drive cards withdraw <its waits id> --words
-  "<what happened>" --via <the PR, build, job or message link>` settles it showing what happened,
-  never recorded as his. A card that another open card of the drive asks again comes down the moment
-  the drive settles on that card, such as two jobs' release questions once one card asks both.
-  `drive cards withdraw <its waits id> --via <that card's waits id>` shows it "Asked again on a newer
-  card · answer that one" linking that card with no buttons, each wait on it moves to that card, and
-  its question rides on that card's, so his one answer there ends both.
-  A card still worth a tap while its work is reworked keeps its buttons. One question has one card. `drive job ask` refuses a question another job's
-  open card asks in the same words, naming the `drive job set --waits` that frees its job at his
-  answer. Same words means case, spacing and punctuation aside, and his answer on any card answers
-  every open question of every job asking it in those words: each card shows his words settled with
-  no buttons, each of those jobs holds his words, and each builder waiting on one of them goes free.
-  A card of another order his answer settles is marked on its `drive answer` by its key, since only
-  the cards tied to the one he answered are listed. His words, on three cards about one search
-  worker's cache disk: "We're already addressing this with the lazy + restate object + increase disk size right? So why is this card still here?"
-- No option asks a reporter or anyone else to retry, confirm or check, because the drive proves a fix
-  itself, and `drive job ask` refuses an option asking someone to retry or confirm.
+- Read his words under a card as a careful colleague would. Words that pick an option or say what
+  to build answer it: the card closes showing them and the work goes ahead. A question of his,
+  such as "could we X?" or "why not just X?", is answered in the thread while the card waits. Offer
+  a way it proposes by redrawing the card with `--redraws`.
+- To change the words of a card he has not answered, draw it again under its `waits` id with
+  `drive job ask <j> <file> --redraws <key>`. That edits the card where it sits and keeps its
+  buttons. `drive cards redraw` redraws every open question of the drive the same way. A text edit
+  through `say(edit=…)` or `slack_edit` replaces a card's layout and buttons with plain text, so
+  redraw instead.
+- When an answer he gave elsewhere decides a card, mark it on that answer's `drive answer` with
+  `--settled`. The card then shows his words and a link where its buttons were. For a card decided
+  only in part, redraw it asking what is left, then mark it with `--settled <key>=<file>`.
+- When his later words supersede a card, withdraw it with `drive cards withdraw <its waits id>
+  --words "<his words>" --via <his permalink>`. The same verb withdraws a card an event left
+  nothing to pick on, with what happened as the words and the PR, build, job or message link as
+  `--via`. `drive cards withdraw <its waits id> --via <that card's waits id>` folds a card into a
+  newer card that asks the same thing, and each wait on it moves there.
+- One question has one card. His answer on any card answers every open question asked in the same
+  words, case and punctuation aside, and frees each builder waiting on one. A job that would ask
+  what another job's card already asks waits on that card with `drive job set --waits`.
 
 **A PR card.**
 
-- Nobody writes it: `drive pr add` draws it the moment it registers a PR waiting on
-  his tap, and the watch draws it on its next read for a PR that enters `uncarded`, whatever its checks,
-  review or check against his words say, since each is a line on it. Its draws and `drive card` group PRs
-  by one rule, `state.card_unit`: one card per stack his Approve lands, a native GitHub stack or PRs
-  each on the one below's head branch, and for PRs in none, one per repository and order they serve,
-  so sibling PRs of one order ready together draw one card whose Approve covers each, however many it
-  holds, titled as that many PRs of one request and never called a stack, by his pick "Keep one card
-  per request, as you picked; its title and wording stop calling siblings a stack. One Approve still
-  lands both.", the PR sections past the 50 blocks one Slack message holds under its Explain more. It is only
-  for a PR that
-  carries out an order of his whose words ask for it, or a `<guarded org>/*` drive tooling fix no exempt
-  class covers, which serves its own order by [Scope](scope.md).
-- A PR has one card. The drive's own draw sends cc-slack the PRs with no line: cc-slack redraws
-  their card where it sits, offering Approve again when the drive still asks it, or first posts it
-  in his DM's thread of the first order they carry out, at his DM root when they carry out none, and
-  posts nothing else. No card is posted again to ask him twice: the Waiting on you post lists it. A
-  flake fix's card says under its body that it fixes a flaking test at its cause, quoting his ruling. The order's thread hears one line when the PR merges. A card drawn through `say` carries a
-  line above it quoting that order: his words, or the tooling order's "Drive tooling: …" words. The say hook finds a PR card whose PR serves a drive tooling order while
-  its text leaves out that order's words, naming them, for Jev to judge. Those words pass
-  `cc-slack check-post`, which `drive order add` and `drive order set <o> --words` run on them. A
-  port never gets one: he reads "port of #N landed" in its order's thread once it lands, and so for
-  every class that lands with no tap.
-- `say(tap_prs=[<each url or owner/repo#number, bottom first>], text=<line>)` makes cc-slack draw
-  one card for the stack those PRs form (`drive card`), with Approve and Hold while it waits on him.
-  The drive posts the line in the thread the call names, else the first open order's, and cc-slack
-  posts the card right under it there, editing the card that asked before, wherever it sits, to say
-  it was asked again under a newer line, with no buttons, and a card he answered stays where it sits,
-  by his words "You can't say that and not link me to anything I can tap we already agreed in this
-  rule ^^". A line asking again what his open card at the head of each of those PRs already asks, no
-  PR of their stack left off it, links that card in place of `tap_prs`, so nothing moves and no card
-  is marked replaced, by his words "you keep bringing me old questions"; an ask that changed, a new
-  head, PR or Hold, draws as above. The line then goes in the thread of each other open order those PRs carry out, the one
-  each serves, its own and each its job carries, in his DM or an operator channel, with the card's
-  link under it, so one card carries the buttons; with none, the line goes at his DM root. An incident whose thread is outside his DM, such as an alert's, gets the line with
-  the card's link through `cc-slack reply`, so the call names that thread with `channel_id` and
-  `thread_ts`, the one place cc-slack's Slack permission hook judges it for, and is refused without
-  them, naming both. His words: "There's no approval button". The call's `card_permalink` names
-  the card and its `permalink` only the first line. When the card command gives a PR no card, the call fails with its reason
-  and posts nothing.
-- The same PRs show under the line on the dashboard's history, each with where it stands now. A post
-  naming a PR the drive does not hold is refused: `drive pr add` records it first.
-- His Approve lands exactly those PRs still asking his tap, bottom first. His Hold holds them all and
-  stops only their landing, so the card asks his Approve on each again, and one Approve on a stack
-  card lifts each member's Hold and lands the card whole, by his pick "One card's work lands
-  together". A card posts once a PR on it asks his tap, but never while one is being reworked to his
-  words. Outside an incident a PR a question card of
-  his holds asks no tap until he answers each such card, by his pick "Buttons only after you answer
-  each question", so its card posts then, or a card already up is redrawn without Approve meanwhile; on an
-  incident his Approve on the repair also picks the recommended option of each card of his holding
-  it, which the lander's start answers and closes before it lands. A card of his that
-  holds an approved PR his Approve did not pick holds it from landing until his answer on that card
-  frees it. A PR added later to its stack, its native GitHub stack
-  or the PRs chained to it by base branch, joins one new card for the whole stack, posted alone or
-  with the rest of it, and cc-slack marks each older card of those PRs replaced, with a link to the
-  new one; the watch draws that card for any stack it finds split across cards.
-- The card opens with each PR's lead, the four lines its builder gave `drive pr add`, before any
-  code: its headline as the card's title, then why the change is made, what it does and what it
-  changes downstream, on the dashboard's card above the stack's rows too, since his words on a card
-  of facts were "I have no idea why were doing this change, what it does, or what the downstream
-  impacts of it are". A stack card is titled by its `## The stack` line, else its bottom PR's
-  headline, and lists each PR's headline and lead above the stack's summary.
-- Each PR gets its own section: its title, link and Open button, then its Summary of what it
-  changes, its Refresher, its biggest surprise and what he will hate most, and how it differs from
-  the plan only when it does. No section says where the PR stands or what it waits on, by his words
-  "Please just get rid of both everywhere and on new cards". A section its body lacks
-  is left off and holds nothing, since a body is fixed beside the landing, never before it. A card
-  already posted redraws in place when a PR's head or staging line changes, and whole once a PR it
-  asks his tap on no longer asks it or a PR's stage owner changes, so a card reading blocked on him moves off him in the pass that moved its stage. A stack card whose other
-  PRs still ask his tap keeps Approve and Hold for them. A head that moved under his card keeps Approve showing, and a head the check against
-  his words judges against them keeps Approve and any Approve he gave, since his Approve lands it whatever that check says, by his words "why the fuck would you keep eveyhting broken to make it perfect". Its Show me comes last,
-  its pictures inline. A stack card's summary comes from `## The stack` in its bottom PR, under its PRs' leads.
-- Once he answers, the card folds to its title, his pick and one line per PR. When an answer or ruling
-  of his replaces the work it carries, `drive answer` settles it as it does a question card.
-- His words that rework a PR on it take the card down in the same call once the coordinator, having
-  read the stack's `## His words, step by step` against them, names the PR and the permalink of
-  those words: `--rework <PR>=<his permalink>` on `drive order add`, `drive order set` or
-  `drive job set`, or `drive answer --reopened` with his answer's link, each withdrawing it with
-  the words read at that link as the reason, linked to them. A card already withdrawn under another
-  reason is redrawn in place with this one. His order filed on its thread, or a job carrying one,
-  with no `--rework` names the card and leaves it up, since a stack can meet his words already. The
-  PRs below the lowest reworked one go up on a card of their own, so a PR his answer leaves standing
-  asks his tap at once, and his Approve on it never reaches a PR above it. No
-  redraw or new head brings the reworked PR back; a fresh card goes up on its own, with a row saying
-  what changed, only once the builder's `READY` says in its `CHANGE:` line how his words are met, and that
-  `READY` drops any tap he gave before the rework, so the fresh card asks his Approve again. A
-  question or any other words of his under it leave it up. His words: "So why isn't this card withdrawn then? And why do I have to keep asking that?"
-- Its words come from each PR's title and body, with record ids and the HTML tags GitHub draws
-  dropped, so text such as `agent::of("<id>")` reaches the card whole; fix a bad card in the PR
-  body, never in the message.
+- Nobody writes it. `drive pr add` draws it when it registers a PR waiting on his tap, and the watch
+  draws it for a PR that enters `uncarded`. A `<guarded org>` PR outside an exempt class lands on
+  his Approve tap, by [Scope](scope.md). A port and every other class that lands with no tap get no
+  card: he reads "port of #N landed" in the order's thread.
+- PRs group by `state.card_unit`: one card per stack his Approve lands, and for PRs in no stack,
+  one per repository and order. Sibling PRs of one order draw one card titled as that many PRs of
+  one request, and one Approve covers each.
+- A PR has one card. The drive redraws it where it sits when a head or staging line changes. A PR
+  added to the stack later gets one new card for the whole stack, and cc-slack marks the older
+  cards replaced with a link.
+- `say(tap_prs=[<each url or owner/repo#number, bottom first>], text=<line>)` posts your line and
+  makes cc-slack draw one card for those PRs right under it, with Approve and Hold. The line goes in
+  the thread the call names, else the first open order's, and then in the thread of each other open
+  order those PRs carry out, with the card's link. An incident thread outside his DM needs
+  `channel_id` and `thread_ts` on the call. The call's `card_permalink` names the card and its
+  `permalink` the first line. The drive must hold the PR first, through `drive pr add`.
+- When his open card already asks the same thing at the same heads, link that card instead of
+  passing `tap_prs`, so nothing moves and he is not asked twice.
+- Approve lands the PRs still asking his tap, bottom first. Hold holds them all and stops only
+  their landing. One Approve on a stack card lifts each Hold and lands the card whole. Outside an
+  incident, a PR that a question card of his holds asks no tap until he answers that card. On an
+  incident, his Approve on the repair also picks the recommended option of each card holding it.
+- The card opens with each PR's lead, the four lines its builder gave `drive pr add`: the headline
+  as the title, then why the change is made, what it does and what it changes downstream. Each PR
+  then gets a section: title, link and Open button, its Summary, its Refresher, its biggest
+  surprise and what he will hate most, and how it differs from the plan when it does. A stack card
+  is titled by its `## The stack` line, else its bottom PR's headline. Its Show me comes last.
+- The card's words come from each PR's title and body, so fix a bad card in the PR body.
+- Once he answers, the card folds to its title, his pick and one line per PR.
+- When his words rework a PR on a card, name the PR and the permalink of those words with
+  `--rework <PR>=<his permalink>` on `drive order add`, `drive order set` or `drive job set`, or
+  use `drive answer --reopened`. That takes the card down with his words as the reason. The PRs
+  below the reworked one go up on a card of their own. The reworked PR gets a fresh card once its
+  builder's `READY` says in its `CHANGE:` line how his words are met.
 
 **A confirmation of a skill update** goes out twice for each message of his that leads to one. The
-ack says a self-retro on the lesson behind his words is rewriting the skill and what changes, in plain
-words, never offering him a retro; a summary then says it is
-merged and installed, listing each rule now in the skill.
+ack says what is changing in the skill, in plain words. A summary then says it is merged and
+installed, listing each rule now in the skill.
 
 **A fix-live note in a bug report's thread.**
 
-- The drive owes it to whoever reported a bug the drive fixes, in the thread of the report, the moment
-  the fix is live. His words, the day a hand repair went live and the reporter never heard: "Did you
-  let him know it's fixed? … I told him since you never did, fix that". The order keeps that thread
-  by itself from the share or link in his words, a message a person wrote, or when he gives the
-  order in that thread, whose lines then go to his DM. A second report of the same bug, such as
-  another teammate's, joins it with `drive order set --reporter`, beside the first, so each thread
-  hears its own note, and `drive status` says on the order's line whether each thread heard.
-  The note is one record per thread and fix: an order naming a thread kept by an order on the same
-  fix, one a job of it carries or whose job carries it, such as a release order whose follower carries
-  the fix's own order, keeps no copy, and `drive status`, its briefs, done, `TELL` and the post hook
-  read the keeper's record, `under o<n>`, while `drive order told` on either records it there once. A
-  different fix reported in that thread keeps its own, even one the same job carries beside it.
-- A question someone asked that a `--kind answer` order answers, kept the same way, gets the answer
-  there once every part of it is posted to him, with no proof asked, since an answer has no fix to
-  go live. His share of the question orders it: the handler writes the answer again for that person
-  in the same step as his own line, and no card asks him and no line says it waits on him to
-  forward, by his words "we were supposed to send that whas left for cloud update to … and never did".
-- Post it once per thread, once the fix is proven live, never before: the order's `--proof`, or a
-  passing `drive job prove` on a PR a job of the order opened, run by a job of the order or of an
-  order sharing one of its jobs, as a release follower's is: one or two plain sentences saying what is fixed and since when, with the link. The handler
-  of the report on that order posts it with `slack_reply` in the same step as his own line, then
-  records it with `drive order told`. When the bot cannot post in that thread, as in a person's 1:1
-  DM with him, the handler posts the same note as usual in the group DM of that person, him and the
-  bot, with one `say` whose `channel_id` is the person's user id, which cc-slack's refusal names,
-  and no `thread_ts`, and records it with `drive order told --group-dm <that user id>`. His words: "Dm him in group
-  with bot then as usual".
-- The drive holds it to once and to after the fix: `drive order set --state done` refuses an order
-  with a reporter until each note is recorded, the watch says `TELL` once when the proof sat 10 minutes
-  with no note, and the post hook refuses a second note in that thread and one before the proof.
-  The dashboard's top strip counts each bug report until every note is recorded, and its list says
-  the stage each reached: reported, being fixed, merged, live and not told, or told. His words: "we
-  should have an equivalent bade gfor bug reports that tracks all teh way trhough to letting the
-  user know its live and fixed".
-- It needs no card and no approval, because he granted it standing: "we have authorization to message
-  once in bug fix threads after we ship the fix … it needs to be in plain simple English no jargon, no
-  crazy shit, and no asks".
-- Leave out drive jargon such as job or record ids, and asks such as "please retry", "please confirm"
-  or "let us know". Post nothing else in that thread: no progress, no test results, no follow-up.
+- Whoever reported a bug the drive fixes hears once, in the thread of the report, when the fix is
+  proven live. He granted this standing, so it needs no card and no approval.
+- The order keeps the reporter's thread from the share or link in his words. A second report of
+  the same bug joins it with `drive order set --reporter`, and `drive status` says whether each
+  thread heard. Orders on the same fix share one note per thread.
+- Proven live means the order's `--proof`, or a passing `drive job prove` on a PR a job of the order
+  opened. The handler of that report posts the note with `slack_reply` in the same step as his own
+  line, then records it with `drive order told`. The order closes once each note is recorded, and
+  the watch says `TELL` when a proof sits 10 minutes with no note.
+- When the bot cannot post in that thread, as in a person's 1:1 DM with him, the handler posts the
+  note in the group DM of that person, him and the bot: one `say` whose `channel_id` is the
+  person's user id, no `thread_ts`, recorded with `drive order told --group-dm <that user id>`.
+- A question someone asked him that a `--kind answer` order answers gets its answer in that
+  person's thread once the answer is posted to him. His share of the question orders it.
+- Write one or two plain sentences: what is fixed and since when, with the link. No drive jargon
+  and no asks such as "please retry". Post nothing else in that thread.
 
 ```
 Fixed: the agent picks up again right after you answer its question, on today's build.
 ```
 
-**The status page.** You never write it: the drive's watch redraws the drive's canvas, a tab in his
-DM with the app, within a minute of any change, and `drive view` prints the same page. It is native
-Slack tables under a line linking the dashboard. A strip counts what waits on him and each state.
-Tables follow for his questions, his PR taps, promised times that passed, every project's count by
-state, each open state's features, and finished work. Each table shows its first eight rows and says
-how many more the dashboard holds. When a line says where things stand, link the page instead of
-restating it.
+**The status page.** The watch redraws the drive's canvas, a tab in his DM with the app, within a
+minute of any change, and `drive view` prints the same page. A strip counts what waits on him and
+each state. Tables follow for his questions, his PR taps, promised times that passed, every
+project's count by state, each open state's features, and finished work. When a line says where
+things stand, link the page instead of restating it.
 
-**The Waiting on you post.** You never write it either: the watch keeps one post at the root of his
-DM and of each operator channel, posted when a card first waits on him there and edited in place
-whenever what waits there changes, so it never pings him again. The watch pins it to its
-conversation once, through `cc-slack pin`, so it stays in that conversation's pinned list however
-far other posts push it up. It counts the open cards whose project posts there, linking that queue
-on the dashboard, then links the first five, those fixing a bug hurting someone now first. Once
-nothing waits there it reads "No open cards".
+**The Waiting on you post.** The watch keeps one pinned post at the root of his DM and of each
+operator channel, edited in place when what waits there changes, so it pings him once. It counts
+the open cards whose project posts there, links that queue on the dashboard, then links the first
+five, those fixing a bug hurting someone now first.
 
-**The daily digest.** You never write it either: once a Pacific day the watch posts one table in his
-DM linking each question card of his asked more than 24 hours before, each card keeping its buttons
-where it sits. It is the only place an old card is asked again, by his words "you keep bringing me
-old questions": no order's thread line names a card that day's digest lists, and the next day's
-digest lists it again while it stands.
+**The daily digest.** Once a Pacific day the watch posts one table in his DM linking each question
+card asked more than 24 hours before. It is the one place an old card is raised again, so a thread
+line does not name a card the digest lists.
 
 ## When it goes out
 
-- His message gets its ack inside 5 to 10 seconds, whatever else is running; no handler brief,
-  record, report, card, due line, draft or `check-post` holds the ack. The handler the communicator
-  starts answers in that thread when it is done.
-- While the communicator compacts, cc-slack posts "Got it, back in a minute." under each of his
-  messages itself, and the message arrives with `acked`, so it gets no second ack.
-- Each later step of an order with a thread is the watch's to say there, by his pick "A handler
-  posts each step, started by the watch on news": a job returning its finding, a PR going up with his
-  card, its state or checks settling, Trunk ejecting it from the merge queue or taking his tap, a card
-  of his opening or closing, a job of its own at work, by his words "Status? It's been 10 mins
-  unacceptable to wait that long and to have to prompt you fix your tooling", and a `handoff` the
-  communicator's side sent five minutes before with no job of the order made, nor the job it names started, since. A PR's stage relabelled with none of those changed, such as
-  red to behind once a PR below it in its stack goes red, is no step, nor is a new commit whose checks
-  fail as before, nor a release or answer ending one wait of a job that still waits on another. Once
-  five minutes have passed since the thread's last line or the watch's last report on it, the watch
-  sends one `report` carrying `quiet=true` and the thread,
-  naming every step that moved in that time and each order and incident that owes the line, never an
-  order with nothing moved and no job at work unless he asked a line of it every so many minutes, filed with
-  `--every`, which owes one that long after the thread's last line, or called it top priority, marked with `drive order set <o> --priority`, by his words
-  "And for future when I say something is top priority it’s not acceptable that it's been an hour and there's no motion or updates on it", and starts one handler, which posts what changed in that thread, so no
-  session writes a progress line of its own and a thread lined minutes before gets none. The report
-  keeps the steps it names as told, so a handler whose thread's last line already tells them returns
-  `NOTHING` and posts no line saying nothing moved. None goes out while he is away, since the
-  thread's first line after his return carries it, nor once a report closing the order is kept or
-  posted, whose post is its line. A job
-  carrying a part of another order, and each PR registered on it, is a step in its own order's
-  thread alone, and so is each step of an order joined to another, when it is no incident and its
-  lines go in a thread of its own, or when it is an incident and the order it joined is none: its
-  report goes there, never in the thread of the order it joined, an incident's while he is away too.
-- His ask to be kept updated on a Buildkite build, such as a staging release, is the watch's to
-  follow, by his pick "A live status message: one message in your thread, rewritten each minute with
-  the running step, then an end line; one Buildkite read a minute" and his words "fix your toolking
-  so tracking this stuff beciomes deterministic and it cant get lost at the whims of an agent". Once
-  the build exists, the session holding the order runs `drive order set <o> --follow <build link>
-  <his ask> [--part "<part>"]`. The watch posts one status message in the thread of his ask naming
-  each running step with its minutes, or the approve step it stopped at, and how many steps are done,
-  and rewrites it whenever those words change, from the read it keeps of the build, which Buildkite's
-  deliveries renew, so the follow adds no Buildkite read. At the build's end it starts a handler on
-  the end line, which says how the build ended and what his ask wants of it, such as how confident we
-  are to release the same commit further, and delivers the part; no other post delivers it meanwhile,
-  so the ack under his ask leaves it open. Only an ask in his DM is followed, since the watch rewrites
-  its own post there with no ticket.
-- An incident shares that rule with a clock: until its fix is live he hears each step the moment it
-  happens, and until its users are unblocked a line five quiet minutes after the last while a job
-  works on it or something it names moved, while he is away too, which the watch owes and has a
-  handler post. A report on it goes out even when its thread already had one that turn, by
-  [incidents.md](incidents.md).
+- His question gets its answer as soon as the answer is known, in one post. A handler reads the
+  source that owns the fact through whatever access opens it and posts with one
+  `say(close=true)`. Do not post "looking into it" or a time for the next line first.
+- His message gets its ack inside 5 to 10 seconds, whatever else is running. While the communicator
+  compacts, cc-slack posts "Got it, back in a minute." itself, and the message arrives with
+  `acked`, so it gets no second ack.
+- The watch says each later step of an order in its thread, so no session writes progress lines of
+  its own. A step is a job returning its finding, a PR going up, its state or checks settling, a
+  card opening or closing, or a `handoff` five minutes old with no job made for it. Five minutes
+  after the thread's last line the watch sends one `report` carrying `quiet=true`, naming every
+  step that moved, and starts one handler. A handler whose thread already tells those steps returns
+  `NOTHING`. The communicator takes a `handoff` back with the cci close tool's `how: withdraw`. An
+  order with nothing moved gets no line unless it was filed with `--every` or marked
+  with `drive order set <o> --priority`.
+- When he asks to be kept updated on a `<ci>` build, the session holding the order runs
+  `drive order set <o> --follow <build link> <his ask> [--part "<part>"]` once the build exists.
+  The watch then keeps one status message in his thread current with the running step, and at the
+  build's end starts a handler on the end line, which delivers the part. It follows an ask in his
+  DM.
+- An incident keeps a clock: he hears each step as it happens, and a line five quiet minutes after
+  the last while a job works on it, by [incidents.md](incidents.md).
 - He is away from the moment the owner row's away holds: when he says he is going to sleep or
   stepping out, else an hour after his last word or tap. While he is away a line to him in his DM
   goes out only as a card, a PR card, the watch's reply under a card holding built work, an edit of
@@ -716,329 +376,110 @@ digest lists it again while it stands.
   which a promise of the next line is not. say holds every other report for his return, news that
   work moved or that the drive failed him included; a report owing a line promised by a time is owed
   at his return instead, and a handler's line carrying no report is refused, by his words "Just do
-  less realtime more summary / batching, with a catch up post once I'm back". `drive status` prints
-  the away beside when he was last heard, `drive heard --away` records his going, and each tap on a
-  card records him heard as a message does. Incidents and customer outages post by
-  [incidents.md](incidents.md); summaries, due-time lines and job results wait.
-  A report whose line say holds is marked held on the drive, and `drive status` lists it
-  under `Held for his return`, so nobody takes it for a line he got; the watch's own quiet
-  reports are held by that same rule before any handler starts, so none is started only to
-  post nothing. A correction record `--re` a held report travels with it, since cci never
-  changes the report: `drive status` names it on the report's line, and no handler starts on
-  the correction while its report is held. A
-  report found wrong while it is held, such as a close of an order not done, its writer takes
-  back with the cci `post` tool, `kind: withdraw`, `re` the report's own seq,
-  `to: communicator@<drive>`: `drive status` names the withdrawal on the report's line, no post
-  carries the report and no order closes on it, and the watch lets it go, freeing an order it
-  claimed to close for another report's close.
-- His next message, right after its ack, or his next card tap, after reports were held, sends
-  each held report to its own order's thread, by his words 162648a "why did all of these get sent
-  in this thread?", and owes him one catch-up at his DM root, with no session in between. Within
-  the watch's relay pass, 2 seconds, the watch writes one `quiet=true` report for each thread a
-  held report was to go in, naming each held report its writer did not withdraw, with the
-  corrections cci holds re it, and what else moved in that thread, and starts one handler there,
-  from the watch that hears its order, which re-reads each and posts what still stands; that
-  report counts the thread's steps told, as any `quiet=true` report does. News in a thread with
-  nothing held gets its line from that thread's own `quiet=true` report, never the catch-up. A
-  post of a thread's report lets go of each held report it carries, and `say` names each
-  correction of one the post must carry and each withdrawn, which it must leave out. A handler
-  that ends without posting leaves its held reports for the next time he is heard back. A
-  correction that comes after rewords the post that carried its report: `say` of it posts nothing
-  and names that post.
-- The same relay pass writes his catch-up's `report` and starts the handler that posts it at his
-  DM root. It carries only the cards waiting on him, which `say` draws, by his ruling 65768cd "Say
-  draws what waits", and any held report with no order's thread to go in, never a list of orders
-  with news or of the reports their threads carry, by his words c91b1a9 "stop telling me about the
-  whole drive I never asked for that". With no card waiting and nothing held for it, `say` posts
-  nothing and settles it, and a second catch-up while none is owed posts nothing.
-- A report found wrong after its post went out is corrected, never reported again: a report to
-  the communicator `re` the seq of a `POST` report its own lane sent goes out as a `correction`,
-  which no one-report-a-turn rule holds, and the watch starts the handler that rewords the post
-  the report went out in, which `say` of the correction names.
-- That report carries `catch_up=true`, so `say` opens the post with the bold title
-  `*Catch-up since <the time he was last heard>*` whatever the text says, and closes it with a
-  count of every open card waiting on him, the list his status page queues, linking that queue on
-  the dashboard, then each card asked since he was last heard, on its own line and five a message,
-  since Slack draws five a message. A card asked before he went away stays behind the count, by his
-  words on a catch-up that drew every card: "including all tehse cards each time ^^ is not helpful
-  and is very obtrusive". No writer lists a card in the catch-up: a card the text names is not
-  drawn twice, and the 120 words count the text alone, never the cards `say` adds, so none is cut
-  to fit. The catch-up never goes in
-  the thread of the message that brought him back, because every line in a thread is about that
-  thread's work alone, by the thread rule in "The short form".
-- The minute a job built on a card's recommended option starts waiting on that card, the watch
-  replies once under that card, in plain words: its recommended answer is built and paused on his
-  pick, his tap ships it, and another pick rebuilds it first. The reply names no card, since it sits
-  under its own, and so passes the post check when he was asked the same question twice. No other
-  post repeats it. His words, Nov 11 1:16 AM, on a post `say` had opened with a raw line naming the job
-  and its branch: "What the hell is this message?"
-- His read-only question gets its answer in seconds from a handler, by his words "things liek this
-  should be egtting almost immediate reponses but they are not": the handler reads the source that
-  owns the fact through whatever access opens it, a staff route included, never answers that it
-  could not read it, and posts with one `say(close=true)`. The communicator reads nothing
-  itself.
+  less realtime more summary / batching, with a catch up post once I'm back".
+- `drive heard --away` records his going, each tap records him heard as a message does, and
+  `drive status` prints the away and lists held reports under `Held for his return`. A correction
+  record `--re` a held report travels with it. A writer takes a wrong held report back with the cci
+  `post` tool, `kind: withdraw`, `re` the report's seq, `to: communicator@<drive>`.
+- On his next message or tap the watch sends each held report to its own order's thread, as one
+  `quiet=true` report per thread, and a handler there posts what still stands. It also starts the
+  handler for one catch-up at his DM root. That report carries `catch_up=true`, so `say` opens the
+  post with `*Catch-up since <the time he was last heard>*` and closes it with a count of open
+  cards and each card asked since he was last heard. The catch-up text carries the cards waiting on
+  him and any held report with no thread, not a tour of the drive. With nothing to carry, `say`
+  posts nothing.
+- Correct a post when it would mislead him on a fact. Reword it in place with
+  `say(edit=<its permalink>, text=…)`. A report `re` the seq of a `POST` report your lane sent goes
+  out as a `correction`, and the watch starts the handler that rewords the post.
+- When a job built on a card's recommended option starts waiting on that card, the watch replies
+  once under it: the recommended answer is built and paused on his pick. No other post repeats it.
 
 ## What goes in
 
-- What changed for him first. "You can now tap Approve on any open PR card and it lands" beats "the
-  rule that pulled your card when checks went red is merged and gone".
-- Plain words for drive jargon he cannot open: a pipeline step, a job, order, record, card or row id,
-  a `waits` id, a record seq, a hash or a plan step. Replace each with what it is, never
-  quoted as it stands in a record or a log. "Waiting on a manual roll press" becomes "waiting for the button a
-  person must press before a customer cluster's changes go out".
-- Proper terms for everything technical. A table, column, function, file, migration, flag, syscall,
-  path, service or code path keeps its proper term, with a clause saying what it is the first time
-  it appears, as "the run_claims table, which records the runner holding each run" does, by his
-  words on cards that named code bare: "Explain what this is what do you mean check" and "also what
-  is run claims". A thing in the product or its data goes in by the word his messages or the code
-  use, glossed in one line the first time. Never a vague stand-in such as "the
-  copy change", nor a coined one such as "backup", "bucket history" or "chat format", since it names
-  nothing he can open: "use the proper fucking terms for things". A product or tool he uses keeps its
-  name, in backticks. When he corrects a word, the handler for his message runs
-  `drive term <the word> "<the proper term>"`, and from then on the say hook finds a post using that
-  word, naming the term, for Jev to judge by that rule and his words.
-- Name only what the message needs, and a mechanism only when he asked about it.
-- Every line stands alone, because he reads it with no other context: "you always have to assume I
-  don't have any other context". It names no other draft of itself, such as "here's the longer
-  version", and says no sorry: a line owns a mistake by saying what was wrong and what is fixed, by his
-  words "Why did you say sorry in it again?". A number, fraction, size or ratio says what it measures, why it has
-  that value, and one concrete example. A mechanism gets one plain sentence before it is used, and
-  nothing points at a list, finding, thread or PR he cannot see in that same message, such as "the
-  third finding", "the remaining two" or "as above". Not "reads each journal file's page index sized
-  to the file (a sixteenth of it, at most 64 KiB)", but:
+The voice, as a short list:
 
-  ```
-  To open a run's page the browser first fetches a small index from the end of every journal file.
-  It used to fetch the last 64 KiB of every file; now it fetches the last one-sixteenth of each file
-  (about 6 KiB of a 97 KiB file), never more than 64 KiB.
-  ```
-- The coordinator writes its `report` records the same way, since a handler writes
-  from their words.
-- Link everything he could open where it is named: a PR, a teammate's fix, a card, a release, a
-  build, an alert, a thread or an earlier decision, so he never has to look it up himself. A link
-  opens the exact view its words describe: a screen a route, tab, anchor or query string reaches is
-  linked at that address, never the page's root, and a view not built yet is called unbuilt, by his
-  words "I dont see tthe slack tab on that link what are you talking abit?". A message
-  that mentions a change names it with its PR's link, or it is not sent: never "a fix", "the change"
-  or "a cc-slack fix" alone. When a record mentions a change without its PR, the handler finds the PR
-  first, with `drive status` or `gh pr list --search`.
-- Name a PR as `{pr:<number>}` and say in the line what it does; `say` links it under the PR's title,
-  never by its number alone, or under words of the post's own as `{pr:<number>|<what it does>}`. A
-  bare number names only a PR the drive holds: name any other as `{pr:<owner/repo#number>|<what it does>}`. Say what each PR serves: the order of his it carries out, in his words,
-  "port of #N" with the old PR linked, or "Drive tooling:" and what it unblocks. The say hook finds
-  a summary naming a drive PR that says none of these. Link each other PR the message names the same
-  way.
-- Name an order as `{order:<id>}`, which `say` links to the thread its lines go in under the first
-  line of his words.
-- Name a ruling of his as `{answer:<id>}`, which `say` draws as when he said it and its first words,
-  linked to the ack of them in his DM, since the id cc-notes keeps it under means nothing to him.
-- State a cause, a number or a state only through the read that measured it: a record, as
-  `{record:<seq>|<what that read measured>}` on the same line, or, in a handler's post, a read of its own its `claims` list beside that line. `say` links what the record measured, its `--url`, under the words after its |, as `{record:<seq>|the memory graph}`, so the
-  measuring lane's evidence is one tap away and none of the record's own words join the post or its length:
-  on Nov 10 a line at 8:46 PM blamed "the change that started the failures" without naming it, and a
-  card he tapped at 9:49 PM carried a false "disk full". `say` refuses a bare `{record:<seq>}`, naming the
-  record's opening it would have drawn, words its poster never wrote. `say` posts nothing while a line outside a
-  fence or quote names a cause, such as "because" or "caused", with no `{record:}` on it, unless a
-  handler's post lists it in `claims`, where Jev checks it against the read beside it. The record a
-  cause line cites is a job's read, its evidence, mechanism, handoff or report, never one the lane
-  whose words the line carries wrote itself, such as a sub-coordinator's go record restating a
-  tester's message: `say` refuses such a line, claims or none, judging by the writer of the report it
-  posts, else the posting session's lane, and `record_lines` refuses it on a `POST` report, and one
-  citing a seq cci does not hold, such as one guessed before its post returned.
-- A line telling him a state of work, that it is fixed, covers his case, merged, landed, queued,
-  deployed or live, stands on a read of that state made in the same turn: the squash commit for
-  merged, the deployed build holding it for live, the queue's own readback for queued, and for
-  covers it, a run of the case he described, never a PR's title or a job's summary of its own work.
-  A handler lists each such line in `claims` beside that read. Any other session's post carries the
-  `{record:}` of the read on the line, or says unverified: `say` posts nothing while a line from a
-  session posting on its own tells a state with neither. A line found wrong after it went out is
-  reworded in place with `say(edit=<its permalink>, text=…)` the moment it is found, so no wrong
-  state stands in his DM.
-- A line about code, where it lives, what it does or why, stands on the posting session's own read
-  of the code that does it, or the `{record:}` of the read that did, by his words "stop saying wrong
-  shit bc you jsut guess and its probably misleading all your work" and "dont just take things for
-  granted critically evakuate them". A code comment, a panic, error or log message, a doc, the
-  brief or an earlier answer is a claim to test against that code, never a line to repeat, and the
-  post says whether each claim it relies on holds. A PR's body, its builder's account of its diff,
-  backs a line saying what that PR changes. A record or a job's kept report is another agent's
-  reads: its line showing the read that measured it, the code by path and line or the call and
-  what it printed, backs a claim saying what that line states, in its words or others, such as
-  whose a red is to fix, and any other line of it is a claim to test. A claim naming a PR the
-  drive tracks also stands on the drive's own line for it, as `drive status <PR>` prints it,
-  which `say` hands Jev beside that claim, since the drive owns where a PR stands and who owes its
-  fix. A line about every case
-  stands on a read of what decides it, a line of an absence
-  read from one metric, span or log series, such as no calls, zero rows or nothing since, stands also on a second source with no
-  shared emitter showing the same absence, such as the caller's client spans beside the server's
-  trace metric, since one series can be sampled or dropped before it is stored, and a mechanism it
-  proposes on a read or his words showing
-  whether the system controls that piece where it would run, by his words "we cant do that since we dont control the
-  poloices on customer bucket". A handler passes `say` each such line in `claims`, beside the read
-  behind it: `record:<seq>`, or words copied from a call of its own, such as a path, command or query,
-  every word of each sentence it makes held by its claims, a sentence whose parts stand on several reads split
-  into the claims of its parts, each beside its own read. A bare `{pr:<number>}` or `{card:<waits id>}`
-  is no claim, since `say` draws it under the PR's title or the card's question, and Jev reads the post's
-  words as written beside it, so it needs no read, and so is one whose words after its `|` quote that title or question word for
-  word, with … where they skip words, and a claim copying those words, such as a claim that the PR merged, claims only that
-  PR's state; any other words after its `|` are the handler's own claim. A `{started:<job>}` or `{at:<seq>}` is no claim either:
-  `say` draws its time from the drive's stamp of when that job was added or that record went out, and Jev reads it in the post's
-  stamps beside the words drawn for it, so the time needs no read, while what the line says that job or record did is the
-  handler's own claim. The say hook hands Jev the handler's newest call those
-  words name with its whole result, each call once, so a narrower call made later and named stands in for a wider one,
-  and each record the post cites or a claim names, the report it carries
-  among them, as the handler's newest call naming its seq, or the record alone as `cci show` prints it when that call
-  held more, such as a `cci read` of several seqs, so a record never weighs more than itself; each claim names its read by
-  that read's id, so claims sharing a read add only their own words. Each request to Jev is at most 10,000
-  characters, by his words "jev should be getting like 10k chars at most for any call", and say asks Jev at once as
-  many as the post needs, each opening with the post, so reads too long for one request together never crowd each other
-  out: every part Jev cannot weigh the post without goes whole into the first request with room for it, each read the
-  claims name beside every claim naming it, each sentence the claims together do not hold word for word, and, on an
-  answer to his question under a card, that card's first line beside his question. A read too long for one request
-  alone, such as a report's whole body, goes in parts by whole lines in order, each part beside every claim naming that
-  read, and a claim stands on the part backing it most, so a long read never refuses a post. Each finding beside its
-  rule and his words the post answers, the checks' own picks first, then each newest first, go into one more request as
-  room allows, so a long thread never refuses a post, and a word of his with no room is only left out. A post with a
-  part no request holds beside the post's own words, such as one line of a read longer than a request, is refused
-  before say runs, naming each such part beside the characters its request takes, largest first, so no claim is held as
-  unbacked for want of room, and the handler makes narrower calls, such as a grep, a jq filter or a line range, and
-  names those, never a `cci read` with a smaller budget, which cuts a record's end unseen, and never
-  a true line of the post dropped to fit, or says the post in fewer claims on that read. Jev answers yes-or-no questions
-  as probabilities of yes, and code decides, by his pick "The handler names the read behind each claim; Jev checks each
-  claim against that read, whole, and holds only unbacked claims": a claim whose read backs it under 0.45 holds the post
-  and one at 0.45 or more stands, the cut every unbacked claim of the drive's recorded posts drew under, so no claim's
-  backing only warns; a read matching no call holds it; and so does, at 0.7 or more, a claim saying only, every, all, no,
-  nobody or never of a set whose read reads one member, such as a sed of one route file beside a claim about every route
-  minting a key, a sentence the claims do not hold whole that states a fact about code, a number or a state, and an
-  answer under a card leaving a term of the card's first line his question turns on unexplained, by his words under such
-  a card, "You're not properly explaining why does the PR mention a saved mark then?". An answer between 0.3 and 0.7
-  only warns, naming the line. The fix is that read, or the line cut to what the reads show, never a line posted marked
-  unread.
-- A card's title and options draw no links, so link whatever they name in its summary or a Show me
-  caption. `drive job ask` refuses an `ASK`, and the post hook a post, that names such a thing with no
-  link there, naming the words and the clause they sit in, and that a thing not open yet is said so
-  in that clause. In a post, "the change" names its PR too and is linked the same way; a question
-  card's "the change" may be the design it asks about, which no PR holds yet.
-- A link whose words name its kind, such as one reading "the update-button PR", covers the message's
-  other mentions of that kind, such as "that PR". A mention inside a code fence, a generic one such as
-  "every engineer's PR", and one in a clause saying it does not exist yet, such as "its PR goes up
-  first" or "no PR is open yet", name nothing to link. One that exists keeps its link whatever its
-  state, "has not merged" or "waits on your tap" included. Slack draws no `[label](url)` link, so the
-  check refuses one and shows the `<url|label>` to write. A link's words hold no other link, mention or
-  `{pr:}`, `{card:}` or `{record:}` reference, which Slack draws as a literal `<`, a link reading its own
-  URL and a literal `>`: `say` refuses one, naming the nesting, so close the outer link's words and put
-  the inner one after it.
-- Numbers over adjectives: "129 of 476 passed, up from 100" beats "much better".
-- Answer his next question in the same message: why, did he already decide this, is it a port, what
-  comes after, why it is held.
-- A line that says something waits on X says how long it has waited, naming the job doing X as
-  `{started:<job>}` or the record the wait began on as `{at:<seq>}`, whose stamp `say` fills so no
-  time is typed, and whether X is running, or `record_lines` refuses the report. Past two hours with
-  nothing running, it reports a failure with its owner and how it is prevented, because a wait that
-  long is a failure, never a state.
-- Done means live and checked on the surface he uses: a recording of the click for a page, the live
-  post for a card or message, the installed command's output for a tool. Data fetched from an API
-  proves no screen. Say how you checked in a few words, with the link.
-- Say what was observed, and never list what is not proven, under any label: "unproven", "not proven
-  yet", "not seen working yet", "unverified", "untested". Each unknown gets a job, and he gets its
-  result or nothing. `cc-slack check-post` refuses a line listing what is not proven, and a job's
-  `UNPROVEN:` list is the coordinator's input, never a fact its records state and never copy for
-  him.
-- An incident line follows [incidents.md](incidents.md) and carries no side facts about a release.
-  Its alert's Slack message and Sentry or Datadog issue stay bare so Slack unfurls them: the say hook
-  lets them through on a post whose order, or the record it posts, is an incident's.
-- State comes from live reads, `drive status`, GitHub or a transcript, never from memory. The say
-  hook finds a post calling a job stuck or silent with no read of its transcript by you in the last
-  10 minutes, `drive job replies <j>` or `cc-transcript`. A job's last line is history: what is live is read from the default branch and the release, since a later
-  PR may have reverted the change or put it back. A 12:57 AM status on Nov 11 told him the 512
-  memory indexes were backed out, from a job's line written before the 8:41 PM PR that restored
-  them. What a
-  release carries, such as its PRs, its steps or which build fixes what, is read from that release's
-  commit and build.
-- Ask for a tap only when one is owed. Before any card or line asks him to tap, approve or hold a
-  PR, read `drive status <pr>`; when he tapped it already, or it merged or closed, say what happened
-  to it instead. The post hook refuses a card or post asking for a tap he already gave, naming the PR.
+- What changed for him comes first. "You can now tap Approve on any open PR card and it lands"
+  beats "the rule that pulled your card when checks went red is merged and gone".
+- Use the proper term for anything technical: a table, column, function, file, migration, flag,
+  service or code path, with a clause saying what it is the first time. Use the word his messages
+  or the code use, not a stand-in such as "the copy change". When he corrects a word, run
+  `drive term <the word> "<the proper term>"` so later posts are checked for it.
+- Keep it short. Name what the message needs, and a mechanism when he asked about it.
+- Link everything he can open where it is named: a PR, a card, a release, a build, an alert, a
+  thread. Link the exact view the words describe, and call a view that is not built yet unbuilt.
+- Leave out drive ids he cannot open: a job, order, record or row id, a `waits` id, a hash, a plan
+  step. Say what the thing is instead.
+- Say unverified on a line you did not check. A fact told to him is checked that turn, from
+  `drive status`, GitHub, the default branch or the release, since a job's last line may be stale.
+- Every line stands alone, because he reads it with no other context. Give a number what it
+  measures and one concrete example. Do not point at "the third finding" or "as above". Do not say
+  sorry: say what was wrong and what is fixed.
+- Numbers beat adjectives: "129 of 476 passed, up from 100".
+- Answer his next question in the same message: why, is it a port, what comes after, why it is
+  held.
+- Done means live and checked on the surface he uses: a recording of the click for a page, the
+  live post for a message, the installed command's output for a tool. Say how you checked in a few
+  words, with the link.
+
+The references `say` expands:
+
+- `{card:<waits id>}` links a card under words that name it and makes Slack draw it.
+- `{pr:<number>}` links a PR the drive holds under its title. `{pr:<number>|<what it does>}` links
+  it under your words. Name any other PR as `{pr:<owner/repo#number>|<what it does>}`. Say what a PR
+  serves: his order in his words, "port of #N" with the old PR linked, or "Drive tooling:" and what
+  it unblocks.
+- `{order:<id>}` links an order to the thread its lines go in, under the first line of his words.
+- `{answer:<id>}` draws a ruling of his as when he said it and its first words, linked to the ack
+  of them in his DM.
+- `{record:<seq>|<what that read measured>}` links a record's `--url` under your words, so the
+  evidence is one tap away. Write the words after the `|`. Use it when a record holds the read
+  behind a cause or a number you state.
+- `{started:<job>}` draws when a job started, labelled as the job's start, and `{at:<seq>}` when a
+  record went out. `say` fills both from the drive's stamps. Use them for how long something has
+  waited.
+- A handler may pass `claims`: each factual line beside the read behind it, as `record:<seq>` or
+  words copied from a call of its own, such as a path, command or query. Jev checks each claim
+  against that read. A bare `{pr:}`, `{card:}`, `{started:}` or `{at:}` is not a claim. A claim
+  about every member of a set stands on a read of what decides it, not of one member.
+
+Other facts:
+
+- A line about code stands on your own read of that code. A comment, an error message, a doc, the
+  brief or an earlier answer is a claim to test, not a line to repeat. A line saying nothing
+  happened, read from one metric or log series, is stronger with a second source, since one series
+  can be sampled or dropped.
+- Slack draws `<url|label>`, not `[label](url)`. A link's words hold no other link or reference. A
+  card's title and options draw no links, so link what they name in the summary or a Show me
+  caption.
+- A line that says something waits on X says since when, with `{started:<job>}` or `{at:<seq>}`,
+  and whether X is running. Past two hours with nothing running it is a failure: say who owns it
+  and how it is fixed.
+- An incident line follows [incidents.md](incidents.md). Its alert's Slack message and Sentry or
+  Datadog issue stay as bare links so Slack unfurls them.
+- Ask for a tap when one is owed. `drive status <pr>` says whether he tapped already or the PR
+  merged or closed. Read a quiet job's transcript with `drive job replies <j>` before calling it
+  stuck.
+- The coordinator writes its `report` records in this voice, since a handler writes from them.
 
 ## What stays out
 
-- The machinery: pins, packs, installs-as-process, who handed what to whom. A failure of the drive's
-  that reaches him anyway, such as a card refused, a check nobody ran, a message that never arrived, a
-  hook refusing a post he ordered or a line promised him late, says in that post how it is prevented:
-  the tool change, the `{order:}` or `{pr:}` carrying it, and when it is live, so that fix starts
-  before the line goes out. The order the post is about and its PRs say what was late, not what
-  keeps it from being late again, so they never count, but a drive tooling order's own PRs do.
-  His words of Nov 12, 12:44 AM, under "Its card was refused because nobody checked that PR against
-  your words": "thats not acceptable to dsay without telling me how you will prevent it". A disconnect
-  is never the reason, since a session reaches another through SendMessage while cci is down, by
-  [records.md](records.md). When he asks why, give the mechanism in one or two sentences and quote
-  back the instruction he gave, then the fix and when it is live. The post hook and `record_lines`
-  find a line whose writer's own words, its references, links, quotes and code names left out, name
-  such a failure, a late or overdue line included, or that cites the defect record the drive filed
-  for one, in a post naming no order or PR but the ones it is about and drawing no PR card.
-  `record_lines` only warns the session sending the report, which posts as written. The post hook
-  hands each such line to Jev as a finding under this rule, which also says a line on what the
-  product, a customer's run or a PR's own checks and tests did needs nothing, so Jev holds a line
-  telling a failure of the drive's and passes one telling that a pod's own check refused it or that
-  a PR's own test failed, by his pick "1 and then if we kepe getting false rejects move to 3", whose
-  first option has Jev rule on each finding by that finding's own rule. A held line is reworded in
-  place naming the fix and its order, and Jev reads such a line as within his words, never as work
-  outside them.
-- A second ask for a post he ordered. His order to post, in his DM, in a terminal or by a tap on a
-  card, is his permission for one post in the place he named. No card asks him to approve it, no line
-  says a hook needs his Yes, and a card already up asking that is closed the moment it is seen.
-- A post nobody ordered, such as a reply offered to someone who reported a bug or a line for a
-  teammate, needs his word once, on a question card asking whether to send it. The fix-live note is
-  not such a post: his standing grant covers it. Nor is the answer to a question someone asked him
-  that he shares or links: his share orders it.
-- Asks of a bug reporter: a bug thread gets its one fix-live note, and no card option offers to ask
-  the reporter anything.
-- Messages with no new fact: react with `+1` to chatter instead of acking it, and post no "nothing
-  new" line. A job's idle notice, a result repeating a state he already has, or one older than what
-  he was told since reaches no session's post to him.
-- Second copies: one post per thing, a correction rewords it in place with `say(edit=<its permalink>,
-  text=…)`, and never text and a card for the same thing.
-- A promise without a record. A promised time is one the coordinator set with `--due` in the same
-  turn, by [The short form](#the-short-form), and its `report` names it. Any other promise, such as
-  "from now on…" or "next you get…", goes out only with the order, due time or job that carries it
-  out named in the same message, because a promise with nothing behind it is one he cannot believe.
-  A job being started is named as `{started:<j>}` once it started; until then the line goes out
-  only once the `handoff` asking for it is kept on the order it goes to. The `record` tool keeps
-  each `handoff` the communicator's side sends on the order it serves, and five quiet minutes after
-  it the watch owes that order's thread a line naming it and each record re it, whatever the session
-  it went to answered, until a job of that order is made, the job it names starts or the
-  communicator withdraws it with the cci close tool's `how: withdraw`, which the watch reads and
-  takes it off its order on, since another job of a busy order restarting does none of its step, by his words b4b64f5 "fix your
-  toolking so tracking this stuff beciomes deterministic and it cant get lost at the whims of an
-  agent". `say` refuses a handler's line saying a job is being started with neither.
-- A card promised before it is drawn. A line saying a card or its buttons are coming, being added
-  or being given him, as "a handler is adding each one's Approve card" does, names that card, open
-  now, as `{card:<waits id>}`, or is the post that draws it; `say` and a report to the communicator
-  refuse any other, since a card no one drew may never come, as when an answer of his already
-  settled its question, by his words "you're saying in threads you're giving me approve buttons and
-  then there's no such thing".
-- The current time, and any time you estimated: Slack already stamps every post. Compute a promised
-  time from `date`, or write it as `+30m` to `--due` and read it back from `drive status`, never from
-  your sense of how long the turn has run, which drifts.
-- A clock time typed for work already done. Name the job or record and let the drive's stamp give the
-  time: `{started:<job>}` for when a job started and `{at:<seq>}` for when a record went out, which `say`
-  fills. Only words he reads are checked: `say`, a card `drive job ask` keeps, and a POST report or ready
-  record to the communicator, through the cci `post` tool or a Bash `cci post`, refuse a time at or
-  before the write, such as "started at 4:25 AM" in a report posted at 4:50 AM, naming the write's stamp
-  and each named job's. A SendMessage, a defect, a handoff, any other record
-  between sessions and `drive job report` quote times as they stand, by his words "i think that time
-  hook its tooa ggessive too". A time after the write, such as "next line by 5:40 AM" or "the hold
-  expires at 6:54 PM", read on the day written beside it, as "6:54 AM tomorrow" or "Nov 9 9:28 PM", else
-  on the day nearest the write, a time quoted as a tool printed it, in backticks, a time a tool or query measured, such as an outage window, written in
-  Pacific on the line linking the tool or read that measured it, and a linked time pass. His ruling of Nov 3:
-  "the agent should never be passing in a time".
-- A job's or record's stamp as another action's time. `{started:<job>}` draws as the job's start,
-  labelled so, as "9:52 AM (job start)", and `{at:<seq>}` as when its record went out; neither is when
-  a release, build or deploy started. Quote that start as its build or tool printed it, in backticks or
-  its link's words, on the line linking it, as in
-  ``<https://buildkite.com/forge/release/builds/15020|the release build> started `11:30 AM` ``.
-  Every surface the clock-time check runs on refuses a line saying when a release, build or deploy
-  started with either stamp in a clause naming no job or record, or a quoted time on a line linking no
-  build or tool: on Nov 12 two posts said a database release started at its job's start, over an hour
-  before its release build did.
+- The machinery: pins, packs, installs, who handed what to whom. When a failure of the drive's
+  reaches him, the post says what fixes it, with the `{order:}` or `{pr:}` carrying the fix. When
+  he asks why, give the mechanism in one or two sentences, then the fix.
+- A second ask for a post he ordered. His order to post is the permission for that post in the
+  place he named. A post in his own name to another person that nobody ordered waits for his word,
+  on a question card. The fix-live note and the answer to a question he shared are already ordered.
+- Messages with no new fact. React with `+1` to chatter. Post no "nothing new" line, and pass on no
+  idle notice or result he already has.
+- Second copies. One post per thing, and not text and a card for the same thing.
+- A line saying a card or its buttons are coming. Post the card, or name the open one as
+  `{card:<waits id>}`.
+- The current time, and a typed time for work already done. Slack stamps every post, and
+  `{started:<job>}` and `{at:<seq>}` give a job's or record's time. A job's stamp is not when a
+  release, build or deploy started: quote that as its build or tool printed it, in backticks, on
+  the line linking it. A time a tool or query measured, such as an outage window, is written in
+  Pacific on the line linking that read. A SendMessage, a defect, a handoff and `drive job report`
+  quote times as they stand.
 
 ## Examples
 
@@ -1046,12 +487,12 @@ Two status lines that lead with what changed for him, with concrete counts:
 
 ```
 *Your PR cards keep their buttons while CI is red*
-Tapping Approve on any open PR now lands it once CI passes. Pictures on cards go live by 1:30 AM.
+Tapping Approve on any open PR now lands it once CI passes.
 ```
 
 ```
 *1 of 5 tooling fixes is merged; none is on your Mac yet*
-The other four are in review and land by 11:10 PM; each goes live within minutes of merging.
+The other four are in review; each goes live within minutes of merging.
 ```
 
 A design question goes out as its card and nothing else: about 120 words with its options, its Show
@@ -1081,35 +522,26 @@ GET 2 page ranges
 
 An answer to his question, a reply to his Explain more tap and a walkthrough he orders for a
 teammate go out whole, so each reads as a short worked lesson. When the repository's `AGENTS.md`
-names a model post, write the way it does. Each step says what to do and why:
+names a model post, write the way it does.
 
 1. Open with one line saying who asked, why, and what example follows, so a reader who saw nothing
    before it knows what they are reading.
-2. Put a bold lead before each part, in the order the reader's questions come, with one idea under
-   each, so they can stop once they have what they need.
-3. Show each mechanism as a short snippet of what the code does, the real call wherever one exists,
-   then one plain sentence on what happens when it runs, so a reader who skims the code still gets
-   the point.
-4. Define each proper term where it first appears, in a few words in parentheses, so the reader
-   never leaves the post to look one up.
-5. List a cost as the concrete things the change adds, read from the diff, and name what the next
-   change of the same kind would need too, since a list can be checked and an adjective only argued
-   with.
-6. End a post that teaches on a test the reader can reuse, so the point outlives the one change.
-7. Address the reader by name, warmly and directly, and leave out any account of your own process,
-   because they want the point, not the search for it.
+2. Put a bold lead before each part, in the order the reader's questions come, one idea under each.
+3. Show each mechanism as a short snippet of what the code does, the real call where one exists,
+   then one plain sentence on what happens when it runs.
+4. Define each proper term where it first appears, in a few words in parentheses.
+5. List a cost as the concrete things the change adds, read from the diff, since a list can be
+   checked and an adjective only argued with.
+6. End a post that teaches on a test the reader can reuse.
+7. Address the reader by name, warmly and directly, and leave out any account of your own process.
 
 A review walkthrough's leads might read *What your PR does*, *What we want instead*, *Why it
-matters* and *A test for next time*; each post picks leads for its own reader's questions. A routine
-line keeps its bold line and two sentences, as the status lines above show.
+matters* and *A test for next time*. A routine line keeps its bold line and two sentences.
 
 ## The rules Jev judges a post by
 
-This is the one list of post-quality rules. Each rule names the check that finds a breach and the
-constant that holds its words. Jev reads a post only when a check finds something in it or a
-handler's claims name reads, and then judges each finding by its rule beside his words. There is no
-standing Jev call on every post. A new piece of post feedback from him becomes a line here and a
-finding of the check that fits it, never a rule of its own somewhere else.
+Jev is the judge `say`'s hook asks about a post. It reads a post only when a check finds something
+in it or a handler's claims name reads, and judges each finding by its rule beside his words.
 
 | Rule | Found by | Words in |
 | --- | --- | --- |
@@ -1126,67 +558,15 @@ him while he is away.
 
 ## Before it goes out
 
-- The hook passes the words of every post and edit, the ack's included, through
-  `cc-slack check-post` and counts them as they go out. Every check of a `say` post reads the words
-  its writer typed, each reference as the words after its `|` or as one word, never the title or time
-  `say` draws for it.
-- A finding refuses nothing on its own. Before `say` posts the post, since an edit takes back neither
-  the buzz on his phone nor a line a reporter already read, the hook hands it and every finding, check-post's and the drive's own, to Jev with the rule each finding
-  stands for, in this skill's and cc-slack's words, and the words of his it answers: his messages in
-  the thread it went to since the bot's last post there, his answers on the card that thread is under,
-  each message of his its asked links, each older word of his there its asked or a quote in it holds,
-  and his words on the order it is on, read from the drive; no session's transcript is read for them.
-  A handler's brief, the record it reads in and every prompt of a handler's
-  own `claude --bg` session are the communicator's or a writer's words, never his, whatever they
-  quote. Jev judges only the line each finding names, by its rule, in one request of at most 10,000
-  characters filled by whole items as above, with two yes-or-no questions a finding: whether its rule
-  holds against its line, and whether his words lift it. Code decides on each probability of yes:
-  a finding under 0.3, or one his words lift at 0.7 or more, lets the post stand, and every other
-  finding, one in the band between included, holds it, with the finding and its rule as Jev's
-  reason, as a refused call in the band waits. No post is held for saying more than
-  his message asked, nor as unpermitted, since no post in his DM or
-  its threads needs words of his permitting it and cc-slack's Slack permission hook judges each post
-  anywhere else: an allow rests on the reads and rules it cites as fully as on his words. A held post
-  comes back unposted, and the session that called `say` hears Jev's reason, fixes those words and
-  calls `say` again. Jev gets 20 seconds on a post, or what is left of capt-hook's deadline
-  when that is less, and 3 seconds on a drive check's refusal of a call.
-- A post a check refused goes out only when Jev lifts each of its findings: when Jev cannot finish,
-  because it errs, times out or declines a question, the post still comes back unposted with every
-  finding, by his words "the say hook words a finding as refused and still posts it, so he may read a
-  post before it is reworded in place", which replace his older pick "Refusals only warn when the
-  judge cannot finish" for a refused post. A post no check refused still goes out unchecked when Jev
-  cannot finish, as that pick says, and a post that goes out names no finding as refused. A check
-  that cannot run, such as `cc-slack check-post` failing or his thread unreadable, refuses with no
-  judging. A session's account of its own act or
-  mistake, such as the handler its turn starts, and his words or an alert or error he shared,
-  restated, name no cause the cause rule asks a record for. An order or job id, such as o643 or j1700,
-  comes back unposted with no judging unless a message of his the post passes as asked used it. His
-  words: "stop hard coding it and just use jev evaluating my message and rules to see if it's ok to
-  send" and, on a refusal Jev got wrong, "you need to fix the hookw henver it wrongly refuses yu".
-- What the session passed `say` is what he reads: `say` adds no words of its own and checks nothing
-  again. Check-post reads the words under each link, so a card, PR or order title it flags is
-  named in the post's own words, `{pr:<number>|<words>}`, as every record is, `{record:<seq>|<words>}`.
-- A post that answers him passes each message of his in `asked`, word for word or by its permalink
-  in his DM, and check-post gets each message's words as `--asked`, so a drive word he used there,
-  such as "the drive" in his question about the drive, passes in the answer, and so does an internal
-  id such as a run id when his message asks for ids, as "the session IDs" does. When one stands word
-  for word in his messages in that thread, an answer or Explain more tap of his a card there shows or
-  a message of his an `asked` permalink links, the length limit lifts with no judge; otherwise Jev reads the same words.
-- A post that draws a card, or a PR card through `tap_prs` or a PR its waiting line links, carries
-  the card its words say waits on him, so check-post's `waits-without-card` finding is dropped for
-  it. A check that fails on a post, or a check-post that cannot check its words, lets it out
-  unchecked with a warning, since a gate that cannot finish fails open.
-- A handler's new line in his thread comes back until that handler has read the thread in the last
-  10 minutes, so the line cannot miss what he said there since. Past that read every other check
-  runs. A post Jev holds on any finding, such as one over its limit, one check-post flags, one
-  naming something he could open with no link there, or one asking a tap that is not owed, comes
-  back once, unposted, with every finding, Jev's reason and what to fix.
-- Then read it as he will, on a phone, with no other context. Does he know what changed, whether he
-  must act, and when he hears next? Does every number, term and reference make sense with nothing
-  else open, and does each thing he could open carry its link right there?
-- A post he faults anyway, by its words, a picture, or a card or link it lacks, shows a class of
-  post these checks pass. The post is fixed in place, and every time, a repeat too, its own Tooling
-  order changes `cc-slack check-post`, a drive hook or the library that draws posts and cards, so
-  the next post of that class is refused or drawn right before he reads it, by
-  [meta.md](meta.md#records-and-inputs). His words: "When I give feedback on posts
-  keep iterating on the library, tooling etc don't get complacent".
+- `say` posts the words you pass and adds none. Its hook runs them through `cc-slack check-post`
+  and counts them, each reference read as the words after its `|`.
+- A post Jev holds comes back unposted with the finding and its reason. Fix the words and call
+  `say` again. When the finding is wrong, say the same thing another way so the answer still
+  reaches him, and send the meta session one defect record. A held post is not a reason to leave
+  him without his answer.
+- Read it as he will, on a phone, with no other context. Does he know what changed and whether he
+  must act? Does every number, term and reference make sense with nothing else open, and does each
+  thing he can open carry its link?
+- When he faults a post, fix it in place. His feedback also becomes a drive tooling order for the
+  meta session, by [meta.md](meta.md#records-and-inputs), so the library or the check changes and
+  the next post of that class comes out right.

@@ -78,8 +78,8 @@ def stop(
     return capsys.readouterr().out
 
 
-def step(monkeypatch: pytest.MonkeyPatch, tool: str = agents.FIRST_LINE_TOOLS[0]) -> None:
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"tool_name": tool})))
+def step(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"tool_name": "Bash"})))
     handed_records.main()
 
 
@@ -592,33 +592,6 @@ def test_a_record_for_a_busy_handlers_thread_reaches_that_handler_at_its_next_st
     ended_sessions.add("died-session")
     assert tools.run("handler", "demo", {"brief": message}).startswith("started ")
     assert restarted not in state.load("demo")["handlers"]
-
-
-def test_a_handler_that_has_posted_nothing_reads_the_time_since_his_message_each_step_and_past_its_minute_may_only_post(
-    communicator: str, tmp_path: Path, started: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    handler = tools.run("handler", "demo", {"brief": HIS_MESSAGE.format(scratch=tmp_path / "h1")}).removeprefix("started ")
-    bind(monkeypatch, handler, "h-session")
-    sent = slack.sent_at({"ts": "1794446196.220659"})
-    monkeypatch.setattr(state, "now", lambda: sent + timedelta(seconds=40))
-    capsys.readouterr()
-    step(monkeypatch, "Bash")
-    assert json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"].startswith(
-        "40 s since his message and you have posted nothing: post your first line in his thread with say and no record within 1 min of it"
-    )
-    monkeypatch.setattr(state, "now", lambda: sent + timedelta(minutes=10, seconds=30))
-    step(monkeypatch, "Bash")
-    refused = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
-    assert "permissionDecision" not in refused
-    assert refused["additionalContext"].startswith(
-        "10 min since his message and you have posted nothing: your first line in his thread, owed 1 min after it, is 9 min over,"
-    )
-    step(monkeypatch)
-    assert "permissionDecision" not in json.loads(capsys.readouterr().out)["hookSpecificOutput"]
-    with state.edit("demo") as data:
-        data["handlers"][handler]["posted"].append(LINE)
-    step(monkeypatch, "Bash")
-    assert capsys.readouterr().out == ""
 
 
 def test_a_handlers_done_record_leads_with_the_ts_of_each_message_of_his_it_took_by_handover_ahead_of_its_posts(

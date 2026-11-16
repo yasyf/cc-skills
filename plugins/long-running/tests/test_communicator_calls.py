@@ -145,25 +145,25 @@ def test_the_coordinator_sends_no_pr_event_to_a_builder_that_returned_and_starts
     demo: str, builder: Callable[..., None], tmp_path: Path
 ) -> None:
     builder(agent="a-7", state="built")
-    reason = communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="CI went red, fix it"))
-    assert reason.startswith("Refused on purpose: j1's builder already returned (built)")
+    reason = communicator_calls.note(call("SendMessage", transcript(tmp_path), to="a-7", message="CI went red, fix it"))
+    assert reason.startswith("j1's builder already returned (built)")
     assert "`drive job add builder`" in reason
     assert "`Handoff:` line naming this message" in reason
     assert "which takes each PR j1 opened and stops it" in reason
-    assert f"Only root@{demo}, the session holding o1, adds its jobs" in reason
+    assert f"root@{demo}, the session holding o1, adds its jobs" in reason
     fresh = "Handoff: red check on https://github.com/Forge-AI/monorepo/pull/4244 Drive: demo, order o1, job j2"
     assert communicator_calls.deny_reason(call("Agent", subagent_type="long-running:builder", prompt=fresh)) is None
     held = answered(builder, demo, "Ring", state.now())
     for relayed in ("Ring", "He answered May it soak on staging?: Ring", held["words"]):
-        assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message=relayed)) is None, relayed
-    assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="CI went red, fix it")).startswith("Refused on purpose: j1's builder")
+        assert communicator_calls.note(call("SendMessage", transcript(tmp_path), to="a-7", message=relayed)) is None, relayed
+    assert communicator_calls.note(call("SendMessage", transcript(tmp_path), to="a-7", message="CI went red, fix it")).startswith("j1's builder")
     builder(state="waiting")
-    assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="He picked Approve")) is None
+    assert communicator_calls.note(call("SendMessage", transcript(tmp_path), to="a-7", message="He picked Approve")) is None
     builder(state="done")
-    assert "`drive pr add <url> --job <new>` for each PR it takes over" in communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="CI went red, fix it"))
+    assert "`drive pr add <url> --job <new>` for each PR it takes over" in communicator_calls.note(call("SendMessage", transcript(tmp_path), to="a-7", message="CI went red, fix it"))
     with state.edit(demo) as data:
         data["orders"]["o1"]["incident"] = True
-    assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="CI went red, fix it")) is None
+    assert communicator_calls.note(call("SendMessage", transcript(tmp_path), to="a-7", message="CI went red, fix it")) is None
 
 
 @pytest.mark.parametrize("returned", ["running", "built", "done"])
@@ -195,13 +195,13 @@ def test_each_step_a_watch_line_names_to_reach_a_builder_on_this_mac_is_one_the_
         if line in resumes:
             continue
         assert f"j1's builder already returned ({returned}), and a PR event after a builder returns goes to a fresh builder" in line, line
-        assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message=line)).startswith(f"Refused on purpose: j1's builder already returned ({returned})"), line
+        assert communicator_calls.note(call("SendMessage", transcript(tmp_path), to="a-7", message=line)).startswith(f"j1's builder already returned ({returned})"), line
         assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command="drive job add builder --order o1 --goal 'fix the red check'")) is None
     for line in resumes:
         resume = ["job", "resume", "j1"] if line in answers else ["job", "resume", "j1", line]
-        assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=shlex.join(["drive", *resume]))) is None, line
+        assert communicator_calls.note(call("Bash", transcript(tmp_path), command=shlex.join(["drive", *resume]))) is None, line
         assert run(*resume) == (0, f'j1: owed, send it now: SendMessage a-7 "{superseded.POINTER.format(9)}"'), line
-        assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message=superseded.POINTER.format(9))) is None, line
+        assert communicator_calls.note(call("SendMessage", transcript(tmp_path), to="a-7", message=superseded.POINTER.format(9))) is None, line
     assert [line.endswith("drive job resume j1 delivers it now [o1 j1]") for line in answers] == ([True] if returned != "done" else [])
     with state.edit(demo) as data:
         superseded.hear(data, "j1", words, state.now())
@@ -213,21 +213,21 @@ def test_the_coordinator_messages_a_running_job_only_after_reading_its_transcrip
 ) -> None:
     builder(where="remote", dispatch="ctx_9", agent=None, state="running")
     resume = 'drive job resume j1 "status?"'
-    reason = communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=resume))
-    assert reason.startswith("A message that tells j1 it stopped, stalled, went quiet or is stuck, or asks it whether it is, needs a read of its transcript first")
+    reason = communicator_calls.note(call("Bash", transcript(tmp_path), command=resume))
+    assert reason.startswith("This message tells j1 it stopped, stalled, went quiet or is stuck, or asks it whether it is")
     assert "`drive job replies j1`" in reason
-    assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=f"drive job replies j1 --limit 20 && {resume}")) is None
-    assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=f"{resume} && drive job replies j1")) is not None
-    assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path, "drive job replies j1"), command=resume)) is None
-    assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path, "drive job replies j12"), command=resume)) is not None
+    assert communicator_calls.note(call("Bash", transcript(tmp_path), command=f"drive job replies j1 --limit 20 && {resume}")) is None
+    assert communicator_calls.note(call("Bash", transcript(tmp_path), command=f"{resume} && drive job replies j1")) is not None
+    assert communicator_calls.note(call("Bash", transcript(tmp_path, "drive job replies j1"), command=resume)) is None
+    assert communicator_calls.note(call("Bash", transcript(tmp_path, "drive job replies j12"), command=resume)) is not None
     worker_read = transcript(tmp_path, "orca orchestration worker-read --dispatch ctx_9 --limit 50 --full --json")
-    assert communicator_calls.deny_reason(call("Bash", worker_read, command=resume)) is None
+    assert communicator_calls.note(call("Bash", worker_read, command=resume)) is None
     builder(where="local", dispatch=None, agent="a-7")
-    reason = communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="status?"))
+    reason = communicator_calls.note(call("SendMessage", transcript(tmp_path), to="a-7", message="status?"))
     assert "`cc-transcript` on agent a-7's transcript" in reason
     read = transcript(tmp_path, "cc-transcript show ~/.claude/projects/x/s/subagents/agent-a-7.jsonl --tail 40")
-    assert communicator_calls.deny_reason(call("SendMessage", read, to="a-7", message="status?")) is None
-    assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command="drive status o1")) is None
+    assert communicator_calls.note(call("SendMessage", read, to="a-7", message="status?")) is None
+    assert communicator_calls.note(call("Bash", transcript(tmp_path), command="drive status o1")) is None
 
 
 def test_an_order_to_a_running_job_goes_unread_and_only_a_claim_or_ask_about_its_state_waits_for_a_read(
@@ -240,15 +240,14 @@ def test_an_order_to_a_running_job_goes_unread_and_only_a_claim_or_ask_about_its
         "He picked Approve",
         "If you are stuck on the rebase, return ASK with the conflict",
     ):
-        assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message=order)) is None
+        assert communicator_calls.note(call("SendMessage", transcript(tmp_path), to="a-7", message=order)) is None
     builder(where="remote", dispatch="ctx_9", agent=None)
     relayed = 'drive job resume j1 "Your ASK was not sent, it is out of shape: it asks him for the proper fix of a bug hurting someone now"'
-    assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=relayed)) is None
+    assert communicator_calls.note(call("Bash", transcript(tmp_path), command=relayed)) is None
     for claim in ("You went quiet 40 minutes ago: are you stuck?", "No word from you since the push", "Any update?"):
-        assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=f'drive job resume j1 "{claim}"')) is not None
+        assert communicator_calls.note(call("Bash", transcript(tmp_path), command=f'drive job resume j1 "{claim}"')) is not None
     output = json.loads(hook_output(monkeypatch, capsys, call("Bash", transcript(tmp_path), command='drive job resume j1 "you have been silent"')))
-    assert "(`you have been silent`)" in output["hookSpecificOutput"]["permissionDecisionReason"]
-    assert output["rule"] == communicator_calls.STATE_RULE
+    assert "(`you have been silent`)" in output["hookSpecificOutput"]["additionalContext"]
 
 
 def test_a_question_about_another_job_or_another_resumes_words_is_not_about_the_job_it_goes_to(
@@ -260,18 +259,18 @@ def test_a_question_about_another_job_or_another_resumes_words_is_not_about_the_
         "Is j3812 still running?",
         "Is CI still running?",
     ):
-        assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message=other)) is None, other
+        assert communicator_calls.note(call("SendMessage", transcript(tmp_path), to="a-7", message=other)) is None, other
     for own in ("j3812 merged #12. Still running?", "What's your status?"):
-        assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message=own)) is not None, own
+        assert communicator_calls.note(call("SendMessage", transcript(tmp_path), to="a-7", message=own)) is not None, own
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "build the rest")
     run("job", "add", "builder", "--order", "o2", "--goal", "build the rest")
     with state.edit(demo) as data:
         for job_id in ("j1", "j2"):
             data["jobs"][job_id].update(where="remote", dispatch=f"ctx_{job_id}", agent=None, state="running")
     both = 'drive job resume j1 "Rebase it on dev"; drive job resume j2 "You stopped without a result line"'
-    assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=both)).startswith("A message that tells j2 ")
-    assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=f"drive job replies j2 && {both}")) is None
-    assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command='drive job resume j1 "Rebase it on dev"; drive job resume j1 "Are you stuck?"')).startswith("A message that tells j1 ")
+    assert communicator_calls.note(call("Bash", transcript(tmp_path), command=both)).startswith("This message tells j2 ")
+    assert communicator_calls.note(call("Bash", transcript(tmp_path), command=f"drive job replies j2 && {both}")) is None
+    assert communicator_calls.note(call("Bash", transcript(tmp_path), command='drive job resume j1 "Rebase it on dev"; drive job resume j1 "Are you stuck?"')).startswith("This message tells j1 ")
 
 
 def test_his_words_quoted_about_another_session_stopping_are_no_claim_about_the_job(demo: str, builder: Callable[..., None], tmp_path: Path) -> None:
@@ -289,12 +288,12 @@ def test_his_words_quoted_about_another_session_stopping_are_no_claim_about_the_
     )
     escaped = sent.replace('"', '\\"')
     for relayed in (f'drive job resume j296 "{escaped}"', f"drive job resume j296 - <<'EOF'\n{sent}\nEOF", f"drive job resume j296 '{sent.replace(chr(39), '')}'"):
-        assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=relayed)) is None, relayed
+        assert communicator_calls.note(call("Bash", transcript(tmp_path), command=relayed)) is None, relayed
     for own in ('drive job resume j296 "you stopped"', "drive job resume j296 - <<'EOF'\nyou stopped\nEOF", 'drive job resume j296 "His words: \\"fix it\\". You stopped."'):
-        assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=own)).startswith("A message that tells j296 it stopped"), own
+        assert communicator_calls.note(call("Bash", transcript(tmp_path), command=own)).startswith("This message tells j296 it stopped"), own
     builder(where="local", dispatch=None, agent="a-7")
-    assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message=sent)) is None
-    assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="you stopped")).startswith("A message that tells j1 it stopped")
+    assert communicator_calls.note(call("SendMessage", transcript(tmp_path), to="a-7", message=sent)) is None
+    assert communicator_calls.note(call("SendMessage", transcript(tmp_path), to="a-7", message="you stopped")).startswith("This message tells j1 it stopped")
 
 
 def test_the_coordinators_message_quoting_when_past_work_happened_goes_out_since_it_never_reaches_him(
@@ -306,7 +305,7 @@ def test_the_coordinators_message_quoting_when_past_work_happened_goes_out_since
         "GitHub approved it at 3:45:58 PM and its checks went green at 3:47:52 PM; record 680813 went out at 4:07 PM",
         "Rebase it on dev; return by 11:30 PM",
     ):
-        assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message=message)) is None, message
+        assert communicator_calls.note(call("SendMessage", transcript(tmp_path), to="a-7", message=message)) is None, message
 
 
 def test_the_coordinator_wakes_no_builder_here_whose_turn_ended_while_eight_hold_this_macs_builder_slots(

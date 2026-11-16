@@ -461,13 +461,10 @@ EVENTS = (
     " teammate or another bot wrote, or, on a card asking him for a fact or value, the done drive job, by its id, whose report names the card and the value it read"
 )
 HIS_ANSWER = (
-    "a question of his becomes a ruling only with his own answer, so only his words verbatim are recorded as his, at the"
-    " permalink of his message or of the card he answered, or at terminal for a prompt he typed into a drive session's terminal,"
-    " cut with … where words are left out, never a drafted answer he never saw or a reading of his words: answer a question"
-    " he asked in his thread and record his reply. A drafted ruling"
-    " beside his question is how a store duplicating one that existed was built, his words: \"its a terieble duplicatgion and"
-    ' was clerarly not throught through"'
+    "his words are read at the permalink of his message or of the card he answered, or at terminal for a prompt he typed into a drive"
+    " session's terminal, cut with … where words are left out"
 )
+PARAPHRASE_LABEL = "from:paraphrase"
 COMMON = {
     "about", "above", "after", "again", "being", "below", "between", "could", "doing", "during", "every", "first", "having", "later",
     "maybe", "might", "never", "other", "ought", "right", "should", "since", "still", "their", "there", "these", "thing", "things",
@@ -1165,14 +1162,15 @@ def asks_page(words: str) -> bool:
 
 
 def cadence(words: str) -> int:
-    """The minutes his words ask a line every, as "every 15 mins", "every half hour" or "every hour" name them, when Jev reads them as asking that line at YES, so the drive sets the cadence itself when he says it, by his words "Add something specific to our tooling for cases where you've been explicitly asked for updates on some cadence"; 0 for words naming no such minutes, which Jev is not asked, and for words naming them of something else, such as how often a tool repeats; refused when Jev gives no answer, since an order added unread would lose its cadence."""
+    """The minutes his words ask a line every, as "every 15 mins", "every half hour" or "every hour" name them, when Jev reads them as asking that line at YES, so the drive sets the cadence itself when he says it; 0 for words naming no such minutes, which Jev is not asked, for words naming them of something else, such as how often a tool repeats, and when Jev gives no answer, which a note on stderr says so --every can set it."""
     if not (named := CADENCE.search(words)):
         return 0
     minutes = int(named["minutes"]) if named["minutes"] else 30 if named["half"] else 60
     try:
         read = jev({"words": words[max(0, named.start() - BODY_CHARS // 2) :][:BODY_CHARS], "minutes": minutes}, {PACED: ASKS_CADENCE})
     except Unheard as failure:
-        raise DriveError(f"no order added: Jev did not read whether these words ask a line every {minutes} minutes ({failure}), so that cadence would go unset; run it again") from None
+        print(f"drive order add: Jev did not read whether these words ask a line every {minutes} minutes ({failure}), so the order has no cadence; --every {minutes} sets one", file=sys.stderr)
+        return 0
     return minutes if read[PACED] >= YES else 0
 
 
@@ -1678,7 +1676,7 @@ def refusal_verdict(rule: str, call: dict, findings: list[dict], seconds: float 
 
 
 def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
-    """Whether a post the drive's checks hand with his words holds, by the requests `requests` packs, asked of Jev at once, every item Jev cannot weigh the post without whole in one of them, a read too long for one request by whole lines across several, since `unfit` refuses a post before it reaches here when one item alone has no room: it holds for a claim whose read, or each part of it, and the drive's line for each PR it names are all under BACKS, or whose read matched none of the handler's calls, a claim saying only, every, no or never of a set whose read reads one member rather than what decides every member at YES, a sentence no claim holds whole that states a fact beyond the claims at YES, a post answering his question under a card while leaving a term of the card's first line it turns on unexplained at YES, a post in a thread of his DM holding orders that tells him of the whole drive's work at YES, by his ruling 98c20ce "we're talking about the work this thread is about", and a finding Jev reads neither as a match its rule never meant, under NO, nor as lifted by his words, at YES, a finding with no room left among them, so a finding in the band holds as a refused call's does, by his pick f9e9302 "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims"; a claim at BACKS or more stands, since every unbacked claim of the drive's recorded posts drew under it; any other Noul in the band between only warns, naming it, as does an order, PR or card `cli.thread_strays` finds outside that thread's work, since that code's draw of a thread's work cannot decide it; a post that goes out says so first and names what it warns of, never in a refusal's words, which would tell the session nothing went out. When Jev cannot finish, a post a check refused holds, so he never reads words a check refused before they are reworded in place, by his words "the say hook words a finding as refused and still posts it, so he may read a post before it is reworded in place", and any other goes out unchecked, by his pick b80a8b1 "no post ever waits, but it goes out unchecked"."""
+    """Whether a post the drive's checks hand with his words goes out, by the requests `requests` packs, asked of Jev at once, every item Jev cannot weigh the post without whole in one of them, a read too long for one request by whole lines across several: it holds only for a claim whose read matched none of the handler's calls, which needs no Jev, since a read the handler never made backs nothing; every other post goes out as written, beside a warning naming what Jev reads as wrong in it, to reword in place: a claim whose read, or each part of it, and the drive's line for each PR it names are all under BACKS, a claim saying only, every, no or never of a set whose read reads one member rather than what decides every member at YES, a sentence no claim holds whole that states a fact beyond the claims at YES, a post answering his question under a card while leaving a term of the card's first line it turns on unexplained at YES, a post in a thread of his DM holding orders that tells him of the whole drive's work at YES, and a finding Jev reads neither as a match its rule never meant, under NO, nor as lifted by his words, at YES, or that had no room among them; any Noul in the band between is named as unsure, as is an order, PR or card `cli.thread_strays` finds outside that thread's work. A warning says first that the post went out, never in a refusal's words. When Jev cannot finish, the post goes out with the checks' findings as warnings, by `unheard_post`."""
     reason = refusal_reason(output)
     reads = {item["id"]: item for item in output.get("reads") or []}
     claims = output["post"].get("claims") or []
@@ -1687,47 +1685,59 @@ def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
         with ThreadPoolExecutor(len(asks) or 1) as pool:
             read = {key: sure for answer in pool.map(lambda request: jev(*request, seconds), asks) for key, sure in answer.items()}
     except Unheard as failure:
-        return unheard_post(reason, str(failure))
-    held = [f'claim "{claim["claim"]}" names the read {json.dumps(claim["read"], ensure_ascii=False)}, which matches none of your calls' for claim in claims if unmatched(reads, claim)]
+        return unheard_post(output, str(failure))
+    if held := unmatched_claims(output):
+        return held_back(held, reason)
+    found: list[str] = []
     unsure: list[str] = []
     for number, claim in enumerate(claims, 1):
         if unmatched(reads, claim):
             continue
         if max(sure for key, sure in read.items() if key.split(".")[:2] == [f"c{number}", "backed"]) < BACKS:
-            held.append(f'claim "{claim["claim"]}" does not stand on its read: make the read that shows it and name it in claims, or cut the line to what your reads show')
+            found.append(f'claim "{claim["claim"]}" does not stand on its read')
         if (spans := reading(read.get(f"c{number}.spans", 0.0))) is True:
-            held.append(f'claim "{claim["claim"]}" speaks for a whole set while its read reads one member of it: name a read that finds every member, such as a grep across the code, or cut the claim to the member it reads')
+            found.append(f'claim "{claim["claim"]}" speaks for a whole set while its read reads one member of it')
         elif spans is None:
             unsure.append(f'claim "{claim["claim"]}" speaking for more of a set than its read reads')
     for number, finding in enumerate(findings := check_findings(output), 1):
         holds, lifted = read.get(f"f{number}.holds"), read.get(f"f{number}.lifted", 0.0)
         if holds is None:
-            held.append(f"{finding['found']}, which had no room in Jev's {REQUEST_CHARS:,} characters beside his words, by its rule: {finding['rule']}")
+            found.append(f"{finding['found']}, which had no room in Jev's {REQUEST_CHARS:,} characters beside his words")
         elif reading(holds) is not False and reading(lifted) is not True:
-            held.append(f"{finding['found']}, by its rule: {finding['rule']}")
+            found.append(finding["found"])
     for index, sentence in uncovered(output):
         if (fact := reading(read[f"s{index}.fact"])) is True:
-            held.append(f'"{sentence}" states a fact no claim holds whole: pass that sentence, or each part of it, as claims beside the read behind each')
+            found.append(f'"{sentence}" states a fact no claim holds whole')
         elif fact is None:
             unsure.append(f'sentence "{sentence}"')
     if card := output.get("thread_card"):
         if (unexplained := reading(read["card"])) is True:
-            held.append(f'it leaves a term of the card "{card["title"]}", which his question turns on, unexplained: say in a clause what each term of it your answer needs is and why the change needs it')
+            found.append(f'it leaves a term of the card "{card["title"]}", which his question turns on, unexplained')
         elif unexplained is None:
             unsure.append(f'the terms of the card "{card["title"]}" his question is under')
     if (scope := output.get("thread_scope")) and reading(read.get("wider")) is not True:
         if scope["strays"]:
             unsure.append(f"whether {', '.join(scope['strays'])}, which the thread's work as the drive draws it does not hold, belongs in this thread")
         if (wide := reading(read.get("scope"))) is True:
-            held.append("it tells him of the whole drive's work, which his words in this thread never asked about: answer from the orders its In his thread lines list, with each card and PR their jobs wait on, and leave the rest of the drive out")
+            found.append("it tells him of the whole drive's work, which his words in this thread never asked about")
         elif wide is None:
             unsure.append("whether it tells him of the whole drive's work")
-    if held:
-        shown = f"\n```\n{reason}\n```" if reason else ""
-        return {"verdict": "hold", "note": f"Jev held back this post: {'; '.join(held)}. So fix each, then call say again.{shown}"}
-    if unsure:
-        return {"verdict": "warn", "note": f"{GOES_OUT} Jev is unsure of {'; '.join(unsure)}: if one is wrong, reword the post in place."}
+    notes = [*([f"Jev finds {'; '.join(found)}: reword the post in place"] if found else []), *([f"Jev is unsure of {'; '.join(unsure)}: if one is wrong, reword the post in place"] if unsure else [])]
+    if notes:
+        return {"verdict": "warn", "note": f"{GOES_OUT} {'. '.join(notes)}."}
     return {"verdict": "warn", "note": f"{GOES_OUT} Jev read none of these findings' rules as holding against it:{warned(findings)}"} if reason else {"verdict": "pass", "note": ""}
+
+
+def unmatched_claims(output: dict) -> list[str]:
+    """Each claim of a post whose read matched none of the handler's calls, as the hold names it."""
+    reads = {item["id"]: item for item in output.get("reads") or []}
+    return [f'claim "{claim["claim"]}" names the read {json.dumps(claim["read"], ensure_ascii=False)}, which matches none of your calls' for claim in output["post"].get("claims") or [] if unmatched(reads, claim)]
+
+
+def held_back(held: list[str], reason: str) -> dict:
+    """The hold on a post with a claim naming a read the handler never made, the checks' refusal beside it."""
+    shown = f"\n```\n{reason}\n```" if reason else ""
+    return {"verdict": "hold", "note": f"Jev held back this post: {'; '.join(held)}. So fix each, then call say again.{shown}"}
 
 
 def asked(output: dict) -> tuple[dict, list[tuple[str, tuple[dict, dict[str, Noul]]]], list[tuple[dict, dict[str, Noul]]]]:
@@ -1864,10 +1874,12 @@ def together(items: list[tuple[dict, dict[str, Noul]]]) -> tuple[dict, dict[str,
     return state, questions
 
 
-def unheard_post(reason: str, failure: str) -> dict:
-    """The verdict on a post Jev gave no answer on: held when a check refused it, since only Jev lifts a refusal and a post that goes out is never reworded for one, by his words "the say hook words a finding as refused and still posts it, so he may read a post before it is reworded in place"; any other goes out unchecked, by his pick b80a8b1."""
-    if reason:
-        return {"verdict": "hold", "note": f"message_limits: Jev gave no verdict ({failure}), so the checks' refusal stands: fix each finding, then call say again.\n```\n{reason}\n```"}
+def unheard_post(output: dict, failure: str) -> dict:
+    """The verdict on a post Jev weighed none of, as when Jev gave no answer or a read had no room in its requests: held only for a claim whose read matched none of the handler's calls, which needs no Jev; any other goes out, naming what the checks found as warnings, since a gate that cannot finish fails open."""
+    if held := unmatched_claims(output):
+        return held_back(held, refusal_reason(output))
+    if findings := check_findings(output):
+        return {"verdict": "warn", "note": f"{GOES_OUT} Jev gave no verdict ({failure}), so what the checks found only warns:{warned(findings)}"}
     return {"verdict": "warn", "note": f"{GOES_OUT} Jev gave no verdict ({failure}) on whether each claim of it stands on the read it names."}
 
 

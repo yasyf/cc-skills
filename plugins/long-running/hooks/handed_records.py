@@ -15,11 +15,9 @@ def main() -> None:
         return
     json.load(sys.stdin)
     name, _, handler = os.environ[state.HANDLER_ENV].partition("/")
-    briefs, entry = agents.take_handed(name, handler)
-    late, _ = agents.unposted(entry) or (None, False)
-    if not (context := "\n".join(filter(None, [agents.handed(briefs) if briefs else None, late]))):
+    if not (briefs := agents.take_handed(name, handler)):
         return
-    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": context}}))
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": agents.handed(briefs)}}))
 
 
 if __name__ == "__main__":

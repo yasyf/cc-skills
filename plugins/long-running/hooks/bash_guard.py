@@ -225,42 +225,27 @@ def exempted(found: list[list[str]]) -> str | None:
     return next((option(words, "--exempt") for words in found if verb(words)[:3] == ["drive", "pr", "add"]), None)
 
 
-def held(job_id: str, cards: list[str]) -> str:
-    return (
-        f"refused: {job_id}'s work waits on his answer to {', '.join(cards)}, and this ship would open its PR, which goes"
-        " up only once he answers each, since work does not land with a question of his on it unanswered: push the"
-        " branch with `ccx vcs ship --no-pr` and return `BUILT <branch>, waits on <cards>`; the watch says FREE when"
-        " the last is answered. A flake fix or a fix forward of the default branch's red CI, which no design card holds,"
-        ' goes up in one call with its registration: `ccx vcs ship ... && drive pr add "$(gh pr view --json url -q .url)"'
-        ' --job <your job> --exempt "flake fix"`, or `--exempt "main fix"`'
-    )
-
-
 def held_pr(found: list[list[str]], agent: str, drives: list[str]) -> str | None:
-    """Why a builder's `ccx vcs ship` on this Mac may not open its PR: his open cards hold its job, or, for a main fix, another job already owns every test main fails, by land.claim_main, which claims the rest for this job."""
-    if not opens_pr(found):
+    """Why a builder's `ccx vcs ship` on this Mac may not open its PR: for a main fix, another job already owns every test main fails, by land.claim_main, which claims the rest for this job."""
+    if not opens_pr(found) or exempted(found) != state.MAIN_FIX:
         return None
     for name in drives:
         data = state.load(name)
         if not (job_id := state.agent_job(data, agent)):
             continue
-        if cards := land.ship_held(data, job_id, exempted(found)):
-            return held(job_id, cards)
-        if exempted(found) == state.MAIN_FIX and (owned := land.claim_main(name, job_id)):
+        if owned := land.claim_main(name, job_id):
             return f"refused: {owned}"
     return None
 
 
 def lane_held(found: list[list[str]]) -> str | None:
-    """Why a Sprite lane's `ccx vcs ship` may not open its PR: `drive job held`, which the Sprite's `drive` asks of the coordinator's Mac, names his open cards holding the lane's job, or, for a main fix, the job already owning every test main fails; a Mac whose drive predates that claim answers no `main`."""
-    if not opens_pr(found):
+    """Why a Sprite lane's `ccx vcs ship` of a main fix may not open its PR: `drive job held`, which the Sprite's `drive` asks of the coordinator's Mac, names the job already owning every test main fails; a Mac whose drive predates that claim answers no `main`."""
+    if not opens_pr(found) or exempted(found) != state.MAIN_FIX:
         return None
     try:
-        answer = land.lane_held(*(f"--exempt={exempt}" for exempt in [exempted(found)] if exempt))
+        answer = land.lane_held(f"--exempt={state.MAIN_FIX}")
     except state.DriveError as error:
-        return f"refused: `drive job held` could not say whether his open cards hold this lane's PR: {error}; ship again once it answers"
-    if answer["cards"]:
-        return held(answer["id"], answer["cards"])
+        return f"refused: `drive job held` could not say whether another job already owns the tests main fails: {error}; ship again once it answers"
     return f"refused: {owned}" if (owned := answer.get("main")) else None
 
 

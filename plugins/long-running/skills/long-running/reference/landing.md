@@ -1,900 +1,683 @@
 # Land a change
 
-You own your PR from its first push until the proof that the change is live. Land it the way the section
-for its repository says, then return `DONE <proof>`.
+You own your PR from its first push until the proof that the change is live. Land it the way the
+section for its repository says, then return `DONE <proof>`. The drive's watch and its lander do the
+waiting: you decide, fix what is red, and name what you chose in your return.
 
 - [Every PR](#every-pr)
 - [yasyf/* repositories](#yasyf-repositories)
 - [The monorepo](#the-monorepo)
+- [Staging tests in the monorepo](#staging-tests-in-the-monorepo)
+- [Before any change FDEs could see](#before-any-change-fdes-could-see)
 - [Read-only repositories](#read-only-repositories)
 - [After merge](#after-merge)
 
 ## Every PR
 
-- One PR is one feature-sized unit: amend review fixes and follow-ups into it with
-  `ccx vcs ship --amend`. Open a second PR only when another job waits on part of the work or a review
+- One PR is one feature-sized unit. Amend review fixes and follow-ups into it with
+  `ccx vcs ship --amend`. Open a second PR when another job waits on part of the work or a review
   asks for the split.
-- Open PRs that change the same files land in a train, one at a time, oldest first. Each later one
-  gets `drive pr set <url> --waits <the earlier PR>` and rebases once onto the base that merge left,
-  never on every move of the base, since each push restarts every gate it waits on. Before opening a
-  PR, `gh pr list` and `gh pr diff <n> --name-only` find the open ones on its files; a change that
-  must ship with one of them is amended into it.
-- The default branch stays releasable, in his words "dev mustr always be releasable". No body section,
-  card or refusal checks it, by his words "Get rid of the fucking releasable check no one asked for that
-  remove it entirely".
-- A PR that changes a format another build reads (a stored file, row, journal, or manifest) lands only
+- Open PRs that change the same files land as a train, oldest first. Find them before you open
+  yours (`gh pr list`, `gh pr diff <n> --name-only`). A change that must ship with one of them is
+  amended into it. Each later one gets `drive pr set <url> --waits <the earlier PR>` and rebases
+  once, onto the base that merge left, since every push restarts each gate it waits on.
+- The default branch stays releasable. That is a goal you hold, with no check, card or body section
+  behind it.
+- A PR that changes a format another build reads (a stored file, row, journal or manifest) lands
   after the PR teaching its readers is live on every client, and its body links that PR.
-- While a question card of his on the change is unanswered, land and enqueue nothing, whatever order to
-  land arrived, since its recommended option never stands in for his answer. `drive pr add`,
-  `drive pr land` and the `landing_guard` hook refuse a PR while a card of his is open, asked by a job on the PR's orders or by the staging tester of a part it waits on, whose `Holds:` line names it by link, `#N` or whole branch name, or a design's or reader's naming a change the job its
-  row names builds from that design or research, never a card of a job it moved off, or one its `DESIGN:` line cites, whatever job asked it; none holds a
-  `flake fix` or a `main fix`, since a card holds work only by its `Holds:` line or a `DESIGN:` cite and a card a job waits on otherwise only wakes it; the watch stops a lander already landing it when that card opens, and the lander
-  dequeues what it queued. On a Sprite lane, which holds no copy of the drive, the hook asks this Mac
-  with `drive job held --pr` first and refuses while it does not answer. Return `WAITING <the PR> waits on <the card>`, which
-  the coordinator puts in front of him by [Design first](design.md). A started staging test holds its
-  PR the same way, by his ruling 0048b14, never another PR of its job or its stack, which lands on its own tests. While any order's `staging test of #N before it lands` part
-  has a job on it, or the PR waits on it, and is not delivered, the PR reads waiting on that run, and
-  red, owed by its builder, while no tester runs it. `drive pr add`, `drive pr set` and the lander put
-  each PR waiting on his tap whose paths reach a component, counting no path on <ci>'s dev list, `<ci>` and its source, whose code only its caller runs, whatever its exempt class, on that part,
-  but never one whose part `drive order set --drop-part` or his answer took off, which merges first
-  and gets its after-merge staging pass, by his answer 2eb7e76, "Safe ones merge now: the
-  staging-only infrastructure change and the app secret change merge, then get tested". `drive pr land` and the hook
-  refuse it on this Mac and on a Sprite lane. The watch stops a lander that queued a PR before any
-  wait of it came on, this one included. An incident's repair is the
-  exception: it lands on the recommended option, the card stays open, and a different pick of his
-  starts a follow-up job on the same order. A card asking him to lift a ruling of his, which
-  `drive job ask` marks when any option it offers breaks one, holds it on an incident too. Outside an
-  incident a PR a card of his holds gets no PR card asking his tap until he answers each card, by his
-  pick "Buttons only after you answer each question". On an incident his Approve on the PR answers each card holding
-  it: his Approve keeps each one's recommended option on its tap as its pick,
-  and the lander's start, on his tap and on every pass of the watch's landing loop, answers each card still open with its
-  pick and closes it before it lands. His Approve stands until his words rework the PR or he taps Hold:
-  a card that comes to hold the PR after his Approve holds it as held, owed by him and naming that
-  card, and only his answer on that card frees it.
-- A stack draws one card for his Approve whatever its size: the card names every PR, and the PR
-  sections past the 50 blocks one Slack message holds open under its Explain more.
-- Title: `Fix:`, `New:`, `Cleanup:` or `Port:`, then what changes for a user, in plain words. A
-  repository whose title check demands `fix:` or `feat:` keeps that prefix; the card reads either.
-  `drive pr add` refuses a title the card cannot name the kind of, `drive pr set --tap` one retitled
-  since, and `drive pr set --port-of` one not opening `Port:`, each giving the `gh pr edit --title`
-  that fixes it.
-- Write the body for him in plain words that name each function, syscall, flag, file, path, service or
-  table by its proper term, never a vague stand-in, in his words "use the proper fucking terms for
-  things". Leave out ids he cannot open (cc-notes, cci, job, order, or waits ids) and hashes: a sentence
+- A stack draws one card for his Approve whatever its size. The card names every PR, and sections
+  past the 50 blocks one Slack message holds open under its Explain more.
+
+### Cards and tests that hold a PR
+
+A question card of his holds a PR when its `Holds:` line names the PR by link, `#N` or whole branch
+name, or its `DESIGN:` line cites it. The card is one a job on the PR's orders asked, or the staging
+tester of a part the PR waits on, or a designer or reader naming a change your job builds from. A
+card a job only waits on wakes that job and holds no PR. No card holds a `flake fix` or a
+`main fix`.
+
+- While such a card is open, `drive pr add`, `drive pr land` and the `landing_guard` hook refuse the
+  PR, because the card's recommended option is not his answer. The watch stops a lander already
+  running and the lander dequeues what it queued. A Sprite lane holds no copy of the drive, so its
+  hook asks this Mac with `drive job held --pr` and refuses while that goes unanswered. Return
+  `WAITING <the PR> waits on <the card>` and work on something the card does not hold.
+- Outside an incident a held PR draws no PR card until he answers each card holding it.
+- An incident's repair lands on the recommended option with the card left open. His other pick
+  starts a follow-up job on the same order. His Approve on the PR answers each card holding it with
+  its recommended option, and the lander closes those cards before it lands. A card asking him to
+  lift a ruling of his, which `drive job ask` marks, holds the PR on an incident too.
+- His Approve stands until his words rework the PR or he taps Hold. A card that comes to hold the PR
+  after his Approve holds it, owed by him, until he answers that card.
+- A started staging test holds its own PR and no other PR of its job or stack. While an order's
+  `staging test of #N before it lands` part is undelivered and has a job on it, or the PR waits on
+  it, the PR reads waiting on that run. It reads `red`, owed by its builder, while no tester runs it.
+- `drive pr add`, `drive pr set` and the lander put that part on each PR waiting on his tap whose
+  paths reach a released component, whatever its exempt class. Paths on `<ci>`'s dev list, such as
+  `<ci>` and its source, reach none. A part that `drive order set --drop-part` or his answer took
+  off holds nothing: that PR merges first and gets its staging pass after the merge.
+
+### Title and body
+
+Title: `Fix:`, `New:`, `Cleanup:` or `Port:`, then what changes for a user in plain words. A
+repository whose title check demands `fix:` or `feat:` keeps that prefix, and the card reads either.
+`drive pr add` refuses a title whose kind the card cannot name, `drive pr set --tap` one retitled
+since, and `drive pr set --port-of` one not opening `Port:`. Each refusal gives the
+`gh pr edit --title` that fixes it.
+
+He reads the body on his card with no other context, so write it for him:
+
+- Name each function, syscall, flag, file, path, service or table by its proper term.
+- Leave out hashes and ids he cannot open (cc-notes, cci, job, order or waits ids). A sentence
   carrying a record id is dropped from his card.
-- Each section stands alone, because he reads it with no other context. A number, fraction, size, or
-  ratio says what it measures, why that value, and gives one example. A mechanism gets one plain
-  sentence before it is used. Nothing points at a list, finding, thread, or PR the card does not show.
-  Not "reads each journal file's page index sized to the file (a sixteenth of it, at most 64 KiB)", but
-  "to open a run's page the browser first fetches a small index from the end of every journal file: once
-  its last 64 KiB, now its last sixteenth (about 6 KiB of a 97 KiB file), never more than 64 KiB."
-- Write these body sections, in this order. Fix the body, never the card: his card is redrawn from it.
-  A body is fixed beside the landing, never before it: nothing in it holds a card, a tap, an enqueue
-  or a merge, and a section it lacks is left off his card.
-  - `## The stack`: only on a stack's bottom PR. Its first line is the stack's title, one readable line
-    on what the whole stack does, then a short paragraph explains the stack in the Refresher's voice.
-    They head his stack card.
-  - `## Summary`: one or two sentences saying what the PR changes, naming each function, table, flag,
-    file or service it touches by its proper term, with no background, in his words "a summary of wtf
-    the PR is doing, and use exact technical terms rather than being roundabout". It opens the PR's
-    section of his card, under the lead `drive pr add` keeps.
-  - `## Refresher`: the change explained to an engineer who knows the codebase but has not read this
-    code lately: which part of the system it touches, what that part did before, and what it does now,
-    in plain full sentences that define each term where it first appears. It follows the Summary on
-    his card. The card also reads `## ELI5`, and a monorepo body's
-    `## Context`, which its `submit-pr` template writes in this voice.
-  - `## Biggest surprise`: the one change a reviewer would not expect from the title, in one or two
-    sentences.
-  - `## What you'll hate most`: the one thing he is most likely to dislike, said plainly: a cost, a
-    behavior he did not ask for, a shortcut, or a risk he would not take. A cost is the concrete
-    things the change adds, such as a new message kind or a call that now waits on another, never an
-    adjective.
-  - `## How old data moves`: on a PR changing how data is stored, a migration, schema or wire
-    format by `land.stored`: how the data stored before it moves to the new shape and what keeps
-    readers and writers from breaking meanwhile, in his words "How will you migrate the old ones /
-    avoid breaking anything?". His card draws it as Stored data, and the card reads a monorepo
-    body's `## Migration risk` and `## Data-location changes` the same way. Until the body has one,
-    his card says it does not and its builder hears an `EVENT undrawn`.
-  - `## Show me`: one concrete example of the change, which his card draws as a picture, or as Slack's
-    code block when the code is one line or trivial, and the dashboard draws live: the real SQL, code, CLI call, or Sand call it changes, before and after, in a
-    fence naming its language (`sql`, `go`, `sand`), with one plain sentence after it saying what
-    happens when it runs, as *A post that explains* in [Messages](messages.md) shows. An `arch` map of the components it adds or rewires,
-    or a `mermaid` flow, goes beside the example, never in its place; numbers before and after get a
-    `chart` fence (Vega-Lite) or a markdown table. A change to what he or a user sees, a UI, page,
-    card or post, gets a before and an after screenshot of it as two markdown images, kept anywhere,
-    the drive's pictures folder or a Sprite lane's path on its Sprite included, which `drive pr add`
-    copies to this Mac for his card, `![1 · Before, dev](<path>)` then
-    `![2 · After, this PR](<path>)`, each build named in words rather than a sha, which Slack shows
-    side by side as one gallery, in his words "This is a visual change so it should
-    have shown before and after screenshots". Where the repository's CI shoots both, as its rules say
-    how, a builder links the two images its job posted, or else downloads both from its artifacts with `<ci> bk api` into the drive's pictures
-    folder, or its scratch directory on a Sprite, and links their paths, rather than building the app. A `buildkite.com` artifact link draws
-    nowhere, since his card's download and GitHub's page both get HTTP 403 for it, and `drive pr add`
-    refuses a Show me image that does not download. A fence holds code, never prose, JSON,
-    YAML, logs, terminal output, an HTTP exchange, or a stack trace: a request alone is the call, and
-    what it answered goes in a markdown table or a `mermaid` sequenceDiagram. Put a caption line just
-    above each fence and alt text on each image, since Slack titles each picture
-    with it; a fence with none is titled by its kind, such as "go code", and a title another picture
-    on the card already has gets a number, as "Diagram (2)". His card carries each `chart` fence and
-    markdown table as written, and Slack draws them as its own chart and data table, so fit a chart to
-    Slack's limits in [Messages](messages.md), which `drive card` leaves off the card otherwise, and give
-    a table two or more columns with real values in each cell. A stack's card draws at most 2 charts in all,
-    the lowest PRs' first. Open with at most one short sentence: the card shows pictures, not prose.
-  - On a public repository, such as every `yasyf/*` one, pictures show only a demo drive or public data,
-    under a `demo-` or `public-` file or folder name, and the body names no private repository's PR and
-    no teammate, by first name, full name, Slack handle or email. The live drive, private code, Slack, or
-    a customer's or teammate's data or name goes only into a private repository's PR or a direct message
-    to him. `ccx vcs ship` runs the `public-pr-body` hook over the body before it commits or pushes, and
-    the `public-names` hook over each line a commit adds; the `landing_guard` hook refuses such a body in
-    `gh pr create`/`edit`. After a fix, delete each earlier revision
-    and the pictures' branch, since both stay readable.
-  - `## Against the plan`: only when you departed from the plan: what it said, what you did, and why.
-  - `## Port`: only on a port: the old PR it ports, linked, and anything the target tree needed to run
-    it. A PR with behavior of its own beyond that is not a port.
-  - `## His words, step by step`: each step his words in your brief name, quoted, beside the `path:line`
-    that does it; it stays off his card. Quote only the order this PR carries out, never one whose jobs
-    it only unblocks. Drive tooling says none and gets its card from its own order by
-    [Scope](scope.md). A flake fix quotes his ruling 532cd3d, "and ffs fix these flaky tgests how many
-    times do I have to tell yoiu", beside the `path:line` that fixes the flake's cause. Any other PR that
-    is not a port and that no order of his asks for returns `BLOCKED no order of his names this` instead
-    of `READY`.
+- Each section stands alone. A number says what it measures, why that value, and gives one example.
+  A mechanism gets one plain sentence before it is used. Nothing points at a list, thread or PR the
+  card does not show. Not "reads each journal file's page index sized to the file (a sixteenth of
+  it, at most 64 KiB)", but "to open a run's page the browser first fetches a small index from the
+  end of every journal file: once its last 64 KiB, now its last sixteenth (about 6 KiB of a 97 KiB
+  file), never more than 64 KiB."
+
+His card is redrawn from the body, so fix the body to fix the card. No body section gates a card, a
+tap or a merge. A section the body lacks is left off the card. The sections, in order:
+
+- `## The stack`: on a stack's bottom PR. Its first line is the stack's title, then a short
+  paragraph on what the whole stack does. They head his stack card.
+- `## Summary`: one or two sentences on what the PR changes, in proper terms, with no background. It
+  opens the PR's section of his card under the lead `drive pr add` keeps.
+- `## Refresher`: the change for an engineer who knows the codebase but has not read this code
+  lately: which part it touches, what that part did before and what it does now, each term defined
+  where it first appears. The card also reads `## ELI5`, and a monorepo body's `## Context`, which
+  its `submit-pr` template writes in this voice.
+- `## Biggest surprise`: the one change a reviewer would not expect from the title.
+- `## What you'll hate most`: the one thing he is most likely to dislike: a cost, a behavior he did
+  not ask for, a shortcut or a risk. Name a cost as the concrete things the change adds, such as a
+  new message kind or a call that now waits on another.
+- `## How old data moves`: on a PR changing how data is stored (a migration, schema or wire format,
+  by `land.stored`): how stored data moves to the new shape and what keeps readers and writers
+  working meanwhile. His card draws it as Stored data, and reads a monorepo body's
+  `## Migration risk` and `## Data-location changes` the same way. Until the body has one the card
+  says so and the builder hears an `EVENT undrawn`.
+- `## Show me`: one concrete example, which his card draws as a picture and the dashboard draws
+  live. Open with at most one short sentence.
+  - Show the real SQL, code, CLI call or Sand call before and after, in a fence naming its language
+    (`sql`, `go`, `sand`), with one plain sentence after it on what happens when it runs, as
+    *A post that explains* in [Messages](messages.md) shows. One-line or trivial code draws as
+    Slack's code block.
+  - An `arch` map of the components it adds or rewires, or a `mermaid` flow, goes beside the
+    example. Numbers before and after get a `chart` fence (Vega-Lite) or a markdown table with two
+    or more columns and real values. Slack draws both itself, so fit a chart to Slack's limits in
+    [Messages](messages.md), or `drive card` leaves it off. A stack's card draws at most 2 charts,
+    the lowest PRs' first.
+  - A fence holds code. JSON, YAML, logs, terminal output, an HTTP exchange and stack traces go in
+    a markdown table or a `mermaid` sequenceDiagram; a request alone is the call.
+  - Put a caption line above each fence and alt text on each image, since Slack titles each picture
+    with it. A fence with none is titled by its kind, such as "go code", and a repeated title gets
+    a number, as "Diagram (2)".
+  - A change to what he or a user sees gets a before and an after screenshot as two markdown images,
+    `![1 · Before, dev](<path>)` then `![2 · After, this PR](<path>)`, each build named in words.
+    Slack shows them side by side. Keep them anywhere, a Sprite lane's path included: `drive pr add`
+    copies them to this Mac. Where the repository's CI shoots both, link the images its job posted
+    or download them with `<ci> bk api` into the drive's pictures folder (your scratch directory on
+    a Sprite) instead of building the app. A `buildkite.com` artifact link draws nowhere (HTTP 403
+    for his card and for GitHub), and `drive pr add` refuses a Show me image that does not download.
+- `## Against the plan`: when you departed from the plan: what it said, what you did and why.
+- `## Port`: on a port: the old PR, linked, and anything the target tree needed to run it. A PR
+  with behavior of its own beyond that is not a port.
+
+On a public repository, such as every `yasyf/*` one, pictures show a demo drive or public data
+under a `demo-` or `public-` file or folder name, and the body names no private repository's PR and
+no teammate by name, handle or email. The live drive, private code, Slack and customer or teammate
+data belong in a private repository's PR or a direct message to him. `ccx vcs ship` runs the
+`public-pr-body` hook over the body and `public-names` over each added line, and the
+`landing_guard` hook refuses such a body in `gh pr create`/`edit`. After a fix, delete each earlier
+revision and the pictures' branch, since both stay readable.
+
+### Register and return
+
 - Register the PR the moment it opens: `drive pr add <url> --job <j> --headline "<line>" --because
-  "<line>" --does "<line>" --downstream "<line>"`, which records it waiting on his tap and opens his
-  card with that lead: the headline as its title, under 90 characters, then why the change is made,
-  what it does for him or its users and what else it changes once it lands, one plain line each with
-  no function or file named, since the Summary names the code. `drive pr add` refuses a PR waiting on
-  his tap until all four are kept, by his words on a card "has a lot of facts but is compeltely
-  useless for me figuring ut if I want to meg eit or not, I have no idea why were doing this change,
-  what it does, or what the downstream impacts of it are"; a later `drive pr add` with only the
-  lines it changes keeps the rest and redraws his card. Only a port (`--port-of <N>`), an exempt class (`--exempt <class>`), a PR of a `Drive tooling:`
-  order outside `<guarded org>`, or one added with `--no-tap --why "<reason>"` waits on none; a `<guarded org>`
-  PR waits on his tap whoever opened it and whatever order it serves, unless an exempt class covers
-  it or his standing approval does, and `drive pr add` and `drive pr set` refuse `--no-tap` on one,
-  since only his tap, his approval or an exempt class lands it. His approval is the mark
-  `drive answer <id> --approves <order or key>...` keeps on his answer: a PR first registered on an
-  order it names, or one Opus reads as inside its words and Notes, takes his Approve from that
-  answer's link, so no card draws and its order's thread gets one progress line naming
-  `{answer:<id>}`. A check against his words that objects takes that Approve back, so his card asks
-  him, by his "given my constraints"; his Hold on a PR it covers, the close of its orders or a newer
-  answer of his superseding it ends it.
-- Return `PUSHED <url>` once, the moment the head you mean to ship is pushed and registered, with CI and
-  review still running. `READY` counts only on a green required check: the watch holds a `PUSHED`,
-  waking nobody, until its first GitHub read after the take finds green every check the rules of its repository's default
-  branch name, one not yet posted holding it too, or at that read when they name none, then takes it
-  as the `READY`, or sends a red one back to the builder. The watch then draws his card the
-  minute GitHub reports the PR green and approved,
-  once the watch's `drive pr check` checked its change at that head against his words,
-  whatever its body says. Return no `WAITING` for CI, a review or a queue. A
-  port's `READY` gets the coordinator's check against #N instead. Name every PR of a stack bottom first
-  (`PUSHED <url> <url> …`) so he gets one card. Add a `SERVES:` line: `port of #N`,
-  `Drive tooling: <what it unblocks>`, or the order of his it carries out, quoted.
+  "<line>" --does "<line>" --downstream "<line>"`. It records the PR waiting on his tap and opens
+  his card with that lead: the headline as its title, under 90 characters, then why the change is
+  made, what it does for him or its users, and what else changes once it lands. Write one plain
+  line each with no function or file named, since the Summary names the code. `drive pr add` needs
+  all four for a PR waiting on his tap, because they are what tells him whether to merge. A later
+  `drive pr add` with only the lines it changes keeps the rest and redraws the card.
+- These wait on no tap: a port (`--port-of <N>`), an exempt class (`--exempt <class>`), a PR of a
+  `Drive tooling:` order outside `<guarded org>`, and one added with `--no-tap --why "<reason>"`.
+  `drive pr add` and `drive pr set` refuse `--no-tap` on a `<guarded org>` PR.
+- His standing approval is the mark `drive answer <id> --approves <order or key>...` keeps on his
+  answer. A PR first registered on an order it names, or one Opus reads as inside its words and
+  Notes, takes his Approve from that answer's link: no card draws, and the order's thread gets one
+  progress line naming `{answer:<id>}`. A check against his words that objects takes that Approve
+  back and his card asks him. His Hold on a covered PR, the close of its orders, or a newer answer
+  superseding it ends it.
+- Return `PUSHED <url>` once, when the head you mean to ship is pushed and registered, with CI and
+  review still running. The watch holds a `PUSHED`, waking nobody, until its first GitHub read
+  after the take finds every check the default branch's rules name green (at once when they name
+  none), then takes it as `READY`, or sends a red one back to you. So you wait for no CI, review or
+  queue yourself. The watch draws his card the minute GitHub reports the PR green and approved,
+  once its `drive pr check` checked the change at that head against his words. A port's `READY`
+  gets the coordinator's check against #N instead.
+- Name every PR of a stack bottom first (`PUSHED <url> <url> …`) so he gets one card. Add a
+  `SERVES:` line: `port of #N`, `Drive tooling: <what it unblocks>`, or the order it carries out.
 
 ## yasyf/* repositories
 
-No tap: by his standing rule a `yasyf/*` PR merges without asking, but only once every check at its
-head finished with none failing on its own change, since a check that fails after the merge turns `main`
-red for every PR behind it, and once each open `<guarded org>/*` PR of its job merged or closed, unless that
-PR's waits name it, so tooling never lands ahead of the code it calls that waits on his tap. A check fails on its own change unless `main`'s run of it, at the commit the
-PR's run of it merged its head onto, failed every test the PR's run failed, as each job's log names them
-(pytest's `FAILED` and `ERROR` summary lines, go test's `--- FAIL:`): one check is one verdict over a whole
-job, so `main` failing one test under its name says nothing of another. A failed check whose log names
-no failing test, such as a lint step, is the PR's own.
+A `yasyf/*` PR merges with no tap, once every check at its head finished with none failing on its
+own change, because a check that fails after the merge turns `main` red for every PR behind it. It
+also waits for each open `<guarded org>/*` PR of its job to merge or close, unless that PR's waits
+name it, so tooling does not land ahead of the code it calls.
 
-1. Ship with `ccx vcs ship --no-watch` (jj in colocated repositories); the `open-pr` skill writes the body, and the watch follows its CI.
-2. Register it with `drive pr add <url> --job <j>`. Taking the builder's `READY` or `PUSHED`, which
-   needs its proof file kept with `drive job set <j> --repro <file>`, makes its stage read `grading` while
-   a check at its head still runs and `ready` once every one finished, except that the watch's read finding a check
-   failing on its own change there reads `red`, owed by you, at that read, `its own change fails …`, and starts no lander.
-   Only while `main`'s run of a failing one still runs is it left `ready` for the lander to judge. The watch starts the drive's lander on it within
-   one GitHub read of `ready`: a process of its own, outliving your turn, that reads its checks from GitHub
-   again, waits for `main`'s run of each failing one at the commit its run merged onto, and merges it with
-   `gh pr merge <n> -R <repo> --<method> --admin --match-head-commit <head>` at the head that read found every
-   check finished on with none failing on its own change, or else says `not landed: its own change fails …`,
-   which reads `red`, owed by you, `<method>` being `squash`, else `rebase`, else `merge`, the
-   first the repository's settings and every pull request rule of its default branch allow, as the watch
-   reads them from GitHub with each PR, since GitHub refuses a merge by any other method, records the merge sha on the PR, then runs `drive install` from it for
-   each plugin installed on this Mac whose folder the merge changes, or that is its marketplace's only
-   plugin. When GitHub refuses the merge with `Base branch was modified`, which another merge into
-   `main` while this one ran causes, the lander merges again on the new base, as GitHub's own refusal
-   asks, and never touches the PR's branch. When `gh pr merge` refuses a PR of a native GitHub stack,
-   saying it must be merged using the asynchronous merge REST API, the lander merges it by the same method through
-   GitHub's `merge-async` endpoint past its rules, which GitHub allows only for a stack's bottom PR,
-   the one the lander lands, and reads its result until GitHub ends it. When GitHub refuses its squash
-   merge on a conflict with its base, the lander rebases the PR onto it as one commit in the drive's own clone,
-   by his rule for direct merges, "always rebase first", merging each markdown page git's merge
-   conflicts in again clause by clause with `git merge-file`, and pushes it with a lease on the head it
-   fetched; a conflict in any other file, or in one clause both sides changed, reads `red`, which
-   wakes its builder to rebase. After any other refusal, a failing check included, the watch
-   starts the lander again on the head the lander or its builder pushes once its stage reads `ready` there, free of
-   conflicts and failing checks, so nobody registers a rebased PR again. Once every PR the job's `READY` or `PUSHED` names merged and no lander still
-   runs on one, the watch starts `drive job prove <j>`, which installs each plugin a `yasyf/*` merge
-   changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, each other merge left to the prover the watch hands it to first, which proves it on its release, and runs the job's proof file right after the install, since no install reads a CI run, with those plugins' `bin/` first on
-   `PATH` and its bare `python3` the drive's own interpreter wherever it runs, since `drive job set --repro` pins that interpreter's folder first on the kept file's `PATH`; only when the file fails while a `yasyf/*` merge's CI on the default branch still runs does it follow that run to its end, with no deadline, and run the file once more.
-   It keeps its output beside the job's report, then runs each drive command the brief's `After install:` line names, takes `DONE` on exit 0 with output and each of those exiting 0, or `BLOCKED` otherwise,
-   an exit 0 printing nothing among them, quoting the run's last `FAIL` line, else saying it printed none, and a
-   nonzero exit ending on a `WAIT` line with no `FAIL` line takes no result and runs again once he is next heard,
-   and on a `DONE` that finishes the order sends the communicator its close report, whose live line the watch posts itself on an order with no reporter that is no incident, but closes a drive tooling order a session opened, which has no thread of his, on its proof with no line to him. The lander writes its output to the drive's `landings.log`, ending in one line of the PR's
-   key and its outcome, such as `yasyf/cc-skills#7: merged at <sha>; …`. Its outcome reaches the
-   job's holder as `PR … merged at <sha>; <each install's version line or no release: line>`, its merge
-   naming each failing check it merged past as `main`'s, `merged at <sha> past <check> red at <head>, which
-   main failed on the same <n> tests at <commit>; …`, which the PR's `drive status` line shows beside its
-   `checks fail`, or
-   `PR … not landed: gh pr merge --<method> --admin refused it: <its answer>`, such as a conflict git
-   cannot merge, and the proof's as `PR … proven live by drive job prove …`,
-   `PR … drive job prove failed: …` or `PR … drive job prove waits on his next word: …`. Its stage in `drive status` says why no lander started: a
-   failing check, a draft, the `hold` label, a conflict, an open card of his, or a lander already
-   running on it; a stacked PR reads `behind` until the PR below it merges; one on the head branch of
-   an open PR the drive does not track, such as another drive's, reads `behind` that PR, owed by someone
-   outside the drive, ahead of its lander's tries and its red, with no deadline and no wake, and no stall
-   reaches past it; one waiting on a teammate's GitHub review, a `review:<login>` wait, reads
-   `reviewing`, owed by someone outside the drive with no deadline and no wake, until the watch's read
-   finds that review at its head; a red one whose own row waits on an open drive PR, while its builder's `WAITING` or
-   `ASK` answered that red and each wait it named still holds, reads `behind` that PR, owed by whoever
-   owes that PR's stage, with no deadline and no wake, until that PR lands or the red changes, as a push
-   of its head does; one on the branch of a job whose work is still to come and that has opened no PR
-   there yet, such as a `BUILT` branch his cards keep from becoming a PR or a running builder's branch,
-   reads `behind` that job once nothing at its own head is red, owed by him while that job waits on his
-   cards and by that job otherwise, with no deadline and no wake, and his card offers no Approve on it
-   until that job's PR opens under it; one on any other branch that is no landing base and that no open
-   PR heads reads `red`, for its builder to open that branch's PR, naming the job that built it, while
-   the branch holds commits the default branch lacks, which a restack would drop, and to restack onto
-   the default branch once it holds none; and the lander refuses one on a base that is no landing
-   base. A landing base is a branch the repository lands PRs on: its default branch, or one the
-   `[landing]` table of the `.claude/long-running.toml` on its default branch names in its `bases`,
-   such as a release line kept beside it, which the watch reads with each PR; a PR on one lands there
-   and never reads as stacked on a PR heading it. Read the checks once they
-   finish and fix one that fails
-   after the merge forward in a follow-up PR.
+A failed check is `main`'s, not the PR's, when `main`'s run of it, at the commit the PR's run
+merged its head onto, failed every test the PR's run failed, as each job's log names them (pytest's
+`FAILED` and `ERROR` summary lines, go test's `--- FAIL:`). One check is one verdict over a whole
+job, so `main` failing one test says nothing of another. A failed check whose log names no failing
+test, such as a lint step, is the PR's own.
+
+1. Ship with `ccx vcs ship --no-watch` (jj in colocated repositories). The `open-pr` skill writes
+   the body and the watch follows CI.
+2. Register it with `drive pr add <url> --job <j>` and return `READY` or `PUSHED`, which needs the
+   job's proof file kept with `drive job set <j> --repro <file>`. The watch and the lander do the
+   rest, as below.
 3. Install by hand only what the lander does not, from the merge sha
-   (`gh pr view <n> -R <repo> --json mergeCommit`):
-   - A Claude Code plugin: `drive install <plugin>@<marketplace> --sha <merge sha>` (such as
-     `long-running@skills`), which the lander runs itself, waits for the release that holds the merge, updates the plugin, and
-     prints the installed version. For long-running it also runs the new install's `drive migrate` before any session reloads
-     onto it, which makes each one-time change the new code owes a drive's files, once; no other drive verb makes one. Before it updates anything it reads the `dependencies` floors of that release's
-     `plugin.json` and installs each sibling below its floor first, waiting until its release is out: a plugin that
-     reads a sibling's new field, such as long-running reading cc-slack's `closed`, crashes on the old sibling. A
-     captain-hook floor, or captain-hook's own release, also needs Captain Hook.app, whose hook worker runs every
-     session's hooks, at that release: while it is older, the install holds and prints his Install now card, naming
-     its ASK file once a job keeps one, and installs nothing; run it again once his tap or `drive answer` records his pick, and it
-     runs `capt-hook helper install` first. It updates each scope's install with its own `claude plugin update --scope`, the user
-     scope's and, for each git repository, its first project or local scope's from that folder, skipping one whose folder is
-     gone, and checks each holds the merge. Claude Code takes a repository's checkout and its worktrees for one project: a
-     session started in any of them loads, and an update run in any of them moves, the repository's first entry in
-     `installed_plugins.json`, so the entry an Orca workspace records after it is never loaded and is not checked. A release holds it when the merge is in the release's commit and
-     in the tag of each binary the plugin pins from that repo through a `*.binrun` file, since a
-     binary is built at its tag, which can predate the version sync that names it (cc-inbox 0.54.27's
-     sync merged after a fix its `cci` was built without). While it waits it prints a line naming
-     the newest release and what of it lacks the merge. It waits only for a release that is coming:
-     when the newest release lacks the merge, it reads the repo's workflows at the merge, and a job
-     calling `plugin-release-tag.yml` releases the plugin when the plugin is its marketplace's only
-     one or the job names a path in the plugin's folder. Such a job tags on any merge when its
-     `paths` input is empty; otherwise it tags only when a commit on the merge's first-parent line
-     since the newest `v*` tag changes one of its paths, the plan `release_tag.py` makes, so a merge
-     after an unreleased source change still waits for the release that carries both. When that job
-     would tag none (cc-notes#276 changed only `release-tag.yml`, `AGENTS.md` and its fragment), the
-     install prints `no release: <why>`, updates and proves nothing and exits 0, and the lander's outcome reads
-     `merged at <sha>; no release: …` instead of a 900-second wait ending in failure. A plugin no
-     such job releases, as Autobump releases `long-running`, waits as before. A plugin whose binary also has a Homebrew
-     copy from `yasyf/tap` (cc-context's `ccx`, cc-inbox's `cci`, `cc-notes`, cc-orchestrate's `cco`,
-     `cc-present`, `cc-review`, `cc-slack` and codex's `codex-ask`) then gets that copy upgraded. Claude Code appends plugin bin
-     directories after `/opt/homebrew/bin` on PATH, so a session's bare `ccx` runs Homebrew's copy. A process the drive
-     starts, a lander or checker included, runs each such plugin's newest installed copy first, which no `brew upgrade`
-     unlinks, and the install reads the Homebrew copy's `--version` from Homebrew's own `bin` folder.
-     The install fast-forwards the `yasyf/tap` clone alone with `git pull --ff-only`, then runs
-     `brew upgrade yasyf/tap/<binary>`, `yasyf/tap/cc-orchestrate` for `cco`, with `HOMEBREW_NO_AUTO_UPDATE=1`, a few seconds, never
-     `brew update`, which fetches every tap on the Mac and fails when any one of them cannot be
-     fetched. With `--sha` it reads the bare binary's `--version` and repeats both every 20 seconds until that
-     release's tag holds the merge, since the tap's formula commit can land after the plugin's
-     release. Installs run at once take turns on the update and on each Homebrew pass under one flock
-     on `plugins/.update.lock` in the Claude config directory, a few seconds each, waiting for its turn no
-     longer than its deadline. Claude Code
-     re-clones a stale marketplace into one fixed `<marketplace>..clone` directory, where two clones
-     at once delete each other's files, and two pulls of one tap clone at once collide on its index lock. It refuses
-     when the update left any scope's install at a commit without the merge, as a marketplace clone holding
-     moved tags does, or running a binary whose release tag lacks it, naming that scope and its folder, the installed version,
-     that commit or release, and the merge sha. It also refuses when the bare binary still runs a
-     release without the merge at the timeout, naming that release. Each drive's dashboard hands itself to a newer
-     long-running the moment its install replaces `installed_plugins.json` in the Claude config directory's `plugins/` folder, by `drive install` or Claude Code's own update: that install's
-     drive takes the server's process on the same listening sockets, so its page answers throughout, and each watch ends before
-     its next pass and its launch agent starts it on that install. A live session runs the installed version's
-     script for each hook it registered at start, but loads a hook added since, and its skills, agents,
-     and any plugin's tools, only on `/reload-plugins`. So the install then types that through Orca into
-     every drive session's terminal on this Mac, the communicator's, the top coordinator's and each
-     sub-coordinator's, once each is idle, and only into one that has not reloaded since the newest
-     `lastUpdated` in `installed_plugins.json`, which moves only when an install changes what a session
-     loads, so an install that changed nothing types nothing. Each terminal has one typist: the install
-     starts `drive reload --seat` detached, so no lander or verb waits on a turn, and that process holds
-     the terminal's lock in the state folder's `reloads/` while it waits for the session's own record,
-     `sessions/<pid>.json` in the Claude config directory, to read idle, the status Claude Code writes as
-     the turn ends, never typing into a busy prompt or a menu. It types `/reload-plugins` once and holds
-     the terminal until the transcript shows that reload's `Reloaded:` line, then types it again only when
-     an install landed meanwhile, so two never land joined as one typed message. An install finding the
-     lock held prints the session as pending on that process. It prints a line per session, and the
-     typist a line per reload in the drive's `reloads.log`. A send Orca never answered, busy or timed out,
-     is sent again under the same `orca terminal send --retry-request <id>`, which Orca replays rather
-     than types twice; one Orca refused, or never answered within 30 seconds, names the
-     `orca terminal send` command that types it, with that id when Orca never answered, and leaves the
-     session for the next install. A session whose Claude Code process runs outside the drive's
-     checkout, the `drive-<drive>` worktree, gets `/exit` instead, once idle and registered with cci
-     there, so cci resumes it in the checkout on the new install and every agent and `<ci>` it runs
-     reads the default branch head, by his pick "Sessions run in the drive's dev-head checkout; every job
-     inherits it", an open incident order included, since cci resumes it at once; when no tmux session
-     of cci's runs it, the reload then opens the `orca terminal create` line of [Start or resume](start.md),
-     whose `cci session attach` shows the tmux session cci resumes it in. `drive reload` does the same for
-     every drive session with no install, whatever installs reloaded before. No post asks him to type
-     `/reload-plugins`. A reload
-     draws no role block, so a session's role rules reach it at its next tool call instead: the
-     `role_rules` check before each call of a drive session compares the digest its seat keeps, written
-     whenever its block is drawn, with the installed rules, and hands it the rules whole once when they
-     differ.
-   - A tool this Mac runs: follow its repository's release flow, install the release that contains the
-     merge, and read the installed version back. Fix the source and release it; a hand patch to an
-     installed copy is lost at the next release.
-   - A compiled tool such as cci, ccn, cc-slack, ccx, codex-ask, or cc-transcript need not wait for its
-     release: build the merge sha with `go build -o ~/.vcache/scratch/<lane>/<binary> <main>`, taking
-     `<main>` from the build its `.goreleaser.yaml` names (cc-transcript: `cargo build --release`), and
-     rerun the case against that binary.
-   - Ask him on a card before each install that restarts the hook helper every session on this Mac
-     shares, such as capt-hook's: he approved one such restart, not all of them. The `bash_guard` hook
-     refuses any session's `capt-hook helper install`, which installs captain-hook's newest release, and its
-     `brew upgrade` or `brew reinstall` of captain-hook, until his tap or `drive answer` records his Install now on the card
-     naming that release, and again once the helper runs it; the refusal names the card's ASK file.
+   (`gh pr view <n> -R <repo> --json mergeCommit`), as [Installs](#installs) says.
+
+### The lander on a yasyf/* PR
+
+- Stages: `grading` while a check at its head runs, `ready` once every one finished. A check
+  failing on its own change reads `red`, owed by you, `its own change fails …`, and starts no
+  lander. While `main`'s run of a failing check still runs, it stays `ready` for the lander to
+  judge.
+- The watch starts the lander within one GitHub read of `ready`. The lander is a process of its
+  own that outlives your turn. It reads the checks again, waits for `main`'s run of each failing
+  one, and merges with `gh pr merge <n> -R <repo> --<method> --admin --match-head-commit <head>`,
+  or says `not landed: its own change fails …`. `<method>` is `squash`, else `rebase`, else
+  `merge`: the first the repository's settings and its default branch's pull request rules allow.
+  It records the merge sha on the PR, then runs `drive install` for each plugin installed on this
+  Mac whose folder the merge changes, or that is its marketplace's only plugin.
+- Refusals it handles itself: on `Base branch was modified` it merges again on the new base and
+  leaves the branch alone. For a native GitHub stack, where `gh pr merge` says to use the
+  asynchronous merge REST API, it merges the stack's bottom PR through GitHub's `merge-async`
+  endpoint and reads the result until GitHub ends it. On a squash conflict with the base it rebases
+  the PR onto it as one commit in the drive's own clone, merges each conflicting markdown page
+  clause by clause with `git merge-file`, and pushes with a lease on the head it fetched. A
+  conflict in any other file, or in a clause both sides changed, reads `red` and wakes its builder.
+- After any other refusal the watch starts the lander again once the stage reads `ready` on a new
+  head, so nobody registers a rebased PR twice.
+- Its output goes to the drive's `landings.log`, ending in one line such as
+  `yasyf/cc-skills#7: merged at <sha>; …`. The job's holder hears
+  `PR … merged at <sha>; <each install's version line or no release: line>`, with each failing
+  check it merged past named as `main`'s (`merged at <sha> past <check> red at <head>, which main
+  failed on the same <n> tests at <commit>; …`, shown beside `checks fail` in `drive status`), or
+  `PR … not landed: gh pr merge --<method> --admin refused it: <its answer>`.
+- Once every PR the job's `READY` or `PUSHED` names merged and no lander runs on one, the watch
+  starts `drive job prove <j>`. It installs each plugin a `yasyf/*` merge changes that an install,
+  binary, Homebrew copy or Captain Hook.app lacks, then runs the proof file with those plugins'
+  `bin/` first on `PATH` and `python3` the drive's own interpreter. Other merges go to the prover
+  that proves them on their release. When the file fails while a `yasyf/*` merge's CI on the
+  default branch still runs, it follows that run to its end and runs the file once more. It keeps
+  the output beside the job's report and runs each drive command the brief's `After install:` line
+  names. Exit 0 with output takes `DONE`. Anything else takes `BLOCKED`, quoting the last `FAIL`
+  line, an exit 0 that prints nothing included. A nonzero exit ending on a `WAIT` line with no
+  `FAIL` line takes no result and runs again once he is next heard. The holder hears
+  `PR … proven live by drive job prove …`, `PR … drive job prove failed: …` or
+  `PR … drive job prove waits on his next word: …`. A `DONE` that finishes the order sends the
+  communicator its close report. A drive tooling order a session opened closes on its proof with
+  no line to him.
+- `drive status` says why no lander started: a failing check, a draft, the `hold` label, a
+  conflict, an open card of his, or a lander already running. Other stages:
+  - `behind`: a stacked PR until the one below merges. Also a PR on the head branch of an open PR
+    the drive does not track, owed by someone outside the drive. Also a red PR whose builder's
+    `WAITING` or `ASK` answered that red and named an open drive PR it waits on. Also a PR on the
+    branch of a job that has opened no PR there yet, owed by him while that job waits on his cards
+    and by that job otherwise; his card offers no Approve on it until that PR opens. None of these
+    has a deadline or a wake.
+  - `reviewing`: it waits on a teammate's GitHub review, a `review:<login>` wait, until the watch
+    finds that review at its head. No deadline, no wake.
+  - `red` for a PR on a branch that is no landing base and that no open PR heads: open that
+    branch's PR while it holds commits the default branch lacks, else restack onto the default
+    branch.
+- A landing base is a branch the repository lands PRs on: its default branch, or one the
+  `[landing]` table of `.claude/long-running.toml` on the default branch names in `bases`, such as
+  a release line. A PR on one lands there and never reads as stacked. The lander refuses any other
+  base.
+- Read the checks once they finish, and fix one that fails after the merge forward in a follow-up
+  PR.
+
+### Installs
+
+- A Claude Code plugin: `drive install <plugin>@<marketplace> --sha <merge sha>` (such as
+  `long-running@skills`), which the lander runs itself. It waits for the release that holds the
+  merge, updates the plugin in each scope with `claude plugin update --scope`, checks each holds
+  the merge, and prints the installed version.
+  - A release holds the merge when the merge is in the release's commit and in the tag of each
+    binary the plugin pins through a `*.binrun` file, since a binary is built at its tag. While it
+    waits it prints the newest release and what of it lacks the merge.
+  - It waits only for a release that is coming. It reads the repository's workflows at the merge:
+    a job calling `plugin-release-tag.yml` tags on any merge when its `paths` input is empty, else
+    only when a commit since the newest `v*` tag changes one of its paths. When no release will
+    come it prints `no release: <why>`, installs nothing and exits 0, and the lander's outcome
+    reads `merged at <sha>; no release: …`. A plugin Autobump releases, as `long-running` is,
+    waits as before.
+  - It reads the `dependencies` floors of the release's `plugin.json` and installs each sibling
+    below its floor first, because a plugin reading a sibling's new field crashes on the old one.
+  - For long-running it runs the new install's `drive migrate` before any session reloads, which
+    makes each one-time change the new code owes a drive's files.
+  - A plugin whose binary has a Homebrew copy from `yasyf/tap` (`ccx`, `cci`, `cc-notes`, `cco`,
+    `cc-present`, `cc-review`, `cc-slack`, `codex-ask`) gets that copy upgraded, since a session's
+    bare `ccx` runs Homebrew's copy: `/opt/homebrew/bin` comes before plugin bin directories on
+    PATH. It fast-forwards the tap clone with `git pull --ff-only`, runs
+    `brew upgrade yasyf/tap/<binary>` (`yasyf/tap/cc-orchestrate` for `cco`) with
+    `HOMEBREW_NO_AUTO_UPDATE=1`, and with `--sha` repeats every 20 seconds until the bare binary's
+    `--version` is a release whose tag holds the merge. A process the drive starts runs each
+    plugin's newest installed copy first.
+  - Installs take turns under one flock on `plugins/.update.lock` in the Claude config directory,
+    because two marketplace clones or two tap pulls at once corrupt each other.
+  - It refuses, naming the scope, folder, version, commit and merge sha, when the update left an
+    install at a commit without the merge or a binary at a release without it.
+  - Claude Code treats a repository's checkout and its worktrees as one project, so the
+    repository's first entry in `installed_plugins.json` is the one loaded and checked.
+- Captain Hook.app runs every session's hooks. A captain-hook floor or release needs the app at
+  that release, and restarting its helper touches every session on this Mac, which is his call each
+  time. While the app is older the install holds and prints his Install now card, naming its ASK
+  file once a job keeps one. Run it again once his tap or `drive answer` records his pick, and it
+  runs `capt-hook helper install` first. The `bash_guard` hook refuses `capt-hook helper install`
+  and a `brew upgrade` or `brew reinstall` of captain-hook until then, naming the card's ASK file.
+- Reloads: a live session keeps running the installed scripts of hooks it registered at start, but
+  loads new hooks, skills, agents and tools only on `/reload-plugins`. The install types that
+  through Orca into each idle drive session that has not reloaded since the newest `lastUpdated`
+  in `installed_plugins.json`. One detached `drive reload --seat` per terminal holds the
+  terminal's lock in the state folder's `reloads/`, waits for the session's `sessions/<pid>.json`
+  to read idle, types once, and waits for the transcript's `Reloaded:` line. It logs to the
+  drive's `reloads.log`. An unanswered send is retried under the same
+  `orca terminal send --retry-request <id>`, which Orca replays without typing twice. One Orca
+  refused, or left unanswered for 30 seconds, is printed as the `orca terminal send` command and
+  left for the next install. A session running outside the drive's checkout, the `drive-<drive>`
+  worktree, gets `/exit` instead, so cci resumes it in the checkout; with no tmux session of cci's
+  the reload opens the `orca terminal create` line of [Start or resume](start.md). `drive reload`
+  does the same with no install. A reload draws no role block, so the `role_rules` check hands a
+  session its rules whole at its next tool call when the installed digest differs.
+- Each drive's dashboard hands itself to a newer long-running the moment an install replaces
+  `installed_plugins.json`: the new install's drive takes the same listening sockets, and each
+  watch ends before its next pass and its launch agent starts it on the new install.
+- A tool this Mac runs: follow its repository's release flow, install the release holding the
+  merge, and read the installed version back. Fix the source and release it, since a hand patch to
+  an installed copy is lost at the next release.
+- A compiled tool (cci, ccn, cc-slack, ccx, codex-ask, cc-transcript) need not wait for its
+  release: build the merge sha with `go build -o ~/.vcache/scratch/<lane>/<binary> <main>`, taking
+  `<main>` from its `.goreleaser.yaml` (cc-transcript: `cargo build --release`), and rerun the case
+  against that binary.
 
 ## The monorepo
 
-Ship through the repository's own `submit-pr` skill, on a branch off `dev`. Never build on, push to, or
-restack his own in-flight branches, and never land a PR someone else opened unless his order names it,
-by [Neither](scope.md#the-four-kinds-of-pr). A PR lands only when all of these hold at its current head:
+Ship through the repository's own `submit-pr` skill, on a branch off `dev`. Leave his own in-flight
+branches alone, since he is working on them. The `landing_guard` hook refuses landing a PR someone
+else opened that no order of his names, by [Neither](scope.md#the-four-kinds-of-pr).
 
-- every required check is green;
-- an approving review from the reviewer bot (`forge-pr-reviewer`) is in force, not dismissed;
-- the latest `ai-review` run passed. When it holds the PR, fix each blocking finding, or accept a wrong
-  one with `<pr scripts>/pr-reviews accept <slug> --why "<why>"`. A finding on his
-  design is an `ASK`;
-- nothing holds it: no Hold tap, no `hold` label, no conflict with `dev`;
-- he is present, his word or tap within the last 15 minutes, when it changes what the root `AGENTS.md` calls dangerous:
-  a migration, a backfill, a delete of user data, or another class the repository's rules list,
-  outside tests, or any change with a `staging test of #N before it lands`
-  part, which a builder's `STAGING:` line gives only a change it read as dangerous, an infra or blue-green one
-  included, whose passed test lands nothing while he is away. The lander reads its files only while he is away, records
-  `not landed while he is away` and lands it at his next word, his Approve standing. A unit Trunk queued before he went
-  quiet leaves the queue the same way, since the landing loop's next pass dequeues it as any other stop does; the `landing_guard` hook refuses a
-  hand merge meanwhile, an incident's fix included, by his words "merging or rleasing dangerous things should only be
-  done wehn the human is present";
-- he tapped Approve on its card, or it is an exempt class. His approval in words, or his pick on a card
-  asking whether to land, is his tap too. The coordinator records it for exactly the PRs his words name
-  with `drive pr set <url> --tapped Approve --tap-source <his message's permalink>`, because
-  `landing_guard` refuses landing a drive PR with no recorded tap.
+A `<guarded org>` PR outside an exempt class lands on his Approve tap. That is how the lander works:
+it lands a PR when all of these hold at its current head.
 
-**Exempt classes land with no tap** once green, but for a `flake fix` changing a file outside test and
-fixture code and a `main fix` whose PR would wait on his tap, as every `<guarded org>` PR does. He never sees a PR card for one landing with no tap: `drive card` draws a
-fresh card only for a PR that asks his tap, by the same check that gives a card its Approve, so a post
-linking an exempt PR keeps its plain link. It is marked as its class wherever he sees it, and its
-order's thread gets one line naming the class and the PR, such as "port of #N landed." The drive's
-lander lands an exempt PR once it is green, after checking it really is in its
-class from its changed files, title and body at its head, by his ruling that the landing tool checks
-the class before it lands: no file that changes how data is stored for a `pure port`, only test and
-fixture files for `test-only` and for a `flake fix` landing with no tap, only CI files for `ci-only`,
-a failed newest run of some workflow on the default branch for a `main fix`, and no revert for an
-`incident fix`. One outside its class comes back as `PR … not landed: <why>`, and a `ci-only` one
-loses its class there, so his card asks his Approve on it with no session's word.
+- Every required check is green.
+- An approving review from the reviewer bot (`forge-pr-reviewer`) stands on that head.
+- The latest `ai-review` run passed. When it holds the PR, fix each blocking finding, or accept a
+  wrong one with `<pr scripts>/pr-reviews accept <slug> --why "<why>"`. A finding against his
+  design is an `ASK`.
+- Nothing holds it: no Hold tap, no `hold` label, no conflict with `dev`, no card or staging test.
+- He tapped Approve on its card, or it is an exempt class. His approval in words, his order to
+  merge a PR as it stands, and his pick on a card asking whether to land are his Approve too. The
+  coordinator judges that and records it with
+  `drive pr set <url> --tapped Approve --tap-source <his message's permalink>`, since
+  `landing_guard` reads the recorded tap.
+- **The presence limit.** A dangerous change merges or releases only while he is present: his word
+  or tap within the last 15 minutes. Dangerous is what the root `AGENTS.md` lists (a migration, a
+  backfill, a delete of user data, storage, consistency or write paths, a builtin, the parser,
+  checker or VM, the runtime API), outside tests, and any change with a
+  `staging test of #N before it lands` part. The reason is that these can break customer runs or
+  lose data, and he wants to be there. While he is away the lander records
+  `not landed while he is away` and lands it at his next word, his Approve standing. A unit Trunk
+  queued before he went quiet is dequeued, and the `landing_guard` hook refuses a hand merge. A
+  rollback, and an incident's hotfix changing nothing dangerous, run without him.
 
-- `pure port`: a `Port:` PR that does what its old-tree PR #N does, line for line, with that PR's tests,
-  and nothing more. The coordinator records it with `drive pr set <url> --port-of <N>`. It ports work
-  that merged or that he approved, and otherwise waits on and lands after #N: while the drive tracks
-  #N, in the port's own repository, unmerged and without his Approve, the port reads `blocked` on his
-  card on #N and no lander starts on it, and `--port-of` refuses an #N the drive does not track unless
-  GitHub reads it merged. A port that
-  changes how data is stored, a migration, schema or `.proto` file, is not pure: its data model is a
-  design part of its order, by his words "port his visuals but always do it the fundamentally right
-  way when it comes to modelng the data", and `drive pr add` and `drive pr set` refuse it `--port-of`.
+### Exempt classes
+
+An exempt PR lands with no tap once green. He sees no PR card for it: it is marked as its class
+wherever he sees it, and its order's thread gets one line, such as "port of #N landed." The lander
+first checks the class from the changed files, title and body at the head. A PR outside its class
+comes back as `PR … not landed: <why>`, and a `ci-only` one loses its class, so his card asks his
+Approve.
+
+- `pure port`: a `Port:` PR that does what its old-tree PR #N does, line for line, with that PR's
+  tests and nothing more. Record it with `drive pr set <url> --port-of <N>`. It lands after #N:
+  while the drive tracks #N unmerged and without his Approve, the port reads `blocked` on his card
+  on #N. `--port-of` refuses an #N the drive does not track unless GitHub reads it merged. A port
+  that changes how data is stored (a migration, schema or `.proto` file) is not pure, because its
+  data model is a design part of its order, and `drive pr add` and `drive pr set` refuse it.
 - `test-only`: only test and fixture files.
-- `ci-only`: only CI configuration and CI tooling: files under `.github/` and `.buildkite/`, and the CI
-  tool's source, pipeline definitions and shims the repository lists under `## In this repository`. The class comes from the paths: the first registration of a PR he opened,
-  by `drive pr add`, a builder's `READY` or `PUSHED` or a report's `FIX` line, keeps it `ci-only`
-  when no class or port is named and GitHub lists at least one changed file, every one of them CI,
-  by his words "any CI fix PRs uoiu can merge without getting a tp from me". A revert on the order
-  of an open incident keeps his tap.
-- `flake fix`: the whole change fixes one named flaking test at its cause, whatever files it touches,
-  and adds no retry, skip, timeout or rerun, by his ruling 532cd3d, "and ffs fix these flaky tgests how
-  many times do I have to tell yoiu". It serves that ruling, never the order whose PR the flake reddened,
-  so the watch's check judges it against 532cd3d read whole in place of any order, and it is never
-  `BLOCKED no order of his names this`, closed, or emptied to answer a `NOT READY`. Register it with
-  `drive pr add <url> --job <j> --exempt "flake fix"` in the Bash call whose `ccx vcs ship` opens it,
-  since no design card holds a flake fix and the `bash_guard` hook reads that registration, which reads
-  its files from GitHub: in test or
-  fixture code alone it lands with no tap; with any other file it keeps his tap, and his card quotes the
-  ruling's words, by his words "you cna also merge CI/tst-only tweaks/fixes without me, but onyl if it
-  doesnt touch non-test/CI code at all".
-- `main fix`: the change fixes the default branch's red CI forward, such as a test a merge broke, which
-  is no flake. Register it with `drive pr add <url> --job <j> --exempt "main fix"` in the Bash call whose
-  `ccx vcs ship` opens it: the class check reads the newest completed run of each GitHub Actions workflow
-  on the default branch and refuses the class when none failed. No card of his holds it, one on its
-  job's own work included, so it lands at once, keeping the tap its PR would wait on, as every `<guarded org>` PR does.
-  The watch still judges it against its job's orders.
-- `incident fix`: the immediate fix, such as the stop, or the root fix an incident's order ships, by [incidents.md](incidents.md). A revert is
-  not one and waits for his tap: `drive pr set` refuses the class to a PR whose title or body says it
-  reverts a change.
+- `ci-only`: only CI configuration and CI tooling: `.github/`, `.buildkite/`, and the CI tool's
+  source, pipeline definitions and shims the repository lists under `## In this repository`. The
+  class comes from the paths: the first registration of a PR he opened, by `drive pr add`, a
+  builder's `READY` or `PUSHED` or a report's `FIX` line, keeps it `ci-only` when no class or port
+  is named and every changed file is CI. A revert on an open incident's order keeps his tap.
+- `flake fix`: the whole change fixes one named flaking test at its cause and adds no retry, skip,
+  timeout or rerun. It serves his standing order to fix flaky tests, so the watch judges it against
+  that order, whatever PR the flake reddened. Register it with
+  `drive pr add <url> --job <j> --exempt "flake fix"` in the Bash call whose `ccx vcs ship` opens
+  it, since the `bash_guard` hook reads that registration. In test or fixture code alone it lands
+  with no tap. With any other file it keeps his tap.
+- `main fix`: the change fixes the default branch's red CI forward, such as a test a merge broke.
+  Register it with `drive pr add <url> --job <j> --exempt "main fix"` in the Bash call whose
+  `ccx vcs ship` opens it. The class check reads the newest completed run of each GitHub Actions
+  workflow on the default branch and refuses the class when none failed. No card holds it, so it
+  lands at once, but a `<guarded org>` one keeps the tap its PR would wait on.
+- `incident fix`: the immediate fix, such as the stop, or the root fix an incident's order ships,
+  by [incidents.md](incidents.md). `drive pr set` refuses the class to a PR whose title or body
+  says it reverts a change, which waits for his tap.
 
-Record any other class by its name with `drive pr set <url> --exempt "<class>"` and clear it with
-`--no-exempt`; the landing guard reads it. Anything else waits for his tap.
+Record any other class with `drive pr set <url> --exempt "<class>"` and clear it with
+`--no-exempt`.
 
-**His tap counts once per PR.** It carries across every new head: rebase, restack, review fix, retitle,
-and a push that carries out his own pick on a card the PR waited on, since his pick is what he
-approved.
-When a push changes what he approved, run `drive pr set <url> --fundamental "<what changed>"`, which
-clears the tap and any exemption and puts the PR back on his card with that line. Fold two PRs that
-carry out one decision of his into one first, so he gets one card.
+### His tap
 
-**His Approve or an exempt class lands a `<monorepo>` PR with no session turn.** The drive's
-lander, a process of its own, enqueues it into the Trunk merge queue with the script as the head of
-the repository's default branch holds it, run from a fresh worktree of that head made for the landing
-and removed after it, never from the coordinator checkout, whose commit and uncommitted files it leaves
-as they are. The worktree comes from the one clone of the repository this Mac keeps for landings in the
-state folder's `clones/`, which the first landing makes, holding every file with no blob filter, so
-neither its checkout nor `stack-enqueue`'s merge checks ask GitHub for a file by its id, which GitHub
-may answer without the file. Each landing fetches the default branch into that clone's
-`refs/remotes/origin/<branch>` under the clone's lock, and its LFS files check out as their pointers,
-since no landing step reads one. The lander runs `stack-enqueue` with `MISE_TRUSTED_CONFIG_PATHS`
-naming that worktree, so the mise shim that starts the script's `uv` trusts the worktree's mise
-configs, which this Mac's mise trusts under no path of the state folder. A landing fix merged to the default branch, such as a newly pinned toolchain, holds for
-the next landing at once:
+- It counts once per PR and carries across every new head: rebase, restack, review fix, retitle,
+  and a push carrying out his own pick on a card. When a push changes what he approved, run
+  `drive pr set <url> --fundamental "<what changed>"`, which clears the tap and any exemption and
+  puts the PR back on his card with that line. Fold two PRs that carry out one decision of his into
+  one, so he gets one card.
+- His Approve is one field on every PR of the landing unit his card drew. His Hold clears it, and
+  so does any reply of his in the card's thread, after which the card draws Approve again.
+- It lands what the card he pressed listed then, whole, bottom first: the PRs of his card that
+  share a stack (a native GitHub stack, or PRs each on the one below's head branch), with every PR
+  under them, once each is ready. A PR that joined the card after his press holds nothing below it
+  and gets asked alone, on the stack's card, which cc-slack redraws in place. A PR stacked above on a card of its own holds none of them, and his Approve
+  on one card does not pass to another. An Approve in words or on the dashboard keeps its PR alone
+  with the PRs under it. Other PRs of his card land in calls of their own, since `stack-enqueue`
+  refuses PRs no stack links.
+- It lands the PR at its first green head, a dangerous one while he is present, whatever head he
+  tapped and whatever the check against his words says. A `NOT READY` at the head clears no tap and
+  holds no landing: its `PR … NOT READY` line goes through `drive pr wake` to the builder of each
+  PR it faults, once a head, only while neither his Approve nor an open card of his holds the
+  stack. His `TAP Approve` line wakes no session.
+- A review approval counts on the PR's current head. One GitHub still counts from an older head
+  reads `approved on an older head` and draws no card. A repository's required approving reviews
+  come from its default branch's pull request rule (GraphQL `requiredApprovingReviewCount`):
+  `<monorepo>` requires one, and a repository requiring none lands at green.
 
-    <pr scripts>/stack-enqueue --check <PR>...
-    <pr scripts>/stack-enqueue --watch <PR>...
+### The lander on a monorepo PR
 
-The drive counts a review approval only on the PR's current head, as stack-enqueue does: an
-approval GitHub still counts from an older head reads `approved on an older head`, never approved,
-and draws no card. Its `--check` runs first, and on each head its `BLOCKED` lines name approved only
-on an older head, which stack-enqueue names only once `ai-review` finished on that head without
-approving it, the lander posts `@forge-pr-reviewer review`, once a head. Then `--watch`, which alone
-tells a wait from a fix, waits out each wait in the lander's own process, such as that approval or
-GitHub still computing mergeability after a push to the default branch, and queues it, or ends the
-landing as `PR … not landed: <its last lines>` on the first gap that needs a fix, such as a conflict. His card tap starts it when the PR is already green, approved by the
-reviewer bot, on its head or an older one, and free of conflicts, and the watch starts it within
-60 seconds of reading the PR there, which it does as GitHub delivers the change: its landing loop, a process of
-its own beside the watch's passes, reads GitHub, stages, wakes and lands every 60 seconds however long a pass runs. It
-lands what his card drew whole, bottom first, by his rule "Approve lands exactly those, bottom first",
-a PR added to a stack later, native or chained by base branch, joining the stack's card, which
-cc-slack redraws in place over the newest card carrying its PRs, retiring any other: the PRs of his card that share a stack, a native GitHub stack
-or PRs each on the one below's head branch, with every PR under them and the PRs of that PR's card,
-once each of them is ready. A PR stacked above them on a card of its own, such as one red, held, in
-conflict or still waiting on his Approve, holds none of them, and his Approve on one card never passes
-to a PR of another. His Approve keeps the PRs the card he pressed listed then, so a PR that joined
-the card after his press holds nothing below it: the PR he approved lands alone while the card asks
-Approve for the newcomer alone. An Approve in his words, which `drive pr set --tapped` records, or
-on the dashboard answers no card and keeps its PR alone, so it lands with the PRs under it and a PR
-above on the card holds none of them. A card press whose tap holds no list, as each an older install
-saved does, since its save drops the list, takes it at every load from the newest of his stored cards
-listing its PR asked by his press. While a PR his Approve lands with it cannot land, a ready PR reads `behind` it, and
-while one below conflicts, every PR above it reads `behind` it whatever its own row reads,
-owed by that PR's owner or the card holding it, so no builder above it is woken: none of them lands
-before it, and only its restack moves them. Each other PR of his card lands in a call of its own, since `stack-enqueue`
-refuses PRs named together that no stack links, such as one order's sibling PRs on `dev`. What
-holds a PR he approved is its stage, as `stage.of` names it, which his card shows and whose owner the
-watch wakes, and its deadline wakes that owner again.
-His Approve is one field on the PR, kept on every PR of the landing unit his card drew and cleared
-only by his Hold or by any reply of his in its card's thread, which cc-slack sends through its card
-command as it sends his tap: the reply takes back each Approve he gave before writing it, and the card
-draws Approve again. Whatever stops a landing, his Hold, the hold label, a card holding its change, a
-wait of the PR, its staging test included, a rework, his Approve coming off or his absence from a dangerous PR, the landing loop's next pass stops it, and his tap or reply stops it in the
-same card command: a running lander is ended, which dequeues what it queued, and a unit Trunk holds after
-its lander ended is taken out of the queue by `drive pr land --dequeue`, its own process running
-`stack-enqueue --dequeue` from a fresh worktree of the default branch, whose own failure reads as the
-lander's `LANDER` defect and is retried at the landing loop's next pass. His Approve lands the PR at its first green head, a dangerous one while he is present, whatever the check of its change
-against his words says, whatever head he tapped it on, by his words "why the fuck would you keep eveyhting broken to make it perfect": a head that moved under his card keeps Approve showing and
-lands with no second check. A `NOT READY` at the PR's head clears no tap and holds no landing: his
-card keeps Approve, and its `PR … NOT READY`
-line goes to the builder answering for each PR it faults through `drive pr wake`, once a head and one to each job,
-only while neither his Approve nor an open card of his holds the stack: under either on any
-PR of the stack it wakes nobody, so no builder changes what he approved or what his answer may change, while his Hold
-and the hold label stop only the landing, so a builder under them still hears it. His order to merge a PR as it
-stands is his Approve. Each head gets one try, but a try that fails on the lander's own step says nothing of
-the PR: one whose `stack-enqueue --check` or `--watch` exited 5, its own failure, such as a GitHub read that
-timed out, or failed before it printed an answer, as when mise refuses the landing worktree's config, and a
-`gh pr merge`, merge-async or `gh pr comment` GitHub never answered, such as a TLS handshake timeout or an HTTP 5xx,
-or that ccx refused before GitHub heard it. The watch says it once a head to the meta session
-as the lander's own `LANDER the lander could not …` defect, never as the PR's not landed line, and the lander tries
-again at the landing loop's next pass with no new tap. So does a try that ended on a failed GitHub read before it
-queued or merged anything, such as a TLS handshake timeout on its diff read or on the landing clone's fetch of the
-default branch, said on the PR's line and named by its `ready` stage until a try lands it. A try that
-comes to what the one before it on that head did is said once. A try stands only at the head and base it ran on, so a push, or GitHub moving the PR onto the default branch once the PR under it merges, reads it `ready` again, and only while what let it run does: once `drive pr set <url> --no-exempt --tap`
-or the try itself, for a `ci-only` PR its head left, puts the PR on his card, or his tap comes after the try started, the PR reads his card or `ready` again, never
-`unlanded`. Its outcome comes back as the PR's stage:
-`landing` while Trunk holds it and nothing stops its landing, else what stops it, such as `waiting` on a wait of its own,
-out of the queue once Trunk's `trunk-cancelled` label on its queue entry is newer than the try, which the watch records
-as the try's outcome `dequeued: Trunk cancelled its merge queue entry`, as after a `stack-enqueue --dequeue`, `merged`,
-owed by nobody, once its try merged it with `gh pr merge` and read it back merged from GitHub onto its row, before the
-watch's next read, a merge GitHub does not read merged ending the try `not landed` with nothing installed, and
-`unlanded`, a lander's try that ended without queueing it, or dequeued once none of its waits holds, with
-`UNLANDED_SILENT` when its process ended before saying, which wakes the session holding its order
-every 30 minutes for a builder that fixes the cause and pushes; the lander tries the new head on its own.
-While the PR's own job waits on his open question cards, it reads `blocked` instead, owed by him and naming
-each card, and wakes no one until he answers them.
-A merge GitHub refused for a conflict, `Pull Request has merge conflicts` or `the merge
-commit cannot be cleanly created`, and a try that queued the PR or Trunk ejected once GitHub reads it conflicting,
-are never `landing` or `unlanded`: the PR reads `red`, owed by its builder, "it
-conflicts with its base <branch>", until GitHub's next read of that head, after its base moves or its head is read
-again, finds it mergeable, so `drive pr wake` sends its builder the line at once and every 30 minutes, and no session
-starts one; its rebased head lands on its own, and a head GitHub reads mergeable again after the refusal lands again.
-A PR in a native GitHub stack reads "it conflicts with <trunk>, the trunk of its native stack: restack the
-whole stack onto <trunk> with ccx vcs stack rebase" instead, since GitHub test-merges each member onto the
-stack's trunk with every PR below it, never onto its base branch, the stacked parent.
-His `TAP Approve` line itself wakes no session: a red PR's stage wakes its builder.
+- His Approve or an exempt class lands the PR with no session turn. The watch's landing loop, a
+  process of its own, reads GitHub, stages, wakes and lands every 60 seconds. His card tap starts
+  the lander at once when the PR is green, bot-approved and free of conflicts.
+- The lander enqueues into the Trunk merge queue from a fresh worktree of the default branch's
+  head, made for the landing and removed after. It leaves the coordinator checkout alone. The
+  worktree comes from the one clone this Mac keeps in the state folder's `clones/`, with no blob
+  filter and LFS files as pointers, fetched under the clone's lock. It sets
+  `MISE_TRUSTED_CONFIG_PATHS` to that worktree so the script's `uv` shim runs. A landing fix merged
+  to the default branch holds for the next landing at once.
 
-**The same lander lands every other repository the drive tracks**, such as an `<guarded org>/<repo>` one, by
-the coordinator's finding that approved `litestream` PRs had no owner: once his Approve or an exempt
-class clears a PR and its stage reads `ready`, it merges the stack's bottom PR alone with
-`gh pr merge --<method> --match-head-commit <head>`, which GitHub merges only at the head the stage read
-and only once that repository's rules pass, then the next PR once it reads `ready` on the new base, each
-by the method a `yasyf/*` PR merges by, such as `--rebase` on a repository whose settings allow
-only rebase merges. Once a rebase merge lands a native stack's bottom, GitHub restacks the PR above onto the new base
-as a new head, whose checks run again, and his tap carries across it as across any restack. The
-approving reviews a PR needs come from the pull request rule of its repository's default branch, as
-GitHub's GraphQL `requiredApprovingReviewCount` reads it: `<monorepo>` requires one, so a green
-head forge-pr-reviewer approved nothing on is `red` until its findings are answered, and a repository
-whose rules require none lands at green with no review. The lander runs outside any Claude session,
-so no hook sees it: it checks his tap and his open cards itself, from the drive's state, and refuses a
-PR the drive does not track, naming `drive pr add`.
+      <pr scripts>/stack-enqueue --check <PR>...
+      <pr scripts>/stack-enqueue --watch <PR>...
 
-**The queue is the only way in**, because every other way skips the checks it runs: the `landing_guard`
-hook refuses `--admin`, and on a drive PR `gh pr merge`, the merge API or a `merge`/`merge-fast` label.
-`<ci> trunk submit --direct` needs his written ruling naming the PR and its full head sha. An
-incident fix lands as [incidents.md](incidents.md) says.
+- `--check` runs first. When its `BLOCKED` lines name an approval on an older head, the lander
+  posts `@forge-pr-reviewer review`, once a head. `--watch` then waits out each wait in the
+  lander's own process, such as that approval or GitHub computing mergeability, and queues the PR,
+  or ends as `PR … not landed: <its last lines>` on the first gap that needs a fix.
+- Whatever stops a landing (his Hold, the `hold` label, a card, a wait of the PR, a rework, his
+  Approve coming off, his absence from a dangerous PR), the landing loop's next pass ends the
+  running lander, which dequeues what it queued. `drive pr land --dequeue` takes out a unit Trunk
+  still holds, by `stack-enqueue --dequeue` from a fresh worktree.
+- Each head and base gets one try. A try that fails on the lander's own step says nothing of the
+  PR: a `stack-enqueue` exit 5, a failure before any answer (such as mise refusing the worktree's
+  config), a GitHub call that never answered (a TLS timeout, an HTTP 5xx) or one ccx refused. The
+  watch sends it to the meta session once a head as `LANDER the lander could not …`, and the
+  lander tries again at the next pass with no new tap. A try stands only at the head and base it
+  ran on, so a push, or GitHub moving the PR onto the default branch, reads it `ready` again.
+- Stages a try leaves:
+  - `landing`: Trunk holds it and nothing stops it.
+  - `merged`: owed by nobody, once the try merged it and read it back merged.
+  - `waiting`: on a wait of its own.
+  - `unlanded`: a try ended without queueing it, or it was dequeued with no wait holding. It wakes
+    the session holding its order every 30 minutes for a builder to fix the cause and push; the
+    lander tries the new head on its own. `UNLANDED_SILENT` when the process ended before saying.
+    Trunk's `trunk-cancelled` label newer than the try records
+    `dequeued: Trunk cancelled its merge queue entry`.
+  - `blocked`: its own job waits on his open question cards. Owed by him, waking no one.
+  - `red` on a conflict (`Pull Request has merge conflicts`, `the merge commit cannot be cleanly
+    created`, or a queued PR GitHub reads conflicting): owed by its builder, "it conflicts with its
+    base <branch>". `drive pr wake` tells the builder at once and every 30 minutes, and the rebased
+    head lands on its own. In a native GitHub stack it reads "it conflicts with <trunk>, the trunk
+    of its native stack: restack the whole stack onto <trunk> with ccx vcs stack rebase", since
+    GitHub test-merges each member onto the stack's trunk.
+  - `behind`: a ready PR while one his Approve lands with it cannot land, and every PR above a
+    conflicting one. Owed by that PR's owner, so no builder above is woken.
+- The same lander lands every other repository the drive tracks. Once his Approve or an exempt
+  class clears a PR and it reads `ready`, it merges the stack's bottom PR with
+  `gh pr merge --<method> --match-head-commit <head>`, then the next once it reads `ready` on the
+  new base, by the method a `yasyf/*` PR merges by. After a rebase merge GitHub restacks the PR
+  above as a new head, and his tap carries across. The lander runs outside any session, so it
+  checks his tap and open cards itself and refuses a PR the drive does not track, naming
+  `drive pr add`.
+- The queue is the way in for a drive PR, because any other way skips the checks it runs. The
+  `landing_guard` hook refuses `--admin`, `gh pr merge`, the merge API and a `merge`/`merge-fast`
+  label on one. `<ci> trunk submit --direct` passes only on his ruling naming the PR and its full
+  head sha. An incident fix lands as [incidents.md](incidents.md) says.
 
-**Every red on your PR is yours**, whether your change or `dev` caused it, and while it waits on his tap
-too. A GitHub Actions job that failed on its run's first attempt at its checkout, before any step ran the
-PR's code, is the one red no builder owes: the watch reruns that run once with `gh run rerun --failed`
-and reads the PR grading meanwhile, and a checkout failing again on the rerun reads red as any failure.
-First read the same check on `dev`'s newest run: a red `dev` shows too is inherited, and `dev`'s
-own gate is a gate of the drive's, so the first job to meet an inherited red names the merge on `dev`
-whose run first failed it, then finds the PR fixing it (`drive status`, `cci who --pr`) or opens that
-fix itself, one owner for every PR it blocks. On a `yasyf/*` main the drive keeps that owner by each
-test's name: the first job to claim a failing test owns it until main passes it, and `drive job held
---exempt "main fix"`, a main fix's ship and its `drive pr add` each refuse a second job, naming the owner. Fix your own; for an
-inherited one, restack onto a `dev` that has the fix, or fix it forward in its own PR, a `flake fix` when
-a test flaked, whose cause may be in product code. The one exception is a `yasyf/*` test that main fails
-since a drive PR merged whose own run failed it: that merge's builder owns it, and the watch wakes it to
-fix main forward in a PR of its own, so build no second fix. Waiting on a fix in another PR, return `WAITING`
-naming it, which puts it on your PR's stage line, with the fix's own card when it waits on his Approve. On a conflict or
-a queue ejection, restack, read the entry's history and verification build, fix the cause, and enqueue
-once more. Fix a test that keeps failing at its root; never retry past it with `--flake` or a rerun. The
-`bash_guard` hook refuses `stack-enqueue --flake` in a drive session or agent, and reads the state of what each
-rerun names, a `<ci> bk rerun` build or `dev`'s newest finished build, a `bk build rebuild` build, a `bk job
-retry` job, a `<ci> bk api` or `bk api` retry or rebuild, or a `gh run rerun` run or job: a drive session
-reruns only one that passed, such as a forced uncached regrade of a green build the buildkite-cli skill's "Rerun
-a Green Unit" runs, and is refused a rerun of one that did not, still running included, naming `<ci> bk log
-'<job URL>'` instead. The watchdog's agent alone reruns a failed build of a PR in a stall's chain once, and only
-one that failed, by his pick "Report, plus two safe acts, rerunning a failed build and messaging the owning
-job". A rerun whose target cannot be read, such as a `bk build rebuild` naming no number or pipeline, is refused
-until it can be, and a help read runs.
+### Red checks and flakes
 
-A flaky test outside your diff that fails your PR needs no push while its fix is open, whether it failed
-your own head's checks, in any repository, or Trunk's ejection of a green head. Fix the test in its own
-`flake fix` PR, or find the one the drive already tracks, then run
-`drive pr set <url> --flaky <the test> <its fix PR>`, which keeps the checks failing at your head on its
-record. Your PR reads `waiting`, waking nobody, until that fix merges.
-
-- Red at your own head, it waits only while every check failing at that head is one the record kept, so
-  another failure there reads `red` again. Once the fix merges, it reads `red` and wakes you once:
-  restack onto the fix, since a rerun grades the same merge commit its first run tested, without the fix.
-  A fix that closed unmerged reads `red` too: fix the test at its cause, as above.
-- Ejected by Trunk with your own head green, the lander queues the same commit again with
-  `stack-enqueue --flake` once the fix merges, once, and `stack-enqueue` records the retry on the PR. A
-  second ejection at that commit reads `unlanded`, and so does a fix that closed unmerged: restack and
-  fix the cause, as above.
-- Ejected by Trunk with your own head green on a flake a requeue alone passes, such as a test that fails
-  only in the minute the date changes, `drive pr set <url> --flaky <the test> "<its cause>"` names that
-  cause in words in place of a fix PR, and the lander queues the same commit again with
-  `stack-enqueue --flake` at once, once, so no push that changes nothing stales its approval. Its fix
-  still goes up the same day as its own `flake fix` PR. A head whose own checks fail is refused it, since
-  a rerun there grades the same merge commit.
-
-An ejection whose record in cci's `trunk` drive gives a `GITHUB_API_` reason, such as
-`GITHUB_API_MERGE_PR_FAILED`, with no failing check needs no push either: Trunk tested the stack green
-and GitHub refused its merge. The watch says `PR … merge refused by GitHub …` on every PR that try
-queued, never `checks failed`, and the lander lands the same PRs again one at a time, bottom first; a
-second refusal at the same head reads `unlanded`. Trunk's own `Trunk Merge Queue` check says what the
-queue did with a PR, never what a test found on its head, so the drive counts it as no check.
+- A red on your PR is yours to clear, whether your change or `dev` caused it, and while it waits
+  on his tap too. The one exception: a GitHub Actions job that failed at checkout on its first
+  attempt, before any step ran the PR's code. The watch reruns that once with
+  `gh run rerun --failed`.
+- Read the same check on `dev`'s newest run first. A red `dev` shows too is inherited. The first
+  job to meet it names the merge on `dev` whose run first failed it, then finds the PR fixing it
+  (`drive status`, `cci who --pr`) or opens that fix itself, so one owner serves every PR it
+  blocks. Restack onto a `dev` that has the fix, or fix it forward in its own PR, a `flake fix`
+  when a test flaked.
+- On a `yasyf/*` main the drive keeps that owner by test name: the first job to claim a failing
+  test owns it until main passes it, and `drive job held --exempt "main fix"`, a main fix's ship
+  and its `drive pr add` refuse a second job, naming the owner. A test main fails since a drive PR
+  merged whose own run failed it belongs to that merge's builder, whom the watch wakes.
+- Waiting on a fix in another PR, return `WAITING` naming it, which puts it on your PR's stage
+  line.
+- On a conflict or a queue ejection: restack, read the entry's history and verification build, fix
+  the cause, and enqueue again.
+- Fix a failing test at its root. A rerun grades the same merge commit, so it proves nothing. The
+  `bash_guard` hook refuses `stack-enqueue --flake` in a drive session and a rerun of a build that
+  did not pass (`<ci> bk rerun`, `bk build rebuild`, `bk job retry`, a `bk api` retry or rebuild,
+  `gh run rerun`), naming `<ci> bk log '<job URL>'`. A rerun of a build that passed, such as a
+  forced uncached regrade, runs. The watchdog's agent may rerun a failed build of a PR in a
+  stall's chain once.
+- A flaky test outside your diff needs no push while its fix is open. Fix it in its own
+  `flake fix` PR, or find the one the drive tracks, then run
+  `drive pr set <url> --flaky <the test> <its fix PR>`. Your PR reads `waiting`, waking nobody,
+  until that fix merges.
+  - Red at your own head: it waits only while every failing check is one the record kept. Once the
+    fix merges it reads `red` and wakes you once to restack onto the fix. A fix closed unmerged
+    reads `red` too.
+  - Ejected by Trunk with your head green: the lander queues the same commit again with
+    `stack-enqueue --flake` once the fix merges, once. A second ejection reads `unlanded`.
+  - Ejected on a flake a requeue alone passes, such as a test failing only as the date changes:
+    `drive pr set <url> --flaky <the test> "<its cause>"` names the cause in words and the lander
+    requeues at once, once. Its fix still goes up the same day as a `flake fix` PR. A head whose
+    own checks fail is refused this.
+- An ejection whose record in cci's `trunk` drive gives a `GITHUB_API_` reason, such as
+  `GITHUB_API_MERGE_PR_FAILED`, with no failing check needs no push: Trunk tested green and GitHub
+  refused the merge. The watch says `PR … merge refused by GitHub …` and the lander lands the same
+  PRs again one at a time, bottom first; a second refusal at that head reads `unlanded`. Trunk's
+  own `Trunk Merge Queue` check counts as no check.
 
 ## Staging tests in the monorepo
 
-A dangerous monorepo change, as the monorepo's `AGENTS.md` defines one, lands only once a short staging
-test of its head has passed. This is prose the drive keeps and its tools help it keep, never a check that
-fails: a job adds no ruleset, commit status or pull request check that every PR hits, and removes one it
-added, by his words 694a1cd, "Don't commit this soak stuff to monorepo as repo check no one asked for
-that it's jsut prompt guidance and local tooling as input to customize long-running do NOT add any pr
-checks and remove those you have added to do with this, don't touch what anyone else has done", 17f763e,
-"Again this is not meant to be codified as hard coded rules that fail, the tooling is jsut there to help
-the agent comply with the prose rules", and f7010ae, "What? Everything tooling can stay and agents.md and
-add enforcements in long-running you can then hook into in monorepo I said jsut don't add fucking CI and
-PR checks that everyone hits".
+A dangerous monorepo change lands once a short staging test of its head has passed, because
+untested dangerous changes have caused outages. Infra and blue-green changes count above all. This
+is prose the drive keeps with local tooling: add no ruleset, commit status or PR check that every
+PR hits, and the monorepo hooks into the drive through its `.claude/long-running.toml`.
 
-- **Which changes.** By eedf451, "We need to even more enforce in our home agents.md, anything we are
-  doing dangerous like eg adding the auto partitioning of ssql tables needs to be thoroughly tested in
-  staging (and deploy the branch there then freeze to keep it there, for a short period) before we merge
-  or there's any chance of it touching prod. We have caused too many outages", and above all a change to
-  infra or a blue-green path, by 46eaebb, "The forced staging thing should also and especially apply to
-  anything that changes infra / blue-green things eg what happened this morning w the ddog thing you must
-  ensure this process would have caught it". Each stack's `<ci> release plan` decides, by his pick
-  bb9cf91, "The soak reads reach from each stack's release plan: a change that plans like dev passes
-  untested". A stack staging has no copy of, such as Buildkite, the identity account or Datadog, goes on by
-  his pick 67caa93, "His exception after reading the release dry-run's preview of each such stack". So
-  when `<ci> release select --pr` names none of a PR's releases as `staged`, each with an env marked
-  `stage: staging`, and none is the new tree's Sand CLI or the desktop app, which `<ci> mac-box prove`
-  signs in to staging, its staging test part's tester starts the release dry run of each from this Mac and asks his
-  exception with the counts each stack's preview plans; his answer giving it drops the part, so the PR
-  lands on his Approve. A PR reaching one staged component keeps its soak.
-- **How it runs.** Short, aggressive and agent-led, never a hold on staging, then a 2-hour soak once
-  merged, by 41eb335, "The point of using staging (pre-merge) is not to hold it there, it’s to quickly
-  and aggressively test it in as realistic a way as possible. Then post-merge 2 hour soak is a good
-  timeline", ef0ae96, "1 and also shorten the soaks / don’t do soaks just do short aggressive trests, and
-  make both if these the standard", 0a09bcc, "1 and then aggressively manually test it that should be
-  the playbook", and 3bfcce8, "Each one should also involve some manual agent-led testing the truly tests
-  all scenarios that could break on prod". Changes touching different files share one cut, one freeze
-  and one claim, by 0c33b7b, "But also combine jobs as possible". The drive starts each test on staging
-  alone with no card, by his pick 23eefb9, "A standing yes: the drive soaks any dangerous branch on
-  staging alone, while production keeps waiting for your word", which [After merge](#after-merge) reads
-  as needing no `--order`.
-- **Its tools.** The steps are the monorepo `AGENTS.md`'s **Landing** rule. `<ci> release soak`, once
-  on `dev`, freezes staging, deploys the branches and unfreezes, by his pick 9e17cb0, "One soak command
-  that freezes staging, deploys the branch, waits for its tests, unfreezes, and posts a pass the merge
-  requires"; its release stamps the database's staging rollout with the tested head, by fe2959a, and its `--fail` puts staging back, by
-  cf6fc93, "Redeploy the soaked stacks at latest-green-rc when --fail ends the soak". `<ci>
-  staging-smoke soak` runs the agent's scenarios on staging as the smoke-test account.
-- **Its restore.** Staging goes back to the commit it served before the test, the cut's base, with
-  `<ci> release start <each soaked target> --from <restore commit> --emergency --env <staging env>`,
-  where the restore commit is an empty commit on the base, `git commit-tree <base>^{tree} -p <base>`,
-  pushed on a branch of its own, such as `<job>-staging-restore-<base>`, so `buildkite/test` grades it
-  before the off-dev emergency start needs it green. Never name the base itself: the soaked cut descends
-  from it, and <ci> reads a commit the live one descends from as already carried, so
-  `--from <base>` is refused as already shipped and `--manual --stack … --commit <base>` plans every
-  stack as already live and applies nothing.
-- **Its claim.** The test claims staging as the monorepo's `staging-claim` [repo rule](concepts.md) says,
-  which quotes his 33de0fc, 1e8a8d5 and 333e8ca whole, 333e8ca moving every claim post to
-  #releases-staging, in a claim whose `until` the watch's `DUE` line follows, by
-  [the records page](records.md). Its freeze names its job, with `<ci> release freeze --with-staging
-  --holder <drive>/<job>` once on `dev`, by his pick e3c9bbd, "The freeze names its job; soak, Mac box proof, agent
-  proof, pass-box run, cluster job and break-glass refuse another job's freeze". While another drive on
-  this Mac holds a claim whose `until` is still to come, the `landing_guard` hook and `drive job held
-  --cluster` refuse a Job on `<staging env>`, by `<ci> cluster-job` or by creating, unblocking or
-  rerunning the build it starts, naming that claim's order, drive, end and thread: wait behind it with
+- **Which changes.** Each stack's `<ci> release plan` decides: a change that plans like dev passes
+  untested. When `<ci> release select --pr` names none of a PR's releases as `staged` (an env
+  marked `stage: staging`), and none is the new tree's Sand CLI or the desktop app, which
+  `<ci> mac-box prove` signs in to staging, staging cannot test it (Buildkite, the identity
+  account, Datadog). The tester then runs each stack's release dry run from this Mac and asks his
+  exception with the counts each preview plans. His yes drops the part and the PR lands on his
+  Approve.
+- **How it runs.** Short, aggressive and agent-led, exercising every scenario that could break on
+  production, then a 2-hour soak after the merge. Changes touching different files share one cut,
+  one freeze and one claim. The drive starts each test on staging with no card and no `--order`.
+- **Its tools.** The steps are the monorepo `AGENTS.md`'s **Landing** rule. `<ci> release soak`,
+  once on `dev`, freezes staging, deploys the branches, waits for their tests and unfreezes. It
+  stamps the database's staging rollout with the tested head, and its `--fail` redeploys the
+  soaked stacks at the latest green release candidate. `<ci> staging-smoke soak` runs your
+  scenarios on staging as the smoke-test account.
+- **Its restore.** Staging goes back to the commit it served before the test with
+  `<ci> release start <each soaked target> --from <restore commit> --emergency --env <staging env>`.
+  The restore commit is an empty commit on the base, `git commit-tree <base>^{tree} -p <base>`,
+  pushed on a branch of its own such as `<job>-staging-restore-<base>`, so `buildkite/test` grades
+  it. Naming the base itself fails: the soaked cut descends from it, so `<ci>` reads it as already
+  shipped and applies nothing.
+- **Its claim.** The test claims staging as the monorepo's `staging-claim`
+  [repo rule](concepts.md) says, in a claim whose `until` the watch's `DUE` line follows, by
+  [the records page](records.md). Its freeze names its job:
+  `<ci> release freeze --with-staging --holder <drive>/<job>`, once on `dev`. While another drive
+  on this Mac holds a live claim, the `landing_guard` hook and `drive job held --cluster` refuse a
+  Job on `<staging env>`, naming that claim. Wait behind it with
   `WAITING staging:<what you test>/<staging env>@<its commit>`, then claim staging yourself.
-- **What holds the PR.** The pass the merge requires is the drive's, never GitHub's. Three things start
-  it, so it never rests on the builder's word alone. The builder's `READY` or `PUSHED` naming a
-  <monorepo> PR carries `STAGING: #N <cases>`, which `drive job report` turns into the part
-  `<order>:staging test of #N before it lands`, the PR's wait on it and its tester, or,
-  when another order's staging part already names the PR or a tester the PR or a PR under it waits on
-  still runs, the PR's wait on that test alone, or `STAGING: none: <why AGENTS.md's dangerous rule
-  misses it>`. And `drive pr add`, on each such PR it registers, and the watch, on each new head of one
-  and once on every open one after the install that
-  brought it, read the files the PR changes against the `[[dangerous]]` tables of the monorepo's
-  `.claude/long-running.toml`, each a class of AGENTS.md's dangerous rule with the globs of its paths,
-  leaving out test files and its `[skip]` globs, and give a PR that changes one the same part, wait and
-  tester, its goal naming each class and file, before his card draws. And `drive pr add`, `drive pr set`
-  and the lander put each PR waiting on his tap whose paths reach a component `<ci> release select
-  --pr` lists on that part and its wait, whatever its exempt class, by his pick bb9cf91: its `releases`,
-  reached through paths off <ci>'s dev list, so a PR changing only `<ci>` and its source, whose code its
-  caller runs from a checkout and no release deploys, gets none, nor a PR whose part `drive order set
-  --drop-part` or his answer took off: that drop ends the PR's wait on it at every head, its card saying
-  it merges first and is tested on staging after its merge, by 2eb7e76, whatever its builder's `STAGING:` line
-  says. The watch's first pass after the install
-  that brought this reads the reach of each open PR an older reach put on its test and takes each that
-  now gets none off it, the part, its wait and each tester left with nothing else, whoever took it up,
-  since 0048b14 binds a high-risk change's started test, so his Approve on it stands. A builder's later
-  `STAGING: #N` line reaches that tester as a held text, and its `STAGING: none: <why>` or `STAGING: #N
-  none: <why>` lifts a test no job runs now, one that ended with no pass included, that the release reach did not
-  give, its why shown on his card, while a test a job runs now goes to its end, by 0048b14. It is never a wait
-  on the testing job: the lander lands it once that tester's `DONE` keeps the test's proof as its first
-  `CHECK:` line, by [the jobs page](jobs.md). That pass keeps each
-  Approve he gave before it, on every open PR waiting on the part, so his one Approve lands the PR once
-  its test passes, by e5e4f7b, "Approved but for the last time tell if untested it on staging or not and
-  since this is a big one test it first". The lander lands a dangerous change only while he is present,
-  his word or tap within 15 minutes, by 27ea387, "merging or rleasing dangerous things should only be
-  done wehn the human is present". The monorepo hooks into the drive through its
-  `.claude/long-running.toml`, never through CI.
+- **What holds the PR.** The pass is the drive's, not GitHub's. Three things put a PR on its test:
+  - The builder's `READY` or `PUSHED` carries `STAGING: #N <cases>`, which `drive job report` turns
+    into the part `<order>:staging test of #N before it lands`, the PR's wait on it and its tester.
+    When another staging part already names the PR it becomes a wait on that test.
+    `STAGING: none: <why AGENTS.md's dangerous rule misses it>` says no test is owed.
+  - `drive pr add` and the watch, on each new head, read the changed files against the
+    `[[dangerous]]` tables of the monorepo's `.claude/long-running.toml` (a class and its path
+    globs, less test files and `[skip]` globs) and give a matching PR the same part, wait and
+    tester before his card draws.
+  - `drive pr add`, `drive pr set` and the lander do the same for each PR waiting on his tap whose
+    paths reach a component `<ci> release select --pr` lists, as
+    [Cards and tests that hold a PR](#cards-and-tests-that-hold-a-pr) says.
+- A later `STAGING: #N` line reaches the running tester as held text. `STAGING: none: <why>` or
+  `STAGING: #N none: <why>` lifts a test no job runs now that the release reach did not give, its
+  why shown on his card. A running test goes to its end.
+- The lander lands the PR once the tester's `DONE` keeps the test's proof as its first `CHECK:`
+  line, by [the jobs page](jobs.md). The pass keeps each Approve he gave before it, so one Approve
+  lands the PR once its test passes, under [the presence limit](#the-monorepo).
 
 ## Before any change FDEs could see
 
-Run `drive fde-scan -- --symbol <name>`, one `--symbol` for each builtin, function or table method
-the change touches, before writing a change to anything FDE or customer code can observe: a
-builtin, API or SDK call, a consistency level, a default, a schema, or a wire or storage format.
-It runs the monorepo's `<ci> fde-scan`, which the `fde-scan` skill on `dev` describes, in the
-drive's checkout at the head of `dev`, on the coordinator's Mac for a Sprite lane too, since a
-branch cut before the scan landed routes the verb to a `ci` build without it and holds no Sand
-parser command for it to run. Its report, never a line saying it comes later, which `drive pr add` refuses, is the PR body's `## FDE impact` section, whose first paragraph his card draws
-under the Summary; each caller it finds is fixed in
-the same stack or asked on a card, whatever his words, by his words "this MUST be usedto analyze
-impact before doing anyhting tht coulc imapct FDEs, regardless of what the human says".
+Before writing a change to anything forward-deployed engineers' or customers' code can observe (a
+builtin, an API or SDK call, a consistency level, a default, a schema, a wire or storage format),
+run `drive fde-scan -- --symbol <name>`, with one `--symbol` for each builtin, function or table
+method the change touches. Their code breaks silently otherwise, so this holds whatever the order
+says. It runs the monorepo's `<ci> fde-scan` in the drive's checkout at the head of `dev`, on the
+coordinator's Mac for a Sprite lane too, since an older branch has no scan to run. Its report is
+the PR body's `## FDE impact` section, whose first paragraph his card draws under the Summary.
+`drive pr add` refuses a body saying the scan comes later. Fix each caller it finds in the same
+stack, or put it on a card.
 
 ## Read-only repositories
 
-Customer and forward-deployed engineers' repositories are read only: clone and read, never push,
-comment, or merge, since he merges those himself. A change that belongs there comes back as `ASK` with
-the patch.
+Customer and forward-deployed engineers' repositories are read only: clone and read. He merges
+those himself, so a change that belongs there comes back as `ASK` with the patch.
 
 ## After merge
 
-- Merged is not live: prove it before `DONE`. A plugin or tool's installed version contains the merge,
-  or a compiled tool's local build of the merge sha reruns the case, by step 3 of
-  [yasyf/* repositories](#yasyf-repositories). A monorepo change is live when its release is live on the
-  targets it touches, shown by its card in #releases.
-- A job never starts a release. One his order covers releasing returns `WAITING release` naming the
-  exact `<ci> release start` or `hotfix`, outside an incident after reading its `<ci> release
-  plan`; any other change rides the next release and returns `WAITING release`.
-- A release he orders goes out smallest first, by his words 42a0764 on Nov 15, 2026: "you could be
-  suggesting things like if there's a safe way to exclude ssql from this release, if there's a way to
-  just hotfix his bug fix and do that as an initial release, etc." Offer, in this order, and
-  recommend the smallest that meets his goal unless his words choose another: a `<ci> release
-  hotfix` of the fix his order names; the cut `--without` each stack holding a migration, storage or
-  write-path change no staging test passed; the whole cut. Once his words withdraw a card, the next
-  card offers every option they did not rule out.
-- A release ships every target of the whole platform that his latest ruling on it does not
-  exclude, by his words on Nov 15, 2026: "why are you leaving stuff out? you should make sure
-  everything [...] is working and has not broken anything and then release it all". Whoever
-  writes the start reads its scope fresh from that ruling each time, never from an earlier plan
-  or a reader's choice. The repository names its release tool in the `[release]` table of its
-  `.claude/long-running.toml`: `targets`, a command printing the JSON list of the platform's
-  targets; `status`, a shell command with `{release}` printing a JSON object of that release's
-  `name`, `build`, `order`, `commit` and the targets it `carries`; and `whole`, the start's word
-  for every target. A target the job wants left out needs a failing test, drawn on his card as
-  `<target> fails: <the failing test>`; the `--without` rung above names each target it drops
-  that way. A target his ruling excludes is written in the ASK as `<target> left out by his <id>:
-  "<his words>"`, quoting his newest recorded ruling on a release. `drive job ask` refuses a card
-  naming a production start in backticks that leaves out a target by neither. The release itself
-  is checked by what it carries once it runs, whatever any card or flag says: the `landing_guard`
-  hook reads the `status` record of the release an approve or resume names, which counts each
-  target the release tool pulled in as well as its picks. It refuses a production release carrying
-  more than half the platform's targets that leaves one out, unless the starting job's goal or
-  brief records either line above, quoting the answer its `--order` names. A release of half the
-  targets or fewer is one his words name target by target and passes. The same record finds the
-  job that started the release, so the top coordinator's own approve passes his hold on that
-  job's start and kept pass.
-- A release never skips a component or waits a night for a PR that is green and approved, by his
-  words on Nov 15, 2026: "its saying it will wait all night or skip the mac release for 1 PR which
-  is already green and approved, I just merged it to unblock but whatever in the tooling that did
-  not just merge it then include mac in the release needs to be fixed". When only its staging test
-  holds such a PR on an order a production cut serves, the watch's `release_lines` takes the test
-  off and lets it merge first, unless it changes a dangerous path, so the lander queues it through
-  `stack-enqueue` within minutes. The cut waits on that landing, carries the component, and its
-  staging retest reruns only the cases of what that PR touches, never the whole platform. A
-  dangerous PR still waits for his word, and his card asks to merge it, with an option naming
-  merge and its `#N`; his pick is recorded with `drive answer <his answer> --dropped
-  <order>:staging test of #N before it lands`, and the lander lands it while he is present. `drive
-  job ask` refuses a card on a release order that asks about a non-dangerous PR of this kind, or
-  that asks about a dangerous one with no option to merge it.
-- A release he ordered never waits on drive tooling, by the same answer: "stop blocking the release
-  on random tooling fixes that are necessary but not blocking." A release-path PR whose staging cases
-  passed while the drive refused or never kept their `DONE` lands by `drive order set --drop-part` on
-  its tester's part, the turn the defect goes to meta.
-- His hold and his word cover every release reaching past `<staging env>` and
-  `<sandbox env>`, by his words 716e70d, "You never have to ask for sandbox", and on staging
-  33de0fc, "every time we want to do a test, you don't need my permission", and 23eefb9. A release
-  whose every place, its `--env` places and its stacks' envs, is one of those two, and that is no
-  `--for-production` start, starts, resumes, passes its approve hold and reruns with no `--order`, no
-  card and no Jev read, on any order, the repository's staging-claim post still going first on
-  staging. `drive job ask` keeps a card whose recommended option names only such releases in
-  backticks decided on that option, drawing no card.
-- His hold on every release is his answer labelled `release-hold` that no later answer of his
-  supersedes, such as 15c4de1: "no releases until I say we can again, only I can give exceptions".
-  While it stands, any other release runs only on his exception, an answer of his recorded after the
-  hold that approves that one release. `drive job add --release` refuses any other start, and the
-  `landing_guard` hook refuses every other release call and quotes the hold. It covers `<ci>
-  release resume`, `approve` and `rollback`, a `<ci> bk rerun release` or `<ci> bk api`
-  write to a release cut, a forge/release build whose env holds `RELEASE_START`, and a `<ci> bk
-  api -X POST` creating a forge/release build, unless the JSON its `-d` gives inline, as
-  `-d '<json>'` or `-d "$body"` after `body='<json>'` in the same call, sets the env `<ci>
-  cluster-job` sets, a `CLUSTER_JOB` alone; a body a file or a command substitution supplies counts
-  as a cut, since the hook cannot read it. A cluster job's build, such as a team's memory move or
-  journal pass from `<ci> cluster-job`, or one a tester creates that way on branch `dev` at a
-  PR's commit, since `<ci> cluster-job` builds dev's head, is no release cut, yet the hold covers
-  a Job it starts on any cluster but `<staging env>` or `<sandbox env>`: the hook refuses
-  starting it, creating its build, unblocking its build's gate and rerunning that build until an
-  answer of his recorded after the hold orders that CronJob on that cluster at that
-  moment. Opus reads each answer of his the Job's `--reason` names by id and those
-  `ccn answer match` ranks nearest it, beside the hold and the time now in Pacific, so 34c9f21's
-  "the other three after your hold lifts" orders no production dry run while the hold stands. Name
-  his answer's id in `--reason`, which the build keeps in `CLUSTER_JOB` for its unblock and rerun
-  to read. When Opus is unsure or gives no reading, the call is the top coordinator's, never his:
-  from its own session it reads his words itself and, when they order the Job, starts it with that
-  reading in `--reason`, as `--reason "<answer id> reading: <why his words order it, quoting
-  them>"`; a reading counts from no other session, and a confident no still goes to him. While he is away, the hook refuses that start, unblock or rerun on a production cluster
-  whatever answer it names. A Sprite lane asks with `drive job held --cluster <env> --cronjob <name>
-  --reason <why>`. A wrapper such as `drive break-glass`, `timeout` or `xargs` changes nothing. It holds a drive session, its agents, a Sprite lane, which asks the coordinator's Mac
-  with `drive job held --release`, a codex job's run, through the codex PreToolUse hook
-  `drive job launch` keeps in `~/.codex/hooks.json`, and the watchdog, whose environment names its
-  drive, its rerun of a release build reading the release of the job that started that build.
-- A start reaching past staging and sandbox names his exception in `--order`. A job's approve,
-  resume, rerun or rollback passes on the pass its job kept when `drive job add --release` started
-  it since the hold, Opus's read or the top coordinator's reading, and reads the `--order` of its
-  `Release:` line again only when it kept none. A call naming none is refused, with no answer of his
-  read, unless it runs on staging or sandbox alone. An
-  incident's order passes on its words, never on its label. Ask
-  him with `drive job ask` and record his answer with `drive answer`. Once he says releases can go
-  again, supersede the hold with that answer: `ccn answer supersede <hold> --by <id>`. Record a new
-  hold of his with `drive answer --label release-hold`.
-- `<ci> release freezes` reads each freeze the release ledger holds standing now. A job's brief and
-  a handler's prompt carry those freezes and his hold on a `Release freezes:` line, as they stood when
-  written, and `drive status` adds the line when a shown job or PR waits on a release. `say` and
-  `record` refuse words saying a release may start that leave out, by its id, a freeze or his hold
-  standing when they post; words saying a freeze or hold ended, such as a staging test's closing line
-  on the freeze it laid, start nothing and pass.
-- A sub-coordinator, the coordinator session for one project, lands and installs its project's
-  changes; the top coordinator alone starts, approves and rolls back production cuts, one at a time,
-  since one cut carries every project's changes. The `landing_guard` hook refuses `ci release start`,
-  `resume`, `approve` and `rollback` and a release cut's rerun or unblock from a sub-coordinator's
-  session and the agents it starts, naming the top's session; `--plan`, `--dry-run`, `--help`,
-  `status` and `watch` still run. A job of a sub-coordinator returns
-  `WAITING release` naming the merged changes the cut must carry, and its sub-coordinator asks the top
-  for the cut with a `release` record at `root@<drive>` naming, in backticks, the one start with the
-  `--order` of his answer, or else asking the top to put it to him. The top starts the cut in one call on the
-  record's order, such as `drive job add builder --order o1094 --goal "release the merged database
-  changes" --release "<ci> release start db --from a6f826f01131fb9774a1410f95b3480996409aeb --order b9668c9"`,
-  which starts it from the top's checkout in a process of its own that keeps its build and writes the
-  job's brief, whose `Release:` and `Release build:` lines name the command and its build, then starts
-  the job's agent on that brief once the watch's FREE line on the job names it. A job
-  with a `Release:` line is the top's on any order, so its watch lines and agent are the top's, and a
-  sub-coordinator is refused adding, briefing or starting one, naming the top.
-- His order or his pick on a card to release, or the coordinator's record of either, approves starting
-  that release while he is present, his word or tap within the last 15 minutes, never the migrations, deletes and
-  replaces its approve hold holds. While he is away `drive job add --release` and the `landing_guard` hook refuse a
-  start, resume or approve, the job returning `WAITING his word` with the release held, but for an incident's hotfix
-  of pull requests that change nothing dangerous, which carries no other change; a release whose every place is off
-  production, its env file giving a stage and no `prod: true` as staging, sandbox and dev have, and a rollback
-  run at any hour. A pick whose words
-  order the release approves it whatever its card asked, by his words "if I apprtove a release dont
-  fuckl around kjust appriove it". The release gate and `drive job ask` read his answer one way: his
-  option number or tap on a kept card whose option names a release in backticks orders a release
-  shipping that option's change, on that option's places and on those his words past the number name,
-  by env id or by the team's name in that env's env file, so "1 and then get Acme to the
-  same" orders option 1's hotfix on Acme's env. Each `--stack <project>/<env>` a release names reads
-  as its project among the targets and its env among the `--env` places, and `--commit` as `--from`,
-  so a release's places are its `--env` places and its stacks' envs, else production. On an option naming no release in backticks, his number
-  or tap orders a `release start` carrying only targets, `--env`, `--without`, `--from` or `--commit`, `--order` and
-  `--emergency`, with a target and a place, when the option's words name each target and they or his
-  words past the number name each place it runs on, so his "1" on a card whose option deploys the
-  branch's dashboard build to <staging env> orders that start; Opus reads any other answer beside the card it answers,
-  the drive's `Notes:` on his words, his answers recorded before it in the same Slack thread and the
-  places the release runs on with each one's stage, ordering only what his words name, so
-  his words to get work built or tested on a sandbox or staging order no release on production. A staging release started with `--for-production`, which <ci>
-  starts on both staging envs through every staging freeze, a teammate's included, reads as the
-  production release it tests, the same start without `--for-production` and its `--env`: only his
-  answer ordering that production release orders it, such as his pick of an option whose release
-  ships the same change on any production place, so neither his standing yes to soak nor his words to
-  test on staging do. The notes and earlier answers only say what his words point at:
-  304ffb2's "All 3 of these are approved" orders each release his 2:32 PM plan 42a0764 in its thread
-  names, the hotfix of the fix its notes name, the release without the database service and the database service's, and lifts
-  no presence hold, so a dangerous start still waits for his word once he is quiet 15 minutes. The top starts it with `--order <his answer id>` in the
-  `--release` command, with no `ASK` or card first: nobody asks him again. With no such answer, the
-  top reads the release's plan and asks him with `drive job ask` whether to start that exact command,
-  and his go is the answer it names. A resume or re-plan of a release he ordered passes the same
-  `--order` again. At the approve hold the job's agent reads each held
-  migration, delete and replace against the code at the release's commit, then runs `<ci> release
-  approve <id> --via <agent>`, naming in `--leave-out` each stack it cannot vouch for, never
-  cancelling the release or asking him, by his pick "Land whole stacks and read the gate: no schema
-  change merges without its writer; a stack's bottom waits for its top". Opus reads his approval once:
-  `drive job add --release` refuses a start whose `--order <id>` Opus does not read as his order or
-  pick to release, unless the answer is an incident's, labelled `incident`, and the job keeps the pass
-  for the release's resume, approve, rerun and rollback. When Opus is unsure or gives no reading, the
-  call is the top coordinator's, never his: from its own session it reads his words itself and, when
-  they order the release, adds `--reading "<why his words order it, quoting them>"`, which the job
-  keeps in place of Opus's pass; a confident no still goes to him, by 15c4de1. The `landing_guard`
-  hook refuses every `ci release start` and `hotfix` a drive session or agent runs itself.
-- A release-order rule stays prose, a cc-notes note labeled `drive:<drive>` and `release-order` or
-  `release` whose title names the PR or commit the rule turns on, as note 3e6822d, whose title says which cut may not carry #55980, does. By his ruling 17f763e, "Again this is not meant to be codified as hard coded
-  rules that fail, the tooling is jsut there to help the agent comply with the prose rules", nothing
-  refuses on one. `drive job ask` and `drive job add --release`, `--check` and the job tool's
-  `dry_run` included, send Jev each such note in a start's range, in as many requests of at most
-  10,000 characters as release notes fill, read at once, so none goes unread: one whose title names
-  no PR or commit, for a hotfix one naming a PR it hotfixes, and for a start one naming a PR or
-  commit the commit it cuts holds or git cannot place. Beside them goes each start a card's
-  options, their descriptions and its Show me name in backticks, or the one start. Each note Jev
-  does not read as silent on a start, an unsure read included, prints whole, with what git finds for
-  the PRs and commits its title names at the commit that start cuts. Follow its words before you
-  offer or start one, such as taking a target it forbids off the option or the start, or naming its
-  hazard on his card where it says so. Run the job tool's `dry_run` of `drive job add --release`
-  first, since the verb starts the release in the same call.
-- A job never approves a release he has not approved, and never touches one he started himself. An
-  incident's order's words approve the incident's own cut, by [incidents.md](incidents.md).
-- Then rerun the reporter's exact case on the live build, and return `DONE <proof>`: one line on what
-  changed for him, and the link or version that proves it.
+Merged is not live. Prove it before `DONE`:
+
+- A plugin or tool: its installed version contains the merge, or a compiled tool's local build of
+  the merge sha reruns the case, by [Installs](#installs).
+- A monorepo change: its release is live on the targets it touches, shown by its card in
+  #releases.
+- Then rerun the reporter's exact case on the live build and return `DONE <proof>`: one line on
+  what changed for him, and the link or version that proves it.
+
+### Releases
+
+The top coordinator starts a release his words cover, on its own reading of them. It judges
+whether his order, his pick on a card or his plain words cover a release, starts it, and says in
+one line what it started and why. His next word steers it. Nobody waits for a quote, a second
+session's confirmation or a card first. A change no words of his cover rides the next release.
+
+- **How it starts.** One call from the top coordinator:
+  `drive job add builder --order <order> --goal "<goal>" --release "<ci> release start <target> --from <commit> --order <his answer>"`.
+  It starts the release from the top's checkout in a process of its own, keeps its build, and
+  writes the job's brief, whose `Release:` and `Release build:` lines name the command and build.
+  The job's agent starts once the watch's FREE line names it. `--order` names his answer when one
+  exists. Opus reads that answer; when Opus is unsure, add
+  `--reading "<why his words order it>"`, which the job keeps for the release's resume, approve,
+  rerun and rollback. The verb starts the release in the same call, so run the job tool's
+  `dry_run` first. The `landing_guard` hook refuses a `<ci> release start` or `hotfix` a session
+  runs itself.
+- **The release job works out order and holds.** It reads the `<ci> release plan`, picks the
+  smallest release that meets his goal, and proceeds: a `<ci> release hotfix` of the fix his order
+  names, else the cut `--without` each stack holding a dangerous change no staging test passed,
+  else the whole cut. It names its choice in its return. Order does not block the start.
+- **Scope.** A release ships every target his words do not exclude. Leave a target out only for a
+  failing test, written `<target> fails: <the failing test>`, or because his words exclude it,
+  written `<target> left out by his <id>: "<his words>"`. The `landing_guard` hook reads the
+  release's `status` record on approve and resume and refuses a production release carrying more
+  than half the platform's targets that leaves one out with neither line in the job's goal or
+  brief, and `drive job ask` refuses a card naming such a start. The repository names its release tool in the `[release]` table of
+  `.claude/long-running.toml`: `targets` (a command printing the JSON list of targets), `status`
+  (a command with `{release}` printing a JSON object of `name`, `build`, `order`, `commit` and the
+  targets it `carries`) and `whole` (the start's word for every target).
+- **A green, approved PR does not hold a cut.** When only its staging test holds such a PR on an
+  order a production cut serves, the watch's `release_lines` takes the test off and the lander
+  queues it within minutes. The cut waits on that landing, carries the component, and its staging
+  retest reruns only the cases that PR touches. A dangerous PR waits on the presence limit; his
+  pick to merge it is recorded with
+  `drive answer <his answer> --dropped <order>:staging test of #N before it lands`.
+- **Drive tooling does not hold a release.** A release-path PR whose staging cases passed while
+  the drive refused or never kept their `DONE` lands by `drive order set --drop-part` on its
+  tester's part, the turn the defect goes to meta.
+- **The one wait.** A release carrying a dangerous change starts, resumes and is approved only
+  while he is present, by [the presence limit](#the-monorepo). A rollback runs at any hour. An
+  incident's hotfix of pull requests that change nothing dangerous, carrying no other change, runs
+  without him. So does a release whose every place is off production. Today
+  `drive job add --release` and the `landing_guard` hook also refuse any other production start,
+  resume or approve while he is away, and the job returns `WAITING his word` with the release
+  held.
+- **The approve hold.** The job's agent reads each held migration, delete and replace against the
+  code at the release's commit, then runs `<ci> release approve <id> --via <agent>`, naming in
+  `--leave-out` each stack it cannot vouch for. It decides this itself and keeps the release
+  going. An incident's order covers the incident's own cut, by [incidents.md](incidents.md).
+- **Staging and sandbox need no word.** A release whose every place, its `--env` places and its
+  stacks' envs, is `<staging env>` or `<sandbox env>`, and that is no `--for-production` start,
+  starts, resumes, approves and reruns with no `--order` and no card, the repository's
+  staging-claim post going first on staging. `drive job ask` keeps a card whose recommended option
+  names only such releases decided on that option and draws no card. Each `--stack <project>/<env>` reads as its project
+  among the targets and its env among the places, and `--commit` as `--from`; a release naming no
+  place runs on production. A staging start with `--for-production` runs on both staging envs
+  through every freeze, so it counts as the production release it tests.
+- **His hold.** His answer labelled `release-hold` that no later answer supersedes stops every
+  release past staging and sandbox until an answer of his after it allows one. That is his word,
+  so it stands. The top coordinator judges whether a later answer lifts it or covers a release.
+  Record a new hold with `drive answer --label release-hold`, and once he says releases can go,
+  `ccn answer supersede <hold> --by <id>`. While it stands `drive job add --release` and the
+  `landing_guard` hook refuse other release calls and quote the hold: `<ci> release resume`,
+  `approve` and `rollback`, a `<ci> bk rerun release`, a `<ci> bk api` write to a release cut, and
+  a forge/release build whose env holds `RELEASE_START`. A `<ci> bk api -X POST` creating such a
+  build counts as a cut unless its inline `-d` JSON sets a `CLUSTER_JOB` env alone.
+- **Cluster jobs under the hold.** A `<ci> cluster-job` build is no release cut, but the hold
+  covers a Job it starts on any cluster past staging and sandbox: starting it, creating its build,
+  unblocking its gate and rerunning it. Name his answer's id in `--reason`, which the build keeps
+  in `CLUSTER_JOB`. When Opus is unsure, the top coordinator starts it on its own reading with
+  `--reason "<answer id> reading: <why his words order it>"`. While he is away the hook refuses
+  that start on a production cluster. A Sprite lane asks with
+  `drive job held --cluster <env> --cronjob <name> --reason <why>`, and for a release with
+  `drive job held --release`. The hold reaches a drive session, its agents, a Sprite lane, a codex
+  job (through the hook `drive job launch` keeps in `~/.codex/hooks.json`) and the watchdog, and a
+  wrapper such as `drive break-glass`, `timeout` or `xargs` changes nothing.
+- **Freezes.** `<ci> release freezes` reads each freeze standing now. A job's brief and a
+  handler's prompt carry them and his hold on a `Release freezes:` line, and `drive status` adds
+  the line when a shown job or PR waits on a release. `say` and `record` refuse words saying a
+  release may start that leave out a standing freeze or hold.
+- **One cut at a time.** One cut carries every project's changes, so the top coordinator starts,
+  approves and rolls back production cuts. A sub-coordinator lands and installs its project's
+  changes. Its job returns `WAITING release` naming the merged changes the cut must carry, and
+  the sub-coordinator sends the top a `release` record at `root@<drive>` naming them. The top
+  reads it and starts the cut on its own reading. The `landing_guard` hook refuses
+  `ci release start`, `resume`, `approve` and `rollback` and a cut's rerun or unblock from a
+  sub-coordinator's session and its agents; `--plan`, `--dry-run`, `--help`, `status` and `watch`
+  run. A job with a `Release:` line is the top's on any order.
+- **Release-order notes.** A release-order rule is a cc-notes note labelled `drive:<drive>` and
+  `release-order` or `release`, whose title names the PR or commit it turns on. Nothing refuses on
+  one. `drive job ask` and `drive job add --release`, `--check` and `dry_run` included, have Jev
+  read each note in a start's range and print whole each one not silent on that start, with what
+  git finds for the PRs and commits its title names. Follow it: take a target it forbids off the
+  start, or name its hazard in your report.
+- Leave a release he started himself alone, since he is driving it.

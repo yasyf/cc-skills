@@ -478,7 +478,7 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
         started = [state.incident_job(data, name, order_id, part, created) for part in (order["parts"] if args.incident and not joined else [])]
         started += [state.INCIDENT_BRIEF] if started else []
         if paced:
-            started.append(f"every {minutes} minutes, as his words ask: {paced} owes him a line in its thread that long after its last one until done, and each line there promises the next within it")
+            started.append(f"every {minutes} minutes, as his words ask: {paced} owes him a line in its thread that long after its last one until done")
         page_job = paged and state.codex_job(data, order_id, state.PAGE, created)
         repeats = joined and not state.hurts_now(data, order)
         group = [other for other in state.feature_orders(data, order_id) if other != order_id] if repeats else []
@@ -904,7 +904,7 @@ def refuse_unquotable_parts(flag: str, parts: list[str]) -> None:
 
 
 def order_set(args: argparse.Namespace) -> int:
-    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; --add-part refuses a name a part cannot hold, by state.unquotable_part, and --add-part and --drop-part change only the parts they name, by change_parts, and --add-part prints each open part of another order and open PR Jev reads as already making a new part's change, by repeated_lines; closing one that owes him a promised line reads each thread it owes one in and refuses until the line is there or he withdrew the time, closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns; --incident turns an open order into an incident by turned_incident and names each open question card of his its words point at, by state.asked_lines; --kind answer --part takes each part off each done builder, codex or design job holding it, whose hold would keep it work he ordered, and delivers it by the post one's POSTED line names when that answer reaches him only by a post, saying so by answered_line; --standing keeps each --part standing on its goal, or takes it out with an empty one, by standing_parts, which --part needs no --kind for; a change to its parts, kind, standing parts, options-only mark or incident mark from a session of the drive that does not hold the order is refused before anything is written, by state.held_elsewhere, the check every job verb makes, but for the communicator and its handlers, which file his words onto any order's parts and kind and are refused only the incident mark. --unjoin takes it off the order it joined, by state.unjoin, filed under its own project and workstream by filing, from any session, since it changes no part. --priority puts its work first at each admission point, by state.first_in_line, and gives it a coordinator session of its own, by seat_started, from any session."""
+    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; --add-part refuses a name a part cannot hold, by state.unquotable_part, and --add-part and --drop-part change only the parts they name, by change_parts, and --add-part prints each open part of another order and open PR Jev reads as already making a new part's change, by repeated_lines; closing one that owes him a promised line reads each thread it owes one in and notes on stderr each line not there, closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns; --incident turns an open order into an incident by turned_incident and names each open question card of his its words point at, by state.asked_lines; --kind answer --part takes each part off each done builder, codex or design job holding it, whose hold would keep it work he ordered, and delivers it by the post one's POSTED line names when that answer reaches him only by a post, saying so by answered_line; --standing keeps each --part standing on its goal, or takes it out with an empty one, by standing_parts, which --part needs no --kind for; a change to its parts, kind, standing parts, options-only mark or incident mark from a session of the drive that does not hold the order is refused before anything is written, by state.held_elsewhere, the check every job verb makes, but for the communicator and its handlers, which file his words onto any order's parts and kind and are refused only the incident mark. --unjoin takes it off the order it joined, by state.unjoin, filed under its own project and workstream by filing, from any session, since it changes no part. --priority puts its work first at each admission point, by state.first_in_line, and gives it a coordinator session of its own, by seat_started, from any session."""
     name = state.resolve(args.drive)
     withdrawn = his_words(args.withdrawn, "withdraw a promised line") if args.withdrawn else None
     unreported = his_words(args.no_reporter, "take the reporters off an order") if args.no_reporter else None
@@ -941,7 +941,7 @@ def order_set(args: argparse.Namespace) -> int:
     alerts = alert_links(args.alerts)
     if args.standing_check is not None and args.standing is None:
         raise DriveError("--standing-check: refused, give it with --standing and the part's goal, since a check is how a standing part's passes run")
-    standing = standing_parts(name, data, args.id, args.add_part, args.drop_part, args.part, args.standing, args.standing_check) if args.standing is not None else []
+    standing = standing_parts(data, args.id, args.add_part, args.drop_part, args.part, args.standing, args.standing_check) if args.standing is not None else []
     sorted_parts = sorted_as(data, args.id, args.kind, args.part if args.kind or args.standing is None and not followed else [])
     if (order["incident"] if args.incident is None else args.incident) and (order["options_only"] if args.options_only is None else args.options_only):
         raise DriveError(
@@ -1009,11 +1009,10 @@ def order_set(args: argparse.Namespace) -> int:
                 state.keep(held, read[0], announced=False)
             if not held["kept"]:
                 why = f" ({read[1]})" if read[1] else ""
-                say = f" with say(record={args.record})" if report else ""
-                raise DriveError(
-                    f"{args.id} owes him the line promised for {render.when(state.due_at(held))} in {held['thread'][0]} thread {held['thread'][1]},"
-                    f" and no drive post is in that thread since {render.when(held['promised'], seconds=True)}{why}: post it there first{say}, or pass"
-                    " --withdrawn <his message> when he called it off"
+                print(
+                    f"drive order set: {args.id} closes with the line promised for {render.when(state.due_at(held))} in {held['thread'][0]} thread {held['thread'][1]}"
+                    f" unposted: no drive post is in that thread since {render.when(held['promised'], seconds=True)}{why}",
+                    file=sys.stderr,
                 )
         if args.state in state.CLOSED_ORDER_STATES:
             order["closed_on"] = report.get("seq")
@@ -1126,15 +1125,15 @@ def follow_ask(data: dict, order_id: str, build: str, ask: str, named: list[str]
     return part, {"build": build, "thread": thread, "message": None, "words": None, "ended": None, "record": None}
 
 
-def standing_parts(name: str, data: dict, order_id: str, added: list[str], dropped: list[str], named: list[str], goal: str, check: str | None) -> list[str]:
-    """The parts --standing keeps standing on its goal, or takes out with an empty one: each --part names among the order's parts as --add-part and --drop-part leave them, refused without --part, --standing-check refused with an empty goal, and, kept standing with no check, wherever brief.job_refusal refuses the codex job each pass of it is or the part has no research, by brief.unresearched, since each pass starts on a handoff, which the start check passes; a part kept standing on a check runs no codex pass, so neither refuses it."""
+def standing_parts(data: dict, order_id: str, added: list[str], dropped: list[str], named: list[str], goal: str, check: str | None) -> list[str]:
+    """The parts --standing keeps standing on its goal, or takes out with an empty one: each --part names among the order's parts as --add-part and --drop-part leave them, refused without --part, --standing-check refused with an empty goal, and, kept standing with no check, wherever brief.job_refusal refuses the codex job each pass of it is; a part kept standing on a check runs no codex pass, so that refusal never holds it."""
     if not named:
         raise DriveError(f"--standing: refused, name each part of {order_id} it keeps standing with --part")
     if check is not None and not goal.strip():
         raise DriveError("--standing-check: refused, a check keeps a part standing, so give it the part's goal with --standing")
     order = data["orders"][order_id]
     picked = pick_parts(order_id, order | {"parts": {part: None for part in order["parts"] if part not in dropped} | dict.fromkeys(added)}, named)
-    if goal.strip() and not check and (refused := brief.job_refusal(data, order_id, "codex", picked) or brief.unresearched(name, data, order_id, "codex", picked)):
+    if goal.strip() and not check and (refused := brief.job_refusal(data, order_id, "codex", picked)):
         raise DriveError(f"--standing: refused, no part kept standing, since each pass of a standing part is a codex job: {refused}")
     return picked
 
@@ -1601,7 +1600,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     refuse_a_mark_off_a_builder(args.kind, args.builds_nothing)
     lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
     found = check_waits(name, args.waits)
-    unreleased = args.release and (brief.release_refusal(args.release) or brief.approval_refusal(args.release, known := state.load(name), args.reading) or brief.uncarried_refusal(args.release, known) or brief.away_refusal("start", args.release, known, state.now()))
+    unreleased = args.release and (brief.release_refusal(args.release, args.reading) or brief.approval_refusal(args.release, known := state.load(name), args.reading) or brief.uncarried_refusal(args.release, known) or brief.away_refusal("start", args.release, known, state.now()))
     if args.release and not unreleased:
         for line in brief.release_notes([args.release], state.load(name)):
             print(f"drive job add: {line}", file=sys.stderr)
@@ -1642,7 +1641,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             or state.backlog_refusal(data, args.order, args.kind)
             or unlandable(data, lands)
             or state.job_wait_refusal(data, args.waits)
-            or brief.job_refusal(data, args.order, args.kind, parts, bool(lands or args.release or args.builds_nothing or args.kind == "builder" and args.branch), args.waits)
+            or brief.job_refusal(data, args.order, args.kind, parts, bool(lands or args.release or args.builds_nothing or args.kind == "builder" and args.branch))
             or (held and one_change_job(data, args.order, args.kind, parts, held, waits, branch=args.branch, repo=args.repo))
         ):
             raise DriveError(f"refused, no job added: {refused}")
@@ -1825,7 +1824,7 @@ def waiting_builder(data: dict, reader_id: str, created: str) -> str | None:
     reader = data["jobs"][reader_id]
     if reader["kind"] != "reader" or not (uncarried := [part for part in reader["parts"] if not state.carriers(data, reader["order"], part)]):
         return None
-    if not brief.waits_on_research(data["orders"][reader["order"]], "builder", uncarried) or brief.job_refusal(data, reader["order"], "builder", uncarried, False, [reader_id]):
+    if not brief.waits_on_research(data["orders"][reader["order"]], "builder", uncarried) or brief.job_refusal(data, reader["order"], "builder", uncarried):
         return None
     builder_id = state.next_id(data["jobs"], "j")
     data["jobs"][builder_id] = state.new_job(reader["order"], "builder", state.parts_goal(uncarried), uncarried, created) | {"waits": [reader_id]}
@@ -4511,9 +4510,8 @@ def job_held(args: argparse.Namespace) -> int:
         away = {key: why for key, pr in prs.items() if pr and (why := land.unattended(data, state.pr_key(pr["url"]), state.now()))}
         line = "\n".join([*(f"{key}: {', '.join(cards)}" for key, cards in held.items() if cards), *(f"{key}: its staging test {', '.join(runs)} has not passed" for key, runs in testing.items() if runs), *(f"{key}: {why}" for key, why in away.items())])
         return emit(args, line or f"no open card of his or staging test holds {', '.join(held)}", {"id": job_id, "prs": held, "staged": testing, "away": away})
-    cards = land.ship_held(data, job_id, args.exempt)
     main = land.claim_main(name, job_id) if args.exempt == state.MAIN_FIX else ""
-    return emit(args, "\n".join([*cards, *filter(None, [main])]) or f"{job_id}: no open card of his holds its PR", {"id": job_id, "cards": cards, "main": main})
+    return emit(args, main or f"{job_id}: nothing holds its PR", {"id": job_id, "main": main})
 
 
 def job_wake(args: argparse.Namespace) -> int:
@@ -5469,7 +5467,7 @@ def pr_check(args: argparse.Namespace) -> int:
 
 
 def answer(args: argparse.Namespace) -> int:
-    """Record an answer or ruling of his against the cards asking him, orders and parts undelivered and PRs not yet live that it could change, those of the job and order of the card it answers, those its words name, and those of each open order a pick of his binds that the card asked him to lift, and the jobs waiting on their orders: refuse until each card, order, part and PR is marked standing, settled, dropped, superseded or reopened by it and each job sent his words or untouched, either mark taking his words off the texts that job holds, show his answer on each card it settles, redraw each it settles in part to the ASK its job keeps for what is left, withdraw each card it drops without stopping its job, drop each order it drops, or whose every part it drops, stopping the live jobs whose order it is and marking in cc-notes each pick binding it superseded by his answer, take each other part it drops off its order, jobs and PRs, close on GitHub each open PR it drops, settle each superseded card in place, withdraw each card carrying a reopened PR until its builder's READY says how his words are met, close on GitHub an open PR superseded outright, and, unmarked, on its first record or any run after, mark in cc-notes each standing answer of his on the features it reaches that Opus reads it replacing, by replaced; a --title on an answer the drive keeps rewords its question in cc-notes, by settled.retitled, so the release gate reads the question as it reads now; each order and part of an open order the answer lists stays listed and markable until it is marked, whatever a builder's DONE or relaunch makes state.delivered read, and any other card, part or PR still asking him may be marked too. --approves keeps his approval of the orders and keys it names on the answer's row and goes ahead on what it covers now, by `approve`, marking each covered key the answer lists unmarked."""
+    """Record an answer or ruling of his against the cards asking him, orders and parts undelivered and PRs not yet live that it could change, those of the job and order of the card it answers, those its words name, and those of each open order a pick of his binds that the card asked him to lift, and the jobs waiting on their orders: refuse until each card, order, part and PR is marked standing, settled, dropped, superseded or reopened by it and each job sent his words or untouched, either mark taking his words off the texts that job holds, show his answer on each card it settles, redraw each it settles in part to the ASK its job keeps for what is left, withdraw each card it drops without stopping its job, drop each order it drops, or whose every part it drops, stopping the live jobs whose order it is and marking in cc-notes each pick binding it superseded by his answer, take each other part it drops off its order, jobs and PRs, close on GitHub each open PR it drops, settle each superseded card in place, withdraw each card carrying a reopened PR until its builder's READY says how his words are met, close on GitHub an open PR superseded outright, and, unmarked, on its first record or any run after, mark in cc-notes each standing answer of his on the features it reaches that Opus reads it replacing, by replaced; a --title on an answer the drive keeps rewords its question in cc-notes, by settled.retitled, so the release gate reads the question as it reads now; each order and part of an open order the answer lists stays listed and markable until it is marked, whatever a builder's DONE or relaunch makes state.delivered read, and any other card, part or PR still asking him may be marked too. --approves keeps his approval of the orders and keys it names on the answer's row and goes ahead on what it covers now, by `approve`, marking each covered key the answer lists unmarked. Words his message or card answer at --link does not hold, or words given with no --link, which keeps the answer at terminal, are recorded as the session's paraphrase, a new one labelled settled.PARAPHRASE_LABEL, said on stderr."""
     from drive import view
 
     name = state.resolve(args.drive)
@@ -5501,31 +5499,38 @@ def answer(args: argparse.Namespace) -> int:
             " answer of its own, recorded with --title, --words and --link, his messages in a row go in one first call, a --link for each in order,"
             " and --title alone rewords the question it answers"
         )
+    unlinked = not args.link
+    if unlinked and args.id not in data["answers"]:
+        args.link = [settled.TERMINAL]
     if args.id is None:
-        if not (args.title and args.words and args.link):
-            raise DriveError('name his answer\'s cc-notes id, or pass --title "<the question, verbatim>" with --words and --link to record it in cc-notes first')
-        if unsaid := settled.unsaid([args.words], args.link, found, data):
-            raise DriveError(f"refused, nothing recorded: {unsaid}")
+        if not (args.title and args.words):
+            raise DriveError('name his answer\'s cc-notes id, or pass --title "<the question>" with --words, and --link where he said them, to record it in cc-notes first')
+        unsaid = "no --link names where he said them" if unlinked else settled.unsaid([args.words], args.link, found, data)
+        if unsaid:
+            print(f"drive answer: {unsaid}; recorded as the session's paraphrase of his words, labelled {settled.PARAPHRASE_LABEL}", file=sys.stderr)
         lifts = settled.lifting(question for job in data["jobs"].values() for question in job["questions"] if superseded.ended_at(args.link[0], question))
-        args.id = settled.recorded(name, args.title, args.words, args.label, " and ".join(args.link), cwd, lifts)
+        args.id = settled.recorded(name, args.title, args.words, [*args.label, *([settled.PARAPHRASE_LABEL] if unsaid else [])], " and ".join(args.link), cwd, lifts)
     drive = args.about == state.ABOUT_DRIVE or bool(ON_THE_DRIVE & {*(cited["tags"] if cited else args.label)})
     marking = args.approves or args.stands or args.settled or args.dropped or args.superseded or args.reopened or args.others_stand or args.untouched
     done: list[str] = []
     if args.id not in data["answers"]:
-        if marking or not args.link:
+        if marking:
             raise DriveError(
-                f"cc-notes holds {args.id}; the drive keeps no link for it: run drive answer {args.id} --link <the permalink of his message or the card he tapped>"
-                " alone first, which keeps his words at that link, its text above its Notes: line or, where that text holds more than his words, his message there"
+                f"cc-notes holds {args.id}; the drive keeps no link for it: run drive answer {args.id} alone first, with --link <the permalink of his message or the card he tapped>"
+                " where you have it, which keeps his words at that link, its text above its Notes: line or, where that text holds more than his words, his message there"
                 " that sits inside it, and lists each card still asking him and each PR not yet live,"
                 " and mark them once you have read it"
             )
         if cited:
-            if args.words and (unsaid := settled.unsaid([args.words], args.link, found, data)):
-                raise DriveError(f"{args.id}: refused, nothing recorded: {unsaid}")
-            words, unsaid = settled.his_at(cited["body"], args.link, found, data)
+            if unlinked:
+                unsaid = "no --link names where he said them"
+            elif args.words:
+                unsaid = settled.unsaid([args.words], args.link, found, data)
+            else:
+                args.words, unsaid = settled.his_at(cited["body"], args.link, found, data)
             if unsaid:
-                raise DriveError(f"{args.id}: refused, nothing recorded: {unsaid}")
-            args.words = args.words or words
+                print(f"drive answer: {args.id}: {unsaid}; kept as the session's paraphrase of his words", file=sys.stderr)
+            args.words = args.words or settled.his(cited["body"])
         bound = superseded.binding(data, args.link[0], asked, cwd)
         with state.edit(name) as data:
             superseded.record(data, args.id, args.words, args.link[0], asked, bound, state.stamp(), drive)
@@ -6797,7 +6802,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--state",
         choices=state.ORDER_STATES,
-        help="done or dropped refuses while a promised line is not posted, and done while the bug report it fixes has not heard it is fixed",
+        help="done or dropped notes on stderr a promised line not posted; done refuses while the bug report it fixes has not heard it is fixed",
     )
     verb.add_argument(
         "--due", help="when he hears next, owed from the next line in the order's thread; on an order with no thread, the drive's own time, said once"
@@ -6887,7 +6892,7 @@ def parser() -> argparse.ArgumentParser:
             " turn for a slot and the load gate, and one already waiting its turn takes it on the watch's next pass; other orders' builders wait behind it; and it owes him a line every five quiet minutes whether or not a job of it is at work"
         ),
     )
-    verb.add_argument("--every", type=int, metavar="MINUTES", help="the minutes he asked a line every, owed that long after its thread's last line until the order is done, each line there promising the next within it; 0 takes it out")
+    verb.add_argument("--every", type=int, metavar="MINUTES", help="the minutes he asked a line every, owed that long after its thread's last line until the order is done; 0 takes it out")
     verb.add_argument("--project", metavar="NAME", help="the project the dashboard's Now screen files this order under; an empty name takes it out")
     verb.add_argument("--workstream", metavar="NAME", help="the workstream inside its project the Now screen files this order under; an empty name takes it out")
     verb.add_argument(
@@ -7099,14 +7104,17 @@ def parser() -> argparse.ArgumentParser:
             "the one `tools/ci release start` or `hotfix` to start now, its --order naming his answer approving it: refused unless the top"
             " coordinator adds the job, whatever order it serves, and Opus reads that answer as his go, given after any hold of his on every"
             " release, or it is an incident's order, but one on plat-usw2-staging or plat-usw2-sandbox alone, which needs no --order; it starts"
-            " from the top's checkout, then the job's brief names the command and its build, and its agent follows it and reads its approve hold"
+            " from the top's checkout, then the job's brief names the command and its build, and its agent follows it and reads its approve hold;"
+            " outside his hold, the top coordinator's --reading starts it with no --order and whatever Opus reads"
         ),
     )
     verb.add_argument(
         "--reading",
         help=(
-            "with --release, from the top coordinator's session only, why his words order that release, quoting them, which starts it when Opus"
-            " is unsure or gave no reading, never on a confident no; the job keeps it, so the release's resume, approve, rerun and rollback run on it"
+            "with --release, from the top coordinator's session only: what it read in his words as ordering that release. Outside his hold it starts"
+            " the release on that reading, with or without an --order, and Opus's objection prints as a warning; under his hold it starts it only"
+            " when Opus is unsure or gave no reading. The job keeps it, so the release's resume, approve, rerun and rollback run on it. A dangerous"
+            " release still waits for his presence"
         ),
     )
     verb.add_argument(
@@ -7445,7 +7453,7 @@ def parser() -> argparse.ArgumentParser:
     verb = job.add_parser(
         "held",
         parents=both,
-        help="his open cards holding the job's PR from going up, one waits id a line, which the bash_guard hook asks before a ccx vcs ship opens it; none once the job has an open PR",
+        help="what holds the job's PR from going up, a main fix's claim on the tests main fails, which the bash_guard hook on a Sprite lane asks before a ccx vcs ship opens it",
     )
     verb.add_argument("id", nargs="?", help="the job; a Sprite lane's own job when left out")
     verb.add_argument(
@@ -7456,7 +7464,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument(
         "--exempt",
-        help='the exempt class the PR goes up under, as the drive pr add in the same call registers it: none of his cards holds a "flake fix" or a "main fix", and a "main fix" claims for the job each test main fails that no other job holds, refused naming the job owning them all; the bash_guard hook on a Sprite lane passes it',
+        help='the exempt class the PR goes up under, as the drive pr add in the same call registers it: a "main fix" claims for the job each test main fails that no other job holds, refused naming the job owning them all; the bash_guard hook on a Sprite lane passes it',
     )
     verb.add_argument(
         "--release",
@@ -7724,7 +7732,7 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.add_argument("id", nargs="?", help="his answer's cc-notes id; leave it out with --title on the first call to record it in cc-notes")
-    verb.add_argument("--title", help="the question his answer settles, verbatim, as its cc-notes title; with no id, the first call records it there, and with an id it rewords that answer's question there")
+    verb.add_argument("--title", help="the question his answer settles, as its cc-notes title; with no id, the first call records it there, and with an id it rewords that answer's question there")
     verb.add_argument(
         "--label",
         action="append",
@@ -7746,7 +7754,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument(
         "--words",
-        help="his words, verbatim, cut with … where words are left out, which his cc-notes answer keeps and a superseded card shows; the first call with --title needs them, and with an id they are its cc-notes words above Notes: unless given, or his messages at --link joined with … where those words hold more than his and each message sits inside them, refused unless his message or card answer at --link holds them",
+        help=f"his words, cut with … where words are left out, which his cc-notes answer keeps and a superseded card shows; the first call with --title needs them, and with an id they are its cc-notes words above Notes: unless given, or his messages at --link joined with … where those words hold more than his and each message sits inside them; words his message or card answer at --link does not hold, or given with no --link, are kept as the session's paraphrase, a new answer labelled {settled.PARAPHRASE_LABEL}, with a warning",
     )
     verb.add_argument(
         "--link",
@@ -7756,8 +7764,9 @@ def parser() -> argparse.ArgumentParser:
         help=(
             "the permalink of his message or of the card he answered, which a superseded card links, or terminal for words he typed into a drive session's"
             " terminal; several for his messages in a row in one thread, or all at one channel's root, in the order he sent them, which --words joins with …"
-            " and the answer keeps at the first; the first call needs it, and checks --words against those messages joined and a named answer's words"
-            " above its Notes: either against them or, where those words hold more than his, as each message sitting inside them, refused on an answer recorded already"
+            " and the answer keeps at the first; the first call checks --words against those messages joined and a named answer's words"
+            " above its Notes: either against them or, where those words hold more than his, as each message sitting inside them, refused on an answer recorded already;"
+            " left out, the answer is kept at terminal as the session's paraphrase"
         ),
     )
     verb.add_argument("--stands", action="extend", nargs="+", default=[], metavar="KEY", help="a card, order, part or PR his answer leaves as it is")

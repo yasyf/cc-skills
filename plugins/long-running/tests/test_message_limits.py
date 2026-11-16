@@ -35,14 +35,9 @@ ELEVEN_FIXES = {
     "Batch adds": "Several orders or jobs added in one call all land or none do.",
     "Status tables": "Status posts draw tables as Slack tables, and the bot reads back its canvas.",
 }
-WHOLE = "pass as asked each message of his it answers, word for word or by its permalink, one per line."
 RELAY_BRIEF = (
     "Record: 670054 report from meta (job j1546, closes o598)\nDrive: demo\nContext: read 670054 whole. Post it in o598's thread if it"
     " has one, else at his DM root. He is away, so say may hold it for his catch-up.\nDeliverable: the line from 670054 posted, or held for his catch-up"
-)
-NOT_HIS = (
-    "Copy each message of his this post answers word for word, one per line, with … where you skip words, or pass its permalink"
-    " when it is in another thread of his DM, as a share he ordered to another person's DM does."
 )
 TEAMMATE = "U0TEAMMATE"
 CCI_READ = "mcp__plugin_cc-inbox_cci__read"
@@ -457,8 +452,6 @@ def test_a_line_in_his_thread_over_60_words_is_refused_with_its_count_limit_and_
     reason = posted(transcript, text=said(61), thread_ts="1.2")
     assert reason.startswith("refused: this post is 61 words, and a line in his thread is at most 60 words")
     assert "way shorter" in reason
-    assert "It names no message of his as asked, so it is not an answer and keeps that limit." in reason
-    assert reason.endswith(WHOLE)
     assert posted(transcript, text=said(60), thread_ts="1.2") is None
 
 
@@ -503,14 +496,12 @@ def test_a_bug_reports_thread_its_order_came_in_hears_none_of_its_lines_but_a_re
     assert message_limits.reporter_post(call("slack_reply", transcript, **reply) | {"tool_name": message_limits.SAY}, state.load("demo")) is None
 
 
-def test_a_fix_live_note_before_the_proof_is_judged_by_the_reporter_rule_and_refuses_when_jev_cannot_finish(run: Run, talker: str, transcript: Path) -> None:
+def test_a_fix_live_note_before_the_proof_refuses_before_jev_reads_it(run: Run, talker: str, transcript: Path) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the stuck staging deploy", "--reporter", REPORTED)
     note = {"channel_id": "C0REPORTS01", "thread_ts": "1794400100.000200", "text": "Fixed: staging deploys go through again since 10:02 AM."}
     reason = message_limits.deny_reason(call("slack_reply", transcript, **note))
-    [finding] = reason.findings
-    assert agents.ruled(reason) == {"rule": message_limits.REPORTER_RULE, "findings": [{"rule": message_limits.REPORTER_RULE, "found": finding["found"]}]}
-    assert finding["found"].startswith("the fix for the bug reported in this thread keeps no proof that it is live")
-    assert "It goes once" not in finding["found"]
+    assert agents.ruled(reason) == {"judged": False}
+    assert reason.startswith("Refused on purpose: the fix for the bug reported in this thread keeps no proof that it is live")
 
 
 def test_a_shared_questions_thread_gets_its_answer_only_once_it_is_posted_to_him_and_only_once(run: Run, talker: str, transcript: Path, slack_thread: Thread) -> None:
@@ -713,7 +704,6 @@ def test_an_edit_that_grows_its_post_past_a_rewording_is_refused_naming_both_lim
     assert reason.startswith(
         "refused: this post is 66 words, and a line in his thread is at most 60 words, or 10 past the 55 words of the post it edits"
     )
-    assert reason.endswith(WHOLE)
 
 
 def test_an_edit_whose_post_cannot_be_read_keeps_the_line_limit_and_says_why(talker: str, transcript: Path) -> None:
@@ -726,7 +716,6 @@ def test_the_answer_to_his_audit_order_goes_out_whole_and_its_refusal_says_how(t
     his(slack_thread, CHECK_SIMPLE)
     reason = posted(briefed, text=AUDIT, thread_ts=AUDIT_THREAD)
     assert reason.startswith("refused: this post is 106 words, and a line in his thread is at most 60 words")
-    assert reason.endswith(WHOLE)
     assert posted(briefed, text=AUDIT, thread_ts=AUDIT_THREAD, asked=CHECK_SIMPLE) is None
 
 
@@ -759,27 +748,16 @@ def test_words_the_record_a_handler_was_started_with_quotes_as_his_lift_nothing(
     assert posted(briefed, text=said(400), thread_ts="1.2", asked="is that live and working yhet?").startswith("refused: this post is 400 words")
 
 
-@pytest.mark.parametrize(
-    ("asked", "named"),
-    [
-        ("explain everything about the snapshot", '"explain everything about the snapshot"'),
-        (["the bucket history", "and the snapshot…"], '"the bucket history", "and the snapshot"'),
-    ],
-)
-def test_words_he_did_not_write_lift_nothing_and_the_refusal_names_them(
-    talker: str, transcript: Path, asked: str | list[str], named: str
-) -> None:
+@pytest.mark.parametrize("asked", ["explain everything about the snapshot", ["the bucket history", "and the snapshot…"]])
+def test_words_he_did_not_write_lift_nothing(talker: str, transcript: Path, asked: str | list[str]) -> None:
     reason = posted(transcript, text=said(400), thread_ts="1.2", asked=asked)
     assert reason.startswith("refused: this post is 400 words, and a line in his thread is at most 60 words")
-    assert "It is not an answer, so it keeps that limit" in reason
-    assert f"in no message of his in the thread this post goes to, no answer or Explain more tap of his a card there shows and no message of his in his DM an asked permalink links: {named}. {NOT_HIS}" in reason
 
 
 def test_words_only_the_bot_wrote_in_the_thread_lift_nothing(talker: str, briefed: Path, slack_thread: Thread) -> None:
     slack_thread.messages.append({"ts": "1.3", "from_claude": True, "from_bot": True, "text": CHECK_SIMPLE})
     reason = posted(briefed, text=AUDIT, thread_ts=AUDIT_THREAD, asked=CHECK_SIMPLE)
     assert reason.startswith("refused: this post is 106 words, and a line in his thread is at most 60 words")
-    assert reason.endswith(NOT_HIS)
 
 
 def test_his_answer_on_a_card_in_the_thread_is_his_words_for_asked_and_for_jev(talker: str, transcript: Path, slack_thread: Thread) -> None:
@@ -1030,7 +1008,7 @@ def test_a_call_two_reads_hold_reaches_jev_once_under_the_first_and_the_second_n
     assert sum(read["quote"].count(cards) for read in reads) == 1
 
 
-def test_claims_sharing_a_read_hand_jev_its_calls_once_at_any_count_each_claim_names_it_by_its_id_and_a_post_with_no_room_names_that_read_first(
+def test_claims_sharing_a_read_hand_jev_its_calls_once_at_any_count_each_claim_names_it_by_its_id_and_a_post_with_no_room_goes_out_naming_that_read_first(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     build = ("Bash", {"command": "tools/ci bk api /pipelines/release/builds/15427"}, '{"state": "passed", "jobs": 40}')
@@ -1049,11 +1027,11 @@ def test_claims_sharing_a_read_hand_jev_its_calls_once_at_any_count_each_claim_n
     assert one == many
     assert [(read["id"], read["quote"]) for read in many] == [("read:1", shown(*build)), ("read:2", message_limits.GIVEN.format(read="read:1"))]
     assert [claim["read"] for claim in printed(1)["post"]["claims"]] == ["read:1", "read:2"]
-    refused = printed(100)
-    reason = refused["hookSpecificOutput"]["permissionDecisionReason"]
-    assert (refused["judged"], "reads" in refused) == (False, False)
-    assert reason.startswith("refused: no Jev request of 10,000 characters holds these parts whole beside the post's ")
-    assert 'largest first: read:1 "tools/ci bk api /pipelines/release/builds/15427" beside the 101 claims naming it, ' in reason
+    unweighed = printed(100)
+    told = unweighed["hookSpecificOutput"]["additionalContext"]
+    assert ("permissionDecision" in unweighed["hookSpecificOutput"], "reads" in unweighed) == (False, False)
+    assert told.startswith(f"{settled.GOES_OUT} Jev gave no verdict (no Jev request of 10,000 characters holds these parts whole beside the post's ")
+    assert 'largest first: read:1 "tools/ci bk api /pipelines/release/builds/15427" beside the 101 claims naming it, ' in told
 
 
 def test_a_claim_naming_a_drive_pr_hands_jev_the_drives_line_for_it_once_beside_every_claim_naming_it_at_any_count(
@@ -1225,13 +1203,13 @@ def test_the_communicators_own_post_and_a_card_hand_jev_no_reads_and_claims_whos
     assert say(transcript, text=HISTORY_POST, thread_ts="1.2", claims="[{claim").startswith("claims is a list or object, and its text is not JSON")
 
 
-def test_an_unreadable_thread_refuses_with_why(talker: str, briefed: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_unreadable_thread_goes_out_unchecked_saying_why(talker: str, briefed: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def unreadable(*where: str) -> list[dict]:
         raise slack.SlackError("daemon not running")
 
     monkeypatch.setattr(slack, "thread", unreadable)
-    assert posted(briefed, text=said(100), thread_ts="1.2", asked=CHECK_SIMPLE).endswith(
-        "his thread could not be read, so this post cannot be checked as a reply to his messages there: daemon not running."
+    assert warning(briefed, text=said(100), thread_ts="1.2", asked=CHECK_SIMPLE).endswith(
+        "his thread could not be read to check it as a reply to his messages there: daemon not running."
     )
 
 
@@ -1258,7 +1236,7 @@ def test_the_hook_reads_his_thread_through_the_cc_slack_plugins_launcher_with_an
     assert posted(briefed, text=AUDIT, thread_ts=AUDIT_THREAD, asked=CHECK_SIMPLE) is None
 
 
-def test_no_cc_slack_plugin_refuses_saying_his_thread_could_not_be_read(
+def test_no_cc_slack_plugin_goes_out_unchecked_saying_his_thread_could_not_be_read(
     talker: str, briefed: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config = tmp_path / "config"
@@ -1267,8 +1245,8 @@ def test_no_cc_slack_plugin_refuses_saying_his_thread_could_not_be_read(
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
     monkeypatch.setattr(slack, "thread", READ_THREAD)
     monkeypatch.setattr(slack, "launcher", LAUNCHER)
-    assert posted(briefed, text=AUDIT, thread_ts=AUDIT_THREAD, asked=CHECK_SIMPLE).endswith(
-        "his thread could not be read, so this post cannot be checked as a reply to his messages there: the cc-slack@cc-slack plugin is not installed."
+    assert warning(briefed, text=AUDIT, thread_ts=AUDIT_THREAD, asked=CHECK_SIMPLE).endswith(
+        "his thread could not be read to check it as a reply to his messages there: the cc-slack@cc-slack plugin is not installed."
     )
 
 
@@ -1456,7 +1434,7 @@ def test_a_handlers_line_in_his_thread_waits_for_its_own_fresh_read_of_that_thre
     reads(lane_of(unread), "1.2", age=timedelta(minutes=11))
     stale = posted(unread, text="Fixed.", thread_ts="1.2")
     assert stale == "refused: your last read of his thread 1.2 was 11 minutes ago, and a read counts for 10" + read_it
-    assert isinstance(stale, agents.Unjudged)
+    assert isinstance(stale, agents.Ruled)
     reads(lane_of(unread), "1.2", age=timedelta(minutes=9))
     assert posted(unread, text="Fixed.", thread_ts="1.2") is None
     assert message_limits.deny_reason(call("slack_reply", unread, channel_id=DM, thread_ts="1.4", text="Fixed.")).startswith(
@@ -1902,7 +1880,7 @@ def test_say_refuses_a_line_telling_him_a_card_is_coming_until_it_names_that_car
         data["jobs"]["j1"]["questions"].append(state.new_question(None, "Cut the release?", state.stamp(), card=f"https://acme.slack.com/archives/{DM}/p1794288799976279") | {"waits": "demo:j1-7"})
     coming = "The release card is coming once the cut is green."
     refused = say(transcript, text=coming)
-    assert isinstance(refused, agents.Unjudged) and refused.startswith(f'refused: "{coming}" tells him a card is coming and names no open card of his')
+    assert isinstance(refused, agents.Ruled) and refused.startswith(f'refused: "{coming}" tells him a card is coming and names no open card of his')
     assert say(transcript, text="The release card {card:demo:j1-7} is coming once the cut is green.") is None
     assert posted(transcript, text=coming, card={"title": said(5), "body": coming, "options": ["Yes", "No"], "waits": "demo:j1-7"}) is None
     assert say(transcript, text="No release card follows, since your Nov 5 answer settled it.") is None
@@ -1927,7 +1905,7 @@ def test_say_refuses_a_line_saying_approve_buttons_or_cards_are_being_given_him_
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(None, "Land the fix?", state.stamp(), card=f"https://acme.slack.com/archives/{DM}/p1794288799976279") | {"waits": "demo:j1-7"})
     refused = say(transcript, text=promise)
-    assert isinstance(refused, agents.Unjudged) and refused.startswith(f'refused: "{promise}" tells him a card is coming and names no open card of his')
+    assert isinstance(refused, agents.Ruled) and refused.startswith(f'refused: "{promise}" tells him a card is coming and names no open card of his')
     assert say(transcript, text=f"{promise.rstrip('.')}: {{card:demo:j1-7}}.") is None
     assert say(transcript, text="You're saying the SandSQL status gave you no links; a handler is fixing that post.") is None
 
@@ -3084,11 +3062,11 @@ def test_while_he_is_away_a_handlers_update_to_teammates_in_a_staging_claims_thr
     assert say(transcript, text=update, channel_id="C0STAGING1", thread_ts="1794676871.132409") is None
 
 
-def test_the_rule_jev_weighs_a_line_held_while_he_is_away_is_the_one_away_rule_say_holds_reports_by(run: Run, talker: str, transcript: Path) -> None:
+def test_a_line_held_while_he_is_away_refuses_before_jev_reads_it_as_the_away_rule_say_holds_reports_by_does(run: Run, talker: str, transcript: Path) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     with state.edit("demo") as data:
         data["owner"] = {"heard": (heard := state.stamp()), "away": heard}
-    assert agents.ruled(posted(transcript, text="The fix merged."))["rule"] == state.AWAY_HOLD + "."
+    assert agents.ruled(posted(transcript, text="The fix merged.")) == {"judged": False}
 
 
 def test_an_incident_report_keeps_its_alert_links_bare_by_the_incident_its_order_or_record_marks(
@@ -3113,7 +3091,7 @@ def test_an_incident_report_keeps_its_alert_links_bare_by_the_incident_its_order
 
 
 
-def test_a_107_word_line_judged_a_summary_by_its_handler_still_refuses_when_jev_cannot_finish(talker: str, transcript: Path) -> None:
+def test_a_107_word_line_judged_a_summary_by_its_handler_hands_jev_its_length_finding_by_the_length_rule(talker: str, transcript: Path) -> None:
     reason = say(transcript, text=f"Fixed the journal reader and the release. {said(100)}", thread_ts="1.2")
     assert "this post is 107 words, and a line in his thread is at most 60 words" in reason
     assert agents.ruled(reason) == {
@@ -3486,7 +3464,7 @@ def test_a_write_to_his_dm_goes_through_say_so_each_reference_is_linked_and_the_
     reason = message_limits.deny_reason(call("slack_edit", transcript, url=link(EDITED), text="Reworded."))
     assert reason.startswith("Refused on purpose: slack_edit sends each {card:…}, {pr:…}, {order:…}, {record:…} or {answer:…} reference to him as raw text")
     assert "say(edit=<its permalink>, text=<the new words>)" in reason
-    assert reason.rule == message_limits.SAY_RULE
+    assert isinstance(reason, agents.Unjudged)
     reason = message_limits.deny_reason(call("slack_reply", transcript, channel_id=DM, thread_ts=BAD_STATE_THREAD, text="See {pr:7}."))
     assert reason.startswith("Refused on purpose: {pr:7} would reach him as raw text, since only say links a drive reference.")
     assert message_limits.deny_reason(call("slack_reply", transcript, channel_id="C0B75AL4XEW", thread_ts="1.2", text="See {pr:7}.")) is None

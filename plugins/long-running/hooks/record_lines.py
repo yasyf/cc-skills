@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import agents, limits, settled, state, superseded
-from drive.reports import CALL_FIELDS, addressed, attrs, hand_ask, kind, listed, posted, relayed_time, report_refusals, stray_parts, unprevented
+from drive.reports import CALL_FIELDS, addressed, attrs, hand_ask, kind, listed, posted, relayed_time, report_refusals, report_warnings, stray_parts, unprevented
 
 SILENT_LANES = {"long-running:reader", "long-running:designer"}
 TO_OWNER = (
@@ -47,7 +47,7 @@ def trimmed(record: dict) -> dict:
 
 
 def amended(drive: dict, lane: str | None, record: dict) -> dict:
-    """The record as cci keeps it: a report to the communicator re the seq of a POST report its own lane sent there corrects that report, whatever kind its writer named, so the watch starts the handler that rewords the post it went out in, and no rule of reports, one a thread a turn included, holds it to the next turn."""
+    """The record as cci keeps it: a report to the communicator re the seq of a POST report its own lane sent there corrects that report, whatever kind its writer named, so the watch starts the handler that rewords the post it went out in."""
     named = listed(record.get("re"))
     if kind(record) != "report" or not addressed(record, "communicator") or len(named) != 1 or not named[0].isdigit():
         return record
@@ -126,7 +126,7 @@ def posting_lane(data: dict, payload: dict, records: list[dict]) -> str:
 
 
 def decision(payload: dict) -> dict | None:
-    """What a drive session's close becomes: refused when it reaches an unfinished job's id, named in its to or, with none, the lane that wrote a record it closes, since only the drive's `record` tool posts there, else as called. What its post becomes: refused with the fix while a record in it, read with the text, kind, lanes and attrs cci stores for it, breaks a rule its kind keeps, an ask record carrying his card's ASK block, which only `drive job ask` keeps and draws, included, while any other ask, a question to another session's lane, goes out, or a handoff whose list line goes against a recorded answer of his, by overruled_handoffs, else posted, a post naming another drive than the session's going out on the session's own drive with each bare lane it is to qualified with that drive by homed, each report re a POST report its own lane sent going out as the correction it is, with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, each record sent where its drive routes it, and the call posted as posting_lane names, a records list rewritten with each record whole, since a field cci filled in beside the list would put back what the record dropped."""
+    """What a drive session's close becomes: refused when it reaches an unfinished job's id, named in its to or, with none, the lane that wrote a record it closes, since only the drive's `record` tool posts there, else as called. What its post becomes: refused with the fix while a record in it, read with the text, kind, lanes and attrs cci stores for it, breaks a rule its kind keeps, an ask record carrying his card's ASK block, which only `drive job ask` keeps and draws, included, while any other ask, a question to another session's lane, goes out, or a handoff whose list line goes against a recorded answer of his, by overruled_handoffs, else posted, with a warning on each report the drive reads as naming nothing it finishes, citing its own lane's record for a cause, saying a wait with no duration, sending a thread its second report of the turn or calling a job stuck unread, by report_warnings, a post naming another drive than the session's going out on the session's own drive with each bare lane it is to qualified with that drive by homed, each report re a POST report its own lane sent going out as the correction it is, with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, each record sent where its drive routes it, and the call posted as posting_lane names, a records list rewritten with each record whole, since a field cci filled in beside the list would put back what the record dropped."""
     names = state.session_drives(payload.get("session_id") or "")
     if not names:
         return None
@@ -148,7 +148,7 @@ def decision(payload: dict) -> dict | None:
     overruled, unread = overruled_handoffs(drive, stored)
     if overruled:
         return {"permissionDecision": "deny", "permissionDecisionReason": overruled}
-    warned = [*unread, *(warning for record in stored if (warning := unprevented(drive, record)))]
+    warned = [*unread, *(warning for index in range(len(stored)) for warning in report_warnings(payload, drive, stored, index) if warning), *(warning for record in stored if (warning := unprevented(drive, record)))]
     context = {"additionalContext": "\n".join(warned)} if warned else {}
     made = [limits.shortened(routed) or routed for routed in (readdressed(drives, payload.get("session_id"), record) for record in records)]
     lane = posting_lane(drive, payload, made)

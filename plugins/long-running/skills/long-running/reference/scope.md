@@ -1,284 +1,230 @@
 # Scope, and asking him
 
+One test decides what goes to him. A question is his when it is product scope, an architecture fork
+with lasting cost, his own workflow, money, or one of the hard limits below. Everything else you
+decide, do and report with a count. A wrong reading is fixed by his next word, which costs less
+than a card he did not need.
+
 ## The four kinds of PR
 
-Every PR the drive touches is one of the four kinds below. Decide which before any builder starts,
-and say it in the brief's `Serves:` line, the builder's `READY`, and every
-summary line about it, because work stopped before it starts wastes nothing.
+Say which kind a PR is in the brief's `Serves:` line and the builder's `READY`, so its landing
+route is known before it is built.
 
-- **A port**, "port of #N": a change carried between the old and new trees, with no behavior beyond
-  what #N needs in the target tree. It carries #N's behavior and visuals, and its data is modeled the
-  fundamentally right way for the target tree, never copied from #N's storage, such as key-value rows
-  where the target tree keeps a typed table, by his words "port his visuals but always do it the
-  fundamentally right way when it comes to modelng the data". That data model is a design part of the
-  order, settled on his card by [Design first](design.md). Its title opens `Port:`; every line he sees
-  calls it "port of #N". The coordinator reads it against #N's diff and records it with
-  `drive pr set <url> --port-of <N>`, which sets the `pure port` exemption, withdraws its open card,
-  and refuses `--tap`, and refuses a PR changing a migration, schema or `.proto` file, whose data model
-  is that design part. The exemption covers a port of work that merged or that he approved: a port of
-  an #N the drive tracks unmerged and without his Approve waits on #N and lands after it, and
-  `--port-of` refuses an #N the drive does not track unless GitHub reads it merged. The drive's lander queues it once green, after checking it changes no stored
-  data; he reads one line in its order's thread,
-  "port of #N landed", as every exempt class does in [landing.md](landing.md). A port needing his
-  pick is not pure: its question card says it ports #N and what in the target tree forces the pick.
-- **His order**: his message or picked card option asking for this build, quoted wherever the PR is
-  named to him. Record it with `drive pr set <url> --serves <o> --design none`, or
-  `--design asked:<his answer id>` for a settled design; it prints his words back. When an order
-  asks for cards or a summary, those cards deliver it, and each fix waits for his pick on its card.
-  A PR serves an order only if the order's words ask for it, not because jobs it unblocks serve it,
-  so the fix of a test that flaked on its PR is his order by his ruling 532cd3d, never by the order
-  whose PR it reddened.
-  Inside it, what already exists, a value's printed form, a wire, file or API shape, a default, a
-  command's output or a behavior, stays as it was unless his words name the new one or the outcome
-  they name, the problem they describe included, cannot happen without it; any other change to it
-  is his pick on a card, by his words "stop overrecahing and changing things people didnt ask you
-  when you are asked to make a change, put that int eh skill". The check before his card lists each
-  change the diff makes to what exists, before and after, and refuses each his words do not need.
-- **Drive tooling**: a fix to a tool the drive runs on, such as a launcher, the watch, cards, or CI
-  plumbing, or a rewrite of this skill a ruling of his asks for, by [Tooling](../SKILL.md#tooling).
-  It is the meta session's, under its own order in the thread his words ordering it came in, else
-  none, added with its reader and builder by
-  [meta.md](meta.md), and never `--serves` to his feature order, so his
-  feature threads carry only their feature. Its PR's His words list says none. A `yasyf/*` tooling
-  PR lands with no tap. A `<guarded org>/*` one lands under an exempt class, or serves its own order with
+- **A port**, "port of #N": a change carried between the old and new trees, with #N's behavior and
+  visuals and nothing more. Its data is modeled the right way for the target tree, such as a typed
+  table where #N kept key-value rows, because copied storage is the part that costs most to undo.
+  Its title opens `Port:`. `drive pr set <url> --port-of <N>` sets the `pure port` exemption,
+  withdraws its open card and refuses `--tap`. It refuses a PR changing a migration, schema or
+  `.proto` file, whose data model is a design part by [Design first](design.md). It refuses an #N
+  the drive does not track unless GitHub reads it merged, and a port of a tracked #N that is
+  unmerged and without his Approve lands after #N. The lander queues a pure port once green, after
+  checking it changes no stored data, and he reads one line in its order's thread, "port of #N
+  landed", as for every exempt class in [landing.md](landing.md). When the target tree forces a
+  pick that is truly his, the port is not pure: its card says it ports #N and what forces the pick.
+- **His order**: work his message or picked option asks for, or work clearly in its spirit. Record
+  it with `drive pr set <url> --serves <o> --design none`, or `--design asked:<his answer id>` for a
+  design he picked; it prints his words back. Inside it, keep what already exists (a printed form, a
+  wire, file or API shape, a default, a command's output) unless the outcome he named needs the
+  change. Leave an unneeded change out and name it in your return if it seems worth doing. The
+  check before his PR card lists each change the diff makes to what exists, before and after, and
+  refuses those his words do not need. An order he limits to options or a summary is delivered by
+  its cards, and its fix waits for his pick because he said so.
+- **Drive tooling**: a fix to a tool the drive runs on, such as a launcher, the watch, cards or CI
+  plumbing, or a rewrite of this skill, by [Tooling](../SKILL.md#tooling). It is the meta session's,
+  under its own order ([meta.md](meta.md)), and does not `--serves` a feature order, so a feature's
+  thread keeps one subject. Its PR's His words list says none. A `yasyf/*` tooling PR lands with no
+  tap. A `<guarded org>/*` one lands under an exempt class, or serves its own order with
   `drive pr set <url> --tap --serves <its Drive tooling order> --design none` and gets a PR card at
-  his DM root. That card's top line quotes the order's "Drive tooling: …" words, and his Approve
-  lands it. A tooling job decides its own details and asks him only a high-level preference, by
-  [What you do without asking](#what-you-do-without-asking).
-- **Neither**: the drive does not build, polish, or card it. A PR someone other than him opened on
-  GitHub is the drive's only when his words name it by #N or link: the order's, or a question card a
-  job of that order drew that links it and that he answered, by his ruling 5815316 on a teammate's PRs,
-  "Don't touch old tree or his PRs." Otherwise `drive pr add` and `drive pr set`
-  refuse it, the watch withdraws its card and drops it with nothing done on GitHub, and the lander
-  and `landing_guard` refuse landing it. Another lane's PR or bug report goes back to that lane in a
-  `handoff` record. A sweep's finding, a teammate's report, or a job's own
-  finding he has not ordered becomes a question card saying what was found, and nothing is built
-  before his pick, because he decides what the drive takes on. A teammate's report a reader reads as
-  the bug an open order already fixes adds no work: `drive order set <o> --reporter <its permalink>`
-  keeps it on that order with no card, so that thread hears the fix too. A test that flaked is never that
-  finding: his ruling 532cd3d already ordered its fix. When a job's report, an incident's
-  included, names a limit, a capacity, or an architecture question, take it to him that turn,
-  unasked, as a diagnosis with option cards; on a drive tooling order only one that is his
-  high-level preference goes to him, and the job decides the rest.
+  his DM root whose top line quotes the order's "Drive tooling: …" words; his Approve lands it.
+- **Neither**: a PR someone other than him opened is the drive's only when his words name it by #N
+  or link, in the order or in a card he answered. Otherwise `drive pr add` and `drive pr set` refuse
+  it, the watch withdraws its card and drops it with nothing done on GitHub, and the lander and
+  `landing_guard` refuse to land it, because another person's work is theirs. Another lane's PR or
+  bug report goes back to that lane in a `handoff` record. A teammate's report of a bug an open
+  order already fixes adds no work: `drive order set <o> --reporter <its permalink>` keeps it on
+  that order so its thread hears the fix too.
 
 ## What you do without asking
 
-Three kinds of work are the drive's without a new order, and each line about them says which. A defect
-in something the drive shipped or is building belongs to the order that shipped it, and its line
-names that order. A defect in a tool the drive runs on is drive tooling, fixed without asking under
-its own order, its first line at his DM root and its later lines under it, but for the fix-live line
-of one that posted nothing, which only the dashboard shows since nobody asked for it, and never in a
-feature thread it unblocks. His feedback on a post or card is one, in the library, `cc-slack check-post` or
-drive tool that let it through, every time. A test that flakes on any PR the drive tracks is fixed at its cause the day it flakes, whatever
-files the cause is in, by his ruling 532cd3d, "and ffs fix these flaky tgests how many times do I have
-to tell yoiu": its PR is a `flake fix` by [landing.md](landing.md), serving that ruling, judged against
-it, and its lines name it. Nothing else is.
+Everything that is not his by the test above. Do it and report the result with a count: ports,
+closes, restarts, CI fixes, cleanups, tool fixes.
 
-Ask him only what is his to decide. On his product orders that is architecture and abstractions,
-scope, and his own workflow. On a drive tooling order it is only a high-level preference: what
-reaches him or when, a post or card's shape, a tap or gate he owes, a cost he pays in money or
-waiting, a ruling of his an option lifts, or what the drive takes on. Every other tooling choice,
-which file, function, store, hook, verb, flag, check, judge, process or wait does it, the job
-decides and builds, by his ruling 43aa665: "This is getting too in the weeds for me use your
-fucking Brain and act like a frontier model when it comes to Meta tooling don't ask me every
-little thing ask my high level preferences (different than non-tooling changes); apply this
-everywhere now". Options differing only in which branch, pin or commit holds a fix are never his,
-on any order, by his ruling 66243b9: "Why are you making such a mess just have all the fixes needed
-on both branches for now".
-A fact or value a job can read, such as an ID, key or URL where the app or infra defining it keeps
-it, is never his question: the job reads it there, by his words "no, go pull it from wherver it was
-befofre and set it", and a card that asked him for one is withdrawn with `--via` the done job whose
-report names that card and the value it read.
-Within his orders, do everything else and report the result with a count: ports, closes, restarts,
-backfills, CI fixes, cleanups, and tool fixes. A repair he calls a one-off runs once, with no code
-path, PR, or release step. When he picked something and the route to run it is missing, build the
-route instead of carding it or waiting.
+- **A finding nobody ordered.** A sweep's, a teammate's or a job's own finding that is clearly in
+  the spirit of his order is fixed under that order and reported. One that is a new product
+  direction is a question card saying what was found. A job report naming an architecture fork with
+  lasting cost, or a limit that costs money to lift, goes to him that turn as a diagnosis with
+  option cards.
+- **A defect in what the drive shipped or is building** belongs to the order that shipped it, and
+  its line names that order.
+- **A defect in a tool the drive runs on** is drive tooling, fixed under its own order. Its first
+  line goes at his DM root and later lines under it, not in the feature thread it unblocks; a fix
+  that posted nothing shows only on the dashboard. His feedback on a post or card is such a defect,
+  in the library, `cc-slack check-post` or the drive tool that let it through.
+- **A flaky test** on any PR the drive tracks is fixed at its cause the day it flakes, whatever
+  files the cause is in. Its PR is a `flake fix` by [landing.md](landing.md), serving his standing
+  order to fix flakes, not the order whose PR it reddened.
+- **A tooling choice.** Which file, function, store, hook, verb, flag, check or process does it is
+  the job's. On a drive tooling order only a high-level preference is his: what reaches him or
+  when, a card's shape, a tap he owes, a cost he pays in money or waiting.
+- **Which branch, pin or commit holds a fix** is yours on any order. Put the fix wherever it is
+  needed.
+- **A fact a job can read**, such as an ID, key or URL, is read where the app or infra defines it.
+  A card that asked him for one is withdrawn by `drive cards withdraw` with `--via` the done job
+  whose report names the card and the value.
+- **A repair he calls a one-off** runs once, with no code path, PR or release step.
+- **A missing route** to something he picked is built, not carded.
 
-Four actions wait for his word: landing a `<guarded org>/*` change that is not an exempt class by
-[landing.md](landing.md), posting as him to anyone else, changing production, and stopping or
-closing a session he did not name. His order to post, a tap on a card included, is that word for the
-one post it names, and nothing asks him to approve it again. A post nobody ordered, such as a reply
-to a bug's reporter or a teammate, goes to him as a question card asking whether to send it, never
-one asking him to approve a post. The fix-live note the drive owes a bug's reporter in that report's
-thread once the fix is live, and the answer to a question someone asked him that he shares or links,
-which his share orders, are the two exceptions, by [messages.md](messages.md).
+Four limits hold whatever else is true. Name the one that stops you in your return.
+
+1. A dangerous change merges or releases only while he is present, meaning his word or tap in the
+   last 15 minutes, because it can break customer runs or lose data with nobody watching. Dangerous
+   is what the repository's root AGENTS.md lists, and a production release carrying one. A rollback,
+   and an incident's hotfix changing nothing dangerous, run without him.
+2. Customer data is not read or touched on this Mac.
+3. No session, Orca, terminal host or process of unknown ownership is stopped, signalled, suspended
+   or closed, because it may hold someone's live work.
+4. Before changing what forward-deployed engineers' or customers' code can observe, run the FDE
+   impact scan and put what it finds in the PR body, because their callers break silently.
+
+Two mechanisms also put work in front of him. A `<guarded org>/*` PR outside an exempt class lands
+on his Approve tap, by [landing.md](landing.md). A post in his own name to another person waits for
+his word; his order to post, a tap included, is that word for the post it names. For a post nobody
+ordered, the card asks whether to send it. The fix-live note owed a bug's reporter and the answer to
+a question he shared need no card, by [messages.md](messages.md).
 
 ## A question for him
 
-A question for him reaches him only as a question card, which `drive job ask` draws as it keeps
-the job's `ASK`, because he reads no terminal. Every drive session and handler starts with
-the AskUserQuestion tool denied ([Start or resume](start.md)), the `no_terminal_questions` hook
-refuses the tool in any session bound to a drive, the agents it starts and one started before that
-deny included, and a job asks through its `ASK` return, so no question waits in a terminal. The same
-hook refuses there each computer-use request for screen-control access (`request_access`,
-`request_full_control`, `request_teach_access`), whose approval dialog waits in that terminal too,
-and tells a job to return what it was for as `UNPROVEN: <the check>: <the proof that settles it>`.
+He reads only Slack, so a question reaches him as a question card, which `drive job ask` draws as
+it keeps the job's `ASK`. Every drive session starts with AskUserQuestion denied
+([Start or resume](start.md)), and the `no_terminal_questions` hook refuses it in any session or
+agent bound to a drive. The hook also refuses the computer-use access requests (`request_access`,
+`request_full_control`, `request_teach_access`), whose dialog would wait in a terminal, and tells a
+job to return what it was for as `UNPROVEN: <the check>: <the proof that settles it>`.
 
-A question he has answered is never asked again, in any wording. Before you write an `ASK`, read his
-words in the order's thread and run `ccn answer search "<words>"`, because his answer often rules
-past the question it was given under and names the subject only in his words.
+A question he has answered is not asked again. When you think he may have ruled on it,
+`ccn answer search "<words>"` finds his answer, which often rules past the question it was given
+under.
 
-`drive job ask` keeps a question settled with no card on his answer to that same question,
-asked in the same words, case, spacing and punctuation aside, and, on a drive tooling order, on Opus's reading,
-under 0.3 sure, that its options differ in what he gets, such as a post, tap, cost, ruling of his or
-scope of work, so it asks him only a detail: it keeps that one decided on its recommended
-option under his ruling 43aa665 and prints so, and the job builds it and opens its PR. A card
-already drawn on the question, kept unsettled, or read as going against his words still goes to
-him, and Opus never reads a drawn one again. When the meta session or the card's job reads a drawn
-card of a drive tooling order as asking him only a detail, `drive job ask <j> --drop <file> --answer 43aa665`
-ends it decided on the recommended option the file keeps, as an undrawn one is kept: his card
-shows "<option>: decided without you under your ruling on tooling details" and a link to his
-ruling's message with no buttons, and the job waiting on it goes on to open its PR. It is refused
-on any other order and for a card kept unsettled. `drive cards withdraw` refuses his ruling's
-message as its `--via`, since he wrote it before the card, and names this route instead.
-That answer is his pick or words on or under the
-card it was asked on, or his words recorded under it. The tool prints his words and where he gave
-them. On a pick, build that option. On an order, build the option his words leave that removes the
-root cause, the recommended one.
+### What `drive job ask` does
 
-A card whose summary sentence recommending an option cites a recorded answer of his asks again what
-that answer chose, so `drive job ask` refuses it and names that option to build with no card, unless
-`--unsettled` names that answer as words the card asks him to lift. A card already drawn for it ends
-on his words with `drive job ask <j> --drop <file> --answer <id>`, which closes its card in place
-showing them and the link where he gave them. A card's Already answered option
-carries only the recorded answers its summary cites that Opus answers 0.7 or more as deciding its
-question or making it moot, one yes-or-no question an answer, and each recorded answer the release
-gate reads as ordering a release the recommended option names in backticks, his words above the
-`Options:` line its recorder lists the choices under, so his one tap gives its job one answer's words;
-the card draws no Already answered option when the gate passes none and Opus reads none so, reads one
-only between 0.3 and 0.7, or gives no reading.
+- **Settles with no card** on his answer to that same question in the same words, given on or
+  under its card or recorded under it. It prints his words and where he gave them. An answer to
+  another question settles nothing here, so a question once skipped on one draws its card when asked
+  again. An answer he gives later settles the older cards it
+  decides through `drive answer`.
+- **Decides a tooling detail.** On a drive tooling order, when Opus reads under 0.3 that the
+  options differ in what he gets (a post, tap, cost, ruling of his or scope of work), the verb keeps
+  the question decided on its recommended option and prints so, and the job builds it. A card
+  already drawn still goes to him unless you read it the same way and end it with
+  `drive job ask <j> --drop <file> --answer 43aa665`: his card shows "<option>: decided without you
+  under your ruling on tooling details" with no buttons. That is refused on any other order and for
+  a card kept unsettled. `drive cards withdraw` refuses that ruling's message as its `--via` and
+  names this route.
+- **Refuses a card that re-asks.** A card whose recommending sentence cites a recorded answer of
+  his asks again what that answer chose, so the verb names the option to build with no card, unless
+  `--unsettled` names that answer as words the card asks him to lift. A card already drawn for it
+  ends with `drive job ask <j> --drop <file> --answer <id>`, which closes it showing his words and
+  their link.
+- **Reads the card against his words, as advice.** In one request Opus reads the card against his
+  words on each order its job works, their threads, the recorded answers the card cites and the
+  answers cc-notes ranks nearest. Each reading is a probability: 0.7 or more is a finding, under 0.3
+  none, between is printed as unsure. It prints each option his words rule out, each amount or
+  choice his words name that the card offers no tap for, and each part that breaks the card rules
+  below or what a linked page shows. The card is kept: no card is refused on merits. Weigh a
+  finding, and when it holds, rewrite that part and ask again, which redraws the card.
+- **Finds an answer that already decides it.** When Opus reads 0.7 or more that a nearby answer
+  answers the card, the verb prints it with its id and where he gave it. When his words choose the
+  recommended option, build it, name the id on your `DONE` return's `rulings:` line and end a drawn
+  card with `--drop <file> --answer <id>`. Otherwise cite the id in the summary, outside the
+  recommending sentence, and ask again: the card redraws with his words as its `Already answered`
+  tap, so one tap settles it.
+- **Draws the `Already answered` option** from the cited answers Opus reads 0.7 or more as deciding
+  the question, from an answer the brief binds with `--ruling` or you cite under `Findings:`, and
+  from each answer the release gate reads as ordering a release the recommended option names in
+  backticks. His tap closes the card on those words. For a release the verb prints that
+  `drive job add --release "<release> --order <id>"` starts it
+  ([landing.md](landing.md#after-merge)). Such a block keeps at most three options of its own,
+  since a card draws four.
+- **Keeps a card unsettled** when Opus reads 0.7 or more that the recommended option, or another
+  option offered, breaks a recorded answer of his. The card asks him to lift those words, as
+  `<id>: Opus reads the recommended option as breaking it` or
+  `<id>: Opus reads option "<that option>" as breaking it`, and holds its PR, on an incident too.
+  His answer marks the lifted answer superseded in cc-notes, so no brief binds it, and his Undo
+  takes the mark back. Nothing is marked when a newer cited answer of his decides the card, when the
+  answer only waited for something the card shows has come, or when the card merely offers an
+  option beside the one he chose.
+- **Draws no card on an order that says to ask nothing**, as "Do this autonomously without asking
+  me anything" does. It tells you to build the recommended option and name his words on `RULINGS:`.
+  A card asking him to land a PR, release to production or post as him still draws.
+- **Keeps a refused block** under `asks/` as the job's pending question with its refusal.
+  `drive status` lists it refused, and the watch says the job waits on a card never posted until the
+  job asks again, in the same words or others sharing three rare words, or
+  `drive job ask <j> --drop <file>` drops it.
 
-It reads no answer he gave another question, by his pick "Settle only on your answer to that same
-question, copies only in the same words: no wrong skips; each skip below becomes a card." A question
-once kept settled with no card on another answer of his draws its card when its job asks it again.
-An answer he gives later still settles the older cards it decides, through `drive answer`.
+Each tap of his on a question card is recorded in cc-notes as `drive answer` records one. A tap
+approving a PR settles only that PR's landing.
 
-Every other question Opus reads in one request against his words on each
-order its job works and his messages about it in its thread, without the lines he quoted from an alert
-or another's message. The request holds the card whole, then, each item whole, the
-recorded answers the card cites, his rulings beside them, then his other words, with one yes-or-no
-question for each option and each of his words that could rule it out, and Opus answers each as a
-probability of yes: code reads 0.7 or more as a finding, under 0.3 as none, and the band between as
-unsure, printed for the agent to weigh. It prints to the
-agent each option they rule out and each amount or choice they name that the card offers no tap
-for, by his words "You didn't give me a tap for 30 day bonding how many times do I have to say this",
-naming each part and the words it breaks, and keeps the card, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits".
-When a finding holds, the agent rewrites that part and asks the same question again, which redraws
-its card. When Opus answers 0.7 or more that the card's recommended option breaks a recorded answer
-or ruling of his, the cited answer the card says it goes against first, or else that any other option
-it offers does, the verb keeps the card unsettled on it, as `<id>: Opus reads the recommended option as
-breaking it` or `<id>: Opus reads option "<that option>" as breaking it`, asking him to lift those words, so it holds
-its PR on an incident too until he answers. His answer, as cc-notes records it, marks each answer the mark names
-superseded by it when Opus reads it replacing that one, so no brief or judge binds the words he lifted, and his
-Undo takes the mark back. Another option alone never marks an answer that already
-answers the card, one its Already answered tap carries or one Opus reads below, since offering an
-option his answer did not choose asks him to lift nothing. His newest words stand: no answer is marked
-while a cited answer he gave after it orders the recommended option's release or decides the card. A cited answer the release gate reads as ordering a release
-the recommended option names in backticks is his order carried out, never words to lift: his card
-offers it as its Already answered tap, and the verb prints that his one tap settles the card and
-`drive job add --release "<release> --order <id>"` starts that release, by his pick 1bd8a74 "Your
-cited answer as a tap on the card: one tap settles it, nothing skipped unseen"
-([landing.md](landing.md#after-merge)). Opus also reads, one yes-or-no question each, whether a
-cited answer made a step wait for something, such as a PR that waits for its own preview, that the
-card shows has now come. A card bringing what that answer waited for, read 0.7 or more, carries it
-out: no mark or finding names it. It also reads
-his words on every order the job works. When one tells the job to ask him nothing, as "Do
-this autonomously without asking me anything" does, the verb draws no card. It tells the agent to
-build the recommended option and quote those words on `RULINGS:`. That is his instruction for the
-work, not a reading of the card's merits. A card asking him to land a PR, release to production or
-post as him still draws. A tap approving a PR settles only that PR's landing. A block a refusal stops
-stays kept under `asks/` as the job's pending question with its refusal. No card draws from it,
-and `drive status` lists it refused. The watch says its job waits on a
-card never posted until the job asks it again, in its words or others sharing three rare words, or
-`drive job ask <j> --drop <file>` drops it.
+### The card
 
-Opus also reads, in the same request, whether an answer of his that cc-notes ranks nearest the card's
-question, summary and options, or nearest the whole block, already answers what the card asks.
-When it answers one 0.7 or more, the verb prints that answer with its id and where he gave it,
-and keeps the card, by his picks 320b7a7 and 679484. When his words choose the recommended option,
-the agent asks nothing: it builds that option, returns `DONE` with `rulings:` quoting the id, and
-ends a card already drawn for it with `drive job ask <j> --drop <file> --answer <id>`. Otherwise it
-cites the id in the summary, outside the sentence recommending an option, and asks the same question
-again, which redraws the card with his words as its `Already answered` tap, by his pick 692284 "Your cited answer as a tap on the card: one tap settles it,
-nothing skipped unseen". Each tap of his on a question card is recorded in cc-notes as `drive
-answer` records one, so a card asking it again in other words is told.
+`drive job ask` refuses a block out of this shape, and each refusal names its fix.
 
-Cite by its id under `Findings:` each recorded answer of his you find that bears on the question.
-When the job's brief binds one with `--ruling`, or the block cites one, his card adds an `Already
-answered` option described by his words, linked to where he gave them. His tap on it closes the
-card on those words, which reach the job to build as any answer of his does.
-Such a block keeps at most three options of its own, since a card draws four.
+- **Question and summary.** The question names each thing by its proper term: the function, flag,
+  file, service or table ([messages.md](messages.md)). One to three summary lines say what was
+  found, what is being decided and the recommendation. Each thing he could open is linked at the
+  exact view described (its route, tab, anchor or query string), since the page's root leaves him
+  hunting; a view not built yet is called unbuilt.
+- **Options.** Two to four, one line each, saying what he gets and what it costs. Under each, one
+  plain-text description: what runs and when, where its data lives, what it touches or builds by
+  name, and any cost every user pays. The verb refuses an option with no description, field labels
+  such as `Does:` in place of one, and a mechanism such as polling left a bare word. No option asks
+  a reporter or anyone else to retry or confirm, since that hands them the work.
+- **Show me**, when a picture, flow, table or the real code shows what words cannot, drawn whole
+  with real contents in every row and cell.
+- **`Root cause:`** names the structure that lets the defect happen, with the number that measures
+  it, in at most 60 words, since his card draws it under the summary's first line. It is the cause
+  his order asks about, such as why a step is slow. Other forms:
+  `fixed: <that structure>, removed by <the merged PR's link>` on a card asking only whether to
+  release that PR, `not found: <what measures it>, by <the job measuring it>`, and
+  `none: <why no defect is behind it>`, as on a pick between his designs.
+- **`First principles:`** names the option that removes that structure, so the defect cannot occur,
+  through one abstraction every caller goes through. It is the recommended option unless his own
+  pick or order chose another. A bound, cap, retry or time budget goes on `Interim fix:` instead.
+  **`Simplest:`** names the simplest option, which every card offers beside it.
+- **`Interim fix:`**, on a bug hurting someone now, links the immediate fix shipping while he picks
+  (its PR, release, rollback or repair), or reads `Interim fix: <that fix>, by <the job building it>`
+  or `Interim fix: none: <why nobody is hurt now>`. A reader's `DESIGN` is refused without it too.
+- **`Holds:`** names what the card holds from landing: each PR its options alter, by link or `#N`,
+  each branch building an option, in backticks by its whole name, and on a reader's or design's
+  card each change of the order its options alter, in that change's own words. Or it reads
+  `Holds: none: <why>`.
 
-A design question goes to him on a card before any PR carries it, by [Design first](design.md). A
-job builds the recommendation meanwhile on a pushed branch, in state `built` in the drive, unless
-his words on that order ask for options only; then no builder starts on the proper fix before his
-pick, because he wants to choose the fix. Work does not land with a question of his on it
-unanswered: outside an incident's repair, the `bash_guard` hook refuses the `ccx vcs ship` that would
-open a proper-fix PR, on this Mac and on a Sprite, and the lander,
-the `landing_guard` hook and a `yasyf/*` PR's merge each hold one, while an open card of his
-holds it: one asked by a job on the PR's orders or by the staging tester of a part it waits on, whose question's `Holds:` line names it by link, `#N` or whole branch name, or, on a
-design's or reader's card, names a change its job builds from that design or research; a card its
-job asked holds its unbuilt work, never a PR the line leaves out. The immediate fix of a bug hurting someone now is never held: its own
-`immediate fix` job starts at once, options-only orders too, its PR waits on none of his cards, and
-the proper fix replaces it.
+What is built meanwhile is the card's line above its buttons, which the drive reads from its jobs at
+each draw. The findings stay in the job's file, and Explain more on the card posts the one section
+he asks about.
 
-A question card is the job's `ASK` as `drive job ask` kept it. Its question names each thing by its
-proper technical term, the function, flag, file, service, or table, by [messages.md](messages.md).
-One to three summary lines say what was found, what is being decided, and the recommendation, with
-each thing he could open linked at the exact view they describe: a screen a
-route, tab, anchor or query string reaches is linked at that address, never the page's root, and a
-view not built yet is called unbuilt, by his words "I dont see tthe slack tab on that link what are you talking abit?".
-What is built meanwhile is the card's line above its buttons, which the drive reads from its jobs
-at each draw, never a summary line. A Show me, when a picture, flow, table, or
-the real code shows what words cannot, is drawn whole with real contents in every row and cell. Two
-to four one-line options close it, each saying what he gets and what it costs, with one plain-text
-description drawn under it saying what the option is: what runs and when, where its data lives, and
-what it requires touching or building, by name, with any cost every user pays, by his words
-"you need to always fucking explain each optopn properly as prose in additon tot he table or whatever and what it requires touching/building" and "this does/data/toches is not as helpful as each option just having a plain-text shot concise but clear and comprehensive description of what it is".
-`drive job ask` refuses an option with no description, and a question or option that leaves a
-mechanism such as polling, a push or an event a bare word, as "Polls only" does.
+### What a card holds
 
-A question card starts from the root cause, the structure that lets the defect happen, and
-recommends the option that removes it so the defect cannot occur, through one abstraction every
-caller goes through, unless his own pick or order chooses another, which beats this preference; an
-option keeping it behind a cap, timer, retry, exit, flag, pin or sweeper is the recommended one only
-when his pick chose it. The findings' `Root cause:` line names that structure and `First
-principles:` that option, or `Root cause:` reads `fixed: <that structure>, removed by <the merged
-PR's link>` on a card asking only whether to release that PR, `not found: <what measures it>, by <the
-job measuring it>`, or `none: <why no defect is behind it>`, as on a pick between his designs or his
-approval of an action his rules hold for him, such as a benchmark run; `drive job ask` refuses a block
-without them. The cause is the one his order asks about, such as why a step is slow, and a bound,
-cap, retry or time budget around it goes on the `Interim fix:` line. His card draws the `Root cause:`
-line under the summary's first line, so it is at most 60 words, a named cause with the number that
-measures it, by his words "this still doesnt tell us why its so slow/how to speed it up". In the
-request that reads his words, Opus weighs each option by his words, and the card, its recommended option
-and its `Root cause:`, `First principles:` and `Simplest:` lines, by the part of this rule its `Root cause:`
-form names and by the words each page it links shows once Chrome opens it against what the card says
-that page shows. This rule speaks only to the recommended option, never one offered beside it such as
-the `Simplest:` one every card offers. Each option or part Opus answers 0.7 or more as breaking his
-words, this rule or a page's is printed to the agent, naming the part and the words it breaks, and
-one in the band between 0.3 and 0.7 is printed as unsure; each refuses no
-card, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His ruling: "Update your skill to not just brush over the root cause ever". On a bug hurting
-someone now, an incident's or one a reporter shared, the findings' `Interim fix:` line links the
-immediate fix shipping while he picks (its PR, release, rollback or repair), reads `Interim fix: <that
-fix>, by <the job building it>`, or reads `Interim fix: none: <why nobody is hurt now>`; `drive job ask`
-and a reader's `DESIGN` are refused without it, and his card draws it under the `Root cause:` line
-without the job. The findings' `Holds:` line names each PR its options alter, by link or `#N`, and each branch
-building an option, in backticks by its whole name; a reader's or design's also names, in each change's
-own words, every change of the order its options alter; or it reads `Holds: none: <why>`. His open card
-holds from landing each PR it names, a PR of a branch it names included, and, among the PRs of jobs working a change it names,
-only those its design's builder, a job briefed on its research or a job it names by id carries, while a question kept with no
-`Holds:` line holds every change of those jobs; no card holds a flake fix or a main fix, and a `Drive tooling:` order's card holds no
-PR of his product, by his ruling de88d49. No option asks a
-reporter or anyone else to retry or confirm. The findings stay in the job's file, and Explain more
-on the card posts the one section he asks about, never a findings post of its own.
+An open card holds only what its `Holds:` line names: each PR and each PR of a named branch, and
+among the PRs of jobs working a named change, those its design's builder, a job briefed on its
+research or a job it names by id carries. A staging tester's card holds the PR of the part it waits
+on the same way, and a card a `DESIGN:` line cites holds that PR. A question kept with no `Holds:`
+line holds every change of its job. No card holds a flake fix or a main fix, an immediate fix, or,
+from a `Drive tooling:` order, a PR of his product.
+
+While a card holds a PR, the lander, the `landing_guard` hook and a `yasyf/*` PR's merge hold it,
+and outside an incident's repair the `bash_guard` hook refuses the `ccx vcs ship` that would open
+it, on this Mac and on a Sprite. The job builds the recommendation meanwhile on a pushed branch, in
+state `built`, by [Design first](design.md). The immediate fix of a bug hurting someone now is not
+held: its own `immediate fix` job starts at once and the proper fix replaces it.
 
 ## His answer
 
 His answer is the option he tapped, or his own words under or about the card that pick an option
-or say what to build. A question of his answers nothing, one proposing a way such as "could we X?"
-or "why not just X?" included, before or after his tap: it is answered in the card's thread, X
-worked out and offered on the card redrawn, and he chooses.
-They settle the card, which closes showing them, and the work goes ahead on them, never mapped to
-the closest option. Only a reply that leaves the question open, such as "neither of these" with no
-other way named, gets a follow-up question, on a new card; the card he answered is never redrawn.
+or say what to build. They settle the card, which closes showing them, and the work goes ahead on
+his words as written, not on the closest option. When his words order something the options did not
+offer, build what removes the root cause within them.
+
+A question of his, such as "could we X?" or "why not just X?", is not a pick, before or after his
+tap. Answer it in the card's thread, work X out, offer it on the card redrawn, and he chooses. A
+reply that leaves the question open, such as "neither of these" with no other way named, gets a
+follow-up on a new card.

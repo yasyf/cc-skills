@@ -7,8 +7,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from drive import agents, state
 
 
-def deny_reason(payload: dict) -> str | None:
-    """Why a drive's coordinator, communicator or meta session may not read a Slack thread or channel itself: the whole read lands in its own context."""
+def note(payload: dict) -> str | None:
+    """What a drive's coordinator, communicator or meta session hears as it reads a Slack thread or channel itself: the read goes, and its whole result stays in the session's own context."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
@@ -17,25 +17,14 @@ def deny_reason(payload: dict) -> str | None:
         return None
     role = state.session_role(state.saved(names[0]), session)
     return (
-        f"refused: the {role} reads no Slack thread or channel itself with {payload['tool_name']}, since the whole"
-        " read lands in this session's context and stays there: three reads of his DM threads by a coordinator put"
-        " 19,581 characters into it. A read is a handler's or a job's, which returns one line."
+        f"the {role} reads Slack itself with {payload['tool_name']}: the read goes, and its whole result stays in this"
+        " session's context; a long thread read by a handler or a job comes back as one line."
     )
 
 
 def main() -> None:
-    if reason := deny_reason(agents.seen(json.load(sys.stdin))):
-        print(
-            json.dumps(
-                {
-                    "hookSpecificOutput": {
-                        "hookEventName": "PreToolUse",
-                        "permissionDecision": "deny",
-                        "permissionDecisionReason": reason,
-                    }
-                }
-            )
-        )
+    if told := note(agents.seen(json.load(sys.stdin))):
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": told}}))
 
 
 if __name__ == "__main__":

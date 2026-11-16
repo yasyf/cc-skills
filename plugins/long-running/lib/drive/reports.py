@@ -10,9 +10,8 @@ CALL_FIELDS = ("records", "lane", "drive", "id")
 OPENING = re.compile(r"(?:POST|FYI)\b")
 UNOPENED = "refused: a report's text opens `POST`, for a handler to post, or `FYI`, kept as context; add the one it is"
 UNFINISHED = (
-    "refused: this POST report names nothing its post finishes, so its handler cannot tell which order to close; add"
-    " `--attr close=<o,…>` naming each order it finishes{about}, `--attr part=<o>:<part>` naming the part it delivers{parts},"
-    " or `--attr progress=true` on a progress line that finishes nothing"
+    "record_lines: this POST report goes out naming nothing its post finishes, so its handler closes no order; `--attr close=<o,…>`"
+    " names each order it finishes{about}, `--attr part=<o>:<part>` the part it delivers{parts}, and `--attr progress=true` a progress line"
 )
 LAST_PART = (
     "refused: this report delivers {parts}, the last {noun} of {order} not yet delivered, so its post finishes the order; add"
@@ -42,12 +41,11 @@ UNASKED_CLOSE = (
 THREAD_TS = re.compile(r"\d{10}\.\d{6}")
 NOT_THREAD = "refused: thread {thread} is no Slack thread, which is named by its root message's ts, such as 1794478810.620779; leave thread out for a post at his DM root"
 NOT_UNTIL = "refused: until {until} is no time with its offset; name the end of the post it goes with in RFC 3339, such as 2026-11-14T13:30:00-08:00"
-SECOND_REPORT = (
-    "refused: the coordinator and the meta session send one report per thread per turn, a wake to the end of its response;"
-    " this turn already sent one for thread {thread}, so the rest waits for the next wake."
-    " A report on an open incident goes, as does one correcting a withdrawn report"
+SECOND_REPORT = "record_lines: this report goes out, and this turn already sent one for thread {thread}; a second post there reads best as news the first lacked"
+SELF_CITED = (
+    "record_lines: this report goes out, and these cause lines cite a record {lane}, the lane posting them, wrote itself, which restates its own"
+    " reading; a job's record of the read that measured the cause backs them better: {lines}"
 )
-SECOND_REPORT_RULE = "A second report for a thread in one turn of the coordinator's or the meta session's that repeats what its first report there already sent, rather than news that came in since; a report on an open incident order always goes."
 UNPREVENTED = (
     "record_lines: this report goes out as written, but these POST lines may tell him the drive failed or ran late, naming no"
     " prevention. If one does, start its fix and resend that line naming the order or PR URL fixing it, not the"
@@ -75,9 +73,13 @@ WAITS_ON_OTHER = re.compile(r"\bwait(?:s|ing)? on (?!(?:him|his|your|you|he)\b)\
 WAITED = re.compile(r"\b\d+ ?(?:s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?|d|days?)\b|\bsince \d", re.IGNORECASE)
 RUNNING = re.compile(r"\b(?:running|queued|idle|stopped|started|starting|in progress|not started)\b", re.IGNORECASE)
 VAGUE_WAIT = (
-    "refused: a line that says something waits on X says how long it has waited and whether X is running, such as \"waits on its staging test,"
-    " the test job running since {started:<job>}\": name the job doing X as {started:<job>} or the record the wait began on as {at:<seq>},"
-    " whose stamp say fills, so no time is typed; add both"
+    "record_lines: this report goes out; a line saying something waits on X reads clearer with how long it has waited and whether X is running,"
+    " such as \"waits on its staging test, the test job running since {started:<job>}\", the job as {started:<job>} or the record the wait"
+    " began on as {at:<seq>}, whose stamp say fills"
+)
+UNREAD_JOB = (
+    "record_lines: this report goes out, and it calls {jobs} stuck or silent with no read of {its} transcript in your last 10 minutes,"
+    " so that state may be a guess; `drive job replies <j>` or `cc-transcript` shows it"
 )
 UNHELD_RECORD = (
     "refused: a line naming a cause cites the read that measured it, a record cci holds, and {error}: cite the seq the post of that"
@@ -128,12 +130,11 @@ def hand_ask(record: dict) -> str | None:
 
 
 def report_refusals(payload: dict, drive: dict, records: list[dict], index: int) -> Iterator[str | None]:
-    """Why a report to the communicator does not go out as written, whether the cci `post` tool or `cci post` in Bash sends it, each check run only once the ones before it pass; a report on an open incident order is never held to one a thread a turn, by his words "this is incident so uyou should be faster and communicating more with me"."""
+    """Why a report to the communicator does not go out as written, whether the cci `post` tool or `cci post` in Bash sends it, each check run only once the ones before it pass."""
     record = records[index]
     if kind(record) != "report" or not addressed(record, "communicator"):
         return
     text = (record.get("text") or "").strip()
-    thread = attrs(record).get("thread")
     posting = text.startswith("POST")
     yield None if OPENING.match(text) else UNOPENED
     yield dm_url(drive, record)
@@ -141,17 +142,30 @@ def report_refusals(payload: dict, drive: dict, records: list[dict], index: int)
     yield next((agents.Unjudged(UNASKED_CLOSE.format(order=order_id)) for order_id in state.closed_orders(attrs(record)) if (order := drive["orders"].get(order_id)) and state.unasked_tooling(order)), None)
     yield misnamed_part(drive, record)
     yield plain_incident(drive, record)
-    yield unfinished(drive, record) if posting else None
-    yield self_cited(drive, state.session_lane(drive, payload.get("session_id")), record) if posting else None
+    yield last_part(drive, record) if posting else None
+    yield unheld(drive, record) if posting else None
     yield not_thread(record)
     yield not_until(record)
     yield agents.Ruled(UNCARDED, UNCARDED_RULE) if ON_HIM.search(text) and not attrs(record).get("waits") and not CARD_NAMED.search(f"{text}\n{record.get('body') or ''}") else None
     yield agents.unpromised(drive["name"], f"{text}\n{record.get('body') or ''}")
+    yield agents.unowned_work(text)
+
+
+def report_warnings(payload: dict, drive: dict, records: list[dict], index: int) -> Iterator[str | None]:
+    """What the session hears when its report to the communicator goes out: a POST report naming nothing it finishes, or citing for a cause a record its own lane wrote, a wait line with no duration or running state, a second report for a thread in one turn of the coordinator's or the meta session's that no withdraw record answers, outside an open incident, and a job called stuck or silent with no read of its transcript."""
+    record = records[index]
+    if kind(record) != "report" or not addressed(record, "communicator"):
+        return
+    text = (record.get("text") or "").strip()
+    thread = attrs(record).get("thread")
+    if text.startswith("POST"):
+        yield unfinished(drive, record)
+        yield self_cited(drive, state.session_lane(drive, payload.get("session_id")), record)
     yield VAGUE_WAIT if WAITS_ON_OTHER.search(text) and not ((WAITED.search(text) or any(found[1] in limits.STAMPED for found in limits.REF.finditer(text))) and RUNNING.search(text)) else None
     if thread and state.session_role(drive, payload.get("session_id")) in ("coordinator", "meta") and not payload.get("agent_id") and not state.open_incidents(drive, state.report_orders(drive, attrs(record))):
         yield second_report(payload, drive["name"], records, index, thread)
-    yield agents.unread_job(payload, text)
-    yield agents.unowned_work(text)
+    if jobs := agents.unread_jobs(payload, text):
+        yield UNREAD_JOB.format(jobs=", ".join(jobs), its="their" if len(jobs) > 1 else "its")
 
 
 def unprevented(drive: dict, record: dict) -> str | None:
@@ -164,16 +178,25 @@ def unprevented(drive: dict, record: dict) -> str | None:
     return UNPREVENTED.format(lines="\n".join(lines))
 
 
-def self_cited(drive: dict, lane: str | None, record: dict) -> str | None:
-    """Why a POST report's line naming a cause stands on no read that measured it: its {record:} names a record cci does not hold, such as a seq guessed before the post holding it returned one, or one the report's own lane wrote, such as its go record to another session restating a tester's message."""
-    told = "\n".join(refs.causes(f"{record.get('text') or ''}\n{record.get('body') or ''}"))
+def told_causes(record: dict) -> str:
+    return "\n".join(refs.causes(f"{record.get('text') or ''}\n{record.get('body') or ''}"))
+
+
+def unheld(drive: dict, record: dict) -> str | None:
+    """Why a POST report's line naming a cause stands on no read: its {record:} names a record cci does not hold, such as a seq guessed before the post holding it returned one."""
     try:
-        found = refs.records(drive["name"], told)
+        refs.records(drive["name"], told_causes(record))
     except state.DriveError as error:
         return agents.Unjudged(UNHELD_RECORD.format(error=error))
-    if not (lines := refs.self_cited(told, found, lane)):
+    return None
+
+
+def self_cited(drive: dict, lane: str | None, record: dict) -> str | None:
+    """What the session hears when a POST report's line naming a cause cites a record the report's own lane wrote, such as its go record to another session restating a tester's message, rather than a job's read that measured it."""
+    told = told_causes(record)
+    if not (lines := refs.self_cited(told, refs.records(drive["name"], told), lane)):
         return None
-    return agents.Unjudged(refs.SELF_CITED.format(lane=lane, lines=" | ".join(lines)))
+    return SELF_CITED.format(lane=lane, lines=" | ".join(lines))
 
 
 def dm_url(drive: dict, record: dict) -> str | None:
@@ -212,17 +235,25 @@ def misnamed_part(drive: dict, record: dict) -> str | None:
 
 
 def unfinished(drive: dict, record: dict) -> str | None:
-    """Why a report to post leaves its handler guessing what it finishes: it names no close, part or progress attr, or the parts it delivers are the last ones undelivered of an open order it does not close, which would leave that order open once its last answer is posted. An order of work he ordered names no part, since no post delivers it."""
+    """What the session hears when a report to post names no close, part or progress attr, so its handler closes no order. An order of work he ordered names no part, since no post delivers it."""
     named = attrs(record)
     if named.get("catch_up") or named.get("progress"):
         return None
     order_id = state.report_order(drive, named)
-    items = state.part_items(named, order_id)
+    if state.part_items(named, order_id) or state.closed_orders(named):
+        return None
+    order = state.open_orders(drive).get(order_id or "")
+    quoted = ", ".join(f'"{part}"' for part, kept in order["parts"].items() if not kept["posted"] and not state.work(drive, order_id, part)) if order else ""
+    return UNFINISHED.format(about=f", here {order_id}, the open order it is about" if order else "", parts=f", one of {quoted}" if quoted else "")
+
+
+def last_part(drive: dict, record: dict) -> str | None:
+    """Why a report to post leaves an order open once its last answer is posted: the parts it delivers are the last ones undelivered of an open order it does not close."""
+    named = attrs(record)
+    if named.get("catch_up") or named.get("progress"):
+        return None
+    items = state.part_items(named, state.report_order(drive, named))
     closed = state.closed_orders(named)
-    if not items and not closed:
-        order = state.open_orders(drive).get(order_id or "")
-        quoted = ", ".join(f'"{part}"' for part, kept in order["parts"].items() if not kept["posted"] and not state.work(drive, order_id, part)) if order else ""
-        return UNFINISHED.format(about=f", here {order_id}, the open order it is about" if order else "", parts=f", one of {quoted}" if quoted else "")
     for on in dict.fromkeys(on for on, _ in items if on not in closed):
         order = state.open_orders(drive).get(on or "")
         if not order or any(state.work(drive, on, part) for part in order["parts"]):
@@ -268,9 +299,9 @@ def report_threads(tool_input: dict) -> set[str]:
 
 
 def second_report(payload: dict, name: str, records: list[dict], index: int, thread: str) -> str | None:
-    """Why the coordinator's or the meta session's report for a thread waits for its next turn: the batch, or a post since its last response ended, already carried one for that thread that no withdraw record answers, by agents.amendments, so a report withdrawn for what it got wrong leaves its turn's place to the report correcting it. A post's result names the seq of each record it stored, in the order of its records; one whose result names none counts."""
+    """What the coordinator's or the meta session's report for a thread hears as it goes: the batch, or a post since its last response ended, already carried one for that thread that no withdraw record answers, by agents.amendments, so a report withdrawn for what it got wrong leaves its turn's place to the report correcting it. A post's result names the seq of each record it stored, in the order of its records; one whose result names none counts."""
     if thread in report_threads({"records": records[:index]}):
-        return agents.Ruled(SECOND_REPORT.format(thread=thread), SECOND_REPORT_RULE)
+        return SECOND_REPORT.format(thread=thread)
     sent: dict[str, list[str | None]] = {}
     seqs: list[str | None] = []
     for row in agents.tail(agents.transcript_of(payload)):
@@ -283,5 +314,5 @@ def second_report(payload: dict, name: str, records: list[dict], index: int, thr
                 stored = [word for word in artifacts.tool_result_text(part.get("content")).split() if word.isdigit()]
                 seqs += [seq for seq, said in itertools.zip_longest(stored, sent[part["tool_use_id"]]) if said == thread]
     if seqs and (None in seqs or not set(seqs) <= agents.amendments(name, seqs)["withdraw"].keys()):
-        return agents.Ruled(SECOND_REPORT.format(thread=thread), SECOND_REPORT_RULE)
+        return SECOND_REPORT.format(thread=thread)
     return None

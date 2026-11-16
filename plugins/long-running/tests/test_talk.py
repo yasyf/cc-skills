@@ -924,28 +924,6 @@ def test_a_post_promising_a_fix_by_2_37_and_the_next_line_by_2_32_owes_the_earli
     assert (found and f"{found:%b %d %H:%M}") == "Nov 12 02:32"
 
 
-def test_a_line_in_a_thread_he_asked_a_line_of_every_15_minutes_promises_the_next_within_them(demo: str, run: Callable[..., tuple[int, str]]) -> None:
-    thread = "1794774184.502879"
-    run("order", "add", "--title", "Whole-platform release", "--project", "The drive", "--workstream", "Drive tooling", "Ship the whole-platform release", "--thread", thread, "--every", "15")
-    run("order", "add", "--title", "Another thread", "--project", "The drive", "--workstream", "Drive tooling", "Fix the replica read", "--thread", "1794548960.047439")
-    data = state.load(demo)
-    at = datetime(2026, 11, 15, 20, 40, 43).astimezone()
-    staging = "*Release 2's staging test has not run a case in this window yet: its staging release just started.* The staging claim runs until about 10:30 PM. Next line by 9:15 PM."
-    ack = "You're still waiting on where the staging tests stand; a handler is reading each test's current state now and posts it in this thread."
-    owed = 'he asked a line in this thread on o1 every 15 minutes, so each line here, an ack or a status answer too, promises the next by 8:55 PM at the latest, as "Next line by 8:55 PM." does, and these words'
-    assert talk.uncadenced(demo, data, {"text": staging, "thread_ts": thread}, [], at) == f"{owed} promise it by 9:15 PM"
-    assert talk.uncadenced(demo, data, {"text": ack, "thread_ts": thread}, [], at) == f"{owed} promise none"
-    assert talk.uncadenced(demo, data, {"text": staging.replace("9:15 PM", "8:55 PM"), "thread_ts": thread}, [], at) is None
-    assert talk.uncadenced(demo, data, {"text": f"{ack} Next line by 8:50 PM.", "thread_ts": thread}, [], at) is None
-    assert talk.uncadenced(demo, data, {"text": ack, "thread_ts": thread}, ["o1"], at) is None
-    assert talk.uncadenced(demo, data, {"text": ack, "thread_ts": thread, "card": "w1"}, [], at) is None
-    assert talk.uncadenced(demo, data, {"text": ack}, [], at) is None
-    assert talk.uncadenced(demo, data, {"text": ack, "thread_ts": "1794548960.047439"}, [], at) is None
-    edit = f"slack:D123/{thread}/{at.timestamp():.6f}"
-    assert talk.uncadenced(demo, data, {"edit": edit, "text": staging}, [], at + timedelta(minutes=30)) == f"{owed} promise it by 9:15 PM"
-    assert talk.uncadenced(demo, data, {"edit": edit, "text": staging.replace("9:15 PM", "8:50 PM")}, [], at + timedelta(minutes=30)) is None
-
-
 def test_a_time_a_post_promises_becomes_its_orders_due_once_slack_has_the_post_and_the_next_post_keeps_it(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:

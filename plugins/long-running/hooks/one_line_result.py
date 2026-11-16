@@ -67,9 +67,8 @@ def in_flight(payload: dict) -> str | None:
         return None
     return agents.Unjudged(
         f"Refused on purpose: your session still holds {', '.join([*tasks, *wakeups])}. Once your line passes, the drive lets go"
-        " of this item and may send you the next, and every background task and wakeup of this one is orphaned with it. Finish that step in this turn, or hand it"
-        " now to the owner that outlives you: a line to him goes on its order's due, the \"Next line by <time>\" your post"
-        " promises, and any other step goes to the session that asked, as a record `re` its record. Then stop each task with"
+        " of this item and may send you the next, and every background task and wakeup of this one is orphaned with it. Finish that step in this turn: post him the answer,"
+        " or what is known while it is not, and hand any other step to the session that asked, as a record `re` its record. Then stop each task with"
         " `TaskStop` and each wakeup with `CronDelete`, and end."
     )
 

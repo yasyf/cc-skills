@@ -68,10 +68,10 @@ BRANCH_SECONDS = 20
 TESTED = re.compile(r"HEAD is now at \w+ Merge [0-9a-f]{40} into (?P<base>[0-9a-f]{40})")
 
 
-def open_cards(data: dict, job_id: str, pr: dict | None, exempt: str | None = None) -> list[str]:
-    """His open cards holding a job's work, its PR when given, from landing, since work does not land with a question of his on it unanswered: each card of an open question holding its work by state.part_cards, the one rule by which a card holds work, so a card a job or PR waits on otherwise only wakes it; none for an immediate fix, which lands while he picks the proper fix, or a flake fix or main fix, the PR's exempt class or else `exempt`, which fixes a flaking test the day it flakes by his ruling 532cd3d or the default branch's failing CI, and on an open incident, whose repair lands on the recommended option, only a card whose question asks him to lift a ruling of his, which `drive job ask` marks when Jev reads any option it offers as breaking a recorded answer or ruling of his, its recommended option first, or --unsettled names one, by his pick "Hold the PR until you answer; the drive finds each card against your recorded answers"."""
+def open_cards(data: dict, job_id: str, pr: dict | None) -> list[str]:
+    """His open cards holding a job's work, its PR when given, from landing, since work does not land with a question of his on it unanswered: each card of an open question holding its work by state.part_cards, the one rule by which a card holds work, so a card a job or PR waits on otherwise only wakes it; none for an immediate fix, which lands while he picks the proper fix, or a flake fix or main fix, the PR's exempt class, which fixes a flaking test the day it flakes by his ruling 532cd3d or the default branch's failing CI, and on an open incident, whose repair lands on the recommended option, only a card whose question asks him to lift a ruling of his, which `drive job ask` marks when Jev reads any option it offers as breaking a recorded answer or ruling of his, its recommended option first, or --unsettled names one, by his pick "Hold the PR until you answer; the drive finds each card against your recorded answers"."""
     job = data["jobs"][job_id]
-    if state.IMMEDIATE_FIX in job["parts"] or (pr.get("exempt") if pr is not None else exempt) in state.UNCARDED_CLASSES:
+    if state.IMMEDIATE_FIX in job["parts"] or (pr or {}).get("exempt") in state.UNCARDED_CLASSES:
         return []
     found = list(dict.fromkeys(state.part_cards(data, job_id, pr)))
     if state.open_incidents(data, [job["order"], *job["carries"]]):
@@ -82,13 +82,6 @@ def open_cards(data: dict, job_id: str, pr: dict | None, exempt: str | None = No
 def pr_cards(data: dict, pr: dict) -> list[str]:
     """His open cards holding a PR from landing: those holding the work of the job its row names, by open_cards(), never a card of a job it moved off or that lists it beside work of its own."""
     return open_cards(data, pr["job"], pr)
-
-
-def ship_held(data: dict, job_id: str, exempt: str | None = None) -> list[str]:
-    """His open cards holding a job's PR from going up, which the `bash_guard` hook refuses the `ccx vcs ship` that would open it by, on this Mac and through `drive job held` on a Sprite: none once the job has an open PR, which a ship pushes to rather than opens, holding it as open_cards() holds it once registered under the exempt class `exempt` the same call gives it."""
-    if any(data["prs"].get(state.pr_key(url), {}).get("state") == "open" for url in data["jobs"][job_id]["prs"]):
-        return []
-    return open_cards(data, job_id, None, exempt)
 
 
 def staged(data: dict, pr: dict) -> list[str]:

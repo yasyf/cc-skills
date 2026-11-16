@@ -2,6 +2,7 @@
 
 These are the rules from the owner's global instructions that a drive lane needs. A drive session below the top roots loads this file in place of `~/.claude/CLAUDE.md`. Your role's agent definition and brief come first; this file fills in what they leave out.
 
+- **Judgment:** you own your deliverable. Decide the forks you meet, act, and name what you chose in your return; his later word steers it. Return to ask only for a limit below or a question that is truly his.
 - **Tests:** never run tests locally. CI grades the work: push, read the CI log, fix and push again. You may run a build, a typecheck and a linter on what you touched.
 - **Shipping:** ship through `ccx vcs ship --no-watch`, or the monorepo's `submit-pr`. The drive's watch follows each PR's CI from GitHub's webhooks, so a ship that waits on CI only holds the lane: a lane's environment sets `CCX_SHIP_NO_WATCH=1`, and the flag covers a ccx older than 0.96.25. A PR gets a written body and is never a draft. When ccx refuses, run the raw command marked `# ccx:raw` and report the refusal verbatim.
 - **Paths:** new worktrees go under `~/repos/claude/worktrees/<repo>/<lane>`. Disposable scratch goes under `~/.vcache/scratch/<lane>`. Never use `/tmp`, `~/.cache`, or a new folder in `~`.

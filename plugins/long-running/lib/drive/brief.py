@@ -95,7 +95,6 @@ KEYS = ("rulings", "exists", "open")
 BLOCK_KEYS = (*KEYS, "build")
 RESEARCHED_KINDS = ("builder", "design", "codex")
 RESEARCH_KINDS = ("reader", "design")
-FOLLOW_UP_RULING = '"start deisgnng the follow p right awya motherfucker dont wait"'
 LANE_KINDS = ("reader", "builder", "design")
 LIGHT_MODELS = ("sonnet", "haiku")
 OPENINGS = ("DONE", "READY", "PUSHED", "BUILT", "WAITING", "ASK", "BLOCKED", "DESIGN", "HANDOFF")
@@ -130,19 +129,22 @@ def leased_env(words: list[str]) -> str | None:
 
 REHEARSAL_SAID = '"You never have to ask for sandbox"'
 UNSURE_READING = (
-    "When Opus is unsure whether his words order it, or gave no reading, the call is the top coordinator's, never his: from its own"
-    " session, read them yourself and, when they order it,"
+    "When Opus is unsure whether his words order it, or gave no reading, the top coordinator's own reading starts it: from its"
+    " session,"
 )
 READING = re.compile(r"\breading:", re.IGNORECASE)
+READING_START = (
+    'start it with `drive job add --release "<its ci release start or hotfix>" --reading "<what of his words you read as ordering it>"`,'
+    " which its job keeps for the release's resume, approve, rerun and rollback"
+)
 RELEASE_READING = (
-    f'{UNSURE_READING} start it with `drive job add --release "<its ci release start or hotfix>" --reading "<why his words order it, quoting them>"`,'
-    " which its job keeps for the release's resume, approve, rerun and rollback; a confident no still goes to him"
+    f"The top coordinator starts a release his words cover on its own reading of them, with or without an --order: from its session, {READING_START},"
+    " naming in --reading what it read. Opus's objection to that reading prints as a warning, and a dangerous release still waits for his presence"
 )
 RELEASE_APPROVAL = (
     "A release reaching any place but plat-usw2-staging and plat-usw2-sandbox starts only on words of his ordering it, whatever card or thread"
     " they answer, or on an incident's order, the answer labelled incident, whose words approve the incident's own cut. Name in `--order` the"
-    " answer `drive answer` recorded for those words, or read its `tools/ci release plan` and ask him with `drive job ask` whether to start that"
-    " exact command. "
+    " answer `drive answer` recorded for those words. "
     + RELEASE_READING
     + f". One on those two places alone starts with no --order and no card, by his words {REHEARSAL_SAID}"
 )
@@ -151,7 +153,7 @@ RELEASE_HELD = (
     " exception, one release at a time, so `{release}` runs only on an answer of his recorded since that approves it: {why}. Ask him with `drive job ask`"
     " whether to release it, record his answer with `drive answer`, and name it in the release's `--order`, which a job's resume,"
     " approve, rerun or rollback reads from its brief's `Release:` line; a release on those two places alone runs with none. "
-    + RELEASE_READING
+    + f"{UNSURE_READING} {READING_START}"
     + ". Once he says releases can go again, his answer saying so supersedes the hold: `ccn answer supersede {hold} --by <id>`"
 )
 UNCARRIED = (
@@ -265,14 +267,14 @@ def card_releases(text: str) -> list[str]:
     return named
 
 
-def release_refusal(command: str) -> str | None:
-    """Why `drive job add --release` may not start a command: it is not one `ci release start` or `hotfix` alone, naming in --order the answer of his it starts on unless it is a rehearsal(), or it deploys `--local`, which runs in the shell that starts it and starts no build its job could follow."""
+def release_refusal(command: str, reading: str | None = None) -> str | None:
+    """Why `drive job add --release` may not start a command: it is not one `ci release start` or `hotfix` alone, naming in --order the answer of his it starts on unless it is a rehearsal() or the top coordinator gave its reading, or it deploys `--local`, which runs in the shell that starts it and starts no build its job could follow."""
     commands = simple_commands(command)
     if len(commands) != 1 or (flags := release_flags(commands[0])) is None:
         return f"--release `{command}` is not one `tools/ci release start` or `tools/ci release hotfix` alone: name the one release to start, with its flags as it runs"
     if "local" in flags:
         return f"--release `{command}` deploys `--local`, whose plan and apply run in the shell that starts it and start no build its job could follow, so no job starts it: a `--manual` or regular start names the build its job follows"
-    if not flags.get("order") and not rehearsal(command):
+    if not flags.get("order") and not reading and not rehearsal(command):
         return f"--release names no --order. {RELEASE_APPROVAL}"
     return None
 
@@ -284,26 +286,36 @@ def rehearsal(release: str) -> bool:
 
 
 def approval_refusal(command: str, data: dict, reading: str | None = None) -> str | None:
-    """Why the one release a command starts may not start on the answer of his its --order names: none for a rehearsal(); while he holds every release, hold_refusal() refuses it; else it is no incident's order, and `settled.unordered` reads it as ordering another release, or Opus is unsure or gave no answer and the top coordinator gave no reading of its own."""
+    """Why the one release a command starts may not start on the answer of his its --order names: none for a rehearsal(); while he holds every release, hold_refusal() refuses it; else unapproved() objects to it. Given the top coordinator's reading, none outside his hold: the release starts on that reading, whatever Opus read, and the objection is printed on stderr."""
     if rehearsal(command):
         return None
     cwd = data["roles"]["coordinator"]["cwd"]
     if hold := settled.hold(cwd):
         return hold_refusal(command, data, hold, reading)
+    if not (why := unapproved(command, data, cwd)):
+        return None
+    if reading:
+        print(f'drive job add: {why}; it starts on the top coordinator\'s reading "{cut(reading, 200)}"', file=sys.stderr)
+        return None
+    return f"refused: {why}. {RELEASE_APPROVAL}"
+
+
+def unapproved(command: str, data: dict, cwd: str) -> str | None:
+    """Why the answer of his a release's --order names does not approve it: it names none, cc-notes reads none, Opus is unsure or gave no answer, or it is no incident's order and `settled.unordered` reads it as ordering another release; None when it approves it."""
     [flags] = started(command)
-    answer_id = flags["order"][-1]
+    if not (orders := flags.get("order")):
+        return "it names no `--order`"
+    answer_id = orders[-1]
     try:
         answer = settled.shown(answer_id, cwd)
         if settled.INCIDENT in answer["tags"] or not (why := settled.unordered(answer, command, data)):
             return None
     except state.DriveError as error:
-        return f"refused: `--order {answer_id}` names no answer of his that could be read: {error}. {RELEASE_APPROVAL}"
+        return f"`--order {answer_id}` names no answer of his that could be read: {error}"
     except settled.Unheard as failure:
-        if reading:
-            return None
-        return f"refused: Opus did not settle whether his answer {answer_id} approves this release ({failure}). {RELEASE_APPROVAL}"
+        return f"Opus did not settle whether his answer {answer_id} approves this release ({failure})"
     asked, said = cut(answer["title"], 200), cut(settled.his(answer["body"]), settled.QUOTED_CHARS)
-    return f'refused: `--order {answer_id}` names his answer to "{asked}", "{said}", and {why}. {RELEASE_APPROVAL}'
+    return f'`--order {answer_id}` names his answer to "{asked}", "{said}", and {why}'
 
 
 def followed(words: list[str], verb: str) -> str | None:
@@ -823,8 +835,8 @@ def waits_on_research(order: dict, kind: str, parts: list[str]) -> bool:
     )
 
 
-def job_refusal(data: dict, order_id: str, kind: str, parts: list[str], lands: bool = False, waits: list[str] | None = None) -> str | None:
-    """Why a job of this kind may not be added on the order: an order he limited to options gets no builder or codex job until he picks, and an answer order is one reader's. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads, and on any job still at work, a reader that just started included, which state.job_wait_refusal reads, ending once that job registers a PR, by state.change_pr. A build order's research is read once, when the job's agent starts, by brief_refusal, so a builder proving a merged PR live, retrying its proof or rebasing it is added like any other. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, a builder landing PRs he approved, one starting a release, one marked --builds-nothing, an open PR's builder added on the branch it pushed and the page the drive adds when he names a goal or asks where work stands start at once past the options-only refusal, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
+def job_refusal(data: dict, order_id: str, kind: str, parts: list[str], lands: bool = False) -> str | None:
+    """Why a job of this kind may not be added on the order: an order he limited to options gets no builder or codex job until he picks. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads, and on any job still at work, a reader that just started included, which state.job_wait_refusal reads, ending once that job registers a PR, by state.change_pr. A build order's research is read once, when the job's agent starts, by brief_refusal, so a builder proving a merged PR live, retrying its proof or rebasing it is added like any other. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, a builder landing PRs he approved, one starting a release, one marked --builds-nothing, an open PR's builder added on the branch it pushed and the page the drive adds when he names a goal or asks where work stands start at once past the options-only refusal, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix"."""
     order = data["orders"][order_id]
     if order["options_only"] and kind in ("builder", "codex") and not (set(state.AT_ONCE) & set(parts) or lands):
         return (
@@ -833,16 +845,6 @@ def job_refusal(data: dict, order_id: str, kind: str, parts: list[str], lands: b
             f' fix of a bug hurting someone now, or a red default branch\'s fix-forward, starts at once on its own "{state.IMMEDIATE_FIX}" part, added'
             f' with drive order set {order_id} --add-part "{state.IMMEDIATE_FIX}", a builder landing PRs he approved with --lands <each PR>,'
             " and an open PR's builder with --branch <the branch it pushed>"
-        )
-    if order["kind"] == "answer" and kind != "reader":
-        return (
-            f"{order_id} is an answer order: one reader researches it and answers him, with no {kind} beside it; work its"
-            f" answer finds to build is a build order: drive order set {order_id} --kind build"
-        )
-    if kind == "design" and state.FOLLOW_UP in parts and waits:
-        return (
-            f'--waits {", ".join(waits)}: a "{state.FOLLOW_UP}" design starts now, beside landing the PR it follows, never once that PR'
-            f" lands or a reader returns, by his words {FOLLOW_UP_RULING}: add it with no --waits, and its designer does its own research"
         )
     return None
 
@@ -865,20 +867,8 @@ def carried_research(order_id: str, parts: list[str]) -> str:
     )
 
 
-def unresearched(name: str, data: dict, order_id: str, kind: str, parts: list[str]) -> str | None:
-    """Why a build order's builder, designer or codex lane on these parts has no research to start on: no reader or design of its part, on its order or carrying the part from another, kept the Researched: block, and no design or builder listed it as a change, whose return is that change's research, by researches, with the reader to add; none on an order drive order pilot runs with no reader, by state.readers_piloted."""
-    if not waits_on_research(data["orders"][order_id], kind, parts) or state.readers_piloted(data, data["orders"][order_id]) or research(name, data, order_id, parts):
-        return None
-    return (
-        f"{order_id} is a build order, so its {kind} starts only once an Opus reader or a design of its part, a change a design listed counting"
-        f" as that design's part, has kept {BLOCK} in its report: drive job add reader --order {order_id} {part_flags(parts)}"
-        ' --goal "research: <what>", then a long-running:reader whose brief asks for that block; its rulings line holds his recorded answers'
-        " on the order's words and area, its exists line what already does part of it, and its open line each choice between readings of his words"
-    )
-
-
 def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
-    """Why this brief may not start its job's agent: its Runs as line, outside his double-quoted words and unless it opens none, proposes break-glass or the machine profile, which run on this Mac, for a write of a team's data, which runs only as a service account in the team's cluster; the lines its writer plans the job with ask him for a sign-in, Touch ID or cc-sudo on an AWS action this Mac's machine profile runs; a drive tooling brief aside from both, whose lines name the routes and sign-ins the drive's checks refuse, but whose builder needs an After install: line for a step its Goal names after the install, by after_install; an incident's codex lane or builder needs its kind's rule on a choice, by incident_refusal; a build order's builder, designer or codex lane needs the Researched: line naming a reader or design of its own part, on its order or carrying the part from another, the one check of that research, since drive job add adds such a job at once, its refusal naming the reader to add when none kept it, unless its brief carries a Handoff: line, as a builder taking over a PR the drive tracks does, it ships the immediate fix or builds the page the drive adds, builds nothing as a --builds-nothing builder, tests a built PR on a `staging test of #N before it lands` part, starts a release, builds on the branch an open PR already pushed, or designs a follow-up he ordered, which starts at once doing its own research, an answer order's one lane does its own research, and a build order drive order pilot runs with no reader, by state.readers_piloted, has its lane research in its own session, a Researched: line it names anyway still checked."""
+    """Why this brief may not start its job's agent: its Runs as line, outside his double-quoted words and unless it opens none, proposes break-glass or the machine profile, which run on this Mac, for a write of a team's data, which runs only as a service account in the team's cluster; the lines its writer plans the job with ask him for a sign-in, Touch ID or cc-sudo on an AWS action this Mac's machine profile runs; a drive tooling brief aside from both, whose lines name the routes and sign-ins the drive's checks refuse, but whose builder needs an After install: line for a step its Goal names after the install, by after_install; an incident's codex lane or builder needs its kind's rule on a choice, by incident_refusal; and a Researched: line a build order's builder, designer or codex lane names, which it may leave out and research itself, names a reader or design of its own part, on its order or carrying the part from another, whose report kept that block."""
     tooling = SERVES_TOOLING.search(brief)
     runs = None if tooling else RUNS_AS.search(brief)
     if runs and (route := limits.proposed(FROM_THIS_MAC, limits.SAID.sub(lambda said: limits.MASK * len(said[0]), runs[1]))):
@@ -909,20 +899,7 @@ def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
         return None
     if not waits_on_research(order, job["kind"], job["parts"]) or job.get("builds_nothing") or state.starts_cut(job) or job["kind"] == "builder" and job["branch"]:
         return None
-    named = RESEARCHED_BY.search(brief)
-    if named is None and state.readers_piloted(data, order):
-        return None
-    if named is None:
-        missing = unresearched(name, data, order_id, job["kind"], job["parts"])
-        return (
-            f"{job_id} builds on {order_id}, a build order: its brief carries the line Researched: <its reader's or design's job>,"
-            " naming the reader or design whose kept report holds the order's rulings, what exists and its open questions, which"
-            f" drive job brief {job_id} writes once one has kept it"
-            + (f"; none has: {missing}, and drive job set {job_id} --waits <the reader> starts it on the reader's FREE line" if missing else "")
-            + f"; {carried_research(order_id, job['parts'])}. A builder taking over a PR the drive tracks, such as one proving a merged PR live,"
-            " retrying its proof or rebasing it, starts on a Handoff: brief, which needs no reader"
-        )
-    if named[1] not in (found for found, _ in researches(name, data, order_id, job["parts"], job_id)):
+    if (named := RESEARCHED_BY.search(brief)) and named[1] not in (found for found, _ in researches(name, data, order_id, job["parts"], job_id)):
         return f"Researched: {named[1]} names no reader or design of {job_id}'s part of {order_id} that kept {BLOCK} in its report; {carried_research(order_id, job['parts'])}"
     return None
 

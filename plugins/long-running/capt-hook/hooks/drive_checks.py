@@ -581,15 +581,7 @@ def message_limits(evt: BaseHookEvent) -> HookResult | None:
             tool_input={"kind": "report", "lane": "root", "to": "communicator@fixture", "text": "POST The fix is still building.", "attrs": {"thread": THREAD, "progress": "true"}},
             session_id=COORDINATOR,
             transcript=TURN,
-            commands=HELD,
-        ): Block(pattern="one report per thread per turn"),
-        Input(
-            tool=POST,
-            tool_input={"kind": "report", "lane": "root", "to": "communicator@fixture", "text": "POST New: 663230 shows 0 refused writes.", "attrs": {"thread": THREAD, "progress": "true"}},
-            session_id=COORDINATOR,
-            transcript=TURN,
-            commands=PASSED,
-        ): Allow(),
+        ): Warn(pattern="already sent one for thread"),
         Input(
             tool=POST,
             tool_input={"kind": "report", "lane": "root", "to": "communicator@fixture", "text": "POST The check that this pod still runs the agent refused an old pod.", "attrs": {"progress": "true"}},
@@ -612,7 +604,7 @@ def communicator_calls(evt: BaseHookEvent) -> HookResult | None:
 
 @on(Event.PreToolUse, advisory_on_deny=True, tests={Input(tool="WebFetch", tool_input={"url": "https://example.com"}, session_id=NO_DRIVE): Allow()})
 def role_rules(evt: BaseHookEvent) -> HookResult | None:
-    """Beside each call of a drive session or job, a line for each order he waits on a line from that it holds, how long since its thread's last line to him and how far past due, and the rules an install changed since the session's block drew them, kept beside a deny another check gives that call, since the check keeps them as held once it hands them."""
+    """Beside each call of a drive session, never a job's, a line for each order he waits on a line from that it holds, how long since its thread's last line to him and how far past due, and the rules an install changed since the session's block drew them, kept beside a deny another check gives that call, since the check keeps them as held once it hands them."""
     return checked(evt, "role_rules.py")
 
 

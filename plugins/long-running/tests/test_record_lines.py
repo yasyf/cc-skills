@@ -27,6 +27,11 @@ def refusal(made: dict | None) -> str:
     return made["permissionDecisionReason"]
 
 
+def warned(made: dict | None) -> str:
+    assert made and "permissionDecision" not in made
+    return made["additionalContext"]
+
+
 def test_a_drive_record_arrives_as_one_line_with_the_rest_at_the_top_of_its_body(demo: str) -> None:
     made = record_lines.decision(post(kind="report", text=LONG, body="facts: drive job report j12"))
     text = made["updatedInput"]["text"]
@@ -415,7 +420,7 @@ def test_718857_a_post_reports_cause_line_citing_its_own_lanes_record_or_one_cci
     monkeypatch.setattr(reads, "run", cci)
     caused = "POST sandsql-inbox had no writer for 51 seconds because the handoff code is already on dev, {{record:{}|the read}}"
     report = lambda seq, text=caused: coordinator(turn, kind="report", text=text.format(seq), to=TO, attrs={"close": "o1", "thread": THREAD})
-    assert refusal(record_lines.decision(report("718719"))) == refs.SELF_CITED.format(lane="root", lines=caused.format("718719"))
+    assert reports.SELF_CITED.format(lane="root", lines=caused.format("718719")) in warned(record_lines.decision(report("718719")))
     assert refusal(record_lines.decision(report("718715"))) == reports.UNHELD_RECORD.format(error="{record:718715} could not be read: no record 718715")
     assert "permissionDecision" not in (record_lines.decision(report("718700")) or {})
     assert "permissionDecision" not in (record_lines.decision(report("718719", "POST the tester's message is in, {{record:{}|its words}}")) or {})
@@ -426,7 +431,7 @@ def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_orde
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why does the search worker OOM?", "--kind", "answer", "--parts", "cause", "fix")
     run("job", "add", "reader", "--order", "o1", "--part", "cause", "--goal", "find the cause")
     merged = {"kind": "report", "text": "POST the search worker's fix merged", "to": TO}
-    reason = refusal(record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1"})))
+    reason = warned(record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1"})))
     assert "here o1, the open order it is about" in reason and 'one of "cause", "fix"' in reason and "`--attr progress=true`" in reason
     reason = refusal(record_lines.decision(coordinator(turn, **merged)))
     assert "`--attr close=<o,…>` naming each order it finishes, `--attr part=<o>:<part>` naming the part it delivers, or" in reason
@@ -486,37 +491,37 @@ def test_a_part_attr_names_parts_of_several_orders_and_each_must_be_one_the_driv
     assert state.part_items({"part": "first check; o2:increase the RAM"}, "o1") == [("o1", "first check"), ("o2", "increase the RAM")]
 
 
-def test_the_coordinator_sends_one_report_per_thread_per_turn(demo: str, turn: Path) -> None:
+def test_the_coordinators_second_report_for_a_thread_in_a_turn_goes_with_a_warning(demo: str, turn: Path) -> None:
     tool = "mcp__plugin_cc-inbox_cci__post"
     earlier = {"kind": "report", "text": "POST j1 merged", "to": TO, "attrs": {"thread": THREAD, **PROGRESS}}
     called(turn, "refused", tool, earlier, failed=True)
     assert record_lines.decision(coordinator(turn, **earlier)) is None
     called(turn, "first", tool, earlier)
-    assert "one report per thread per turn" in refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j2 merged", to=TO, attrs={"thread": THREAD, **PROGRESS})))
+    assert "already sent one for thread" in warned(record_lines.decision(coordinator(turn, kind="report", text="POST j2 merged", to=TO, attrs={"thread": THREAD, **PROGRESS})))
     assert record_lines.decision(coordinator(turn, kind="report", text="POST j2 merged", to=TO, attrs={"thread": OTHER, **PROGRESS})) is None
     wake = '<channel source="plugin:cc-inbox:cci" kind="handoff" lane="watch" seq="662305">\n@2:36 AM\n662305 handoff watch j242 green'
     with turn.open("a") as transcript:
         transcript.write(json.dumps({"type": "user", "isMeta": True, "message": {"role": "user", "content": "the skill's body"}}) + "\n")
-    assert "one report per thread per turn" in refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j2 merged", to=TO, attrs={"thread": THREAD, **PROGRESS})))
+    assert "already sent one for thread" in warned(record_lines.decision(coordinator(turn, kind="report", text="POST j2 merged", to=TO, attrs={"thread": THREAD, **PROGRESS})))
     with turn.open("a") as transcript:
         transcript.write(json.dumps({"type": "assistant", "message": {"role": "assistant", "stop_reason": "end_turn", "content": [{"type": "text", "text": "Sent."}]}}) + "\n")
         transcript.write(json.dumps({"type": "user", "isMeta": True, "message": {"role": "user", "content": wake}}) + "\n")
     called(turn, "now", tool, earlier)
     assert record_lines.decision(coordinator(turn, kind="report", text="POST j2 merged", to=TO, attrs={"thread": THREAD, **PROGRESS})) is None
-    assert "one report per thread per turn" in refusal(record_lines.decision(coordinator(turn, records=[earlier, earlier])))
+    assert "already sent one for thread" in warned(record_lines.decision(coordinator(turn, records=[earlier, earlier])))
     called(turn, "woken", tool, earlier)
-    assert "the next wake" in refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j3 merged", to=TO, attrs={"thread": THREAD, **PROGRESS})))
+    assert "already sent one for thread" in warned(record_lines.decision(coordinator(turn, kind="report", text="POST j3 merged", to=TO, attrs={"thread": THREAD, **PROGRESS})))
 
 
-def test_a_report_withdrawn_this_turn_leaves_its_threads_report_to_the_one_correcting_it(demo: str, turn: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_report_withdrawn_this_turn_leaves_its_threads_report_to_the_one_correcting_it_with_no_warning(demo: str, turn: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     withdrawn: dict[str, list[str]] = {}
     monkeypatch.setattr(agents, "amendments", lambda name, seqs: {"correction": {}, "withdraw": {seq: withdrawn[seq] for seq in seqs if seq in withdrawn}})
     first = {"kind": "report", "text": "POST j1 merged", "to": TO, "attrs": {"thread": THREAD, **PROGRESS}}
     called(turn, "first", "mcp__plugin_cc-inbox_cci__post", {"records": [{"kind": "note", "text": "j1 is green", "to": TO}, first]}, stored="712995 712996")
     correcting = coordinator(turn, kind="report", text="POST j2 merged", to=TO, attrs={"thread": THREAD, **PROGRESS})
-    assert "one report per thread per turn" in refusal(record_lines.decision(correcting))
+    assert "already sent one for thread" in warned(record_lines.decision(correcting))
     withdrawn["712995"] = ["712997"]
-    assert "one report per thread per turn" in refusal(record_lines.decision(correcting))
+    assert "already sent one for thread" in warned(record_lines.decision(correcting))
     withdrawn["712996"] = ["712998"]
     assert record_lines.decision(correcting) is None
 
@@ -528,7 +533,7 @@ def test_a_report_on_an_open_incident_goes_however_many_its_thread_already_had_t
     assert record_lines.decision(coordinator(turn, **second)) is None
     with state.edit(demo) as data:
         data["orders"]["o1"]["incident"] = False
-    assert "one report per thread per turn" in refusal(record_lines.decision(coordinator(turn, **second)))
+    assert "already sent one for thread" in warned(record_lines.decision(coordinator(turn, **second)))
 
 
 def test_a_report_marked_incident_goes_only_on_an_open_incident_order_since_every_check_reads_the_orders_flag(
@@ -580,11 +585,11 @@ def test_a_report_re_its_own_lanes_post_report_goes_out_as_its_correction_in_the
     fix = {"kind": "report", "text": "POST no release card follows: his Nov 5 answer settled it", "to": TO, "re": 700, "attrs": {"thread": THREAD, **PROGRESS}}
     assert record_lines.decision(coordinator(turn, **fix))["updatedInput"]["kind"] == "correction"
     earlier["lane"] = "meta"
-    assert "one report per thread per turn" in refusal(record_lines.decision(coordinator(turn, **fix)))
+    assert "already sent one for thread" in warned(record_lines.decision(coordinator(turn, **fix)))
 
 
-def test_a_wait_on_anything_else_says_how_long_and_whether_it_runs(demo: str) -> None:
-    assert "how long it has waited" in refusal(record_lines.decision(post(kind="report", text="POST j702 waits on CI", to=TO, attrs=PROGRESS)))
+def test_a_wait_on_anything_else_hears_it_reads_clearer_saying_how_long_and_whether_it_runs(demo: str) -> None:
+    assert "how long it has waited" in warned(record_lines.decision(post(kind="report", text="POST j702 waits on CI", to=TO, attrs=PROGRESS)))
     assert record_lines.decision(post(kind="report", text="POST j702 waits on CI, 40 min, run 123 running", to=TO, attrs=PROGRESS)) is None
     for stamped in ("POST {pr:4093} waits on its own staging test, running since {started:j702}", "POST j702 waits on CI, run 123 running since the push {at:700}"):
         assert record_lines.decision(post(kind="report", text=stamped, to=TO, attrs=PROGRESS)) is None

@@ -5,57 +5,61 @@ description: Use when work will outlive one context window, spans several PRs or
 
 # Long-running drives
 
-A drive is three Claude Code sessions, the communicator, coordinator and meta session, and their jobs. The top coordinator and the designer run Fable 5.2 (`claude-fable-5-2`); every other session runs Opus 5.5 (`claude-opus-5-5`) advised by Fable (`start`), and every other agent Opus, Sonnet only for a one-fact lookup, since complex work on a light model gets redone.
+A drive is three Claude Code sessions, the communicator, coordinator and meta session, and their jobs. The top coordinator and the designer run Fable 5.2 (`claude-fable-5-2`); every other session runs Opus 5.5 (`claude-opus-5-5`) advised by Fable (`start`), and every other agent Opus, Sonnet only for a one-fact lookup.
 
-The communicator is the only session he talks to: its turn on his message is a one-sentence ack alone inside 5 to 10 seconds, then `drive handler`, which starts `long-running:handler` as its own session, so his next message never waits. The handler does every read, card and `say` post and ends on one line, sent back as one cci record. Each `owner` record names its `about`: his words on the drive, rulings included, reach the meta session alone, and those on his work the coordinator. He reads only Slack; no session has AskUserQuestion (`communicator`).
+The communicator is the only session he talks to. It acks his message in one sentence within seconds, then `drive handler` starts `long-running:handler` as its own session, so his next message never waits. The handler reads, answers him with `say` and ends on one line (`communicator`). He reads only Slack, and no session has AskUserQuestion.
 
-The coordinator turns his messages into orders and gives each to the one job owning it end to end: code, PR, CI, merge, install, check (`jobs`). It routes its watch's events, lands, installs and tells the communicator what to post.
+The coordinator turns his messages into orders and gives each to one job that owns it end to end: code, PR, CI, merge, install, check (`jobs`). It routes its watch's events, lands, installs and reports. The meta session does the same for the drive's own tools (`meta`).
 
-The drive's state is one file only the `drive` CLI writes, and his rulings are cc-notes answers. The sessions talk only through cci records, or SendMessage while cci is down (`records`). An agent answers only to the session that started it.
+The drive's state is one file only the `drive` CLI writes, and his rulings are cc-notes answers. Sessions talk through cci records, or SendMessage while cci is down (`records`).
 
-## Rules
+## You decide
 
-This file holds the fundamental rules; one firing on one input is a tested refusal in the verb or hook seeing it. Obey a refusal, never route around it; a wrong one, or one holding back his work, is a tool defect (Tooling). The role rules `render.py` prints at SessionStart bind every turn, the communicator's its whole turn since it reads no page; a step's rule lives only in its `drive manual` row, read before that step, which a ruling on it rewrites. A rule is live once installed; changing one edits every place stating it: this file, a row, `agents/*.md`, a role rule, a tool description.
+Every session and job of a drive is a frontier model, trusted to use its judgment.
 
-### Jobs
+- The coordinator decides and acts: what an order means, what to start, in what order, what to hold or drop, which of two readings of his words is right. It reports what it chose and why in one line, and his later word steers it. The meta session does the same for tooling, and each job inside its deliverable.
+- His words are the spec: his message, the order and the brief's `Decisions that bind`, the newest winning where two collide. What they leave open is yours to decide: read them as a careful colleague would, act on that reading, and name what you chose in your return, since his next word steers it.
+- Nothing waits for a quote of his words, an answer id, a confirmation, or another session's permission. A wrong reading costs one correction from him; a round trip costs him the wait every time.
+- A job that meets a fork or a blocker resolves it and names the choice in its return. It returns to ask only for one of the limits below or a question that is truly his.
+- A tool's refusal is information. When one holds back his work, do the work another way and send one `defect` record to `meta@<drive>` quoting it. Gates fail open.
 
-- Build only a port of an old PR, his order, or drive tooling under its own order; an unordered finding becomes a question card. A port models its data the fundamentally right way for its target (`scope`).
-- An order is an answer, one job's research, or a build, whose builder starts on a reader's or design's `Researched:` block, an immediate fix or pilot order's at once.
-- A job returns facts, numbers, links, quotes and what is unproven, never a write-up: only handlers write for him.
-- The job that meets a blocker on his work resolves it. A rule forbidding one way of doing his pick never cancels it: build it the way the rule allows, unasked; a rule replacing a mechanism his words name quotes them.
+## The limits
 
-### Questions for him
+These four hold whatever else you decide, each for the harm it prevents.
 
-- Ask him only what is his, never a value a job reads where it is defined: on product orders architecture and abstractions, scope, and his own workflow, on drive tooling only a high-level preference. Do the rest of his orders unasked and report it with a count (`scope`).
-- Wait for his word only to land a `<guarded org>/*` change outside an exempt class, post as him to anyone else, change production, or stop, signal or close a session he did not name.
-- A tricky design gets a design job whose forks go on his cards, one for a follow-up he orders to a PR at once, beside landing that PR (`design`), and a finding with design consequences reaches him as options, unasked. The recommended option is built meanwhile, its PR waiting on his answers outside an incident's repair.
-- His words that answer or supersede a card, wherever he writes them, close it and every card on its subject, and the work follows them (`messages`). A question of his, "could we X?" included, answers nothing: it is answered in its thread while the card waits, a way it proposes offered on the card redrawn; what his answer leaves open goes on a new card.
-- A question card starts from the root cause and recommends the option that removes it, or links the merged PR that did, unless his pick chose another, and offers the simplest design doing his words; Opus only prints an option his words rule out (`scope`).
+- **Dangerous changes wait for him.** A change the repository's root `AGENTS.md` calls dangerous (a migration, a backfill, a delete of user data, a storage, consistency or write path, a builtin, the parser, checker or VM, the runtime API), and a production release carrying one, merges or releases only while he is present: his word or tap in the last 15 minutes. It can break customers' runs or lose their data. A rollback, and an incident's hotfix changing nothing dangerous, run without him (`incidents`).
+- **Customer data stays off this Mac.** Read it only through the repository's team-data route.
+- **Other sessions are not yours.** Never stop, signal, suspend or close a session, Orca, a terminal host or anything you did not start.
+- **Scan FDE impact first.** Before changing what forward-deployed engineers' or customers' code can observe, run the scan and put what it finds in the PR body (`landing`).
 
-### His words
+Two more things are his because the machine works that way: a `<guarded org>` PR outside an exempt class lands on his Approve tap (`landing`), and a post in his own name to another person waits for his word.
 
-- His words are the spec: his message, the order and the brief's `Decisions that bind`, the newer winning where two collide. What they leave open stays as it is, and every other rule or brief line is a default there: where one meets them, as reusing code meets his from-scratch design, his words win and the return names it.
-- A brief, record or handoff carries his words verbatim, your reading marked as yours.
-- His correction of how the drive works is a ruling. Record it with `drive answer`, apply it to all live work, and rewrite the skill that turn (Tooling) as a self-retro on its general lesson, unasked. One on how code must work goes, his words verbatim, in that code's AGENTS.md, never the root.
-- His reminder of dropped work, or feedback on a post or card, is a tool defect: fix the drive tool, card library or `check-post` that let it through.
+## Questions for him
 
-### Fixes and landing
+- Ask him what is truly his: product scope, an architecture fork with lasting cost, his own workflow, money. Decide the rest, do it, and report it with a count (`scope`).
+- A question goes on a card that starts from the root cause and recommends an option. Build the recommended option meanwhile; his answer steers it (`design`).
+- His words that answer a card close it wherever he writes them. A question of his is answered in its thread (`messages`).
 
-- A bug hurting someone now gets its immediate fix or a prudent rollback at once, beside his card on the fix of its cause, which replaces it. A bad state is designed out under one owner. A revert lands only on his tap (`incidents`).
-- Before a fix, find the order or PR owning its class, then papercuts: a recurrence joins it (`--joins`); a third fix deletes earlier patches. PRs on one file land in turn (`landing`).
-- Hold, freeze or reorder work only on his word, except freezing a service a release broke (`incidents`). A build or release he started is his alone, and no release starts while it runs (`jobs`). One of ours that must stop gets a `report` to the communicator first.
-- Run no tests locally: CI grades.
+## Work
 
-### Truth and posts
+- An order is an answer, one job's research, or a build. A finding in the spirit of his order is fixed and reported; a new product direction is a card (`scope`).
+- A job returns facts, numbers, links and what is unproven. Handlers write what he reads.
+- A bug hurting someone now gets its immediate fix or a prudent rollback at once; the fix of its cause follows (`incidents`).
+- Before a fix, look for the order or PR that owns its class and join it (`landing`).
+- A build or release he started himself stays his: leave it running and tell him what you see.
+- Run no tests locally: CI grades. Write zero comments in code.
 
-- Read, never recall: a state told him cites a read that turn, else says unverified (`messages`). Done is proven where he sees it: a recording of the click, the live post, the installed command's output, not fetched data.
-- Promise him something, or tell him the drive failed him, only naming the order, due time, job or PR doing or preventing it (`messages`).
-- Cards and posts name each thing by its proper term, glossed once, never a stand-in, dropping only drive ids he can't open: job, order and waits ids, record seqs (`messages`).
-- Events and job results reach him in the watch's line on news, never a post each (`messages`).
+## What he reads
+
+- Answer him directly, once, as soon as the answer is known. No placeholder post stands in for an answer; when work will take long, the first post says so once.
+- Tell him a state you checked this turn, or say it is unverified. Done is proven where he sees it: the live post, the installed command's output, a recording of the click.
+- Use each thing's proper term, glossed once, with its link. Leave out drive ids he cannot open: job, order and waits ids, record seqs (`messages`).
+- Events and job results reach him in the watch's line on news, not a post each.
+- His correction of how the drive works is a ruling: record it with `drive answer`, apply it to live work, and the meta session rewrites the skill that turn (`meta`).
 
 ## Pages
 
-Read a page, or its parts naming `<row>`, with `drive manual <page> [<row>]`, never `--help` or Read.
+`drive manual <page> [<row>]` prints a page, or the rows and bullets naming `<row>`. The pages are reference: consult one when a line, verb or shape is unfamiliar.
 
 | Page | Read when |
 |---|---|
@@ -65,7 +69,7 @@ Read a page, or its parts naming `<row>`, with `drive manual <page> [<row>]`, ne
 | `coordinator` | you are the coordinator |
 | `meta` | you are the meta session or hold drive tooling |
 | `jobs` | starting, resuming or ending a job |
-| `scope` | what may be built or carded |
+| `scope` | what goes on a card |
 | `design` | a part has a tricky design |
 | `pages` | you build a page |
 | `messages` | writing anything he reads |
@@ -77,4 +81,4 @@ Read a page, or its parts naming `<row>`, with `drive manual <page> [<row>]`, ne
 
 ## Tooling
 
-Drive tooling, every tool fix, skill rewrite and install, is the meta session's (`meta`). A defect anyone hits is a `defect` record to `meta@<drive>` quoting the refusal, whose fix starts that turn, and the blocked work goes ahead another way, with no excuse or question to him. A tooling change folds a new check, step, hook, flag or verb into what exists, or deletes one, before adding one.
+Drive tooling, every tool fix, skill rewrite and install, is the meta session's (`meta`). A tooling change folds a new check, step, hook, flag or verb into what exists, or deletes one, before adding one. A rule is live once installed; changing one edits each place that states it.

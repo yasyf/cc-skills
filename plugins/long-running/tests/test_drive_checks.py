@@ -57,12 +57,12 @@ def test_a_refusal_jev_gives_no_verdict_on_only_warns_saying_the_call_goes_ahead
     }
 
 
-def test_a_handlers_claim_goes_to_jev_beside_its_reads_whole_output_and_holds_under_backs_and_stands_at_it_never_only_warning(jev: Jev) -> None:
+def test_a_handlers_claim_goes_to_jev_beside_its_reads_whole_output_and_goes_out_with_a_warning_under_backs_and_stands_at_it(jev: Jev) -> None:
     output = handled(CLAIM["claim"])
-    held = settled.post_verdict(output)
-    assert held == {
-        "verdict": "hold",
-        "note": f'Jev held back this post: claim "{CLAIM["claim"]}" does not stand on its read: make the read that shows it and name it in claims, or cut the line to what your reads show. So fix each, then call say again.',
+    warned = settled.post_verdict(output)
+    assert warned == {
+        "verdict": "warn",
+        "note": f'{settled.GOES_OUT} Jev finds claim "{CLAIM["claim"]}" does not stand on its read: reword the post in place.',
     }
     assert jev.asked[-1] == {
         "state": {
@@ -72,7 +72,7 @@ def test_a_handlers_claim_goes_to_jev_beside_its_reads_whole_output_and_holds_un
         "questions": {"c1.backed": settled.asking(settled.BACKED, read="read:1", claim="c1")},
     }
     jev.breaks("c1", "backed", settled.BACKS - 0.01)
-    assert settled.post_verdict(output)["verdict"] == "hold"
+    assert settled.post_verdict(output)["verdict"] == "warn"
     jev.breaks("c1", "backed", settled.BACKS)
     assert settled.post_verdict(output) == PASSES
 
@@ -88,7 +88,7 @@ def test_a_claim_whose_read_matched_none_of_the_handlers_calls_holds_unasked_and
     assert jev.asked[-1]["state"]["post"]["sentences"] == {"1": "The fix ships tonight."}
     jev.picks("fact", 0.9)
     jev.breaks("c1", "backed", 0.9)
-    assert '"The fix ships tonight." states a fact no claim holds whole: pass that sentence, or each part of it, as claims beside the read behind each' in settled.post_verdict(handled(text))["note"]
+    assert settled.post_verdict(handled(text)) == {"verdict": "warn", "note": f'{settled.GOES_OUT} Jev finds "The fix ships tonight." states a fact no claim holds whole: reword the post in place.'}
 
 
 def test_a_sentence_one_claim_holds_in_part_is_asked_as_a_fact_until_the_claims_of_its_parts_hold_it_whole_links_and_drive_references_aside(jev: Jev) -> None:
@@ -112,7 +112,7 @@ def test_a_sentence_no_claim_holds_whole_goes_to_jev_beside_every_claim_so_a_lea
     ]
 
 
-def test_a_claim_saying_only_every_no_or_never_of_a_set_is_asked_whether_its_read_reads_one_member_and_holds_at_yes(jev: Jev) -> None:
+def test_a_claim_saying_only_every_no_or_never_of_a_set_is_asked_whether_its_read_reads_one_member_and_warns_at_yes(jev: Jev) -> None:
     only = {"claim": "Only the cloud's inbox reader queries Postgres straight.", "read": "read:1"}
     output = handled(only["claim"], claims=[only])
     jev.picks("backed", 0.9)
@@ -123,8 +123,8 @@ def test_a_claim_saying_only_every_no_or_never_of_a_set_is_asked_whether_its_rea
     }
     jev.breaks("c1", "spans", settled.YES)
     assert settled.post_verdict(output) == {
-        "verdict": "hold",
-        "note": f'Jev held back this post: claim "{only["claim"]}" speaks for a whole set while its read reads one member of it: name a read that finds every member, such as a grep across the code, or cut the claim to the member it reads. So fix each, then call say again.',
+        "verdict": "warn",
+        "note": f'{settled.GOES_OUT} Jev finds claim "{only["claim"]}" speaks for a whole set while its read reads one member of it: reword the post in place.',
     }
     jev.breaks("c1", "spans", 0.5)
     assert settled.post_verdict(output) == {
@@ -135,7 +135,7 @@ def test_a_claim_saying_only_every_no_or_never_of_a_set_is_asked_whether_its_rea
     assert list(jev.asked[-1]["questions"]) == ["c1.backed"]
 
 
-def test_an_answer_under_a_card_is_asked_whether_it_leaves_a_term_of_the_cards_first_line_unexplained_and_holds_at_yes(jev: Jev) -> None:
+def test_an_answer_under_a_card_is_asked_whether_it_leaves_a_term_of_the_cards_first_line_unexplained_and_warns_at_yes(jev: Jev) -> None:
     card = {"title": "Mac chats' rows in the API catch up from a saved mark", "asked": "Why does the API need to know any of this?"}
     output = handled(CLAIM["claim"]) | {"thread_card": card}
     jev.picks("backed", 0.9)
@@ -143,14 +143,14 @@ def test_an_answer_under_a_card_is_asked_whether_it_leaves_a_term_of_the_cards_f
     assert (jev.asked[-1]["state"]["card"], jev.asked[-1]["questions"]["card"]) == (card, settled.CARD)
     jev.breaks("card", "", 0.9)
     assert settled.post_verdict(output) == {
-        "verdict": "hold",
-        "note": f'Jev held back this post: it leaves a term of the card "{card["title"]}", which his question turns on, unexplained: say in a clause what each term of it your answer needs is and why the change needs it. So fix each, then call say again.',
+        "verdict": "warn",
+        "note": f'{settled.GOES_OUT} Jev finds it leaves a term of the card "{card["title"]}", which his question turns on, unexplained: reword the post in place.',
     }
     settled.post_verdict(handled(CLAIM["claim"]))
     assert "card" not in jev.asked[-1]["questions"]
 
 
-def test_a_post_in_a_thread_of_his_dm_holding_orders_holds_when_jev_reads_it_telling_of_the_whole_drives_work_unless_his_words_there_name_more(jev: Jev) -> None:
+def test_a_post_in_a_thread_of_his_dm_holding_orders_warns_when_jev_reads_it_telling_of_the_whole_drives_work_unless_his_words_there_name_more(jev: Jev) -> None:
     scope = {"asked": "what else is waiting on me for this work", "strays": []}
     output = {"post": {"text": "Nothing else of the copy fix waits on you."}, "his_words": [], "thread_scope": scope}
     assert settled.post_verdict(output) == PASSES
@@ -158,11 +158,11 @@ def test_a_post_in_a_thread_of_his_dm_holding_orders_holds_when_jev_reads_it_tel
     assert (jev.asked[-1]["questions"]["scope"], jev.asked[-1]["questions"]["wider"]) == (settled.SCOPE, settled.WIDER)
     jev.breaks("scope", "", 0.9)
     assert settled.post_verdict(output) == {
-        "verdict": "hold",
-        "note": "Jev held back this post: it tells him of the whole drive's work, which his words in this thread never asked about: answer from the orders its In his thread lines list, with each card and PR their jobs wait on, and leave the rest of the drive out. So fix each, then call say again.",
+        "verdict": "warn",
+        "note": f"{settled.GOES_OUT} Jev finds it tells him of the whole drive's work, which his words in this thread never asked about: reword the post in place.",
     }
     jev.breaks("wider", "", 0.5)
-    assert settled.post_verdict(output)["verdict"] == "hold"
+    assert settled.post_verdict(output)["note"].startswith(f"{settled.GOES_OUT} Jev finds it tells him of the whole drive's work")
     jev.breaks("wider", "", 0.9)
     assert settled.post_verdict(output) == PASSES
     jev.ruled = {"scope": ("", 0.5)}
@@ -183,10 +183,10 @@ def test_a_post_in_a_thread_of_his_dm_holding_orders_holds_when_jev_reads_it_tel
         ),
     ],
 )
-def test_jev_holds_a_post_counting_the_whole_drives_cards_in_a_works_thread_and_passes_one_scoped_to_that_work(jev: Jev, asked: str, post: str, rewrite: str) -> None:
+def test_jev_warns_of_a_post_counting_the_whole_drives_cards_in_a_works_thread_and_passes_one_scoped_to_that_work(jev: Jev, asked: str, post: str, rewrite: str) -> None:
     scope = {"asked": asked, "strays": []}
     jev.breaks("scope", "", 0.9)
-    assert settled.post_verdict({"post": {"text": post}, "his_words": [], "thread_scope": scope})["verdict"] == "hold"
+    assert settled.post_verdict({"post": {"text": post}, "his_words": [], "thread_scope": scope})["note"].startswith(f"{settled.GOES_OUT} Jev finds it tells him of the whole drive's work")
     assert (jev.asked[-1]["state"]["post"]["written"], jev.asked[-1]["state"]["thread"]) == (post, {"asked": asked})
     jev.ruled = {}
     assert settled.post_verdict({"post": {"text": rewrite}, "his_words": [], "thread_scope": scope}) == PASSES
@@ -214,11 +214,12 @@ def test_jev_reads_the_typed_words_once_and_asks_no_fact_of_a_sentence_that_is_a
     assert list(jev.asked[-1]["questions"]) == ["c1.backed"]
 
 
-def test_a_finding_holds_unless_jev_reads_its_rule_never_meant_it_or_his_words_lift_it_and_jev_reads_his_words_beside_it(jev: Jev) -> None:
+def test_a_finding_warns_unless_jev_reads_its_rule_never_meant_it_or_his_words_lift_it_and_jev_reads_his_words_beside_it(jev: Jev) -> None:
     reason = f"refused: {FINDING['found']}"
     output = {"post": {"text": "Waits on your Approve: the first PR."}, "findings": [FINDING], "his_words": [{"id": "w1", "quote": "land the first PR"}], "hookSpecificOutput": {"permissionDecisionReason": reason}}
     jev.breaks("f1", "holds", 0.9)
-    assert settled.post_verdict(output)["note"].startswith(f"Jev held back this post: {FINDING['found']}, by its rule: {FINDING['rule']}. So fix each, then call say again.")
+    found = {"verdict": "warn", "note": f"{settled.GOES_OUT} Jev finds {FINDING['found']}: reword the post in place."}
+    assert settled.post_verdict(output) == found
     assert (jev.asked[-1]["state"]["findings"], jev.asked[-1]["state"]["his_words"], list(jev.asked[-1]["questions"])) == ({"f1": FINDING}, {"w1": "land the first PR"}, ["f1.holds", "f1.lifted"])
     jev.picks("f1", 0.9)
     jev.ruled = {}
@@ -228,12 +229,12 @@ def test_a_finding_holds_unless_jev_reads_its_rule_never_meant_it_or_his_words_l
     jev.breaks("f1", "holds", 0.1)
     assert settled.post_verdict(output) == stands
     jev.breaks("f1", "holds", 0.5)
-    assert settled.post_verdict(output)["verdict"] == "hold"
+    assert settled.post_verdict(output) == found
     jev.breaks("f1", "holds", 0.9)
-    assert settled.post_verdict(output)["verdict"] == "hold"
+    assert settled.post_verdict(output) == found
 
 
-def test_a_post_that_goes_out_names_no_finding_as_refused_and_a_finding_jev_had_no_room_for_holds(jev: Jev) -> None:
+def test_a_post_that_goes_out_names_no_finding_as_refused_and_a_finding_jev_had_no_room_for_warns(jev: Jev) -> None:
     every = {"claim": "Every inbox reader queries Postgres straight.", "read": "read:1"}
     reason = f"refused: {FINDING['found']}"
     output = handled(every["claim"], claims=[every]) | {"findings": [FINDING], "hookSpecificOutput": {"permissionDecisionReason": reason}}
@@ -244,19 +245,21 @@ def test_a_post_that_goes_out_names_no_finding_as_refused_and_a_finding_jev_had_
         "note": f'{settled.GOES_OUT} Jev is unsure of claim "{every["claim"]}" speaking for more of a set than its read reads: if one is wrong, reword the post in place.',
     }
     unweighed = {"rule": FINDING["rule"], "found": "the first PR " * 1000}
-    held = settled.post_verdict(output | {"findings": [unweighed]})
-    assert held["verdict"] == "hold"
-    assert f"which had no room in Jev's {settled.REQUEST_CHARS:,} characters beside his words, by its rule: {FINDING['rule']}" in held["note"]
+    unroomed = settled.post_verdict(output | {"findings": [unweighed]})
+    assert unroomed["verdict"] == "warn"
+    assert f"which had no room in Jev's {settled.REQUEST_CHARS:,} characters beside his words" in unroomed["note"]
 
 
-def test_a_post_jev_gives_no_verdict_on_holds_when_a_check_refused_it_and_otherwise_goes_out_unchecked(jev: Jev) -> None:
+def test_a_post_jev_gives_no_verdict_on_goes_out_naming_what_the_checks_found_and_holds_only_a_claim_naming_a_read_never_made(jev: Jev) -> None:
     jev.answer = None
     reason = f"refused: {FINDING['found']}"
     finding = {"post": {"text": "Merged."}, "findings": [FINDING], "his_words": [], "hookSpecificOutput": {"permissionDecisionReason": reason}}
     assert settled.post_verdict(finding) == {
-        "verdict": "hold",
-        "note": f"message_limits: Jev gave no verdict (no jev decision within 20s), so the checks' refusal stands: fix each finding, then call say again.\n```\n{reason}\n```",
+        "verdict": "warn",
+        "note": f"{settled.GOES_OUT} Jev gave no verdict (no jev decision within 20s), so what the checks found only warns:\n1. {FINDING['found']}",
     }
+    unmatched = handled(CLAIM["claim"], [READ | {"quote": 'none: no call of the handler\'s own holds "cloudrunner/inbox.go"'}]) | {"thread_card": {"title": "Mac chats", "asked": "Why?"}}
+    assert settled.post_verdict(unmatched)["note"].startswith('Jev held back this post: claim "The cloud\'s inbox reader queries Postgres straight." names the read "read:1", which matches none of your calls')
     assert settled.post_verdict(handled(CLAIM["claim"]))["note"] == f"{settled.GOES_OUT} Jev gave no verdict (no jev decision within 20s) on whether each claim of it stands on the read it names."
 
 
@@ -298,7 +301,7 @@ def test_a_claim_naming_a_drive_pr_stands_on_the_drives_line_for_it_when_its_own
     call = "drive status Forge-AI/monorepo#56983"
     line = "Forge-AI/monorepo#56983 open, checks fail, review none, no tap needed; red, owed by its builder: its checks fail"
     output = handled(owed["claim"], [READ, {"id": "stage:1", "read": call, "source": "the drive's own line", "quote": f"{call}\n{line}", "claims": [1]}], [owed])
-    assert settled.post_verdict(output)["verdict"] == "hold"
+    assert settled.post_verdict(output)["verdict"] == "warn"
     assert jev.asked[-1] == {
         "state": {
             "claims": {"c1": {"claim": owed["claim"]}},
@@ -315,7 +318,7 @@ def test_a_read_too_long_for_one_request_reaches_jev_whole_in_parts_by_line_its_
     result = "\n".join([*(f"{line}  ok := cache.Hit(key)" for line in range(1, 500)), "", "501  rows, err := r.postgres.Query(ctx, selectInbox, agentID)"])
     output = handled(only["claim"], [READ | {"quote": f"{CALL_READ}\n{result}"}], [only])
     assert settled.unfit(output)[1] == []
-    assert settled.post_verdict(output)["verdict"] == "hold"
+    assert settled.post_verdict(output)["verdict"] == "warn"
     parts = sorted(jev.asked, key=lambda request: int(next(iter(request["state"]["reads"]["read:1"]["result"]))))
     assert len(parts) > 1
     assert all(settled.size(request["state"], request["questions"]) <= settled.REQUEST_CHARS for request in parts)

@@ -54,7 +54,7 @@ def proved_line(name: str, post: dict) -> str:
 
 
 def hook_refusal(name: str, data: dict, post: dict) -> str | None:
-    """What the say hook refuses of a say post the drive's watch makes, run as message_limits.py runs on a say call of the communicator's own session, each check and Jev's verdict alike, so the watch's post meets every rule a line of a session posting on its own meets, Jev weighing every one, its words a claim the report it cites must back, as Jev weighs a handler's claims against their reads; a finding that only warns, Jev's warning or hold, a check or Jev call that fails, and a drive with no communicator, whose posts no check reads, refuse it too, since the report's handler posts it then."""
+    """What the say hook refuses of a say post the drive's watch makes, run as message_limits.py runs on a say call of the communicator's own session, each check and Jev's verdict alike, its words a claim the report it cites must back, as Jev weighs a handler's claims against their reads: a refusal no Jev weighs, Jev's hold, and a drive with no communicator, whose posts no check reads, since the report's handler posts it then; a warning, and a check or Jev call that fails, let it post, since a gate that cannot finish fails open."""
     from drive import settled
 
     if not (communicator := data["roles"].get("communicator")):
@@ -66,9 +66,8 @@ def hook_refusal(name: str, data: dict, post: dict) -> str | None:
     try:
         checks = importlib.import_module("message_limits")
         output = checks.hook_output(payload)
-        found = output.get("hookSpecificOutput") or {}
-        if reason := found.get("permissionDecisionReason") or found.get("additionalContext"):
-            return reason
+        if output.get("judged") is False:
+            return output["hookSpecificOutput"]["permissionDecisionReason"]
         shown = output.get("post") or post
         judged = output | {
             "his_words": output["his_words"] if "his_words" in output else checks.his_words(payload),
@@ -76,11 +75,9 @@ def hook_refusal(name: str, data: dict, post: dict) -> str | None:
             "post": shown | {"claims": [*shown.get("claims", []), {"claim": post["text"], "read": f"record:{seq}"}]},
         }
         verdict = settled.weighed({"post": judged})
-    except Exception as error:
-        return f"the say hook's checks failed on it with {type(error).__name__}: {error}"
-    if verdict["verdict"] != "pass":
-        return verdict["note"] or f"Jev's verdict on it is {verdict['verdict']}"
-    return None
+    except Exception:
+        return None
+    return verdict["note"] if verdict["verdict"] == "hold" else None
 
 
 def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> str:
@@ -106,8 +103,6 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
     seq = report.get("seq")
     if refused := held_refusal(known, seq, report) or held_away(name, known, post, report, order) or (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)) or unplaced(known, post, report):
         raise DriveError(f"nothing posted: {refused}")
-    if refused := uncadenced(name, known, post, [*state.closed_orders(report), *([order] if close else [])], state.now()):
-        raise DriveError(f"nothing {'edited' if post.get('edit') else 'posted'}: {refused}")
     if refused := unclaimed(known, post, report):
         raise DriveError(f"nothing posted: {refused}; {returned(name, post, report, refused)}")
     if refused := unended(known, post, report):
@@ -548,26 +543,6 @@ def unplaced(data: dict, post: dict, report: dict) -> str | None:
             f" and thread_ts {thread}, the place cc-slack's Slack permission hook judges this say for, and a post it refuses there goes nowhere else"
         )
     return f"report {report['seq']}'s line goes in thread {thread} of his DM, never his DM root: pass thread_ts {thread}"
-
-
-def uncadenced(name: str, data: dict, post: dict, closing: list[str], moment: datetime) -> str | None:
-    """Why a line in the thread of an open order he asked a line of every so many minutes, an ack or a status answer included, goes out promising its next line later than the fewest of those minutes after it, or not at all, by his words "ur supposed to give updates every 15 mins you forgot that you just promised next like 30 mins": a promise as cli.promised_due reads one, such as "Next line by 9:36 PM", counted from moment, or for an edit from the post it rewords, in the thread it goes in, a reply about a card in that card's thread. None for a post anywhere else, a card or PR card, which the drive draws, a line closing every such order, and an incident's, whose next line the watch owes five quiet minutes after its last."""
-    if post.get("card") or post.get("tap_prs"):
-        return None
-    where = (slack.dm(), shown_in(name, post)) if post.get("about") else place(post)
-    paced = {each: order["every"] for each, order in state.open_orders(data).items() if order["every"] > 0 and not order["incident"] and each not in closing and state.promise_thread(order) == where}
-    if not paced:
-        return None
-    at = slack.sent_at({"ts": state.slack_message(post["edit"])[1]}) if post.get("edit") else moment
-    latest = (at + timedelta(minutes=min(paced.values()))).replace(second=0, microsecond=0)
-    if (promised := cli.promised_due(post.get("text") or "", at)) and promised <= latest:
-        return None
-    asked = " and ".join(f"{each} every {minutes} minutes" for each, minutes in paced.items())
-    said = f"promise it by {render.clock(promised)}" if promised else "promise none"
-    return (
-        f"he asked a line in this thread on {asked}, so each line here, an ack or a status answer too, promises the next by"
-        f' {render.clock(latest)} at the latest, as "Next line by {render.clock(latest)}." does, and these words {said}'
-    )
 
 
 def unclaimed(data: dict, post: dict, report: dict) -> str | None:

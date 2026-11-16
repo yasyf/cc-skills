@@ -1,163 +1,138 @@
 # Design first
 
-His words: "when you have a tricky design like this to make, you should 1) spawn a light fable
-lane just for the initial design and 2) ask the user early and often". So the designer is the one
-job that runs Fable, besides the coordinator.
+A design job is a read-only pass that works a part's shape out on paper before a builder writes
+it. Its designer is the one job that runs Fable, besides the coordinator.
 
 ## Is it a tricky design?
 
-Before any builder starts on a part, decide whether it carries a tricky design: two reasonable
-shapes that cost a lot to switch between once built. It counts when the part settles a data layout
-or file format, such as where a journal keeps its index, or a schema or migration shape, the data
-behind a port's visuals included: a port carries the old PR's visuals, and its data is modeled the
-fundamentally right way for the target tree, never copied from the old PR's storage, by his words
-"port his visuals but always do it the fundamentally right way when it comes to modelng the data".
-So does a lock, queue, scheduler or other coordination, a public or Sand-facing API shape, or a new
-background process. When you cannot tell, it counts, because a wrong shape costs PRs he never saw.
-On a drive tooling order a fork goes to him only when it is his high-level preference, by
-[scope](scope.md#what-you-do-without-asking); the designer decides every other fork, and its
-builder builds that option.
-A visual design, how a page, card or post he sees lays out its information, is no designer's and no
-codex job's: its builder, briefed with the surface on `--native` and his user stories on
-`--interactions`, asks `codex-ask --effort high` for the layout inside its own run, keeps each fork codex finds as
-his card with `drive job ask` and builds the recommended layout, by his words "get codex to design and
-stop doing the bare minimum", so no builder waits on a job holding its design.
+A design job is worth it when a part has two reasonable shapes that cost a lot to switch between
+once built. The usual cases: a data layout or file format, a schema or migration shape (the data
+behind a port's visuals included, by [scope](scope.md#the-four-kinds-of-pr)), a lock, queue,
+scheduler or other coordination, a public or customer-facing API shape, and a new background
+process. You judge it. A shape one later PR can change needs no design job; the builder picks it and
+says so in its return.
 
-1. **One design job, first.** The part's first job is a read-only design job, worked out before
-   he is asked; a builder writes the code later.
-   - Add it with `drive job add design --order <o> --part "<part>" --goal "<one line>"`. On a build
-     order outside an incident its agent starts only on a brief carrying the `Researched:` line of a
-     reader that kept its block, by [Jobs](jobs.md), so while the reader is at work add it with `--waits <the reader's job>`,
-     recorded waiting, and start it on its `FREE` line; the order's `immediate fix` job never waits
-     on it. A follow-up he orders to a PR, as in "just land this then do a follow up", is its own
-     `follow-up` part, and its design job starts in the turn he orders it, beside the builder landing
-     that PR, with no reader and no `--waits`, which `drive job add` refuses on it: its designer does
-     its own research and keeps it as its report's `Researched:` block, which its changes' builders
-     start on, so no reader runs after it. His words: "start deisgnng the follow p right awya motherfucker dont wait".
-   - Brief it with `drive job brief <j> --serves "<his order>" --done-when "<the DESIGN return>" --where "<repo>" --plan "<what exists>"`,
-     plus `--ruling <answer id>` for each answer of his on the area. The `--plan` names the files,
-     PRs and findings it starts from, and says to design from what his words need, the code an
-     input, not a shape to keep.
-   - Start nothing: once its brief is kept and nothing holds it, the watch starts it with
-     `drive job start <j>` as its own `claude --bg` session on `long-running:designer`, whose
-     definition runs Fable, keeps it read only, settled questions off his cards and each fork in
-     shape. Only a refused start, its `relaunch_refused` event, is yours: then start it with the
-     Agent tool, `subagent_type: "long-running:designer"`, `model: "fable"`,
-     `run_in_background: true`, a short `description`, no `name`, and the
-     `Read your brief first: <path>` line as the whole `prompt`.
-   - Its return opens `DESIGN <part>`. Read the rest with `drive job report <j>`: the design and
-     its `Researched:` block, held to a reader's rule, which every builder of its changes starts on:
-     `rulings:` quoting each answer of his on the order's words and area, `exists:` naming each
-     table, column, store, file, process, mechanism, check or verb that already does or holds what
-     the part touches, by `path:line` or link, each ending `extended by change N`,
-     `reused by change N` or `deleted by change N`, or `none:` with the searches that found nothing,
-     so one thing owns each fact, and `open:` each question it leaves him; `drive job report`
-     refuses an entry naming no change of its list, and a `none` while another reader or design of
-     its part found something. Then a `Change:` line for each PR its builders open, in at most 80
-     characters with no backtick, double quote, `$` or backslash, which becomes a part of the order
-     under those words with a builder of its own the drive adds as the design returns, and keeps
-     those words each time the design is filed again, since `drive job report` refuses a filing
-     that renames a change once an agent or lane took its builder, and drops a renamed one no agent or lane took. Its forks are the `ASK` blocks it kept with `drive job ask`, each an
-     `asks him:` line under it in `drive status <j>`. Each piece has a worked example, such as an API's calls, imperative beside
-     declarative, or a file format's bytes.
-   - A design makes a bad state impossible by its shape, under one durable owner. When one leans
-     on a sweeper, time rule or reclaim loop instead, send it back with his words: "make getting in
-     a bad state unrepresentable; ... not add another sweeper".
-   - When his words tell the system to choose by a rule, such as by usage or size, the fork asks
-     him to approve the strategies and the rule that picks one, never one outcome. The design then
-     builds the abstraction those strategies share first, walks each through it on paper, and
-     leaves none he approved for later without his card. `drive job report` refuses a design Jev
-     reads as building less or later than his words name with no fork asking him, or as building a
-     strategy before the abstraction it shares.
-   - Every option carries one plain-text description his card draws under it, saying in prose what
-     the option is: what runs and when, where its data lives, and what it requires touching or
-     building, by name, with any cost every user pays, such as a database's write path for every
-     table. His words: "you need to always fucking explain each optopn properly as prose in additon tot he table or whatever and what it requires touching/building" and "this does/data/toches is not as helpful as each option just having a plain-text shot concise but clear and comprehensive description of what it is".
-     `drive job ask` refuses an option with no description or with fields such as `Does:` in place of one, a mechanism such as polling left a bare word, a block out of shape, a
-     `Root cause:` line missing, or its `First principles:` option missing or not recommended, a `Simplest:` line missing or naming no option, and a question a recorded answer of his may
-     settle; each refusal names its fix.
-2. **He is asked before any PR.** Each fork of his goes to him as its own question card, by the
-   `DESIGN <part>` row in [The coordinator](coordinator.md). The card holds the design fleshed out
-   above its options, each option's plain-text description under it, and names each function, file, table,
-   flag or service by its proper term. A wall
-   of findings, a high-level line or a vague stand-in leaves him asking what it is.
-   - The Show me works each option out to what it will look like once built, such as its real calls
-     in code, the rows it writes or its flow, never only its files and cost: "you need to flesh out what that will look like not just wave your hands, likewise for 2 and 3".
-     `drive job ask` prints each option Opus reads as left unworked, naming it. Beyond that it shows
-     only what the words cannot: "show a sinippet when it makews sense". It counts toward no word
-     limit, so it is never cut; the visual rules are in [Messages](messages.md).
-   - Nothing his words settle is asked. `drive job ask` settles on his answer to the same
-     question, or on a drive tooling order on Opus's reading that the fork is a detail, and Opus reads each card against his order, its thread and the recorded answers of
-     his `ccn answer match` ranks nearest to the block, so also read his answers on the area.
-   - His words ordering a design from scratch mark its order fresh, as Jev reads them on `drive
-     order add` or on each first `drive answer` on the order, or with `drive order set <o> --fresh`:
-     every card asked on its work before them is withdrawn on his words in that call, but one holding
-     an open PR from landing, so old questions stop asking him at once. The new design asks again in
-     its own terms only its crucial directional decisions, with `--redraws` for an old card that still
-     matters, and its builders decide each fork Opus reads as an implementation detail with no card:
-     "only ask me for the crucial directional decisions yet you keep bringing me old questions".
-     `drive cards list --order <o>` lists the cards still open on a feature, and a ruling of his that
-     closes a class of questions withdraws each listed card of that class, never only the one he
-     replied under.
-   - Meanwhile the recommended option's builder starts beside the cards and builds it on a pushed
-     branch, because he wants work to go on while he decides. When his words on the order ask for
-     options only, start no builder on the proper fix until he picks, in an incident too.
-   - When a bug hurts someone now, its immediate fix, or a rollback when prudent, ships at once
-     beside the cards on its own `immediate fix` part, options-only orders too, and the proper fix
-     replaces it when it lands. His words: "always do the immediate fix (or rollback if prudent) in
-     parallel to giving me options for the proper fix (which should replace the hacky fix, and as
-     always you can optimistically build the recommended option on a branch)".
-3. **Built is a state, not a PR.** That builder returns `BUILT <branch>, waits on <cards>` and
-   opens no PR. The line sets its job built on that branch, waiting on each card's waits id or
-   Slack link it names and on each open card of his holding its work as the lander reads it, its
-   reader's included whatever words the line names it in, and none whose `Holds:` line reads none;
-   each holds a PR of the job only as the lander reads that card, so a card naming another branch
-   holds none of the job's other PRs.
-   - `drive status`, `drive view`, the dashboard and his Slack status page show it built, with its
-     branch and each card. Outside an incident, the `bash_guard` hook refuses the `ccx vcs ship` that
-     would open its PR while one of its cards is open, and on an incident while a card kept
-     unsettled, asking him to lift a ruling of his, is open. An immediate fix's job is never held: its PR goes up at once.
-   - The minute a card holds a built job, the watch replies once in that card's own thread, in
-     plain words, that its recommended answer is built and paused on his pick, and `drive view` puts
-     that card first in his queue.
-   - A built job waits only on his cards, never on another job, so his tap frees it. The watch drops each
-     card as he answers it and says `FREE <j>` once, when the last is answered and no question the
-     job asked him is open, which wakes the coordinator. Then a handoff builder opens the PR,
-     rebuilding first wherever his pick differs from the option it built.
-4. **Nothing lands around an open card.** Work does not land with a question of his on it
-   unanswered: the lander, the `landing_guard` hook, `drive pr add` and a `yasyf/*` PR's merge each
-   refuse while a card of his holds it: one asked by a job on the PR's orders or by the staging tester of a part it waits on, whose question's `Holds:` line names it by link, `#N` or whole branch name, or a design's card naming a change its job builds, or one its `DESIGN:` line cites, whatever job asked it, since a card holds work only by its `Holds:` line or a `DESIGN:` cite and
-   a card a job waits on otherwise only wakes it, so `drive pr set --waits` refuses a card. Outside an
-   incident no PR card asks his tap while a card of his holds the PR, by his pick "Buttons only after
-   you answer each question": `drive pr add`, `drive card` and the watch draw none, a card already up
-   is redrawn in place without its Approve, and Approve comes back once he answers the last. On an
-   incident his Approve on the repair also picks the recommended option of each card holding it,
-   which answers and closes the card. While a
-   wait holds, `drive pr set --serves` and `drive card` draw no fresh card for it, his Approve lands it
-   only once the last wait ends, and the watch says `FREE <pr>` once the last is answered; nothing is
-   closed for this.
-   - Outside an incident, land, enqueue or decide nothing on a recommended option while his card on
-     it is open, because the recommendation is yours and the decision is his. The immediate fix is no
-     recommended option: it stops harm now, waits on none of his cards, and his pick replaces it.
-   - In an incident, by his pick, the fix's PR opens and lands on the recommended option while the
-     card stays open, unless the card asks him to lift a ruling of his, one an option it offers
-     breaks, which `drive job ask` marks and which holds the PR from its `Holds:` line until he
-     answers, by his pick "Hold the PR until you answer; the drive finds each card against your
-     recorded answers". Another pick of his starts a
-     follow-up job on the same order, by [Incidents](incidents.md#his-card-on-an-incident).
-   - His order to land a change does not answer a design card still open on it. Name that card in
-     your `report` at once, so the handler redraws it with its buttons in his order's thread, and
-     land after he answers, because he wants each card that blocks work surfaced, not skipped.
-5. **The builder carries the design.** Its brief carries the design on its `Plan:` line, which the
-   drive gives each builder it adds for a change, and his answer to each fork as
-   `--ruling <answer id>`, so `Decisions that bind` holds his words verbatim, those above the
-   answer's `Notes:` and never the drive's reading of them. `drive job brief` adds every
-   ruling the `rulings:` line of each carried order's reader names, his answer to each question
-   that reader asked, and each carried order's words, so no brief reads `none named` over a ruling
-   on its area; a lane that takes over or restarts the job starts on the brief rebuilt this way. A builder
-   that meets a new fork mid-build stops and returns `ASK` with it, because only he picks a fork; on a
-drive tooling order it decides a detail itself and builds on, and asks only a preference of his.
-6. **No card for a design he never saw.** A `READY` whose PR makes a design decision he never
-   answered goes back as a design question, not onto a PR card. `drive pr set --serves` refuses
-   without `--design asked:<his answer id or card permalink>` or `--design none`, and its check
-   refuses a permalink to a card he has not answered or a message he did not write.
+A visual design, how a page, card or post he sees lays out its information, is its builder's own
+work. Brief the builder with the surface on `--native` and his user stories on `--interactions`. It
+asks `codex-ask --effort high` for the layout inside its own run and builds the recommended one, so
+no builder waits on a job holding its design.
+
+## The design job
+
+- **Add it** with `drive job add design --order <o> --part "<part>" --goal "<one line>"`. On a
+  build order outside an incident its agent starts only on a brief carrying the `Researched:` line
+  of a reader that kept its block, by [Jobs](jobs.md). While the reader is at work, add it with
+  `--waits <the reader's job>` and it starts on its `FREE` line. The order's `immediate fix` job
+  does not wait on it.
+- **A follow-up** he orders to a PR, as in "just land this then do a follow up", is its own
+  `follow-up` part. Its design job starts in the turn he orders it, beside the builder landing that
+  PR, with no reader and no `--waits`, which `drive job add` refuses on it. The designer does its
+  own research and keeps it as its report's `Researched:` block.
+- **Brief it** with
+  `drive job brief <j> --serves "<his order>" --done-when "<the DESIGN return>" --where "<repo>" --plan "<what exists>"`,
+  plus `--ruling <answer id>` for each answer of his on the area. The `--plan` names the files, PRs
+  and findings it starts from. The design follows what his words need; the code that exists is an
+  input, not a shape to keep.
+- **The watch starts it** with `drive job start <j>` once its brief is kept and nothing holds it,
+  as its own `claude --bg` session on `long-running:designer`. On a refused start, its
+  `relaunch_refused` event, start it with the Agent tool: `subagent_type: "long-running:designer"`,
+  `model: "fable"`, `run_in_background: true`, a short `description`, no `name`, and the
+  `Read your brief first: <path>` line as the whole `prompt`.
+
+## What it returns
+
+Its return opens `DESIGN <part>`. `drive job report <j>` prints the rest:
+
+- **The design**, with a worked example of each piece, such as an API's calls, imperative beside
+  declarative, or a file format's bytes. A good design makes a bad state impossible by its shape,
+  under one durable owner. One that leans on a sweeper, time rule or reclaim loop is worth sending
+  back.
+- **Its `Researched:` block**, which every builder of its changes starts on. `rulings:` names each
+  answer of his on the order's words and area. `exists:` names each table, column, store, file,
+  process, mechanism, check or verb that already does or holds what the part touches, by
+  `path:line` or link, each ending `extended by change N`, `reused by change N` or
+  `deleted by change N`, or `none:` with the searches that found nothing, so one thing owns each
+  fact. `open:` lists each question it leaves him. `drive job report` refuses an entry naming no
+  change of its list, and a `none` while another reader or design of its part found something.
+- **A `Change:` line for each PR** its builders open, in at most 80 characters with no backtick,
+  double quote, `$` or backslash. Each becomes a part of the order under those words, with a
+  builder the drive adds as the design returns. `drive job report` refuses a later filing that
+  renames a change once an agent or lane took its builder, and drops a renamed one nobody took.
+- **Its forks for him**, the `ASK` blocks it kept with `drive job ask`, each an `asks him:` line
+  under it in `drive status <j>`.
+
+When his words tell the system to choose by a rule, such as by usage or size, the design builds the
+abstraction the strategies share first and walks each strategy through it on paper. A fork on it
+asks him about the strategies and the rule that picks one, not about one outcome. `drive job report`
+refuses a design Jev reads as building less or later than his words name with no fork asking him, or
+as building a strategy before the abstraction it shares.
+
+## What the designer decides
+
+The designer decides every fork an engineer can decide and writes the choice and its reason into
+the design. A fork is his only by the [scope](scope.md) test: product scope, an architecture fork
+whose cost lasts, his workflow or money. On a drive tooling order only a high-level preference is
+his.
+
+- **Each fork of his is its own question card**, by the `DESIGN <part>` row in
+  [The coordinator](coordinator.md), in the card shape [scope](scope.md#a-question-for-him) gives.
+  The card holds the design fleshed out above its options. A wall of findings or a vague stand-in
+  leaves him asking what it is.
+- **The Show me works each option out** to what it looks like once built, such as its real calls in
+  code, the rows it writes or its flow, not only its files and cost. `drive job ask` prints each
+  option Opus reads as left unworked. It counts toward no word limit; the visual rules are in
+  [Messages](messages.md).
+- **A design from scratch.** His words ordering one mark its order fresh, as Jev reads them on
+  `drive order add` or the first `drive answer` on the order, or with `drive order set <o> --fresh`.
+  Every card asked on its work before them is withdrawn in that call, except one holding an open PR
+  from landing. The new design asks only its crucial directional decisions, with `--redraws` for an
+  old card that still matters. `drive cards list --order <o>` lists the cards still open on a
+  feature. A ruling of his that closes a class of questions closes every listed card of that class.
+
+## While he decides
+
+- **The recommended option is built meanwhile.** Its builder starts beside the cards and builds on a
+  pushed branch. When his words on the order ask for options only, no builder starts on the proper
+  fix until he picks, in an incident too.
+- **An immediate fix ships at once.** When a bug hurts someone now, its immediate fix, or a
+  rollback when prudent, ships beside the cards on its own `immediate fix` part, on options-only
+  orders too. It waits on no card, and the proper fix replaces it when it lands.
+- **Built is a state, not a PR.** The builder returns `BUILT <branch>, waits on <cards>` and opens
+  no PR. The line sets its job built on that branch, waiting on each card it names by waits id or
+  Slack link and on each open card holding its work as the lander reads it, by
+  [What a card holds](scope.md#what-a-card-holds). `drive status`, `drive view`, the dashboard and
+  his Slack status page show it built, with its branch and each card. An incident's builder is held
+  only by a card kept unsettled.
+- **He is told once.** The minute a card holds a built job, the watch replies once in that card's
+  thread that its recommended answer is built and paused on his pick, and `drive view` puts that
+  card first in his queue.
+- **His tap frees it.** A built job waits only on his cards. The watch drops each card as he answers
+  it and says `FREE <j>` once the last is answered and no question the job asked him is open. Then a
+  handoff builder opens the PR, rebuilding first where his pick differs from what was built.
+- **PR cards wait too.** While a card holds a PR, `drive pr add`, `drive card` and the watch draw
+  no PR card with an Approve for it outside an incident, and a card already up is redrawn without
+  its Approve until he answers the last. The watch then says `FREE <pr>`. `drive pr set --waits`
+  refuses a card, since a card holds work only by its `Holds:` line or a `DESIGN:` cite.
+- **In an incident** the fix's PR opens and lands on the recommended option while the card stays
+  open, and his Approve on the repair also picks the recommended option of each card holding it. A
+  card kept unsettled, asking him to lift a ruling of his, holds the PR until he answers. Another
+  pick of his starts a follow-up job on the same order, by
+  [Incidents](incidents.md#his-card-on-an-incident).
+- **His order to land a change with a design card still open on it.** When his words settle the
+  card, record them with `drive answer` and land. When they do not, name the card in your `report`
+  so the handler redraws it with its buttons in his order's thread.
+
+## The builder carries the design
+
+The drive gives each builder it adds for a change the design on its brief's `Plan:` line. Pass his
+answer to each fork as `--ruling <answer id>`, so `Decisions that bind` carries his words.
+`drive job brief` also adds every ruling the `rulings:` line of each carried order's reader names,
+his answer to each question that reader asked, and each carried order's words. A lane that takes
+over or restarts the job starts on the brief rebuilt this way.
+
+A builder that meets a new fork mid-build decides it, builds on and names the choice in its return.
+It returns `ASK` only for a fork that is his by the scope test.
+
+`drive pr set --serves` takes `--design none` for a PR whose design decisions were an engineer's,
+or `--design asked:<his answer id or card permalink>` for one he picked, and refuses without either.
+Its check refuses a permalink to a card he has not answered or a message he did not write.

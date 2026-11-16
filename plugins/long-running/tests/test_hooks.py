@@ -260,7 +260,7 @@ def test_a_call_shows_the_five_orders_its_session_waits_longest_on_from_one_read
     assert [line.rsplit(", ", 1)[-1] for line in overdue_at_call(monkeypatch, capsys, coordinator)[1:]] == [*["30 min past due"] * 5, "- and 995 more"]
 
 
-def test_a_jobs_call_shows_its_own_order_alone_most_overdue_first_a_thread_lined_within_its_due_shows_nothing_past_due_and_a_job_whose_worker_the_watch_found_gone_runs_for_none(
+def test_a_sessions_call_shows_its_orders_most_overdue_first_a_thread_lined_within_its_due_shows_nothing_past_due_a_jobs_call_shows_none_and_a_job_whose_worker_the_watch_found_gone_runs_for_none(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     coordinator = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -274,13 +274,13 @@ def test_a_jobs_call_shows_its_own_order_alone_most_overdue_first_a_thread_lined
     assert [line.split(":")[0] for line in lines[1:]] == ["- o3 Fix 3", "- o1 Fix 1", "- o2 Fix 2"]
     assert (lines[1].endswith(", 10 min past due"), lines[2].endswith(", 3 min past due"), lines[3].endswith(", not past due")) == (True, True, True)
     builder = {"session_id": coordinator, "agent_id": "a-2", "agent_type": "long-running:builder"}
-    assert overdue_at_call(monkeypatch, capsys, builder) == [render.OVERDUE_HEADING, lines[3]]
+    assert overdue_at_call(monkeypatch, capsys, builder) == []
     assert overdue_at_call(monkeypatch, capsys, {"session_id": coordinator, "agent_id": "a-3", "agent_type": "long-running:builder"}) == []
     assert overdue_at_call(monkeypatch, capsys, {"session_id": "no-drive"}) == []
     assert overdue_at_call(monkeypatch, capsys, {"session_id": coordinator}) == []
     later = state.now() + timedelta(minutes=4)
     monkeypatch.setattr(state, "now", lambda: later)
-    assert overdue_at_call(monkeypatch, capsys, builder)[1].endswith(", 1 min past due")
+    assert overdue_at_call(monkeypatch, capsys, {"session_id": coordinator})[3].endswith(", 1 min past due")
     with state.edit("demo") as data:
         data["jobs"]["j1"]["lost_since"] = state.stamp(later)
     assert [line.split(":")[0] for line in overdue_at_call(monkeypatch, capsys, {"session_id": coordinator})[1:]] == ["- o3 Fix 3", "- o2 Fix 2"]
@@ -372,20 +372,18 @@ def test_a_drive_role_opens_no_file_and_its_agents_and_other_sessions_do(
     assert hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Write", "someone-else"))) == ""
 
 
-def test_a_drive_role_reads_no_slack_thread_and_its_agents_and_other_sessions_do(
+def test_a_drive_role_reading_slack_itself_hears_what_it_costs_and_its_agents_and_other_sessions_hear_nothing(
     demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     thread = "mcp__plugin_cc-slack_cc-slack__slack_thread"
     output = json.loads(hook_output(no_slack_reads, monkeypatch, capsys, json.dumps(file_call(thread))))
-    assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
-    assert output["hookSpecificOutput"]["permissionDecisionReason"].startswith(
-        f"refused: the coordinator reads no Slack thread or channel itself with {thread}"
-    )
+    assert "permissionDecision" not in output["hookSpecificOutput"]
+    assert output["hookSpecificOutput"]["additionalContext"].startswith(f"the coordinator reads Slack itself with {thread}: the read goes")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", "demo", "--role", "communicator")
     history = "mcp__plugin_cc-slack_cc-slack__slack_history"
-    assert no_slack_reads.deny_reason(file_call(history, "talker")).startswith("refused: the communicator reads no Slack")
-    assert no_slack_reads.deny_reason(file_call(thread, "talker", agent_id="a-1")) is None
+    assert no_slack_reads.note(file_call(history, "talker")).startswith("the communicator reads Slack itself")
+    assert no_slack_reads.note(file_call(thread, "talker", agent_id="a-1")) is None
     assert hook_output(no_slack_reads, monkeypatch, capsys, json.dumps(file_call(history, "someone-else"))) == ""
 
 
@@ -521,7 +519,7 @@ def test_a_builder_asking_his_card_builds_its_recommended_option_in_the_same_run
     refused = json.loads(hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop(f"ASK {asked}", **lane))))
     assert refused["reason"].startswith("Refused on purpose: j2776 put his card up and built nothing")
     assert "`ccx vcs ship --no-pr`" in refused["reason"]
-    assert land.ship_held(state.load("durable-agents"), "j2776") == [drawn_card(1)]
+    assert land.open_cards(state.load("durable-agents"), "j2776", None) == [drawn_card(1)]
     built = "BUILT j2776-delete-agent, waits on durable-agents:j2776-7"
     monkeypatch.setattr("sys.stdin", io.StringIO(f"{built}\nCHECK: the recommended deleteAgent mutation, pushed on j2776-delete-agent\n"))
     run("job", "report", "j2776", "-")
@@ -988,12 +986,7 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     folder = tmp_path / "j2"
     bare = f"Order: Drive tooling: copy one store\nServes: drive tooling\nDrive: demo, order o1, job j2\nScratch: {folder}"
-    denied = json.loads(hook_output(scratch_folder, monkeypatch, capsys, json.dumps(drive_agent("long-running:builder", bare))))
-    assert denied["hookSpecificOutput"]["permissionDecision"] == "deny"
-    assert denied["hookSpecificOutput"]["permissionDecisionReason"].startswith(
-        "refused, no agent started: j2 builds on o1, a build order: its brief carries the line Researched: <its reader's or design's job>"
-    )
-    assert not folder.exists()
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", bare)) is None
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Researched: j2\n{bare}")) == (
         "refused, no agent started: Researched: j2 names no reader or design of j2's part of o1 that kept a Researched: line and under it rulings:, exists: and open: lines in its report"
         "; a reader or design of another order that already kept that block on this work is this part's research once it carries the part, with no second reader: drive job set <that reader or design> --carries o1 --part \"Short title\""
@@ -1116,9 +1109,7 @@ def test_a_build_orders_codex_lane_is_added_at_once_and_started_only_on_its_read
         " its reply's state a field codex cannot leave out, so no agent relays it"
     )
     assert brief.brief_refusal("demo", state.load("demo"), "j1", bare.format("j1")) is None
-    unread = brief.brief_refusal("demo", state.load("demo"), "j3", bare.format("j3"))
-    assert unread.startswith("j3 builds on o1, a build order: its brief carries the line Researched: <its reader's or design's job>")
-    assert 'none has: o1 is a build order, so its codex starts only once an Opus reader or a design of its part, a change a design listed counting as that design\'s part, has kept' in unread
+    assert brief.brief_refusal("demo", state.load("demo"), "j3", bare.format("j3")) is None
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
     run("job", "report", "j2", "-")
     assert brief.brief_refusal("demo", state.load("demo"), "j3", f"Researched: j2\n{bare.format('j3')}") is None
@@ -1590,7 +1581,7 @@ INCIDENT_ORDER = {"id": "9e1f2b3" + "0" * 33, "title": "sand runs fail on core-u
 PR_TAP = {"id": "ac61348" + "0" * 33, "title": "Tap: #50203, canary diagnostics on the search", "body": "Approve at 4aca314\nNotes:\nTapped on the PR card.", "tags": ["scope:durable"]}
 
 
-def test_a_release_starts_on_order_naming_an_incidents_answer_or_one_jev_reads_as_his_pick_to_release(demo: str, recorded: Answers, jev: Jev) -> None:
+def test_a_release_starts_on_order_naming_an_incidents_answer_or_one_jev_reads_as_his_pick_to_release(demo: str, recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]) -> None:
     recorded.shown = {answer["id"][:7]: answer for answer in (RELEASE_PICK, INCIDENT_ORDER, PR_TAP)}
     start = "tools/ci release start sand --only sand --emergency --order {}"
     jev.picks("5d0c4a1")
@@ -1621,7 +1612,11 @@ def test_a_release_starts_on_order_naming_an_incidents_answer_or_one_jev_reads_a
     )
     assert brief.approval_refusal(start.format("ac61348"), state.load("demo"), reading) is None
     jev.picks("none")
-    assert brief.approval_refusal(start.format("ac61348"), state.load("demo"), reading).startswith("refused: `--order ac61348` names his answer")
+    capsys.readouterr()
+    assert brief.approval_refusal(start.format("ac61348"), state.load("demo"), reading) is None
+    assert f"drive job add: `--order ac61348` names his answer to \"{PR_TAP['title']}\", \"Approve at 4aca314\", and Opus does not read it as approving this release; it starts on the top coordinator's reading \"{reading}\"" in capsys.readouterr().err
+    assert brief.approval_refusal(start.removesuffix(" --order {}"), state.load("demo"), reading) is None
+    assert "drive job add: it names no `--order`; it starts on the top coordinator's reading" in capsys.readouterr().err
 
 
 def test_the_release_gate_reads_a_start_against_the_drive_release_notes_in_its_range_at_its_default_branch_head_never_refusing_and_parses_a_manual_starts_stack_and_commit(
@@ -2439,7 +2434,9 @@ def test_a_release_on_staging_or_sandbox_alone_runs_under_his_hold_with_no_order
         REHEARSALS[-1].replace("sandsql/plat-usw2-sandbox", "sandsql/plat-usw2-sandbox,sandsql/plat-usw2-prod"),
     ]
     assert [brief.release_refusal(release) for release in past] == [f"--release names no --order. {brief.RELEASE_APPROVAL}"] * len(past)
+    assert [brief.release_refusal(release, "his words order it") for release in past] == [None] * len(past)
     assert [brief.hold_refusal(release, data, hold) for release in past] == [held(release, "it names no `--order`, and neither does a `Release:` line of its job's brief") for release in past]
+    assert [brief.approval_refusal(release, data, "his words order it") for release in past] == [held(release, "it names no `--order`, and neither does a `Release:` line of its job's brief") for release in past]
     tested = f"{first} --for-production"
     assert (brief.release_refusal(tested), brief.hold_refusal(tested, data, hold)) == (
         f"--release names no --order. {brief.RELEASE_APPROVAL}",

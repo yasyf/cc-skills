@@ -58,39 +58,21 @@ def test_a_builder_opens_its_pr_the_repositorys_way(demo: str) -> None:
     assert bash_guard.deny_reason(bash("CAPT_HOOK_CCX_RAW=1 gh pr create --title X --body-file /s/body.md", **builder)) is None
 
 
-def test_a_builder_opens_no_pr_while_his_open_cards_hold_its_job(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_builder_opens_its_pr_while_his_open_cards_hold_its_job(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Landing", "ship the watch")
     assert run("job", "add", "builder", "--order", "o1", "--goal", "ship it")[1] == "j1"
     with state.edit(demo) as data:
         data["jobs"]["j1"]["agent"] = "a-1"
-    cards = ["demo:j2-1-a"]
-    monkeypatch.setattr(land, "open_cards", lambda data, job_id, pr, exempt=None: cards if job_id == "j1" and exempt != state.FLAKE_FIX else [])
+    monkeypatch.setattr(land, "open_cards", lambda data, job_id, pr: ["demo:j2-1-a"])
     builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
     opening = "cd /work && ccx vcs ship --pr-title-file /s/t --pr-body-file /s/b"
-    reason = bash_guard.deny_reason(bash(opening, **builder))
-    assert reason.startswith("refused: j1's work waits on his answer to demo:j2-1-a, and this ship would open its PR")
-    assert "`ccx vcs ship --no-pr`" in reason
-    assert bash_guard.deny_reason(bash("ccx vcs ship --no-pr", **builder)) is None
-    assert bash_guard.deny_reason(bash(f"{opening} --dry-run", **builder)) is None
-    registered = f'{opening} && drive pr add "$(gh pr view --json url -q .url)" --job j1 --exempt'
-    assert '--exempt "flake fix"`' in reason
-    assert bash_guard.deny_reason(bash(f'{registered} "flake fix"', **builder)) is None
-    assert bash_guard.deny_reason(bash(f"{registered} test-only", **builder)).startswith("refused: j1's work waits on his answer to demo:j2-1-a")
-    assert bash_guard.deny_reason(bash(opening, **(builder | {"agent_id": "a-2"}))) is None
-    url = "https://github.com/yasyf/cc-skills/pull/9"
-    with state.edit(demo) as data:
-        data["prs"][state.pr_key(url)] = state.new_pr(url, "j1", "o1")
-        data["jobs"]["j1"]["prs"].append(url)
     assert bash_guard.deny_reason(bash(opening, **builder)) is None
-    with state.edit(demo) as data:
-        data["prs"][state.pr_key(url)]["state"] = "merged"
-    assert bash_guard.deny_reason(bash(opening, **builder)).startswith("refused: j1's work waits on his answer")
-    cards = []
-    assert bash_guard.deny_reason(bash(opening, **builder)) is None
+    assert bash_guard.deny_reason(bash(f'{opening} && drive pr add "$(gh pr view --json url -q .url)" --job j1 --exempt test-only', **builder)) is None
 
-def test_a_sprite_lanes_ship_asks_the_coordinators_mac_whether_his_open_cards_hold_its_pr(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+
+def test_a_sprite_lanes_ship_of_a_main_fix_asks_the_coordinators_mac_which_job_owns_the_tests_main_fails(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     asked = []
-    answer = {"code": 0, "out": json.dumps({"id": "j7", "cards": ["demo:j2-1-a"]}), "err": ""}
+    answer = {"code": 0, "out": json.dumps({"id": "j7", "main": "j3 already owns every test main fails"}), "err": ""}
 
     def drive(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
         asked.append(argv)
@@ -98,20 +80,18 @@ def test_a_sprite_lanes_ship_asks_the_coordinators_mac_whether_his_open_cards_ho
 
     monkeypatch.setattr(land.subprocess, "run", drive)
     opening = "ccx vcs ship --pr-title-file /s/t --pr-body-file /s/b"
-    assert bash_guard.deny_reason(bash(opening, session="sprite")) is None
+    main_fix = f'{opening} && drive pr add "$(gh pr view --json url -q .url)" --job j7 --exempt "main fix"'
+    assert bash_guard.deny_reason(bash(main_fix, session="sprite")) is None
     monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
-    assert bash_guard.deny_reason(bash(opening, session="sprite")).startswith("refused: j7's work waits on his answer to demo:j2-1-a, and this ship would open its PR")
-    assert asked == [["drive", "job", "held", "--json"]]
-    assert bash_guard.deny_reason(bash("ccx vcs ship --no-pr", session="sprite")) is None
-    assert bash_guard.deny_reason(bash("git status", session="sprite")) is None
-    assert len(asked) == 1
+    assert bash_guard.deny_reason(bash(opening, session="sprite")) is None
+    assert asked == []
+    assert bash_guard.deny_reason(bash(main_fix, session="sprite")) == "refused: j3 already owns every test main fails"
+    assert asked == [["drive", "job", "held", "--json", "--exempt=main fix"]]
     answer.update(code=1, out="", err="drive: orca orchestration ask exited 1: no run")
-    assert bash_guard.deny_reason(bash(opening, session="sprite")) == (
-        "refused: `drive job held` could not say whether his open cards hold this lane's PR: drive: orca orchestration ask exited 1: no run; ship again once it answers"
+    assert bash_guard.deny_reason(bash(main_fix, session="sprite")) == (
+        "refused: `drive job held` could not say whether another job already owns the tests main fails: drive: orca orchestration ask exited 1: no run; ship again once it answers"
     )
-    answer.update(code=0, out=json.dumps({"id": "j7", "cards": []}))
-    assert bash_guard.deny_reason(bash(f'{opening} && drive pr add "$(gh pr view --json url -q .url)" --job j7 --exempt "flake fix"', session="sprite")) is None
-    assert asked[-1] == ["drive", "job", "held", "--json", "--exempt=flake fix"]
+
 
 def test_a_designer_opens_no_pr_and_pushes_nothing(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     designer = {"agent_id": "a-1", "agent_type": "long-running:designer"}

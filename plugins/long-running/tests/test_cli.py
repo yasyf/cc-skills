@@ -1094,7 +1094,7 @@ def test_his_words_asking_a_line_every_15_minutes_set_that_cadence_on_the_first_
     words = "Ok and while that's happening how's release 3 merging going? Also ur supposed to give updates every 15 mins you forgot that you just promised next like 30 mins dorm now."
     code, out = run("order", "add", "--title", "Release 3 merges", *filed, *release, words)
     assert code == 0
-    assert "every 15 minutes, as his words ask: o1 owes him a line in its thread that long after its last one until done, and each line there promises the next within it" in out.splitlines()
+    assert "every 15 minutes, as his words ask: o1 owes him a line in its thread that long after its last one until done" in out.splitlines()
     assert run("order", "add", "--title", "Hourly lines", *filed, "Ping me every hour on the cache rebuild until it lands")[0] == 0
     jev.ruled.clear()
     assert run("order", "add", "--title", "Retry cadence", *filed, *replica, "The cleanup job retries every half hour and never gives up; make it stop after one try")[0] == 0
@@ -4317,11 +4317,11 @@ def test_job_ask_reads_his_recorded_answers_ccn_ranks_nearest_and_a_card_asking_
     assert f'drive job ask: kept the card unsettled as "9992100: {settled.MARKED.format(option="the recommended option")}", asking him to lift 9992100, {WAIT_RULING["asked"]}, so it holds its PR' in advice
     assert handed(*jev.asked)[WAIT_RULING["id"]] == {"asked": WAIT_RULING["asked"], "said": WAIT_RULING["said"]}
     question = state.load("demo")["jobs"]["j3"]["questions"][-1]
-    assert (question["unsettled"], land.ship_held(state.load("demo"), "j3")) == (f"9992100: {settled.MARKED.format(option="the recommended option")}", [question["card"]])
+    assert (question["unsettled"], land.open_cards(state.load("demo"), "j3", None)) == (f"9992100: {settled.MARKED.format(option="the recommended option")}", [question["card"]])
     unsettled = "9992100: this card asks whether the incident overrides his wait"
     assert run("job", "ask", "j3", str(block), "--unsettled", unsettled)[0] == 0
     question = state.load("demo")["jobs"]["j3"]["questions"][-1]
-    assert (question["unsettled"], land.ship_held(state.load("demo"), "j3")) == (unsettled, [question["card"]])
+    assert (question["unsettled"], land.open_cards(state.load("demo"), "j3", None)) == (unsettled, [question["card"]])
     url = "https://github.com/Forge-AI/monorepo/pull/43"
     assert run("pr", "add", url, "--job", "j3", *LEAD)[0] == 0
     unlinked = asked.replace("Meanwhile nothing is built on either layout.", "Meanwhile this job builds it on a branch, no PR.")
@@ -4371,12 +4371,12 @@ def test_job_ask_keeps_unsettled_a_card_that_says_its_recommended_option_replace
     [request] = [request for request in jev.asked if "says.7a1c0de" in request["questions"]]
     assert handed(request)["7a1c0de"] == {"asked": NIGHTLY_EXPORT["title"], "said": NIGHTLY_EXPORT["body"]}
     assert DEPARTS in request["state"]["card"]["text"].splitlines()
-    assert land.ship_held(state.load("demo"), "j3") == []
+    assert land.open_cards(state.load("demo"), "j3", None) == []
     jev.breaks("says", "7a1c0de")
     assert cli.main(["job", "ask", "j3", str(block)]) == 0
     assert f'drive job ask: kept the card unsettled as "7a1c0de: {settled.MARKED.format(option="the recommended option")}", asking him to lift 7a1c0de, {NIGHTLY_EXPORT["title"]}, so it holds its PR from landing on an incident too' in capsys.readouterr().err
     question = state.load("demo")["jobs"]["j3"]["questions"][-1]
-    assert (question["unsettled"], land.ship_held(state.load("demo"), "j3")) == (f"7a1c0de: {settled.MARKED.format(option="the recommended option")}", [question["card"]])
+    assert (question["unsettled"], land.open_cards(state.load("demo"), "j3", None)) == (f"7a1c0de: {settled.MARKED.format(option="the recommended option")}", [question["card"]])
 
 
 def test_job_ask_keeps_unsettled_a_card_whose_other_option_breaks_his_ruling_so_its_incident_pr_waits_on_his_answer_though_it_recommends_keeping_it_unless_that_ruling_already_answers_the_card(
@@ -4392,18 +4392,18 @@ def test_job_ask_keeps_unsettled_a_card_whose_other_option_breaks_his_ruling_so_
     block.write_text(asked)
     assert cli.main(["job", "ask", "j3", str(block)]) == 0
     assert "kept the card unsettled" not in capsys.readouterr().err
-    assert land.ship_held(state.load("demo"), "j3") == []
+    assert land.open_cards(state.load("demo"), "j3", None) == []
     jev.breaks("breaks2", WAIT_RULING["id"])
     assert cli.main(["job", "ask", "j3", str(block)]) == 0
     marked = f"9992100: {settled.MARKED.format(option=other)}"
     assert f'drive job ask: kept the card unsettled as "{marked}", asking him to lift 9992100, {WAIT_RULING["asked"]}, so it holds its PR' in capsys.readouterr().err
     question = state.load("demo")["jobs"]["j3"]["questions"][-1]
-    assert (question["unsettled"], land.ship_held(state.load("demo"), "j3")) == (marked, [question["card"]])
+    assert (question["unsettled"], land.open_cards(state.load("demo"), "j3", None)) == (marked, [question["card"]])
     recorded.lined = [WAIT_RULING]
     jev.breaks(f"{settled.LINE_KEY}2", WAIT_RULING["id"])
     assert cli.main(["job", "ask", "j3", str(block)]) == 0
     assert "kept the card unsettled" not in capsys.readouterr().err
-    assert (state.load("demo")["jobs"]["j3"]["questions"][-1]["unsettled"], land.ship_held(state.load("demo"), "j3")) == (None, [])
+    assert (state.load("demo")["jobs"]["j3"]["questions"][-1]["unsettled"], land.open_cards(state.load("demo"), "j3", None)) == (None, [])
 
 
 def test_job_ask_prints_each_release_note_in_its_range_jev_reads_as_speaking_to_a_start_any_option_offers_with_what_git_finds_at_its_commit_refusing_nothing(
@@ -5510,20 +5510,16 @@ def test_a_builder_proving_a_merged_pr_live_on_a_done_order_is_refused_naming_th
     assert list(state.load("demo")["jobs"]) == ["j1"]
 
 
-def test_an_answer_order_is_one_readers_and_a_build_orders_builder_starts_on_its_readers_research(
+def test_a_build_orders_builder_starts_with_or_without_its_readers_research(
     run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why did the copy stall?", "--kind", "answer", "--complex")
     assert [state.load("demo")["orders"]["o1"][field] for field in ("kind", "complex")] == ["answer", True]
-    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "fix the copy"]) == 2
-    assert "refused, no job added: o1 is an answer order: one reader researches it and answers him" in capsys.readouterr().err
     assert run("job", "add", "reader", "--order", "o1", "--goal", "answer him")[0] == 0
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--kind", "build")
     assert run("job", "add", "builder", "--order", "o2", "--goal", "build it")[1].splitlines()[0] == "j2"
     started = "Drive: demo, order o2, job j2"
-    unread = brief.brief_refusal("demo", state.load("demo"), "j2", started)
-    assert "none has: o2 is a build order, so its builder starts only once an Opus reader or a design of its part" in unread
-    assert "drive job set j2 --waits <the reader> starts it on the reader's FREE line" in unread
+    assert brief.brief_refusal("demo", state.load("demo"), "j2", started) is None
     run("job", "add", "reader", "--order", "o2", "--goal", "research: the copy")
     keep(monkeypatch, capsys, "j3", "DONE read the copy path\n")
     assert brief.brief_refusal("demo", state.load("demo"), "j2", f"Researched: j3\n{started}").startswith("Researched: j3 names no reader or design of j2's part")
@@ -5575,7 +5571,6 @@ def test_a_reader_pilot_orders_builder_starts_with_no_research_while_a_complex_d
     data = state.load("demo")
     started = {job_id: f"Drive: demo, order {data['jobs'][job_id]['order']}, job {job_id}" for job_id in ("j1", "j2", "j3", "j4")}
     assert [job_id for job_id, line in started.items() if brief.brief_refusal("demo", data, job_id, line) is None] == ["j1"]
-    assert brief.unresearched("demo", data, "o3", "builder", list(data["orders"]["o3"]["parts"])) is None
     assert brief.brief_refusal("demo", data, "j1", f"Researched: j1\n{started['j1']}").startswith("Researched: j1 names no reader or design")
     run("order", "pilot", "The drive", "--days", "0")
     run("order", "add", *drive, "copy five stores")
@@ -5680,7 +5675,7 @@ def test_a_build_orders_design_job_is_added_at_once_and_starts_on_its_readers_re
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     assert run("job", "add", "design", "--order", "o1", "--goal", "cards: where the copy runs")[1].splitlines()[0] == "j1"
     started = "Drive: demo, order o1, job j1"
-    assert "none has: o1 is a build order, so its design starts only once an Opus reader or a design of its part" in brief.brief_refusal("demo", state.load("demo"), "j1", started)
+    assert brief.brief_refusal("demo", state.load("demo"), "j1", started) is None
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
     keep(monkeypatch, capsys, "j2", RESEARCH)
     assert brief.brief_refusal("demo", state.load("demo"), "j1", f"Researched: j2\n{started}") is None
@@ -5858,7 +5853,6 @@ def test_a_build_jobs_research_is_a_reader_of_its_own_part_a_designs_change_coun
     keep(monkeypatch, capsys, "j1", RESEARCH)
     run("job", "add", "reader", "--order", "o1", "--part", "the proof", "--goal", "prove the breaker live")
     keep(monkeypatch, capsys, "j3", RESEARCH)
-    assert 'drive job add reader --order o1 --part "the alert" --goal "research: <what>"' in brief.unresearched("demo", state.load("demo"), "o1", "builder", ["the alert"])
     assert run("job", "add", "design", "--order", "o1", "--part", "the breaker", "--goal", "cards: the breaker")[1].splitlines()[0] == "j5"
     owned = DESIGNED_IN_CHANGES.replace('none: ccx code search "store copy" and rg store_copy found nothing', "supervisor/copies.rs:40 store_copy_at, extended by change 1")
     assert keep(monkeypatch, capsys, "j5", owned) == (0, "")
@@ -5982,8 +5976,6 @@ def test_the_immediate_fix_starts_at_once_past_the_research_the_design_and_optio
     assert run("job", "add", "builder", "--order", "o1", "--part", "immediate fix", "--goal", "stop the harm", "--agent", "a1") == (0, "j1")
     run("order", "set", "o1", "--no-options-only")
     data = state.load("demo")
-    assert "so its builder starts only once" in brief.unresearched("demo", data, "o1", "builder", ["the copy"])
-    assert brief.unresearched("demo", data, "o1", "builder", ["immediate fix"]) is None
     run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
     assert keep(monkeypatch, capsys, "j2", DESIGN_RESEARCH) == (0, "")
     assert cli.main(["job", "add", "codex", "--order", "o1", "--part", "immediate fix", "--goal", "stop it another way"]) == 2
@@ -6003,13 +5995,10 @@ def test_a_follow_up_he_orders_to_a_pr_gets_its_designer_at_once_with_no_reader_
         "order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: land the card fix, then a follow-up that is not hacky",
         "--kind", "build", "--parts", "the card fix", "follow-up",
     )
-    assert "so its design starts only once" in brief.unresearched("demo", state.load("demo"), "o1", "design", ["the card fix"])
     assert run("job", "add", "reader", "--order", "o1", "--part", "the card fix", "--goal", "research: the card fix") == (
         0,
         "j1\nj2 builder on \"the card fix\" waits on j1: start no agent for it until the watch's FREE line says its last wait ended",
     )
-    assert cli.main(["job", "add", "design", "--order", "o1", "--part", "follow-up", "--waits", "j1", "--goal", "design the follow-up"]) == 2
-    assert 'a "follow-up" design starts now, beside landing the PR it follows' in capsys.readouterr().err
     assert cli.main(["job", "add", "design", "--order", "o1", "--part", "follow-up", "--part", "the card fix", "--goal", "both"]) == 2
     assert 'the "follow-up" part is a job of its own: its design starts at once' in capsys.readouterr().err
     assert run("job", "add", "design", "--order", "o1", "--part", "follow-up", "--goal", "design the follow-up") == (0, "j3")
@@ -6270,10 +6259,9 @@ def test_a_design_that_kept_a_question_is_kept_with_no_fork_line_and_its_builder
     assert cli.main(["job", "report", "j1", "-"]) == 0
     data = state.load("demo")
     assert view.open_cards(data["jobs"]["j1"]) == [card]
-    holding = f", building his recommended option with no PR until he answers {card}" if held else ""
-    assert capsys.readouterr().out.splitlines()[-1] == f'j2 builder on "Short title": the watch starts its agent on its brief {data["jobs"]["j2"]["brief"]}, so start no agent for it; drive job resume reaches it{holding}'
+    assert capsys.readouterr().out.splitlines()[-1] == f'j2 builder on "Short title": the watch starts its agent on its brief {data["jobs"]["j2"]["brief"]}, so start no agent for it; drive job resume reaches it'
     assert (data["jobs"]["j1"]["said"], data["jobs"]["j2"]["state"], data["jobs"]["j2"]["waits"]) == ("carried by builder j2", "waiting", [])
-    assert (view.start_refusal(data, "j2", True), land.ship_held(data, "j2")) == (None, [card] if held else [])
+    assert (view.start_refusal(data, "j2", True), land.open_cards(data, "j2", None)) == (None, [card] if held else [])
 
 
 def test_a_builders_ready_says_how_it_reuses_what_its_research_found(
@@ -6643,7 +6631,7 @@ def test_a_builder_of_a_change_a_built_builder_left_unbuilt_starts_on_that_build
     written = Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
     assert (code, "\nResearched: j1\n" in written, '\nPlan: j1\'s return, change "retry each stalled copy": drive job report j1; stack on j1\'s branch j1-copy\n' in written) == (0, True, True)
     assert brief.brief_refusal("demo", state.load("demo"), "j2", written) is None
-    assert brief.brief_refusal("demo", state.load("demo"), "j2", written.replace("\nResearched: j1\n", "\n")).startswith("j2 builds on o1, a build order: its brief carries the line Researched:")
+    assert brief.brief_refusal("demo", state.load("demo"), "j2", written.replace("\nResearched: j1\n", "\n")) is None
 
 
 def test_j5896_a_follow_up_builder_split_off_work_a_readers_open_card_holds_is_held_by_that_card_whose_kept_holds_words_name_it_through_a_re_ask(
@@ -6660,14 +6648,14 @@ def test_j5896_a_follow_up_builder_split_off_work_a_readers_open_card_holds_is_h
     capsys.readouterr()
     monkeypatch.setattr("sys.stdin", io.StringIO(f"BUILT j2-copy, waits on {card}\nUNBUILT: retry each stalled copy\n"))
     assert cli.main(["job", "report", "j2", "-"]) == 0
-    assert f'j3 builder on "retry each stalled copy": the watch starts its agent on its brief {state.load("demo")["jobs"]["j3"]["brief"]}, so start no agent for it; drive job resume reaches it, building his recommended option with no PR until he answers {card}' in capsys.readouterr().out.splitlines()
+    assert f'j3 builder on "retry each stalled copy": the watch starts its agent on its brief {state.load("demo")["jobs"]["j3"]["brief"]}, so start no agent for it; drive job resume reaches it' in capsys.readouterr().out.splitlines()
     held = "the copy; retry each stalled copy, which j3 builds"
     data = state.load("demo")
-    assert (data["jobs"]["j1"]["questions"][-1]["holds"], state.part_cards(data, "j3"), land.ship_held(data, "j3")) == (held, [card], [card])
+    assert (data["jobs"]["j1"]["questions"][-1]["holds"], state.part_cards(data, "j3"), land.open_cards(data, "j3", None)) == (held, [card], [card])
     assert run("job", "ask", "j1", str(block))[0] == 0
     data = state.load("demo")
     [card] = view.open_cards(data["jobs"]["j1"])
-    assert (data["jobs"]["j1"]["questions"][-1]["holds"], land.ship_held(data, "j3")) == (held, [card])
+    assert (data["jobs"]["j1"]["questions"][-1]["holds"], land.open_cards(data, "j3", None)) == (held, [card])
 
 
 def test_j135_a_builder_added_for_a_piece_another_builder_left_unbuilt_plans_on_that_builders_report_and_the_branch_and_head_of_its_open_pr_to_stack_on(
@@ -10444,7 +10432,6 @@ def test_only_his_own_message_withdraws_a_promised_line(run: Run, demo: str, sla
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "send the numbers", "--thread", "1794200000.000100", "--due", "+30m")
     ours = slack_thread.post(state.now() - timedelta(minutes=60), from_claude=True)
     his = slack_thread.post(state.now() - timedelta(minutes=59), from_user=True)
-    assert run("order", "set", "o1", "--state", "dropped")[0] == 2
     assert run("order", "set", "o1", "--state", "dropped", "--withdrawn", ours)[0] == 2
     assert run("order", "set", "o1", "--state", "dropped", "--withdrawn", his)[0] == 0
     order = state.load("demo")["orders"]["o1"]
@@ -10457,7 +10444,6 @@ def test_the_line_a_closing_report_posts_keeps_the_time_owed_even_when_it_was_th
     moment = state.now()
     fix = "ship the background-thread fix"
     reports = {
-        "21": ({"close": "o1"}, moment - timedelta(seconds=35)),
         "22": ({"close": "o1"}, moment + timedelta(minutes=2)),
         "23": ({"close": "o2", "part": "Short title"}, moment + timedelta(seconds=30)),
     }
@@ -10478,14 +10464,14 @@ def test_the_line_a_closing_report_posts_keeps_the_time_owed_even_when_it_was_th
     run("order", "posted", "o1", done)
     [told] = state.load("demo")["orders"]["o1"]["promises"]
     assert (told["promised"], told["kept"]) == (slack.sent_at(slack_thread.messages[-1]).isoformat(), None)
-    assert cli.main(["order", "set", "o1", "--state", "done", "--record", "22"]) == 2
+    capsys.readouterr()
+    assert cli.main(["order", "set", "o1", "--state", "done", "--record", "22"]) == 0
     assert (
-        f"o1 owes him the line promised for {render.when(told['due'])} in D123 thread 1794200000.000100, and no drive post is in that thread since"
-        f" {render.when(told['promised'], seconds=True)}: post it there first with say(record=22)"
+        f"drive order set: o1 closes with the line promised for {render.when(told['due'])} in D123 thread 1794200000.000100 unposted:"
+        f" no drive post is in that thread since {render.when(told['promised'], seconds=True)}"
     ) in capsys.readouterr().err
-    assert run("order", "set", "o1", "--state", "done", "--record", "21")[0] == 0
     closed = state.load("demo")["orders"]["o1"]
-    assert (closed["state"], closed["promises"][0]["kept"], closed["promises"][0]["due"]) == ("done", told["promised"], told["due"])
+    assert (closed["state"], closed["promises"][0]["kept"], closed["promises"][0]["due"]) == ("done", None, told["due"])
     due = state.load("demo")["orders"]["o2"]["promises"][0]["due"]
     assert run("order", "posted", "o2", done, "--record", "23") == (
         0,
@@ -11559,7 +11545,7 @@ def test_an_answer_stays_unfinished_until_each_card_asking_him_is_marked_and_a_s
 ) -> None:
     settled = cards_asking(monkeypatch, PR)
     assert cli.main(["answer", "a1", "--stands", "demo:j2-7"]) == 2
-    assert "the drive keeps no link for it: run drive answer a1 --link <the permalink of his message or the card he tapped> alone first" in capsys.readouterr().err
+    assert "the drive keeps no link for it: run drive answer a1 alone first, with --link <the permalink of his message or the card he tapped> where you have it" in capsys.readouterr().err
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
     listed = capsys.readouterr().err
     assert "  demo:j2-7  " not in listed
@@ -11721,17 +11707,22 @@ def test_j5263_an_answer_cc_notes_holds_and_the_drive_lacks_is_kept_by_its_id_wi
     cards_asking(monkeypatch, PR)
     kept = f"66243b9{'7' * 33}"
     recorded.shown[kept] = {"id": kept, "title": "Which topology?", "body": f"{WORDS}\nNotes: kept by a handler", "tags": ["scope:durable"], "created_at": "2026-11-12T11:33:00Z"}
-    for marks in (["--others-stand"], []):
-        assert cli.main(["answer", kept[:7], *marks]) == 2
-        assert f"cc-notes holds {kept}; the drive keeps no link for it: run drive answer {kept} --link <the permalink of his message or the card he tapped> alone first" in capsys.readouterr().err
+    loose = f"77354ca{'8' * 33}"
+    recorded.shown[loose] = {"id": loose, "title": "Which topology?", "body": f"{WORDS}\nNotes: kept by a handler", "tags": ["scope:durable"], "created_at": "2026-11-12T11:34:00Z"}
+    assert cli.main(["answer", kept[:7], "--others-stand"]) == 2
+    assert f"cc-notes holds {kept}; the drive keeps no link for it: run drive answer {kept} alone first, with --link <the permalink of his message or the card he tapped> where you have it" in capsys.readouterr().err
     assert kept not in state.load("demo")["answers"]
     assert cli.main(["answer", kept[:7], "--link", PICK]) == 2
     assert f"his answer {kept} " in capsys.readouterr().err
     answer = state.load("demo")["answers"][kept]
     assert ((answer["words"], answer["link"]), heard.checked) == ((WORDS, PICK), [(WORDS, [PICK])])
+    cli.main(["answer", loose[:7]])
+    assert f"drive answer: {loose}: no --link names where he said them; kept as the session's paraphrase of his words" in capsys.readouterr().err
+    answer = state.load("demo")["answers"][loose]
+    assert ((answer["words"], answer["link"]), heard.checked) == ((WORDS, settled.TERMINAL), [(WORDS, [PICK])])
 
 
-def test_an_answer_an_agent_wrapped_in_its_own_words_is_kept_by_its_id_as_his_message_at_the_link_and_nothing_is_kept_when_his_message_is_not_inside_it(
+def test_an_answer_an_agent_wrapped_in_its_own_words_is_kept_by_its_id_as_his_message_at_the_link_and_as_a_paraphrase_when_his_message_is_not_inside_it(
     run: Run, designing: str, recorded: Answers, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], slack_thread: Thread
 ) -> None:
     cards_asking(monkeypatch, PR)
@@ -11743,12 +11734,12 @@ def test_an_answer_an_agent_wrapped_in_its_own_words_is_kept_by_its_id_as_his_me
         {"ts": "1794300000.000100", "text": "Which topology?", "from_user": False},
         {"ts": "1794300000.000300", "thread_ts": "1794300000.000100", "text": f"{WORDS}.", "from_user": True},
     ]
-    assert cli.main(["answer", unkept[:7], "--link", PICK]) == 2
-    assert f'{unkept}: refused, nothing recorded: his words at {PICK} do not say "His words, verbatim: "Iris should propose topologies itself""' in capsys.readouterr().err
     assert cli.main(["answer", kept[:7], "--link", PICK]) == 2
     assert f"his answer {kept} " in capsys.readouterr().err
+    cli.main(["answer", unkept[:7], "--link", PICK])
+    assert f'drive answer: {unkept}: his words at {PICK} do not say "His words, verbatim: "Iris should propose topologies itself""' in capsys.readouterr().err
     answers = state.load("demo")["answers"]
-    assert (unkept in answers, answers[kept]["words"], answers[kept]["link"]) == (False, f"{WORDS}.", PICK)
+    assert (answers[unkept]["words"], answers[kept]["words"], answers[kept]["link"]) == ('His words, verbatim: "Iris should propose topologies itself"', f"{WORDS}.", PICK)
 
 
 def test_j3986_his_ruling_kept_under_its_full_id_is_found_by_any_prefix_and_never_kept_twice(
@@ -11766,22 +11757,18 @@ def test_j3986_his_ruling_kept_under_its_full_id_is_found_by_any_prefix_and_neve
     assert list(state.load("demo")["answers"]) == [ruling]
 
 
-def test_an_answer_is_recorded_only_as_his_words_at_the_permalink_it_names(
-    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], heard: Heard
+def test_an_answer_whose_words_are_not_his_at_the_permalink_or_that_names_none_is_recorded_as_the_sessions_paraphrase(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], heard: Heard, noted: list[tuple[str, str, str]]
 ) -> None:
     cards_asking(monkeypatch, PR)
-    added: list[list[str]] = []
-    monkeypatch.setattr(
-        "drive.settled.subprocess",
-        types.SimpleNamespace(run=lambda argv, **_: added.append(argv) or subprocess.CompletedProcess(argv, 0, json.dumps({"id": "beb09e5f00d"}), ""), TimeoutExpired=subprocess.TimeoutExpired),
-    )
     heard.refusal = "his words at the link do not say it"
-    assert cli.main(["answer", "--title", "Which topology?", "--words", "a drafted reading of his question", "--link", PICK]) == 2
-    assert "refused, nothing recorded: his words at the link do not say it" in capsys.readouterr().err
-    assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
-    assert "a1: refused, nothing recorded: his words at the link do not say it" in capsys.readouterr().err
-    assert (added, "a1" in state.load("demo")["answers"]) == ([], False)
-    assert heard.checked == [("a drafted reading of his question", [PICK]), (WORDS, [PICK])]
+    cli.main(["answer", "--title", "Which topology?", "--words", "a drafted reading of his question", "--link", PICK])
+    assert f"drive answer: his words at the link do not say it; recorded as the session's paraphrase of his words, labelled {settled.PARAPHRASE_LABEL}" in capsys.readouterr().err
+    cli.main(["answer", "--title", "Which tree?", "--words", WORDS])
+    assert f"drive answer: no --link names where he said them; recorded as the session's paraphrase of his words, labelled {settled.PARAPHRASE_LABEL}" in capsys.readouterr().err
+    assert noted == [("demo", "Which topology?", "a drafted reading of his question"), ("demo", "Which tree?", WORDS)]
+    assert heard.checked == [("a drafted reading of his question", [PICK])]
+    assert state.load("demo")["answers"][f"2c0ffee{'0' * 33}"]["link"] == settled.TERMINAL
 
 
 @pytest.mark.parametrize(

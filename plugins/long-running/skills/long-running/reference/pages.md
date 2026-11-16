@@ -1,22 +1,29 @@
 # Pages
 
-A page is a one-off live dashboard built for an order and its scoped work, such as a migration's progress, a stack's landing lane, or an incident's timeline. It lives in the drive's state dir at `pages/<slug>/`, and the drive's dashboard lists it under Pages and serves it at `/pages/<slug>/`. The dashboard runs no second server or port for it.
+A page is a one-off live dashboard built for an order and its scoped work, such as a migration's progress, a stack's landing lane, or an incident's timeline. It lives in the drive's state dir at `pages/<slug>/`. The drive's dashboard lists it under Pages and serves it at `/pages/<slug>/`, with no second server or port.
 
 ## Build one
 
-When Jev reads the words of his order as naming a goal or asking where a project or body of work stands, `drive order add` adds a `page` part to it, an answer order becoming a build whose other parts stay answers, and a `codex` job on that part, briefed by the drive with this section as its plan. The job starts at once, past the research the order's other parts wait on, and builds the page in a scratch folder outside any checkout:
+When Jev reads his order as naming a goal or asking where a project or body of work stands, `drive order add` adds a `page` part to it and a `codex` job on that part, briefed by the drive with this section as its plan. An answer order becomes a build whose other parts stay answers. The job starts at once, past the research the order's other parts wait on, and builds the page in a scratch folder outside any checkout:
 
 1. Write strict user stories and acceptance criteria before implementation.
 2. Build the page using `/kit/kit.js`, `/kit/kit.css`, and the shared kit renderers.
 3. Run `drive page add <slug> --order <order> --dir <folder>`, which runs the screenshot gate and registers the page only if the gate passes.
-4. Inspect the gate screenshots and click through every user story on the installed live dashboard, verifying that input values, focus, and open state survive stream updates and checking `prefers-reduced-motion`. agent-browser's `frame` command leaves `eval`, `get count`, `wait --fn` and `set media` on the dashboard, so run every command on the page in the session `drive page frame <session> <slug>` opens and prints, `<session>-frame`, again after any reload of the dashboard, and take screenshots on `<session>`; to see the page go stale, end the dashboard's stream with `agent-browser --session <session> eval "window.stop()"`. The dashboard refuses every answer, tap, Undo and typed word from an automated browser, one whose `navigator.webdriver` is true as `agent-browser`'s is, so an answer button there ends on its `Not sent` toast and no card of his changes.
+4. Look at the gate's screenshots in `drive/page-checks`, then click through every user story on the installed live dashboard. Input values, focus and open state should survive stream updates, and `prefers-reduced-motion` should hold. Three facts about the browser:
+   - agent-browser's `frame` command leaves `eval`, `get count`, `wait --fn` and `set media` on the dashboard. `drive page frame <session> <slug>` opens and prints a session on the page itself, `<session>-frame`: run commands on the page there, again after any reload of the dashboard, and take screenshots on `<session>`.
+   - To see the page go stale, end the dashboard's stream with `agent-browser --session <session> eval "window.stop()"`.
+   - The dashboard refuses every answer, tap, Undo and typed word from an automated browser, one whose `navigator.webdriver` is true as `agent-browser`'s is. An answer button there ends on its `Not sent` toast and no card of his changes.
 5. Report the slug and `/pages/<slug>/` link in `DONE` so the coordinator can return them to the original thread.
 
-Running `drive page add` again with the same slug replaces the page whole; a failed gate leaves the previously installed page intact.
+Running `drive page add` again with the same slug replaces the page whole. A failed gate leaves the installed page as it was.
 
-The folder holds `index.html` and `page.json` (which requires `title` and `goal`), plus any `.js`, `.css`, `.json`, `.svg`, and `.png` files the page loads (`drive page add` refuses other file types). The page's opaque origin cannot fetch its own files or import them as modules, so it loads local scripts with classic `<script src>` tags and imports modules only from `/kit/`.
+The folder holds `index.html` and `page.json`, which requires `title` and `goal`, plus any `.js`, `.css`, `.json`, `.svg` and `.png` files the page loads; `drive page add` refuses other file types. The page's opaque origin cannot fetch its own files or import them as modules, so it loads local scripts with classic `<script src>` tags and imports modules only from `/kit/`.
 
-In `page.json`, `orders` and `prs` (such as `yasyf/cc-skills#42`) include specific orders and PRs besides the build order's; `source` links where the page's idea came from, and `job` names the job that built it. `scope` is additive to `orders` and dynamically includes existing and future orders matching `projects`, `workstreams`, or case-insensitive title substring `words`; `"scope": "drive"` takes the whole drive instead, every order Now shows with every open PR and decision, for a page on where all the work stands:
+In `page.json`:
+
+- `orders` and `prs` include specific orders and PRs besides the build order's.
+- `scope` adds every existing and future order matching `projects`, `workstreams`, or a case-insensitive title substring in `words`. `"scope": "drive"` takes the whole drive instead: every order Now shows with every open PR and decision, for a page on where all the work stands.
+- `source` links where the page's idea came from, and `job` names the job that built it.
 
 ```json
 {
@@ -34,13 +41,13 @@ In `page.json`, `orders` and `prs` (such as `yasyf/cc-skills#42`) include specif
 }
 ```
 
-Those fields are the only place a page names a drive order, job or PR. Its title, goal and other files name none, such as `o104` in a `data.js` of edges or `yasyf/cc-skills#42` in a link, since he cannot open an id the page shows and an id its code keeps freezes what it draws: the page draws each from its slice. `drive page add` refuses a page naming one, by file and line.
+A page names a drive order, job or PR in those fields and nowhere else: not in its title, its goal, a `data.js` of edges or a link. He cannot open an id the page shows, and an id its code keeps freezes what it draws, so the page draws each from its slice. `drive page add` refuses a page naming one, by file and line.
 
-Pages files the page wherever its order is filed now, so a `drive order set` that refiles the order moves its pages too. Pages counts it as live while any matched order is open, and as done once all matched orders close.
+Pages files the page wherever its order is filed now, so a `drive order set` that refiles the order moves its pages too. A page is live while any matched order is open, and done once all matched orders close.
 
 ## Gate and verification
 
-`drive page add` runs a gate that loads the sandboxed page with its actual scoped slice in `agent-browser` under namespace `codex` and writes `desktop` (`1280x900`) and `narrow` (`390x844`) screenshots under `drive/page-checks`.
+`drive page add` loads the sandboxed page with its actual scoped slice in `agent-browser` under namespace `codex` and writes `desktop` (`1280x900`) and `narrow` (`390x844`) screenshots under `drive/page-checks`.
 
 The gate refuses:
 
@@ -50,7 +57,7 @@ The gate refuses:
 - Raw record lines or visible `<pre>` blocks
 - Visible text outside kit components, semantic headings, actions, or navigation
 
-Do not show raw record lines or wrap arbitrary blocks inside a kit component class to evade the gate. The gate is a structural and screenshot artifact check; the `codex` job must still inspect the screenshots in `drive/page-checks` and interactively verify every user story on the installed live dashboard before finishing.
+The gate checks structure and screenshots. It does not check that the stories work, which is step 4 of Build one, and wrapping a raw block in a kit component class passes it while leaving the page unreadable.
 
 ## Scope rules
 
@@ -64,9 +71,9 @@ Do not show raw record lines or wrap arbitrary blocks inside a kit component cla
   - `story`, the newest moments naming its matched orders
   - `asked`, the state of its last ask
   - `at`
-- A page reads nothing outside its slice. When it needs a fact the slice lacks, add the fact to `pageSlice` in `site/app.js`, never a fetch from the page.
-- The page acts only through parent messages validated by the dashboard host:
-  - Single and group answers (`answer(card, label)` and `answers([{card, label}])`) require a fresh user activation inside the page and validate that every `{card, label}` matches a visible scoped PR or question and one of its option labels. The parent sends each answer at once, exactly as the queue sends one, and a group shows one toast whose Undo takes back every answer in it. A page can never approve anything on its own.
+- A page reads only its slice, since the sandbox blocks a fetch. A fact the slice lacks is added to `pageSlice` in `site/app.js`.
+- The page acts through parent messages the dashboard host validates:
+  - `answer(card, label)` and `answers([{card, label}])` need a fresh user activation inside the page, so a page cannot answer on its own. Every `{card, label}` must match a visible scoped PR or question and one of its option labels. The parent sends each answer at once, as the queue sends one, and a group shows one toast whose Undo takes back every answer in it.
   - `ask(text)` posts `{type: "drive:ask", text}`, reaching Slack direct messages through `/api/say` under the page's title.
   - `open(route)` navigates the parent dashboard to a scoped `#/feature` route or a shown question's `href`; given an `https` URL, the parent opens it in a new tab. The kit sends every `https` link a page draws through `open`, on a click or a middle-click, since the sandbox lets the page open no tab itself.
   - `model(messages, onToken)` streams text from the parent's `/api/complete` endpoint using fixed Cerebras `gpt-oss-120b` with owner and origin checks. `messages` accepts `1..20` entries with roles `user` or `assistant` and `1..64000` characters each. No API key is present in the slice or client; if the host lacks a key, the call yields a visible error.

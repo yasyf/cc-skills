@@ -5700,7 +5700,6 @@ def clocks(data: dict) -> list[dict]:
                 "due": stamp(min(dues)),
                 "incident": order["incident"],
                 "sessions": list(dict.fromkeys(session for session in sessions if session)),
-                "agents": [job["agent"] for job in running if job.get("agent")],
             }
         )
     return entries
@@ -5711,14 +5710,14 @@ def at_work(job: dict) -> bool:
     return job["state"] == "running" and not job.get("lost_since")
 
 
-def held_clocks(name: str, session: str, agent: str | None) -> dict:
-    """The owner row and the clocks row's orders a session or a job's agent holds, an agent's alone when the call is a subagent's, both read in one transaction with no lock; none from a drive no install writing the row saved since."""
+def held_clocks(name: str, session: str) -> dict:
+    """The owner row and the clocks row's orders a session holds, both read in one transaction with no lock; none from a drive no install writing the row saved since."""
     saved = stored(name, (CLOCKS, "owner"))
-    return saved | {CLOCKS: [entry for entry in saved.get(CLOCKS, []) if (agent in entry["agents"] if agent else session in entry["sessions"])]}
+    return saved | {CLOCKS: [entry for entry in saved.get(CLOCKS, []) if session in entry["sessions"]]}
 
 
 def show_overdue(name: str, caller: str, shown: list[list]) -> bool:
-    """Whether the overdue block render.overdue drew shows other orders or steps than the caller's last one, a session's or a job agent's, keeping what this one shows when it does, in a file of the caller's own, written lock-free under a name of this process's own, since parallel calls draw at once; a caller holding no order keeps none, so its next order shows."""
+    """Whether the overdue block render.overdue drew shows other orders or steps than the calling session's last one, keeping what this one shows when it does, in a file of the caller's own, written lock-free under a name of this process's own, since parallel calls draw at once; a caller holding no order keeps none, so its next order shows."""
     path = overdue_path(name, caller)
     if not shown:
         path.unlink(missing_ok=True)

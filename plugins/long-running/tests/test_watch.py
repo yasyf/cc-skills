@@ -1411,7 +1411,7 @@ def owed(watching: watch.Watcher, moment: datetime, said: list[dict | str]) -> l
     return list(said)
 
 
-def test_a_promised_time_owes_him_a_report_and_a_handler_every_ten_minutes_until_a_drive_post_is_in_its_thread_and_holds_the_order_open(
+def test_a_promised_time_owes_him_a_report_and_a_handler_every_ten_minutes_until_a_drive_post_is_in_its_thread(
     demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread"
 ) -> None:
     serve(monkeypatch, {})
@@ -1434,7 +1434,6 @@ def test_a_promised_time_owes_him_a_report_and_a_handler_every_ten_minutes_until
     assert owed(watching, T0 + timedelta(minutes=5), said) == []
     assert owed(watching, T0 + timedelta(minutes=10), said)[0]["text"].startswith("POST order o1's line promised by ")
     monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=11))
-    assert cli.main(["order", "set", "o1", "--state", "done", "--drive", demo]) == 2
     assert cli.main(["order", "set", "o1", "--due", state.stamp(T0 + timedelta(hours=2)), "--drive", demo]) == 0
     assert owed(watching, T0 + timedelta(minutes=20), said)[0]["text"].startswith("POST order o1's line promised by ")
     late_line = T0 + timedelta(minutes=21)
@@ -1442,7 +1441,6 @@ def test_a_promised_time_owes_him_a_report_and_a_handler_every_ten_minutes_until
     assert owed(watching, T0 + timedelta(minutes=30), said) == []
     moved = state.load(demo)["orders"]["o1"]["promises"][0]
     assert (moved["due"], state.parse_time(moved["promised"]), moved["kept"]) == (state.stamp(T0 + timedelta(hours=2)), late_line, None)
-    assert cli.main(["order", "set", "o1", "--state", "done", "--drive", demo]) == 2
     [report, _] = owed(watching, T0 + timedelta(hours=2), said)
     assert report["text"] == f"POST order o1 owes him the line it promised by {render.when(moved['due'])}: post where it stands now in its thread"
     slack_thread.post(T0 + timedelta(hours=2, minutes=1), from_claude=True)
@@ -6513,7 +6511,7 @@ def test_a_prs_release_wait_whose_release_is_already_out_is_stored_and_freed_on_
     assert state.load(demo)["prs"][KEY]["waits"] == [staged]
 
 
-def test_job_held_names_his_open_cards_holding_a_jobs_pr_until_he_answers_or_it_has_an_open_pr(
+def test_job_held_holds_no_jobs_pr_on_his_open_cards(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     asking(monkeypatch, demo, "demo:j1-7-a")
@@ -6525,14 +6523,10 @@ def test_job_held_names_his_open_cards_holding_a_jobs_pr_until_he_answers_or_it_
     assert render.job_line(state.load(demo), "j1", state.load(demo)["jobs"]["j1"]) == "j1 builder built on lane/built: watch; waits on demo:j1-7-a"
     capsys.readouterr()
     assert cli.main(["job", "held", "j1", "--drive", demo]) == 0
-    assert capsys.readouterr().out == "demo:j1-7-a\n"
+    assert capsys.readouterr().out == "j1: nothing holds its PR\n"
     monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     assert cli.main(["job", "held", "--json", "--drive", demo]) == 0
-    assert json.loads(capsys.readouterr().out) == {"id": "j1", "cards": ["demo:j1-7-a"]}
-    assert cli.main(["pr", "add", state.pr_url(KEY), "--job", "j1", "--drive", demo, *LEAD]) == 0
-    capsys.readouterr()
-    assert cli.main(["job", "held", "j1", "--drive", demo]) == 0
-    assert capsys.readouterr().out == "j1: no open card of his holds its PR\n"
+    assert json.loads(capsys.readouterr().out) == {"id": "j1", "main": ""}
 
 
 def test_a_job_on_an_open_incident_puts_up_its_pr_on_the_recommendation_and_the_pr_takes_no_wait_on_his_card(
@@ -6549,7 +6543,7 @@ def test_a_job_on_an_open_incident_puts_up_its_pr_on_the_recommendation_and_the_
     assert cli.main(["pr", "set", url, "--waits", "j1", "--drive", demo]) == 0
 
 
-def test_a_job_on_an_open_incident_is_held_from_opening_its_pr_only_by_a_card_asking_him_to_lift_a_ruling_of_his(
+def test_a_job_on_an_open_incident_is_held_from_landing_only_by_a_card_asking_him_to_lift_a_ruling_of_his(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     asking(monkeypatch, demo, "demo:j1-7-a")
@@ -6559,13 +6553,10 @@ def test_a_job_on_an_open_incident_is_held_from_opening_its_pr_only_by_a_card_as
         data["prs"].pop(KEY, None)
         data["jobs"]["j1"]["prs"] = []
         data["jobs"]["j1"]["questions"] = [state.new_question(None, "Pick demo:j1-7-a?", state.stamp(T0), holds=None) | {"waits": "demo:j1-7-a"}]
-    capsys.readouterr()
-    assert cli.main(["job", "held", "j1", "--drive", demo]) == 0
-    assert capsys.readouterr().out == "j1: no open card of his holds its PR\n"
+    assert land.open_cards(state.load(demo), "j1", None) == []
     with state.edit(demo) as data:
         data["jobs"]["j1"]["questions"][0]["unsettled"] = "9992100: this card asks whether the incident overrides his wait"
-    assert cli.main(["job", "held", "j1", "--drive", demo]) == 0
-    assert capsys.readouterr().out == "demo:j1-7-a\n"
+    assert land.open_cards(state.load(demo), "j1", None) == ["demo:j1-7-a"]
 
 
 def test_job_set_moves_a_builder_off_a_card_his_words_replaced_onto_a_reader_that_just_started_and_refuses_only_a_finished_job(
@@ -8362,7 +8353,7 @@ def test_a_design_card_whose_holds_line_names_one_of_its_changes_holds_that_chan
     assert land.start(demo, [KEY], NO_CARDS | {"questions": [question("demo:j2-1-a")]}) == []
     with state.edit(demo) as data:
         data["jobs"]["j1"]["prs"] = []
-    assert land.ship_held(state.load(demo), "j1") == ["demo:j2-1-a"]
+    assert land.open_cards(state.load(demo), "j1", None) == ["demo:j2-1-a"]
 
 
 @pytest.mark.parametrize(("holds", "held"), [("", False), (None, False), ("the windowed open, on #42", True)])
@@ -8479,7 +8470,7 @@ def test_a_flake_fix_goes_up_and_lands_while_his_card_holds_its_jobs_design_work
     with state.edit(demo) as data:
         data["jobs"]["j1"]["prs"] = []
     unshipped = state.load(demo)
-    assert (land.ship_held(unshipped, "j1"), land.ship_held(unshipped, "j1", state.FLAKE_FIX)) == (["demo:j1-1-a"], [])
+    assert land.open_cards(unshipped, "j1", None) == ["demo:j1-1-a"]
 
 
 def test_a_drive_saved_before_research_links_keeps_each_jobs_researched_readers_and_marks_each_ask_kept_with_no_holds_line_once(demo: str, tmp_path: Path) -> None:
@@ -11784,7 +11775,7 @@ def test_the_relay_starts_no_handler_on_a_report_the_watch_posts_itself_until_a_
     assert started == ["9"]
 
 
-def test_the_watchs_own_post_runs_the_say_hooks_checks_as_the_communicators_own_post_and_goes_out_only_on_jevs_pass_of_its_words_against_its_report(
+def test_the_watchs_own_post_runs_the_say_hooks_checks_as_the_communicators_own_post_and_is_held_only_by_a_refusal_no_jev_weighs_or_jevs_hold_of_its_words_against_its_report(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import message_limits
@@ -11793,16 +11784,16 @@ def test_the_watchs_own_post_runs_the_say_hooks_checks_as_the_communicators_own_
         data["roles"]["communicator"] = {"session": "communicator-session", "terminal": None, "cwd": "/work", "started": state.stamp(T0)}
     post = {"text": PROVED_TEXT, "record": "9", "thread_ts": "1794200000.000100"}
     shown = "cci show 9\n9 report watch>communicator POST Fix: the watch is live in long-running 1.0.3\nProof: proven live by drive job prove"
-    outputs = [{"hookSpecificOutput": {"permissionDecision": "deny", "permissionDecisionReason": "refused: X"}}, {"hookSpecificOutput": {"additionalContext": "goes out as written"}}, {}, {}, {}, {"his_words": [{"id": "slack:1"}], "reads": [], "post": post}]
+    outputs = [{"hookSpecificOutput": {"permissionDecision": "deny", "permissionDecisionReason": "refused: X"}, "judged": False}, {}, {"hookSpecificOutput": {"additionalContext": "goes out as written"}}, {}, {}, {"his_words": [{"id": "slack:1"}], "reads": [], "post": post}]
     payloads: list[dict] = []
     monkeypatch.setattr(message_limits, "hook_output", lambda payload: payloads.append(payload) or outputs[len(payloads) - 1])
     monkeypatch.setattr(message_limits, "his_words", lambda payload: [])
     monkeypatch.setattr(message_limits, "record_alone", lambda name, seq: shown)
-    verdicts = iter([{"verdict": "hold", "note": "Jev held back this post"}, {"verdict": "warn", "note": ""}, {"verdict": "pass", "note": ""}, {"verdict": "pass", "note": ""}])
+    verdicts = iter([{"verdict": "hold", "note": "Jev held back this post"}, {"verdict": "warn", "note": "goes out as written"}, {"verdict": "pass", "note": ""}, {"verdict": "warn", "note": ""}, {"verdict": "pass", "note": ""}])
     asked: list[dict] = []
     monkeypatch.setattr(settled, "weighed", lambda request: asked.append(request["post"]) or next(verdicts))
     data = state.load(demo)
-    assert [talk.hook_refusal(demo, data, post) for _ in outputs] == ["refused: X", "goes out as written", "Jev held back this post", "Jev's verdict on it is warn", None, None]
+    assert [talk.hook_refusal(demo, data, post) for _ in outputs] == ["refused: X", "Jev held back this post", None, None, None, None]
     assert payloads[0] == {"hook_event_name": "PreToolUse", "session_id": "communicator-session", "cwd": str(Path.cwd()), "tool_name": message_limits.SAY, "tool_use_id": "watch-9", "tool_input": post}
     record = {"id": "record:9", "read": "9", "source": message_limits.CARRIED_SOURCE, "quote": shown}
     claimed = post | {"claims": [{"claim": PROVED_TEXT, "read": "record:9"}]}
