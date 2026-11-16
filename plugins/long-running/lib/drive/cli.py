@@ -79,7 +79,7 @@ ANSWER_FIRST = (
     " away too; then keep your full report and return as usual"
 )
 STAGING_MAC = (
-    "claim the staging slot for the PR each `staging test of #N before it lands` part of yours names, from this Mac, since a Sprite has no cci:"
+    "claim the staging slot for the PR each `staging test of #N before it lands` part of yours names, from this Mac or from a Sprite lane, whose drive runs it on the drive's Mac:"
     " `drive slot claim plat-usw2-staging --job <your job> --minutes <how long your cut and cases run> --pr <the PR> --cases \"<your cases>\"`, which prints GO and its steps"
     " when the slot is free, else QUEUED and your place, a priority or incident tester ahead of the rest; while queued, return `WAITING staging:<target>/plat-usw2-staging@<head>`,"
     " one per target its paths reach by `the release provider's reach read <N>`, and the watch resumes you with GO and its steps once the slot is yours"
@@ -4085,7 +4085,7 @@ def declared_step(name: str, job: dict) -> str | None:
     if not (flags := job.get("brief_flags")):
         return place.mac_step(Path(job["brief"]).read_text())
     mac, release = mac_lines(name, job, flags)
-    return mac or release
+    return (None if mac == STAGING_MAC.format(drive=name) else mac) or release
 
 
 def live_end(job: dict) -> orca.LaneEnd:
