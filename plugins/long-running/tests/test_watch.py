@@ -930,15 +930,61 @@ def test_a_pr_on_a_repository_no_hook_delivers_from_says_its_checks_passed_withi
     )
 
 
-def test_a_receiver_that_does_not_answer_is_said_from_its_third_minute_in_a_row(demo: str, monkeypatch: pytest.MonkeyPatch, receiving: Receiver) -> None:
+def test_a_receiver_that_does_not_answer_three_minutes_in_a_row_is_replaced_and_said_once_each_time_it_stops_answering(
+    demo: str, monkeypatch: pytest.MonkeyPatch, receiving: Receiver
+) -> None:
+    kicked: list[tuple[str, ...]] = []
+    monkeypatch.setattr(launchd, "launchctl", lambda *args: kicked.append(args))
+    serve(monkeypatch, {})
+    watching = watcher(demo)
+    said = []
+    for minutes, answering in enumerate([False] * 13 + [True] + [False] * 3):
+        receiving.answering = answering
+        said.append([line for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes)) if line.startswith("WATCH")])
+    service = f"gui/{os.getuid()}/com.yasyf.long-running.receiver"
+    replaced = f"WATCH the receiver took no delivery and answered nothing on its port {receiver.PORT} 3 passes in a row, so the watch replaced it with `launchctl kickstart -k {service}` and reads every open PR from GitHub each minute until it takes a delivery or answers; its log is {receiver.log_path()}"
+    still = f"WATCH the receiver's check failed 13 times in a row: it takes no delivery and nothing answers on its port {receiver.PORT}; its log is {receiver.log_path()}"
+    assert (said, kicked) == ([[], [], [replaced], *[[]] * 9, [still], [], [], [], [replaced]], [("kickstart", "-k", service)] * 2)
+
+
+def test_a_receiver_that_cannot_be_replaced_says_why(demo: str, monkeypatch: pytest.MonkeyPatch, receiving: Receiver) -> None:
+    def refuse(*args: str) -> None:
+        raise state.DriveError(f"launchctl {' '.join(args)} exited 113: Could not find service")
+
+    monkeypatch.setattr(launchd, "launchctl", refuse)
     serve(monkeypatch, {})
     receiving.answering = False
     watching = watcher(demo)
-    assert [watch.run_pass(watching, T0 + timedelta(minutes=minutes)) for minutes in range(3)] == [
-        [],
-        [],
-        [f"WATCH upkeep of the receiver failed 3 times in a row: nothing answers on its port {receiver.PORT}; its log is {receiver.log_path()}"],
+    assert [watch.run_pass(watching, T0 + timedelta(minutes=minutes)) for minutes in range(3)][-1] == [
+        f"WATCH the receiver took no delivery and answered nothing on its port {receiver.PORT} 3 passes in a row, and the watch could not replace it: launchctl kickstart -k gui/{os.getuid()}/com.yasyf.long-running.receiver exited 113: Could not find service; its log is {receiver.log_path()}"
     ]
+
+
+def test_a_receiver_that_took_a_delivery_since_the_last_pass_counts_as_answering_so_only_passes_taking_none_count_toward_its_replacement(
+    demo: str, monkeypatch: pytest.MonkeyPatch, receiving: Receiver
+) -> None:
+    monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
+    kicked: list[tuple[str, ...]] = []
+    monkeypatch.setattr(launchd, "launchctl", lambda *args: kicked.append(args))
+    calls = serve(monkeypatch, {KEY: read()})
+    watching = watcher(demo)
+    said = []
+    for minutes, last in enumerate(["g0", "g1", "g2", "g3", "g3", "g3", "g3"]):
+        with receiver.hooks_kept() as hooked:
+            hooked["Forge-AI/monorepo"] = {"id": 9, "last": last, "events": receiver.EVENTS}
+        receiving.answering = minutes == 0
+        said += [line for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes)) if line.startswith("WATCH")]
+    assert (said, len(kicked), calls) == ([f"WATCH the receiver took no delivery and answered nothing on its port {receiver.PORT} 3 passes in a row, so the watch replaced it with `launchctl kickstart -k gui/{os.getuid()}/com.yasyf.long-running.receiver` and reads every open PR from GitHub each minute until it takes a delivery or answers; its log is {receiver.log_path()}"], 1, [[KEY], [KEY], [KEY]])
+
+
+def test_each_open_pr_on_a_hooked_repository_is_read_each_minute_while_the_receiver_does_not_answer(demo: str, monkeypatch: pytest.MonkeyPatch, receiving: Receiver) -> None:
+    monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
+    calls = serve(monkeypatch, {KEY: read()})
+    watching = watcher(demo)
+    for moment, answering in ((T0, True), (T0 + timedelta(seconds=60), False), (T0 + timedelta(seconds=65), False), (T0 + timedelta(seconds=120), False), (T0 + timedelta(seconds=180), True), (T0 + timedelta(seconds=240), True)):
+        receiving.answering = answering
+        watch.run_pass(watching, moment)
+    assert calls == [[KEY], [KEY], [KEY]]
 
 
 def fetch_outcomes(monkeypatch: pytest.MonkeyPatch, outcomes: list[bool]) -> list[list[str]]:
