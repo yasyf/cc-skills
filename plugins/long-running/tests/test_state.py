@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 from conftest import LEAD, REAL_DOWN_MAC_BOXES, REAL_SCRATCH
-from drive import card, cli, github, install, reads, render, served, settled, stage, state
+from drive import card, cli, github, install, picture, reads, render, served, settled, stage, state
 from drive.state import DriveError
 
 REFERENCE = datetime(2026, 11, 9, 14, 0).astimezone()
@@ -245,6 +245,9 @@ def test_cold_cached_and_batched_loads_skip_cyclic_scans_and_preserve_caller_col
 @pytest.mark.parametrize("fields", [("owner",), ("orders", "subcoordinators"), ()])
 def test_selected_loads_decode_only_requested_fields_and_keep_independent_copies(state_root: Path, monkeypatch: pytest.MonkeyPatch, fields: tuple[str, ...]) -> None:
     path = ordered("demo", 3)
+    for mark in (state.drive_dir("demo") / "pictures" / picture.SOURCED, state.drive_dir("demo") / "asks" / state.REBUILT_ASKS):
+        mark.parent.mkdir(exist_ok=True)
+        mark.touch()
     whole = state.load("demo")
     cached = state.WHOLE_READS[(path, path.stat().st_ino)].shaped
     decoded: list[bytes] = []

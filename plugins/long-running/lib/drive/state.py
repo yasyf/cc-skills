@@ -1230,7 +1230,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     untallied = joined_orders(data) if any("tally" not in order for order in data["orders"].values()) else {}
     for order_id, order in data["orders"].items():
         if "tally" not in order:
-            order["tally"] = sorted(({"at": each["created"], "from": each["from"]} for each in [order, *(data["orders"][other] for other in untallied.get(order_id, []))]), key=lambda each: each["at"])
+            order["tally"] = sorted(({"at": each["created"], "from": each["from"]} for each in [order, *(data["orders"][other] for other in untallied.get(order_id, []))] if "created" in each), key=lambda each: each["at"])
         order.setdefault("promoted", None)
     for pr in data["prs"].values():
         waits = pr.get("waits")
