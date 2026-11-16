@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, brief, github, install, land, limits, orca, state
+from drive import agents, brief, github, install, land, limits, orca, reports, state
 from drive.orca import OrcaError
 from drive.shell import KEYWORDS, Case, Function, Loop, expanded, grouped, literal, runnable, simple_commands, spread
 
@@ -186,6 +186,13 @@ def option(words: list[str], name: str) -> str | None:
     given = [value for flag, value in pairwise(words) if flag == name]
     given += [word.removeprefix(f"{name}=") for word in words if word.startswith(f"{name}=")]
     return given[-1] if given else None
+
+
+def cci_chatter(found: list[list[str]]) -> str | None:
+    """Why a `cci post` from a drive session, agent or lane is chatter, as the cci post hook reads the same record, by reports.chatter."""
+    posts = [words for words in found if verb(words)[:2] == ["cci", "post"]]
+    records = [{"kind": option(words, "--kind"), "to": [value for flag, value in pairwise(words) if flag == "--to"], "text": option(words, "--text")} for words in posts]
+    return next(filter(None, map(reports.chatter, records)), None)
 
 
 def terminal_scripts(found: list[list[str]]) -> list[list[list[str]]]:
@@ -816,12 +823,13 @@ def deny_reason(payload: dict) -> str | None:
     if (drives or kind.startswith(AGENTS) or os.environ.get(state.REMOTE_LANE_ENV)) and (touched := team_data(call["command"], cwd)):
         return touched
     if not drives and os.environ.get(state.REMOTE_LANE_ENV):
-        return lane_held(found)
+        return cci_chatter(found) or lane_held(found)
     if not drives and not kind.startswith(AGENTS):
         return helper_install(found, drives)
     scripts = terminal_scripts(found)
     reasons = (
         lambda: datadog_cli(call["command"], cwd),
+        lambda: cci_chatter(found),
         lambda: designer_push(found) if kind == DESIGNER else None,
         lambda: bare_pr(found, call["command"]) if kind == BUILDER else None,
         lambda: held_pr(found, payload.get("agent_id") or "", drives) if kind == BUILDER else None,

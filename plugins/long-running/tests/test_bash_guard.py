@@ -8,7 +8,7 @@ from pathlib import Path
 import bash_guard
 import pytest
 from conftest import SESSION, commit_files, git_in
-from drive import agents, github, install, land, limits, orca, settled, state
+from drive import agents, github, install, land, limits, orca, reports, settled, state
 from drive.orca import OrcaError
 
 Run = Callable[..., tuple[int, str]]
@@ -871,3 +871,11 @@ def test_every_drive_session_and_drive_agent_reads_datadog_through_its_mcp_never
     assert bash_guard.deny_reason(bash("which pup dog datadog")) is None
     assert bash_guard.deny_reason(bash(f"cat > {tmp_path / 'later.sh'} <<'EOF'\npup monitors get 1\nEOF")) is None
     assert bash_guard.deny_reason(bash(MONITOR_READ, session="ordinary")) is None
+
+
+def test_a_cci_post_from_a_drive_agent_that_is_chatter_is_refused_as_the_post_hook_refuses_it(demo: str) -> None:
+    builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
+    assert bash_guard.deny_reason(bash("cci post --drive demo --kind state --to root --text 'LAST-READ j7 box j6 is free'", **builder)) == reports.CHATTY.format(kind="state")
+    fanned = "cci post --drive demo --kind handoff --to root --to meta --text 'box j6 is free'"
+    assert bash_guard.deny_reason(bash(fanned, **builder)) == reports.FANNED.format(lanes="root, meta")
+    assert bash_guard.deny_reason(bash("cci post --drive demo --kind handoff --to root --text 'box j6 is free'", **builder)) is None
