@@ -2547,7 +2547,7 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
         return keep_decided(name, job_id, text, fresh, asked, deciding)
     fresh.parent.mkdir(exist_ok=True)
     generic = superseded.generic(data)
-    with state.edit(name) as data:
+    def ask_kept(data: dict) -> tuple[Path, dict]:
         job = data["jobs"][job_id]
         twins = [question for other, question in asking(data, asked.title) if other == job_id]
         targets = [other for other in {id(other): other for _, other in (replacing(data, job_id, asked, ref) for ref in asked.replaces)}.values() if not any(other is twin for twin in twins)]
@@ -2567,7 +2567,6 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
         dropped = [*twins, *(other for other in redrawn if id(other) in own), *stale]
         replaced = [other for other in dropped if not any(other is twin for twin in doubled)]
         kept = Path(next((other["file"] for other in sorted(replaced, key=lambda other: other is not held) if other["hash"]), fresh))
-        kept.write_text(text)
         question.update(file=str(kept), hash=state.ask_hash(text))
         for other in [] if folded_into else [other for other in redrawn if not any(other is gone for gone in dropped)]:
             other["replaced"] = str(kept)
@@ -2585,6 +2584,10 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
         for each in data["jobs"].values():
             each["questions"] = [other for other in each["questions"] if not any(other is gone for gone in replaced)]
         job["questions"].append(question)
+        return kept, question
+
+    kept, question = state.update(name, None, ask_kept)
+    kept.write_text(text)
     if question["replaced"]:
         return kept, asked, question, str(kept)
     if steps := state.unscheduled_job(state.load(name), job_id):
