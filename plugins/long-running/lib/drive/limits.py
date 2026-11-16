@@ -190,10 +190,7 @@ TEAM_DATA_RULE = (
     f' never on this Mac, a Sprite or under `drive break-glass`, by his words "{TEAM_DATA_QUOTE}" and'
     f' "{IRIS_BLOBS_QUOTE}"'
 )
-CLUSTER_JOB = (
-    "runs as a Job in the team's cluster, started from its suspended CronJob with `tools/ci cluster-job --cluster"
-    ' <release env> --cronjob <name> --reason "<why>"`'
-)
+CLUSTER_JOB = "runs as a Job in the team's cluster, started from its suspended CronJob by the repository's tool for one"
 UNMADE = "returns `BLOCKED` naming it and the team, which leaves him to pick the service account that makes it"
 PAGE_LINK = re.compile(r"https?://[^\s<>|]+")
 LINK_END = ".,;:!?)"

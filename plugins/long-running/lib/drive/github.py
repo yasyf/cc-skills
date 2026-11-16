@@ -39,7 +39,6 @@ PASSED = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 REVIEWS = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes"}
 SUBMITTED = ("APPROVED", "CHANGES_REQUESTED", "COMMENTED")
 BUILD = re.compile(r"https://buildkite\.com/(?P<pipeline>[\w-]+/[\w-]+)/builds/(?P<number>\d+)")
-BUILDKITE_ORG = "forge"
 HOLD_LABEL = "hold"
 EJECTED_LABEL = "trunk-failed"
 CANCELLED_LABEL = "trunk-cancelled"
@@ -536,7 +535,7 @@ def holds(repo: str, ref: str, commit: str) -> bool:
 
 
 def build(pipeline: str, number: str) -> dict:
-    """A Buildkite build as `bk build view` reads it now: its state, its jobs and the environment it started with, such as a go/ci release's RELEASE_START or a cluster job's CLUSTER_JOB."""
+    """A Buildkite build as `bk build view` reads it now: its state, its jobs and the environment it started with, which a repository's providers read to tell what the build runs."""
     try:
         return json.loads(run(["bk", "build", "view", number, "-p", pipeline, "-o", "json"]))
     except GithubError as error:
