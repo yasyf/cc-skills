@@ -1,4 +1,5 @@
 import fcntl
+import gc
 import json
 import os
 import shutil
@@ -201,6 +202,44 @@ def test_a_load_after_another_processs_save_reads_only_the_rows_that_save_wrote_
     assert (loaded["terminal"], "o2" in loaded["orders"], len(loaded["orders"])) == ("the other process's terminal", False, count + 1)
     assert loaded == state.shaped("demo", state.stored("demo"))[0]
     assert [statement.partition(" WHERE ")[0] for statement in statements if " rows" in statement] == ["SELECT collection, key, place, body FROM (SELECT DISTINCT collection, key FROM changed"]
+
+
+
+@pytest.mark.parametrize("collecting", [True, False])
+def test_cold_cached_and_batched_loads_skip_cyclic_scans_and_preserve_caller_collection(state_root: Path, monkeypatch: pytest.MonkeyPatch, collecting: bool) -> None:
+    path = ordered("demo", 3)
+    state.WHOLE_READS.pop((path, path.stat().st_ino), None)
+    original = state.marshal.loads
+    scans: list[bool] = []
+
+    def decode(body: bytes) -> dict:
+        scans.append(gc.isenabled())
+        return original(body)
+
+    monkeypatch.setattr(state.marshal, "loads", decode)
+    was_collecting = gc.isenabled()
+    (gc.enable if collecting else gc.disable)()
+    try:
+        first = state.load("demo")
+        assert scans and not any(scans)
+        assert gc.isenabled() == collecting
+        scans.clear()
+        second = state.load("demo")
+        assert scans and not any(scans)
+        assert gc.isenabled() == collecting
+        first["orders"]["o0"]["text"] = "this copy alone"
+        assert second["orders"]["o0"]["text"] == "order 0"
+        with state.batch("demo"):
+            scans.clear()
+            third = state.load("demo")
+            assert scans and not any(scans)
+            assert gc.isenabled() == collecting
+            assert third == second
+        with pytest.raises(DriveError, match="no drive named absent"):
+            state.load("absent")
+        assert gc.isenabled() == collecting
+    finally:
+        (gc.enable if was_collecting else gc.disable)()
 
 
 def test_a_write_outside_any_save_is_read_by_the_next_load_even_once_the_changed_table_dropped_its_entries(state_root: Path) -> None:
