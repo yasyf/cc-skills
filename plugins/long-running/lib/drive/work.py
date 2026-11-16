@@ -92,9 +92,14 @@ class Kind:
             and bool(job.get("brief"))
             and claimed_by(data, job) is None
             and not view.open_cards(job)
-            and not [wait for wait in view.start_waits(data, job, None) if wait != (job.get("claim") or {}).get("worker")]
+            and not self.blocking(data, job_id)
             and self.worth(data, job)
         )
+
+    def blocking(self, data: dict, job_id: str) -> list[str]:
+        """The waits holding an item's start, by view.start_waits, but its own claiming worker's."""
+        job = data["jobs"][job_id]
+        return [wait for wait in view.start_waits(data, job, None) if wait != (job.get("claim") or {}).get("worker")]
 
     def line(self, data: dict) -> list[str]:
         """The items of this kind ready now, in queue order."""
@@ -178,6 +183,11 @@ class StageTest(Kind):
 
     def adopted(self, job: dict) -> bool:
         return bool(job.get("work_adopted"))
+
+    def blocking(self, data: dict, job_id: str) -> list[str]:
+        """The waits holding a stage-test item's start, but, for an item outside the queue's cut, its wait on staging serving its own commit on the env and its staging-slot turn, which only the queue's next cut gives it: a tester that reports WAITING on its cut as its brief asks stays in the line rather than stranding itself."""
+        cut = state.slot_members(self.slot(data)) if self.ours(data) else []
+        return [wait for wait in super().blocking(data, job_id) if job_id in cut or not ((found := state.STAGING_WAIT.fullmatch(wait)) and found["env"] == ENV or wait == f"staging-slot:{job_id}")]
 
     def slot(self, data: dict) -> dict:
         return data["slots"].setdefault(ENV, {"holder": None, "queue": [], "hold": None})

@@ -45,6 +45,7 @@ from drive import (
     tools,
     view,
     watch,
+    work,
 )
 
 Run = Callable[..., tuple[int, str]]
@@ -4784,6 +4785,31 @@ def test_job_ask_reads_a_remote_lanes_report_when_given_no_file(run: Run, asking
     with state.edit("demo") as data:
         data["jobs"]["j1"].update(where="remote", report=SHORT_ASK)
     assert run("job", "ask", asking)[1].splitlines()[0] == str(state_root / "demo" / "asks" / f"j1-{hashlib.sha256(SHORT_ASK.encode()).hexdigest()[:8]}.md")
+
+
+def test_a_testers_staging_waiting_report_keeps_its_slot_claim_and_a_queued_stage_test_item_stays_pullable_on_its_own_staging_wait(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "test it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "cut it")
+    env = state.STAGING_ENV
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["state"] = data["jobs"]["j2"]["state"] = "running"
+        state.slot_claim(data, env, "j2", 30, [], None, state.now())
+        state.slot_claim(data, env, "j1", 30, [], None, state.now())
+    waiting = f"WAITING staging:api/{env}@cee2114d65d4f1d078c70f27b4b7db67ca2efffa"
+    monkeypatch.setattr("sys.stdin", io.StringIO(waiting + "\n"))
+    assert run("job", "report", "j1", "-")[0] == 0
+    data = state.load(demo)
+    data["jobs"]["j1"].update(state="waiting", waits=[waiting.split()[1]])
+    state.slot_turns(data, state.now())
+    assert [each["job"] for each in data["slots"][env]["queue"]] == ["j1"]
+    monkeypatch.setattr(view, "start_waits", lambda data, job, found: job["waits"])
+    kind = work.StageTest()
+    assert kind.blocking(data, "j1") == []
+    data["slots"][env]["holder"] = state.leased(data["slots"][env]["queue"].pop(), state.now(), []) | {"work": True}
+    assert kind.blocking(data, "j1") == [waiting.split()[1]]
 
 
 def test_job_report_keeps_a_jobs_whole_return_from_stdin_and_prints_it_back(
