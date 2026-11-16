@@ -2931,13 +2931,15 @@ def job_card(args: argparse.Namespace) -> int:
 
 def refuse_draw(name: str, job_id: str, path: Path, waits: str, refusal: str) -> None:
     """Keep a card `drive job card`, `drive job ask` or the watch could not draw as the refusal of the open question the job keeps in this file with no card up and no refusal yet, drawn under its own waits id or one no other question of the job holds but one folded into it, so `drive status` lists it refused, no card draws from it and the watch names each job waiting on it until `drive job ask` asks it again; a draw onto another question's card refuses only that draw."""
-    with state.edit(name) as data:
+    def refused(data: dict) -> None:
         job = data["jobs"].get(job_id)
         question = job and state.kept_in(job, path)
         if not question or question["closed"] or question["card"] or question["refused"] or question["replaced"] or any(other is not question and other["waits"] == waits and not other["replaced"] for other in job["questions"]):
             return
         question.update(refused=refusal, waits=question["waits"] or waits)
         job["updated"] = state.stamp()
+
+    state.update(name, None, refused)
 
 
 def card_source(name: str, args: argparse.Namespace) -> tuple[Path, str]:
