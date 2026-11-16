@@ -766,7 +766,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     f", its codex-ask run ended: drive job launch {job_id} starts its next"
                     if job["kind"] == "codex" and job.get("codex_run")
                     else f", not started yet: drive job launch {job_id} starts it"
-                    if job["kind"] == "codex" or (job.get("where") == "remote" and not job.get("dispatch") and not starts_itself(job))
+                    if job["kind"] == "codex" or (job.get("where") == "remote" and not job.get("dispatch") and not starts_itself(job) and not work.item_of(data, job))
                     else ""
                 )
                 unstarted = brief_first(job)
@@ -783,7 +783,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     else:
                         launches.append(job_id)
                     continue
-                elif starts_itself(job):
+                elif work.item_of(data, job) and job.get("brief"):
                     continue
                 freed.append(f"FREE {job_id} {job['order']}: {ended}, nothing else holds it{built}{stacked}{unlaunched}{unstarted}")
         for key, pr in data["prs"].items():

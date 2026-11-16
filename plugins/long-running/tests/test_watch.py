@@ -1889,7 +1889,7 @@ def test_another_drives_first_record_after_the_one_a_job_waits_after_on_its_topi
     assert reads_made == [["cci", "show", "--json", "722599", "722650"], grep_of("durable-agents", 722599, STAGING_TOPIC, "o2046-claims")]
     records.append(cci_record(722680, topic="o2046-claims", text="staging is free"))
     assert watch.waits_lines(watching, T0 + timedelta(minutes=2)) == [
-        "FREE j2 o1: root@durable-agents posted 722680 on o2046-claims, nothing else holds it, and the watch now launches it with the texts it holds: start no agent for it"
+        "FREE j2 o1: root@durable-agents posted 722680 on o2046-claims, nothing else holds it"
     ]
     assert reads_made[2:] == [["cci", "show", "--json", "722650"], grep_of("durable-agents", 722650, "o2046-claims")]
     assert watch.waits_lines(watching, T0 + timedelta(minutes=3)) == []

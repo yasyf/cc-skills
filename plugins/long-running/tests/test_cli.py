@@ -4862,6 +4862,7 @@ def test_slot_queue_lists_the_work_queues_stage_test_items_marked_in_the_queue_s
     monkeypatch.setattr(type(kind), "ready", lambda self, data, job_id: job_id == "j2")
     monkeypatch.setattr(type(kind), "blocking", lambda self, data, job_id: ["j9"])
     monkeypatch.setattr(state, "jumps_queue", lambda data, job_id: False)
+    monkeypatch.setattr(place, "preempts", lambda data, job: False)
     assert cli.queue_items(data, work.env(data)) == ["  q1. j2 in the queue, ready to pull", "  q2. j1 in the queue, waiting on j9"]
     assert cli.queue_items(data, "plat-usw2-sandbox") == []
 

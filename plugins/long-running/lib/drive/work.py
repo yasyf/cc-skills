@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import agents, orca, place, providers, reads, state, view
+from drive import agents, orca, place, providers, reads, state, view, watch
 from drive.render import when
 
 STAGE_TEST = "stage-test"
@@ -144,8 +144,9 @@ def placed(data: dict, job: dict) -> str:
 
 
 def rank(data: dict, job_id: str) -> tuple:
-    """Where an item stands in the queue, lower first: its class, by state.class_rank, then a priority order's or an open incident's first, by state.jumps_queue, then the oldest added."""
-    return (state.class_rank(data, data["jobs"][job_id]), not state.jumps_queue(data, job_id), state.parse_time(data["jobs"][job_id]["created"]))
+    """Where an item stands in the queue, lower first: its class, by state.class_rank, then one place.preempts lets past the caps, a --priority job, an urgent part or an immediate fix among them, so an urgent item heads its pool and the spawner sizes its room by the priority cap, then a priority order's or an open incident's, by state.jumps_queue, then the oldest added."""
+    job = data["jobs"][job_id]
+    return (state.class_rank(data, job), not place.preempts(data, job), not state.jumps_queue(data, job_id), state.parse_time(job["created"]))
 
 
 def carried(data: dict, job_id: str, moment: datetime) -> None:
@@ -154,9 +155,8 @@ def carried(data: dict, job_id: str, moment: datetime) -> None:
 
     job = data["jobs"][job_id]
     written = Path(job["brief"]).read_text()
-    if (briefed := cli.answers_since(data, job_id, written)) == written:
-        return
-    Path(job["brief"]).write_text(briefed)
+    if (briefed := cli.answers_since(data, job_id, written)) != written:
+        Path(job["brief"]).write_text(briefed)
     state.went(data["name"], data, job_id, job["undelivered"], f"in the brief a worker of the work queue pulled at {when(state.stamp(moment))}")
     superseded.hear(data, job_id, briefed, moment)
 
@@ -201,17 +201,18 @@ class Kind:
         return False
 
     def queued(self, data: dict, job: dict) -> bool:
-        """Whether the queue, never carry_held, starts this job's work: an item of this kind that no agent or lane of its own took or that the queue adopted."""
-        return (untaken(job) or self.adopted(job)) and job["state"] not in state.FINISHED_JOB_STATES and self.matches(data, job)
+        """Whether the queue, never carry_held, starts this job's work: an item of this kind that no agent or lane of its own took or that the queue adopted, on an order no communicator holds, whose handler starts its own work."""
+        return (untaken(job) or self.adopted(job)) and job["state"] not in state.FINISHED_JOB_STATES and self.matches(data, job) and data["orders"][job["order"]].get("owner") != "communicator"
 
     def ready(self, data: dict, job_id: str) -> bool:
-        """Whether an item may be pulled now: queued, waiting, briefed, claimed by no live worker, no card of his open on it, nothing its start waits on holding it, by view.start_waits, and still worth running."""
+        """Whether an item may be pulled now: queued, waiting or built, as a build that returned BUILT waiting on his card is once the card is answered, briefed, no drive job launch of it in flight, by watch.launching, so no worker claims a job a launch is starting, claimed by no live worker, no card of his open on it, nothing its start waits on holding it, by view.start_waits, and still worth running."""
         job = data["jobs"][job_id]
         return (
             not worker(job)
             and self.queued(data, job)
-            and job["state"] == "waiting"
+            and job["state"] in ("waiting", "built")
             and bool(job.get("brief"))
+            and not watch.launching(job, state.now())
             and claimed_by(data, job) is None
             and not view.open_cards(job)
             and not self.blocking(data, job_id)
@@ -691,16 +692,19 @@ def room(data: dict, kind: Kind, where: str, moment: datetime) -> int:
 
 
 def spawned(data: dict, moment: datetime, kinds: list[Kind]) -> tuple[list[str], list[str]]:
-    """The spawner's write: for each of these kinds and each pool, workers recorded while it wants one and room lets one start, each claiming its first group, so ready items no worker holds start as fast as the caps allow; the lines saying so and the workers to start."""
+    """The spawner's write: first each item still holding a builder-slot or sprite-slot turn drops it, since the queue's caps place it now, and each worker recorded STALL_AFTER ago that no start took fails, so the items it claimed go back; then for each of these kinds and each pool, workers recorded while it wants one and room, read again for each one with the workers this pass recorded counted, lets one start, each claiming its first group, so ready items no worker holds start as fast as the caps allow and an urgent head's priority room starts no item behind it; the lines saying so and the workers to start."""
     lines, workers = [], []
-    for job in data["jobs"].values():
-        if KIND[BUILD].queued(data, job) and (left := [wait for wait in job["waits"] if wait not in (state.SLOT_WAIT, state.SPRITE_WAIT)]) != job["waits"]:
+    for job_id, job in data["jobs"].items():
+        if item_of(data, job) and (left := [wait for wait in job["waits"] if wait not in (state.SLOT_WAIT, state.SPRITE_WAIT)]) != job["waits"]:
             job.update(waits=left, slot=None, sprite_turn=None)
+        if worker(job) and job["state"] not in state.FINISHED_JOB_STATES and untaken(job) and not watch.launching(job, moment) and moment - state.parse_time(job["created"]) >= STALL_AFTER:
+            job.update(state="failed", said=f"not started: no drive work start took it in {int(STALL_AFTER.total_seconds() // 60)} minutes", updated=state.stamp(moment))
+            lines.append(f"WORK {job_id} failed: no start took it, so its claims go back to the queue")
     for kind in kinds:
         for where in POOLS:
-            for _ in range(room(data, kind, where, moment) if kind.wanted(data, where, moment) else 0):
-                if not kind.wanted(data, where, moment):
-                    break
+            started = 0
+            while started < WORKERS_PER_PASS and kind.wanted(data, where, moment) and room(data, kind, where, moment) > started:
+                started += 1
                 workers.append(worker_id := add_worker(data, kind, where, moment))
                 lines.append(f"WORK {worker_id} records a {kind.name} worker {'on this Mac' if where == 'local' else 'on a Sprite'}, its first group claimed")
     return lines, workers
