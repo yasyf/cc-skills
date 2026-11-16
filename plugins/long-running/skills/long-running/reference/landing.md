@@ -541,9 +541,10 @@ PR hits, and the repository hooks into the drive through its providers.
   taking the slot only when it is free. The watch reads that release's `bypassed` notice on the
   freeze from the release provider's freezes read within a minute and holds
   each drive job the freeze names its holder a text, once per freeze and release, which ends any
-  `staging:` wait the job holds and starts the lease of the cut it holds or rides again, so no other
-  test takes staging while the release runs; the job that started the release is told nothing. The
-  cases the test ran count as not exercised. It replies in its claim's thread that the test was cut
+  `staging:` wait the job holds and starts the lease of the cut it holds or rides again, held at its
+  full length while a pass of that cut waits on the release's build, so no other test takes staging
+  while the release runs and the rerun gets its whole lease; the job that started the release is
+  told nothing. The cases the test ran count as not exercised. It replies in its claim's thread that the test was cut
   short and reruns, returns `WAITING <that release's build>`, again after a stop at an approve step,
   until the build passed, failed or was canceled, then does its GO's or RIDE's steps again from the
   cut on and runs every case. A test that no longer holds the slot instead puts back only each stack
