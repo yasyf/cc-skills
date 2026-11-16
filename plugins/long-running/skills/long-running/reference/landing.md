@@ -621,7 +621,11 @@ session's confirmation or a card first. A change no words of his cover rides the
   `{pr}` that reads a PR's changed paths on its stdin and prints the JSON of the components it
   reaches, which staging slots pack passes by), and `holder` and `join` (the flag naming a job,
   `{holder}` as `<drive>/<job>`, as a freeze's holder, and the command adding one to the freeze
-  `{freeze}`, which a staging slot's `GO` and `RIDE` lines name for every job of a packed cut).
+  `{freeze}`, which a staging slot's `GO` and `RIDE` lines name for every job of a packed cut),
+  and `prebuild` (a command with `{commit}` starting the builds a release at that commit adopts
+  and printing the JSON object of the build it started, which `drive job release` runs at the
+  commit of each start reaching no production place and keeps as the job's prebuild build, so
+  the production start at that commit signs, notarizes and bakes nothing again).
 - **A green, approved PR does not hold a cut.** When only its staging test holds such a PR on an
   order a production cut serves, the watch's `release_lines` takes the test off and the lander
   queues it within minutes. The cut waits on that landing, carries the component, and its staging
