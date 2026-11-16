@@ -234,10 +234,10 @@ SAY = {
                     " since <when he was last heard>* in place of any title and closing with a count of every open card waiting on him,"
                     " linking the dashboard's queue, then each card asked since he was last heard, five a message, which say draws itself,"
                     " so its text names no card. It posts only while the drive"
-                    " owes him a catch-up, which posting it settles. A correction record"
-                    " re a report held for his catch-up posts nothing, since the catch-up carries it, and one re a report a post carried,"
-                    " its own or his catch-up, names that post to reword. A held report its writer withdrew goes out in no catch-up and gives back the"
-                    " close of each open order it claimed"
+                    " owes him a catch-up, which posting it settles, and with no words, no card waiting and nothing held for it posts nothing,"
+                    " settling it. A correction record re a report held for his return posts nothing, since the line carrying that report"
+                    " carries it, and one re a report a post carried, its own or one carrying it, names that post to reword. A held report"
+                    " its writer withdrew goes out in no post and gives back the close of each open order it claimed"
                 ),
             },
             "edit": {

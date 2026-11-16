@@ -278,7 +278,7 @@ def test_status_data_keeps_only_open_work() -> None:
     assert "jobs" not in data and "prs" not in data
 
 
-def test_status_lists_each_report_held_for_his_catch_up() -> None:
+def test_status_lists_each_report_held_for_his_return() -> None:
     drive = sample()
     at = state.stamp(state.now())
     drive["held"] = {
@@ -286,13 +286,13 @@ def test_status_lists_each_report_held_for_his_catch_up() -> None:
         "702": {"order": None, "at": at, "corrections": [], "withdrawn": ["708"]},
     }
     lines = render.status_text(drive, {}).splitlines()
-    start = lines.index("Held for his catch-up, since he is away; the catch-up he gets when he is back carries each its writer did not withdraw:")
+    start = lines.index("Held for his return, since he was away; once he is back the watch's line in its order's thread, or his catch-up for one with no thread, carries each its writer did not withdraw:")
     assert lines[start + 1 : start + 3] == [
         f"- report 700 (o1), held {render.when(at)}, corrected by records 704, 706",
-        f"- report 702 (no order), held {render.when(at)}, withdrawn by record 708, so the catch-up leaves it out and closes no order on it",
+        f"- report 702 (no order), held {render.when(at)}, withdrawn by record 708, so no post carries it and no order closes on it",
     ]
     assert render.status_data(drive, {})["held"] == drive["held"]
-    assert not any(line.startswith("Held for his catch-up") for line in render.status_text(sample(), {}).splitlines())
+    assert not any(line.startswith("Held for his return") for line in render.status_text(sample(), {}).splitlines())
 
 
 def test_status_prints_the_moment_he_reads_away_from_the_one_every_hold_reads() -> None:

@@ -286,7 +286,7 @@ def test_a_jobs_call_shows_its_own_order_alone_most_overdue_first_a_thread_lined
     assert [line.split(":")[0] for line in overdue_at_call(monkeypatch, capsys, {"session_id": coordinator})[1:]] == ["- o3 Fix 3", "- o2 Fix 2"]
     with state.edit("demo") as data:
         data["owner"]["away"] = state.stamp(later - timedelta(minutes=1))
-    assert overdue_at_call(monkeypatch, capsys, {"session_id": coordinator})[1].endswith("; he is away, so his catch-up post on his return carries it")
+    assert overdue_at_call(monkeypatch, capsys, {"session_id": coordinator})[1].endswith("; he is away, so its line is owed at his return")
     monkeypatch.setattr(state, "now", lambda: later + timedelta(minutes=45))
     assert overdue_at_call(monkeypatch, capsys, {"session_id": coordinator}) == []
 

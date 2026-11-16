@@ -1181,15 +1181,15 @@ def test_a_second_report_closing_one_order_posts_nothing_whoever_wrote_it_and_a_
 
 def test_a_report_the_away_check_held_posts_nothing_whatever_its_judge_read(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
     with state.edit(demo) as data:
-        data["held"] = {"684842": {"order": "o1", "at": state.stamp()}}
+        data["held"] = {"684842": {"order": "o1", "at": state.stamp(), "record": None}}
     report(monkeypatch, {"close": "o1"}, lane="watch")
-    with pytest.raises(DriveError, match="nothing posted: report 684842 is held for his catch-up, which carries it: return NOTHING held for his catch-up"):
+    with pytest.raises(DriveError, match="nothing posted: report 684842 is held for his return, when the watch's line in its thread carries it: return NOTHING held for his return"):
         talk.say(demo, {"text": "The journal fix merged.", "record": "684842"})
     assert (posts, said(demo)) == ([], [])
 
-def owe(name: str, *orders: str) -> str:
+def owe(name: str) -> str:
     with state.edit(name) as data:
-        data["catch_up"] = state.new_catch_up(ASKED, list(orders))
+        data["catch_up"] = state.new_catch_up(ASKED)
     return f"*Catch-up since {render.when(ASKED)}*\n"
 
 
@@ -1221,17 +1221,24 @@ def test_a_catch_up_opens_with_its_title_from_the_time_he_was_last_heard_whateve
     assert posts[-1][-1] == "The run page fix is live."
 
 
-def test_his_catch_up_carries_the_reports_held_for_it_and_lets_them_go(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_post_lets_go_of_only_the_reports_held_for_his_return_that_its_report_carries(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
     own_pr(demo)
     with state.edit(demo) as data:
-        data["held"] = {seq: {"order": "o1", "at": state.stamp()} for seq in ("700", "702")}
+        data["held"] = {"700": {"order": "o1", "at": state.stamp(), "record": "660299"}, "702": {"order": "o1", "at": state.stamp(), "record": None}}
     report(monkeypatch, {"orders": "o1"})
-    assert not talk.say(demo, {"text": "The run page fix is live.", "record": "660300"}).endswith("no longer held: 700, 702")
+    assert not talk.say(demo, {"text": "The run page fix is live.", "record": "660300"}).endswith("no longer held: 700")
     assert list(state.load(demo)["held"]) == ["700", "702"]
+    assert talk.say(demo, {"text": "The run page fix is live.", "record": "660299"}).endswith("; it carries the reports held for it, no longer held: 700")
+    assert (list(state.load(demo)["held"]), state.load(demo)["carried"]["700"]) == (["702"], POSTED)
+
+
+def test_his_catch_up_with_no_words_no_card_waiting_and_nothing_held_for_it_posts_nothing_and_settles(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+    own_pr(demo)
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": [], "pr_cards": [], "closed": []})
     report(monkeypatch, {"catch_up": "true"})
     owe(demo)
-    assert talk.say(demo, {"text": "The run page fix is live.", "record": "660299"}).endswith("; it carries the reports held for it, no longer held: 700, 702")
-    assert state.load(demo)["held"] == {}
+    assert talk.say(demo, {"text": "", "record": "660299"}) == "SETTLED report 660299: no card waits on him and nothing is held for his catch-up, so it posts nothing"
+    assert (posts, said(demo), state.load(demo)["catch_up"]) == ([], [], None)
 
 
 def test_say_itself_holds_a_report_for_his_dm_while_he_is_away_from_a_caller_no_hook_checked_and_his_catch_up_carries_it(
@@ -1241,7 +1248,7 @@ def test_say_itself_holds_a_report_for_his_dm_while_he_is_away_from_a_caller_no_
     with state.edit(demo) as data:
         data["owner"] = {"heard": (heard := state.stamp()), "away": heard, "absence": None}
     report(monkeypatch, {"progress": "true"}, lane="meta")
-    with pytest.raises(DriveError, match=r"nothing posted: he is away since he said so at .+ Report 718234 is marked held: `drive status` lists it until the catch-up posts\. Return NOTHING held for his catch-up\."):
+    with pytest.raises(DriveError, match=r"nothing posted: he is away since he said so at .+ Report 718234 is marked held: `drive status` lists it until the line carrying it posts once he is back\. Return NOTHING held for his return\."):
         talk.say(demo, {"text": "The drive took three production break-glass grants on its own while you were away.", "record": "718234"})
     assert (posts, said(demo), list(state.load(demo)["held"])) == ([], [], ["718234"])
     talk.say(demo, {"text": f"{state.WAITS_ON_HIM}: the release card.", "record": "718236"})
@@ -1250,6 +1257,8 @@ def test_say_itself_holds_a_report_for_his_dm_while_he_is_away_from_a_caller_no_
     assert [argv[-1] for argv in posts] == [f"{state.WAITS_ON_HIM}: the release card.", "Acme's runs fail in the new region."]
     report(monkeypatch, {"catch_up": "true"})
     owe(demo)
+    with state.edit(demo) as data:
+        data["held"]["718234"]["record"] = "718240"
     assert talk.say(demo, {"text": "The break-glass grants only read.", "record": "718240"}).endswith("; it carries the reports held for it, no longer held: 718234")
     assert state.load(demo)["held"] == {}
 
@@ -1302,7 +1311,7 @@ def test_a_post_citing_its_record_as_cci_prints_it_reads_its_corrections_by_the_
     )
 
 
-def test_a_correction_of_a_held_report_rides_with_it_and_one_after_his_catch_up_names_the_post_to_reword(
+def test_a_correction_of_a_held_report_rides_with_it_and_one_after_the_post_carrying_it_names_that_post_to_reword(
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]
 ) -> None:
     own_pr(demo)
@@ -1314,8 +1323,8 @@ def test_a_correction_of_a_held_report_rides_with_it_and_one_after_his_catch_up_
 
     monkeypatch.setattr(cli.reads, "run", shown)
     with state.edit(demo) as data:
-        data["held"] = {"669950": {"order": "o1", "at": state.stamp()}}
-    with pytest.raises(DriveError, match="nothing posted: record 669952 corrects report 669950, held for his catch-up, which carries this correction with it"):
+        data["held"] = {"669950": {"order": "o1", "at": state.stamp(), "record": "669999"}}
+    with pytest.raises(DriveError, match="nothing posted: record 669952 corrects report 669950, held for his return, when the line carrying it carries this correction with it"):
         talk.say(demo, {"text": "It reads 16 MiB a request, not 64.", "record": "669952"})
     owe(demo)
     cci_amendments["correction"]["669950"] = ["669952", "669980"]
@@ -1348,7 +1357,7 @@ def test_a_held_report_its_writer_withdrew_goes_out_in_no_post_and_gives_back_th
 ) -> None:
     own_pr(demo)
     with state.edit(demo) as data:
-        data["held"] = {seq: {"order": order_id, "at": state.stamp()} for seq, order_id in (("695689", "o946"), ("695810", "o1015"))}
+        data["held"] = {seq: {"order": order_id, "at": state.stamp(), "record": "695999"} for seq, order_id in (("695689", "o946"), ("695810", "o1015"))}
         for order_id, closed_on, done in (("o946", "695689", "open"), ("o1015", "695810", "open"), ("o771", "695689", "done")):
             data["orders"][order_id] = state.new_order("show the run page's history", "terminal", None, {}, ASKED) | {"closed_on": closed_on, "state": done}
     cci_amendments["withdraw"]["695689"] = ["695900"]
@@ -1417,11 +1426,10 @@ def test_a_post_goes_out_in_exactly_the_words_it_was_given_while_built_work_wait
     talk.say(demo, {"text": "Shipped.", "thread_ts": thread})
     talk.say(demo, {"text": "Catch-up"})
     report(monkeypatch, {"catch_up": "true"})
-    title = owe(demo, "o1")
+    title = owe(demo)
     talk.say(demo, {"text": "The fix is live.", "record": "660299"})
     assert [argv[-1] for argv in posts] == ["Shipped.", "Catch-up", f"{title}The fix is live." + open_cards(demo)]
     assert state.load(demo)["catch_up"] is None
-    assert state.load(demo)["orders"]["o1"]["last_line"]
 
 
 def test_a_pr_is_linked_under_the_words_the_post_gives_it_whether_the_drive_holds_it_or_not(demo: str, posts: list[tuple[str, ...]]) -> None:

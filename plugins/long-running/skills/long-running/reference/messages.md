@@ -655,8 +655,9 @@ bug hurting someone now first. Once nothing waits there it reads "No open cards"
   "And for future when I say something is top priority it’s not acceptable that it's been an hour and there's no motion or updates on it", and starts one handler, which posts what changed in that thread, so no
   session writes a progress line of its own and a thread lined minutes before gets none. The report
   keeps the steps it names as told, so a handler whose thread's last line already tells them returns
-  `NOTHING` and posts no line saying nothing moved. None goes out while he is away, since his catch-up
-  carries it, nor once a report closing the order is kept or posted, whose post is its line. A job
+  `NOTHING` and posts no line saying nothing moved. None goes out while he is away, since the
+  thread's first line after his return carries it, nor once a report closing the order is kept or
+  posted, whose post is its line. A job
   carrying a part of another order, and each PR registered on it, is a step in its own order's
   thread alone, and so is each step of an order joined to another, when it is no incident and its
   lines go in a thread of its own, or when it is an incident and the order it joined is none: its
@@ -684,36 +685,42 @@ bug hurting someone now first. Once nothing waits there it reads "No open cards"
   goes out only as a card, a PR card, the watch's reply under a card holding built work, an edit of
   a post already out, his catch-up, an answer passing asked, a line carrying WAITING-ON-HIM, an
   incident's line, a line marked customer_outage=true, or a line naming a clock time still to come,
-  which a promise of the next line is not. say holds every other report for his catch-up, news that
-  work moved or that the drive failed him included; a report owing a line promised by a time waits
-  for his return instead, and a handler's line carrying no report is refused, by his words "Just do
+  which a promise of the next line is not. say holds every other report for his return, news that
+  work moved or that the drive failed him included; a report owing a line promised by a time is owed
+  at his return instead, and a handler's line carrying no report is refused, by his words "Just do
   less realtime more summary / batching, with a catch up post once I'm back". `drive status` prints
   the away beside when he was last heard, `drive heard --away` records his going, and each tap on a
   card records him heard as a message does. Incidents and customer outages post by
   [incidents.md](incidents.md); summaries, due-time lines and job results wait.
   A report whose line say holds is marked held on the drive, and `drive status` lists it
-  under `Held for his catch-up`, so nobody takes it for a line he got. A correction record `--re`
+  under `Held for his return`, so nobody takes it for a line he got. A correction record `--re`
   a held report travels with it, since cci never changes the report: `drive status` names it on
   the report's line, and a `say` of the correction posts nothing while its report is held. A
   report found wrong while it is held, such as a close of an order not done, its writer takes
   back with the cci `post` tool, `kind: withdraw`, `re` the report's own seq,
-  `to: communicator@<drive>`: `drive status` names the withdrawal on the report's line, the
-  catch-up leaves the report out, so no post carries it and no order closes on it, and once the
-  catch-up posts, an order it claimed to close is free for another report's close.
-- His next message, right after its ack, or his next card tap gets one catch-up at his DM root,
-  posted by the drive with no session in between. `drive heard`, or the tap, adds every open order
-  with a step its thread has had no line or report on, by the same test as that thread's line, or
-  with a report held, to the catch-up the drive owes him, which it keeps until the catch-up posts,
-  and counts those steps told, so no thread gets a line on what the catch-up carries. Within one pass of the watch, 5 seconds, the watch writes one `report`
-  of it, naming each held report its writer did not withdraw, with the corrections cci holds re it,
-  and each order with news, and
-  starts the handler that posts it, grouped by feature and each held report's facts as its
-  corrections give them. A handler that ends without posting gets a fresh one the next time he is
-  heard. Posting the catch-up lets go of every held report, marks a line given on each order it
-  covers, and `say` names each correction of a held report the post must carry and each held
-  report withdrawn, which it must leave out. A correction that
-  comes after rewords the catch-up post: `say` of it posts nothing and names that post, and a
-  second catch-up while none is owed posts nothing.
+  `to: communicator@<drive>`: `drive status` names the withdrawal on the report's line, no post
+  carries the report and no order closes on it, and the watch lets it go, freeing an order it
+  claimed to close for another report's close.
+- His next message, right after its ack, or his next card tap, after reports were held, sends
+  each held report to its own order's thread, by his words 162648a "why did all of these get sent
+  in this thread?", and owes him one catch-up at his DM root, with no session in between. Within
+  the watch's relay pass, 2 seconds, the watch writes one `quiet=true` report for each thread a
+  held report was to go in, naming each held report its writer did not withdraw, with the
+  corrections cci holds re it, and what else moved in that thread, and starts one handler there,
+  from the watch that hears its order, which re-reads each and posts what still stands; that
+  report counts the thread's steps told, as any `quiet=true` report does. News in a thread with
+  nothing held gets its line from that thread's own `quiet=true` report, never the catch-up. A
+  post of a thread's report lets go of each held report it carries, and `say` names each
+  correction of one the post must carry and each withdrawn, which it must leave out. A handler
+  that ends without posting leaves its held reports for the next time he is heard back. A
+  correction that comes after rewords the post that carried its report: `say` of it posts nothing
+  and names that post.
+- The same relay pass writes his catch-up's `report` and starts the handler that posts it at his
+  DM root. It carries only the cards waiting on him, which `say` draws, by his ruling 65768cd "Say
+  draws what waits", and any held report with no order's thread to go in, never a list of orders
+  with news or of the reports their threads carry, by his words c91b1a9 "stop telling me about the
+  whole drive I never asked for that". With no card waiting and nothing held for it, `say` posts
+  nothing and settles it, and a second catch-up while none is owed posts nothing.
 - A report found wrong after its post went out is corrected, never reported again: a report to
   the communicator `re` the seq of a `POST` report its own lane sent goes out as a `correction`,
   which no one-report-a-turn rule holds, and the watch starts the handler that rewords the post

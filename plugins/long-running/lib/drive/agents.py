@@ -406,7 +406,7 @@ def start_posts(name: str, own: str | None = None, detached: bool = False) -> bo
 
 
 def handle_report(name: str, seq: str, brief: str, once: bool = False, detached: bool = False, briefed: Callable[[str], str] | None = None) -> tuple[str, bool]:
-    """Start or hand over the handler on report seq as handle does, in one hold of the drive's POSTS_LOCK after start_posts passes seq, so the watch's read never starts a second handler on it, and a start that fails sets the cursor back to seq for that read to start. Once, as the handler tool starts one on a POST report, a report the cursor had passed goes to the handler whichever starter read it first started, still at work on it or still starting, starts again as handle starts it once that handler never started, and is refused once that handler ended carrying it, naming the post the drive kept its report going out in, its line held for his catch-up, or a line of its own that posted nothing of it, by end_handler; a report no post, hold or choice carries, as one whose handler ended on a tool's failure, starts a fresh handler; a stage of the watch starts its own report's again, as it does for a report whose handler never took it."""
+    """Start or hand over the handler on report seq as handle does, in one hold of the drive's POSTS_LOCK after start_posts passes seq, so the watch's read never starts a second handler on it, and a start that fails sets the cursor back to seq for that read to start. Once, as the handler tool starts one on a POST report, a report the cursor had passed goes to the handler whichever starter read it first started, still at work on it or still starting, starts again as handle starts it once that handler never started, and is refused once that handler ended carrying it, naming the post the drive kept its report going out in, its line held for his return, or a line of its own that posted nothing of it, by end_handler; a report no post, hold or choice carries, as one whose handler ended on a tool's failure, starts a fresh handler; a stage of the watch starts its own report's again, as it does for a report whose handler never took it."""
     with state.flocked(state.drive_dir(name) / POSTS_LOCK):
         read = start_posts(name, seq, detached)
         if once and not read:
@@ -415,7 +415,7 @@ def handle_report(name: str, seq: str, brief: str, once: bool = False, detached:
                 if (entry := data["handlers"][held])["session"] or not gone(entry):
                     return held, True
             elif seq in data["carried"] or seq in data["held"]:
-                went = f"posting it at {link}" if (link := data["carried"].get(seq)) else "its line held for his catch-up" if seq in data["held"] else "on a line that posted nothing of it"
+                went = f"posting it at {link}" if (link := data["carried"].get(seq)) else "its line held for his return" if seq in data["held"] else "on a line that posted nothing of it"
                 raise state.DriveError(f"refused, no handler started: the drive read POST report {seq} before this call, and the handler it started then has ended on it, {went}")
         try:
             return handle(name, brief, detached=detached, briefed=briefed)

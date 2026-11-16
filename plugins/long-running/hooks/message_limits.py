@@ -890,7 +890,7 @@ def held_while_away(payload: dict, drive: dict, report: dict, order_id: str | No
         return agents.Unjudged(f"Refused on purpose: {held}")
     if not payload.get("agent_id") or not (gone := talk.away(drive, tool_input, report, order_id, state.now())):
         return None
-    away = f"Refused on purpose: {gone}. Post nothing: this news joins the catch-up the drive posts when he is back."
+    away = f"Refused on purpose: {gone}. Post nothing: this news waits for his return, when the drive owes its thread a line."
     return agents.Ruled(away, AWAY_RULE, found=gone)
 
 

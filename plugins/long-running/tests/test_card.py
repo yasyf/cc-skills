@@ -1344,7 +1344,7 @@ def test_his_tap_on_any_card_records_him_heard_and_brings_the_catch_up_he_was_he
     ask(tap)
     absence = {"since": heard, "from": "2026-11-11T13:36:02-08:00", "until": state.stamp(tapped)}
     assert state.load(drive)["owner"] == {"heard": state.stamp(tapped), "away": state.stamp(tapped + state.AWAY_AFTER), "absence": absence}
-    assert state.load(drive)["catch_up"] == state.new_catch_up(heard, [])
+    assert state.load(drive)["catch_up"] == state.new_catch_up(heard)
 
 
 STACK_BODY = "## The stack\nthe orders table moves to a new one without a pause\n\nReaders read both tables, every row is copied across, then the old table goes.\n\n"

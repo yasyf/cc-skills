@@ -6894,7 +6894,7 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser(
         "heard",
         parents=both,
-        help="he wrote: record it, adding the orders that changed while he was away to the catch-up the drive owes him, which the watch posts at his DM root; prints heard, away, or unheard for --last, and nothing to act on",
+        help="he wrote: record it, owing each report held while he was away to its thread's line and his catch-up at his DM root, which the watch's relay posts; prints heard, away, or unheard for --last, and nothing to act on",
     )
     verb.add_argument("--away", action="store_true", help="he said he is going to sleep or away")
     verb.add_argument(
