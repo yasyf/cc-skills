@@ -1,8 +1,9 @@
 #!/usr/bin/env -S python3 -I
-"""Save a demo drive under the state root named, with this release's own code: a coordinator, an order, and a job of each kind in each state, which tools/try-release has the next release's drive status read before autobump pins it."""
+"""Save a demo drive under the state root named, with this release's own code: a coordinator whose clone names a demo repository and staging env, an order, a job of each kind in each state, and the work queue's stage-test items, one outside the queue's cut waiting on staging serving its commit and one whose job has no brief flags yet, which tools/try-release has the next release's drive status read before autobump pins it and tools/try-watch runs a watch pass over."""
 
 import itertools
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -11,9 +12,38 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import state
 
-data = state.new_drive("demo", "coordinator", "demo-session", "/")
+PROVIDERS = """from drive.providers import RepoProvider, StagingProvider
+
+
+class Repo(RepoProvider):
+    name = "demo/repo"
+
+
+class Staging(StagingProvider):
+    env = "demo-staging"
+"""
+
+clone = Path(sys.argv[1]) / "clone"
+(clone / ".claude" / "long-running").mkdir(parents=True)
+(clone / ".claude" / "long-running.toml").write_text('[providers]\nmodule = ".claude/long-running/providers.py"\nrepo = "Repo"\nstaging = "Staging"\n')
+(clone / ".claude" / "long-running" / "providers.py").write_text(PROVIDERS)
+for argv in (["init", "-q", "-b", "main"], ["add", "-A"], ["-c", "user.name=demo", "-c", "user.email=demo@example.com", "commit", "-qm", "providers"], ["update-ref", "refs/remotes/origin/HEAD", "HEAD"]):
+    subprocess.run(["git", "-C", str(clone), *argv], check=True)
+
+data = state.new_drive("demo", "coordinator", "demo-session", str(clone))
 data["orders"]["o1"] = order = state.new_order("demo order", "owner", None, {}, state.stamp())
 for n, (kind, job_state) in enumerate(itertools.product(state.JOB_KINDS, state.JOB_STATES), 1):
     data["jobs"][f"j{n}"] = state.new_job("o1", kind, "demo goal", [], state.stamp()) | {"state": job_state}
     order["jobs"].append(f"j{n}")
+
+data["work"]["kinds"].append("stage-test")
+staged = {f"staging test of #{number} before it lands": state.new_part() for number in (1, 2)}
+data["orders"]["o2"] = tests = state.new_order("demo staging tests", "owner", None, staged, state.stamp())
+testers = {"t1": ("staging test of #1 before it lands", ["staging:demo/demo-staging@abc1234"]), "t2": ("staging test of #2 before it lands", [])}
+for job_id, (part, waits) in testers.items():
+    data["jobs"][job_id] = state.new_job("o2", "builder", "demo staging test", [part], state.stamp()) | {"waits": waits, "brief": str(clone / f"{job_id}.md"), "work_reads": {"paths": [], "stacks": []}}
+    tests["jobs"].append(job_id)
+for number, job_id in ((1, "t1"), (2, "t2")):
+    url = f"https://github.com/demo/repo/pull/{number}"
+    data["prs"][state.pr_key(url)] = state.new_pr(url, job_id, "o2")
 state.create(data)
