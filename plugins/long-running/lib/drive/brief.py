@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-from drive import limits, reads, settled, state
+from drive import github, limits, reads, settled, state
 from drive.render import cut
 from drive.shell import simple_commands
 
@@ -113,6 +113,8 @@ MAC = re.compile(r"^Mac:[ \t]*(.+)$", re.MULTILINE)
 AFTER = re.compile(r"^After install:", re.MULTILINE)
 CI_BINARIES = frozenset({"ci", "ci.dev"})
 RELEASE_STARTS = ("start", "hotfix")
+RELEASE_FOLLOWS = ("approve", "resume", "rollback", "rerun")
+RECORD_SECONDS = 45
 PRESENT_CUTS = ("start", "hotfix", "resume", "approve", "api")
 HOLD_PASSES = ("approve", "api")
 REHEARSAL_CLUSTERS = frozenset({state.STAGING_ENV, "plat-usw2-sandbox"})
@@ -293,6 +295,29 @@ def approval_refusal(command: str, data: dict, reading: str | None = None) -> st
         return f"refused: Opus did not settle whether his answer {answer_id} approves this release ({failure}). {RELEASE_APPROVAL}"
     asked, said = cut(answer["title"], 200), cut(settled.his(answer["body"]), settled.QUOTED_CHARS)
     return f'refused: `--order {answer_id}` names his answer to "{asked}", "{said}", and {why}. {RELEASE_APPROVAL}'
+
+
+def followed(words: list[str]) -> str | None:
+    """The release a `ci release approve`, `resume`, `rollback` or `rerun` names, its first word past the verb that is no flag: the release's name or build."""
+    if Path(words[0]).name not in CI_BINARIES or words[1:2] != ["release"] or words[2:3] not in ([verb] for verb in RELEASE_FOLLOWS):
+        return None
+    return next((word for word in words[3:] if not word.startswith("-")), None)
+
+
+def release_record(release: str, cwd: str) -> dict | None:
+    """The record go/ci keeps of a release, by `tools/ci release status <release> --json` in the drive's checkout: its build, the --order approving it, the commit and the targets the build carries, its picks and each target go/ci pulled in; None when go/ci reads none."""
+    done = subprocess.run([str(Path(cwd) / "tools" / "ci"), "release", "status", release, "--json"], cwd=cwd, capture_output=True, text=True, timeout=RECORD_SECONDS)
+    return json.loads(done.stdout)["record"] if done.returncode == 0 else None
+
+
+def recorded_job(record: dict, data: dict) -> dict | None:
+    """The job that started the release a record names: the one whose release build is the record's build, else the newest whose Release line names the record's --order and a --from its commit starts with, since a start's first answer can name the cut build before the release build it triggers."""
+    number = (found := github.BUILD.match(record.get("build") or "")) and found["number"]
+    cutting = [job for job in data["jobs"].values() if state.starts_cut(job)]
+    if built := next((job for job in cutting if number and job["release_build"] and (kept := github.BUILD.match(job["release_build"])) and kept["number"] == number), None):
+        return built
+    ordered = [job for job in cutting for flags in started(job["brief_flags"]["release"]) if record.get("order") in flags.get("order", ()) and any(record.get("commit", "").startswith(given) for given in flags.get("from", ()))]
+    return max(ordered, key=lambda job: state.parse_time(job["created"]), default=None)
 
 
 def scope_refusal(release: str, data: dict, said: str) -> str | None:

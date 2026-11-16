@@ -509,7 +509,9 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
         return None
     data = state.load(drives[0])
     briefed = Path(data["jobs"][codex]["brief"]).read_text() if codex else agents.brief(shell.caller)
-    release = release_of(words, briefed, data["jobs"].values())
+    record = (named := brief.followed(words)) and brief.release_record(named, data["roles"]["coordinator"]["cwd"])
+    job = record and brief.recorded_job(record, data)
+    release = release_of(words, briefed, data["jobs"].values(), job and job["brief_flags"]["release"])
     try:
         hold = settled.hold(data["roles"]["coordinator"]["cwd"])
         return hold and brief.hold_refusal(release, data, hold) or verb in brief.RELEASE_STARTS and brief.scope_refusal(release, data, briefed) or brief.away_refusal(verb, release, data, state.now())
@@ -570,11 +572,11 @@ def created_job(words: list[str]) -> dict | None:
     return None
 
 
-def release_of(words: list[str], briefed: str, jobs: Iterable[dict] = ()) -> str:
-    """The release a release verb runs, as his exception names it: the newest Release line of the caller's brief, the release its job started on, else the release of the job among jobs whose release build the verb writes to, as the watchdog's rerun of a failed one names it, else the verb's own words."""
+def release_of(words: list[str], briefed: str, jobs: Iterable[dict] = (), recorded: str | None = None) -> str:
+    """The release a release verb runs, as his exception names it: the newest Release line of the caller's brief, the release its job started on, else the release of the job among jobs whose release build the verb writes to, as the watchdog's rerun of a failed one names it, else recorded, the release of the job go/ci's record of the release a `ci release approve`, `resume`, `rollback` or `rerun` names leads to, by brief.recorded_job, so the top coordinator's own approve passes on that job's kept pass, else the verb's own words."""
     build = (write := release_write(words)) and write[1]
     built = (job["brief_flags"]["release"] for job in jobs if build and job["release_build"] and (found := github.BUILD.match(job["release_build"])) and found["number"] == build)
-    return next(reversed(brief.RELEASE.findall(briefed)), None) or next(built, " ".join(words))
+    return next(reversed(brief.RELEASE.findall(briefed)), None) or next(built, None) or recorded or " ".join(words)
 
 
 def release_verb(words: list[str]) -> str | None:
