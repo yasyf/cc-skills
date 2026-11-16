@@ -1101,11 +1101,11 @@ def put_on_sprite(workspace: str, folder: str, name: str, text: bytes) -> str:
 
 
 def take_off_sprite(workspace: str, paths: list[str], into: Path) -> None:
-    """Copy each file at its absolute path on the workspace's Sprite to that path under the folder here, in one tar stream over the ssh forward cc-remote keeps for it; Unfit naming the first file the Sprite could not send."""
+    """Copy each file at its absolute path on the workspace's Sprite to that path under the folder here, in one tar stream over the ssh forward cc-remote keeps for it; Unfit naming the first file the Sprite could not send, by tar's first line, never a line the Sprite's shell prints as ssh starts it."""
     done = on_sprite(workspace, shlex.join(["tar", "-C", "/", "-cf", "-", "--", *(path.lstrip("/") for path in paths)]), b"", CALL_SECONDS)
     if done.returncode:
         why = done.stderr.decode().strip().splitlines()
-        raise Unfit(f"copying {', '.join(paths)} off {workspace} exited {done.returncode}: {why[0] if why else 'no output'}")
+        raise Unfit(f"copying {', '.join(paths)} off {workspace} exited {done.returncode}: {next((line for line in why if line.startswith('tar: ')), why[-1] if why else 'no output')}")
     with tarfile.open(fileobj=io.BytesIO(done.stdout)) as held:
         held.extractall(into, filter="data")
 

@@ -657,7 +657,8 @@ def test_a_drive_question_whose_block_shows_a_picture_on_its_sprite_runs_on_a_co
 
     def on_sprite(workspace: str, command: str, given: bytes, seconds: float) -> subprocess.CompletedProcess:
         ssh.append(workspace)
-        return subprocess.run(command.replace("-C /", f"-C {sprite}", 1), shell=True, capture_output=True, check=False)
+        login = "echo '/home/sprite/.bashrc: line 22: bind: warning: line editing not enabled' >&2"
+        return subprocess.run(f"{login}; {command.replace('-C /', f'-C {sprite}', 1)}", shell=True, capture_output=True, check=False)
 
     monkeypatch.setattr(orca, "on_sprite", on_sprite)
     monkeypatch.setattr(state, "load", lambda name: {"jobs": {"j7": {"workspace": "pool-one"}}})
@@ -674,8 +675,9 @@ def test_a_drive_question_whose_block_shows_a_picture_on_its_sprite_runs_on_a_co
     assert f"tar: {gone.lstrip('/')}" in refused
 
 
+@pytest.mark.parametrize("tail", ["", ", kept as repro/j7.sh"])
 def test_a_drive_question_keeping_a_report_copies_the_proof_file_its_repro_line_names_off_its_sprite_and_names_its_copy_here(
-    fake_drive: Path, state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    fake_drive: Path, state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tail: str
 ) -> None:
     fake_drive.mkdir()
     sprite = tmp_path / "sprite"
@@ -684,9 +686,9 @@ def test_a_drive_question_keeping_a_report_copies_the_proof_file_its_repro_line_
     (sprite / proof.lstrip("/")).write_text("#!/bin/sh\nexit 0\n")
     monkeypatch.setattr(orca, "on_sprite", lambda workspace, command, given, seconds: subprocess.run(command.replace("-C /", f"-C {sprite}", 1), shell=True, capture_output=True, check=False))
     monkeypatch.setattr(state, "load", lambda name: {"jobs": {"j7": {"workspace": "pool-one"}}})
-    reads.DRIVE_BIN.write_text('#!/bin/sh\nproof=$(sed -n "s/^REPRO: //p")\necho "$proof"\ncat "$proof"\n')
+    reads.DRIVE_BIN.write_text('#!/bin/sh\nproof=$(sed -n "s/^REPRO: \\([^,]*\\).*/\\1/p")\necho "$proof"\ncat "$proof"\n')
     copy = state_root / "demo" / "scratch" / "j7" / "sprite" / proof.lstrip("/")
-    said = reads.answer(f"DRIVE job report j7 -\n{json.dumps({'stdin': f'DONE proven{chr(10)}REPRO: {proof}{chr(10)}'})}", fake_drive, "demo", "j7")
+    said = reads.answer(f"DRIVE job report j7 -\n{json.dumps({'stdin': f'DONE proven{chr(10)}REPRO: {proof}{tail}{chr(10)}'})}", fake_drive, "demo", "j7")
     assert (said, copy.read_text()) == (f"drive exited 0\n{proof}\n#!/bin/sh\nexit 0", "#!/bin/sh\nexit 0\n")
 
 
