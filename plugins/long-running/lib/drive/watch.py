@@ -145,7 +145,6 @@ class Watcher:
     relayed: collections.deque[str] = field(default_factory=collections.deque)
     relay_error: Exception | None = None
     redrawn_whole: set[str] = field(default_factory=set)
-    returns_taken: dict[str, tuple[str, str | None]] = field(default_factory=dict)
 
     @property
     def lane(self) -> str:
@@ -2963,7 +2962,7 @@ class Gone(str):
 
 
 class Returned(str):
-    """A running local job's gap once its agent ended its turn on a message opening with a result word its job never took, carrying that message whole and the transcript it ends, which the watch takes as `drive job report <j> -` takes it, since that agent may be gone and no resume reaches it."""
+    """A running local job's gap once its agent ended its turn on a message opening with a result word its job's history lacks, by state.kept_return, carrying that message whole and the transcript it ends, which the watch takes as `drive job report <j> -` takes it, whatever the agent's type or however many stops it took, since that agent may be gone and no resume reaches it."""
 
     whole: str
     path: Path
@@ -2973,23 +2972,26 @@ class Returned(str):
         made.whole, made.path = whole, path
         return made
 
-    def take(self, watcher: Watcher, job_id: str) -> str | None:
-        """None once cli.take_report kept the return, else this gap naming its refusal and the transcript to read the return from, the take tried once for each return."""
+    def take(self, name: str, job_id: str) -> None:
+        """Take the return by cli.take_report, or once that refuses it keep it in the job's history all the same, its state unset and the refusal on the JOB line state.returned sends the session holding the job, so the next pass reads it kept and takes it no second time."""
         from drive import cli
 
-        if (tried := watcher.returns_taken.get(job_id)) and tried[0] == self.whole:
-            return tried[1]
         try:
-            cli.take_report(watcher.name, job_id, self.whole)
-            gap = None
+            cli.take_report(name, job_id, self.whole)
         except cli.VERB_ERRORS as error:
-            gap = f"{self}; the watch read it from the end of its agent's transcript {self.path}, and drive job report {job_id} - refused it: {error}"
-        watcher.returns_taken[job_id] = (self.whole, gap)
-        return gap
+            line = first_line(self.whole)
+            state.keep_report(name, job_id, line, self.whole)
+            state.returned(
+                name,
+                state.load(name),
+                job_id,
+                f"{line}; its agent ended without keeping it, so the watch kept it from the end of its transcript {self.path},"
+                f' its state unset since drive job report {job_id} - refuses it: {error}; drive job resume {job_id} "<the refusal>" sends it back',
+            )
 
 
 class Idle(str):
-    """A local agent's gap that waking it closes: its turn ended on a result its job never took, or on no result line. agent_gap adds the step that wakes it, never local_gap, since that step's place.woken judges every builder by local_gap."""
+    """A local agent's gap that waking it closes: its turn ended on its kept return while its job reads running, on a reader's line opening with no result word, or on no result line. agent_gap adds the step that wakes it, never local_gap, since that step's place.woken judges every builder by local_gap."""
 
 
 def agent_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
@@ -3071,6 +3073,8 @@ def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
     if turn and agents.ended(turn):
         line = said_last(turn)
         if re.match(r"[A-Z]*", line)[0] in (*brief.OPENINGS, "POSTED"):
+            if state.kept_return(data["name"], job_id, job, line):
+                return Idle(f'{job_id} reads running while its agent ended its turn on its kept return "{cut(line, 100)}", so wake it')
             return Returned(job_id, [block["text"] for block in turn["message"]["content"] if block.get("type") == "text"][-1], path)
         if state.result_state(job, line):
             return Idle(
@@ -3201,7 +3205,7 @@ def launching(job: dict, moment: datetime) -> bool:
 
 
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach, which wake hands to drive job resume at the first failed read and again each REWAKE, its failed reads neither counted nor said while busy reads another drive verb acting on the job, as the wake an earlier watch started does, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite; a live lane whose job keeps texts queued has them settled by its mailbox each pass, by state.take_mail, its worker's next turn started by orca.wake_turn when that read leaves a text unread and its turn is over, and a remote lane whose worker finished or exited has the mail it never read held on its job once for its dispatch by unread_lines, before death_lines relaunches a running job's lane. A local agent that ended its turn on a message opening with a result word its job never took has that message taken by cli.take_report, as `drive job report` takes a return, once for each such message, a refusal its gap naming the transcript it ends; a codex job whose codex-ask run ended, or that has none going and none left to take, by Gone, has no gap here, since the relay takes it, by codex_takes, while one whose run codex-ask cannot read counts lost, as a lane Orca cannot read does."""
+    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach, which wake hands to drive job resume at the first failed read and again each REWAKE, its failed reads neither counted nor said while busy reads another drive verb acting on the job, as the wake an earlier watch started does, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite; a live lane whose job keeps texts queued has them settled by its mailbox each pass, by state.take_mail, its worker's next turn started by orca.wake_turn when that read leaves a text unread and its turn is over, and a remote lane whose worker finished or exited has the mail it never read held on its job once for its dispatch by unread_lines, before death_lines relaunches a running job's lane. A local agent that ended its turn on a message opening with a result word its job's history lacks has that message taken by cli.take_report, as `drive job report` takes a return, or kept in that history once that refuses it, the refusal on its JOB line, and has no gap here; a codex job whose codex-ask run ended, or that has none going and none left to take, by Gone, has no gap here, since the relay takes it, by codex_takes, while one whose run codex-ask cannot read counts lost, as a lane Orca cannot read does."""
     data = state.load(watcher.name)
     gaps, deaths, refusals, heads, found, finished, boxes, lost, idle, lines = {}, {}, {}, {}, {}, {}, {}, {}, {}, []
     read: set[str] = set()
@@ -3229,7 +3233,9 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     lost[job_id] = f"no bound session holds its agent {job['agent']}"
                 if running:
                     gap = agent_gap(job_id, job, data, moment)
-                    gaps[job_id] = gap.take(watcher, job_id) if isinstance(gap, Returned) else None if isinstance(gap, Answered | Gone) else gap
+                    if isinstance(gap, Returned):
+                        gap.take(watcher.name, job_id)
+                    gaps[job_id] = None if isinstance(gap, Returned | Answered | Gone) else gap
                     if gaps[job_id] and job["kind"] == "codex" and not job.get("agent"):
                         lost[job_id] = gap
                 continue

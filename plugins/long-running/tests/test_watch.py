@@ -5144,20 +5144,28 @@ def test_the_watch_takes_a_local_agents_unrecorded_return_from_its_transcript_as
     assert (job["state"], job["said"], watching.agent_gaps["j1"]) == ("failed", "BLOCKED the brief names no repo to build in", None)
 
 
-def test_a_local_agents_return_drive_job_report_refuses_is_piped_once_and_its_gap_names_the_transcript(
+def test_a_local_agents_return_drive_job_report_refuses_stays_kept_with_its_refusal_on_its_job_line_and_is_taken_once(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = ended_return(demo, tmp_path, monkeypatch, "DONE shipped\nREPRO: /tmp/proof.sh")
     watching = watcher(demo)
-    refused = watch.local_gap("j1", state.load(demo)["jobs"]["j1"], state.load(demo), state.now()).take(watching, "j1")
-    assert refused == (
-        f'j1\'s agent finished and its result is not recorded: "DONE shipped"; the watch read it from the end of its agent\'s transcript {path},'
-        " and drive job report j1 - refused it: j1: refused, nothing kept: its REPRO: line names /tmp/proof.sh, no file here,"
-        " and j1 keeps no proof file: name the file its proof runs"
-    )
-    monkeypatch.setattr(cli, "take_report", lambda *args: pytest.fail("a refused return is piped to drive job report once"))
-    assert watch.local_gap("j1", state.load(demo)["jobs"]["j1"], state.load(demo), state.now()).take(watching, "j1") == refused
-    assert state.load(demo)["jobs"]["j1"]["state"] == "running"
+    assert said_lines(watch.agent_lines, watching, state.now()) == [
+        f"JOB j1 o1 DONE shipped; its agent ended without keeping it, so the watch kept it from the end of its transcript {path},"
+        " its state unset since drive job report j1 - refuses it: j1: refused, nothing kept: its REPRO: line names /tmp/proof.sh, no file here,"
+        ' and j1 keeps no proof file: name the file its proof runs; drive job resume j1 "<the refusal>" sends it back'
+    ]
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["state"], state.report_text(demo, "j1"), watching.agent_gaps["j1"]) == ("running", "DONE shipped\nREPRO: /tmp/proof.sh\n", None)
+    monkeypatch.setattr(cli, "take_report", lambda *args: pytest.fail("a kept return is taken no second time"))
+    assert watch.local_gap("j1", job, state.load(demo), state.now()) == 'j1 reads running while its agent ended its turn on its kept return "DONE shipped", so wake it'
+
+
+def test_a_running_local_job_whose_agent_ended_on_its_kept_return_is_never_set_by_it_again(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    ended_return(demo, tmp_path, monkeypatch, "DONE shipped\nPR: x")
+    state.keep_report(demo, "j1", "DONE shipped", "DONE shipped\nPR: x")
+    monkeypatch.setattr(cli, "take_report", lambda *args: pytest.fail("a kept return is taken no second time"))
+    watch.agent_lines(watcher(demo), state.now())
+    assert (state.load(demo)["jobs"]["j1"]["state"], len(state.replies(demo, "j1"))) == ("running", 1)
 
 
 def talking(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries: list[dict], quiet: timedelta, heard: timedelta) -> None:
