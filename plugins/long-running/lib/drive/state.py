@@ -5142,8 +5142,26 @@ def bound_sessions(data: dict) -> dict[str, dict]:
 
 def repo_config(data: dict) -> dict:
     """The tables of the .claude/long-running.toml in the drive's checkout, which the drive moves to its default branch's head before each launch, through which the repository the drive works in customizes every drive working in it; none when the repository holds no such file."""
-    path = Path(next(iter(bound_sessions(data).values()))["cwd"], REPO_RULES)
+    path = drive_checkout(data["name"], next(iter(bound_sessions(data).values()))["cwd"]) / REPO_RULES
     return tomllib.loads(path.read_text()) if path.is_file() else {}
+
+
+DRIVE_CHECKOUTS: dict[tuple[str, str], Path] = {}
+
+
+def drive_checkout(name: str, clone: str) -> Path:
+    """The drive's own checkout, the worktree of clone's repository orca.checkout keeps at its default branch's head, found once a process, else the session's clone while no drive checkout exists yet or git cannot list its worktrees; a session's own clone can sit days behind, missing the repository's settings."""
+    from drive import github, orca
+
+    if (key := (name, clone)) not in DRIVE_CHECKOUTS:
+        try:
+            found = orca.worktree(clone, f"drive-{name}")
+        except github.GithubError:
+            found = None
+        if not found:
+            return Path(clone)
+        DRIVE_CHECKOUTS[key] = found
+    return DRIVE_CHECKOUTS[key]
 
 
 def mac_box_command(data: dict, verb: str) -> str | None:
