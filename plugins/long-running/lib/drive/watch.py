@@ -1367,7 +1367,7 @@ def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def live_rows(watcher: Watcher, data: dict) -> tuple[Path, list[dict]]:
-    """The drive's checkout, as orca.checkout moves it, and the rows of one the release provider's live read run there, a commit each cluster of every service serves, keeping them on the watcher as live for staging_line, and as staged the targets state.STAGING_ENV runs for add_prover. The rows are this process's one copy of that read, by live_copy, which every project's watcher shares."""
+    """The drive's checkout, as orca.checkout moves it, and the rows of one the release provider's live read run there, a commit each cluster of every service serves, keeping them on the watcher as live for staging_line, and as staged the targets the staging provider's env runs for add_prover. The rows are this process's one copy of that read, by live_copy, which every project's watcher shares."""
     checkout = orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"], wait=0)
     live = live_copy(watcher.name, providers.of(data).release)
     watcher.live = live
@@ -5645,7 +5645,7 @@ def drive_cuts(data: dict, checkout: str) -> dict[str, Callable[[dict[str, str],
     for job_id, job in data["jobs"].items():
         if not state.follows_release(job):
             continue
-        starts = brief.started(job["brief_flags"]["release"])
+        starts = brief.started(job["brief_flags"]["release"], data)
         if not starts or any(not all(settled.prod(env, checkout) for env in flags.get("env", ())) for flags in starts):
             continue
         cuts[job_id] = functools.partial(cut_carries, [commit for flags in starts for commit in flags.get("from", ())], state.parse_time(job["created"]))

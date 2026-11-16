@@ -23,6 +23,7 @@ from drive import agents, card, cli, codex, dashboard, github, install, land, la
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
 YASYF = "yasyf/cc-skills#7"
+STAGING_ENV = "plat-usw2-staging"
 RELEASED = {"release": "tools/ci release start sandsql --emergency --env plat-usw2-staging --from c5dca80ed9be --order 23eefb9"}
 REPLAYED_5547 = "yasyf/cc-skills#5547"
 REPLAYED_5442 = "yasyf/cc-skills#5442"
@@ -11306,14 +11307,14 @@ def test_jobs_waiting_on_one_pr_the_lander_has_not_landed_make_one_stall_one_wat
 
 STAGING_TARGETS = ("api", "rsw-cp", "rsw-dp", "rsw-go", "rsw-search", "executor", "staging-smoke", "sandsql", "runtime-api-next", "cloudrunner-next", "dashboard")
 STAGING_LIVE = [
-    *({"target": target, "env": state.STAGING_ENV, "commit": "afb881f92076aa", "release": "rc/2026-11-15/4"} for target in STAGING_TARGETS[:7]),
-    {"target": "sandsql", "env": state.STAGING_ENV, "commit": "f0f336aa2315bb", "release": "release-emergency/2026-11-15/3"},
-    *({"target": target, "env": state.STAGING_ENV, "commit": "8ab0e2526f06cc", "release": "release-emergency/2026-11-15/4"} for target in STAGING_TARGETS[8:]),
+    *({"target": target, "env": STAGING_ENV, "commit": "afb881f92076aa", "release": "rc/2026-11-15/4"} for target in STAGING_TARGETS[:7]),
+    {"target": "sandsql", "env": STAGING_ENV, "commit": "f0f336aa2315bb", "release": "release-emergency/2026-11-15/3"},
+    *({"target": target, "env": STAGING_ENV, "commit": "8ab0e2526f06cc", "release": "release-emergency/2026-11-15/4"} for target in STAGING_TARGETS[8:]),
 ]
 
 
 def staged_on(target: str, commit: str) -> str:
-    return f"staging:{target}/{state.STAGING_ENV}@{commit}"
+    return f"staging:{target}/{STAGING_ENV}@{commit}"
 
 
 def test_23_staging_waits_of_4_jobs_on_one_env_make_one_stall_one_watchdog_and_one_stuck_line_and_a_lone_service_left_undeployed_its_own(
@@ -11325,7 +11326,7 @@ def test_23_staging_waits_of_4_jobs_on_one_env_make_one_stall_one_watchdog_and_o
         "j3": [staged_on(target, "5f986a0") for target in STAGING_TARGETS],
         "j4": [staged_on("api", "c5dca80ed9be"), staged_on("dashboard", "2c18705b7744")],
     }
-    thing, serving = f"staging:{state.STAGING_ENV}", "the watch's last release live read finds it serving"
+    thing, serving = f"staging:{STAGING_ENV}", "the watch's last release live read finds it serving"
     with state.edit(demo) as data:
         data["orders"]["o1"]["jobs"] = list(waits)
         data["jobs"]["j1"] |= {"state": "waiting", "waits": waits["j1"]}
@@ -11346,14 +11347,14 @@ def test_23_staging_waits_of_4_jobs_on_one_env_make_one_stall_one_watchdog_and_o
     staging = [line for line in lines if line.startswith("Staging:")]
     assert len(staging) == len(STAGING_TARGETS)
     assert {
-        f"Staging: api on {state.STAGING_ENV}, awaited at 6d44e8728ec1, 5f986a0, c5dca80ed9be: {serving} afb881f92076 of rc/2026-11-15/4",
-        f"Staging: sandsql on {state.STAGING_ENV}, awaited at 15a282a50022, 5f986a0: {serving} f0f336aa2315 of release-emergency/2026-11-15/3",
-        f"Staging: staging-smoke on {state.STAGING_ENV}, awaited at 5f986a0: {serving} afb881f92076 of rc/2026-11-15/4",
-        f"Staging: dashboard on {state.STAGING_ENV}, awaited at 6d44e8728ec1, 5f986a0, 2c18705b7744: {serving} 8ab0e2526f06 of release-emergency/2026-11-15/4",
+        f"Staging: api on {STAGING_ENV}, awaited at 6d44e8728ec1, 5f986a0, c5dca80ed9be: {serving} afb881f92076 of rc/2026-11-15/4",
+        f"Staging: sandsql on {STAGING_ENV}, awaited at 15a282a50022, 5f986a0: {serving} f0f336aa2315 of release-emergency/2026-11-15/3",
+        f"Staging: staging-smoke on {STAGING_ENV}, awaited at 5f986a0: {serving} afb881f92076 of rc/2026-11-15/4",
+        f"Staging: dashboard on {STAGING_ENV}, awaited at 6d44e8728ec1, 5f986a0, 2c18705b7744: {serving} 8ab0e2526f06 of release-emergency/2026-11-15/4",
     } <= set(staging)
     watchdog_answered(out)
     [stuck] = watch.stall_lines(watching, T0 + timedelta(minutes=68))
-    assert stuck.startswith(f"STUCK j1 o1: {thing}, which holds j1, j2, j3, j4, unmoved 68 minutes: {state.STAGING_ENV} running api at 6d44e8728ec1 or a build carrying it")
+    assert stuck.startswith(f"STUCK j1 o1: {thing}, which holds j1, j2, j3, j4, unmoved 68 minutes: {STAGING_ENV} running api at 6d44e8728ec1 or a build carrying it")
     for minutes in (69, 97, 98, 99):
         assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
     assert (ready_records, len(watchdogs), list(state.load(demo)["stalls"])) == ([], 1, [thing])
@@ -11368,11 +11369,11 @@ def test_23_staging_waits_of_4_jobs_on_one_env_make_one_stall_one_watchdog_and_o
     [_, (brief, out)] = watchdogs
     assert brief.splitlines()[0] == f"Stall: {thing}, which holds j3, unmoved 60 minutes"
     assert [line for line in brief.splitlines() if line.startswith("Staging:")] == [
-        f"Staging: cloudrunner-next on {state.STAGING_ENV}, awaited at 5f986a0: {serving} 8ab0e2526f06 of release-emergency/2026-11-15/4"
+        f"Staging: cloudrunner-next on {STAGING_ENV}, awaited at 5f986a0: {serving} 8ab0e2526f06 of release-emergency/2026-11-15/4"
     ]
     watchdog_answered(out)
     assert watch.stall_lines(watching, T0 + timedelta(minutes=168)) == [
-        f"STUCK j3 o1: {thing}, which holds j3, unmoved 68 minutes: {state.STAGING_ENV} running cloudrunner-next at 5f986a0 or a build carrying it https://github.com/{state.MONOREPO}/commit/5f986a0."
+        f"STUCK j3 o1: {thing}, which holds j3, unmoved 68 minutes: {STAGING_ENV} running cloudrunner-next at 5f986a0 or a build carrying it https://github.com/{state.MONOREPO}/commit/5f986a0."
         f" WHY: {READERS_FIRST}, and j2 waits on {FOOTER}, which the lander has not merged; NEXT: drive pr land {FOOTER}; its whole answer, WHO and UNREAD with it, in {out}"
     ]
 
@@ -11434,22 +11435,22 @@ def test_stall_projection_indexes_questions_and_release_cuts_once_per_pass(demo:
         assert scans == [count] * (minute + 1)
         assert unindexed == []
     kept = state.load(demo)["stalls"]
-    assert list(kept) == [f"staging:{state.STAGING_ENV}"]
-    assert kept[f"staging:{state.STAGING_ENV}"]["since"] == state.stamp(T0)
+    assert list(kept) == [f"staging:{STAGING_ENV}"]
+    assert kept[f"staging:{STAGING_ENV}"]["since"] == state.stamp(T0)
 
 
 def test_release_waits_fold_into_one_stall_per_pr_and_env_and_staging_waits_into_one_per_env(demo: str) -> None:
     with state.edit(demo) as data:
         data["orders"]["o1"]["jobs"] = ["j1", "j2"]
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1")
-        data["jobs"]["j1"] |= {"state": "waiting", "waits": [f"release:api:{OTHER}", f"release:rsw-go:{OTHER}", f"release:api:{OTHER}@{state.STAGING_ENV}", staged_on("api", "6d44e8728ec1")]}
+        data["jobs"]["j1"] |= {"state": "waiting", "waits": [f"release:api:{OTHER}", f"release:rsw-go:{OTHER}", f"release:api:{OTHER}@{STAGING_ENV}", staged_on("api", "6d44e8728ec1")]}
         data["jobs"]["j2"] = job(state="waiting", waits=[f"release:executor:{OTHER}", f"release:api:{KEY}", staged_on("rsw-go", "5f986a0")])
     data = state.load(demo)
     found = stall.things(data, stall.chains(data, NO_CARDS, False, T0), [])
     assert {thing: (held["members"], held["subjects"], held["joins"]) for thing, held in found.items()} == {
         f"release:{OTHER}": ([f"release:api:{OTHER}", f"release:rsw-go:{OTHER}", f"release:executor:{OTHER}"], ["j1", "j2"], True),
-        f"release:{OTHER}@{state.STAGING_ENV}": ([f"release:api:{OTHER}@{state.STAGING_ENV}"], ["j1"], True),
-        f"staging:{state.STAGING_ENV}": ([staged_on("api", "6d44e8728ec1"), staged_on("rsw-go", "5f986a0")], ["j1", "j2"], True),
+        f"release:{OTHER}@{STAGING_ENV}": ([f"release:api:{OTHER}@{STAGING_ENV}"], ["j1"], True),
+        f"staging:{STAGING_ENV}": ([staged_on("api", "6d44e8728ec1"), staged_on("rsw-go", "5f986a0")], ["j1", "j2"], True),
         f"release:{KEY}": ([f"release:api:{KEY}"], ["j2"], True),
     }
 
@@ -11479,7 +11480,7 @@ def staging_claim(ts: str) -> str:
 def test_a_staging_env_another_drives_staging_claim_holds_stands_behind_it_with_no_watchdog_stuck_line_or_line_to_him_until_its_end_starts_its_hour(
     demo: str, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]]
 ) -> None:
-    thing, ends = f"staging:{state.STAGING_ENV}", T0 + timedelta(minutes=90)
+    thing, ends = f"staging:{STAGING_ENV}", T0 + timedelta(minutes=90)
     with state.edit(demo) as data:
         data["jobs"]["j1"] |= {"state": "waiting", "waits": [staged_on("api", "6d44e8728ec1"), staged_on("rsw-go", "6d44e8728ec1")]}
         data["orders"]["o1"]["claims"] = {"1794746488.439069": {"channel": "C0STAGING1", "link": staging_claim("1794746488.439069"), "until": state.stamp(T0 + timedelta(hours=4)), "since": "1794746488.439069", "said": None, "replies_read": state.stamp(T0)}}
@@ -11501,7 +11502,7 @@ def test_a_staging_env_another_drives_staging_claim_holds_stands_behind_it_with_
     assert brief.splitlines()[0] == f"Stall: {thing}, which holds j1, unmoved 60 minutes"
     watchdog_answered(out)
     [stuck] = watch.stall_lines(watching, T0 + timedelta(minutes=158))
-    assert stuck.startswith(f"STUCK j1 o1: {thing}, which holds j1, unmoved 68 minutes: {state.STAGING_ENV} running api at 6d44e8728ec1")
+    assert stuck.startswith(f"STUCK j1 o1: {thing}, which holds j1, unmoved 68 minutes: {STAGING_ENV} running api at 6d44e8728ec1")
     with state.edit("durable") as data:
         data["orders"]["o717"]["claims"]["1794762734.416779"] |= {"until": state.stamp(T0 + timedelta(hours=5)), "since": "1794790000.000001"}
     for minutes in (160, 188, 200, 250):
