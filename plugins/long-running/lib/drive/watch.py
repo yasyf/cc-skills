@@ -2781,10 +2781,15 @@ def claim_reply_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         watcher.failures.pop(source, None)
         replies = [message for message in messages if float(message["ts"]) > float(ts) and not (message.get("from_claude") or message.get("from_bot"))]
-        with state.edit(watcher.name) as data:
+
+        def replies_read(data: dict) -> bool:
             if ts not in (claims := data["orders"][order_id]["claims"]):
-                continue
+                return False
             claims[ts]["replies_read"] = state.stamp(moment)
+            return True
+
+        if not state.update(watcher.name, None, replies_read):
+            continue
         if not replies:
             lines.append(f"DUE {order_id} claim {held['link']} is 5 minutes old with no reply in its thread: the work it claims may start, as the repository's staging-claim rule says")
             continue
