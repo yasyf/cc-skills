@@ -312,7 +312,7 @@ def start(name: str, keys: list[str]) -> None:
                     pr["checker"] = {"head": pr["head"], "pid": os.getpid(), "at": at, "orders": None, "answers": None, "outcome": None, "against": "", "faulted": [], "uncited": [], "until": None}
         return at, marked
 
-    at, marked = state.update(name, rows, mark)
+    at, marked = state.write(name, mark)
     if not marked:
         return
     started: dict[tuple[str, ...], int] = {}
@@ -328,7 +328,7 @@ def start(name: str, keys: list[str]) -> None:
         for unit, (key, _) in marked.items():
             started[unit] = spawn(name, key)
     finally:
-        state.update(name, tuple(("prs", member, "checker") for unit in marked for member in unit), own)
+        state.write(name, own)
 
 
 def spawn(name: str, key: str) -> int:
@@ -359,7 +359,7 @@ def carry(name: str, keys: list[str]) -> list[str]:
                 carried.append(key)
         return carried
 
-    return state.update(name, None, carried_checks)
+    return state.write(name, carried_checks)
 
 
 def unread(pr: dict) -> bool:
