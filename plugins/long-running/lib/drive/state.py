@@ -5755,14 +5755,19 @@ def repo_rules(data: dict) -> list[str]:
 
 
 def dangerous(data: dict, paths: list[str]) -> dict[str, list[str]]:
-    """Each class of dangerous change a [[dangerous]] table of the repository's .claude/long-running.toml names, with the paths of these that make it: each its globs match, as fnmatch reads a glob, whose `*` crosses a `/`, that is no test file, as served.TESTS reads one, and that no glob of its [skip] table matches."""
+    """Each class of dangerous change a [[dangerous]] table of the repository's .claude/long-running.toml names, and beside them each path the repository provider's dangerous_paths names, as PROVIDER_DANGEROUS, since the monorepo moved its classes there and its toml lists none, which let #57530 and #57528 reach his Approve with no staging test, with the paths of these that make it: each its globs match, as fnmatch reads a glob, whose `*` crosses a `/`, that is no test file, as served.TESTS reads one, and that no glob of its [skip] table matches."""
     from drive import served
 
     config = repo_config(data)
     skipped = config.get("skip", {}).get("paths", [])
     counted = [path for path in paths if not served.TESTS.search(path) and not any(fnmatchcase(path, glob) for glob in skipped)]
     found = {table["class"]: [path for path in counted if any(fnmatchcase(path, glob) for glob in table["paths"])] for table in config.get("dangerous", [])}
+    listed = {path for made in found.values() for path in made}
+    found[PROVIDER_DANGEROUS] = [path for path in provided(data).repo.dangerous_paths(counted) if path not in listed]
     return {kind: made for kind, made in found.items() if made}
+
+
+PROVIDER_DANGEROUS = "a dangerous change its repository provider's dangerous_paths names"
 
 
 def seat(data: dict, session: str) -> dict | None:

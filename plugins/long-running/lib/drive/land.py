@@ -118,6 +118,11 @@ def dangerous(data: dict, paths: list[str]) -> list[str]:
     return [path for path in providers.of(data).repo.dangerous_paths(paths) if not served.TESTS.search(path)]
 
 
+def lifted(pr: dict) -> bool:
+    """Whether its builder's `STAGING: none: <why>` lifted the PR's staging test at its head, by state.unstage, or his answer let it merge first."""
+    return bool(pr["unstaged"]) and (pr["unstaged"]["merges_first"] or pr["unstaged"]["head"] == pr["head"])
+
+
 def danger(data: dict, key: str) -> str:
     """What makes a Forge-AI PR dangerous, so it lands or releases only while he is present: each path dangerous() names, as GitHub lists its files now, else an order's `staging test of #N before it lands` part for it, delivered or not, which a builder's STAGING line gives only a change it read as dangerous, an infra or blue-green one included whatever its paths; "" for neither."""
     if found := dangerous(data, github.files(key)):
@@ -658,11 +663,16 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
             below = uncleared_below(data, keys)
             misfiled = {key: why for key in keys if (why := unexempt(data, key))}
             untested = {key: unstaged for key, unstaged in cli.staging_reach(name, data, [key for key in keys if data["prs"][key]["wants_tap"]]).items() if not state.staging_tested(data, key) and not (unstaged and (data["prs"][key]["exception"] or {}).get("granted"))}
-            if (untested or misfiled) and not dry_run:
+            changed = {key: github.files(key) for key in keys if key not in untested and not state.staging_tested(data, key) and not lifted(data["prs"][key])}
+            risky = {key: made for key, files in changed.items() if (made := dangerous(data, files))}
+            if (untested or misfiled or risky) and not dry_run:
 
                 def reached(edited: dict) -> None:
                     for key, unstaged in untested.items():
                         state.reach_staging(edited, key, unstaged)
+                    for key, made in risky.items():
+                        edited["prs"][key]["paths_at"] = None
+                        state.mark_dangerous(edited, key, edited["prs"][key]["head"], changed[key])
                     for key in misfiled:
                         if edited["prs"][key]["exempt"] == state.CI_ONLY:
                             edited["prs"][key].update(exempt=None, wants_tap=True)
@@ -678,6 +688,8 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
                     else f"{key} waits on its staging test before it lands, since its paths at its head reach a component staging runs"
                     for key, unstaged in untested.items()
                 )
+            elif risky:
+                outcome = f"{WAITED}: " + "; ".join(f"{key} waits on its staging test before it lands, since its head changes {', '.join(made[:3])}{', …' if len(made) > 3 else ''}, a dangerous change by AGENTS.md" for key, made in risky.items())
             elif away := next((why for key in keys if (why := unattended(data, key, state.now()))), None):
                 outcome = f"{AWAY}: {away}"
             elif below:

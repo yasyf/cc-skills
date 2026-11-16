@@ -366,6 +366,20 @@ def test_the_watch_reads_the_reach_once_and_takes_each_pr_an_older_reach_staged_
     assert (watch.reach_lines(watcher(demo), T0), asked) == ([], [[KEY, OTHER]])
 
 
+def test_a_pr_whose_head_changes_a_path_the_repository_providers_dangerous_paths_names_is_staged_with_no_dangerous_table_as_57530_and_57528_were_not(
+    home_repo: None, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(providers.RepoProvider, "dangerous_paths", lambda self, paths: [path for path in paths if "/builtins/" in path])
+    changed = {KEY: ("aaaaaaa111", ["go/sand/next/internal/vm/builtins/browserpkg/extract.go", "go/sand/next/internal/iris/run_pages.go"])}
+    monkeypatch.setattr(github, "paths", lambda keys: {key: changed[key] for key in keys if key in changed})
+    [line] = watch.dangerous_lines(watcher(demo), T0)
+    data, part = state.load(demo), state.STAGING_TEST.format(number=42)
+    (tester_id,) = [job_id for job_id, job in data["jobs"].items() if state.builds_nothing(job)]
+    assert line.startswith(f'PR {KEY}: {tester_id} builder on "{part}"')
+    assert data["prs"][KEY]["waits"] == [f"o1:{part}"]
+    assert f"changes {state.PROVIDER_DANGEROUS}: go/sand/next/internal/vm/builtins/browserpkg/extract.go, each a dangerous change" in data["jobs"][tester_id]["goal"]
+
+
 def test_a_green_approved_pr_only_its_staging_test_holds_from_a_production_release_lands_now_unless_it_is_dangerous(home_repo: None, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     held, kept = state.STAGING_TEST.format(number=42), state.STAGING_TEST.format(number=43)
     with state.edit(demo) as data:
