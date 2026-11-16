@@ -24,8 +24,8 @@ def live_drives_holding(repo: str, number: int) -> list[str]:
     return [folder.name for folder in sorted(found.iterdir()) if (folder / store.LIVE).exists() and any((row["repo"], row["number"]) == (repo, number) for lane in store.load_all(folder.name).values() for row in lane["prs"])]
 
 
-def tapped(drive: str, repo: str, number: int, label: str, head: str, source: str, ts: str | None = None) -> list[str]:
-    """His Approve or Hold on a lane PR at a head, written on each row carrying it: an Approve sets its approved_head and lifts his Hold, so lane-land lands it on its next pass, and a Hold names when and where he gave it; a waiting lane carrying it wakes. A tap given with its ts, his Slack action's or the moment his dashboard sent it, is his presence too, so a dangerous PR he approves lands within his 15 minutes; one recorded by hand passes none and moves no presence. The lanes it was written on."""
+def tapped(drive: str, repo: str, number: int, label: str, head: str, source: str, ts: str | None = None, named: bool = False) -> list[str]:
+    """His Approve or Hold on a lane PR at a head, written on each row carrying it: an Approve sets its approved_head, so lane-land lands it on its next pass, and lifts his Hold only as his later word on that PR: a tap that names it, not a stack card covering it, whose ts is after the Hold, or within PRESENT_SECONDS for a Hold whose time is unknown, so a replayed or carried Approve never clears a Hold, as #17808's did; and a Hold names when and where he gave it; a waiting lane carrying it wakes. A tap given with its ts, his Slack action's or the moment his dashboard sent it, is his presence too, so a dangerous PR he approves lands within his 15 minutes; one recorded by hand passes none and moves no presence. The lanes it was written on."""
     if label not in TAP_LABELS:
         raise store.Refused(f"his tap is Approve or Hold, not {label!r}")
     carrying = [lane_id for lane_id, lane in store.load_all(drive).items() if any((row["repo"], row["number"]) == (repo, number) for row in lane["prs"])]
@@ -37,9 +37,11 @@ def tapped(drive: str, repo: str, number: int, label: str, head: str, source: st
         for row in lane["prs"]:
             if (row["repo"], row["number"]) == (repo, number):
                 if label == "Approve":
-                    row["approved_head"], row["held"] = head, None
+                    row["approved_head"] = head
+                    if row["held"] and named and later(ts, row.get("held_at")):
+                        row["held"], row["held_at"] = None, None
                 else:
-                    row["held"] = f"his Hold at {head[:12]}, {source}, {moment}"
+                    row["held"], row["held_at"] = f"his Hold at {head[:12]}, {source}, {moment}", ts or f"{store.now().timestamp():.6f}"
         store.note(lane, f"his {label} on {repo}#{number} at {head[:12]}, {source}")
         if lane["state"] == store.WAITING:
             woken(lane, f"his {label} on {repo}#{number}")
@@ -421,3 +423,13 @@ def wake(drive: str, lane_id: str, why: str) -> None:
     from lane import supervisor
 
     supervisor.run_pass(drive, only={lane_id}, read_outside=False)
+
+
+PRESENT_SECONDS = 900
+
+
+def later(ts: str | None, held_at: str | None) -> bool:
+    """Whether a tap at Slack ts comes after the Hold it would lift: after held_at when the Hold kept its time, else within PRESENT_SECONDS of now, his live word; never for a tap with no ts."""
+    if not ts:
+        return False
+    return float(ts) > float(held_at) if held_at else store.now().timestamp() - float(ts) < PRESENT_SECONDS

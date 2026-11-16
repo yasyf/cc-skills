@@ -1007,7 +1007,7 @@ def lane_tapped(ask: dict) -> bool:
         for drive in lanes.live_drives_holding(repo, int(number)):
             if not head:
                 raise state.DriveError(f"his {ask['label']} on {member} names no head")
-            lanes.tapped(drive, repo, int(number), ask["label"], head, ask["source"], ask["action_ts"] or f"{time.time():.6f}")
+            lanes.tapped(drive, repo, int(number), ask["label"], head, ask["source"], ask["action_ts"] or f"{time.time():.6f}", named=member == tapped and bool(ask["action_ts"]))
             landed = True
     return landed
 
