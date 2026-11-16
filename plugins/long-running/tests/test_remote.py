@@ -1114,6 +1114,25 @@ def test_launch_starts_a_job_added_with_no_agent_as_a_remote_lane(
     assert (job["where"], job["dispatch"]) == ("remote", DISPATCH)
 
 
+def test_a_launch_after_a_failed_launch_takes_a_fresh_worker_id_and_closes_the_failed_ones_terminal(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    jobs = state.drive_dir(remote) / "jobs"
+    failed = jobs / "j1.worker"
+    failed.mkdir(parents=True, exist_ok=True)
+    (failed / orca.LAUNCH_LOG).write_text("== orca-worker-launch.sh exited 1\n")
+    (failed / "worker-start.json").write_text("{}")
+    (failed / "worker-start.status").write_text("1\n")
+    (failed / "terminal").write_text("term_failed\n")
+    unsent = jobs / "j1-2.worker"
+    unsent.mkdir()
+    (unsent / orca.LAUNCH_LOG).write_text("== orca-worker-launch.sh exited 1\n")
+    (unsent / "worker-start.unsent").write_text("")
+    closed: list[str] = []
+    monkeypatch.setattr(orca, "close_pane", lambda terminal: closed.append(terminal))
+    job = state.load(remote)["jobs"]["j1"] | {"dispatch": None, "deaths": []}
+    assert cli.launch_brief(remote, "j1", job) == jobs / "j1-2.md"
+    assert closed == ["term_failed"]
+
+
 def test_a_launch_briefs_a_builder_none_briefed_and_carries_each_answer_it_holds_under_his_answers_since(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

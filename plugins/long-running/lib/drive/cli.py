@@ -4109,11 +4109,19 @@ def crowded_here(name: str, data: dict, job_id: str, step: str | None, text: str
 
 
 def launch_brief(name: str, job_id: str, job: dict) -> Path:
-    """The file the job's next start keeps its brief in, whose name is the launcher's attempt: numbered after the lanes the job recorded dying, and past every attempt whose kept receipt names a dispatch the job recorded, since the launcher gives a brief one attempt and Orca may have dropped that dispatch; an attempt that started no worker, or one the drive never recorded, is used again, so the launcher retries it or adopted records it."""
+    """The file the job's next start keeps its brief in, whose name is the launcher's attempt: numbered after the lanes the job recorded dying, and past every attempt whose kept receipt names a dispatch the job recorded, since the launcher gives a brief one attempt and Orca may have dropped that dispatch; an attempt the drive never recorded whose worker-start may still have started a worker, or whose Sprite's worker-start sent nothing, is used again, so adopted records it or the launcher retries that Sprite; an attempt the launcher ran and failed before any worker started is passed over for a fresh worker id, its own terminal closed, so no launch reuses the terminal and worktree a failed one kept."""
     recorded = {job.get("dispatch"), *(death["dispatch"] for death in job.get("deaths", []))} - {None}
     first = len(job.get("deaths", [])) + 1
-    briefs = (state.drive_dir(name) / "jobs" / (f"{job_id}-{number}.md" if number > 1 else f"{job_id}.md") for number in range(first, first + len(recorded) + 1))
-    return next(kept for kept in briefs if (orca.kept_start(kept) or {}).get("dispatchId") not in recorded)
+    number = first
+    while True:
+        kept = state.drive_dir(name) / "jobs" / (f"{job_id}-{number}.md" if number > 1 else f"{job_id}.md")
+        number += 1
+        if (orca.kept_start(kept) or {}).get("dispatchId") in recorded:
+            continue
+        if not orca.failed_attempt(kept):
+            return kept
+        if (left := orca.attempt_terminal(kept)) and (refused := orca.close_pane(left)):
+            state.said(job_id, f"its failed attempt {kept.stem}'s terminal {left} stays open: {refused}")
 
 
 def record_start(name: str, job_id: str, started: dict | None, handoff: str | None, text: str | None = None) -> dict:

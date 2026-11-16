@@ -1033,6 +1033,21 @@ def adopted(brief: Path) -> dict | None:
 
 
 
+def failed_attempt(brief: Path) -> bool:
+    """Whether the launcher ran the attempt of this brief and it failed before any worker started: its launch.log records a run, and its worker-start never began or exited non-zero, except a Sprite whose worker-start sent nothing, which the next launch reuses."""
+    attempt = brief.with_suffix(".worker")
+    if not (attempt / LAUNCH_LOG).is_file() or unsent(brief):
+        return False
+    status = attempt / "worker-start.status"
+    return not (attempt / "worker-start.json").exists() or status.is_file() and status.read_text().strip() != "0"
+
+
+def attempt_terminal(brief: Path) -> str | None:
+    """The Orca terminal the launcher kept for the attempt of this brief, None when it kept none."""
+    kept = brief.with_suffix(".worker") / "terminal"
+    return kept.read_text().strip() or None if kept.is_file() else None
+
+
 def kept_start(brief: Path) -> dict | None:
     """The ready worker-start receipt the launcher keeps in the attempt of this brief, None when that attempt started no worker or there is none."""
     attempt = brief.with_suffix(".worker")
