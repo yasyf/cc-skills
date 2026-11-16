@@ -995,27 +995,39 @@ def test_a_watch_that_stops_ends_its_relay_process_before_it_returns(demo: str, 
     assert [thread.name for thread in threading.enumerate() if thread.name.endswith("(relayed_lines)")] == []
 
 
-def test_the_watch_hands_on_each_line_its_relay_process_writes_keeps_the_untracked_prs_its_landing_loop_writes_and_stops_on_the_first_that_ended_unasked(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    started: dict[str, subprocess.Popen] = {}
-    written = {"--respond": "time.sleep(3600)", "--relay": "os.write({lines}, b'DUE o1 was due\\nDUE o2 was due\\n'); raise SystemExit(1)", "--land": 'os.write({lines}, b\'{{"yasyf/cc-skills#9": "MERGED"}}\\n\'); time.sleep(3600)'}
+def test_the_watch_hands_on_each_line_its_relay_process_writes_keeps_the_untracked_prs_its_landing_loop_writes_and_starts_again_one_that_ended_unasked(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    started: list[tuple[str, subprocess.Popen]] = []
+    written = {
+        "--respond": ["time.sleep(3600)"],
+        "--relay": ["os.write({lines}, b'DUE o1 was due\\nDUE o2 was due\\n'); raise SystemExit(2)", "os.write({lines}, b'DUE o3 was due\\n'); time.sleep(3600)"],
+        "--land": ['os.write({lines}, b\'{{"yasyf/cc-skills#9": "MERGED"}}\\n\'); time.sleep(3600)'],
+    }
 
     def spawn(watcher: watch.Watcher, flag: str, lines: int) -> subprocess.Popen:
-        started[flag] = subprocess.Popen([sys.executable, "-c", "import os, time; " + written[flag].format(lines=lines)], pass_fds=(lines,))
-        return started[flag]
+        child = subprocess.Popen([sys.executable, "-c", "import os, time; " + written[flag].pop(0).format(lines=lines)], pass_fds=(lines,))
+        started.append((flag, child))
+        return child
 
-    took = threading.Event()
-    real_took = watch.took_untracked
+    again = threading.Event()
+
+    class Relayed(list[str]):
+        def append(self, line: str) -> None:
+            super().append(line)
+            if line == "DUE o3 was due":
+                again.set()
+
     monkeypatch.setattr(watch, "spawn", spawn)
-    monkeypatch.setattr(watch, "took_untracked", lambda watching, line: real_took(watching, line) or took.set())
+    monkeypatch.setattr(launchd, "RESTART_SECONDS", 0)
     watching = watcher(demo)
+    watching.relayed = Relayed()
     with watch.relaying(watching):
-        assert took.wait(30)
-        started["--relay"].wait()
-    assert (list(watching.relayed), watching.untracked, str(watching.relay_error)) == (
-        ["DUE o1 was due", "DUE o2 was due"],
+        assert again.wait(30)
+    [first, second] = [child for flag, child in started if flag == "--relay"]
+    assert (list(watching.relayed), watching.untracked) == (
+        ["DUE o1 was due", "DUE o2 was due", f"WATCH the relay, process {first.pid}, exited 2; the watch starts it again within 0 seconds; its output is in {state.watch_log_path(demo)}", "DUE o3 was due"],
         {"yasyf/cc-skills#9": "MERGED"},
-        f"the relay, process {started['--relay'].pid}, exited 1; its output is in {state.watch_log_path(demo)}",
     )
+    assert [(flag, child.returncode) for flag, child in started] == [("--respond", -signal.SIGTERM), ("--relay", 2), ("--land", -signal.SIGTERM), ("--relay", -signal.SIGTERM)]
 
 
 def relay_passes(monkeypatch: pytest.MonkeyPatch, ended_on: int) -> list[str]:
@@ -2592,6 +2604,23 @@ def test_replaying_o2103_an_order_he_called_top_priority_owes_a_line_every_five_
     assert calls[0][0]["text"] == "POST order o1 has had no line to him in 5 minutes: post where it stands now in its thread"
 
 
+def test_replaying_o2138_the_relay_starts_the_handler_on_a_line_he_asked_every_fifteen_minutes_at_its_minute_while_a_pass_that_began_before_then_still_runs(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    threaded(demo)
+    said = due_owed(monkeypatch)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["state"] = "waiting"
+        data["orders"]["o1"]["every"] = 15
+    relaying = watcher(demo)
+    mid_pass(monkeypatch, lambda: watch.relay_pass(relaying, T0 + timedelta(minutes=15)))
+    watch.run_pass(watcher(demo), T0 + timedelta(minutes=14))
+    [report, brief] = said
+    assert report["text"] == "POST order o1 has had no line to him in 15 minutes: post where it stands now in its thread"
+    assert brief == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-901'}"
+
+
 def test_an_order_with_a_thread_owes_a_line_there_every_five_quiet_minutes_while_a_job_of_it_works_and_after_each_step_none_within_five_minutes_of_its_last_line_none_for_a_stage_relabel_or_a_new_head_failing_as_before_and_none_for_news_a_handler_got_and_never_posted(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3147,16 +3176,6 @@ def upgrades(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, installs: list[boo
 def mid_pass(monkeypatch: pytest.MonkeyPatch, before_lane_lines: Callable[[], object]) -> None:
     real = watch.lane_lines
     monkeypatch.setattr(watch, "lane_lines", lambda watching, moment: before_lane_lines() or real(watching, moment))
-
-
-def test_a_pass_ends_on_the_error_its_relay_ended_on_after_the_stage_it_ran_beside_keeping_that_stages_lines(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    watching = watcher(demo)
-    later: list[str] = []
-    monkeypatch.setattr(watch, "event_lines", lambda relayed: setattr(relayed, "relay_error", OSError("relay read failed")) or ["ANSWER j1 kept"])
-    monkeypatch.setattr(orca, "speak_as_drive", later.append)
-    with pytest.raises(OSError, match="^relay read failed$"):
-        list(watch.passed(watching, T0))
-    assert (later, watching.made) == ([], ["ANSWER j1 kept"])
 
 
 def test_a_line_whose_post_failed_goes_to_the_watch_its_launch_agent_starts_on_the_newer_install_it_ended_for_between_passes(
@@ -11194,12 +11213,14 @@ def test_o852s_close_in_record_682673_replayed_stays_open_with_its_five_minute_l
     o852(demo)
     live = {"55166": True, "55225": False}
     calls = incident_reads(monkeypatch, {"341360574": "OK"}, live, tmp_path)
-    watching = watcher(demo)
+    watching, relaying = watcher(demo), watcher(demo)
     assert [line for line in watch.run_pass(watching, T0) if line.startswith("RECOVERED")] == []
+    watch.relay_pass(relaying, T0)
     data = state.load(demo)
     assert (data["jobs"]["j2322"]["state"], "fixed" in data["orders"]["o852"], data["orders"]["o852"]["recovered"]) == ("done", False, None)
     assert "o852" in [entry["id"] for entry in view.incidents(data)]
     assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=6)) if line.startswith("RECOVERED")] == []
+    watch.relay_pass(relaying, T0 + timedelta(minutes=6))
     data = state.load(demo)
     topics = [record["topic"] for records in ready_records for record in records]
     assert (data["orders"]["o852"]["proof"], bool(data["orders"]["o852"]["quiet"]), "watch-recovered-o852" in topics) == (None, True, False)
@@ -11248,6 +11269,7 @@ def test_an_incident_closes_once_its_monitor_reads_ok_and_its_merged_fix_pr_runs
         data["orders"]["o2"] = order(text="also the migration check should not stop a sand that can read", jobs=[], incident=True, joins="o1", parts={"the migration check": state.new_part()})
     watching = watcher(demo)
     lines = [line for line in watch.run_pass(watching, T0) if line.startswith("RECOVERED")]
+    watch.quiet_lines(watching, T0)
     data = state.load(demo)
     searches = [argv for argv in calls if argv[0] == "pup"]
     assert [argv[argv.index("--query") + 1] for argv in searches] == ["id:(315028134)"] * (live and part == "fix")
@@ -11285,9 +11307,11 @@ def test_an_incident_closes_once_its_monitor_reads_ok_and_its_merged_fix_pr_runs
     assert view.incidents(data) == []
     monkeypatch.setattr(watch.agents, "handle", lambda name, brief, **_: ("h1", False))
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=1)) if line.startswith("RECOVERED")]
+    watch.quiet_lines(watching, T0 + timedelta(minutes=1))
     assert ready_records[1:] == []
     reads[OTHER] = read(headRefOid="bbbbbbb222", checks=GREEN)
     watch.run_pass(watching, T0 + state.QUIET_THREAD)
+    watch.quiet_lines(watching, T0 + state.QUIET_THREAD)
     assert ([argv[1:3] if argv[0] != "pup" else ["pup"] for argv in calls], [records[0]["attr"] for records in ready_records[1:]]) == (
         [["release", "live"], ["pup"]],
         [{"order": "o3", "progress": "true", "quiet": "true", "thread": "1794200000.000100"}],
