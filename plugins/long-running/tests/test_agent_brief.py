@@ -482,16 +482,17 @@ def test_a_first_sprite_lane_at_the_cap_is_never_refused_or_queued_since_its_lau
     assert state.load(demo)["jobs"]["j1"]["waits"] == []
 
 
-def test_a_relaunch_or_takeover_waits_its_turn_in_its_own_process_until_the_sprite_cap_has_room(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_relaunch_or_takeover_the_sprite_cap_refuses_records_its_admission_wait_and_held_text_and_exits_and_one_admitted_goes_on(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Hotfix", "ship his fix", "--parts", "the hotfix")
     run("job", "add", "builder", "--order", "o1", "--part", "the hotfix", "--goal", "build the hotfix")
     full = {"local": {}, "sprite": {f"other/x{number}": f"x{number} builder on o9, its Sprite lane at work" for number in range(30)}}
-    reads = iter([full, full, {"local": {}, "sprite": {}}])
-    monkeypatch.setattr(place, "lanes", lambda moment: next(reads))
-    monkeypatch.setattr(place, "TURN_SECONDS", 0)
-    place.await_admission(demo, "j1", "sprite")
-    assert capsys.readouterr().err.startswith("j1: waits its turn for a Sprite lane: 30 Sprite lanes run across this Mac's drives, at its cap of 30")
-    assert next(reads, None) is None
+    monkeypatch.setattr(place, "lanes", lambda moment: full)
+    with pytest.raises(state.DriveError, match=r"^j1: not launched yet: 30 Sprite lanes run across this Mac's drives, at its cap of 30 .*, so it waits on admission:sprite and the watch runs drive job launch j1 once this Mac admits it$"):
+        place.await_admission(demo, "j1", "sprite", ["job", "launch", "j1"], "fix the conflict")
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["waits"], job["admission"]["argv"], [text["words"] for text in job["undelivered"]]) == (["admission:sprite"], ["job", "launch", "j1"], ["fix the conflict"])
+    monkeypatch.setattr(place, "lanes", lambda moment: {"local": {}, "sprite": {}})
+    assert place.await_admission(demo, "j1", "sprite", ["job", "launch", "j1"]) is None
 
 
 def test_drive_job_start_starts_a_briefed_reader_as_its_own_session_bound_as_the_agent_of_its_orders_session_and_starts_no_second_beside_it(

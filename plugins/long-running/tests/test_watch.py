@@ -4893,6 +4893,22 @@ def test_a_staging_parts_gap_names_only_its_testers_never_a_job_running_its_rele
     ]
 
 
+def test_a_lane_its_launch_left_waiting_on_admission_opens_an_asks_blocked_step_after_ten_minutes_and_the_watch_runs_its_launch_again_once_admitted(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    detached = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or 0)
+    why = "30 Sprite lanes run across this Mac's drives, at its cap of 30"
+    with edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", waits=["admission:sprite"], admission={"why": why, "argv": ["job", "launch", "j1"], "at": state.stamp(T0)})
+    monkeypatch.setattr(place, "admission", lambda data, job_id, where, moment: why)
+    monkeypatch.setattr(state, "class_rank", lambda data, job: 0)
+    assert (watch.spawn_lines(watcher(demo), T0 + timedelta(minutes=11)), detached) == ([], [])
+    assert owing.waiting(state.load(demo), T0 + timedelta(minutes=11))["j1"] == ("admission:sprite", f"its lane has waited since {render.when(state.stamp(T0))} on admission:sprite: {why}")
+    monkeypatch.setattr(place, "admission", lambda data, job_id, where, moment: None)
+    watch.spawn_lines(watcher(demo), T0 + timedelta(minutes=12))
+    job = state.load(demo)["jobs"]["j1"]
+    assert (detached, job["waits"], job["admission"]) == ([["job", "launch", "j1"]], [], None)
+
+
 @pytest.mark.parametrize("ran", [None, "/drive/scratch/j1/codex"], ids=["never-launched", "run-ended"])
 def test_a_freed_codex_job_is_launched_by_the_watch_or_its_queue_with_no_free_line_to_wake_a_session_whether_or_not_a_codex_ask_run_ended_since_its_launch(
     demo: str, monkeypatch: pytest.MonkeyPatch, ran: str | None

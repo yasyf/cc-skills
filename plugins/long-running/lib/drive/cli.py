@@ -3836,7 +3836,10 @@ def take_report(name: str, job_id: str, whole: str, read_prs: bool = True, tell:
         data["jobs"][job_id]["cut_misses"] = misses
         held = built and state.change_job(data, job["order"], [], data["jobs"][job_id]["waits"], job_id, built["branch"], job["repo"], proving=state.builds_nothing(job))
         replaced = []
-        if held:
+        if held and state.cycle_refusal(data, job_id, [*data["jobs"][job_id]["waits"], held[0]]):
+            state.hold_text(held[1], f"{job_id} built on {built['branch']}, the branch you carry, and returned: {line}", state.held_sender(data))
+            replaced = [f"{job_id} built on {built['branch']}, which {held[0]} carries, and {held[0]} waits on {job_id}, so its return goes to {held[0]} as a held text and {job_id} waits on nothing new"]
+        elif held:
             data["jobs"][job_id]["waits"] = list(dict.fromkeys([*data["jobs"][job_id]["waits"], held[0]]))
             replaced = [f"{job_id} built on {built['branch']}, which {held[0]} carries, a branch having one change job, so {job_id} waits on {held[0]} and the work queue starts it again once {held[0]} finishes"]
         state.take_result(data, job_id, line, whole)
@@ -4829,7 +4832,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
     ):
         raise DriveError(f"{job_id}: refused, not launched: {refused}")
     if taker or died or not local or step:
-        place.await_admission(name, job_id, "local" if local else "sprite")
+        place.await_admission(name, job_id, "local" if local else "sprite", ["job", "launch", job_id, *(["--local"] if local else [])], text)
     with place.admitting():
         if crowd := admission_refusal(name, data, job_id, local, step, bool(taker or died)):
             raise DriveError(f"{job_id}: not launched yet: {crowd}")
@@ -5049,7 +5052,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
     job = data["jobs"][args.id]
     message = "\n\n".join(state.handed_texts(job, text)) or None
     here = here or declared is not None
-    place.await_admission(name, args.id, "local" if here or state.on_mac(job) else "sprite")
+    place.await_admission(name, args.id, "local" if here or state.on_mac(job) else "sprite", ["job", "resume", args.id, place.ADMITTED], text)
     read = fault = own = None
     answered = True
     if not (end.live or end.ended or state.on_mac(job) or (end.worktree and here)):

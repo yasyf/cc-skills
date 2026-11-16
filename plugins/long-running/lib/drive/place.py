@@ -25,7 +25,6 @@ CAP_NAMES = {"local": "local Claude lanes work", "sprite": "Sprite lanes run"}
 LANES_FILE = "lane-counts.json"
 LANES_SECONDS = 20
 ADMISSION_LOCK = "admission.lock"
-TURN_SECONDS = 30
 
 
 def cpu_ticks() -> tuple[int, int]:
@@ -240,18 +239,25 @@ def admission(data: dict, job_id: str | None, where: str, moment: datetime) -> s
     return f"{len(held)} {CAP_NAMES[where]} across this Mac's drives, at its {'priority ' if priority else ''}cap of {cap} set by {state.root() / CAPS_FILE} ({shown}{'; …' if len(held) > 5 else ''})"
 
 
-def await_admission(name: str, job_id: str, where: str) -> None:
-    """Return once this Mac admits a lane of the drive's job where it starts next, "local" or "sprite", by admission, reading again every TURN_SECONDS while it does not and saying on stderr once why it waits, so a relaunch or takeover, which adds a lane in place of one that ended or moved, waits its turn in the process that starts it rather than failing; one preempts lets through returns at once."""
-    told = False
-    while True:
-        with admitting():
-            if not (why := admission(state.load(name), job_id, where, state.now())):
-                counted_again()
-                return
-        if not told:
-            print(f"{job_id}: waits its turn for a {'lane here' if where == 'local' else 'Sprite lane'}: {why}", file=sys.stderr, flush=True)
-            told = True
-        time.sleep(TURN_SECONDS)
+ADMITTED = "This Mac admits your lane now, after its caps held it: carry the job on, the texts held for it below."
+
+
+def await_admission(name: str, job_id: str, where: str, argv: list[str], text: str | None = None) -> None:
+    """Return once this Mac admits a lane of the drive's job where it starts next, "local" or "sprite", by admission; else mark the job waiting on state.ADMISSION_WAITS's wait for where, with why and the drive command argv that starts it, holding the text this start carried so nothing is lost, and refuse, so the launch process exits, drive status and owing.waiting see the wait, and the watch runs argv once this Mac admits the lane."""
+    with admitting():
+        if not (why := admission(state.load(name), job_id, where, state.now())):
+            counted_again()
+            return
+    wait = state.ADMISSION_WAITS[where]
+
+    def held(data: dict) -> None:
+        job = data["jobs"][job_id]
+        job.update(waits=list(dict.fromkeys([*job["waits"], wait])), admission={"why": why, "argv": argv, "at": state.stamp()})
+        if text:
+            state.hold_text(job, text, state.held_sender(data))
+
+    state.write(name, held)
+    raise state.DriveError(f"{job_id}: not launched yet: {why}, so it waits on {wait} and the watch runs drive {argv[0]} {argv[1]} {job_id} once this Mac admits it")
 
 
 def cap_of(where: str, priority: bool) -> int:

@@ -1075,6 +1075,8 @@ def wait_entry(drive: dict, wait: str, found: dict) -> dict:
         return {"title": f"process {process['pid']} on this Mac ending", "url": None}
     if reserved := state.RESERVED_WAIT.fullmatch(wait):
         return {"title": f"{reserved['job']}'s release start on this Mac ending", "url": None}
+    if wait in state.ADMISSION_WAITS.values():
+        return {"title": f"a {'lane on this Mac' if wait == state.ADMISSION_WAITS['local'] else 'Sprite lane'} this Mac's caps admit", "url": None}
     if card := asked_card(found, wait):
         return {"title": card["question"], "url": card["url"]}
     return {"title": "his question card", "url": wait if wait.startswith("https://") else None}

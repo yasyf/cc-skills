@@ -151,7 +151,7 @@ def settle(data: dict, moment: datetime) -> bool:
 
 
 def waiting(data: dict, moment: datetime) -> dict[str, tuple[str, str]]:
-    """Each job of an incident's or asked order waiting on a contended resource, with what blocks it, as a reason that stays the same while the block does, and why in words: a stage-test item the queue starts no cut for, by work.STAGE.why_not, a release the train holds behind a cut, by state.train_waiting, and a build or prove item ready SLOT_QUIET or more with no worker of the queue, so a brief routine wait says nothing, by his words "make the tooling even less chatty"."""
+    """Each job of an incident's or asked order waiting on a contended resource, with what blocks it, as a reason that stays the same while the block does, and why in words: a lane its own launch left waiting on admission, by place.await_admission, SLOT_QUIET after it began, a stage-test item the queue starts no cut for, by work.STAGE.why_not, a release the train holds behind a cut, by state.train_waiting, and a build or prove item ready SLOT_QUIET or more with no worker of the queue, so a brief routine wait says nothing, by his words "make the tooling even less chatty"."""
     from drive import work
 
     held = {}
@@ -166,6 +166,13 @@ def waiting(data: dict, moment: datetime) -> dict[str, tuple[str, str]]:
         if kind is not work.STAGE
         for job_id in kind.line(data)
         if moment - state.parse_time((job := data["jobs"][job_id])["updated"]) >= SLOT_QUIET
+    }
+    held |= {
+        job_id: (wait, f"its lane has waited since {when(job['admission']['at'])} on {wait}: {job['admission']['why']}")
+        for job_id, job in data["jobs"].items()
+        if job.get("admission") and job["state"] not in state.FINISHED_JOB_STATES
+        and (wait := next((wait for wait in job["waits"] if wait in state.ADMISSION_WAITS.values()), None))
+        and moment - state.parse_time(job["admission"]["at"]) >= SLOT_QUIET
     }
     return {job_id: found for job_id, found in held.items() if state.class_rank(data, data["jobs"][job_id]) < state.CLASSES.index("process")}
 

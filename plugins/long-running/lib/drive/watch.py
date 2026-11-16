@@ -5210,12 +5210,28 @@ def starts_itself(job: dict) -> bool:
 
 
 def spawn_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Run the work queue's spawner on every pass of the drive's own watch, right after its orphans, ahead of the READ_EVERY reads and the slow stages, so an urgent item, a priority order's or an incident's, starts a worker past the elastic cap in the pass it turns ready, by his words on a priority order, "they aren't slowed down at any cost by anything": record a worker for each kind but stage-test, which work_lines starts once its items' files are read, and each pool first writing the brief of each item that would be ready but has none, by cli.write_brief from what the drive holds, as drive job launch briefs a first lane, a refusal kept as its brief_error for its ORPHAN to name; then that wants one while the caps admit it, by work.spawned, and start each by drive work start, or a codex item by drive job launch; a pass where no kind wants one writes nothing. Its lines go as evidence and wake nobody."""
+    """Run the work queue's spawner on every pass of the drive's own watch, right after its orphans, first running again the drive command of each job its own launch left waiting on admission, by place.await_admission, once this Mac admits it, ahead of the READ_EVERY reads and the slow stages, so an urgent item, a priority order's or an incident's, starts a worker past the elastic cap in the pass it turns ready, by his words on a priority order, "they aren't slowed down at any cost by anything": record a worker for each kind but stage-test, which work_lines starts once its items' files are read, and each pool first writing the brief of each item that would be ready but has none, by cli.write_brief from what the drive holds, as drive job launch briefs a first lane, a refusal kept as its brief_error for its ORPHAN to name; then that wants one while the caps admit it, by work.spawned, and start each by drive work start, or a codex item by drive job launch; a pass where no kind wants one writes nothing. Its lines go as evidence and wake nobody."""
     from drive import cli
 
     if watcher.project:
         return []
     data = state.load(watcher.name)
+    admitted = [
+        (job_id, wait, job["admission"]["argv"])
+        for job_id, job in data["jobs"].items()
+        if job.get("admission") and job["state"] not in state.FINISHED_JOB_STATES and heard_job(watcher, data, job) and not busy(watcher, job_id, moment)
+        and (wait := next((wait for wait in job["waits"] if wait in state.ADMISSION_WAITS.values()), None))
+        and not place.admission(data, job_id, wait.removeprefix("admission:"), moment)
+    ]
+    if admitted:
+        def admitted_write(data: dict) -> None:
+            for job_id, wait, _ in admitted:
+                data["jobs"][job_id].update(waits=[held for held in data["jobs"][job_id]["waits"] if held != wait], admission=None)
+
+        state.write(watcher.name, admitted_write, budget=state.WATCH_WRITE_SECONDS)
+        for job_id, _, argv in admitted:
+            start_verb(watcher, job_id, argv, moment)
+        data = state.load(watcher.name)
     for job_id in work.unbriefed(data, moment, UNSTARTED_FOR):
         prs = data["jobs"][job_id]["prs"]
         try:

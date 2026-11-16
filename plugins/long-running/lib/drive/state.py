@@ -214,7 +214,8 @@ LINE_JOB = re.compile(r"(?<![\w:/.-])j\d+(?![\w@-]|['’]s\b)")
 LINE_ORDER = re.compile(r"(?<![\w:/.-])o\d+(?![\w:@-])")
 USAGE_LIMIT_LOG = "claude-usage-limits.jsonl"
 CUT_WAIT = "release-cut"
-TURN_WAITS = (CUT_WAIT,)
+ADMISSION_WAITS = {"local": "admission:local", "sprite": "admission:sprite"}
+TURN_WAITS = (CUT_WAIT, *ADMISSION_WAITS.values())
 USAGE_LIMIT = re.compile(r"You've hit your (?P<limit>\w+) limit · resets (?P<resets>.+?) \((?P<zone>[^)]+)\)")
 LIMIT_RESET = re.compile(r"(?:(?P<day>[A-Z][a-z]{2} \d{1,2}) at )?(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?P<half>am|pm)")
 HOLDS_NOW = "## Holds now"
@@ -2437,7 +2438,7 @@ def start(job: dict) -> None:
     if job.get("ask"):
         hold_text(job, job["said"], None, job["ask_at"])
     said = None if job["said"] == NOT_STARTED else job["said"]
-    job.update(state=run_state(job), said=said, ask=None, waits=[wait for wait in job["waits"] if wait not in TURN_WAITS], updated=stamp(), worker_started=stamp())
+    job.update(state=run_state(job), said=said, ask=None, waits=[wait for wait in job["waits"] if wait not in TURN_WAITS], updated=stamp(), worker_started=stamp(), admission=None)
 
 
 def run_state(job: dict) -> str:
