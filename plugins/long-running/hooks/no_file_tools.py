@@ -18,7 +18,7 @@ WHOLE_OUTPUT = re.compile(
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive's coordinator, communicator or meta session may not open a file itself: Claude Code puts each file opened with Read, Write or Edit back into the session after every compaction."""
+    """Why a drive's coordinator or meta session may not open a file itself, while the communicator, which answers him itself as a root session would, opens any: Claude Code puts each file opened with Read, Write or Edit back into the session after every compaction."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
@@ -28,6 +28,8 @@ def deny_reason(payload: dict) -> str | None:
     role = state.session_role(state.saved(names[0]), session)
     if payload["tool_name"] == "Bash":
         return bash_reason(role, payload["tool_input"]["command"])
+    if role == "communicator":
+        return None
     return (
         f"refused: the {role} opens no file with {payload['tool_name']}, since Claude Code puts each file opened with"
         " Read, Write or Edit back into this session after every compaction. Read a page of the skill with"

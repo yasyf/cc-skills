@@ -8,16 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import agents, limits, place, render, shell, state, superseded
 
-OWN_TOOLS = {
-    *(render.SLACK_TOOLS + tool for tool in render.COMMUNICATOR_SLACK),
-    *(render.DRIVE_TOOLS + tool for tool in render.COMMUNICATOR_DRIVE),
-    "SendMessage",
-    "ToolSearch",
-}
-PICKUP = render.SLACK_TOOLS + "slack_pickup"
-POSTS = {render.SLACK_TOOLS + tool for tool in ("slack_dm_status", "slack_reply", "slack_send", "slack_edit")}
-OWN_SKILLS = {"long-running", "long-running:long-running"}
-OWN_PROGRAMS = (["drive"], ["cc-slack"], ["cci", "drive", "use"])
+CCI_WRITES = {render.CCI_TOOLS + "post", render.CCI_TOOLS + "close"}
 RESUME = re.compile(r"\bdrive job resume\b.*?\b(j\d+)\b")
 STATE_CLAIM = re.compile(
     r"(?<!\bif )(?<!\bwhen )(?<!\bonce )(?<!\bunless )\byou(?:'ve| have| are|'re| seem(?: to be)?| look| were| got)?(?: been| gone| went)?"
@@ -33,7 +24,7 @@ READ_WINDOW = timedelta(minutes=10)
 
 
 def program(command: str) -> list[str]:
-    """The words of the first simple command a Bash call runs, its program named without the path or quotes that call it, as `"/x/bin/cc-slack" thread` runs `cc-slack thread`; none when the shell cannot read the call."""
+    """The words of the first simple command a Bash call runs, its program named without the path or quotes that call it, as `"/x/bin/cci" post` runs `cci post`; none when the shell cannot read the call."""
     try:
         commands = shell.simple_commands(shell.runnable(command))
     except ValueError:
@@ -41,48 +32,12 @@ def program(command: str) -> list[str]:
     return [Path(commands[0][0]).name, *commands[0][1:]] if commands else []
 
 
-def own_call(payload: dict) -> bool:
-    """Whether a call is one the communicator makes itself: the ack through say, a +1, its DM's watch, SendMessage, ToolSearch, this skill, the drive's heard, handler, record, order and job tools, a `drive` or `cc-slack` command in Bash by whatever path calls it, which starts it and stands in for a drive tool its session does not list, and `cci drive use`, which its start block orders."""
+def communicator_call(payload: dict) -> agents.Unjudged | None:
+    """Why the communicator's call does not run: it answers him itself with every tool a root session has, by his words "it needs to be just as fast and fluid asking me things and making the right judgement calls as you would", so only a cci write is refused, since the drive's record tool sends its records."""
     name = payload["tool_name"]
-    call = payload["tool_input"]
-    if name == "Skill":
-        return call.get("skill") in OWN_SKILLS
-    if name == "Bash":
-        words = program(call.get("command") or "")
-        return any(words[: len(own)] == own for own in OWN_PROGRAMS)
-    return name in OWN_TOOLS
-
-
-def communicator_call(payload: dict) -> agents.Unjudged:
-    """Why the communicator's turn does not run a call that is not its own, decided by the tool's name alone, so Jev never weighs it and the same call meets the same refusal every time."""
-    name = payload["tool_name"]
-    if name.startswith(render.CCI_TOOLS) or name == "Bash" and program(payload["tool_input"].get("command") or "")[:1] == ["cci"]:
+    if name in CCI_WRITES or name == "Bash" and program(payload["tool_input"].get("command") or "")[:2] in (["cci", "post"], ["cci", "close"]):
         return agents.Unjudged(f"Refused on purpose: {render.RECORDING}")
-    if name == PICKUP:
-        return agents.Unjudged(f"Refused on purpose: {render.EYES} Go on with the ack.")
-    if name in POSTS:
-        return agents.Unjudged(
-            f"Refused on purpose: {name} holds the post until cc-slack's Slack permission check has read it,"
-            " seconds past the 5 to 10 his ack has. Post the ack with say(thread_ts=<his thread>, text=<the ack>),"
-            " which Jev reads in about 0.2 s before it posts, and reword a post of yours with say(edit=<its permalink>, text=…)."
-        )
-    if name == "Agent":
-        return agents.Unjudged(
-            "Refused on purpose: the communicator starts no agent with the Agent tool. His order for a subagent of the communicator,"
-            ' such as "do it in a subagent you start right now that is opus and is a personal subagent of the communicator" or'
-            ' "the communicator should spawn a read only subagent", is a handler: start it with the drive\'s handler tool, its brief'
-            f" his words verbatim in its lines, {', '.join(f'{label}:' for label in render.HANDLER_LABELS)}, and no owner record, since"
-            " the handler does that work in its own claude --bg session and its line comes back as one cci record. That is his"
-            ' Nov 11 pick, "drive handler starts each as a claude --bg session that ends by posting one cci line: compacting every'
-            ' 6.5 hours, 1.6 GB while one runs", and the Agent tool\'s launch result and finish notice added 2,232 characters to'
-            " the communicator's context per handler, 76,000 of the 147,000 tokens it grew an hour."
-        )
-    return agents.Unjudged(
-        f"Refused on purpose: the communicator does not run {name} itself, since work in its turn holds his"
-        f" next message behind it: a read, draft or post of any kind is a handler's. Its own calls are {render.OWN_CALLS}."
-        f" Start a handler with the drive's handler tool, briefed with this step in its lines, {', '.join(render.HANDLER_LABELS)};"
-        " it does the read, draft or post and its line comes back as one cci record."
-    )
+    return None
 
 
 def aimed(payload: dict) -> bool:
@@ -191,7 +146,7 @@ def deny_reason(payload: dict) -> str | None:
     if not names:
         return None
     if state.session_role(state.saved(names[0]), session) == "communicator":
-        return None if own_call(payload) else communicator_call(payload)
+        return communicator_call(payload)
     if not aimed(payload):
         return None
     data = state.load(names[0])

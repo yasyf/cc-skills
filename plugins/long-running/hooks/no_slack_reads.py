@@ -8,7 +8,7 @@ from drive import agents, state
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive's coordinator, communicator or meta session may not read a Slack thread or channel itself: the whole read lands in its own context."""
+    """Why a drive's coordinator or meta session may not read a Slack thread or channel itself: the whole read lands in its own context."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
@@ -16,6 +16,8 @@ def deny_reason(payload: dict) -> str | None:
     if not names:
         return None
     role = state.session_role(state.saved(names[0]), session)
+    if role == "communicator":
+        return None
     return (
         f"refused: the {role} reads no Slack thread or channel itself with {payload['tool_name']}, since the whole"
         " read lands in this session's context and stays there: three reads of his DM threads by a coordinator put"

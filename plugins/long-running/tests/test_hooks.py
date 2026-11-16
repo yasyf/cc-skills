@@ -372,7 +372,7 @@ def test_a_drive_role_opens_no_file_and_its_agents_and_other_sessions_do(
     assert "a lesson is a cc-notes note (`ccn note add`)" in reason
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", "demo", "--role", "communicator")
-    assert no_file_tools.deny_reason(file_call("Edit", "talker")).startswith("refused: the communicator opens no file with Edit")
+    assert no_file_tools.deny_reason(file_call("Edit", "talker")) is None
     assert no_file_tools.deny_reason(file_call("Read", "talker", agent_id="a-1")) is None
     assert hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Write", "someone-else"))) == ""
 
@@ -389,7 +389,7 @@ def test_a_drive_role_reads_no_slack_thread_and_its_agents_and_other_sessions_do
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", "demo", "--role", "communicator")
     history = "mcp__plugin_cc-slack_cc-slack__slack_history"
-    assert no_slack_reads.deny_reason(file_call(history, "talker")).startswith("refused: the communicator reads no Slack")
+    assert no_slack_reads.deny_reason(file_call(history, "talker")) is None
     assert no_slack_reads.deny_reason(file_call(thread, "talker", agent_id="a-1")) is None
     assert hook_output(no_slack_reads, monkeypatch, capsys, json.dumps(file_call(history, "someone-else"))) == ""
 

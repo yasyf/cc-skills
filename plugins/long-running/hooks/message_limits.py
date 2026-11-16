@@ -1142,8 +1142,23 @@ def unroomed(post: int, parts: list[tuple[str, int]]) -> agents.Unjudged:
     )
 
 
+def own_communicator(payload: dict) -> bool:
+    """Whether the post is the communicator's own, typed in its turn, not a handler's, a subagent's or the watch's run of these checks under its session."""
+    return not payload.get("agent_id") and not os.environ.get(state.HANDLER_ENV) and not str(payload.get("tool_use_id") or "").startswith("watch-") and his_drive(payload.get("session_id") or "") is not None
+
+
+def mechanical(payload: dict) -> dict:
+    """What the say hook prints for the communicator's own post: only the checks a mark decides, a placeholder text, by his words "it needs to be just as fast and fluid asking me things and making the right judgement calls as you would", so no Jev pass, record or read gate holds his answer."""
+    text = (payload["tool_input"].get("text") or "").strip()
+    if PLACEHOLDER.fullmatch(text):
+        return denial(f"The text {text} is a placeholder, and Slack would send it as written. Pass the post's own words as text.")
+    return {}
+
+
 def hook_output(payload: dict) -> dict:
     """What the say hook prints for a call, empty when it lets the call through unjudged: a deny with the rule it stands for, a warning, and what Jev weighs a post by beside his words, the post the drive's watch makes of a proved order's live line read by the same checks, by talk.hook_refusal; a check that fails lets the post out unchecked with a warning, since a gate that cannot finish fails open."""
+    if own_communicator(payload):
+        return mechanical(payload)
     try:
         reason, sent = checked(payload)
         reads = [] if isinstance(reason, agents.Unjudged) else read_evidence(payload, sent.get("claims") or [])
