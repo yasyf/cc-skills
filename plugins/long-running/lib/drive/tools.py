@@ -302,7 +302,7 @@ def kind(shape: dict) -> str:
 
 def run(tool: str, name: str, arguments: dict) -> str:
     if tool == "say":
-        return talk.say(name, arguments)
+        return talk.say(name, talk.with_ticket(arguments))
     dry_run = arguments.pop("dry_run", False)
     match tool:
         case "record":

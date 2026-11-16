@@ -509,6 +509,18 @@ def test_say_with_done_marks_each_asked_message_done_once_it_posts_and_a_status_
     assert [argv for argv in posts if argv[0] == "pickup"] == [("pickup", "--channel", "C0CHZM7A478", "--ts", "1794828096.208109", "--thread", "1794827701.310319", "--done")]
 
 
+def test_a_say_an_old_mcp_server_hands_no_ticket_takes_the_sessions_ticket_the_hook_kept(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s1")
+    kept = tmp_path / "cc-slack" / "tickets"
+    kept.mkdir(parents=True)
+    (kept / "toolu_other.json").write_text(json.dumps({"ticket_id": "x", "ticket_tree": "s2", "session": "s2"}))
+    (kept / "toolu_mine.json").write_text(json.dumps({"ticket_id": "t1", "ticket_tree": "s1", "ticket_call": "toolu_mine", "session": "s1"}))
+    assert talk.with_ticket({"text": "hi"}) == {"text": "hi", "ticket_id": "t1", "ticket_tree": "s1", "ticket_call": "toolu_mine"}
+    assert sorted(path.name for path in kept.iterdir()) == ["toolu_other.json"]
+    assert talk.with_ticket({"text": "hi", "ticket_id": "given"}) == {"text": "hi", "ticket_id": "given"}
+
+
 def test_say_posts_the_words_its_hook_judged_and_checks_none_of_them_again(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:
     checked.findings = ["1:5 drive-term 'fence': say what happens to the reader's work instead"]
     with state.edit(demo) as data:

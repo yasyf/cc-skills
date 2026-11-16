@@ -54,6 +54,25 @@ def finished(asked: object) -> str:
     return "".join([f"; marked done {', '.join(marked)}" if marked else "", f"; not marked done {', '.join(failed)}" if failed else ""])
 
 
+TICKET_FRESH_SECONDS = 120
+
+
+def with_ticket(arguments: dict) -> dict:
+    """The say call's arguments with the ticket cc-slack's permission hook kept for it, when the MCP server handed it none: a server started before the install that reads tickets by tool use id keeps running its old outer loop, since /reload-plugins restarts no stdio server whose command is unchanged, while every call runs here in the newest install; the session's oldest ticket file from the last TICKET_FRESH_SECONDS is this call's, as the hook writes one per call just before it."""
+    if "ticket_id" in arguments or not (session := os.environ.get("CLAUDE_CODE_SESSION_ID")):
+        return arguments
+    from drive import mcp
+
+    fresh = time.time() - TICKET_FRESH_SECONDS
+    kept = sorted((path for path in mcp.tickets_dir().glob("*.json") if path.stat().st_mtime >= fresh), key=lambda path: path.stat().st_mtime)
+    for path in kept:
+        ticket = json.loads(path.read_text())
+        if ticket.get("ticket_tree") == session or ticket.get("session") == session:
+            path.unlink(missing_ok=True)
+            return arguments | {key: value for key, value in ticket.items() if key in TICKET_FLAGS}
+    return arguments
+
+
 def mended(post: dict) -> dict:
     """The post with each bare link worded, as the say hook words it, made here too with no second check-post, since Claude Code keeps one PreToolUse hook's updatedInput and cc-slack's permission hook hands back the words as typed with its ticket, which dropped the say hook's fix on p1794828271074249."""
     from drive import fixes
