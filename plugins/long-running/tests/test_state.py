@@ -438,7 +438,7 @@ def test_an_update_another_write_raced_runs_again_on_the_drive_as_it_then_stands
         data["terminal"] = f"mine over {data['terminal']}"
         return data["terminal"]
 
-    assert state.update("demo", (("", "terminal"),), keep) == "mine over theirs"
+    assert state.write("demo", keep) == "mine over theirs"
     assert (runs, state.load("demo")["terminal"], state.load("demo")["binder"]) == ([None, "theirs too"], "mine over theirs", "theirs too")
     assert not (state.drive_dir("demo") / "locks.log").exists()
 
@@ -454,7 +454,7 @@ def test_an_update_raced_on_every_run_runs_on_as_a_write_naming_no_rows(state_ro
             elsewhere({"terminal": f"theirs {len(runs)}"})
         data["terminal"] = "mine"
 
-    state.update("demo", (("", "terminal"),), keep)
+    state.write("demo", keep)
     assert (runs, state.load("demo")["terminal"]) == (["", "theirs 1", "theirs 2"], "mine")
 
 
@@ -465,7 +465,7 @@ def test_an_update_changing_a_row_it_did_not_name_runs_again_as_a_write_naming_n
         data["terminal"] = "term-1"
         data["binder"] = "term-2"
 
-    state.update("demo", (("", "terminal"),), keep)
+    state.write("demo", keep)
     assert (state.load("demo")["terminal"], state.load("demo")["binder"]) == ("term-1", "term-2")
 
 

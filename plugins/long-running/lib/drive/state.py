@@ -485,7 +485,7 @@ def keep_limit_hit(names: list[str], session: str, cwd: str, hit: dict) -> str |
 
     job_id = None
     for name in names:
-        if job_id := update(name, None, hit_kept):
+        if job_id := write(name, hit_kept):
             break
     log = root() / USAGE_LIMIT_LOG
     log.parent.mkdir(parents=True, exist_ok=True)
@@ -810,7 +810,7 @@ def keep_reply_saved(name: str, job_id: str, message: dict) -> None:
     if (attempt := ATTEMPT.get()) is not None and attempt.name == name:
         owe_reply(name, attempt.data, job_id, message)
         return
-    after_save(name, Keeping(name, job_id, reply_row(message)))
+    after(Keeping(name, job_id, reply_row(message)))
 
 
 def owe_reply(name: str, data: dict, job_id: str, message: dict) -> None:
@@ -2139,7 +2139,7 @@ def wait_unstarted(name: str, data: dict) -> None:
             for job_id in stale:
                 data["jobs"][job_id].update(state="waiting", said=NOT_STARTED)
 
-        update(name, None, unstarted)
+        write(name, unstarted)
     (drive_dir(name) / UNSTARTED_WAITING).touch()
 
 
@@ -2160,7 +2160,7 @@ def reopen_jev_fold(name: str, data: dict) -> None:
             question_in(job, folded).update(closed=None, replaced=None, card=None, waits=new_waits(name, job_id))
             job["undelivered"] = [kept for kept in job["undelivered"] if kept["seq"] != closed["seq"]]
 
-        update(name, None, reopened)
+        write(name, reopened)
     (drive_dir(name) / JEV_FOLD_REOPENED).touch()
 
 
@@ -2175,7 +2175,7 @@ def read_handoff_jobs(name: str, data: dict) -> None:
         for record in [agents.shown(handoff["seq"]), *agents.answering(name, handoff["seq"])]
     ]
     if answers:
-        update(name, None, lambda data: answer_handoffs(data, answers))
+        write(name, lambda data: answer_handoffs(data, answers))
     (drive_dir(name) / HANDOFF_JOBS).touch()
 
 
@@ -2203,7 +2203,7 @@ def record_lane_worktrees(name: str, data: dict) -> None:
                 else:
                     data["jobs"][job_id]["worktree"] = worktree
 
-        update(name, None, lanes_recorded)
+        write(name, lanes_recorded)
     (drive_dir(name) / LANE_WORKTREES).touch()
 
 
@@ -2483,7 +2483,7 @@ def went(name: str, data: dict, job_id: str, texts: list[dict], how: str) -> Non
     job = data["jobs"][job_id]
     events = [{"job": job_id, "order": job["order"], "words": kept["words"], "held": kept["at"], "how": how, "lane": heard_job_lane(data, job)} for kept in texts if kept.get("said")]
     if events:
-        after_save(name, lambda: [append_event(name, TEXT_WENT, **event) for event in events] and [])
+        after(lambda: [append_event(name, TEXT_WENT, **event) for event in events] and [])
 
 
 def hand_held(data: dict, job_id: str, into: str) -> None:
@@ -6109,7 +6109,7 @@ def returned(name: str, data: dict, job_id: str, line: str) -> None:
         append_event(name, RETURNED, **fields)
         return []
 
-    after_save(name, said)
+    after(said)
 
 
 def job_lane(data: dict, job: dict) -> str:
