@@ -1049,7 +1049,7 @@ def env_alert_lines(watcher: Watcher, moment: datetime) -> list[str]:
         def env_alert_write(saved: dict, env=env, newest=fresh[-1]["ts"]):
             saved["slack"]["env_alerts"][env]["seen"] = newest
 
-        state.write(watcher.name, env_alert_write, budget=state.WATCH_WRITE_SECONDS)
+        state.write(watcher.name, env_alert_write, patient=True)
     return lines
 
 
@@ -1513,7 +1513,7 @@ def owner_page_lines(watcher: Watcher, moment: datetime) -> list[str]:
         def owner_page_lines_write(edited: dict):
             edited["orders"][key]["paged"] = state.stamp(moment)
 
-        state.write(watcher.name, owner_page_lines_write, budget=state.WATCH_WRITE_SECONDS)
+        state.write(watcher.name, owner_page_lines_write, patient=True)
         lines.append(f"WATCH paged him for incident {key} while he is away: {paged}")
     return lines
 
@@ -2826,7 +2826,7 @@ def digest_lines(watcher: Watcher, moment: datetime) -> list[str]:
     def digest_lines_write(saved: dict):
         saved["slack"]["digest"] = folded
 
-    state.write(watcher.name, digest_lines_write, budget=state.WATCH_WRITE_SECONDS)
+    state.write(watcher.name, digest_lines_write, patient=True)
     return [f"DIGEST {day}: {len(old)} of his question cards asked more than a day ago, linked in {folded['message']}"] if old else []
 
 
@@ -2851,7 +2851,7 @@ def waiting_post_lines(watcher: Watcher, moment: datetime) -> list[str]:
             def waiting_post_lines_write2(saved: dict):
                 saved["slack"]["waiting"][channel] = kept
 
-            state.write(watcher.name, waiting_post_lines_write2, budget=state.WATCH_WRITE_SECONDS)
+            state.write(watcher.name, waiting_post_lines_write2, patient=True)
         if not kept or kept["pinned"]:
             continue
         try:
@@ -2863,7 +2863,7 @@ def waiting_post_lines(watcher: Watcher, moment: datetime) -> list[str]:
         def waiting_post_lines_write(saved: dict):
             saved["slack"]["waiting"][channel]["pinned"] = True
 
-        state.write(watcher.name, waiting_post_lines_write, budget=state.WATCH_WRITE_SECONDS)
+        state.write(watcher.name, waiting_post_lines_write, patient=True)
     return lines
 
 
@@ -3169,7 +3169,7 @@ def withdrawn_lines(watcher: Watcher, moment: datetime) -> list[str]:
         def withdrawn_lines_write(data: dict):
             state.answer_handoffs(data, [(seq, "withdraw", {}) for seq in withdrawn])
 
-        state.write(watcher.name, withdrawn_lines_write, budget=state.WATCH_WRITE_SECONDS)
+        state.write(watcher.name, withdrawn_lines_write, patient=True)
     return []
 
 
@@ -5468,8 +5468,8 @@ def proof_due(data: dict, job_id: str) -> bool:
         return not train.holds(merges_of(data, job_id))
     if proof.get("waits"):
         heard = data["owner"]["heard"]
-        return state.holder(proof) is None and bool(heard) and state.parse_time(heard) > state.parse_time(proof["at"]) and wait_moved(data, job_id, proof)
-    return "result" not in proof and proof["version"] != state.VERSION and state.holder(proof) is None
+        return not land.runs(proof) and bool(heard) and state.parse_time(heard) > state.parse_time(proof["at"]) and wait_moved(data, job_id, proof)
+    return "result" not in proof and proof["version"] != state.VERSION and not land.runs(proof)
 
 
 def unlaunched(proof: dict) -> bool:
@@ -5501,7 +5501,7 @@ def proving(data: dict, job_id: str) -> bool:
         or bool(unproved(data, job_id))
         or bool(train.holds(merges_of(data, job_id)))
         or proof["said"] == job["said"]
-        and bool(proof.get("waits") or state.holder(proof) is not None)
+        and bool(proof.get("waits") or land.runs(proof))
     )
 
 
@@ -6490,7 +6490,7 @@ def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str
                 data["prs"][key]["review_asked"] = pr["head"]
                 return data
 
-            data = state.write(watcher.name, acted_write3, budget=state.WATCH_WRITE_SECONDS)
+            data = state.write(watcher.name, acted_write3, patient=True)
     elif now.name == "unlanded" or not entered:
         said.append(f"STAGE {line}")
         def acted_write(data: dict):

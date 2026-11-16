@@ -186,7 +186,13 @@ def unexempt(data: dict, key: str) -> str | None:
 def running(pr: dict) -> bool:
     """Whether a lander still holds the PR's try with no outcome: the watch or tap that reserved it, until a child adopts it, or the child that adopted it, by state.holder."""
     lander = pr["lander"]
-    return bool(lander) and lander["outcome"] is None and state.holder(lander) is not None
+    return bool(lander) and lander["outcome"] is None and runs(lander)
+
+
+def runs(record: dict) -> bool:
+    """Whether the process a lander's or proof's record names still runs: its reservation's holder, by state.holder, or the pid an install before reservations kept on it, so a lander or proof that install started still reads running after the install that ships reservations restarts the watch."""
+    # TODO: delete the pid read once no drive keeps a lander or proof record an install before reservations wrote
+    return state.holder(record) is not None or "state" not in record and "pid" in record and state.alive(record["pid"])
 
 
 def attempt(lander: dict) -> object:
