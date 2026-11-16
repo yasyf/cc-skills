@@ -5722,6 +5722,8 @@ def answer(args: argparse.Namespace) -> int:
                 f" check asks to hold his words: label it {served.CODE_LABEL}{folder}"
             )
     cited = settled.shown(args.id, cwd) if args.id else None
+    if cited and settled.paraphrased(cited):
+        raise DriveError(f"{args.id} is a session's paraphrase, labelled {settled.PARAPHRASE_LABEL}, which settles no card, order or release: record his own words with --title, --words and --link")
     if cited:
         args.id = cited["id"]
     if cited and "superseded_by" in cited:
@@ -5761,8 +5763,6 @@ def answer(args: argparse.Namespace) -> int:
                 " and mark them once you have read it"
             )
         if cited:
-            if settled.paraphrased(cited):
-                raise DriveError(f"{args.id} is a session's paraphrase, labelled {settled.PARAPHRASE_LABEL}, which settles no card, order or release: record his own words with --title, --words and --link")
             if args.words:
                 unsaid = settled.unsaid([args.words], args.link, found, data)
             else:

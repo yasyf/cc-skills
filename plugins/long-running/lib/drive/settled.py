@@ -490,7 +490,7 @@ def card_refusal(job_id: str, question: dict, file: Path) -> str | None:
 
 
 def recorded(name: str, title: str, words: str, labels: list[str], where: str, cwd: str, lifts: Iterable[str] = ()) -> str:
-    """Record his answer on the drive in cc-notes, the question as its title as `titled` fits it, his words as its body with the whole question in its notes when its title is cut, and the drive's labels before these, superseding by it each answer of the drive's still standing under that same question, so his changed pick leaves one answer per question for ccn answer match to rank, and each answer of his the question's card asked him to lift, by `lifting` its unsettled mark, that `lift` reads his answer replacing, and return its id; a standing answer cc-notes holds already under that title in those words, as a tap, a handler or an earlier call recorded it, is that answer, so its id comes back and nothing is added. A refusal names his words, the question and the card or message where he gave them."""
+    """Record his answer on the drive in cc-notes, the question as its title as `titled` fits it, his words as its body with the whole question in its notes when its title is cut, and the drive's labels before these, a paraphrase, labelled PARAPHRASE_LABEL, kept off `scope:durable` so no read of his rulings ranks it, superseding and lifting nothing; else superseding by it each answer of the drive's still standing under that same question, so his changed pick leaves one answer per question for ccn answer match to rank, and each answer of his the question's card asked him to lift, by `lifting` its unsettled mark, that `lift` reads his answer replacing, and return its id; a standing answer cc-notes holds already under that title in those words, as a tap, a handler or an earlier call recorded it, is that answer, so its id comes back and nothing is added. A refusal names his words, the question and the card or message where he gave them."""
     handle = titled(title)
     said = (plain(handle), plain(words))
     paraphrase = PARAPHRASE_LABEL in labels
@@ -499,7 +499,7 @@ def recorded(name: str, title: str, words: str, labels: list[str], where: str, c
         return kept["id"]
     body = words if handle == title else f"{words}{NOTES}{WHOLE}{title}"
     standing = [answer["id"] for answer in listed(f"drive:{name}", cwd) if state.same_question(answer["title"], handle)]
-    add = ["ccn", "answer", "add", f"--title={handle}", "--body-file", "-", *(f"--label={label}" for label in ["scope:durable", f"drive:{name}", *kind(words), *labels]), "--json"]
+    add = ["ccn", "answer", "add", f"--title={handle}", "--body-file", "-", *(f"--label={label}" for label in ([f"drive:{name}", *labels] if paraphrase else ["scope:durable", f"drive:{name}", *kind(words), *labels])), "--json"]
     answer_id = json.loads(ccn(add, body, cwd, f'could not record in cc-notes his answer "{cut(words, 80)}" to "{cut(title, 120)}" on {where}'))["id"]
     if paraphrase:
         return answer_id
