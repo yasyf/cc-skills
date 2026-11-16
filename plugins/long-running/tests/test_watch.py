@@ -7657,18 +7657,23 @@ def test_replayed_56550_an_approved_pr_waiting_only_on_its_staging_tester_reads_
     assert stage.of(data, KEY, cards) == stage.Stage("waiting", owner, f"it waits on its staging run by j4542, {said}")
 
 
-def test_replayed_720960_a_pr_waiting_on_its_staging_test_is_owed_by_that_tester_never_by_the_job_the_testers_own_stale_wait_leads_to(demo: str) -> None:
+@pytest.mark.parametrize("looped", [False, True], ids=["the stale wait leads to an idle PR", "the stale wait loops back through its own tester and a second tester waits too"])
+def test_replayed_720960_a_pr_waiting_on_its_staging_test_is_owed_by_that_tester_never_by_where_the_testers_own_stale_wait_leads(demo: str, looped: bool) -> None:
     tested, shared, stale = "Forge-AI/monorepo#53471", ["Forge-AI/monorepo#56326", "Forge-AI/monorepo#56329"], "Forge-AI/monorepo#53304"
-    part = {key: state.STAGING_TEST.format(number=key.split("#")[1]) for key in [tested, *shared]}
+    part = {key: state.STAGING_TEST.format(number=key.split("#")[1]) for key in [tested, stale, *shared]}
     with state.edit(demo) as data:
-        data["orders"]["o1513"] = order(jobs=["j4830", "j4831", "j4832"], parts={part[tested]: state.new_part()})
-        data["orders"]["o143"] = order(jobs=["j4486", "j4487"], parts={part[key]: state.new_part() for key in shared})
-        data["jobs"]["j4830"] = job(order="o1513", prs=[state.pr_url(stale)])
+        data["orders"]["o1513"] = order(jobs=["j4830", "j4831", "j4832"], parts={part[tested]: state.new_part(), **({part[stale]: state.new_part()} if looped else {})})
+        data["orders"]["o143"] = order(jobs=["j4486", "j4487", *(["j6720"] if looped else [])], parts={part[key]: state.new_part() for key in shared})
+        if looped:
+            data["jobs"]["j4830"] = job(order="o1513", goal="test #53304 on staging", parts=[part[stale]], builds_nothing=True, state="waiting", waits=[tested], said=f"WAITING {state.pr_url(tested)} to take the slot after it")
+            data["jobs"]["j6720"] = job(order="o143", goal="take over j4486's staging tests", parts=[part[key] for key in shared], builds_nothing=True, state="waiting", waits=[tested], said=f"WAITING {state.pr_url(tested)} for the next cut")
+        else:
+            data["jobs"]["j4830"] = job(order="o1513", prs=[state.pr_url(stale)])
         data["jobs"]["j4831"] = job(order="o1513", goal="test #53471 on staging", parts=[part[tested]], builds_nothing=True, state="waiting", waits=[stale], said=f"WAITING {state.pr_url(stale)} for the one staging slot")
         data["jobs"]["j4832"] = job(order="o1513", prs=[state.pr_url(tested)])
         data["jobs"]["j4486"] = job(order="o143", goal="test #56326 and #56329 on staging", parts=[part[key] for key in shared], builds_nothing=True, state="waiting", waits=[tested], said=f"WAITING {state.pr_url(tested)} to share its cut")
         data["jobs"]["j4487"] = job(order="o143", prs=[state.pr_url(key) for key in shared])
-        data["prs"][stale] = state.new_pr(state.pr_url(stale), "j4830", "o1513") | {"head": "aaaaaaa111"}
+        data["prs"][stale] = state.new_pr(state.pr_url(stale), "j4830", "o1513") | {"head": "aaaaaaa111", **({"waits": [f"o1513:{part[stale]}"]} if looped else {})}
         data["prs"][tested] = state.new_pr(state.pr_url(tested), "j4832", "o1513") | {"head": "aaaaaaa111", "checks": "pass", "review": "approved", "waits": [f"o1513:{part[tested]}"]}
         for key in shared:
             data["prs"][key] = state.new_pr(state.pr_url(key), "j4487", "o143") | {"head": "aaaaaaa111", "checks": "pass", "review": "approved", "waits": [f"o143:{part[key]}"]}
