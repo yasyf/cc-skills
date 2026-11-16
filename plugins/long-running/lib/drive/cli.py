@@ -3716,7 +3716,7 @@ def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
         kept = launch_brief(name, job_id, job)
         kept.parent.mkdir(exist_ok=True)
         kept.write_text(written)
-        with state.edit(name) as data:
+        def codex_started(data: dict) -> None:
             job = data["jobs"][job_id]
             job.update(
                 codex_run=str(folder),
@@ -3726,6 +3726,8 @@ def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
             )
             state.start(job)
             superseded.hear(data, job_id, written, state.now())
+
+        state.update(name, None, codex_started)
     return folder
 
 
