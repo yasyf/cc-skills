@@ -681,7 +681,7 @@ class CcRemote:
         return self.step(sprite, script, given) if done.returncode == 255 else done
 
     def step(self, sprite: Sprite, script: str, given: str | None = None) -> subprocess.CompletedProcess[str]:
-        command = [CC_REMOTE, "step", *(("--stdin",) if given is not None else ()), sprite.workspace, "--", "bash", "-c", f"exec 2>/dev/null\n{script}"]
+        command = [CC_REMOTE, "step", sprite.workspace, "--", "bash", "-c", f"exec 2>/dev/null\n{script}"]
         try:
             return subprocess.run(command, input=given, capture_output=True, text=True, timeout=STEP_S)
         except subprocess.TimeoutExpired:
