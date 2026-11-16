@@ -37,7 +37,7 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "[ -z \"$LONG_RUNNING_JOB\" ] || . \"${CLAUDE_PLUGIN_ROOT}/hooks/python.sh\"; [ -z \"$LONG_RUNNING_JOB\" ] || exec \"$python\" -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" ci_tip.py" }
+          { "type": "command", "command": "[ -z \"$LONG_RUNNING_JOB$LONG_RUNNING_REMOTE_LANE\" ] || . \"${CLAUDE_PLUGIN_ROOT}/hooks/python.sh\"; [ -z \"$LONG_RUNNING_JOB$LONG_RUNNING_REMOTE_LANE\" ] || exec \"$python\" -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" ci_tip.py" }
         ]
       }
     ],
