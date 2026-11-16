@@ -6080,9 +6080,9 @@ def test_lane_mail_becomes_job_events_and_records_the_question_and_marks_its_run
 
 
 def test_drain_read_marks_every_run_with_unread_mail_and_counts_the_gone_and_the_refused(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    unread = [{"to_handle": f"run:{run_id}", "delivered_at": None} for run_id in ("run_a", "run_b", "run_a", "run_gone", "run_bad")]
-    shown = [*unread, {"to_handle": "run:run_read", "delivered_at": "2026-11-16T04:18:56Z"}, {"to_handle": "dispatch:ctx_1", "delivered_at": None}]
-    monkeypatch.setattr(orca, "call", lambda *args, caller=None: {"messages": shown} if args[0] == "inbox" else pytest.fail(f"no other call: {args}"))
+    unread = [{"to": f"run:{run_id}", "handled": False} for run_id in ("run_a", "run_b", "run_a", "run_gone", "run_bad")]
+    shown = [*unread, {"to": "run:run_read", "handled": True}, {"to": "dispatch:ctx_1", "handled": False}]
+    monkeypatch.setattr(orca, "request", lambda *args, **kwargs: {"messages": shown} if args[:2] == ("orchestration", "inbox") and "--full" not in args else pytest.fail(f"no other call: {args}"))
     counts = {"run_a": 3, "run_b": 1, "run_gone": None}
 
     def mark_read(drive: str, run_id: str) -> int | None:

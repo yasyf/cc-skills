@@ -941,8 +941,8 @@ def marked(run: str, caller: str | None = None) -> int:
 
 
 def unread_runs() -> list[str]:
-    """Each Run whose mail Orca still shows unread among the newest DRAIN_LIMIT messages of its whole mailbox, read without binding or consuming as mail reads it."""
-    return sorted({message["to_handle"].removeprefix("run:") for message in call("inbox", "--limit", str(DRAIN_LIMIT))["messages"] if message["to_handle"].startswith("run:") and message.get("delivered_at") is None})
+    """Each Run whose mail Orca still shows unread among the newest DRAIN_LIMIT messages of its whole mailbox, read in Orca's concise view, which carries each row's recipient and read flag without its whole body, so a read of the whole mailbox stays within CALL_SECONDS, without binding or consuming as mail reads it."""
+    return sorted({message["to"].removeprefix("run:") for message in request("orchestration", "inbox", "--limit", str(DRAIN_LIMIT))["messages"] if message["to"].startswith("run:") and not message["handled"]})
 
 
 def mailbox(job: dict, dispatch: str) -> list[dict]:
