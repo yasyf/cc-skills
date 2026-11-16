@@ -684,6 +684,7 @@ def his_dm(monkeypatch: pytest.MonkeyPatch) -> str:
     """Every drive reads his DM as cc-slack whoami names it, D123, and no operator channel, never this Mac's."""
     monkeypatch.setattr(slack, "dm", lambda: "D123")
     monkeypatch.setattr(slack, "operator_channels", lambda: [])
+    monkeypatch.setattr(slack, "handle", lambda: "him")
     return "D123"
 
 

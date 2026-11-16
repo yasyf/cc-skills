@@ -447,13 +447,15 @@ def waiting(name: str, data: dict, text: str) -> str:
 
 
 def waiting_posts(name: str, data: dict, found: dict, moment: datetime) -> dict[str, str]:
-    """The words of the one post in his DM and in each operator channel that says what waits on him there, which the watch edits in place of asking any card again: a count of the open cards the status page queues whose project posts there, linking that queue on the dashboard, then the first five, which Slack draws under the post, those carrying out an order whose bug hurts someone now first, else in the queue's order; NO_CARDS where none waits."""
+    """The words of the one post in his DM and in each channel of the drive that says what waits on him there, which the watch edits in place of asking any card again: a count of the open cards the status page queues whose project posts there, linking that queue on the dashboard, then the first five, which Slack draws under the post, those carrying out an order whose bug hurts someone now first, else in the queue's order; NO_CARDS where none waits. The drive's own channel's post opens with one line per project channel, linking it and that project's queue on the dashboard with how many cards wait there, by his words "the drive channel carries one line per project", so it reads as the drive's index."""
     queued = [item for item in view.build(data, found, moment)["queue"] if "card" in item]
-    here: dict[str, list[dict]] = {channel: [] for channel in sorted(slack.operators())}
+    held = data["slack"]["channels"]
+    here: dict[str, list[dict]] = {channel: [] for channel in sorted({slack.dm(), *(made["id"] for made in held.values())})}
     for item in sorted(queued, key=lambda item: not any(state.hurts_now(data, data["orders"][order_id]) for order_id in item["tasks"] if order_id in data["orders"])):
-        here[slack.project_channel(name, item["project"])].append(item)
+        here[slack.project_channel(data, item["project"])].append(item)
     board = dashboard.link(name)
-    return {
+    projects = {made["id"]: project for project, made in held.items() if project}
+    words = {
         channel: "\n".join(
             [
                 f"*<{board}#/queue/all{'' if channel == slack.dm() else '?' + urlencode({'project': items[0]['project']})}|Waiting on you: {card_counts(items)}>*",
@@ -464,6 +466,11 @@ def waiting_posts(name: str, data: dict, found: dict, moment: datetime) -> dict[
         else NO_CARDS
         for channel, items in here.items()
     }
+    if "" in held:
+        index = [f"*<{board}#/|{name}>* projects:", *(f"<#{channel}> · <{board}#/queue/all?{urlencode({'project': project})}|{card_counts(here[channel]) or 'nothing'} waiting>" for channel, project in projects.items())]
+        own = words[held[""]["id"]]
+        words[held[""]["id"]] = "\n".join([*index, *([] if own == NO_CARDS else ["", own])])
+    return words
 
 
 def card_counts(queued: list[dict]) -> str:
@@ -667,8 +674,8 @@ def posted(name: str, post: dict, order: str | None = None, receipt: dict | None
     standing = None if card or post.get("edit") else asked_already(name, data, stack)
     drawn = bool(card or stack)
     first, *rest = places(data, post, stack)
-    if first == (dm, None) and not post.get("edit"):
-        first = (slack.project_channel(name, project(data, post, stack, order)), None)
+    if first == (dm, None) and not post.get("edit") and not (order and data["orders"][order]["incident"]):
+        first = (channel_for(name, data, project(data, post, stack, order)), None)
     operators = slack.operators()
     reply = slack.cc_slack(
         *(
@@ -744,6 +751,14 @@ def keep_line(name: str, thread: str, link: str, sent: str) -> None:
     with state.edit(name) as data:
         for _, question in view.drawn_on(data, *view.SLACK_TS.findall(sent)):
             question["told"][thread] = {"link": link, "words": sent}
+
+
+def channel_for(name: str, data: dict, project: str | None) -> str:
+    """The channel a root post about the project goes in, by slack.project_channel, first making the project's own by cli.open_channel once the drive has its own channel and the project has none, by his words "sub-channels one for each project/communicator, private, created on demand"."""
+    if project and "" in data["slack"]["channels"] and project not in data["slack"]["channels"]:
+        made = cli.open_channel(name, project)
+        data["slack"]["channels"][project] = {"id": made["id"], "name": made["name"]}
+    return slack.project_channel(data, project)
 
 
 def project(data: dict, post: dict, stack: list[str], order: str | None) -> str | None:
@@ -875,7 +890,7 @@ def draw(name: str, keys: list[str]) -> str:
         if closed and closed["answer"] and not closed["answer"].get("withdrawn") and not closed["replaced_by"] and not any(row["changed"] for row in each["card"]["prs"]):
             raise DriveError(f"nothing was posted: his card under {waits} is {closed['url']}, which he answered, and with no PR on it changed since, his answer stands")
     data = state.load(name)
-    channel, thread = next((where for where in state.pr_threads(data, keys) if where[0] in slack.operators()), (slack.project_channel(name, project(data, {}, keys, None)), None))
+    channel, thread = next((where for where in state.pr_threads(data, keys) if where[0] in slack.operators()), (channel_for(name, data, project(data, {}, keys, None)), None))
     reply = slack.cc_slack(*status(name, data, {"channel_id": channel, "thread_ts": thread}, keys, [], ""))
     link = next(iter((reply.get("card_permalink") or "").split()), None)
     state.append_event(name, "said", text="; ".join(row["title"] for each in drawn["cards"] for row in each["card"]["prs"]), channel=None if channel == slack.dm() else channel, thread=reply.get("thread_ts"), url=reply["permalink"], card=link, order=None, visuals=[], prs=keys, edited=False)

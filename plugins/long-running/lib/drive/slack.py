@@ -70,15 +70,22 @@ def operators() -> set[str]:
     return {dm(), *(channel["id"] for channel in operator_channels())}
 
 
-def channel_name(name: str, project: str) -> str:
-    """The name of the operator channel a drive's project posts in: the drive's name, then the project's words but a leading article, lowercased and joined by hyphens."""
-    return "-".join([name, *re.findall(r"[a-z0-9]+", re.sub(r"^(the|an?)\s+", "", project.casefold()))])
+def handle() -> str:
+    """His Slack handle, as `cc-slack whoami` names it, which opens the name of each channel a drive makes."""
+    return whoami()["handle"]
 
 
-def project_channel(name: str, project: str | None) -> str:
-    """The operator channel a drive's project posts in, his DM for no project or a project with no channel yet."""
-    named = project and channel_name(name, project)
-    return next((channel["id"] for channel in operator_channels() if channel["name"] == named), dm())
+def channel_name(name: str, project: str | None = None) -> str:
+    """The name of a drive's private channel: his handle, drive and the drive's name, as ada-drive-launch, then for a project's own channel the project's words but a leading article, lowercased and joined by hyphens, as ada-drive-launch-search, cut to Slack's 80 characters."""
+    words = re.findall(r"[a-z0-9]+", re.sub(r"^(the|an?)\s+", "", project.casefold())) if project else []
+    return "-".join([handle(), "drive", name, *words])[:80].rstrip("-")
+
+
+def project_channel(data: dict, project: str | None) -> str:
+    """The channel a drive's post about a project goes in at its root: the project's own once the drive made it, else the drive's own channel once made, else his DM."""
+    held = data["slack"]["channels"]
+    made = held.get(project or "") or held.get("")
+    return made["id"] if made else dm()
 
 
 def workspace() -> str:

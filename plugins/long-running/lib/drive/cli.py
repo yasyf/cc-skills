@@ -6127,21 +6127,30 @@ def with_build(place: str, held: dict) -> str:
     return f"{place}; {note}" if note else place
 
 
+def open_channel(name: str, project: str | None) -> dict:
+    """Make, as him with cc-slack's user token, the drive's own private channel for no project, or a project's under it, named by slack.channel_name, which cc-slack reads as it reads his DM, one he already has kept; keep its id and name in the drive's slack row, and hand the communicator its Hold with line again at its next tool call, so it holds the channel with no restart."""
+    made = slack.cc_slack("operator-channel", slack.channel_name(name, project))
+    with state.edit(name) as fresh:
+        fresh["slack"]["channels"][project or ""] = {"id": made["id"], "name": made["name"]}
+        if held := fresh["roles"].get("communicator"):
+            held.pop("rules", None)
+    slack.whoami.cache_clear()
+    return made
+
+
 def channels(args: argparse.Namespace) -> int:
     from drive import talk, view
 
     name = state.resolve(args.drive)
     data = state.load(name)
-    made = [slack.cc_slack("operator-channel", slack.channel_name(name, project)) for project in dict.fromkeys([*data["subcoordinators"], TOOLING_FILING[0]])]
-    with state.edit(name) as fresh:
-        if held := fresh["roles"].get("communicator"):
-            held.pop("rules", None)
-    slack.whoami.cache_clear()
+    seats = [seat for seat in data["subcoordinators"] if seat not in {state.priority_seat(order_id) for order_id in data["orders"]}]
+    made = [open_channel(name, project) for project in dict.fromkeys([None, *seats, TOOLING_FILING[0]])]
+    data = state.load(name)
     found, dm, moved = view.cards(name), slack.dm(), []
     try:
         for card in [*found["questions"], *found["pr_cards"]]:
             stack = [key for url in card.get("prs", []) if (key := state.pr_key(url)) in data["prs"]]
-            channel = slack.project_channel(name, talk.project(data, {"card": card["card"]}, stack, None))
+            channel = talk.channel_for(name, data, talk.project(data, {"card": card["card"]}, stack, None))
             if channel != dm and state.slack_message(card["url"])[0] == dm:
                 moved.append((card, stack, slack.cc_slack("move-card", "--url", card["url"], "--channel", channel)["permalink"]))
     finally:
@@ -7895,7 +7904,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("page", nargs="?", choices=manual_pages(), help="default: list the pages")
     verb.add_argument("row", nargs="?", help="print only the table rows whose first cell names this, such as TAP or READY, else each section, list item, row, fenced block and paragraph carrying it")
     verb.set_defaults(run=manual)
-    verb = verbs.add_parser("channels", parents=both, help="make the private operator channel of each sub-coordinator's project and of the drive's tooling as him, which cc-slack reads as it reads his DM, and say posts of each project go to, one he has kept, then move each open card of his DM whose project has a channel to that channel's root, a card of no project to the drive's tooling channel, its DM card edited to Moved to and a link")
+    verb = verbs.add_parser("channels", parents=both, help="make as him the drive's private channel <handle>-drive-<drive> and the private channel <handle>-drive-<drive>-<project> of each sub-coordinator's project and of the drive's tooling, which cc-slack reads as it reads his DM, keeping each id in the drive, one he has kept; say then makes each other project's channel the first time it posts about it. Then move each open card of his DM whose project has a channel to that channel's root, a card of no project to the drive's tooling channel, its DM card edited to Moved to and a link")
     verb.set_defaults(run=channels)
     verb = verbs.add_parser("context", parents=[drive_opt])
     verb.add_argument("--role", choices=state.ROLES, help="default: the role this session holds")

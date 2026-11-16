@@ -1427,13 +1427,14 @@ def test_his_prs_rows_each_open_pr_he_approved_or_whose_stage_he_owes_oldest_sta
 
 
 def test_the_now_screen_rows_each_project_by_the_daily_sweeps_bars_filing_each_wait_by_its_order_else_its_channel(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C9", "name": "demo-platform"}])
+    monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C9", "name": "him-drive-demo-platform"}])
     approved = state.new_tap("Approve", "aaaaaaa111", "card", at=at(-25 * 60))
     data = drive_of(
         {"o1": order("ship the page", ["j1"], project="Iris"), "o2": order("fix the router", ["j2"], project="Platform"), "o3": order("fix the queue", [], project="platform")},
         {"j1": job("o1", "running"), "j2": job("o2", "running")},
         [pr(1, "o1", wants_tap=True), pr(2, "o3", tap=approved)],
     )
+    data["slack"]["channels"] = {"Platform": {"id": "C9", "name": "him-drive-demo-platform"}}
     card = pr_card(1, -49 * 60)
 
     def said(minutes: int, waited: int, url: str, **fields: object) -> dict:

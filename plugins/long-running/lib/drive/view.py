@@ -1310,7 +1310,7 @@ def bar_cell(bar: str, waits: list[dict]) -> dict:
 
 def slack_waits(drive: dict, said: Iterable[dict], owed: list[dict], moment: datetime) -> dict[str, list[dict]]:
     """What the daily Slack sweep measures of the back-and-forth with him in these events and the messages of his cc-slack owes, by bar, each wait with its `link`, `at`, when it began, and the `project` it is filed under, by `filed_project`, oldest first: `answers`, each message of his a post answered, with its `wait` from his message to the first post answering it; `owed`, each message of his still owed an answer past OWED_WAIT; `approved`, each PR still open past APPROVED_WAIT after his Approve. `crossing` says whether they cross their bar."""
-    channels = {channel: project for project in state.projects(drive) if (channel := slack.project_channel(drive["name"], project)) != slack.dm()}
+    channels = {made["id"]: project for project, made in drive["slack"]["channels"].items() if project}
     answers = {}
     for event in said:
         if event["kind"] != "said" or event["edited"] or not event.get("answers"):

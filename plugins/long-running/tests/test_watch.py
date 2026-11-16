@@ -7012,12 +7012,13 @@ def test_the_one_post_in_each_place_saying_what_waits_on_him_goes_up_once_a_card
     demo: str, monkeypatch: pytest.MonkeyPatch, unposted_waits: Callable[..., dict[str, str]]
 ) -> None:
     monkeypatch.setattr(talk, "waiting_posts", unposted_waits)
-    monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C777", "name": "demo-iris"}, {"id": "C888", "name": "demo-sandsql"}])
+    monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C777", "name": "him-drive-demo-iris"}, {"id": "C888", "name": "him-drive-demo-sandsql"}])
     posts: list[dict] = []
     monkeypatch.setattr(talk, "posted", lambda name, post: posts.append(post) or {"permalink": post.get("edit") or f"https://acme.slack.com/archives/{post.get('channel_id', 'D123')}/p1794400200000100"})
     pins: list[str] = []
     monkeypatch.setattr(slack, "pin", pins.append)
     with state.edit(demo) as data:
+        data["slack"]["channels"] = {"Iris": {"id": "C777", "name": "him-drive-demo-iris"}, "SandSQL": {"id": "C888", "name": "him-drive-demo-sandsql"}}
         data["orders"]["o2"] = order(project="Iris", jobs=["j2"])
         data["orders"]["o3"] = order(jobs=["j3"], reporters=[state.reporter(REPORTED)])
         data["jobs"]["j2"] = job(order="o2")

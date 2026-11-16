@@ -89,8 +89,9 @@ def test_a_post_in_his_dm_goes_as_the_session_holding_it_from_every_session_but_
 
 
 def test_a_root_post_on_an_order_goes_to_its_projects_operator_channel_and_keeps_the_messages_it_answers(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C777", "name": "demo-iris"}])
+    monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C777", "name": "him-drive-demo-iris"}])
     with state.edit(demo) as data:
+        data["slack"]["channels"] = {"Iris": {"id": "C777", "name": "him-drive-demo-iris"}}
         data["orders"]["o1"] = state.new_order("ship the run page", "D123", None, {}, state.stamp()) | {"project": "Iris"}
     talk.posted(demo, {"text": "The fix is up.", "asked": json.dumps(["1794200000.000300"])}, "o1")
     talk.posted(demo, {"text": "The fix is in."})
@@ -102,8 +103,9 @@ def test_a_root_post_on_an_order_goes_to_its_projects_operator_channel_and_keeps
 
 
 def test_a_card_of_no_project_asks_at_the_root_of_the_drives_own_channel_while_a_status_line_of_none_stays_in_his_dm(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C777", "name": "demo-iris"}, {"id": "C888", "name": "demo-drive"}])
+    monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C777", "name": "him-drive-demo-iris"}, {"id": "C888", "name": "him-drive-demo-drive"}])
     with state.edit(demo) as data:
+        data["slack"]["channels"] = {"Iris": {"id": "C777", "name": "him-drive-demo-iris"}, "The drive": {"id": "C888", "name": "him-drive-demo-drive"}}
         data["orders"]["o1"] = state.new_order("design the store", "D123", None, {}, state.stamp()) | {"jobs": ["j1"]}
         data["jobs"]["j1"] = state.new_job("o1", "builder", "design the store", [], state.stamp())
         data["jobs"]["j1"]["questions"].append(state.new_question(None, "Keep the old store?", state.stamp()) | {"waits": "demo:j1-8"})
@@ -112,19 +114,42 @@ def test_a_card_of_no_project_asks_at_the_root_of_the_drives_own_channel_while_a
     assert [argv[argv.index("--channel") + 1] if "--channel" in argv else None for argv in posts] == ["C888", None]
 
 
+def test_once_the_drive_has_its_own_channel_a_post_of_a_project_with_none_makes_its_channel_and_a_status_line_of_no_project_goes_to_the_drives(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+    made = {"him-drive-demo-iris": {"id": "C777", "name": "him-drive-demo-iris"}}
+    sent = slack.cc_slack
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv, **_: made[argv[1]] if argv[0] == "operator-channel" else sent(*argv))
+    with state.edit(demo) as data:
+        data["slack"]["channels"] = {"": {"id": "C666", "name": "him-drive-demo"}}
+        data["orders"]["o1"] = state.new_order("ship the run page", "D123", None, {}, state.stamp()) | {"project": "Iris"}
+        data["orders"]["o2"] = state.new_order("fix the outage", "D123", None, {}, state.stamp()) | {"project": "Iris", "incident": True}
+    talk.posted(demo, {"text": "The fix is up."}, "o1")
+    talk.posted(demo, {"text": "The fix is in."})
+    talk.posted(demo, {"text": "The outage is fixed."}, "o2")
+    assert [argv[argv.index("--channel") + 1] if "--channel" in argv else None for argv in posts] == ["C777", "C666", None]
+    assert state.load(demo)["slack"]["channels"]["Iris"] == made["him-drive-demo-iris"]
+
+
+def test_the_drives_own_channel_posts_one_line_per_project_channel_linking_it_and_its_queue(demo: str, unposted_waits: Callable[..., dict[str, str]]) -> None:
+    with state.edit(demo) as data:
+        data["slack"]["channels"] = {"": {"id": "C666", "name": "him-drive-demo"}, "Iris": {"id": "C777", "name": "him-drive-demo-iris"}}
+    board = dashboard.link(demo)
+    assert unposted_waits(demo, state.load(demo), view.NO_CARDS, state.now())["C666"] == f"*<{board}#/|demo>* projects:\n<#C777> · <{board}#/queue/all?project=Iris|nothing waiting>"
+
+
 def test_drive_channels_moves_each_open_card_of_his_dm_to_its_projects_channel_one_of_no_project_to_the_drives_and_follows_it_there(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     order_id, job_id = "o1", "j1"
     with state.edit(demo) as data:
         data["orders"][order_id] = state.new_order("ship the run page", "D123", None, {}, state.stamp()) | {"project": "Iris", "jobs": [job_id]}
         data["jobs"][job_id] = state.new_job(order_id, "builder", "ship the run page", [], state.stamp()) | {"waits": [CARD_URL]}
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr(PR_URL, job_id, order_id)
-    iris, drive, moved = {"id": "C777", "name": "demo-iris"}, {"id": "C888", "name": "demo-drive"}, "https://acme.slack.com/archives/C777/p1794300000000950"
+    iris, drive, moved = {"id": "C777", "name": "him-drive-demo-iris"}, {"id": "C888", "name": "him-drive-demo-drive"}, "https://acme.slack.com/archives/C777/p1794300000000950"
+    made = {"him-drive-demo": {"id": "C666", "name": "him-drive-demo"}, iris["name"]: iris, drive["name"]: drive}
     unfiled = question_card("https://acme.slack.com/archives/D123/p1794300000000300", "Which drive?", "demo:j99-7")
     pr_card = {"prs": [PR_URL], "asked": ASKED, "url": "https://acme.slack.com/archives/D123/p1794300000000200", "card": {"title": "Merge #7?", "waits": "merge:yasyf/cc-skills#7"}}
     asked = question_card(CARD_URL, QUESTION, f"demo:{job_id}-7")
     sent: list[tuple[str, ...]] = []
-    monkeypatch.setattr(slack, "operator_channels", lambda: [iris, drive])
-    monkeypatch.setattr(slack, "cc_slack", lambda *argv, **_: sent.append(argv) or (iris if argv[0] == "operator-channel" else {"permalink": moved}))
+    monkeypatch.setattr(slack, "operator_channels", lambda: [made["him-drive-demo"], iris, drive])
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv, **_: sent.append(argv) or (made[argv[1]] if argv[0] == "operator-channel" else {"permalink": moved}))
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": [asked, unfiled], "pr_cards": [pr_card], "closed": []})
 
     assert run("channels")[1].splitlines()[-1] == "3 open card(s) of his DM moved to their project's channel"
