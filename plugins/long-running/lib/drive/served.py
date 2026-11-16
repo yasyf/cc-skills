@@ -99,6 +99,20 @@ class Against(DriveError):
         )
 
 
+class Uncited(DriveError):
+    """A citation naming no answer of his, which reading it again finds no more than the first read did: a card the drive never asked him or that ended unanswered, a message neither his nor a card he answered, or an id cc-notes keeps no answer under. names holds each such citation by its kind, so a check refused on a card or a message still asking him is judged again once he answers it, by settles; keys the PRs whose own design citation names it, whose builders fix it, none for one his answers binding their job name."""
+
+    def __init__(self, said: str, names: list[tuple[str, str]], keys: list[str] | None = None):
+        self.said, self.names, self.keys = said, names, keys or []
+        fix = (
+            f" {', '.join(self.keys)} cite it for their design: return READY again with DESIGN: lines naming {NAMES}, or DESIGN: none, and the check judges the new citation;"
+            " it is not judged again at this head until that citation, the head, or his answer to a card it names changes"
+            if self.keys
+            else " his answers binding the job name it, and it is not judged again at this head until his answer to a card it names, the head, or the answers binding the job change"
+        )
+        super().__init__(f"{said}.{fix}")
+
+
 def check(name: str, unit: tuple[str, ...], bound: list[str]) -> dict[str, dict]:
     """Judge the change of one stack's PRs together, the unit his card draws and his Approve lands, or of one PR in none, each read whole from GitHub at its head, title and diff and never the body, against the words of the orders they serve, for the parts they carry, and against each answer of his kept on them for the design they make and each bound names, read by answers with the options of each card of the drive's it answers, and his durable answers cc-notes ranks near that card's words, which the judge binds only where one speaks to what the change builds, a flake fix against his ruling FLAKE_RULING in place of any order, and each ruling write each PR owes, by owed, read beside his rulings WRITES_RULING and DEEPEST_RULING as his words, one its diff lacks refused with no judge run while it is open, and DEEPEST_RULING beside any AGENTS.md a diff writes, by placing(), and the code under the directory each of those rulings is labelled with, one a PR of the stack changes a file under, by coded(), read once for owed and the judge, which reads a directory below the root whole at the head and judges it as it stands there, and the root's against the lines the diff changes, and return for each PR the head it checked beside the heads of the others, or the stamp its head already holds, for verdict to keep; every other PR their jobs carry, and each job they were handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses them, and a part a PR above another in the stack delivers is delivered by the change judged. The judge first lists each change the diffs make to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond and faulting each PR whose diff changes the file an objection names, every PR for one naming a file none of them changes or none, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines in every PR changing it are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
     data = state.load(name)
@@ -112,7 +126,13 @@ def check(name: str, unit: tuple[str, ...], bound: list[str]) -> dict[str, dict]
     lines = {key: digests(read["diff"]) for key, read in reads.items()}
     passed = {key: pr["checked"]["lines"] if pr["checked"] and set(orders) <= set(pr["checked"]["orders"]) else {} for key, pr in prs.items()}
     flake = [state.FLAKE_RULING] if any(pr.get("exempt") == state.FLAKE_FIX for pr in prs.values()) else []
-    cites, binding = [kept_answers(name, data, key) for key in unit], answers(data, [*bound, *flake, *placing(reads, owes)], view.live_cards(name))
+    cites = []
+    for key in unit:
+        try:
+            cites.append(kept_answers(name, data, key))
+        except Uncited as error:
+            raise Uncited(error.said, error.names, [key]) from None
+    binding = answers(data, [*bound, *flake, *placing(reads, owes)], view.live_cards(name))
     cited = list(dict.fromkeys(line for each in cites for line in each["cited"]))
     answered = list(dict.fromkeys([*cited, *binding["cited"]]))
     named_answers = {line.partition(", ")[0] for line in answered}
@@ -143,26 +163,36 @@ def stands(data: dict, key: str, unit: tuple[str, ...]) -> bool:
 
 
 def verdict(name: str, key: str) -> str:
-    """Judge one PR at its head against his words, one his card waits on or one merged, together with the other PRs of its stack, by land.landing_stacks, the one place a PR is judged, with the answers kept on them for their design and each answer of his binding their jobs, by brief.bound, and keep the outcome on each PR of the stack with the orders and binding answers it was judged against, so tried keeps it for that head while they stand: CHECKED with what each PR waits on now, as his card draws it, and its staging result, also as a check event, which the watch says on the PR's line, and NOT READY with the PRs it faults, a line on his card that the watch's pass tells the builders of those of them still open once a head, by watch.objections, holding neither his Approve nor its landing, and his card shows the verdict once the watch redraws it; the outcome for key. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on while the PR is open, by tried."""
+    """Judge one PR at its head against his words, one his card waits on or one merged, together with the other PRs of its stack, by land.landing_stacks, the one place a PR is judged, with the answers kept on them for their design and each answer of his binding their jobs, by brief.bound, and keep the outcome on each PR of the stack with the orders and binding answers it was judged against, so tried keeps it for that head while they stand: CHECKED with what each PR waits on now, as his card draws it, and its staging result, also as a check event, which the watch says on the PR's line, and NOT READY with the PRs it faults, a line on his card that the watch's pass tells the builders of those of them still open once a head, by watch.objections, holding neither his Approve nor its landing, and his card shows the verdict once the watch redraws it; the outcome for key. A citation naming no answer of his, Uncited, is a NOT READY too, faulting only the PRs whose own design citation names it, so their builders cite again, and judged again at that head only once that citation changes or his answer ends a card it names, by tried. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on while the PR is open, but one a Claude usage limit stopped, kept with the reset its notice names, waits for it, by limited."""
     from drive import land, stage
 
     data = state.load(name)
     unit = land.landing_stacks(data).get(key, (key,))
     prs = {member: data["prs"][member] for member in unit}
-    heads, at, named, faulted, checked = {member: pr["head"] for member, pr in prs.items()}, state.stamp(), "", [], {}
+    heads, at, named, faulted, checked, uncited, until = {member: pr["head"] for member, pr in prs.items()}, state.stamp(), "", [], {}, [], None
     orders, answers = {member: state.served_orders(data, pr) for member, pr in prs.items()}, {member: binds(name, data, pr) for member, pr in prs.items()}
     bound = list(dict.fromkeys(answer for job in dict.fromkeys(pr["job"] for pr in prs.values()) for answer in brief.bound(name, data, data["jobs"][job])))
     try:
         checked = check(name, unit, bound)
     except Against as error:
         outcomes, named, faulted = dict.fromkeys(unit, f"{NOT_READY}: {error}"), error.named, error.keys
+    except Uncited as error:
+        outcomes, named, faulted, uncited = dict.fromkeys(unit, f"{NOT_READY}: {error}"), str(error) if error.keys else "", error.keys, [list(each) for each in error.names]
     except DriveError as error:
         outcomes = dict.fromkeys(unit, f"{FAILED}: {error}")
+        until = hit["until"] if (hit := state.usage_limit_hit(str(error), state.parse_time(at))) else None
     else:
         basis = f"the words of {', '.join(checked[key]['orders'])}" if checked[key]["orders"] else f"his ruling {state.FLAKE_RULING}"
         cards = view.live_cards(name)
         outcomes = {member: f"{CHECKED} against {basis} at {stamp['head'][:10]}; {stage.on_card(data, member, cards).why}; {view.staging(data, member)}" for member, stamp in checked.items()}
-    return kept(name, key, {"heads": heads, "at": at, "orders": orders, "answers": answers, "outcomes": outcomes, "against": named, "faulted": faulted, "checked": checked, "pid": os.getpid()})
+    return kept(
+        name,
+        key,
+        {
+            "heads": heads, "at": at, "orders": orders, "answers": answers, "outcomes": outcomes, "against": named, "faulted": faulted, "checked": checked, "pid": os.getpid(), "uncited": uncited,
+            "until": until,
+        },
+    )
 
 
 def kept(name: str, key: str, result: dict) -> str:
@@ -182,7 +212,7 @@ def kept(name: str, key: str, result: dict) -> str:
                 pr["checked"] = result["checked"][member]
             pr["checker"] = {
                 "head": result["heads"][member], "pid": result["pid"], "at": result["at"], "orders": result["orders"][member], "answers": result["answers"][member], "outcome": said, "against": result["against"],
-                "faulted": result.get("faulted", []),
+                "faulted": result.get("faulted", []), "uncited": result.get("uncited", []), "until": result.get("until"),
             }
             if result["against"] and pr["state"] == "open" and (pr["tap"] or {}).get("approval"):
                 pr["tap"] = None
@@ -199,16 +229,44 @@ def ported(report: str) -> bool:
 
 
 def tried(name: str, data: dict, key: str, unit: tuple[str, ...], moment: datetime) -> bool:
-    """Whether the PR's head has its check, one that judged every PR of unit, the stack it sits in, together, as start marks them with one process: one running, or a verdict on that head against the orders it serves and the answers of his binding its job now, so one head keeps one verdict however often its builder returns and is judged again only once one of those is added or dropped, never as a reader's newer return lists the same answers in another order; one that failed, or whose process ended with no outcome, is tried again RETRY after it started, and one that judged the PR apart from any PR of its stack, such as a check made before a stack was judged together, is no try of it."""
+    """Whether the PR's head has its check, one that judged every PR of unit, the stack it sits in, together, as start marks them with one process: one running, or a verdict on that head against the orders it serves and the answers of his binding its job now, so one head keeps one verdict however often its builder returns and is judged again only once one of those is added or dropped, never as a reader's newer return lists the same answers in another order, a NOT READY on a citation naming no answer of his included, which a new citation drops by state.cite and his answer to a card it names ends, by settles; one that failed, or whose process ended with no outcome, is tried again RETRY after it started, but one a Claude usage limit stopped, by limited; and one that judged the PR apart from any PR of its stack, such as a check made before a stack was judged together, is no try of it."""
     pr = data["prs"][key]
     checker = pr["checker"]
     if not checker or checker["head"] != pr["head"] or any((data["prs"][member]["checker"] or {}).get("pid") != checker["pid"] for member in unit):
         return False
     if checker["outcome"] is None and state.alive(checker["pid"]):
         return True
+    if checker.get("until"):
+        return limited(data, checker, moment)
     if checker["outcome"] is None or checker["outcome"].startswith(FAILED):
         return moment - state.parse_time(checker["at"]) < RETRY
+    if any(settles(data, kind, cited) for kind, cited in checker.get("uncited", [])):
+        return False
     return set(checker["orders"]) == set(state.served_orders(data, pr)) and set(checker["answers"]) == set(binds(name, data, pr))
+
+
+def limited(data: dict, checker: dict, moment: datetime) -> bool:
+    """Whether a check a Claude usage limit stopped still waits, until the reset its notice named, since every check meanwhile hits the same limit: it is tried again once that reset passes, at once when a check started after it reached a verdict, which says the limit no longer binds, and RETRY after it started when no check started after it runs or met a limit too, so the drive tries one check against the limit every RETRY rather than every check every RETRY."""
+    if moment >= state.parse_time(checker["until"]):
+        return False
+    started = state.parse_time(checker["at"])
+    later = [other for key in state.open_pr_keys(data) if (other := data["prs"][key]["checker"]) and state.parse_time(other["at"]) > started]
+    if any(other["outcome"] and not other["outcome"].startswith(FAILED) for other in later):
+        return False
+    if any(other["outcome"] is None and state.alive(other["pid"]) or other.get("until") for other in later):
+        return True
+    return moment - started < RETRY
+
+
+def settles(data: dict, kind: str, cited: str) -> bool:
+    """Whether his answer now ends a card a refused citation named, by its waits id or permalink, so the check reads it as his answer."""
+    if kind == "card":
+        try:
+            answered(data, cited)
+        except Uncited:
+            return False
+        return True
+    return kind == "link" and any((closed := question["closed"]) and closed["how"] == "answered" for _, question in view.drawn_on(data, cited))
 
 
 def binds(name: str, data: dict, pr: dict) -> list[str]:
@@ -229,7 +287,7 @@ def start(name: str, keys: list[str]) -> None:
             if not any(pr["checker"] and pr["checker"]["outcome"] is None and state.alive(pr["checker"]["pid"]) for pr in prs):
                 marked[unit] = (key, [pr["checker"] for pr in prs])
                 for pr in prs:
-                    pr["checker"] = {"head": pr["head"], "pid": os.getpid(), "at": at, "orders": None, "answers": None, "outcome": None, "against": "", "faulted": []}
+                    pr["checker"] = {"head": pr["head"], "pid": os.getpid(), "at": at, "orders": None, "answers": None, "outcome": None, "against": "", "faulted": [], "uncited": [], "until": None}
     if not marked:
         return
     started: dict[tuple[str, ...], int] = {}
@@ -481,12 +539,15 @@ def answers(data: dict, cited: list[str], found: dict | None) -> dict[str, list[
             except slack.SlackError as error:
                 raise DriveError(f"could not read his answer at {name}: {error}; run this again") from None
             if said is None:
-                raise DriveError(f"{name} is not his answer: it is neither his own message nor a card he answered; {settled.HIS_ANSWER}")
+                raise Uncited(f"{name} is not his answer: it is neither his own message nor a card he answered; {settled.HIS_ANSWER}", [(kind, name)])
             at = slack.sent_at(message)
             read[name] = (at, f'{name}, {at.isoformat(timespec="seconds")}: "{message["text"]}"')
             question = question or drawn(data, "link", name)
         elif kind == "answer":
-            answer = settled.shown(name, cwd)
+            try:
+                answer = settled.shown(name, cwd)
+            except settled.NotFound as error:
+                raise Uncited(str(error), [(kind, name)]) from None
             question = question or drawn(data, "answer", answer["id"])
             read[answer["id"]] = recorded(answer, "", question)
         elif kind == "record" and (record := refs.shown(data["name"], "record", name))["kind"] == "answer" and (key := record["refs"].get("url") or name) not in read:
@@ -562,9 +623,9 @@ def answered(data: dict, waits: str) -> dict:
     job_id = state.named_job(data, {"waits": waits})
     question = next((question for question in reversed(data["jobs"][job_id]["questions"]) if question["waits"] == waits), None) if job_id else None
     if question is None:
-        raise DriveError(f"{waits} is not his answer: it names no card the drive asked him; {settled.HIS_ANSWER}")
+        raise Uncited(f"{waits} is not his answer: it names no card the drive asked him; {settled.HIS_ANSWER}", [("card", waits)])
     if (closed := question["closed"]) is None or closed["how"] != "answered":
-        raise DriveError(f"{waits} is not his answer: its card {'was ' + closed['how'] if closed else 'still asks him'}; {settled.HIS_ANSWER}")
+        raise Uncited(f"{waits} is not his answer: its card {'was ' + closed['how'] if closed else 'still asks him'}; {settled.HIS_ANSWER}", [("card", waits)])
     return question
 
 

@@ -588,13 +588,21 @@ def labelled(answer: dict, labels: list[str], cwd: str) -> None:
             ccn(["ccn", "answer", "edit", answer["id"], "--add-label", label], "", cwd, f"could not label his answer {answer['id'][:7]} {label}")
 
 
+class NotFound(DriveError):
+    """A cc-notes read naming a record cc-notes keeps none of, which reading it again finds no more than the first time did."""
+
+
+NOT_FOUND = "not-found:"
+
+
 def ccn(argv: list[str], text: str, cwd: str, failure: str) -> str:
     try:
         done = subprocess.run(argv, input=text, cwd=cwd, capture_output=True, text=True, timeout=60, check=False)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise DriveError(f"{failure}: {error}") from None
     if done.returncode:
-        raise DriveError(f"{failure}: {' '.join(done.stderr.split())}")
+        said = " ".join(done.stderr.split())
+        raise (NotFound if said.startswith(NOT_FOUND) else DriveError)(f"{failure}: {said}")
     return done.stdout
 
 

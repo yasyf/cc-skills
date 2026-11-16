@@ -1244,7 +1244,7 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
 
     def shown(answer_id: str, cwd: str) -> dict:
         if answer_id in answers.unrecorded:
-            raise state.DriveError(f'could not read his answer {answer_id}: not-found: entity not found: no answer matches "{answer_id}"')
+            raise settled.NotFound(f'could not read his answer {answer_id}: not-found: entity not found: no answer matches "{answer_id}"')
         return {"created_at": "2026-11-12T11:33:00Z"} | (
             answers.shown.get(answer_id)
             or next((answer for answer in answers.shown.values() if answer["id"].startswith(answer_id)), {"id": answer_id, "title": "", "body": "", "tags": []})
