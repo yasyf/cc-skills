@@ -11,7 +11,7 @@ import handed_records
 import one_line_result
 import pytest
 from conftest import HELD_RELEASES, LANE_SPEC, UNFROZEN, Answers, Thread
-from drive import agents, orca, reads, slack, state, talk, tools, watch
+from drive import agents, orca, place, reads, slack, state, talk, tools, watch
 
 Run = Callable[..., tuple[int, str]]
 HIS_BRIEF = "Message (his words): why is this card asking again?\nThread: D123 1794380463.481959\nDrive: demo\nScratch: {scratch}\nDeliverable: his answer, in his thread"
@@ -1139,3 +1139,14 @@ def test_a_handler_whose_stop_check_raises_posts_its_done_before_the_error_goes_
         stop(monkeypatch, capsys, "h-session", transcript, LINE)
     assert started[-1] == ["cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--id", f"handler-{handler}", "--text", LINE]
     assert removed == [["claude", "rm", BACKGROUND_JOB]]
+
+
+def test_a_handler_of_his_message_starts_at_once_on_a_loaded_mac_and_one_on_a_record_waits_its_turn(
+    communicator: str, run: Run, tmp_path: Path, started: list[list[str]], launched_sessions: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(place, "strained", lambda: "this Mac's 1-minute load is 160, over its 32 cores times 1")
+    handler = start(run, tmp_path)
+    assert state.load("demo")["handlers"][handler]["session"] == launched_sessions[0]
+    assert (agents.his_message(agents.holds(HIS_BRIEF)), agents.his_message({"message": None, "record": "663488"})) == (True, False)
+    with place.waited_turn("demo", lambda: pytest.fail("an exempt start never waits"), exempt=True):
+        pass

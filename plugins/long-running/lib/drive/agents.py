@@ -592,12 +592,12 @@ def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str
 
 
 def started(name: str, handler_id: str, brief: str, prompt: str, detached: bool) -> list[str]:
-    """Start the handler's session on its prompt once the drive keeps its entry, its brief's scratch folder made first: in this call while this Mac admits a local Claude lane, by place.admission, or detached from the prompt kept for `drive handler-start`, which waits its turn."""
+    """Start the handler's session on its prompt once the drive keeps its entry, its brief's scratch folder made first: in this call while this Mac admits a local Claude lane, by place.admission, or at once for a message of his, by his_message, or detached from the prompt kept for `drive handler-start`, which waits its turn."""
     from drive import place
 
     if folder := scratch(brief):
         folder.mkdir(parents=True, exist_ok=True)
-    if not detached and not place.admission(state.load(name), None, "local", state.now()):
+    if not detached and (his_message(holds(brief)) or not place.admission(state.load(name), None, "local", state.now())):
         start_handler(name, handler_id, prompt)
         return []
     kept = brief_path(name, handler_id)
@@ -605,6 +605,11 @@ def started(name: str, handler_id: str, brief: str, prompt: str, detached: bool)
     kept.write_text(prompt)
     state.detach(name, ["handler-start", handler_id], "handlers.log")
     return []
+
+
+def his_message(held: dict) -> bool:
+    """Whether a handler's brief, as holds reads it, answers a message of his rather than a record, which starts at once past this Mac's load gate and caps, by his words through the main session "the owner's answers must never queue behind lane load"; a report's or a digest's handler, which works on a record, waits its turn."""
+    return not held["record"]
 
 
 def threaded(data: dict, held: dict) -> dict:
@@ -644,7 +649,7 @@ def start_kept(name: str, handler: str) -> str:
     kept = brief_path(name, handler)
     began = time.time()
     try:
-        with place.waited_turn(name, lambda: waits_turn(name, handler)):
+        with place.waited_turn(name, lambda: waits_turn(name, handler), his_message(holds(kept.read_text()))):
             admitted = time.time()
             start_handler(name, handler, kept.read_text())
     except Exception as error:
