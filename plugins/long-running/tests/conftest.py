@@ -612,7 +612,7 @@ def unreserved(args: list[str]) -> list[str]:
 
 def claim_of(record: dict) -> dict:
     """What a reservation record keeps beside its token, starter, child and members: its state and the fields its site merged in, the same on every run."""
-    return {field: value for field, value in record.items() if field not in ("token", "members", "starter", "child", "reserved_at")}
+    return {field: value for field, value in record.items() if field not in ("token", "members", "starter", "child", "launched_at")}
 
 
 def adopted_as(name: str, args: list[str], pid: int) -> int:

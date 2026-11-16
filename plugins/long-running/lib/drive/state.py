@@ -5492,8 +5492,8 @@ def item(field: str, value: object) -> str:
 
 
 def lapsed(record: dict) -> bool:
-    """Whether a reservation no child adopted within ADOPT_SECONDS of its reserve, by the wall clock, which no test's fixed now moves, so a child that died before adopting holds nothing: its start, a Python import and the CLI's first load, takes seconds and under a minute at the worst load this Mac has seen, and its adopt write's budget is what is left of those seconds."""
-    return record.get("state") == "reserved" and time.time() - record["reserved_at"] >= ADOPT_SECONDS
+    """Whether a reservation no child adopted within ADOPT_SECONDS of its launch, by the wall clock, which no test's fixed now moves, so a child that died before adopting holds nothing; the clock starts when settle names the child, never at reserve, so a starter launching several children one after another, each settled patiently, never hands a later one a lease already spent, and a reservation its live starter has not launched yet holds while that starter runs. A child's start, measured on this Mac at load 25, reaches its first drive load in 0.2 to 0.3 seconds through bin/drive's environment check, and a uv sync building that environment from uv's cache takes 0.2 seconds; a sync that downloads packages, or a wait on another process's sync, is what the rest of the 120 seconds covers, its adopt write's budget the same 120."""
+    return record.get("state") == "reserved" and "launched_at" in record and time.time() - record["launched_at"] >= ADOPT_SECONDS
 
 
 def reserve(data: dict, members: tuple[Row, ...]) -> Reservation | None:
@@ -5502,7 +5502,7 @@ def reserve(data: dict, members: tuple[Row, ...]) -> Reservation | None:
         return None
     token = uuid.uuid4().hex
     for member in members:
-        record_at(data, member)[member[-1]] = {"token": token, "members": [list(each) for each in members], "starter": born(os.getpid()), "child": None, "state": "reserved", "reserved_at": time.time()}
+        record_at(data, member)[member[-1]] = {"token": token, "members": [list(each) for each in members], "starter": born(os.getpid()), "child": None, "state": "reserved"}
     return Reservation(token, members)
 
 
@@ -5545,13 +5545,13 @@ def adopt_reserved(name: str, member: Row, token: str | None) -> None:
 
 
 def settle(name: str, reservation: Reservation, pid: int) -> None:
-    """Name the child a launch started, by pid, on each member of the reservation still holding its token reserved with no child, in a patient write, since it records a launch already made; never over a child's adoption, a cancel or a newer reservation, and a member another write took leaves the rest named all the same."""
+    """Name the child a launch started, by pid, on each member of the reservation still holding its token reserved with no child, in a patient write, since it records a launch already made, which starts the lease lapsed reads, the child then having ADOPT_SECONDS to adopt; never over a child's adoption, a cancel or a newer reservation, and a member another write took leaves the rest named all the same."""
     child = born(pid)
 
     def named(data: dict) -> None:
         for record in reserved(data, reservation.members, reservation.token):
             if record["state"] == "reserved" and record["child"] is None:
-                record["child"] = child
+                record |= {"child": child, "launched_at": time.time()}
 
     write(name, named, patient=True)
 
