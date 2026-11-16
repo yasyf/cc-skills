@@ -5687,7 +5687,7 @@ def dashboard_command(args: argparse.Namespace) -> int:
 def receive(args: argparse.Namespace) -> int:
     from drive import receiver
 
-    return receiver.main()
+    return receiver.main(args.listening)
 
 
 def watch_events(args: argparse.Namespace) -> int:
@@ -7149,9 +7149,14 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.set_defaults(run=watch_events)
-    verbs.add_parser(
+    verb = verbs.add_parser(
         "receive", help="take GitHub's signed webhook deliveries through this Mac's Tailscale Funnel path into each drive's events file: the process the receiver's launch agent runs"
-    ).set_defaults(run=receive)
+    )
+    verb.add_argument(
+        "--listening", type=int, metavar="FD",
+        help="serve on this inherited listening socket, asking GitHub nothing: an older install's receiver hands its socket to the newest this way",
+    )
+    verb.set_defaults(run=receive)
     cards = verbs.add_parser("cards", help="redraw or withdraw his open question cards").add_subparsers(dest="action", required=True)
     verb = cards.add_parser(
         "redraw",

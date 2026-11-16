@@ -1,7 +1,13 @@
+import contextlib
 import hashlib
 import hmac
 import json
+import os
+import re
+import socket
+import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
@@ -9,7 +15,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
-from drive import dashboard, github, receiver, state
+from drive import cli, dashboard, github, receiver, state
 
 REPO = "Forge-AI/monorepo"
 KEY, OTHER, MERGED = f"{REPO}#42", f"{REPO}#43", f"{REPO}#41"
@@ -83,14 +89,90 @@ def test_a_hook_kept_from_before_it_sent_every_event_is_hooked_again(state_root:
     assert REAL_UNHOOKED({REPO, "yasyf/cc-skills", "yasyf/cc-slack"}) == [REPO, "yasyf/cc-slack"]
 
 
-@pytest.mark.parametrize(("code", "restarts"), [(None, False), ("same", False), ("other", True)])
-def test_the_receiver_restarts_only_for_an_install_whose_receiver_differs_from_its_own(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code: str | None, restarts: bool) -> None:
-    newest = tmp_path / "long-running" / "1.0.699"
-    (newest / "lib" / "drive").mkdir(parents=True)
-    own = Path(receiver.__file__).read_bytes()
-    (newest / "lib" / "drive" / "receiver.py").write_bytes(own if code == "same" else own + b"\n")
-    monkeypatch.setattr(receiver, "upgraded", lambda: code and newest / "bin" / "drive")
-    assert receiver.rewritten() is restarts
+def test_a_newer_install_takes_the_receivers_socket_once_it_took_each_delivery_it_accepted_and_asks_github_nothing(
+    state_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    newer = state_root / "cache" / "9.9.9" / "bin" / "drive"
+    entered, landed, noticed, done = threading.Event(), threading.Event(), threading.Event(), threading.Event()
+    seen: list[str] = []
+    started: list[str] = []
+    handed: list[list[str]] = []
+    answered: list[int] = []
+    delivering: list[threading.Thread] = []
+    reopened: list[threading.Thread] = []
+
+    class Handed(Exception):
+        pass
+
+    class Stopped(Exception):
+        pass
+
+    def upgraded() -> Path | None:
+        if done.is_set():
+            raise Stopped
+        if landed.is_set() and not handed:
+            noticed.set()
+            return newer
+        return None
+
+    def took(repo: str, hook_id: int, guid: str, event: str, payload: dict | None) -> None:
+        if guid == "g1":
+            entered.set()
+            noticed.wait(10)
+        seen.append(guid)
+        if guid == "g2":
+            done.set()
+
+    def deliver(guid: str) -> None:
+        body = json.dumps({"repository": {"full_name": REPO}, "pull_request": {"number": 42}}).encode()
+        signed = "sha256=" + hmac.new(receiver.secret().encode(), body, hashlib.sha256).hexdigest()
+        answered.append(post(f"http://{dashboard.LOOPBACK}:{port}/", body, {"X-GitHub-Event": "pull_request", "X-GitHub-Delivery": guid, "X-GitHub-Hook-ID": "9", "X-Hub-Signature-256": signed}))
+
+    def delivered_from(guid: str) -> None:
+        delivering.append(threading.Thread(target=deliver, args=(guid,), daemon=True))
+        delivering[-1].start()
+
+    def reopen(argv: list[str]) -> None:
+        with contextlib.suppress(Stopped):
+            cli.main(argv)
+
+    def execv(executable: str, argv: list[str]) -> None:
+        handed.append(argv)
+        seen.append("handed")
+        inherited = [f"--listening={os.dup(int(arg.removeprefix('--listening=')))}" if arg.startswith("--listening=") else arg for arg in argv]
+        delivered_from("g2")
+        reopened.append(threading.Thread(target=reopen, args=(inherited[3:],), daemon=True))
+        reopened[0].start()
+        raise Handed
+
+    def install_lands() -> None:
+        while not receiver.answering():
+            time.sleep(0.05)
+        delivered_from("g1")
+        entered.wait(10)
+        landed.set()
+
+    with socket.create_server((dashboard.LOOPBACK, 0)) as probe:
+        port = probe.getsockname()[1]
+    monkeypatch.setattr(receiver, "PORT", port)
+    monkeypatch.setattr(receiver, "WAIT_SECONDS", 0.05)
+    monkeypatch.setattr(receiver, "upgraded", upgraded)
+    monkeypatch.setattr(receiver, "took", took)
+    monkeypatch.setattr(receiver, "funnel", lambda: started.append("funnel"))
+    monkeypatch.setattr(receiver, "caught_up", lambda: started.append("caught up"))
+    monkeypatch.setattr(receiver, "took_builds", lambda event, links: started.append(f"builds {event}"))
+    monkeypatch.setattr(receiver.launchd, "session_env", lambda: {})
+    monkeypatch.setattr(dashboard, "tailnet", lambda: dashboard.Tailnet("mac", "mac.tail.ts.net", ["100.64.0.1"], "me@example.com", True))
+    monkeypatch.setattr(receiver.os, "execv", execv)
+    threading.Thread(target=install_lands, daemon=True).start()
+    with pytest.raises(Handed):
+        receiver.main(None)
+    for thread in [*reopened, *delivering]:
+        thread.join(10)
+    [argv] = handed
+    assert argv[:-1] == [sys.executable, "-I", str(newer), "receive"]
+    assert re.fullmatch(r"--listening=\d+", argv[-1])
+    assert (seen, answered, started) == (["g1", "handed", "g2"], [200, 200], ["funnel", "caught up", "builds missed"])
 
 
 def test_a_delivery_is_written_only_to_each_drive_tracking_an_unmerged_pr_it_names_and_kept_as_its_hooks_last(demo: str, capsys: pytest.CaptureFixture[str]) -> None:
