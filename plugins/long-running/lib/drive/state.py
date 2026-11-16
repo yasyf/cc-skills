@@ -118,7 +118,10 @@ CARDS_FIRST = 'fe09e93 "Buttons only after you answer each question"'
 UNSCHEDULED_RULING = '785e260, "unacceptable", on a card for cutover work while the cutover is not on'
 TOOLING = "Drive tooling:"
 PROVED_REPORT = "install-proved-"
-UNASKED_READERS_A_DAY = 10
+TALLY_PROMOTES = 3
+TALLY_WINDOW = timedelta(hours=24)
+BACKLOG_STALE = timedelta(days=3)
+BACKLOG_DRAIN = 3
 TOOLING_DETAILS_RULING = "43aa665"
 REHEARSAL_RULING = "716e70d"
 FRESH_DETAILS_RULING = "ff17121"
@@ -898,6 +901,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "change_waits_stacked": True,
         "cut_provers_marked": True,
         "reader_pilot": None,
+        "tooling_backlog": False,
     }
 
 
@@ -1214,6 +1218,11 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             order.update(proof=None, close_report=None, closed_on=None)
             for held in untold_reporters(data, order):
                 held["tell_said"] = None
+    untallied = joined_orders(data) if any("tally" not in order for order in data["orders"].values()) else {}
+    for order_id, order in data["orders"].items():
+        if "tally" not in order:
+            order["tally"] = sorted(({"at": each["created"], "from": each["from"]} for each in [order, *(data["orders"][other] for other in untallied.get(order_id, []))]), key=lambda each: each["at"])
+        order.setdefault("promoted", None)
     for pr in data["prs"].values():
         waits = pr.get("waits")
         pr["waits"] = [wait for wait in (waits if isinstance(waits, list) else [waits] if waits else []) if not card_wait(data, wait)]
@@ -1296,6 +1305,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data.setdefault("answers", {})
     data.setdefault("stalls", {})
     data.setdefault("reader_pilot", None)
+    data.setdefault("tooling_backlog", False)
     for answer in data["answers"].values():
         answer.setdefault("jobs", {})
         answer.setdefault("approves", None)
@@ -3927,6 +3937,8 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "closed_on": None,
         "note": None,
         "joins": None,
+        "tally": [{"at": created, "from": source}],
+        "promoted": None,
         "created": created,
         "updated": created,
         "last_line": None,
@@ -5134,8 +5146,10 @@ def starts_cut(job: dict) -> bool:
 
 
 def readers_piloted(data: dict, order: dict) -> bool:
-    """Whether a build order's builder, designer or codex lane starts with no reader, researching in its own session: the order is filed under the project drive order pilot names and was added inside its window, and is neither marked --complex nor holds a design job, which keep their reader, as does a repro the coordinator adds a reader for by choice."""
+    """Whether a build order's builder, designer or codex lane starts with no reader, researching in its own session: drive tooling a session filed, by unasked_tooling and his option A of Nov 15, unless marked --complex, or an order filed under the project drive order pilot names and was added inside its window, and is neither marked --complex nor holds a design job, which keep their reader, as does a repro the coordinator adds a reader for by choice."""
     pilot = data["reader_pilot"]
+    if data["tooling_backlog"] and unasked_tooling(order) and not order["complex"]:
+        return True
     return (
         bool(pilot)
         and order["project"] == pilot["project"]
@@ -5688,21 +5702,65 @@ def repeats_of_closed(data: dict) -> list[str]:
     ]
 
 
-def unasked_reader_refusal(data: dict, order_id: str, kind: str, moment: str, priority: bool) -> str | None:
-    """Why no reader starts on a drive tooling order a session opened, by his words of Nov 15 "drive-tooling orders costing so much means we have a lot of cruft and waste to cut down there": a defect is a tally on its order, which starts its reader only once a repeat joins it, or marked priority on the job when it blocks his answers, a handler, a post, his DM path or this Mac's load, and never past UNASKED_READERS_A_DAY such readers this day; the order stays open with no job meanwhile, so the next repeat joins it; None for any other add."""
+def on_backlog(data: dict, order_id: str) -> bool:
+    """Whether an order waits on the drive tooling backlog, his option A of Nov 15: drive tooling a session filed, by unasked_tooling, neither an incident nor marked priority or promoted, with no unfinished job and no open or merged PR of its own, so an order whose jobs ended with nothing landed goes back on it, while one whose merge waits on a proof stays off it, and a repeat tallies on it and no reader or builder starts on it until it is promoted."""
     order = data["orders"][order_id]
-    if kind != "reader" or order["incident"] or not unasked_tooling(order):
-        return None
-    if not priority and not order["joins"] and not any(other["joins"] == order_id for other in data["orders"].values()):
-        return f"{order_id} is drive tooling no message of his asked for and no repeat joined yet, so it stays open with no job as a tally; its reader starts once a repeat joins it, or with priority on the job when it blocks his answers, a handler, a post, his DM path or this Mac's load"
-    day = moment[:10]
-    started = sum(1 for job in data["jobs"].values() if job["kind"] == "reader" and job["created"][:10] == day and unasked_tooling(data["orders"][job["order"]]))
-    if started < UNASKED_READERS_A_DAY:
-        return None
     return (
-        f"{started} readers started today on drive tooling orders no message of his asked for, the most a day takes, so {order_id} stays open with no job"
-        f" for a repeat to join and a later day to start"
+        data["tooling_backlog"]
+        and order["state"] not in CLOSED_ORDER_STATES
+        and unasked_tooling(order)
+        and not (order["incident"] or order["priority"] or order["promoted"])
+        and not any(data["jobs"][job_id]["order"] == order_id and data["jobs"][job_id]["state"] not in FINISHED_JOB_STATES for job_id in order["jobs"])
+        and not any(pr["order"] == order_id and pr["state"] != "closed" for pr in data["prs"].values())
     )
+
+
+def recent_tally(order: dict, moment: datetime) -> int:
+    """How many times the order's defect was filed in the TALLY_WINDOW before moment, its first filing included."""
+    return sum(1 for each in order["tally"] if moment - parse_time(each["at"]) <= TALLY_WINDOW)
+
+
+def tally(order: dict, source: str, moment: datetime) -> str | None:
+    """Count a repeat of a backlog item's defect on it rather than filing it again, by his option A of Nov 15, and promote it once it was filed TALLY_PROMOTES times in TALLY_WINDOW; why it was promoted, or None while it waits."""
+    order["tally"].append({"at": stamp(moment), "from": source})
+    order["updated"] = stamp(moment)
+    if order["promoted"] or recent_tally(order, moment) < TALLY_PROMOTES:
+        return None
+    return promote(order, f"filed {recent_tally(order, moment)} times in 24 hours", moment)
+
+
+def promote(order: dict, why: str, moment: datetime) -> str:
+    """Take a backlog item off the backlog so its one builder starts, researching inline with no reader; why."""
+    order["promoted"] = {"why": why, "at": stamp(moment)}
+    order["updated"] = stamp(moment)
+    return why
+
+
+def backlog_refusal(data: dict, order_id: str, kind: str) -> str | None:
+    """Why no job of this kind starts on a drive tooling order a session filed, by his option A of Nov 15: such an order gets no reader, since its one builder researches inline, and a backlog item, by on_backlog, gets no job until it is promoted; None for any other add."""
+    order = data["orders"][order_id]
+    if not data["tooling_backlog"] or not unasked_tooling(order) or order["incident"] or order["priority"]:
+        return None
+    if kind == "reader":
+        return f"{order_id} is drive tooling a session filed, which gets no reader: its one builder researches inline once the backlog promotes it"
+    if kind in ("builder", "design", "codex") and on_backlog(data, order_id):
+        return (
+            f"{order_id} waits on the drive tooling backlog, filed {len(order['tally'])} time{'s' if len(order['tally']) > 1 else ''}: it is built once promoted, at {TALLY_PROMOTES} filings"
+            f' in 24 hours, by drive order set {order_id} --promote "<the work of his it held back>", or by the watch\'s daily drain of the most-filed items'
+        )
+    return None
+
+
+def backlog_drain(data: dict, moment: datetime) -> tuple[list[str], list[str]]:
+    """The drive tooling backlog's daily pass: promote the BACKLOG_DRAIN items filed most, oldest first on a tie, and drop each item no repeat reached in BACKLOG_STALE, in the write the caller saves; the items promoted and the items dropped."""
+    held = [order_id for order_id in data["orders"] if on_backlog(data, order_id)]
+    stale = [order_id for order_id in held if moment - parse_time(data["orders"][order_id]["tally"][-1]["at"]) > BACKLOG_STALE]
+    for order_id in stale:
+        data["orders"][order_id].update(state="dropped", note=f"no repeat in {BACKLOG_STALE.days} days on the drive tooling backlog", updated=stamp(moment))
+    ranked = sorted((order_id for order_id in held if order_id not in stale), key=lambda order_id: (-len(data["orders"][order_id]["tally"]), data["orders"][order_id]["created"]))
+    for order_id in ranked[:BACKLOG_DRAIN]:
+        promote(data["orders"][order_id], f"the daily drain's top {BACKLOG_DRAIN}, filed {len(data['orders'][order_id]['tally'])} times", moment)
+    return ranked[:BACKLOG_DRAIN], stale
 
 
 def pr_threads(data: dict, keys: list[str]) -> list[tuple[str, str]]:

@@ -427,6 +427,11 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
             raise DriveError(
                 f"--joins {args.joins}: name an open order, an open incident order for --incident; {args.joins} is {joined['state']}{'' if joined['incident'] else ', not an incident'}"
             )
+        if data["tooling_backlog"] and joined and tooling and not (thread or reported or args.incident) and state.unasked_tooling(head := data["orders"][head_id := joined["joins"] or args.joins]):
+            why = state.tally(head, args.source, state.parse_time(created))
+            if args.promote and not head["promoted"]:
+                why = state.promote(head, args.promote, state.parse_time(created))
+            return head_id, head, [backlog_line(head_id, head, why)], []
         if joined:
             head = data["orders"][joined["joins"] or args.joins]
             project, workstream = head["project"], head["workstream"]
@@ -451,6 +456,11 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
             "note": joined and joined["note"],
             "joins": joined and (joined["joins"] or args.joins),
         }
+        if data["tooling_backlog"] and tooling and not args.incident and state.unasked_tooling(order) and not joined:
+            why = state.promote(order, args.promote, state.parse_time(created)) if args.promote else None
+            backlogged = [backlog_line(order_id, order, why)]
+        else:
+            backlogged = []
         if paged:
             order["parts"][state.PAGE] = state.new_part()
             state.sort_as_build(order, [state.PAGE], order["kind"] == "answer")
@@ -481,7 +491,15 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
             else f"its owner job carries this order with --carries {order_id}"
         )
         started.append(f"joins {args.joins}: {joined['note'] or 'no record'}; {carried}")
-    return order_id, order, [*started, *state.asked_lines(data, args.words)], incidents
+    return order_id, order, [*started, *backlogged, *state.asked_lines(data, args.words)], incidents
+
+
+def backlog_line(order_id: str, order: dict, why: str | None) -> str:
+    """What a drive tooling order a session filed now is on the backlog, by his option A of Nov 15: promoted, so its one builder starts now with no reader, or waiting, so no job starts."""
+    filed = f"{order_id} filed {len(order['tally'])} time{'s' if len(order['tally']) > 1 else ''}"
+    if why:
+        return f"{filed}, promoted ({why}): add its one builder now, which researches inline with no reader"
+    return f"{filed}, on the drive tooling backlog: start no job; a repeat tallies here, {state.TALLY_PROMOTES} filings in 24 hours or the daily drain promote it"
 
 
 def page_brief(name: str, job_id: str) -> str:
@@ -1009,6 +1027,10 @@ def order_set(args: argparse.Namespace) -> int:
             if args.priority and state.unasked_tooling(order):
                 raise DriveError(f"{args.id} is drive tooling no message of his asked for, so it takes no priority seat; drive job set <j> --priority starts one of its jobs past the caps when it blocks his answers, a handler, a post, his DM path or this Mac's load")
             order["priority"] = state.priority_seat(args.id) if args.priority else None
+        if args.promote:
+            if not state.on_backlog(data, args.id):
+                raise DriveError(f"--promote: refused, nothing written: {args.id} is not on the drive tooling backlog, which holds only drive tooling a session filed with no job yet")
+            state.promote(order, args.promote, state.now())
         if args.fresh is False:
             order["fresh"] = None
         if args.reporter or unreported:
@@ -1167,6 +1189,16 @@ def order_pilot(args: argparse.Namespace) -> int:
         data["reader_pilot"] = pilot
     line = f"reader pilot on {args.project} from {pilot['since']} until {pilot['until']}" if pilot else "reader pilot off: every build order's lanes start on a reader's research"
     return emit(args, line, {"reader_pilot": pilot})
+
+
+def order_backlog(args: argparse.Namespace) -> int:
+    """Turn the drive tooling backlog, his option A of Nov 15, on or off: on, a Drive tooling order a session files waits on it with no job, a repeat Jev reads as the same defect tallies on it rather than filing again, and it is built by one builder with no reader once promoted, by state.on_backlog; prints what it holds."""
+    name = state.resolve(args.drive)
+    with state.edit(name) as data:
+        data["tooling_backlog"] = args.switch == "on"
+        held = [order_id for order_id in data["orders"] if state.on_backlog(data, order_id)]
+    line = f"drive tooling backlog on, holding {len(held)} items" if args.switch == "on" else "drive tooling backlog off: a Drive tooling order a session files starts on its reader's research"
+    return emit(args, line, {"tooling_backlog": args.switch == "on", "held": held})
 
 
 def promise_said(due: str, held: str | None, where: tuple[str, str]) -> str:
@@ -1551,7 +1583,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             or next((removing[part] for part in parts if part in removing), None)
             or (args.model == "astra" and not re.search(r"\bastra\b", order["text"], re.IGNORECASE) and f"--model astra runs only on an order whose words name astra, which {args.order}'s do not")
             or proven_again(data, args.order, args.kind, args.goal)
-            or state.unasked_reader_refusal(data, args.order, args.kind, created, bool(args.priority))
+            or state.backlog_refusal(data, args.order, args.kind)
             or unlandable(data, lands)
             or state.job_wait_refusal(data, args.waits)
             or brief.job_refusal(data, args.order, args.kind, parts, bool(lands or args.release or args.builds_nothing or args.kind == "builder" and args.branch), args.waits)
@@ -6454,6 +6486,11 @@ def parser() -> argparse.ArgumentParser:
         help="his words order its design started over from scratch: every card asked on its work before them is withdrawn on them, and its builders decide implementation details with no card; with neither, Jev reads his words for it",
     )
     verb.add_argument("--once", action="store_true", help="a repair he asked to run once: its job runs it and puts up no PR")
+    verb.add_argument(
+        "--promote",
+        metavar="WHY",
+        help='on a "Drive tooling:" order a session files, the work of his the defect held back, delayed or got wrong: it skips the drive tooling backlog, so its one builder starts now and researches inline, as a repeat filed three times in 24 hours or the daily drain of the most-filed items does',
+    )
     verb.add_argument("--every", type=int, default=0, metavar="MINUTES", help="the minutes he asked a line every, in place of the cadence the drive reads from his words itself: its thread owes one that long after its last line until the order is done")
     verb.add_argument(
         "--owner",
@@ -6557,6 +6594,11 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--once", action=argparse.BooleanOptionalAction, help="mark or unmark it as a repair he asked to run once, which puts up no PR")
     verb.add_argument(
+        "--promote",
+        metavar="WHY",
+        help="take a drive tooling backlog item off the backlog, naming the work of his it held back, so its one builder starts now and researches inline",
+    )
+    verb.add_argument(
         "--priority",
         action=argparse.BooleanOptionalAction,
         help=(
@@ -6594,6 +6636,13 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("project", nargs="?", help="the project orders are filed under, as drive order unfiled lists it; left out, the pilot ends")
     verb.add_argument("--days", type=float, default=2, help="how long orders added count as the pilot's, 2 by default")
     verb.set_defaults(run=order_pilot)
+    verb = order.add_parser(
+        "backlog",
+        parents=both,
+        help="turn the drive tooling backlog on or off: on, a Drive tooling order a session files waits with no job, a repeat tallies on it, and its one builder starts with no reader once it is promoted",
+    )
+    verb.add_argument("switch", choices=("on", "off"), help="on or off")
+    verb.set_defaults(run=order_backlog)
     verb = order.add_parser("posted", parents=both, help="the communicator posted a line in an order's thread, its cards' or its PRs' cards': a progress line, delivering no part, or the answer a part owes him, which the report record it carries delivers, there or in any other channel; or the session holding the order closes a part from the drive's post that already answered it")
     verb.add_argument("id", help="the order")
     posted = verb.add_mutually_exclusive_group(required=True)
