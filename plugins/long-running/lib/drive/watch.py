@@ -32,6 +32,7 @@ POLL_SECONDS = 5
 RELAY_SECONDS = 2
 RESPOND_SECONDS = 1
 RELAY_JOIN_SECONDS = 10
+RESPONDER = "--respond"
 READ_EVERY = timedelta(seconds=60)
 SETTLED_READ_EVERY = timedelta(minutes=10)
 PASS_FOR = timedelta(minutes=5)
@@ -1661,7 +1662,7 @@ def sending(message: dict) -> str:
 
 @contextlib.contextmanager
 def relaying(watcher: Watcher) -> Iterator[None]:
-    """Answer the lanes' reads from the watch's responder, owe him each promised line from its relay, and land, stage and wake from its landing loop, each a process of its own the watch starts, by beside, for as long as the watch runs: each line the responder or relay writes handed to the watcher as it comes, and each map of the PRs the drive does not track the landing loop writes kept as the watcher's, by relayed_lines, which starts again each that ends before the watch ends it; each ended with SIGTERM and its reader waited for RELAY_JOIN_SECONDS before the watch keeps its unposted lines, so each line the relay made is kept, then SIGKILL and as long again, so a pipe another process still holds open never holds the watch's end, which says the reader it left."""
+    """Answer the lanes' reads from the watch's responder, owe him each promised line from its relay, and land, stage and wake from its landing loop, each a process of its own the watch starts, by beside, for as long as the watch runs: each line the responder or relay writes handed to the watcher as it comes, and each map of the PRs the drive does not track the landing loop writes kept as the watcher's, by relayed_lines, which starts again each that ends before the watch ends it; each ended with SIGTERM in turn, the responder last, so lanes get their readers while the relay and landing loop end, and its reader waited for RELAY_JOIN_SECONDS before the next is ended and the watch keeps its unposted lines, so each line the relay made is kept, then SIGKILL and as long again, so a pipe another process still holds open never holds the watch's end, which says the reader it left."""
     ending, guard, live = threading.Event(), threading.Lock(), {}
     readers = {
         flag: (what, threading.Thread(target=relayed_lines, args=(watcher, ending, guard, live, flag, what, took, beside(watcher, flag, live)), daemon=True))
@@ -1678,9 +1679,8 @@ def relaying(watcher: Watcher) -> Iterator[None]:
     finally:
         with guard:
             ending.set()
-            for child in live.values():
-                child.terminate()
-        for flag, (what, reader) in readers.items():
+        for flag, (what, reader) in sorted(readers.items(), key=lambda item: item[0] == RESPONDER):
+            live[flag].terminate()
             reader.join(RELAY_JOIN_SECONDS)
             if reader.is_alive():
                 live[flag].kill()
