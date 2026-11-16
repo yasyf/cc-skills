@@ -486,6 +486,10 @@ def reads_path(name: str, project: str | None = None) -> Path:
     return drive_dir(name) / f"watch{watch_suffix(project)}.reads"
 
 
+def resume_path(name: str, project: str | None = None) -> Path:
+    return drive_dir(name) / f"watch{watch_suffix(project)}.resume"
+
+
 def cards_path(name: str) -> Path:
     return drive_dir(name) / "cards.json"
 
@@ -4673,7 +4677,7 @@ def take_held_lines(name: str, project: str | None = None) -> list[str]:
 
 
 def hold_reads(name: str, project: str | None, reads: dict) -> None:
-    """Keep the GitHub reads a watch process still owes, and the stage it ended its pass before, as it hands itself to a newer install or stops, for the watch process after it, which owes those and the ones the deliveries past its cursor name, never a read of every PR, and starts its first pass's later stages at that one, marked with READ_MARK, the hash of the GitHub query this install reads each PR by."""
+    """Keep the GitHub reads a landing loop still owes, with the events offset it read to, as it hands itself to a newer install or stops, for the landing loop after it, which owes those and the ones the deliveries past that offset name, never a read of every PR, marked with READ_MARK, the hash of the GitHub query this install reads each PR by."""
     path = reads_path(name, project)
     tmp = path.with_name(f"{path.name}.tmp")
     tmp.write_text(json.dumps(reads | {"read": READ_MARK}))
@@ -4681,13 +4685,28 @@ def hold_reads(name: str, project: str | None, reads: dict) -> None:
 
 
 def take_held_reads(name: str, project: str | None = None) -> dict | None:
-    """The GitHub reads the watch process before this one held for it, and the stage it ended its pass before, once; None when it held none, as after a kill or on a first start, or held them under a GitHub query other than this install's, whose rows lack each field this install reads and that one did not, so this one reads every PR."""
+    """The GitHub reads the landing loop before this one held for it, once; None when it held none, as after a kill or on a first start, or held them under a GitHub query other than this install's, whose rows lack each field this install reads and that one did not, so this one reads every PR."""
     path = reads_path(name, project)
     if not path.exists():
         return None
     reads = json.loads(path.read_text())
     path.unlink()
     return reads if reads.get("read") == READ_MARK else None
+
+
+def hold_resume(name: str, project: str | None, stage: str) -> None:
+    """Keep the stage a watch process ended its pass before, as it hands itself to a newer install, for the watch process after it, which starts its first pass's later stages at that one."""
+    resume_path(name, project).write_text(stage)
+
+
+def take_held_resume(name: str, project: str | None = None) -> str | None:
+    """The stage the watch process before this one ended its pass before, once; None when it ended none mid-pass."""
+    path = resume_path(name, project)
+    if not path.exists():
+        return None
+    stage = path.read_text()
+    path.unlink()
+    return stage
 
 
 def read_events(name: str, offset: int = 0) -> Iterator[tuple[dict, int]]:

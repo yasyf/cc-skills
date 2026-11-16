@@ -1508,34 +1508,47 @@ def sending(message: dict) -> str:
 
 @contextlib.contextmanager
 def relaying(watcher: Watcher) -> Iterator[None]:
-    """Answer the lanes' reads and owe him each promised line from the watch's relay, a process of its own the watch starts, by spawn_relay, for as long as the watch runs, each line it writes handed to the watcher as it comes, by relayed_lines; ended with SIGTERM and waited for before the watch keeps its unposted lines, so each line the relay made is kept."""
-    lines, given = os.pipe()
-    relayer = spawn_relay(watcher, given)
-    os.close(given)
-    reader = threading.Thread(target=relayed_lines, args=(watcher, relayer, lines), daemon=True)
-    reader.start()
+    """Answer the lanes' reads and owe him each promised line from the watch's relay, and land, stage and wake from its landing loop, each a process of its own the watch starts, by spawn, for as long as the watch runs: each line the relay writes handed to the watcher as it comes, and each map of the PRs the drive does not track the landing loop writes kept as the watcher's, by relayed_lines; each ended with SIGTERM and waited for in turn before the watch keeps its unposted lines, so each line the relay made is kept."""
+    started = [beside(watcher, "--relay", "the relay", watcher.relayed.append), beside(watcher, "--land", "the landing loop", functools.partial(took_untracked, watcher))]
     try:
         yield
     finally:
-        relayer.terminate()
-        reader.join()
+        for child, reader in started:
+            child.terminate()
+            reader.join()
 
 
-def spawn_relay(watcher: Watcher, lines: int) -> subprocess.Popen:
-    """Start `drive watch --relay <fd>` as a child of the watch, writing its lines to that end of the watch's pipe, in the watch's process group, so the watch's launch agent ends it with the watch whatever ends the watch."""
+def beside(watcher: Watcher, flag: str, what: str, took: Callable[[str], None]) -> tuple[subprocess.Popen, threading.Thread]:
+    lines, given = os.pipe()
+    child = spawn(watcher, flag, given)
+    os.close(given)
+    reader = threading.Thread(target=relayed_lines, args=(watcher, child, lines, what, took), daemon=True)
+    reader.start()
+    return child, reader
+
+
+def spawn(watcher: Watcher, flag: str, lines: int) -> subprocess.Popen:
+    """Start `drive watch <flag> <fd>`, the relay's `--relay` or the landing loop's `--land`, as a child of the watch, writing to that end of the watch's pipe, in the watch's process group, so the watch's launch agent ends it with the watch whatever ends the watch."""
     return subprocess.Popen(
-        [str(install.DRIVE), "watch", "--relay", str(lines), "--drive", watcher.name, *(["--project", watcher.project] if watcher.project else [])],
+        [str(install.DRIVE), "watch", flag, str(lines), "--drive", watcher.name, *(["--project", watcher.project] if watcher.project else [])],
         stdin=subprocess.DEVNULL,
         pass_fds=(lines,),
     )
 
 
-def relayed_lines(watcher: Watcher, relayer: subprocess.Popen, lines: int) -> None:
-    """Hand each line the relay writes to the watcher for the pass after it, until the relay ends; a relay that ends before the watch ends it is kept as the error the watch stops on at the next stage of its pass, or before its next pass, so its launch agent starts both again and no due line waits out the pass."""
+def relayed_lines(watcher: Watcher, child: subprocess.Popen, lines: int, what: str, took: Callable[[str], None]) -> None:
+    """Hand each line a process the watch started beside its passes writes to took, until it ends; the first that ends, before the watch ends it, is kept as the error the watch stops on at the next stage of its pass, or before its next pass, so its launch agent starts the watch and both again and no due line waits out the pass."""
     with os.fdopen(lines) as written:
         for line in written:
-            watcher.relayed.append(line.rstrip("\n"))
-    watcher.relay_error = ChildProcessError(f"the relay, process {relayer.pid}, exited {relayer.wait()}; its output is in {state.watch_log_path(watcher.name, watcher.project)}")
+            took(line.rstrip("\n"))
+    code = child.wait()
+    if watcher.relay_error is None:
+        watcher.relay_error = ChildProcessError(f"{what}, process {child.pid}, exited {code}; its output is in {state.watch_log_path(watcher.name, watcher.project)}")
+
+
+def took_untracked(watcher: Watcher, line: str) -> None:
+    """Keep as the watcher's the landing loop's newest map of each PR the drive does not track that it read, to the state GitHub answered, which the pass's job stages read."""
+    watcher.untracked = json.loads(line)
 
 
 def relay(name: str, project: str | None, lines: int) -> int:
@@ -1550,6 +1563,55 @@ def relay(name: str, project: str | None, lines: int) -> int:
                 relayed.write(f"{LINE_BREAKS.sub(' ', line)}\n")
             time.sleep(RELAY_SECONDS)
     return 0
+
+
+def landing_loop(name: str, project: str | None, lines: int) -> int:
+    """Run the watch's landing loop, the process the watch starts beside its passes: a landing pass the moment anything appends to the drive's events file, as the receiver does for each delivery, or POLL_SECONDS after the last, by rests, each first moving this process onto the newest install, by install.reopen, once it held what it owes for the landing loop it starts there, so a GitHub read, a stage's wake and a landing wait on no lane read, Sprite launch or install a pass of the watch runs, and a fix to any of them runs within a pass of its install. It hands its own lines on as the watch does, those the process before it held with the first stage of its first pass, so lines kept back for a later post never cost a landing pass, and writes the watch down the pipe end it inherited each new map of the PRs the drive does not track it read, first the one the landing loop before it held. It takes the reads the landing loop before it held, with the events offset it had read to, else owes a read of every PR from the events file's end; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag, and however it ends it holds its unposted lines and owed reads for the landing loop after it."""
+    ended: list[int] = []
+    signal.signal(signal.SIGTERM, lambda signum, frame: ended.append(signum))
+    held = state.take_held_reads(name, project)
+    owes = {"owed": set(held["owed"]), "merging": set(held["merging"]), "stale": set(held["stale"]), "untracked": held["untracked"]} if held else {}
+    offset = held.get("offset", state.watch_cursor(name, project)) if held else state.events_end(name)
+    landing = Watcher(name, offset=offset, project=project, cards=view.live_cards(name), made=state.take_held_lines(name, project), **owes)
+    argv = ["watch", "--land", str(lines), "--drive", name, *(["--project", project] if project else [])]
+    told = None
+    try:
+        with os.fdopen(lines, "w", buffering=1) as untracked:
+            for _ in rests(name):
+                if ended:
+                    break
+                if upgraded():
+                    hold(landing)
+                    install.reopen(argv)
+                if landing.untracked != told:
+                    told = dict(landing.untracked)
+                    untracked.write(f"{json.dumps(told)}\n")
+                moment = state.now()
+                for said in passed(landing, moment, staged=landing_pass):
+                    for line in sent(landing, landing.lane, said, moment):
+                        print(line, flush=True)
+    finally:
+        hold(landing)
+    return 0
+
+
+def landing_pass(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
+    """The lines of each stage of one pass of the landing loop, as it returns: the reads each delivery since its last pass owes, then every READ_EVERY the landing stages, else those reads and the PUSHED lines they settle, by owed_reads."""
+    if events := list(state.read_events(watcher.name, watcher.offset)):
+        owe_delivered(watcher, events)
+        watcher.offset = events[-1][1]
+    if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
+        watcher.read_at = moment
+        later = landing_stages(watcher, moment)
+    else:
+        later = owed_reads(watcher, moment)
+    for stage in later:
+        yield stage() or []
+
+
+def owed_reads(watcher: Watcher, moment: datetime) -> list[functools.partial]:
+    """The stages that take the GitHub reads the deliveries since the last read owe, by github_owed_lines, then each builder's PUSHED, or READY a lane sent since, that read settles, so a READY whose checks are green waits on no 60-second landing pass."""
+    return [functools.partial(stage, watcher, moment) for stage in (github_owed_lines, pushed_lines)]
 
 
 def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
@@ -1781,14 +1843,11 @@ def moved_line(event: dict, data: dict) -> str:
 
 
 def event_lines(watcher: Watcher) -> list[str]:
-    """Each new event the watch hears: one is written with the lane of the coordinator session hearing its order then, so a binding or a refiling after it moves it to no other watch, an ORDERS_MOVED one with the lane that lost the orders it names, the drive's own watch saying one the communicator or the meta session lost, which handed sends that session, and one written with no lane is the drive's own watch's. A delivery the receiver wrote is said by no line: it owes each watch a read of the PRs it names, which github_lines reads later in the same pass for the PRs that watch hears, a push to their base a read of their mergeability alone. A build delivery owes it a read of the Buildkite builds it names, which build_lines makes later in the same pass."""
+    """Each new event the watch hears: one is written with the lane of the coordinator session hearing its order then, so a binding or a refiling after it moves it to no other watch, an ORDERS_MOVED one with the lane that lost the orders it names, the drive's own watch saying one the communicator or the meta session lost, which handed sends that session, and one written with no lane is the drive's own watch's. A delivery the receiver wrote is said by no line: it owes the reads owe_delivered names, which the watch's landing loop makes, or a pass run in-process later in the same pass. A build delivery owes it a read of the Buildkite builds it names, which build_lines makes later in the same pass."""
     events = list(state.read_events(watcher.name, watcher.offset))
     if not events:
         return []
-    if watcher.owed is not None:
-        delivered = [(f"{event['repo']}#{number}", event["event"] in receiver.REMERGES) for event, _ in events if event["kind"] == receiver.DELIVERY for number in event["numbers"]]
-        watcher.owed |= {key for key, remerges in delivered if not remerges}
-        watcher.merging |= {key for key, remerges in delivered if remerges}
+    owe_delivered(watcher, events)
     watcher.builds_heard |= {link for event, _ in events if event["kind"] == receiver.BUILD_DELIVERY for link in event["builds"]}
     data = state.load(watcher.name)
     heard = (watcher.lane,) if watcher.project else (watcher.lane, *state.HOLDERS)
@@ -1796,6 +1855,14 @@ def event_lines(watcher: Watcher) -> list[str]:
     watcher.offset = events[-1][1]
     return said
 
+
+def owe_delivered(watcher: Watcher, events: list[tuple[dict, int]]) -> None:
+    """Owe a read of each PR a delivery among the events names, which github_lines reads for the PRs the watch hears, a push to their base a read of their mergeability alone; none while the watch owes a read of every PR, which reads them anyway."""
+    if watcher.owed is None:
+        return
+    delivered = [(f"{event['repo']}#{number}", event["event"] in receiver.REMERGES) for event, _ in events if event["kind"] == receiver.DELIVERY for number in event["numbers"]]
+    watcher.owed |= {key for key, remerges in delivered if not remerges}
+    watcher.merging |= {key for key, remerges in delivered if remerges}
 
 def overdue(data: dict, order: dict, moment: datetime) -> bool:
     """Whether the watch owes a report on the line an order promised him by a time already past: every ten minutes while he is here, none while state.owed_at_return reads it owed at his return, once while he is away for an order whose lines have no thread, and at once the first pass after he is heard, whatever report went before his absence."""
@@ -4162,14 +4229,14 @@ def crossed(watcher: Watcher, data: dict, offset: int, moment: datetime) -> tupl
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One pass's lines for the coordinator, every stage's together, as a proof runs its passes in-process."""
-    return [line for lines in passed(watcher, moment) for line in lines]
+    """One pass's lines for the coordinator, every stage's together, as a proof runs its passes in-process, the landing loop's stages among them."""
+    return [line for lines in passed(watcher, moment, staged=functools.partial(stages, lands=True)) for line in lines]
 
 
-def passed(watcher: Watcher, moment: datetime, until: Callable[[], object] = lambda: None) -> Iterator[list[str]]:
-    """The coordinator's lines of one pass as each stage returns, first none, as the communicator, the meta session and the coordinator are each sent again what failed to post to them before, then each stage's, its lines for the communicator or the meta session posted to them as it returns, so a pass that reads each lane from Orca for minutes says what GitHub and the lanes said in its first minute then, not at its end; the pass ends before any stage after its first ones once until answers, as the watch's loop asks whether a newer long-running is installed, the stage it ends before kept as the watcher's resume. A stage's lines join the watcher's made lines first, so a pass that ends early, in a crash or on the error its relay ended on, which it ends on after the stage it ran beside, leaves those not yet handed to the watch process after it."""
+def passed(watcher: Watcher, moment: datetime, until: Callable[[], object] = lambda: None, staged: Callable[[Watcher, datetime], Iterator[list[str]]] | None = None) -> Iterator[list[str]]:
+    """The coordinator's lines of one pass of the watch's stages, or of those staged names, such as the landing loop's, as each stage returns, first none, as the communicator, the meta session and the coordinator are each sent again what failed to post to them before, then each stage's, its lines for the communicator or the meta session posted to them as it returns, so a pass that reads each lane from Orca for minutes says what GitHub and the lanes said in its first minute then, not at its end; the watch's pass ends before any stage after its first ones once until answers, as the watch's loop asks whether a newer long-running is installed, the stage it ends before kept as the watcher's resume. A stage's lines join the watcher's made lines first, so a pass that ends early, in a crash or on the error a process beside it ended on, which it ends on after the stage it ran beside, leaves those not yet handed to the watch process after it."""
     yield handed(watcher, [], moment)
-    for lines in stages(watcher, moment, until):
+    for lines in staged(watcher, moment) if staged else stages(watcher, moment, until):
         watcher.made += lines
         if watcher.relay_error:
             raise watcher.relay_error
@@ -4177,8 +4244,8 @@ def passed(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
             yield said
 
 
-def stages(watcher: Watcher, moment: datetime, until: Callable[[], object]) -> Iterator[list[str]]:
-    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, so a pass that crashes while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass after the watch's first, so its ORPHAN comes on time whatever the length of a pass, then the drive's own Orca terminal every Orca call speaks as, his cards and the messages of his cc-slack owes an answer, the GitHub reads it owes, the staging test of each PR whose new head changes a dangerous class of file, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver, each teammate thread an order watches and each message of his cc-slack owes an answer every 60 s, his PR cards whose rows went stale, and GitHub again next poll after a failure, events written since, its own stages' among them, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, the daily Slack sweep's drive tooling orders, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, each answer order left nothing owed, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, and parts nothing carries. Each stage after the orphans is named by its function: the pass starts those at the watcher's resume when one of them bears its name, so the watch after one that ended mid-pass for a newer install runs only the stages that one had not, and ends before the first one it reaches once until answers, keeping that one's name as the resume. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
+def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lambda: None, lands: bool = False) -> Iterator[list[str]]:
+    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, so a pass that crashes while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass after the watch's first, so its ORPHAN comes on time whatever the length of a pass, then the drive's own Orca terminal every Orca call speaks as, his cards as the landing loop last stored them and the messages of his cc-slack owes an answer, or, in a pass run in-process, which lands, the landing stages, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, each teammate thread an order watches and each message of his cc-slack owes an answer every 60 s, then events written since, its own stages' among them, and, in a pass that lands, the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, and each builder's PUSHED or lane's READY those settle, so one a lane sent this pass is taken in it, then the catch-up owed him, the daily Slack sweep's drive tooling orders, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, each answer order left nothing owed, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, and parts nothing carries. Each stage after the orphans is named by its function: the pass starts those at the watcher's resume when one of them bears its name, so the watch after one that ended mid-pass for a newer install runs only the stages that one had not, and ends before the first one it reaches once until answers, keeping that one's name as the resume. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
     yield drained(watcher.relayed)
     yield event_lines(watcher)
     if watcher.read_at is not None:
@@ -4192,24 +4259,14 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object]) -> I
             yield read_failed(watcher, "drive terminal", error, moment)
         else:
             watcher.failures.pop("drive terminal", None)
-        view.refresh_cards(watcher.name)
         view.refresh_owed(watcher.name, agents.beside(state.load(watcher.name))[1]["session"])
-        found, source = view.stored_cards(watcher.name)
-        watcher.cards = found if source == "live" else None
-        watcher.redrawn_whole = set()
+        if not lands:
+            watcher.cards, watcher.redrawn_whole = view.live_cards(watcher.name), set()
         later = [
-            functools.partial(github_lines, watcher, moment, polled=True),
+            *(landing_stages(watcher, moment) if lands else []),
             *(
                 functools.partial(stage, watcher, moment)
                 for stage in (
-                    main_lines,
-                    dangerous_lines,
-                    reach_lines,
-                    carried_lines,
-                    checks,
-                    stage_lines,
-                    draw_questions,
-                    landed,
                     settle_lines,
                     follow_lines,
                     serving_lines,
@@ -4226,7 +4283,6 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object]) -> I
                     noted_lines,
                     lane_lines,
                     release_lanes,
-                    pushed_lines,
                     agent_lines,
                     stall_lines,
                     carry_held,
@@ -4236,11 +4292,12 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object]) -> I
                 )
             ),
             functools.partial(dashboard_lines, watcher),
-            *(functools.partial(stage, watcher, moment) for stage in (receiver_lines, watched_lines, owed_lines, redraw_lines)),
+            *(functools.partial(stage, watcher, moment) for stage in (watched_lines, owed_lines)),
         ]
     later += [
         functools.partial(event_lines, watcher),
-        *(functools.partial(stage, watcher, moment) for stage in (github_owed_lines, catch_up_lines, sweep_lines, claim_reply_lines, claim_lines, quiet_lines, clock_lines, undelivered_lines, close_answered, tell_lines, standing_lines, orphan_lines)),
+        *(owed_reads(watcher, moment) if lands else []),
+        *(functools.partial(stage, watcher, moment) for stage in (catch_up_lines, sweep_lines, claim_reply_lines, claim_lines, quiet_lines, clock_lines, undelivered_lines, close_answered, tell_lines, standing_lines, orphan_lines)),
     ]
     names = [stage.func.__name__ for stage in later]
     resume, watcher.resume = watcher.resume, None
@@ -4254,6 +4311,16 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object]) -> I
 def github_owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """The GitHub reads the pass's stages and deliveries owe, unless its last GitHub read failed, which the next 60-second read retries."""
     return [] if "github" in watcher.failures else github_lines(watcher, moment)
+
+
+def landing_stages(watcher: Watcher, moment: datetime) -> list[functools.partial]:
+    """The stages that land, stage and wake, each READ_EVERY in the landing loop, or in a pass run in-process, once it stored his cards as cc-slack lists them now: the GitHub reads it owes, each builder's PUSHED that read settles, so a READY it takes is landed in the same pass, the tests each yasyf/* main fails, the staging test of each PR whose new head changes a dangerous class of file, the release reach, the check against his words carried to each head a restack moved, the check of each PR that owes one, each PR's stage with its wakes, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the receiver, and his PR cards whose rows went stale."""
+    view.refresh_cards(watcher.name)
+    watcher.cards, watcher.redrawn_whole = view.live_cards(watcher.name), set()
+    return [
+        functools.partial(github_lines, watcher, moment, polled=True),
+        *(functools.partial(stage, watcher, moment) for stage in (pushed_lines, main_lines, dangerous_lines, reach_lines, carried_lines, checks, stage_lines, draw_questions, landed, receiver_lines, redraw_lines)),
+    ]
 
 
 def post_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -4682,9 +4749,7 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
         children.mark_watch()
         while holder(state.monitor_pid_path(name)):
             time.sleep(POLL_SECONDS)
-        held = state.take_held_reads(name, project)
-        owes = {"owed": set(held["owed"]), "merging": set(held["merging"]), "stale": set(held["stale"]), "untracked": held["untracked"], "resume": held.get("resume")} if held else {}
-        watching(Watcher(name, offset=state.watch_cursor(name, project), project=project, cards=view.live_cards(name), made=state.take_held_lines(name, project), **owes))
+        watching(Watcher(name, offset=state.watch_cursor(name, project), project=project, cards=view.live_cards(name), made=state.take_held_lines(name, project), resume=state.take_held_resume(name, project)))
     finally:
         release(name, project)
     return 0
@@ -4725,9 +4790,16 @@ def rests(name: str) -> Iterator[None]:
 
 
 def keep_unposted(watcher: Watcher) -> None:
-    """Move each line the watch made and has not posted, routed or not, to the watch process after it, which hands them on before its first pass and reads events from past the last one they were made from, and, once it read GitHub, the reads it still owes and the stage it ended its pass before, so the watch after it reads those and the PRs the deliveries past that event name, never every PR again unless it reads GitHub by another query, and starts its first pass's later stages at that one."""
+    """Move each line the watch made and has not posted to the watch process after it, which reads events from past the last one they were made from, by hold, and the stage it ended its pass before, so the watch after it starts its first pass's later stages at that one."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
+    if watcher.resume:
+        state.hold_resume(watcher.name, watcher.project, watcher.resume)
+    hold(watcher)
+
+
+def hold(watcher: Watcher) -> None:
+    """Move each line the watch or its landing loop made and has not posted, routed or not, to the process after it, which hands them on before its first pass, and, once it read GitHub, the reads it still owes with the events offset it read to, so the landing loop after it reads those and the PRs the deliveries past that offset name, never every PR again unless it reads GitHub by another query."""
     state.hold_lines(watcher.name, watcher.project, [LINE_BREAKS.sub(" ", line) for line in [*watcher.made, *drained(watcher.relayed), *(line for lines in watcher.unsent.values() for line in lines)]])
     if watcher.owed is not None:
-        state.hold_reads(watcher.name, watcher.project, {"owed": sorted(watcher.owed), "merging": sorted(watcher.merging), "stale": sorted(watcher.stale), "untracked": watcher.untracked, "resume": watcher.resume})
+        state.hold_reads(watcher.name, watcher.project, {"owed": sorted(watcher.owed), "merging": sorted(watcher.merging), "stale": sorted(watcher.stale), "untracked": watcher.untracked, "offset": watcher.offset})
     watcher.made, watcher.unsent = [], {}

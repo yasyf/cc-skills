@@ -47,7 +47,7 @@ for its repository says, then return `DONE <proof>`.
   incident a PR a card of his holds gets no PR card asking his tap until he answers each card, by his
   pick "Buttons only after you answer each question". On an incident his Approve on the PR answers each card holding
   it: his Approve keeps each one's recommended option on its tap as its pick,
-  and the lander's start, on his tap and on every watch pass, answers each card still open with its
+  and the lander's start, on his tap and on every pass of the watch's landing loop, answers each card still open with its
   pick and closes it before it lands. His Approve stands until his words rework the PR or he taps Hold:
   a card that comes to hold the PR after his Approve holds it as held, owed by him and naming that
   card, and only his answer on that card frees it.
@@ -352,7 +352,7 @@ by [Neither](scope.md#the-four-kinds-of-pr). A PR lands only when all of these h
   part, which a builder's `STAGING:` line gives only a change it read as dangerous, an infra or blue-green one
   included, whose passed test lands nothing while he is away. The lander reads its files only while he is away, records
   `not landed while he is away` and lands it at his next word, his Approve standing. A unit Trunk queued before he went
-  quiet leaves the queue the same way, since the watch's next pass dequeues it as any other stop does; the `landing_guard` hook refuses a
+  quiet leaves the queue the same way, since the landing loop's next pass dequeues it as any other stop does; the `landing_guard` hook refuses a
   hand merge meanwhile, an incident's fix included, by his words "merging or rleasing dangerous things should only be
   done wehn the human is present";
 - he tapped Approve on its card, or it is an exempt class. His approval in words, or his pick on a card
@@ -442,7 +442,8 @@ tells a wait from a fix, waits out each wait in the lander's own process, such a
 GitHub still computing mergeability after a push to the default branch, and queues it, or ends the
 landing as `PR … not landed: <its last lines>` on the first gap that needs a fix, such as a conflict. His card tap starts it when the PR is already green, approved by the
 reviewer bot, on its head or an older one, and free of conflicts, and the watch starts it within
-60 seconds of reading the PR there, which it does as GitHub delivers the change. It
+60 seconds of reading the PR there, which it does as GitHub delivers the change: its landing loop, a process of
+its own beside the watch's passes, reads GitHub, stages, wakes and lands every 60 seconds however long a pass runs. It
 lands what his card drew whole, bottom first, by his rule "Approve lands exactly those, bottom first",
 a PR added to a stack later, native or chained by base branch, joining one fresh card for the whole
 stack that replaces the older cards: the PRs of his card that share a stack, a native GitHub stack
@@ -466,11 +467,11 @@ His Approve is one field on the PR, kept on every PR of the landing unit his car
 only by his Hold or by any reply of his in its card's thread, which cc-slack sends through its card
 command as it sends his tap: the reply takes back each Approve he gave before writing it, and the card
 draws Approve again. Whatever stops a landing, his Hold, the hold label, a card holding its change, a
-wait of the PR, its staging test included, a rework, his Approve coming off or his absence from a dangerous PR, the watch's next pass stops it, and his tap or reply stops it in the
+wait of the PR, its staging test included, a rework, his Approve coming off or his absence from a dangerous PR, the landing loop's next pass stops it, and his tap or reply stops it in the
 same card command: a running lander is ended, which dequeues what it queued, and a unit Trunk holds after
 its lander ended is taken out of the queue by `drive pr land --dequeue`, its own process running
 `stack-enqueue --dequeue` from a fresh worktree of the default branch, whose own failure reads as the
-lander's `LANDER` defect and is retried at the next pass. His Approve lands the PR at its first green head, a dangerous one while he is present, whatever the check of its change
+lander's `LANDER` defect and is retried at the landing loop's next pass. His Approve lands the PR at its first green head, a dangerous one while he is present, whatever the check of its change
 against his words says, whatever head he tapped it on, by his words "why the fuck would you keep eveyhting broken to make it perfect": a head that moved under his card keeps Approve showing and
 lands with no second check. A `NOT READY` at the PR's head clears no tap and holds no landing: his
 card keeps Approve, and its `PR … NOT READY`
@@ -484,7 +485,7 @@ timed out, or failed before it printed an answer, as when mise refuses the landi
 `gh pr merge`, merge-async or `gh pr comment` GitHub never answered, such as a TLS handshake timeout or an HTTP 5xx,
 or that ccx refused before GitHub heard it. The watch says it once a head to the meta session
 as the lander's own `LANDER the lander could not …` defect, never as the PR's not landed line, and the lander tries
-again at the watch's next pass with no new tap. So does a try that ended on a failed GitHub read before it
+again at the landing loop's next pass with no new tap. So does a try that ended on a failed GitHub read before it
 queued or merged anything, such as a TLS handshake timeout on its diff read or on the landing clone's fetch of the
 default branch, said on the PR's line and named by its `ready` stage until a try lands it. A try that
 comes to what the one before it on that head did is said once. A try stands only at the head and base it ran on, so a push, or GitHub moving the PR onto the default branch once the PR under it merges, reads it `ready` again, and only while what let it run does: once `drive pr set <url> --no-exempt --tap`
