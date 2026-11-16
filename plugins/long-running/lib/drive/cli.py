@@ -3718,7 +3718,7 @@ def starter_post(name: str, job_id: str, job: dict, lane: str, text: str, at: st
     sent_kept(name, job_id, {"words": text, "request": seq, "held": held, "at": at, "ask": job.get("ask")})
     if session := state.own_session(job):
         return seq, own_post(name, job_id, session, seq)
-    line = f'{job_id}: SendMessage {job["agent"]} "{superseded.POINTER.format(seq)}"'
+    line = f'{job_id}: owed, send it now: SendMessage {job["agent"]} "{superseded.POINTER.format(seq)}"'
     if lane == sender:
         return seq, line
     tools.sent(name, sender, [{"kind": "handoff", "to": [f"{lane}@{name}"], "attr": attrs, "text": line}])

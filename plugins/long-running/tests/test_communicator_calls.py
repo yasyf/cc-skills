@@ -200,7 +200,7 @@ def test_each_step_a_watch_line_names_to_reach_a_builder_on_this_mac_is_one_the_
     for line in resumes:
         resume = ["job", "resume", "j1"] if line in answers else ["job", "resume", "j1", line]
         assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=shlex.join(["drive", *resume]))) is None, line
-        assert run(*resume) == (0, f'j1: SendMessage a-7 "{superseded.POINTER.format(9)}"'), line
+        assert run(*resume) == (0, f'j1: owed, send it now: SendMessage a-7 "{superseded.POINTER.format(9)}"'), line
         assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message=superseded.POINTER.format(9))) is None, line
     assert [line.endswith("drive job resume j1 delivers it now [o1 j1]") for line in answers] == ([True] if returned != "done" else [])
     with state.edit(demo) as data:
