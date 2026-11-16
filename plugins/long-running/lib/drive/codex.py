@@ -171,14 +171,8 @@ def take(name: str, data: dict, job_id: str, run: Run) -> str | None:
         return None
     report = ""
     if run.state == "completed":
-        text = run.reply.read_text()
-        try:
-            reply = json.loads(text)
-            line = f"{reply['state']} {reply['line'].strip()}".strip()
-            report = f"{line}\n{reply['report'].strip()}\n"
-        except (ValueError, KeyError, TypeError, AttributeError):
-            line, report = "", text
-        opening = line or state.opening(text)
+        line, report = replied(run)
+        opening = line or state.opening(report)
         state.after(lambda: state.keep_report(name, job_id, opening, report) or [])
         job = data["jobs"][job_id]
         if line.startswith("DONE") and (repro := state.REPRO.search(report)) and Path(repro["path"]).expanduser().is_file():
@@ -201,6 +195,17 @@ def take(name: str, data: dict, job_id: str, run: Run) -> str | None:
         line = f"BLOCKED codex-ask {run.state}: {last_line(run.log)}"
     state.take_result(data, job_id, line[:SAID_CHARS], report)
     return state.fix_shipper(data, job_id)
+
+
+def replied(run: Run) -> tuple[str, str]:
+    """A completed run's reply as its result line and its whole report, that line opening it, read from the JSON its schema requires; no line and the reply whole for one that is not that JSON."""
+    text = run.reply.read_text()
+    try:
+        reply = json.loads(text)
+        line = f"{reply['state']} {reply['line'].strip()}".strip()
+        return line, f"{line}\n{reply['report'].strip()}\n"
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return "", text
 
 
 def last_line(log: Path) -> str:

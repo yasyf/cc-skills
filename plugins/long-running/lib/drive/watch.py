@@ -86,6 +86,7 @@ STALE_TEXT = settled.Noul(
 COALESCE = timedelta(minutes=10)
 POSTED_KEY = "posted:"
 WATCH_STARTS = "start no agent for it"
+SHIPS_FIX = "its fix is not live, so "
 URGENT = ("TAP ", "DUE ", "MOVED ", "WATCH stopped", "DOWN ")
 TAP_EVENT = re.compile(rf"TAP (?P<label>\S+) (?P<key>\S+)(?P<stalled> {NOT_LANDED})?")
 LANE = "watch"
@@ -2749,7 +2750,7 @@ def post_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def codex_takes(watcher: Watcher) -> None:
-    """Take as its result each running codex job's codex-ask run that ended, and as its BLOCKED each one no agent holds that has no run going and none left to take, by Gone, of the jobs this watch hears, by heard_job, so its returned event tells the coordinator within RELAY_SECONDS of the run's end however long a pass holds the watch, with where his card on its ASK stands and, for an incident fix job, the builder that ships its fix; codex_gap reads each run's status and pid files first, so a run that still goes starts no `codex-ask --collect`. A job another process took meanwhile is not taken again."""
+    """Take as its result each running codex job's codex-ask run that ended, and as its BLOCKED each one no agent holds that has no run going and none left to take, by Gone, of the jobs this watch hears, by heard_job, so its returned event tells the coordinator within RELAY_SECONDS of the run's end however long a pass holds the watch, with where his card on its ASK stands and, for an incident fix job, the builder that ships its fix, each ORPHAN line on that fix part still waiting on the watcher dropped in the same pass, since that builder carries it; codex_gap reads each run's status and pid files first, so a run that still goes starts no `codex-ask --collect`. A job another process took meanwhile is not taken again."""
     data = state.load(watcher.name)
     ended = {
         job_id: gap
@@ -2767,6 +2768,9 @@ def codex_takes(watcher: Watcher) -> None:
         return data, taken, shippers
 
     data, taken, shippers = state.write(watcher.name, took, budget=state.WATCH_WRITE_SECONDS)
+    stale = tuple(f'ORPHAN {data["jobs"][job_id]["order"]} "{cut(state.INCIDENT_FIX, 80)}": ' for job_id in shippers)
+    for lane, owed in watcher.unsent.items():
+        watcher.unsent[lane] = [line for line in owed if not line.startswith(stale)]
     for job_id in taken:
         state.returned(watcher.name, data, job_id, "; ".join(filter(None, [data["jobs"][job_id]["said"], *(codex_asks(watcher.name, job_id) if isinstance(ended[job_id], Answered) else []), *([fix_shipped(watcher.name, shippers[job_id])] if job_id in shippers else [])])))
 
@@ -4072,7 +4076,7 @@ def fix_shipped(name: str, builder_id: str) -> str:
     """What a codex fix job's JOB line says of the builder state.fix_shipper added to ship its work, briefed here so the coordinator starts its agent in the turn this line wakes, or why its brief was not written."""
     from drive import cli
 
-    head = f'its fix is not live, so {builder_id}, an Opus 5.5 long-running:builder the drive added on "{state.INCIDENT_FIX}" to ship it'
+    head = f'{SHIPS_FIX}{builder_id}, an Opus 5.5 long-running:builder the drive added on "{state.INCIDENT_FIX}" to ship it'
     try:
         started = cli.write_brief(name, builder_id, {})[0].splitlines()[0]
     except cli.VERB_ERRORS as error:
@@ -6674,8 +6678,10 @@ def line_lane(line: str, data: dict) -> str | None:
 
 
 def needs_step(line: str, data: dict, cards: dict | None) -> bool:
-    """Whether a line asks for a step now: any line but a PR's, his tap but an Approve, which the drive's lander lands in every repository once its stage reads ready, a STAGE line on a PR the drive tracks only while stage.of still names that stage, so one made before its PR merged or its lander tried a newer head asks nothing, a PR's merged line only when nobody else says it, never GitHub's merged line for a PR the lander merges and says so itself or whose job took DONE at its merge, whose prover's JOB line asks the step, or is one the watch finishes in that pass, nor the lander's merged line on a job already proved or whose proof the watch runs, whose proof line says so, and a line on a PR no longer open or folded only when it says how the PR ended, its merge, close or failed proof, while its job does not run to take it, never a move made while it was open, such as a lander's try refused at an older head, new heads, checks or a check against his words. An open PR's moves wake nobody, since its stage wakes its owner. A standing part's pass that ended DONE or HANDOFF asks nothing by its own line alone, since the watch alone starts the next pass, quoting it, nor does a WAITING or PUSHED return, by settled_return, whose row of the coordinator's manual says Nothing; a clause the drive adds to either line, such as an ASK it did not keep, still asks its step."""
+    """Whether a line asks for a step now: any line but a PR's, his tap but an Approve, which the drive's lander lands in every repository once its stage reads ready, a STAGE line on a PR the drive tracks only while stage.of still names that stage, so one made before its PR merged or its lander tried a newer head asks nothing, a PR's merged line only when nobody else says it, never GitHub's merged line for a PR the lander merges and says so itself or whose job took DONE at its merge, whose prover's JOB line asks the step, or is one the watch finishes in that pass, nor the lander's merged line on a job already proved or whose proof the watch runs, whose proof line says so, and a line on a PR no longer open or folded only when it says how the PR ended, its merge, close or failed proof, while its job does not run to take it, never a move made while it was open, such as a lander's try refused at an older head, new heads, checks or a check against his words. An open PR's moves wake nobody, since its stage wakes its owner. A standing part's pass that ended DONE or HANDOFF asks nothing by its own line alone, since the watch alone starts the next pass, quoting it, nor does a WAITING or PUSHED return, by settled_return, whose row of the coordinator's manual says Nothing; a clause the drive adds to either line, such as an ASK it did not keep, still asks its step. A HELD line whose SendMessage went, by held_sent, asks nothing."""
     if (tapped := TAP_EVENT.match(line)) and tapped["label"] == "Approve":
+        return False
+    if held_sent(line, data):
         return False
     if (job := JOB_LINE.match(line)) and (standing_pass_ended(data, job["job"], line) or settled_return(data, job["job"], line)):
         return False
@@ -6692,6 +6698,18 @@ def needs_step(line: str, data: dict, cards: dict | None) -> bool:
     if pr["state"] in github.UNLANDED or not found["change"].startswith(ENDED):
         return False
     return data["jobs"][found["job"]]["state"] != "running"
+
+
+def held_sent(line: str, data: dict) -> bool:
+    """Whether a HELD line's owed SendMessage went: the job's agent took a message from the session that started it naming the line's record by its seq, in whatever words wrap it, since the record's text was held, as starter_post keeps that text in jobs/<j>.sent-<seq>.md dated then, so a line waiting on the watcher posts no step already taken, as j4834's for record 736226 and j8059's for 736227 did 25 minutes after each agent had them."""
+    if not line.startswith("HELD ") or not (named := NAMED_JOB.match(line)) or not (pointer := superseded.POINTED.search(line)) or not (job := data["jobs"].get(named["job"])) or not job.get("agent"):
+        return False
+    given = state.drive_dir(data["name"]) / "jobs" / f"{named['job']}.sent-{pointer[1]}.md"
+    if not given.exists() or (holder := session_of(job, data)) is None or not (path := agent_transcript(holder, job, data)).exists():
+        return False
+    seq = re.compile(rf"(?<!\d){pointer[1]}(?!\d)")
+    since = datetime.fromtimestamp(given.stat().st_mtime).astimezone()
+    return any((said := settled.prompt_words(row, agents.MESSAGE_ORIGIN)) is not None and seq.search(said) for row in agents.recent_rows(path, since))
 
 
 def settled_return(data: dict, job_id: str, line: str) -> bool:
@@ -6804,12 +6822,12 @@ def keep_posted(name: str, lane: str, moment: datetime) -> None:
 
 
 def quiet(line: str) -> bool:
-    """Whether a line is one whose row of the coordinator's manual says Nothing, so no lane hears it: a card settled or withdrawn in place, a built answer paused on his pick, a standing part's next pass, a compaction, a status page redraw, a receiver the watch replaced, a tester the watch queued in its env's slot itself, or a job the watch starts itself, saying start no agent for it, by his words "a watch record to a lane should exist only when it asks for a step"."""
+    """Whether a line is one whose row of the coordinator's manual says Nothing, so no lane hears it: a card settled or withdrawn in place, a built answer paused on his pick, a standing part's next pass, a compaction, a status page redraw, a receiver the watch replaced, a tester the watch queued in its env's slot itself, or a job the watch starts itself, saying start no agent for it, by his words "a watch record to a lane should exist only when it asks for a step"; never a codex fix job's return naming the builder the drive added to ship it, by fix_shipped, since its session must hear that builder carries the part or it adds a second, as j8244 beside j8238 shipped one fix twice on o2316."""
     return (
         line.startswith(QUIET_LINES)
         or line.startswith("WATCH the receiver") and "could not replace it" not in line
         or line.startswith("SLOT ") and " queued " in line.split(",", 1)[0]
-        or WATCH_STARTS in line
+        or WATCH_STARTS in line and SHIPS_FIX not in line
     )
 
 

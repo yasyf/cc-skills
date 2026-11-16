@@ -1923,6 +1923,17 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     before = state.load(name)
     named = args.part or (list(filed) if len(filed := find(before["orders"], args.order, "order")["parts"]) == 1 else [])
     removing = {} if lands or args.release or args.builds_nothing else brief.removed_parts(before, args.order, named)
+    beside = [] if args.beside or args.kind != "builder" or lands or args.release or args.builds_nothing else unreturned_builders(before, args.order, named)
+    doubled = beside and gate.gate(
+        name,
+        f"builder beside {', '.join(beside)} on {args.order}",
+        [
+            f"{job_id} builder {before['jobs'][job_id]['state']} carries {', '.join(json.dumps(part, ensure_ascii=False) for part in named if part in state.job_parts(before['jobs'][job_id], args.order))} and has not returned,"
+            f" so a second builder would ship the same change beside it: send it the event with drive job resume {job_id} \"<the event>\", or pass --beside when two builders on the part are meant"
+            for job_id in beside
+        ],
+        order=(args.order, before["orders"][args.order]),
+    )
     given = {
         "kind": args.kind,
         "goal": args.goal,
@@ -1947,6 +1958,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         if refused := (
             state.held_elsewhere(data, args.order, session, bool(args.release))
             or unreleased
+            or doubled
             or running
             or unworded
             or next((removing[part] for part in parts if part in removing), None)
@@ -2241,6 +2253,23 @@ def release_answer(said: list[str], manual: bool, build_url: re.Pattern | None) 
 def refuse_a_mark_off_a_builder(kind: str, builds_nothing: bool | None) -> None:
     if builds_nothing and kind != "builder":
         raise DriveError("--builds-nothing marks a builder that holds no slot of this Mac's builder cap; no other kind of job holds one")
+
+
+def unreturned_builders(data: dict, order_id: str, parts: list[str]) -> list[str]:
+    """Each builder on these parts of the order that has not returned and builds something, that a builder add would run beside rather than fold into or be refused by: on an incident any, since change_job names none there, elsewhere one that worked and no agent or lane holds now, as the add's sibling path reads it, so a codex HANDOFF's builder and a second added by hand never ship one fix twice, as j8238 and j8244 did on o2316."""
+    incident = data["orders"][order_id]["incident"]
+    return list(
+        dict.fromkeys(
+            job_id
+            for part in parts
+            for job_id, job in state.part_jobs(data, order_id, part)
+            if job["kind"] == "builder"
+            and job["state"] not in state.FINISHED_JOB_STATES
+            and not job.get("returned")
+            and not state.builds_nothing(job)
+            and (incident or state.untaken(job) and not state.never_worked(job))
+        )
+    )
 
 
 def one_change_job(
@@ -3631,6 +3660,10 @@ def job_report(args: argparse.Namespace) -> int:
             refuse_unshipped(name, data, args.id, release, state.named_prs(data, job["order"], whole))
         return emit(args, *take_report(name, args.id, whole, read_prs=not args.sprite_lane))
     text = state.report_text(name, args.id, args.all)
+    if not text and job["kind"] == "codex" and job["state"] == "running" and isinstance(gap := watch.codex_gap(args.id, job), watch.Answered) and gap.run.state == "completed":
+        reply = codex.replied(gap.run)[1]
+        shown = reply.rstrip("\n")
+        return emit(args, f"{shown}\n({args.id}'s codex-ask run ended on this reply, which the watch takes as its return on its next relay pass)", {"id": args.id, "report": reply})
     if not text and job["said"] in (None, state.NOT_STARTED):
         raise DriveError(f"{args.id} kept no report and has returned nothing yet")
     if not text:
@@ -8366,6 +8399,11 @@ def parser() -> argparse.ArgumentParser:
         help="the model a codex job's codex-ask run takes as -m, default codex-ask's own, sol; astra only on an order whose words name astra",
     )
     verb.add_argument("--part", action="append", default=[], help='a part of the order this job delivers, a "port of #N" the order lacks added to it; default: its only part')
+    verb.add_argument(
+        "--beside",
+        action="store_true",
+        help="a builder meant to run beside a builder on its parts that has not returned, which an add without it refuses once, naming that builder, through the drive's one gate",
+    )
     verb.add_argument(
         "--lands",
         action="append",

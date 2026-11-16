@@ -6788,7 +6788,7 @@ def codex_job(data: dict, order_id: str, part: str, created: str) -> str:
 
 
 def fix_shipper(data: dict, job_id: str) -> str | None:
-    """Add the builder that ships a codex job's fix once the watch took its return on an open incident's fix part the watch has not read recovered, whatever the return says, since codex edits and Claude ships, by his pick "Drive starts a Claude builder on each fix lane return: guards keep running; costs one builder and a coordinator turn per fix": a builder on that part, in the codex job's session, on the brief its launch kept, handed its report; none while a second-lane builder agent holds the codex job, since that agent ships it."""
+    """Add the builder that ships a codex job's fix once the watch took its return on an open incident's fix part the watch has not read recovered, whatever the return says, since codex edits and Claude ships, by his pick "Drive starts a Claude builder on each fix lane return: guards keep running; costs one builder and a coordinator turn per fix": a builder on that part, in the codex job's session, on the brief its launch kept, handed its report, the part's ORPHAN mark healed in the same save, so drive status lists the builder and names no orphan on the part from that save on; none while a second-lane builder agent holds the codex job, since that agent ships it."""
     job = data["jobs"][job_id]
     order_id = job["order"]
     if job.get("agent") or not open_incidents(data, [order_id]) or data["orders"][order_id]["recovered"] or INCIDENT_FIX not in job_parts(job, order_id):
@@ -6798,6 +6798,7 @@ def fix_shipper(data: dict, job_id: str) -> str | None:
     flags = (job.get("brief_flags") or {}) | {"handoff": f"drive job report {job_id}, the codex fix job whose work this builder ships{briefed}"}
     data["jobs"][builder_id] = new_job(order_id, "builder", job["goal"], [INCIDENT_FIX], stamp()) | {"session": job.get("session"), "brief_flags": flags}
     data["orders"][order_id]["jobs"].append(builder_id)
+    data["orders"][order_id]["parts"][INCIDENT_FIX].update(orphan_said=None, orphan_gap=None)
     return builder_id
 
 

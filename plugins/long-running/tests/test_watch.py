@@ -4203,6 +4203,42 @@ def test_an_incident_codex_fix_jobs_return_with_its_fix_not_live_adds_the_claude
     assert "Handoff: drive job report j1, the codex fix job whose work this builder ships, on its brief /briefs/j1.md\n" in written.read_text()
 
 
+def test_an_incident_codex_fix_jobs_handoff_reaches_its_session_naming_the_builder_added_and_drops_the_orphan_line_its_part_still_waited_with_as_o2316s_did(
+    demo: str, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk
+) -> None:
+    sent = posts(monkeypatch)
+    monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
+    incident_codex_running(demo, codex_ask.run("completed", codex_reply("HANDOFF", "edits left uncommitted in worktree fix-runs on branch fix-runs")), state.INCIDENT_FIX)
+    stale = 'ORPHAN o1 "fix": j1 has no brief 4 minutes after drive job add, so nothing starts it: `drive job brief j1`, then `drive job launch j1`'
+    with edit(demo) as data:
+        data["orders"]["o1"]["parts"][state.INCIDENT_FIX].update(orphan_said=state.stamp(T0), orphan_gap=stale.partition('": ')[2])
+    watching = watcher(demo)
+    watching.unsent["root"] = [stale]
+    lines = codex_taken(watching)
+    assert watch.sent(watching, "root", lines, T0) == []
+    assert posted(sent) == [("handoff", f"root@{demo}", lines[0])]
+    assert "j2, an Opus 5.5 long-running:builder the drive added" in lines[0]
+    assert state.load(demo)["orders"]["o1"]["parts"][state.INCIDENT_FIX]["orphan_said"] is None
+
+
+def test_a_held_line_waiting_on_the_watcher_posts_no_step_once_its_agent_took_a_message_naming_its_record_in_other_words_as_j4834s_did(
+    demo: str, monkeypatch: pytest.MonkeyPatch, send_message: Callable[..., None]
+) -> None:
+    sent = posts(monkeypatch)
+    with edit(demo) as data:
+        data["jobs"]["j1"].update(agent="a1", where="local", session="session-under-test")
+    folder = state.drive_dir(demo) / "jobs"
+    folder.mkdir(parents=True, exist_ok=True)
+    held = (state.now() - timedelta(minutes=30)).timestamp()
+    for seq in ("736226", "736227"):
+        (folder / f"j1.sent-{seq}.md").write_text("The staging test of #49378 also runs")
+        os.utime(folder / f"j1.sent-{seq}.md", (held, held))
+    send_message(demo, "j1", "New staging cases for the test you run: read cci record 736226 whole and add them without starting over.")
+    told, owed = (f'HELD j1: posted to agent a1\'s cci address as handoff record {seq}: j1: owed, send it now: SendMessage a1 "Read cci record {seq} whole and act on it" [o1 j1]' for seq in ("736226", "736227"))
+    assert watch.sent(watcher(demo), "root", [told, owed], T0) == []
+    assert [line for _, _, line in posted(sent)] == [owed]
+
+
 def test_an_incident_codex_jobs_return_on_a_part_other_than_its_fix_adds_no_builder(demo: str, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk) -> None:
     monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
     incident_codex_running(demo, codex_ask.run("completed", codex_reply("HANDOFF", "the first check is left on branch first-check")), "first check")

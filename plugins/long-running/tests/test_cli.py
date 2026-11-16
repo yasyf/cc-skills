@@ -43,6 +43,7 @@ from conftest import (
     Answers,
     Checked,
     Chrome,
+    CodexAsk,
     Drawing,
     Draws,
     EnvsRelease,
@@ -63,6 +64,7 @@ from conftest import (
     answered_cut,
     card_reads,
     cloned,
+    codex_reply,
     drawn_card,
     edit,
     explained,
@@ -5075,6 +5077,34 @@ def test_job_report_refuses_an_empty_stdin(run: Run, demo: str, capsys: pytest.C
     assert cli.main(["job", "report", "j1", "-"]) == 2
     assert "stdin held no report for j1" in capsys.readouterr().err
     assert run("job", "report", "j1")[0] == 2
+
+
+def test_job_report_prints_the_reply_a_running_codex_jobs_ended_run_left_before_the_watch_takes_it_never_kept_no_report_as_j8197s_handoff_read(
+    run: Run, demo: str, codex_ask: CodexAsk
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the runs")
+    run("job", "add", "codex", "--order", "o1", "--goal", "fix the runs")
+    folder = codex_ask.run("completed", codex_reply("HANDOFF", "edits left uncommitted on branch fix-runs", "NEXT: ship them"))
+    with edit("demo") as data:
+        data["jobs"]["j1"].update(state="running", codex_run=str(folder), worker_started=state.stamp())
+    assert run("job", "report", "j1") == (
+        0,
+        "HANDOFF edits left uncommitted on branch fix-runs\nNEXT: ship them\n(j1's codex-ask run ended on this reply, which the watch takes as its return on its next relay pass)",
+    )
+    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+
+
+def test_a_builder_added_on_a_part_whose_builder_has_not_returned_is_refused_once_naming_it_and_goes_through_with_beside_as_j8244_beside_j8238_should_have_been(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the runs", "--parts", "runs start")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship the fix", "--part", "runs start")
+    with edit("demo") as data:
+        data["jobs"]["j1"].update(state="waiting", said="WAITING its lane between runs", worker_started=state.stamp())
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "ship the fix again", "--part", "runs start"]) == 2
+    assert 'refused once: j1 builder waiting carries "runs start" and has not returned' in capsys.readouterr().err
+    code, out = run("job", "add", "builder", "--order", "o1", "--goal", "ship the fix again", "--part", "runs start", "--beside")
+    assert (code, out.splitlines()[0]) == (0, "j2")
 
 
 def test_job_report_prints_the_one_line_result_of_a_job_that_kept_no_report_and_refuses_one_that_returned_nothing(
