@@ -421,7 +421,7 @@ def test_a_loaded_mac_starts_no_builder_here_and_gives_no_slot_but_a_priority_or
 
 def test_the_local_cap_counts_the_lanes_here_of_every_drive_and_the_owners_caps_file_sets_it(demo: str, run: Run) -> None:
     (state.root() / place.CAPS_FILE).write_text(json.dumps({"local": 1}))
-    assert place.caps() == {"local": 1, "sprite": 30, "load_per_core": 1, "free_memory": 15}
+    assert place.caps() == {"local": 1, "sprite": 30, "handlers": 8, "load_per_core": 1, "free_memory": 15}
     run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Hotfix", "ship his fix", "--parts", "the hotfix", "the cut")
     run("job", "add", "builder", "--order", "o1", "--part", "the hotfix", "--goal", "build the hotfix")
     assert run("job", "add", "reader", "--order", "o1", "--part", "the cut", "--goal", "research: the cut")[0] == 0
@@ -506,3 +506,16 @@ def test_the_load_gate_reads_the_machine_caps_json_injects_and_closes_on_load_or
     assert place.strained() == f"9% of this Mac's memory is free, under 15%, set by {path}"
     path.write_text(json.dumps({"machine": {"load": 1, "cores": 4, "free_memory": 50}}))
     assert place.strained() is None
+
+
+def test_handlers_hold_a_pool_of_their_own_that_a_full_local_cap_never_closes_and_the_load_gate_does(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    full = {"local": {f"other/x{number}": f"x{number} builder on o9, its agent at work" for number in range(12)}, "sprite": {}, "handlers": {}}
+    monkeypatch.setattr(place, "lanes", lambda moment: full)
+    data = state.load(demo)
+    assert place.admission(data, None, "local", state.now()).startswith("12 local Claude lanes work across this Mac's drives, at its cap of 12")
+    assert place.admission(data, None, "handlers", state.now()) is None
+    full["handlers"] = {f"other/handler h{number}": f"handler h{number}, its session s{number}" for number in range(8)}
+    assert place.admission(data, None, "handlers", state.now()).startswith("8 handler sessions work across this Mac's drives, at its cap of 8")
+    full["handlers"] = {}
+    monkeypatch.setattr(place, "strained", lambda: "this Mac's 1-minute load is 160, over its 32 cores times 1")
+    assert place.admission(data, None, "handlers", state.now()) == "this Mac's 1-minute load is 160, over its 32 cores times 1"

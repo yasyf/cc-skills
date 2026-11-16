@@ -633,7 +633,7 @@ def started(name: str, handler_id: str, brief: str, prompt: str, detached: bool,
 
     if folder := scratch(brief):
         folder.mkdir(parents=True, exist_ok=True)
-    if not detached and later is None and (his_message(holds(brief)) or not place.admission(state.load(name), None, "local", state.now())):
+    if not detached and later is None and (his_message(holds(brief)) or not place.admission(state.load(name), None, "handlers", state.now())):
         start_handler(name, handler_id, prompt)
         return []
     kept = brief_path(name, handler_id)

@@ -21,9 +21,9 @@ HOST_CPU_LOAD_INFO = 3
 HOST_CPU_STATES = 4
 HOST_CPU_IDLE = 2
 CAPS_FILE = "caps.json"
-CAPS = {"local": 12, "sprite": 30, "load_per_core": 1, "free_memory": 15}
-CAP_NAMES = {"local": "local Claude lanes work", "sprite": "Sprite lanes run"}
-LANES_FILE = "lanes.json"
+CAPS = {"local": 12, "sprite": 30, "handlers": 8, "load_per_core": 1, "free_memory": 15}
+CAP_NAMES = {"local": "local Claude lanes work", "sprite": "Sprite lanes run", "handlers": "handler sessions work"}
+LANES_FILE = "lane-counts.json"
 LANES_SECONDS = 20
 ADMISSION_LOCK = "admission.lock"
 TURN_SECONDS = 30
@@ -168,13 +168,17 @@ def strained() -> str | None:
 
 
 def local_lanes(data: dict, moment: datetime) -> dict[str, str]:
-    """The drive's Claude lanes at work on this Mac, each beside what it is doing: each job of any kind at work here, by at_work_here, each handler whose session's turn is not over, by agents.gone, and each watchdog agent at work on a stall, by stall.starts."""
+    """The drive's Claude lanes at work on this Mac, each beside what it is doing: each job of any kind at work here, by at_work_here, and each watchdog agent at work on a stall, by stall.starts."""
     from drive import stall
 
     jobs = {job_id: f"{job_id} {job['kind']} on {job['order']}, {work}" for job_id, job in data["jobs"].items() if job["state"] in ("running", "waiting") and (work := at_work_here(job_id, job, data, moment))}
-    handlers = {f"handler {handler}": f"handler {handler}, its session {entry['session']}" for handler, entry in data["handlers"].items() if entry["session"] and not agents.gone(entry)}
     watchdogs = {f"watchdog {number}": f"a watchdog agent on a stall ({number})" for number in range(1, stall.starts(data["stalls"], moment)[0] + 1)}
-    return jobs | handlers | watchdogs
+    return jobs | watchdogs
+
+
+def handler_lanes(data: dict) -> dict[str, str]:
+    """The drive's handler sessions whose turn is not over, by agents.gone, which hold the handlers cap of their own pool and never the local cap, so a full local cap never holds back a post he waits on."""
+    return {f"handler {handler}": f"handler {handler}, its session {entry['session']}" for handler, entry in data["handlers"].items() if entry["session"] and not agents.gone(entry)}
 
 
 def sprite_lanes(data: dict, moment: datetime) -> dict[str, str]:
@@ -211,11 +215,12 @@ def lanes(moment: datetime) -> dict[str, dict[str, str]]:
         kept = json.loads(path.read_text())
         if (moment - state.parse_time(kept["at"])).total_seconds() < LANES_SECONDS:
             return kept["lanes"]
-    counted: dict[str, dict[str, str]] = {"local": {}, "sprite": {}}
+    counted: dict[str, dict[str, str]] = {"local": {}, "sprite": {}, "handlers": {}}
     for name in state.names():
         data = state.load(name)
         counted["local"] |= {f"{name}/{key}": line for key, line in local_lanes(data, moment).items()}
         counted["sprite"] |= {f"{name}/{key}": line for key, line in sprite_lanes(data, moment).items()}
+        counted["handlers"] |= {f"{name}/{key}": line for key, line in handler_lanes(data).items()}
     made = path.with_name(f"{LANES_FILE}.{os.getpid()}")
     made.write_text(json.dumps({"at": state.stamp(moment), "lanes": counted}))
     os.replace(made, path)
@@ -234,13 +239,13 @@ def preempts(data: dict, job: dict) -> bool:
 
 
 def admission(data: dict, job_id: str | None, where: str, moment: datetime) -> str | None:
-    """Why no new Claude lane starts now, where "local" for a lane on this Mac of any role and "sprite" for one on a Sprite, None when it may: one of a job preempts lets through starts at once; a job whose project spent its daily budget waits for the next day, by spend.over; a local one waits while strained reads this Mac loaded or short of memory, and either while the lanes every drive here runs fill its cap by caps, the job's own lane not counted. Its work waits its turn, never fails."""
+    """Why no new Claude lane starts now, where "local" for a lane on this Mac of any role and "sprite" for one on a Sprite, None when it may: one of a job preempts lets through starts at once; a job whose project spent its daily budget waits for the next day, by spend.over; a local one waits while strained reads this Mac loaded or short of memory, and either while the lanes every drive here runs fill its cap by caps, the job's own lane not counted. Its work waits its turn, never fails. A handler, where "handlers", has a pool of its own, the handlers cap, which the load gate closes and the local cap never touches."""
     job = data["jobs"].get(job_id) if job_id else None
     if job and preempts(data, job):
         return None
     if job and (why := spend.over(data, job, moment)):
         return why
-    if where == "local" and (why := strained()):
+    if where != "sprite" and (why := strained()):
         return why
     cap = caps()[where]
     held = {key: line for key, line in lanes(moment)[where].items() if not job_id or key.rpartition("/")[2] != job_id}
@@ -252,14 +257,14 @@ def admission(data: dict, job_id: str | None, where: str, moment: datetime) -> s
 
 @contextlib.contextmanager
 def waited_turn(name: str, waiting: Callable[[], None], exempt: bool = False) -> Iterator[None]:
-    """Hold this Mac's admission lock once it admits a new local Claude lane of the drive, by admission, calling waiting and reading again every TURN_SECONDS while it does not, so the start in the body waits its turn rather than failing, and drop the kept count once it started; an exempt start, a handler answering a message of his, runs at once."""
+    """Hold this Mac's admission lock once it admits a new handler session of the drive, by admission on the handlers pool, which the load gate closes and the local cap never does, calling waiting and reading again every TURN_SECONDS while it does not, so the start in the body waits its turn rather than failing, and drop the kept count once it started; an exempt start, a handler answering a message of his, runs at once."""
     if exempt:
         yield
         counted_again()
         return
     while True:
         with admitting():
-            if not admission(state.load(name), None, "local", state.now()):
+            if not admission(state.load(name), None, "handlers", state.now()):
                 yield
                 counted_again()
                 return

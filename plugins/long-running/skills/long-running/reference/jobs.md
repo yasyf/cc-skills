@@ -33,10 +33,11 @@ Contents:
   on this Mac shares since they share one account, names the session, its job, the reset and whether Escape
   dismissed the dialog.
 - Every drive and watch on this Mac shares two caps on the Claude lanes it starts, set in
-  `caps.json` under the drive's state root, `{"local": 12, "sprite": 30, "load_per_core": 1,
-  "free_memory": 15}` for each key it leaves out, read at each start so a change holds at once:
-  at most `local` Claude lanes of any role work here at once, builder, reader, designer, handler
-  and watchdog alike, and at most `sprite` lanes run on Sprites. No new local lane starts while
+  `caps.json` under the drive's state root, `{"local": 12, "sprite": 30, "handlers": 8,
+  "load_per_core": 1, "free_memory": 15}` for each key it leaves out, read at each start so a change holds at once:
+  at most `local` Claude lanes of any role work here at once, builder, reader, designer
+  and watchdog alike, while at most `handlers` handler sessions work in a pool of their own the
+  local cap never closes, and at most `sprite` lanes run on Sprites. No new local lane starts while
   the 1-minute load average is over the core count times `load_per_core` or under `free_memory`
   percent of memory is free. A builder here then waits its turn on `builder-slot`, or starts
   on a Sprite when its brief declares no step only this Mac runs; a reader or designer the
