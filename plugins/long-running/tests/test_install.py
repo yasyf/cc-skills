@@ -65,6 +65,7 @@ CODEX_RELEASE_TAG = """jobs:
 SENT = {"ok": True, "result": {"send": {"accepted": True}}}
 SEEDED_UPDATE = "2026-11-08T10:00:00.000Z"
 UPDATED = "2026-11-09T10:00:00.000Z"
+RELOADED_LONG_AGO = "2026-11-09T02:00:00-08:00"
 UNANSWERED = {"ok": False, "error": {"code": "runtime_busy", "message": "long-poll capacity reached; retry with backoff"}}
 RELOADED = {"type": "system", "subtype": "local_command", "content": "<local-command-stdout>Reloaded: 33 plugins · 51 skills</local-command-stdout>"}
 CREATED = {"ok": True, "result": {"terminal": {"handle": "term_shown"}}}
@@ -940,7 +941,7 @@ def test_an_install_finding_a_terminals_reload_lock_held_leaves_its_reload_to_th
     ]
 
 
-def test_an_install_landing_while_a_reload_runs_is_reloaded_once_more_after_that_reload_shows(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]) -> None:
+def test_an_install_landing_while_a_reload_runs_waits_out_the_hour_then_the_watch_reloads_it(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]) -> None:
     start_drive(runs_in, "demo", communicator="term_comm")
     running("demo-communicator")
     git = fake(["unused"], set())
@@ -957,13 +958,18 @@ def test_an_install_landing_while_a_reload_runs_is_reloaded_once_more_after_that
         pending.append(install.reload_session("demo", "communicator", [{"handle": "term_comm", "orphaned": False}], False))
 
     git.reloading = newer_install_lands
-    assert held(git, capsys) == [
-        "demo communicator: reloaded onto long-running@skills 1.0.3 in term_comm",
-        "demo communicator: reloaded onto codex@skills 1.0.4 in term_comm",
-    ]
+    assert held(git, capsys) == ["demo communicator: reloaded onto long-running@skills 1.0.3 in term_comm"]
     assert pending == ["demo communicator: pending, as the process holding its reload lock (no holder found) types /reload-plugins into term_comm once its turn ends"]
+    reloads = state.drive_dir("demo") / install.RELOADS
+    assert json.loads(reloads.read_text())["communicator"]["held"] is True
+    assert install.due_reloads("demo") == []
+    hour_ago = (state.now() - timedelta(seconds=install.RELOAD_EVERY_SECONDS)).isoformat(timespec="seconds")
+    reloads.write_text(json.dumps({"communicator": json.loads(reloads.read_text())["communicator"] | {"at": hour_ago}}))
+    assert install.due_reloads("demo") == [f"demo communicator: {handed('demo', 'term_comm')}"]
+    assert held(git, capsys) == ["demo communicator: reloaded onto codex@skills 1.0.4 in term_comm"]
     assert sends(git, "term_comm") == [sent("term_comm"), sent("term_comm")]
     assert stamps("demo") == {"communicator": "2026-11-10T10:00:00.000Z"}
+    assert "held" not in json.loads(reloads.read_text())["communicator"]
 
 
 def test_an_install_finding_the_lock_held_while_its_holder_finds_nothing_left_is_reloaded_once_the_holder_lets_go(
@@ -981,7 +987,7 @@ def test_an_install_finding_the_lock_held_while_its_holder_finds_nothing_left_is
             if landed or state.taken(probe, 0):
                 return stamped(drive, seat)
         landed.append(seat)
-        (state.drive_dir(drive) / install.RELOADS).write_text(json.dumps({seat: {"onto": UPDATED, "at": state.stamp()}}))
+        (state.drive_dir(drive) / install.RELOADS).write_text(json.dumps({seat: {"onto": UPDATED, "at": RELOADED_LONG_AGO}}))
         plugins = json.loads((git.config / "plugins" / "installed_plugins.json").read_text())["plugins"]
         plugins["codex@skills"][1] |= {"version": "1.0.4", "lastUpdated": "2026-11-10T10:00:00.000Z"}
         git.write_installed(plugins)
@@ -1181,7 +1187,7 @@ def test_a_session_already_reloaded_onto_the_newest_install_is_not_reloaded_agai
     start_drive(runs_in, "demo", communicator="term_comm", coordinator="term_coord")
     running("demo-communicator", "demo-coordinator")
     reloads = state.drive_dir("demo") / install.RELOADS
-    reloads.write_text(json.dumps({"communicator": {"onto": UPDATED, "at": state.stamp()}, "coordinator": {"onto": SEEDED_UPDATE, "at": state.stamp()}}))
+    reloads.write_text(json.dumps({"communicator": {"onto": UPDATED, "at": state.stamp()}, "coordinator": {"onto": SEEDED_UPDATE, "at": RELOADED_LONG_AGO}}))
     git = fake(["unused"], set())
     assert install.main("long-running@skills", None, None, 900, None) == 0
     assert capsys.readouterr().out.splitlines() == [

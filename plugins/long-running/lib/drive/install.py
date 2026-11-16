@@ -38,6 +38,7 @@ RELOADS_LOG = "reloads.log"
 RELOADED = "<local-command-stdout>Reloaded:"
 UPDATE_LOCK = ".update.lock"
 RELOAD_WAIT_SECONDS = 30
+RELOAD_EVERY_SECONDS = 3600
 DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
 MANIFEST = ".claude-plugin/plugin.json"
 FLOOR = re.compile(r">=(\d+\.\d+\.\d+)")
@@ -1307,6 +1308,9 @@ def reload_session(drive: str, seat: str, terminals: list[dict], force: bool) ->
     onto, plugin = newest_update()
     if not force and reloaded_onto(drive, seat) >= onto:
         return f"{who}: already reloaded onto {plugin}"
+    if not force and (at := reload_held(drive, seat)):
+        hold_reload(drive, seat)
+        return f"{who}: reloaded at {at}, so it loads {plugin} on the drive's watch pass an hour after that; drive reload loads it now"
     path = reload_lock(terminal)
     with open(path, "a") as handle:
         if not state.taken(handle, 0):
@@ -1316,8 +1320,11 @@ def reload_session(drive: str, seat: str, terminals: list[dict], force: bool) ->
 
 
 def reload_seat(drive: str, seat: str, force: bool) -> None:
-    """`drive reload --seat`: reload the seat's session onto the newest plugin install as the one process typing into its terminal, then again for each install that landed before that reload showed, printing a line for each; nothing once another process holds the terminal's reload lock, which does the same, or once a reload fails, which the next install tries again. What is left to load is read again each time the lock is let go, so an install that found it held while this process found nothing left is still reloaded."""
+    """`drive reload --seat`: reload the seat's session onto the newest plugin install as the one process typing into its terminal, then again for each install that landed before that reload showed, printing a line for each, unforced only once its hour since the last reload is up, by reload_held, marking the install held for the watch until then; nothing once another process holds the terminal's reload lock, which does the same, or once a reload fails, which the next install tries again. What is left to load is read again each time the lock is let go, so an install that found it held while this process found nothing left is still reloaded."""
     while force or reloaded_onto(drive, seat) < newest_update()[0]:
+        if not force and reload_held(drive, seat):
+            hold_reload(drive, seat)
+            return
         if not (said := held_reload(drive, seat, force)):
             return
         line, reloaded = said
@@ -1452,6 +1459,30 @@ def reloaded_onto(drive: str, seat: str) -> str:
     """The lastUpdated of the plugin install the seat's session last reloaded onto, empty before its first."""
     path = state.drive_dir(drive) / RELOADS
     return (json.loads(path.read_text()).get(seat) or {}).get("onto", "") if path.exists() else ""
+
+
+def reload_held(drive: str, seat: str) -> str | None:
+    """When the seat's session last reloaded, while that was under RELOAD_EVERY_SECONDS ago, so each session reloads at most once an hour, by his words of Nov 15 "drive-tooling orders costing so much means we have a lot of cruft and waste to cut down there", since each reload makes a root write its whole context to the cache again: an install landing in that hour is marked held on the seat, which the drive's watch reloads once the hour is up, by due_reloads, and a bare drive reload reloads at once; None once it may reload."""
+    path = state.drive_dir(drive) / RELOADS
+    at = (json.loads(path.read_text()).get(seat) or {}).get("at") if path.exists() else None
+    return at if at and (state.now() - state.parse_time(at)).total_seconds() < RELOAD_EVERY_SECONDS else None
+
+
+def hold_reload(drive: str, seat: str) -> None:
+    """Mark in reloads.json that an install the seat's session has not loaded waits for its hour, which typed_reload's next stamp clears."""
+    with state.locked(drive):
+        path = state.drive_dir(drive) / RELOADS
+        sent = json.loads(path.read_text())
+        path.write_text(json.dumps(sent | {seat: sent[seat] | {"held": True}}))
+
+
+def due_reloads(drive: str) -> list[str]:
+    """Reload each session of the drive an install marked held once its hour is up, reading only reloads.json until one is due, then Orca as reload_sessions does; a line each."""
+    path = state.drive_dir(drive) / RELOADS
+    held = [seat for seat, stamp in (json.loads(path.read_text()) if path.exists() else {}).items() if stamp.get("held")]
+    if not any(not reload_held(drive, seat) for seat in held):
+        return []
+    return reload_sessions([drive], False)
 
 
 def reload_lock(terminal: str) -> Path:

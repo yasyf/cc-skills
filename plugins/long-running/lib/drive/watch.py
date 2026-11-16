@@ -4607,10 +4607,10 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
 
 
 def superseded_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """End, first in each pass of every watch of the drive, each `drive pr check`, `drive pr wake` and `drive job prove` an older install left with no parent, and from the drive's own watch alone each `drive reload --seat`, whose end starts the drive's reload once, by superseded_procs.end, said in the watch's log, never to a session, since nothing waits on them."""
+    """End, first in each pass of every watch of the drive, each `drive pr check`, `drive pr wake` and `drive job prove` an older install left with no parent, and from the drive's own watch alone each `drive reload --seat`, whose end starts the drive's reload once, by superseded_procs.end, and there too each session reload an install held back for the hour, by install.due_reloads, said in the watch's log, never to a session, since nothing waits on them."""
     if state.scratch():
         return []
-    for line in superseded_procs.end(watcher.name, not watcher.project):
+    for line in [*superseded_procs.end(watcher.name, not watcher.project), *([] if watcher.project else install.due_reloads(watcher.name))]:
         print(f"{state.stamp(moment)} {line}", flush=True)
     return []
 
