@@ -258,6 +258,20 @@ def waited_turn(name: str, waiting: Callable[[], None], exempt: bool = False) ->
         time.sleep(TURN_SECONDS)
 
 
+def await_admission(name: str, job_id: str, where: str) -> None:
+    """Return once this Mac admits a lane of the drive's job where it starts next, "local" or "sprite", by admission, reading again every TURN_SECONDS while it does not and saying on stderr once why it waits, so a relaunch or takeover, which adds a lane in place of one that ended or moved, waits its turn in the process that starts it rather than failing; one preempts lets through returns at once."""
+    told = False
+    while True:
+        with admitting():
+            if not (why := admission(state.load(name), job_id, where, state.now())):
+                counted_again()
+                return
+        if not told:
+            print(f"{job_id}: waits its turn for a {'lane here' if where == 'local' else 'Sprite lane'}: {why}", file=sys.stderr, flush=True)
+            told = True
+        time.sleep(TURN_SECONDS)
+
+
 def admitted_room(where: str, moment: datetime) -> int:
     """How many more lanes of where's cap every drive on this Mac may start now: none while a local one finds this Mac strained."""
     if where == "local" and strained():
