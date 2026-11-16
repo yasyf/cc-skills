@@ -188,7 +188,7 @@ def take(name: str, data: dict, job_id: str, run: Run) -> str | None:
         refused = (
             "it is not the JSON its schema requires, a state, line and report"
             if not line
-            else state.result_refusal(data, job_id, line, report) or (line.startswith("DONE") and brief.surface(job) and brief.unproven(report, job_id, job))
+            else state.result_refusal(data, job_id, line, report) or (line.startswith("DONE") and brief.surface(job) and brief.unproven(report, job_id, job, data))
         )
         if refused and (line.startswith("WAITING") or not (job["said"] or "").startswith(RETRIED)):
             state.hold_text(job, f"{REFUSED}{refused}\nYour refused reply:\n{report.strip()}", state.WATCH_SENDER)

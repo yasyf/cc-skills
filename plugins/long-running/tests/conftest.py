@@ -645,6 +645,9 @@ class HomeBuild(providers.BuildProvider):
     receiver_path = "/buildkite"
     graders = "Buildkite and forge-pr-reviewer"
 
+    def read(self, build: re.Match) -> dict:
+        return json.loads(github.run(["bk", "build", "view", build["number"], "-p", build["pipeline"], "-o", "json"]) or "{}")
+
     def log_tip(self, job_url: str) -> str:
         return f"`tools/ci bk log '{job_url}'`"
 
@@ -1019,7 +1022,7 @@ def his_dm(monkeypatch: pytest.MonkeyPatch) -> str:
 def unopened_links(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """Every proof link opens unless a test says why it does not, so no test reads Slack, GitHub or Buildkite for one."""
     shut: dict[str, str] = {}
-    monkeypatch.setattr(brief, "unopened", shut.get)
+    monkeypatch.setattr(brief, "unopened", lambda link, build: shut.get(link))
     return shut
 
 

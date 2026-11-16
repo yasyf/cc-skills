@@ -38,7 +38,6 @@ FAILED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STAR
 PASSED = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 REVIEWS = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes"}
 SUBMITTED = ("APPROVED", "CHANGES_REQUESTED", "COMMENTED")
-BUILD = re.compile(r"https://buildkite\.com/(?P<pipeline>[\w-]+/[\w-]+)/builds/(?P<number>\d+)")
 HOLD_LABEL = "hold"
 EJECTED_LABEL = "trunk-failed"
 CANCELLED_LABEL = "trunk-cancelled"

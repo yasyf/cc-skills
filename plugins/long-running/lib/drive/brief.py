@@ -124,11 +124,6 @@ def leased_env(words: list[str], data: dict) -> str | None:
     return envs[0] if len(envs) == 1 and envs[0] in providers.of(data).release.rehearsal_envs else None
 
 
-def gives_way(words: list[str]) -> bool:
-    """Whether a `ci release start` is the staging release of a production release, `--for-production`, which goes through every staging freeze and every staging slot a test holds, by his pick 18c2fda, "Every staging freeze … gives way to a staging release started for production; its thread says so"."""
-    return "--for-production" in words
-
-
 REHEARSAL_SAID = '"You never have to ask for sandbox"'
 UNSURE_READING = (
     "When Opus is unsure whether his words order it, or gave no reading, the top coordinator's own reading starts it: from its"
@@ -1013,7 +1008,7 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
     if job["kind"] == "builder" and opening == "DONE":
         from drive import install
 
-        if (refused := unproven(text, job_id, job)) and install.own_proof(data, job_id) and not install.proof_gap(data, job_id):
+        if (refused := unproven(text, job_id, job, data)) and install.own_proof(data, job_id) and not install.proof_gap(data, job_id):
             return (
                 f"{refused}; {job_id} opened no PR and keeps a proof file, so run drive job prove {job_id}, which runs it and takes DONE or BLOCKED"
                 f" itself, or on a WAIT keeps {job_id} waiting until he is next heard, then end the turn on the first line drive job report {job_id} prints"
@@ -1149,9 +1144,9 @@ def surface(job: dict) -> str | None:
     return native if native and not NO_SURFACE.match(native) else None
 
 
-def shows(seen: str, proof: str) -> bool:
+def shows(seen: str, proof: str, data: dict) -> bool:
     """Whether a proof shows a surface as its user meets it: a recording, picture or live post shows any surface, and on a command, a file holding the output of its run, since that output is all its user sees of it."""
-    return bool(SEEN_PROOF.search(proof)) or bool(COMMAND_SURFACE.search(seen)) and not proof.startswith("http") and held(proof)
+    return bool(SEEN_PROOF.search(proof)) or bool(COMMAND_SURFACE.search(seen)) and not proof.startswith("http") and held(proof, data)
 
 
 def unseen(data: dict, order: dict, proof: str | None) -> str | None:
@@ -1159,7 +1154,7 @@ def unseen(data: dict, order: dict, proof: str | None) -> str | None:
     if state.tooling(order):
         return None
     named = proofs(proof or "")
-    return next((seen for job_id in order["jobs"] if (seen := surface(data["jobs"][job_id])) and not any(shows(seen, found) for found in named)), None)
+    return next((seen for job_id in order["jobs"] if (seen := surface(data["jobs"][job_id])) and not any(shows(seen, found, data) for found in named)), None)
 
 
 def stories(interactions: str | None) -> list[str]:
@@ -1197,15 +1192,15 @@ def proofs(text: str) -> list[str]:
     return [re.sub(r"[^\w/]+$", "", found) for found in PROOF.findall(text)]
 
 
-def held(proof: str) -> bool:
+def held(proof: str, data: dict) -> bool:
     """Whether a proof is a link that opens, as unopened reads it, or the path of a folder or of a file holding something, since an empty file proves nothing."""
     path = Path(proof).expanduser()
-    return unopened(proof) is None if proof.startswith("http") else path.is_dir() or path.is_file() and path.stat().st_size > 0
+    return unopened(proof, providers.of(data).build) is None if proof.startswith("http") else path.is_dir() or path.is_file() and path.stat().st_size > 0
 
 
 @functools.cache
-def unopened(link: str) -> str | None:
-    """Why a link does not open as he would open it, read by its host's reader once a process, or None when it opens: a Slack message in his workspace that cc-slack reads back, a GitHub pull request, commit, Actions run or release whose successful existence check github_page keeps for 24 hours independently of repository writes, once ccx's rate-limit floor lifts, or a Buildkite build that bk build view returns; a link on any other host has no reader, so it does not open."""
+def unopened(link: str, build: providers.BuildProvider) -> str | None:
+    """Why a link does not open as he would open it, read by its host's reader once a process, or None when it opens: a Slack message in his workspace that cc-slack reads back, a GitHub pull request, commit, Actions run or release whose successful existence check github_page keeps for 24 hours independently of repository writes, once ccx's rate-limit floor lifts, or a CI build the repository's build provider reads back; a link on any other host has no reader, so it does not open."""
     from drive import github, slack
 
     host = urlparse(link).hostname or ""
@@ -1218,11 +1213,11 @@ def unopened(link: str) -> str | None:
             if not (api := next((route.format(*found.groups()) for pattern, route in GITHUB_PAGES if (found := pattern.match(link))), None)):
                 return "it names no pull request, commit, Actions run or release, the GitHub pages the drive reads"
             github_page(link, api)
-        elif found := github.BUILD.match(link):
-            github.run(["bk", "build", "view", found["number"], "-p", found["pipeline"], "-o", "json"])
+        elif found := build.match(link):
+            build.read(found)
         else:
-            return f"the drive reads no {host or 'such'} link: a proof links a Slack post, a GitHub pull request, commit, Actions run or release, or a Buildkite build, or names the saved file of its check"
-    except (slack.SlackError, github.GithubError) as error:
+            return f"the drive reads no {host or 'such'} link: a proof links a Slack post, a GitHub pull request, commit, Actions run or release, or a CI build, or names the saved file of its check"
+    except (slack.SlackError, github.GithubError, providers.ProviderError) as error:
         return str(error)
     return None
 
@@ -1245,12 +1240,12 @@ def github_page(link: str, api: str) -> None:
         db.execute("DELETE FROM pages WHERE opened_at <= ?", (now - OPENED_AGE,))
 
 
-def dead(named: list[str]) -> list[str]:
+def dead(named: list[str], data: dict) -> list[str]:
     """Each link among the proofs that does not open, with why, as unopened reads it."""
-    return [f"{link} does not open: {why}" for link in dict.fromkeys(named) if link.startswith("http") and (why := unopened(link))]
+    return [f"{link} does not open: {why}" for link in dict.fromkeys(named) if link.startswith("http") and (why := unopened(link, providers.of(data).build))]
 
 
-def unproven(text: str, job_id: str, job: dict) -> str | None:
+def unproven(text: str, job_id: str, job: dict, data: dict) -> str | None:
     """Why a builder's or codex job's DONE may not be kept: for what he sees, by its NATIVE: line or its brief's Native, its brief names user stories, which only drive job prove proves, by story_gap on what its proof file prints, never a DONE's words, so a codex job's DONE is kept once it keeps a proof file, which the watch's drive job prove runs on it as on a builder's, but on a staging test part, whose DONE is kept for drive job prove to prove, by staged_stories; a link its first line or a CHECK: line names does not open, since an incident's keeps that first line as its order's proof; its CHECK: line names no link and no file that exists and is not empty, as held reads it; or, for what he sees on a brief naming no user story, its CHECK: names nothing that shows it, as shows reads it."""
     sees = reported_surface(text) or surface(job)
     told = stories((job.get("brief_flags") or {}).get("interactions"))
@@ -1263,15 +1258,15 @@ def unproven(text: str, job_id: str, job: dict) -> str | None:
             else "drive job prove proves them, running its proof file and reading"
         )
         return f"{job_id}'s brief names {len(told)} user stories, which no DONE's words prove: {prover} in what it prints {STORY_LINES}"
-    if shut := dead(proofs("\n".join([text.strip().splitlines()[0], *CHECK.findall(text)]))):
+    if shut := dead(proofs("\n".join([text.strip().splitlines()[0], *CHECK.findall(text)]), data)):
         return f"a DONE's links each open as he would open them, and {shut[0]}: link the live post, page or run itself, or name the saved file of the check"
-    real = [proof for line in CHECK.findall(text) for proof in proofs(line) if held(proof)]
+    real = [proof for line in CHECK.findall(text) for proof in proofs(line) if held(proof, data)]
     if not real:
         return (
             "a DONE names its proof on a CHECK: line, a link or the absolute path of a file that exists and is not empty, such as the"
             " live post, the recording of the click, or the saved output of the installed command"
         )
-    return unseen_surface(sees, real) if sees and not told else None
+    return unseen_surface(sees, real, data) if sees and not told else None
 
 
 def staged_stories(job: dict) -> bool:
@@ -1279,9 +1274,9 @@ def staged_stories(job: dict) -> bool:
     return job["kind"] == "builder" and state.tests_staging(job) and bool(surface(job)) and bool(stories((job.get("brief_flags") or {}).get("interactions")))
 
 
-def unseen_surface(seen: str, named: list[str]) -> str | None:
+def unseen_surface(seen: str, named: list[str], data: dict) -> str | None:
     """Why the proof of a result he sees, on a brief naming no user story, falls short: it names nothing that shows that surface, as shows reads it."""
-    if any(shows(seen, proof) for proof in named):
+    if any(shows(seen, proof, data) for proof in named):
         return None
     return (
         "this builds something he sees, by its NATIVE: line or its brief's Native, so its proof is from that surface: record the"
@@ -1290,15 +1285,15 @@ def unseen_surface(seen: str, named: list[str]) -> str | None:
     )
 
 
-def story_gap(job: dict, seen: str, output: str) -> tuple[str, list[str]] | None:
+def story_gap(job: dict, seen: str, output: str, data: dict) -> tuple[str, list[str]] | None:
     """Why what a proof file printed falls short of the surface he sees, read in code, so no reading decides, by his pick 43f4d82, with the lines that close its kept output, one gap each: on a brief naming no user story, unseen_surface; on one naming stories, how many fall short and the first gap, each story by its number on the Interactions line, S1 on, read by story_short."""
     if not (told := stories((job.get("brief_flags") or {}).get("interactions"))):
-        return (gap, []) if (gap := unseen_surface(seen, proofs(output))) else None
+        return (gap, []) if (gap := unseen_surface(seen, proofs(output), data)) else None
     printed: dict[str, list[re.Match]] = {}
     for line in output.splitlines():
         if found := STORY_LINE.fullmatch(line.strip()):
             printed.setdefault(found["story"], []).append(found)
-    short = {story: gaps for number in range(1, len(told) + 1) if (gaps := story_short(story := f"S{number}", seen, printed.get(story, [])))}
+    short = {story: gaps for number in range(1, len(told) + 1) if (gaps := story_short(story := f"S{number}", seen, printed.get(story, []), data))}
     if not short:
         return None
     gaps = [gap for each in short.values() for gap in each]
@@ -1308,12 +1303,12 @@ def story_gap(job: dict, seen: str, output: str) -> tuple[str, list[str]] | None
     )
 
 
-def story_short(story: str, surfaced: str, lines: list[re.Match]) -> list[str]:
+def story_short(story: str, surfaced: str, lines: list[re.Match], data: dict) -> list[str]:
     """Each gap in one user story's lines of a proof's output: each line of STORY_LINES it lacks, each criterion with no PASS or FAIL line of its label, each FAIL or GAP line it printed, quoted whole, and a SEEN line naming nothing that shows the surface, as shows reads it, that holds something or opens, as held reads it."""
     kinds = {kind: [line for line in lines if line["kind"] == kind] for kind in STORY_KINDS}
     criteria = list(dict.fromkeys(line["label"] for line in kinds["CRITERION"] if line["label"]))
     results = {line["label"] for line in kinds["PASS"] + kinds["FAIL"]}
-    seen = [proof for line in kinds["SEEN"] for proof in proofs(line["rest"]) if shows(surfaced, proof) and held(proof)]
+    seen = [proof for line in kinds["SEEN"] for proof in proofs(line["rest"]) if shows(surfaced, proof, data) and held(proof, data)]
     return [
         *([] if kinds["STORY"] else [f"{story} prints no STORY {story}: line"]),
         *(f"{story} prints no CRITERION {story} {label}: line" for label in CRITERIA if label not in criteria),

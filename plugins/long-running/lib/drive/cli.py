@@ -1022,7 +1022,7 @@ def order_set(args: argparse.Namespace) -> int:
         if not (order["text"].startswith(state.TOOLING) and args.words.startswith(state.TOOLING)):
             raise DriveError(f'--words: refused, only a "{state.TOOLING}" order\'s words change, to words that open "{state.TOOLING}"; an order of his keeps his words verbatim')
     if args.proof is not None:
-        check_proof(args.proof)
+        check_proof(args.proof, data)
     if args.title is not None:
         titled(args.title)
     if args.unjoin and not order["joins"]:
@@ -1328,12 +1328,12 @@ def untold(data: dict, order_id: str, order: dict) -> str:
     )
 
 
-def check_proof(proof: str) -> None:
+def check_proof(proof: str, data: dict) -> None:
     """Refuse a proof naming a link that does not open, as brief.unopened reads it, and one that is a claim: one line naming no link and no file that exists and is not empty, where a check's link, file or pasted output proves it."""
     named = brief.proofs(proof)
-    if shut := brief.dead(named):
+    if shut := brief.dead(named, data):
         raise DriveError(f'--proof "{proof}": refused, a proof\'s links each open as he would open them, and {shut[0]}: link the live post, page or run itself, or name the saved file of the check')
-    if "\n" in proof.strip() or any(map(brief.held, named)):
+    if "\n" in proof.strip() or any(brief.held(found, data) for found in named):
         return
     raise DriveError(
         f'--proof "{proof}": refused, a proof is the check itself, its link, its saved file or its output, never a claim of what it showed:'
@@ -1798,7 +1798,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         if args.release:
             job["brief_flags"] = (job.get("brief_flags") or {}) | {"release": args.release}
             job["release_pass"] = {"release": args.release, "at": created, "reading": args.reading}
-            if (env := brief.leased_env(words := shlex.split(args.release), data)) and not (brief.gives_way(words) and (data["slots"].get(env) or {}).get("holder")):
+            if (env := brief.leased_env(words := shlex.split(args.release), data)) and not (providers.of(data).release.gives_way(words) and (data["slots"].get(env) or {}).get("holder")):
                 slotted = state.slot_claim(data, env, job_id, CUT_LEASE_MINUTES, [], None, state.parse_time(created), starts=True)
         if args.agent:
             job["session"] = session
@@ -1931,17 +1931,19 @@ def release_start_failed(name: str, job_id: str, command: str, failure: str) -> 
 
 
 def prebuild(name: str, job_id: str, command: str, commit: str | None) -> list[str]:
-    """Kick off the builds a later release at a staging or sandbox start's commit adopts, by the `prebuild` command of the repository's [release] table with `{commit}` filled, run by the shell in the drive's checkout and printing the build it started as a JSON object's `build.url`, which the job keeps as its prebuild_build, so the production start at that commit signs, notarizes and bakes nothing its staging start already had built; none for a start reaching a production place, by settled.off_production, a start naming no commit, as a `--manual` one names none, or a repository naming no such command, and a kick-off that fails leaves the release as it started, saying why."""
+    """Kick off the builds a later release at a staging or sandbox start's commit adopts, by the release provider's prebuild, whose build link the job keeps as its prebuild_build, so the production start at that commit signs, notarizes and bakes nothing its staging start already had built; none for a start reaching a production place, by settled.off_production, a start naming no commit, as a `--manual` one names none, or a repository that prebuilds nothing, and a kick-off that fails leaves the release as it started, saying why."""
     data = state.load(name)
-    if not (commit and (kickoff := state.repo_config(data).get("release", {}).get("prebuild"))):
+    if not commit:
         return []
     checkout = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
     if not all(settled.off_production(flags, str(checkout)) for flags in brief.started(command, data)):
         return []
     try:
-        url = json.loads(reads.run(["/bin/sh", "-c", kickoff.replace("{commit}", shlex.quote(commit))], checkout))["build"]["url"]
-    except reads.ReadError as error:
+        url = providers.of(data).release.prebuild(commit)
+    except providers.ProviderError as error:
         return [f"{job_id}'s prebuild at {commit} did not start, so a release at {commit} builds what it would have: {error}"]
+    if url is None:
+        return []
 
     def prebuild_write(data: dict):
         data["jobs"][job_id]["prebuild_build"] = url

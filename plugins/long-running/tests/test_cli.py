@@ -4992,7 +4992,10 @@ def test_a_builders_done_on_a_surface_its_brief_names_user_stories_on_is_never_k
 
 STAND_IN = "https://example.slack.com/archives/D0PROOF/p1794600000000100"
 OFF_WORKSPACE = "it is on example.slack.com, not his Slack workspace acme.slack.com"
-READ_LINK = brief.unopened.__wrapped__
+
+
+def read_link(link: str) -> str | None:
+    return brief.unopened.__wrapped__(link, HomeBuild(Path(), Path(), {}))
 
 
 def test_a_proof_naming_the_demos_placeholder_slack_link_is_refused_on_a_done_and_on_order_set_proof_and_one_naming_what_opens_is_kept(
@@ -5030,20 +5033,20 @@ def test_a_proof_link_opens_only_as_a_post_in_his_slack_workspace_cc_slack_reads
     slack_thread.messages.append({"ts": "1794576780.293900", "text": "his card", "from_claude": True})
     post = "https://acme.slack.com/archives/D123/p1794576780293900"
     gone = "https://acme.slack.com/archives/D123/p1794600000000100"
-    assert [READ_LINK(link) for link in (post, STAND_IN, gone)] == [None, OFF_WORKSPACE, f"no message 1794600000.000100 in the thread at --url {gone}"]
+    assert [read_link(link) for link in (post, STAND_IN, gone)] == [None, OFF_WORKSPACE, f"no message 1794600000.000100 in the thread at --url {gone}"]
     pages = {
         "https://github.com/yasyf/cc-skills/pull/5075": "repos/yasyf/cc-skills/pulls/5075",
         "https://github.com/yasyf/cc-skills/commit/b3351b5": "repos/yasyf/cc-skills/commits/b3351b5",
         "https://github.com/yasyf/cc-skills/actions/runs/12/job/34": "repos/yasyf/cc-skills/actions/runs/12",
         "https://github.com/yasyf/cc-skills/releases/tag/v1.0.863": "repos/yasyf/cc-skills/releases/tags/v1.0.863",
     }
-    assert [READ_LINK(link) for link in pages] == [None] * 4
+    assert [read_link(link) for link in pages] == [None] * 4
     assert [cmd[2] for cmd in ran] == list(pages.values())
-    assert READ_LINK("https://github.com/yasyf/cc-skills/pull/404") == "could not read https://github.com/yasyf/cc-skills/pull/404 from GitHub: HTTP 404"
-    assert READ_LINK("https://github.com/yasyf/cc-skills/blob/main/README.md") == "it names no pull request, commit, Actions run or release, the GitHub pages the drive reads"
-    assert READ_LINK("https://buildkite.com/forge/release/builds/14185") is None
+    assert read_link("https://github.com/yasyf/cc-skills/pull/404") == "could not read https://github.com/yasyf/cc-skills/pull/404 from GitHub: HTTP 404"
+    assert read_link("https://github.com/yasyf/cc-skills/blob/main/README.md") == "it names no pull request, commit, Actions run or release, the GitHub pages the drive reads"
+    assert read_link("https://buildkite.com/forge/release/builds/14185") is None
     assert ran[-1] == ["bk", "build", "view", "14185", "-p", "forge/release", "-o", "json"]
-    assert READ_LINK("https://app.datadoghq.com/logs?query=service%3Aapi").startswith("the drive reads no app.datadoghq.com link")
+    assert read_link("https://app.datadoghq.com/logs?query=service%3Aapi").startswith("the drive reads no app.datadoghq.com link")
 
 
 def test_a_github_proof_link_refused_under_ccxs_rate_limit_floor_waits_for_the_reset_it_names_then_reads_what_github_answers(
@@ -5062,8 +5065,8 @@ def test_a_github_proof_link_refused_under_ccxs_rate_limit_floor_waits_for_the_r
 
     monkeypatch.setattr(github, "run", answered)
     own_time(monkeypatch, github, time=lambda: datetime(2026, 11, 13, 18, 50, 51, tzinfo=UTC).timestamp(), sleep=slept.append)
-    assert READ_LINK(PR) is None
-    assert READ_LINK("https://github.com/yasyf/cc-skills/pull/404") == "could not read https://github.com/yasyf/cc-skills/pull/404 from GitHub: HTTP 404"
+    assert read_link(PR) is None
+    assert read_link("https://github.com/yasyf/cc-skills/pull/404") == "could not read https://github.com/yasyf/cc-skills/pull/404 from GitHub: HTTP 404"
     assert slept == [121, 121, 121]
     assert f"waiting 121 s for ccx's GitHub rate-limit floor to lift before reading {PR} again: could not read {PR} from GitHub: {floor}" in capsys.readouterr().err
 
@@ -5078,14 +5081,14 @@ def test_github_proof_pages_reuse_success_by_api_across_uncached_readers_until_e
     moment = [100000.0]
     monkeypatch.setattr(brief.time, "time", lambda: moment[0])
     page = "https://github.com/yasyf/cc-skills/pull/5075"
-    assert READ_LINK(page) is None
-    assert READ_LINK(page + "#discussion_r1") is None
+    assert read_link(page) is None
+    assert read_link(page + "#discussion_r1") is None
     assert len(read) == 1
     moment[0] += brief.OPENED_AGE - 1
-    assert READ_LINK(page) is None
+    assert read_link(page) is None
     assert len(read) == 1
     moment[0] += 1
-    assert READ_LINK(page) is None
+    assert read_link(page) is None
     assert len(read) == 2
     with sqlite3.connect(root / "github-proof-pages.sqlite3") as db:
         assert db.execute("SELECT COUNT(*) FROM pages").fetchone() == (1,)
@@ -5103,9 +5106,9 @@ def test_failed_github_proof_reads_are_not_stored(tmp_path: Path, monkeypatch: p
 
     monkeypatch.setattr(github, "run", answered)
     page = "https://github.com/yasyf/cc-skills/pull/5075"
-    assert "HTTP 404" in READ_LINK(page)
-    assert READ_LINK(page) is None
-    assert READ_LINK(page) is None
+    assert "HTTP 404" in read_link(page)
+    assert read_link(page) is None
+    assert read_link(page) is None
     assert len(read) == 2
 
 
@@ -12516,7 +12519,6 @@ def test_a_parse_never_hands_a_verb_the_list_its_parser_keeps_as_a_default() -> 
 def test_a_staging_release_start_names_one_rehearsal_env_alone() -> None:
     start = "tools/ci release start api rsw-cp --from b --emergency --env plat-usw2-staging --order 23eefb9"
     assert (brief.leased_env(start.split(), {}), brief.leased_env("tools/ci release start api --order 23eefb9".split(), {}), brief.leased_env(f"{start} --env core-usw2-prod".split(), {})) == ("plat-usw2-staging", None, None)
-    assert (brief.gives_way(f"{start} --for-production".split()), brief.gives_way(start.split())) == (True, False)
 
 
 def test_dropping_an_order_closes_its_open_prs_with_the_reason_and_is_refused_while_one_is_queued_to_land(

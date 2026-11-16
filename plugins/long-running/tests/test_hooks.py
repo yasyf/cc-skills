@@ -19,7 +19,7 @@ import quiet_turn
 import role_rules
 import scratch_folder
 import session_start
-from conftest import QUEUE_REASON, ACME_CUT, ANSWERED_CUT, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess, own_time
+from conftest import QUEUE_REASON, EnvsRelease, provide, ACME_CUT, ANSWERED_CUT, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess, own_time
 from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, slack, state, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -1500,16 +1500,19 @@ PREBUILT = json.dumps({"branch": "releases/prebuild-20261116T080000Z", "commit":
 STAGED_START = "tools/ci release start platform --from a6f826f --emergency --env plat-usw2-staging,plat-usw2-sandbox"
 
 
-@pytest.mark.usefixtures("envs_release")
+class PrebuildRelease(EnvsRelease):
+    def prebuild(self, commit: str) -> str | None:
+        return self.json("tools/ci release prebuild {commit} --json", commit=commit)["build"]["url"]
+
+
 def test_a_start_on_staging_kicks_off_the_prebuild_of_its_commit_and_keeps_its_build_on_the_job_while_a_production_start_kicks_off_none_and_a_failed_kick_off_keeps_the_release(
-    demo: str, run: Run, no_calls: list[list[str]], recorded: Answers, jev: Jev, release_starts: list[list[str]]
+    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, no_calls: list[list[str]], recorded: Answers, jev: Jev, release_starts: list[list[str]]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the clock")
     run("job", "add", "builder", "--order", "o1", "--goal", "build the clock")
     started = released(demo, f"""case "$2" in prebuild) echo '{PREBUILT}'; exit;; esac\necho '{STARTED}'""")
     checkout = started.parent
-    (checkout / ".claude").mkdir(exist_ok=True)
-    (checkout / ".claude" / "long-running.toml").write_text('[release]\nprebuild = "tools/ci release prebuild {commit} --json"\n')
+    provide(monkeypatch, checkout, release=PrebuildRelease)
     (checkout / "infra" / "envs").mkdir(parents=True)
     for env, marked in (("plat-usw2-staging", "staging"), ("plat-usw2-sandbox", "sandbox"), ("plat-usw2-prod", "prod\nprod: true")):
         (checkout / "infra" / "envs" / f"{env}.yaml").write_text(f"id: {env}\nstage: {marked}\n")
@@ -1528,7 +1531,7 @@ def test_a_start_on_staging_kicks_off_the_prebuild_of_its_commit_and_keeps_its_b
     released(demo, f"""case "$2" in prebuild) echo 'buildkite: 503' >&2; exit 1;; esac\necho '{STARTED}'""")
     assert run(*add, STAGED_START.replace("a6f826f", "b79714b"))[0] == 0
     code, out = run("job", "release", "j4")
-    assert (code, out.splitlines()[1]) == (0, "j4's prebuild at a6f826f did not start, so a release at a6f826f builds what it would have: sh -c tools/ci release prebuild a6f826f --json exited 1: buildkite: 503")
+    assert (code, out.splitlines()[1]) == (0, "j4's prebuild at a6f826f did not start, so a release at a6f826f builds what it would have: `tools/ci release prebuild a6f826f --json` exited 1: buildkite: 503")
     assert (state.load(demo)["jobs"]["j4"]["release_build"], state.load(demo)["jobs"]["j4"]["prebuild_build"], (state.drive_dir(demo) / "jobs" / "j4.brief.md").exists()) == (BUILD, None, True)
 
 

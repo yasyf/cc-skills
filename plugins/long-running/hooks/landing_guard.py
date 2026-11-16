@@ -3,7 +3,7 @@ import json
 import os
 import re
 import sys
-from collections.abc import Generator, Iterable, Iterator
+from collections.abc import Generator, Iterator
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -546,7 +546,7 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
     briefed = Path(data["jobs"][codex]["brief"]).read_text() if codex else agents.brief(shell.caller)
     record = verb in RELEASE_CUTS - {*brief.RELEASE_STARTS, "api"} and not write and (named := brief.followed(words, verb)) and brief.release_record(named, data)
     job = record and brief.recorded_job(record, data)
-    release = release_of(words, write, briefed, data["jobs"].values(), job and job["brief_flags"]["release"])
+    release = release_of(words, write, briefed, data, job and job["brief_flags"]["release"])
     said = "\n".join([briefed, *([job["goal"], Path(job["brief"]).read_text() if job.get("brief") else ""] if job else [])])
     try:
         hold = settled.hold(data["roles"]["coordinator"]["cwd"])
@@ -617,10 +617,10 @@ def cluster_job(made: providers.ReleaseProvider, words: list[str]) -> dict | Non
     return made.build_job(found["build"])
 
 
-def release_of(words: list[str], write: dict | None, briefed: str, jobs: Iterable[dict] = (), recorded: str | None = None) -> str:
-    """The release a release verb runs, as his exception names it: the newest Release line of the caller's brief, the release its job started on, else the release of the job among jobs whose release build the verb writes to, as the watchdog's rerun of a failed one names it, else recorded, the release of the job that the release tool's record of the release an approve, resume, rollback or rerun names leads to, by brief.recorded_job, so the top coordinator's own approve passes on that job's kept pass, else the verb's own words."""
+def release_of(words: list[str], write: dict | None, briefed: str, data: dict | None = None, recorded: str | None = None) -> str:
+    """The release a release verb runs, as his exception names it: the newest Release line of the caller's brief, the release its job started on, else the release of the job of the drive data whose release build the verb writes to, by its build provider, as the watchdog's rerun of a failed one names it, else recorded, the release of the job that the release tool's record of the release an approve, resume, rollback or rerun names leads to, by brief.recorded_job, so the top coordinator's own approve passes on that job's kept pass, else the verb's own words."""
     build = write and write["build"]
-    built = (job["brief_flags"]["release"] for job in jobs if build and job["release_build"] and (found := github.BUILD.match(job["release_build"])) and found["number"] == build)
+    built = (job["brief_flags"]["release"] for job in (data["jobs"].values() if data else ()) if build and job["release_build"] and (found := providers.of(data).build.match(job["release_build"])) and found["number"] == build)
     return next(reversed(brief.RELEASE.findall(briefed)), None) or next(built, None) or recorded or " ".join(words)
 
 
