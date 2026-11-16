@@ -280,7 +280,7 @@ def own_terminal() -> str | None:
 
 def speak_as_drive(drive: str) -> None:
     """Make each Orca call of this process and the processes it starts speak as the drive's own terminal, whatever started it: outside an Orca terminal Orca guesses the caller from the pane he focuses, or refuses with no_active_sender_terminal, and a process a session started would speak as that session's pane, its pane key included. The terminal the drive records is spoken as first, so a check of it that fails, as Orca's terminal show does while its terminal surfaces are unavailable, still leaves every call naming it, then the one drive_terminal keeps."""
-    if recorded := state.load(drive)["terminal"]:
+    if recorded := state.stored(drive, ("terminal",))["terminal"]:
         speak_as(recorded)
     speak_as(drive_terminal(drive))
 
@@ -326,7 +326,7 @@ def kept_terminal(drive: str, key: str, title: str) -> str:
 
 def live_kept(drive: str, key: str) -> str | None:
     """The terminal the drive keeps under key while Orca shows its shell connected; None when none is kept, Orca shows it disconnected or names its handle stale, and any other refusal raised as it came. This process trusts one Orca show of a terminal for KEPT_SHOWN_FOR, so a verb sending many texts asks Orca once."""
-    kept = state.load(drive)[key]
+    kept = state.stored(drive, (key,))[key]
     if kept and SHOWN_CONNECTED.get(kept, -math.inf) > time.monotonic() - KEPT_SHOWN_FOR:
         return kept
     try:
