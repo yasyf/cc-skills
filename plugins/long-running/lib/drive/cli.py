@@ -968,8 +968,10 @@ def closed_prs(name: str, order_id: str, keys: list[str], why: str) -> list[str]
         except github.GithubError as error:
             lines.append(f"{key} not closed: {error}; close it with gh pr close {state.pr_url(key)}")
             continue
-        with state.edit(name) as data:
+        def closed_prs_write(data: dict):
             data["prs"][key]["state"] = "closed"
+
+        state.update(name, None, closed_prs_write)
         lines.append(f"{key} closed with {order_id}: {why}")
     return lines
 

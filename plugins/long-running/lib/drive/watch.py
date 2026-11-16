@@ -5024,8 +5024,8 @@ def orphan_lines(watcher: Watcher, moment: datetime, said: type | tuple[type, ..
     data = state.load(watcher.name)
     if not any(orphan_change(data, key, gap, moment) for key, gap in part_gaps(watcher, data, moment).items() if isinstance(gap, said)):
         return []
-    lines = []
-    with state.edit(watcher.name) as data:
+    def orphaned(data: dict) -> list[str]:
+        lines = []
         for key, gap in part_gaps(watcher, data, moment).items():
             change = orphan_change(data, key, gap, moment) if isinstance(gap, said) else None
             part = data["orders"][key[0]]["parts"][key[1]]
@@ -5035,7 +5035,9 @@ def orphan_lines(watcher: Watcher, moment: datetime, said: type | tuple[type, ..
                 part.update(orphan_said=state.stamp(moment), orphan_gap=gap)
             if change == "say":
                 lines.append(f'ORPHAN {key[0]} "{cut(key[1], 80)}": {gap}')
-    return lines
+        return lines
+
+    return state.update(watcher.name, None, orphaned)
 
 
 def hear(name: str, moment: datetime, away: bool = False) -> dict:
