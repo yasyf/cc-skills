@@ -760,10 +760,13 @@ def hold_rules(name: str, session: str) -> list[str]:
     """Keep on the session's seat a digest of each line of its block its role's rules draw in this install, returning each line the seat did not hold, so the session is due those alone; none when it held them all or the session holds no seat."""
     if not due_rules(state.saved(name), session):
         return []
-    with state.edit(name) as data:
+
+    def held_rules(data: dict) -> list[str]:
         if due := due_rules(data, session):
             state.seat(data, session)["rules"] = render.rules_digests(data, state.session_role(data, session), state.session_seat(data, session))
-    return due
+        return due
+
+    return state.update(name, None, held_rules)
 
 
 def due_rules(data: dict, session: str) -> list[str]:
