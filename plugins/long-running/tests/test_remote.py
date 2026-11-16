@@ -5594,17 +5594,18 @@ def test_a_disk_check_restores_a_sprite_whose_ext4_counted_errors_or_whose_reque
     for workspace in ("pool-one", "pool-two"):
         (workspaces / f"{workspace}.json").write_text("{}")
     monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
-    stuck = "1 0 8 0 1 0 8 0 3 9 9 0 0 0 0 0 0".split()
-    disks = {"pool-one": (0, stuck), "pool-two": (0, "1 0 8 0 1 0 8 0 0 9 9 0 0 0 0 0 0".split())}
+    idle = "1 0 8 0 1 0 8 0 0 9 9 0 0 0 0 0 0".split()
+    stuck = "1 0 8 0 1 0 8 0 30 9 9 0 0 0 0 0 0".split()
+    disks = {"pool-one": (0, {"nbd0": idle, "loop0": stuck}), "pool-two": (0, {"nbd0": idle, "loop0": idle})}
     monkeypatch.setattr(orca, "disk_read", lambda root, workspace: disks[workspace])
     revived = []
     monkeypatch.setattr(orca, "revive", lambda root, workspace: revived.append(workspace) or f"revived {workspace}")
-    assert run("disks-check") == (0, "no nbd0 disk of the 2 Sprites read of 2 is wedged")
+    assert run("disks-check") == (0, "no disk of the 2 Sprites read of 2 is wedged")
     disks["pool-two"] = (2, disks["pool-two"][1])
     assert run("disks-check") == (
         0,
-        "j1: Sprite pool-one's nbd0 disk wedged (3 requests stood in flight since the last check); checkpoint-restored, so its next lane resumes its Claude session there\n"
-        "j2: Sprite pool-two's nbd0 disk wedged (ext4 counted 2 errors on it); checkpoint-restored, so its next lane resumes its Claude session there",
+        "j1: Sprite pool-one's disk wedged (30 requests stood in flight on loop0 since the last check); checkpoint-restored, so its next lane resumes its Claude session there\n"
+        "j2: Sprite pool-two's disk wedged (ext4 counted 2 errors on it); checkpoint-restored, so its next lane resumes its Claude session there",
     )
     assert revived == ["pool-one", "pool-two"]
     assert state.lane_death(state.load(remote)["jobs"]["j1"], "dispatch")["restored"]

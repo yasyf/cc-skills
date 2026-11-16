@@ -91,8 +91,7 @@ UNFIT = 76
 CC_REMOTE = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "cc-remote"
 CC_REMOTE_WORKSPACES = CC_REMOTE / "workspaces"
 KEPT_SPRITES = CC_REMOTE.parent / "orca-gc" / "kept"
-NBD_ERRORS = "/sys/fs/ext4/nbd0/errors_count"
-NBD_STAT = "/sys/block/nbd0/stat"
+SPRITE_DISKS = ("nbd0", "loop0")
 SPRITE_CLI = "sprite"
 SPRITES_FRESH = 600
 SPRITE_LIST_SECONDS = 60
@@ -844,11 +843,14 @@ def release(drive: str, job_id: str, job: dict, checkout: Path) -> str:
     return reclaimer(checkout, "--destroy", job["workspace"], lane_of(drive, job_id, job), seconds=RECLAIM_SECONDS)
 
 
-def disk_read(root: Path, workspace: str) -> tuple[int, list[str]]:
-    """What the Sprite at workspace says of its nbd0 root disk through the Sprites file API, which answers while a wedged disk stalls every ssh exec: the errors ext4 counted on it, which an I/O error, an aborted journal or a read-only remount raises, and its block stat line, whose ninth field counts the requests in flight; OrcaError when the API cannot answer."""
-    errors = sprite_api(root, workspace, f"fs/read?{urllib.parse.urlencode({'path': NBD_ERRORS})}")
-    stat = sprite_api(root, workspace, f"fs/read?{urllib.parse.urlencode({'path': NBD_STAT})}")
-    return int(errors.strip() or 0), stat.split()
+def disk_read(root: Path, workspace: str) -> tuple[int, dict[str, list[str]]]:
+    """What the Sprite at workspace says of each of its SPRITE_DISKS, its nbd0 root disk and the loop0 home volume an image on that root backs, through the Sprites file API, which answers while a wedged disk stalls every exec: the errors ext4 counted on them, which an I/O error, an aborted journal or a read-only remount raises, and each one's block stat line, whose ninth field counts the requests in flight; OrcaError when the API cannot answer."""
+
+    def read(path: str) -> str:
+        return sprite_api(root, workspace, f"fs/read?{urllib.parse.urlencode({'path': path})}")
+
+    errors = sum(int(read(f"/sys/fs/ext4/{disk}/errors_count").strip() or 0) for disk in SPRITE_DISKS)
+    return errors, {disk: read(f"/sys/block/{disk}/stat").split() for disk in SPRITE_DISKS}
 
 
 def revive(root: Path, workspace: str) -> str:

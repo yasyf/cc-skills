@@ -7098,7 +7098,7 @@ def transcripts_keep(args: argparse.Namespace) -> int:
 
 
 def disks_check(args: argparse.Namespace) -> int:
-    """Read the nbd0 root disk of each Sprite a job's lane holds now through the Sprites file API, by orca.disk_read, and checkpoint-restore at once, by orca.revive under the job's own lock, each one whose ext4 counted an error or whose in-flight requests stood with its stat line unchanged since the last check, so a disk stalling under memory pressure is cured before it remounts read-only and its lane's death is recorded as restored, which restart resumes in place on that same Sprite; the last stat lines kept in the drive's NBD_READS."""
+    """Read the nbd0 root disk and loop0 home volume of each Sprite a job's lane holds now through the Sprites file API, by orca.disk_read, and checkpoint-restore at once, by orca.revive under the job's own lock, each one whose ext4 counted an error or whose in-flight requests stood with its stat line unchanged since the last check, so a disk stalling under memory pressure is cured before it remounts read-only and its lane's death is recorded as restored, which restart resumes in place on that same Sprite; the last stat lines kept in the drive's NBD_READS."""
     name = state.resolve(args.drive)
     data = state.load(name)
     root = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
@@ -7106,7 +7106,7 @@ def disks_check(args: argparse.Namespace) -> int:
     seen_path = state.drive_dir(name) / NBD_READS
     seen = json.loads(seen_path.read_text()) if seen_path.exists() else {}
 
-    def read(job_id: str) -> tuple[str, tuple[int, list[str]] | None]:
+    def read(job_id: str) -> tuple[str, tuple[int, dict[str, list[str]]] | None]:
         try:
             return job_id, orca.disk_read(root, lanes[job_id]["workspace"])
         except (orca.OrcaError, ValueError):
@@ -7114,12 +7114,8 @@ def disks_check(args: argparse.Namespace) -> int:
 
     with ThreadPoolExecutor(8) as pool:
         reads = {job_id: got for job_id, got in pool.map(read, lanes) if got}
-    seen_path.write_text(json.dumps({lanes[job_id]["workspace"]: stat for job_id, (_, stat) in reads.items()}))
-    wedged = {
-        job_id: f"ext4 counted {errors} errors on it" if errors else f"{stat[8]} requests stood in flight since the last check"
-        for job_id, (errors, stat) in reads.items()
-        if errors or int(stat[8]) and seen.get(lanes[job_id]["workspace"]) == stat
-    }
+    seen_path.write_text(json.dumps({lanes[job_id]["workspace"]: stats for job_id, (_, stats) in reads.items()}))
+    wedged = {job_id: why for job_id, (errors, stats) in reads.items() if (why := disk_wedge(errors, stats, seen.get(lanes[job_id]["workspace"]) or {}))}
     lines = []
     for job_id, why in wedged.items():
         workspace = lanes[job_id]["workspace"]
@@ -7130,12 +7126,19 @@ def disks_check(args: argparse.Namespace) -> int:
             try:
                 orca.revive(root, workspace)
             except orca.OrcaError as error:
-                lines.append(f"{job_id}: Sprite {workspace}'s nbd0 disk wedged ({why}), and its checkpoint-restore failed: {error}")
+                lines.append(f"{job_id}: Sprite {workspace}'s disk wedged ({why}), and its checkpoint-restore failed: {error}")
                 continue
-            end = orca.LaneEnd(f"its Sprite {workspace}'s nbd0 disk wedged ({why}), and the disk check checkpoint-restored it", job.get("branch"), None)
+            end = orca.LaneEnd(f"its Sprite {workspace}'s disk wedged ({why}), and the disk check checkpoint-restored it", job.get("branch"), None)
             orca.died(name, job_id, job["dispatch"], end, restored=state.stamp())
-        lines.append(f"{job_id}: Sprite {workspace}'s nbd0 disk wedged ({why}); checkpoint-restored, so its next lane resumes its Claude session there")
-    return emit(args, "\n".join(lines) or f"no nbd0 disk of the {len(reads)} Sprites read of {len(lanes)} is wedged", {"read": len(reads), "lanes": len(lanes), "wedged": wedged})
+        lines.append(f"{job_id}: Sprite {workspace}'s disk wedged ({why}); checkpoint-restored, so its next lane resumes its Claude session there")
+    return emit(args, "\n".join(lines) or f"no disk of the {len(reads)} Sprites read of {len(lanes)} is wedged", {"read": len(reads), "lanes": len(lanes), "wedged": wedged})
+
+
+def disk_wedge(errors: int, stats: dict[str, list[str]], seen: dict[str, list[str]]) -> str | None:
+    """Why a Sprite's disks read wedged: ext4 counted errors on them, or one holds requests in flight with its stat line unchanged since the last check, as a home volume stalled under memory pressure does; None when neither."""
+    if errors:
+        return f"ext4 counted {errors} errors on it"
+    return next((f"{stat[8]} requests stood in flight on {disk} since the last check" for disk, stat in stats.items() if int(stat[8]) and seen.get(disk) == stat), None)
 
 
 def card_record(args: argparse.Namespace) -> int:
@@ -8919,7 +8922,7 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser("transcripts-keep", parents=both, help="copy the Claude Code transcripts the Sprite of a job's lane holds now to the drive's folder; the watch runs it detached at each turn end of a Sprite lane")
     verb.add_argument("id", help="the job")
     verb.set_defaults(run=transcripts_keep)
-    verb = verbs.add_parser("disks-check", parents=both, help="read the nbd0 disk of each Sprite lane through the Sprites file API and checkpoint-restore a wedged one at once; the watch runs it detached every two minutes")
+    verb = verbs.add_parser("disks-check", parents=both, help="read the nbd0 root disk and loop0 home volume of each Sprite lane through the Sprites file API and checkpoint-restore a wedged one at once; the watch runs it detached every two minutes")
     verb.set_defaults(run=disks_check)
     verb = verbs.add_parser("mcp", help="serve say and the drive's verbs as MCP tools to a Claude Code session over stdio")
     verb.add_argument("--list", action="store_true", help="print the tools as JSON and serve nothing")
