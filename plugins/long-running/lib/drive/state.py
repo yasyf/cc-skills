@@ -775,7 +775,6 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "stale_queued_dropped": True,
         "staging_approves_restored": True,
         "proofs_rehomed": True,
-        "tap_cards_kept": True,
     }
 
 
@@ -1161,8 +1160,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_runs_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped")) and bool(data.get("staging_approves_restored")) and bool(data.get("proofs_rehomed")) and bool(data.get("tap_cards_kept"))
-    for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev", "delivered_by_prs", "delivered_restored", "proofs_posted", "proofs_proven"):
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_runs_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped")) and bool(data.get("staging_approves_restored")) and bool(data.get("proofs_rehomed"))
+    for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev", "delivered_by_prs", "delivered_restored", "proofs_posted", "proofs_proven", "tap_cards_kept"):
         data.pop(flag, None)
     data["slack"].pop("channel", None)
     data["slack"].setdefault("swept", None)
@@ -1243,9 +1242,9 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         restore_staging_approves(name, data)
     if not data.get("proofs_rehomed"):
         rehome_proofs(name, data)
-    if not data.get("tap_cards_kept"):
+    if uncarded(data):
         keep_tap_cards(name, data)
-    return data, keep and not unkept and not unkinded
+    return data, keep and not unkept and not unkinded and not uncarded(data)
 
 
 def briefed_handoff(path: str | None) -> str | None:
@@ -1358,19 +1357,27 @@ def restore_staging_approves(name: str, data: dict) -> None:
     data["staging_approves_restored"] = True
 
 
+def uncarded(data: dict) -> list[str]:
+    """Each open PR whose tap holds no card, as each tap an install before cc-skills#5807 saved, and each it saves again, since its load rebuilds every tap without one."""
+    return [key for key, pr in data["prs"].items() if pr["state"] == "open" and pr["tap"] and pr["tap"]["card"] is None]
+
+
 def keep_tap_cards(name: str, data: dict) -> None:
-    """Keep on each tap an older install kept the PRs of the card his tap answered, the newest of his stored cards listing its PR asked by the tap's time for a card press, which carries its Slack action, else its PR alone, as for his words or a dashboard press, since an older install landed an Approve with the PRs its card lists now, so a PR that joined the card after his press held the PR he approved below it; marked so this runs once, from cards read live or never stored, after restore_staging_approves."""
+    """Keep on each open PR's tap holding no card the PRs of the card his tap answered, the newest of his stored cards listing its PR asked by the tap's time for a card press, which carries its Slack action, else its PR alone, as for his words or a dashboard press, since an older install landed an Approve with the PRs its card lists now, so a PR that joined the card after his press held the PR he approved below it; run at every load a tap holds none, after restore_staging_approves, since an older install still running drops each tap's card at its next save, and a card press keeps none while his cards read neither live nor never stored."""
     from drive import view
 
     found, source = view.stored_cards(name)
-    if source not in ("live", view.UNREAD):
-        return
-    cards = [*found["pr_cards"], *found["closed"]]
-    for key, pr in data["prs"].items():
-        if (tap := pr["tap"]) and tap["card"] is None:
-            asked = [card for card in cards if tap["action_ts"] and pr["url"] in card["prs"] and parse_time(card["asked"]) <= parse_time(tap["at"])]
-            tap["card"] = [pr_key(url) for url in max(asked, key=lambda card: parse_time(card["asked"]))["prs"]] if asked else [key]
-    data["tap_cards_kept"] = True
+    asked: dict[str, list[dict]] = {}
+    for card in [*found["pr_cards"], *found["closed"]] if source in ("live", view.UNREAD) else ():
+        for url in card["prs"]:
+            asked.setdefault(url, []).append(card)
+    for key in uncarded(data):
+        tap, url = data["prs"][key]["tap"], data["prs"][key]["url"]
+        if not tap["action_ts"]:
+            tap["card"] = [key]
+        elif source in ("live", view.UNREAD):
+            pressed = [card for card in asked.get(url, ()) if parse_time(card["asked"]) <= parse_time(tap["at"])]
+            tap["card"] = [pr_key(member) for member in max(pressed, key=lambda card: parse_time(card["asked"]))["prs"]] if pressed else [key]
 
 
 def post_proofs(data: dict) -> None:

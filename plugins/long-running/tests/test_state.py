@@ -1823,10 +1823,9 @@ def test_a_drive_saved_with_approves_a_staging_pass_took_back_gives_each_open_pr
     )
 
 
-def test_a_drive_saved_before_taps_kept_their_card_gives_each_card_press_the_prs_of_the_newest_stored_card_on_its_pr_asked_by_it_and_his_words_their_pr_alone_once(state_root: Path) -> None:
+def test_each_open_tap_saved_with_no_card_gives_a_card_press_the_prs_of_the_newest_stored_card_on_its_pr_asked_by_it_and_his_words_their_pr_alone_at_every_load(state_root: Path) -> None:
     make("demo")
-    data = state.load("demo")
-    del data["tap_cards_kept"]
+    data = state.load("demo") | {"tap_cards_kept": True}
     created = "2026-11-15T04:00:00-08:00"
     data["orders"] = {"o1": state.new_order("ship the writer", "slack:D123/1794600000.000100", ("D123", "1794600000.000100"), {"ship it": state.new_part()}, created) | {"kind": "build", "jobs": ["j1"]}}
     data["jobs"] = {"j1": state.new_job("o1", "builder", "ship it", ["ship it"], created)}
@@ -1848,7 +1847,7 @@ def test_a_drive_saved_before_taps_kept_their_card_gives_each_card_press_the_prs
     alone = stored("https://acme.slack.com/archives/D123/p1794770000000100", "2026-11-15T04:23:52-08:00", approved) | {"answer": {"label": "Approve", "at": "2026-11-15T09:02:17-08:00"}}
     state.cards_path("demo").write_text(json.dumps({"source": "live", "team_url": "", "questions": [], "pr_cards": [shared], "closed": [alone]}))
     data = state.load("demo")
-    assert ([data["prs"][key]["tap"]["card"] for key in (approved, joined, worded, uncarded)], data["tap_cards_kept"]) == ([[approved], [approved, joined, worded], [worded], [uncarded]], True)
+    assert ([data["prs"][key]["tap"]["card"] for key in (approved, joined, worded, uncarded)], "tap_cards_kept" in data) == ([[approved], [approved, joined, worded], [worded], [uncarded]], False)
 
 
 def test_a_drive_saved_reading_staging_passes_by_prose_case_lines_and_release_followers_reads_each_again_from_its_testers_returns_dated_by_the_first_carrying_it_as_56594s_and_56677s_were_not(
