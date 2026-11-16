@@ -275,9 +275,11 @@ check's verdict, or from the order when none ran.
   whatever the thing we need here is". `drive job add --release` refuses a hotfix of an open
   incident's PR that names no `--only`, and refuses an `--only` component the PR does not reach.
   The refusal lists the components the PR reaches. Which of them his words name is your reading.
-- Every other release a drive job starts starts the regular way at the merged
+- Every release a drive job starts, an incident's included, starts the regular way at the merged
   fix or the default branch's head a first check proved, a release start of its target from that commit, whose footers decide what ships with
-  it, so it is not narrowed to leave out a partner they name. The job it started on does not cancel it, however wide its plan reads: a job that
+  it, so it is not narrowed to leave out a partner they name. A hotfix of an open incident's PR is
+  the one narrowed start: it names with `--only` just the components its PR reaches that his words
+  name. The job it started on does not cancel it, however wide its plan reads: a job that
   would decline it at approve returns with it held for the coordinator, and the `landing_guard`
   hook refuses a drive job's release cancel. A fix cherry-picked onto the live commit on a
   pushed branch, only once a first check found the default branch's newest build fails too, starts

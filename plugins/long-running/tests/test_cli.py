@@ -8294,7 +8294,7 @@ def test_a_pr_built_on_an_open_incidents_fix_is_an_incident_fix_with_no_tap_no_s
     assert not state.queued_by_lander(data, "Forge-AI/monorepo#42")
 
 
-def test_a_hotfix_of_an_open_incidents_pr_names_with_only_just_the_components_that_pr_reaches(with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_hotfix_of_an_open_incidents_pr_names_with_only_just_the_components_that_pr_reaches(home_repo: None, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"releases": ["api", "rsw-cp", "rsw-dp"]} for key in keys})
     command = "tools/ci release hotfix 42 --order 14e8441"
     with edit("demo") as data:
