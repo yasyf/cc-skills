@@ -1996,6 +1996,40 @@ def test_a_watch_hands_off_to_a_newer_install_only_once_it_ran_hand_off_every_or
     assert watch.handing_off(watching, 0.0) is True
 
 
+@pytest.mark.parametrize("operation,field", [("digest", "slack"), ("slots", "slots"), ("seats", "orders"), ("handoff", "orders")])
+def test_watch_metadata_reads_do_not_decode_unrelated_collections(demo: str, operation: str, field: str) -> None:
+    from drive import picture
+
+    with state.edit(demo) as data:
+        data["slack"]["digest"] = {"day": T0.astimezone(view.ZONE).date().isoformat()}
+        data["orders"]["o1"]["priority"] = "Priority o1"
+    watching = watcher(demo)
+    watching.cards = NO_CARDS
+    priority = watcher(demo)
+    priority.project = "Priority o1"
+    watching.others = {priority.project: priority}
+    for mark in (state.drive_dir(demo) / "pictures" / picture.SOURCED, state.drive_dir(demo) / "asks" / state.REBUILT_ASKS):
+        mark.parent.mkdir(exist_ok=True)
+        mark.touch()
+    state.load(demo)
+    path = state.database_path(demo)
+    cached = state.WHOLE_READS[(path, path.stat().st_ino)].shaped
+    assert cached
+    original = dict(cached)
+    cached.update({key: b"" for key in cached if key != field})
+    try:
+        if operation == "digest":
+            assert watch.digest_lines(watching, T0) == []
+        elif operation == "slots":
+            assert watch.slot_lines(watching, T0) == []
+        elif operation == "seats":
+            assert watch.seated_first(watching) == [priority, watching]
+        else:
+            assert watch.handing_off(watching, 0.0) is False
+    finally:
+        cached.update(original)
+
+
 def test_a_held_resume_naming_no_stage_of_this_install_runs_the_whole_pass(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     posts(monkeypatch)
