@@ -3508,6 +3508,25 @@ def reopen(name: str, job_id: str, agent: str | None, session: str | None) -> tu
     return f"{job_id}: reopened on agent {agent}, session {session}: {job['state']}, {render.cut(job['said'], 200)}", {"id": job_id, "state": job["state"], "said": job["said"]}
 
 
+def cut_misses(data: dict, job_id: str, report: str) -> dict[str, str]:
+    """Each case a tester's DONE ran on a cut that does not carry the head of the PR its staging test part tests, read before the DONE is kept, by git ancestry in the drive's checkout, each commit fetched by its sha: keyed `<part>|<case>`, the reason it is no pass. A case names its cut in parentheses after its verdict, `pass (W2m c2475b75c178)`, or by the label alone once another case of the report named that label's commit."""
+    clone = data["roles"]["coordinator"]["cwd"]
+    named = dict(state.CASE_CUT_SHA.findall(report))
+    misses = {}
+    for _, part in state.staging_parts(data, data["jobs"][job_id]):
+        key = f"{state.home(data)}#{state.STAGING_PART.fullmatch(part)['number']}"
+        head = (data["prs"].get(key) or {}).get("head")
+        if not head:
+            continue
+        tested = {state.STAGING_PART.fullmatch(each)["number"] for _, each in state.staging_parts(data, data["jobs"][job_id])}
+        for case, verdict in state.pr_run(report, state.STAGING_PART.fullmatch(part)["number"], tested, state.home(data))[0]:
+            if not (cut := state.CASE_CUT.match(verdict)) or not (commit := cut["sha"] or named.get(cut["label"])):
+                continue
+            if not github.carries(clone, commit, key.rpartition("#")[2], head):
+                misses[f"{part}|{case}"] = f"fail: cut {cut['label']} {commit[:12]} does not carry {key} at {head[:12]}"
+    return misses
+
+
 def take_report(name: str, job_id: str, whole: str, read_prs: bool = True, tell: bool = True) -> tuple[str, dict]:
     """Take a job's whole return as drive job report <j> - takes it, the one place a return is kept or refused, for that verb and for the watch's take of a local agent's last message; what it prints and its JSON. With read_prs False, as a Sprite lane's report is taken, the GitHub read of a READY's PRs runs after it is kept, in a `drive job check` of its own, so the lane's answer waits on none of it. With tell False, as a work queue item's return no one must act on is taken, its line stays on the item and no JOB line goes to the session holding its order."""
     data = state.load(name)
@@ -3560,7 +3579,12 @@ def take_report(name: str, job_id: str, whole: str, read_prs: bool = True, tell:
             fixes.append(f"FIX kept, {error}")
     changed = [state.whole_order(found["change"]) for found in state.change_lines(job["kind"], whole)] if job["kind"] in ("design", "builder") else []
     removing = brief.removed_parts(state.load(name), job["order"], changed)
+    try:
+        misses = cut_misses(state.load(name), job_id, whole) if re.match(r"DONE\b", line) else {}
+    except github.GithubError as error:
+        raise DriveError(f"{job_id}: refused, nothing kept: whether each cut its CASE lines name carries the PR's head could not be read: {error}") from None
     def reported(data: dict):
+        data["jobs"][job_id]["cut_misses"] = misses
         held = built and state.change_job(data, job["order"], [], data["jobs"][job_id]["waits"], job_id, built["branch"], job["repo"], proving=state.builds_nothing(job))
         replaced = [state.hand_over(data, held, job_id, job["order"], [], state.stamp(), built["branch"], job["repo"])] if held else []
         state.take_result(data, job_id, line, whole)

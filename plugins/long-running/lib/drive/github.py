@@ -831,6 +831,21 @@ def uncarried(clone: str, build: str, head: str, base: str) -> list[str]:
     return shipped(clone, build, missing)
 
 
+CUT_DEPTH = 500
+
+
+def carries(clone: str, commit: str, number: str, head: str) -> bool:
+    """Whether commit, a staging cut's, carries the PR numbered number at head: head is in its history, or one of its newest CUT_DEPTH commits is the commit a packed cut makes of that PR, whose subject names `#<number> at <head's first 12>`, both commits fetched by their exact sha."""
+    for sha in (commit, head):
+        fetch_commit(clone, sha)
+    read = subprocess.run(["git", "-C", clone, "merge-base", "--is-ancestor", head, commit], capture_output=True, text=True, check=False)
+    if read.returncode > 1:
+        raise GithubError(f"git merge-base --is-ancestor {head[:12]} {commit[:12]} in {clone}: {read.stderr.strip()}")
+    if read.returncode == 0:
+        return True
+    return f"#{number} at {head[:12]}" in run(["git", "-C", clone, "log", "-n", str(CUT_DEPTH), "--format=%s", commit])
+
+
 def fork_point(clone: str, git: list[str], head: str, tip: str) -> str:
     """The commit head forked from tip, by merge-base; in a shallow clone whose history stops short of it, the fork GitHub's compare names is fetched by its exact sha, never by depth, and merge-base read once more, a second failure naming the shallow clone and that commit."""
     try:

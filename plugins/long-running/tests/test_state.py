@@ -3153,3 +3153,49 @@ def test_an_unproven_line_keeps_a_staging_tests_passing_cases_from_delivering_it
     state.take_result(data, "j1", "DONE #42's staging test passed", report)
     none = state.open_unproven(data["jobs"]["j1"], "DONE x\nUNPROVEN: none\n")
     assert (held, left, staging_reads(data), none) == ((False, None, "j1"), [unproven], (True, PROOF, "j1"), [])
+
+
+def test_a_staging_case_run_on_a_cut_that_does_not_carry_the_prs_head_is_no_pass_naming_that_cut_and_one_on_cuts_that_carry_it_passes(
+    named_repo: None, state_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data = staging_drive("j1")
+    url, head = "https://github.com/Forge-AI/monorepo/pull/42", "b4df0ca15210aaaabbbbccccddddeeeeffff0000"
+    data["prs"] = {"Forge-AI/monorepo#42": state.new_pr(url, "j2", "o1") | {"head": head}}
+    cases = "CASE 1 pass (W2m c2475b75c178): the CronJobs run the cut's image\nCASE 2 pass (W2m): the dry run succeeded\nCASE 3 pass (D1b 9c560ac70113, #42 alone on dev): the drain resent\n"
+    report = f"DONE #42 at {head[:12]} passed\nCHECK: {PROOF}\n{cases}"
+    asked: list[tuple[str, str, str]] = []
+    carried = {"c2475b75c178"}
+    monkeypatch.setattr(github, "carries", lambda clone, commit, number, sha: asked.append((commit, number, sha)) or commit in carried)
+    misses = cli.cut_misses(data, "j1", report)
+    data["jobs"]["j1"]["cut_misses"] = misses
+    state.take_result(data, "j1", "DONE #42 passed", report)
+    missed = (staging_reads(data), state.unpassed(data["orders"]["o1"]["parts"][STAGING]))
+    carried.add("9c560ac70113")
+    data["jobs"]["j1"]["cut_misses"] = cli.cut_misses(data, "j1", report)
+    state.take_result(data, "j1", "DONE #42 passed", report)
+    assert sorted(set(asked)) == [("9c560ac70113", "42", head), ("c2475b75c178", "42", head)]
+    assert missed == ((False, None, "j1"), f"CASE 3: fail: cut D1b 9c560ac70113 does not carry Forge-AI/monorepo#42 at {head[:12]}")
+    assert staging_reads(data) == (True, PROOF, "j1")
+
+
+def test_a_cut_carries_a_pr_head_in_its_history_or_as_the_commit_a_packed_cut_names_it_by(tmp_path: Path) -> None:
+    clone = tmp_path / "clone"
+    def git(*args: str) -> str:
+        return subprocess.run(["git", "-C", str(clone), "-c", "user.name=t", "-c", "user.email=t@t", *args], check=True, capture_output=True, text=True).stdout.strip()
+    clone.mkdir()
+    git("init", "-q", "-b", "dev")
+    git("commit", "-q", "--allow-empty", "-m", "dev")
+    git("checkout", "-q", "-b", "pr")
+    git("commit", "-q", "--allow-empty", "-m", "the fix")
+    head = git("rev-parse", "HEAD")
+    git("checkout", "-q", "dev")
+    git("checkout", "-q", "-b", "packed")
+    git("commit", "-q", "--allow-empty", "-m", f"staging packed-w2m on dev 70818c48333b: #42 at {head[:12]}, tested by j1 (j2)")
+    packed = git("rev-parse", "HEAD")
+    git("checkout", "-q", "-b", "other", "dev")
+    git("commit", "-q", "--allow-empty", "-m", "staging packed-w2m on dev 70818c48333b: #43 at 0123456789ab, tested by j1 (j2)")
+    other = git("rev-parse", "HEAD")
+    git("checkout", "-q", "-b", "merged", "dev")
+    git("merge", "-q", "--no-ff", "-m", "merge", "pr")
+    merged = git("rev-parse", "HEAD")
+    assert [github.carries(str(clone), cut, "42", head) for cut in (packed, other, merged)] == [True, False, True]

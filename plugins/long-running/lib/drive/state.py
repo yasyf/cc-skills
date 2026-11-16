@@ -201,6 +201,8 @@ PASSED_CASE = re.compile(r"pass(?:ed)?\b", re.IGNORECASE)
 CASE_VERDICT = re.compile(r"(?:pass(?:ed)?|fail(?:ed)?|skipped|not exercised)\b", re.IGNORECASE)
 UNEXERCISED_CASE = re.compile(r"not exercised\b[ \t]*:?[ \t]*", re.IGNORECASE)
 VERDICT_IN_CASE = re.compile(r"(?P<case>\S+)[ \t]+(?P<verdict>(?:pass(?:ed)?|fail(?:ed)?|skipped|not exercised)\b.*)", re.IGNORECASE)
+CASE_CUT = re.compile(r"^(?:pass(?:ed)?|fail(?:ed)?)[ \t]*\((?P<label>[A-Z][A-Za-z0-9]*)(?:[ \t]+(?P<sha>[0-9a-f]{7,40}))?\b", re.IGNORECASE)
+CASE_CUT_SHA = re.compile(r"\b([A-Z][A-Za-z0-9]*)[ \t]+([0-9a-f]{12,40})\b")
 UNPROVEN_LINE = re.compile(r"^UNPROVEN:[ \t]*(?P<what>.+?)[ \t]*$", re.MULTILINE)
 RETURN_WAIT = re.compile(r"(?P<job>j\d+)@(?P<returned>\d+)")
 LINE_JOB = re.compile(r"(?<![\w:/.-])j\d+(?![\w@-])")
@@ -3814,8 +3816,10 @@ def passing(cases: list[tuple[str, str]]) -> bool:
 
 
 def part_run(data: dict, job_id: str, report: str, part: str) -> tuple[list[tuple[str, str]], list[str]]:
-    """The cases a tester's report ran for one staging test part, beside the proofs its CHECK: lines name for them, by pr_run among the PRs of each staging test part the job holds, by staging_parts."""
-    return pr_run(report, STAGING_PART.fullmatch(part)["number"], {STAGING_PART.fullmatch(each)["number"] for _, each in staging_parts(data, data["jobs"][job_id])}, home(data))
+    """The cases a tester's report ran for one staging test part, beside the proofs its CHECK: lines name for them, by pr_run among the PRs of each staging test part the job holds, by staging_parts, a case run on a cut that does not carry the PR's head, by cli.cut_misses when the DONE was kept, reading as that failure."""
+    job = data["jobs"][job_id]
+    cases, proofs = pr_run(report, STAGING_PART.fullmatch(part)["number"], {STAGING_PART.fullmatch(each)["number"] for _, each in staging_parts(data, job)}, home(data))
+    return [(case, job["cut_misses"].get(f"{part}|{case}", verdict)) for case, verdict in cases], proofs
 
 
 def pr_run(report: str, number: str, tested: set[str], repo: str | None) -> tuple[list[tuple[str, str]], list[str]]:
@@ -4420,6 +4424,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "woken": None,
         "handed_to": None,
         "accepted_unproven": [],
+        "cut_misses": {},
     }
 
 
