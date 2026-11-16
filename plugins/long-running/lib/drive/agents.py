@@ -757,11 +757,11 @@ def trimmed(settings: dict, checkout: Path) -> dict:
 
 
 def start_job(name: str, job_id: str, agent: str, call: dict, held: dict, cwd: Path) -> str:
-    """Start a builder's or reader's agent as its own `claude --bg` session on the Agent call its starter would make, its type, model and prompt, in cwd, the drive's checkout at the head of its default branch, as a handler starts, JOB_ENV naming the drive, the job, the agent id it is recorded as and the session holding its order, by which seen binds every hook of it as that session's agent, `CCI_PARENT_SESSION` naming that session, so cci posts from it as that session's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive; the session `claude --bg` names."""
+    """Start a builder's or reader's agent as its own `claude --bg` session on the Agent call its starter would make, its type, model and prompt, in cwd, the drive's checkout at the head of its default branch, as a handler starts, JOB_ENV naming the drive, the job, the agent id it is recorded as and the session holding its order, by which seen binds every hook of it as that session's agent, `CCI_PARENT_SESSION` naming that session, so cci posts from it as that session's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, on lane_session's settings and flags, so it compacts, loads its rules and runs its effort as an Orca lane does and with no advisor; the session `claude --bg` names."""
     env = {state.JOB_ENV: f"{name}/{job_id}/{agent}/{held['session']}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name}
-    settings = session_settings(env)
+    settings, flags = lane_session(env)
     model = ["--model", call["model"]] if call.get("model") else []
-    argv = ["claude", "--bg", "--agent", call["subagent_type"], *model, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} {job_id}", call["prompt"]]
+    argv = ["claude", "--bg", "--agent", call["subagent_type"], *model, *flags, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} {job_id}", call["prompt"]]
     return launched(reads.run(argv, cwd, {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
 
 
