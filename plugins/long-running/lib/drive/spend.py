@@ -1,4 +1,4 @@
-"""Each project's Claude spend today across every drive on this Mac, read from its jobs' transcripts, and the daily budgets caps.json sets on it."""
+"""Each project's Claude spend today in dollars across every drive on this Mac, priced from its jobs' transcripts, and the daily budgets caps.json sets on it."""
 
 import contextlib
 import fcntl
@@ -14,12 +14,26 @@ SPEND_DIR = "spend"
 SPEND_SECONDS = 300
 TOOLING_PROJECT = "Drive tooling"
 UNFILED = "unfiled"
-USAGE_KEYS = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
-BUDGETS = {"daily_tokens": 40_000_000_000, "tooling_share": 0.25, "project_tokens": 10_000_000_000, "projects": {}}
+PRICES = {
+    "claude-fable-5-2": (8.0, 40.0),
+    "claude-fable-5-1": (10.0, 50.0),
+    "claude-opus-5-5": (4.0, 20.0),
+    "claude-opus-5": (5.0, 25.0),
+    "claude-sonnet-5-5": (2.0, 10.0),
+    "claude-sonnet-5": (2.0, 10.0),
+    "claude-haiku-5-5": (0.10, 0.50),
+    "claude-haiku-4-5": (1.0, 5.0),
+}
+FAMILIES = {"fable": "claude-fable-5-2", "opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5"}
+SYNTHETIC = "<synthetic>"
+CACHE_READ = 0.05
+CACHE_WRITE = 1.25
+CACHE_WRITE_HOUR = 2.0
+BUDGETS = {"daily_usd": 15000, "tooling_share": 0.25, "project_usd": 5000, "projects": {}}
 
 
 def budgets() -> dict:
-    """The daily budgets caps.json sets beside its caps, BUDGETS for each it leaves out: daily_tokens, the day's total, of which drive tooling may spend tooling_share, and project_tokens, what each other project may spend a day unless projects names its own, by its name."""
+    """The daily budgets in dollars caps.json sets beside its caps, BUDGETS for each it leaves out: daily_usd, the day's total, of which drive tooling may spend tooling_share, and project_usd, what each other project may spend a day unless projects names its own, by its name."""
     from drive import place
 
     path = state.root() / place.CAPS_FILE
@@ -48,17 +62,34 @@ def transcripts(data: dict, job: dict) -> list[Path]:
 
 
 def ledger_path(moment: datetime) -> Path:
-    return state.root() / SPEND_DIR / f"{moment.date().isoformat()}.json"
+    return state.root() / SPEND_DIR / f"{moment.date().isoformat()}.usd.json"
 
 
-def read_since(path: Path, held: list, day: str) -> int:
-    """The tokens a transcript's assistant turns dated day spent past the offset held keeps, each message once though Claude Code writes one line per content block with the same usage, a line cut short by a crash or a copy read as no turn, moving held to where this read ended and the last message it counted."""
+def priced(model: str, usage: dict) -> float:
+    """What one message cost in dollars at its model's list price per million tokens, a new model by its family's newest: input and output at their own prices, a cache write at CACHE_WRITE times input, or CACHE_WRITE_HOUR for one kept an hour, and a cache read at CACHE_READ of input; Claude Code's synthetic messages cost nothing."""
+    if model == SYNTHETIC:
+        return 0.0
+    given, made = PRICES.get(model) or PRICES[next(newest for family, newest in FAMILIES.items() if family in model)]
+    written = usage.get("cache_creation_input_tokens") or 0
+    hour = (usage.get("cache_creation") or {}).get("ephemeral_1h_input_tokens") or 0
+    read = usage.get("cache_read_input_tokens") or 0
+    taken = (usage.get("input_tokens") or 0) + CACHE_WRITE * (written - hour) + CACHE_WRITE_HOUR * hour + CACHE_READ * read
+    return (given * taken + made * (usage.get("output_tokens") or 0)) / 1e6
+
+
+def money(usd: float) -> str:
+    """Dollars as he reads them: $3.8k, $950."""
+    return f"${usd / 1000:.1f}k".replace(".0k", "k") if usd >= 1000 else f"${usd:,.0f}"
+
+
+def read_since(path: Path, held: list, day: str) -> float:
+    """The dollars a transcript's assistant turns dated day spent, by priced, past the offset held keeps, each message once though Claude Code writes one line per content block with the same usage, a line cut short by a crash or a copy read as no turn, moving held to where this read ended and the last message it counted."""
     offset, last = held
     with open(path, "rb") as handle:
         handle.seek(offset)
         chunk = handle.read()
     whole = chunk.rfind(b"\n") + 1
-    spent = 0
+    spent = 0.0
     for line in chunk[:whole].splitlines():
         if b'"usage"' not in line or b'"assistant"' not in line:
             continue
@@ -71,16 +102,16 @@ def read_since(path: Path, held: list, day: str) -> int:
             continue
         last = message.get("id")
         if state.parse_time(entry["timestamp"]).astimezone().date().isoformat() == day:
-            spent += sum(usage.get(key) or 0 for key in USAGE_KEYS)
+            spent += priced(message.get("model") or SYNTHETIC, usage)
     held[:] = [offset + whole, last]
     return spent
 
 
 def kept(moment: datetime) -> dict:
-    """Today's ledger as the last refresh left it, empty before the day's first: {"at", "offsets", "tokens": {"<drive>/<project>": n}, "told": [project, ...]}."""
+    """Today's ledger as the last refresh left it, empty before the day's first: {"at", "offsets", "usd": {"<drive>/<project>": dollars}, "told": [project, ...]}."""
     with contextlib.suppress(FileNotFoundError):
         return json.loads(ledger_path(moment).read_text())
-    return {"at": None, "offsets": {}, "tokens": {}, "told": []}
+    return {"at": None, "offsets": {}, "usd": {}, "told": []}
 
 
 @contextlib.contextmanager
@@ -123,7 +154,7 @@ def refreshed(path: Path, moment: datetime) -> dict:
             bucket = f"{name}/{project(data, job)}"
             for transcript in transcripts(data, job):
                 offset = held["offsets"].setdefault(str(transcript), [0, None])
-                held["tokens"][bucket] = held["tokens"].get(bucket, 0) + read_since(transcript, offset, day)
+                held["usd"][bucket] = held["usd"].get(bucket, 0.0) + read_since(transcript, offset, day)
     held["at"] = state.stamp(moment)
     made = path.with_name(f"{path.name}.{os.getpid()}")
     made.write_text(json.dumps(held))
@@ -131,23 +162,29 @@ def refreshed(path: Path, moment: datetime) -> dict:
     return held
 
 
-def spent(tokens: dict[str, int], mine: str) -> int:
-    """A project's spend today summed over every drive that files work under its name."""
-    return sum(used for bucket, used in tokens.items() if bucket.rpartition("/")[2] == mine)
+def spent(usd: dict[str, float], mine: str) -> float:
+    """A project's dollars spent today summed over every drive that files work under its name."""
+    return sum(used for bucket, used in usd.items() if bucket.rpartition("/")[2] == mine)
 
 
-def limit(mine: str) -> int:
-    """A project's daily budget: drive tooling's tooling_share of daily_tokens, any other project's own in projects, else project_tokens."""
+def limit(mine: str) -> float:
+    """A project's daily budget in dollars: drive tooling's tooling_share of daily_usd, any other project's own in projects, else project_usd."""
     held = budgets()
     if mine == TOOLING_PROJECT:
-        return int(held["tooling_share"] * held["daily_tokens"])
-    return held["projects"].get(mine, held["project_tokens"])
+        return held["tooling_share"] * held["daily_usd"]
+    return held["projects"].get(mine, held["project_usd"])
 
 
 def over_project(mine: str, moment: datetime) -> str | None:
     """Why a project may spend no more today, by the kept ledger, None while it may."""
-    used, budget = spent(kept(moment)["tokens"], mine), limit(mine)
-    return f"{mine} spent {used:,} tokens today, at its daily budget of {budget:,} set by caps.json" if used >= budget else None
+    used, budget = spent(kept(moment)["usd"], mine), limit(mine)
+    return f"{mine} hit today's {money(budget)} budget, at {money(used)} spent, set by caps.json" if used >= budget else None
+
+
+def his_line(mine: str) -> str:
+    """The one line he gets the first time a project hits its budget on a day, in plain dollars."""
+    work = "tooling" if mine == TOOLING_PROJECT else f"{mine} work"
+    return f"{mine} hit today's {money(limit(mine))} budget; non-urgent {work} waits until tomorrow."
 
 
 def over(data: dict, job: dict, moment: datetime) -> str | None:

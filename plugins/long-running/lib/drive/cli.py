@@ -1515,6 +1515,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         "branch": args.branch,
         "worktree": args.worktree,
         "builds_nothing": args.builds_nothing,
+        "priority": args.priority,
         "model": args.model,
     }
     with state.edit(name) as data:
@@ -1764,7 +1765,7 @@ def job_set(args: argparse.Namespace) -> int:
     if args.state == "stopped":
         fix_kept(known, args.id)
     refuse_a_mark_off_a_builder(found["kind"], args.builds_nothing)
-    changes = {"agent": args.agent, "state": args.state, "said": args.said, "branch": args.branch, "due": job_clock(args.id, args.due), "builds_nothing": args.builds_nothing}
+    changes = {"agent": args.agent, "state": args.state, "said": args.said, "branch": args.branch, "due": job_clock(args.id, args.due), "builds_nothing": args.builds_nothing, "priority": args.priority}
     urls = dict.fromkeys(state.pr_url(state.pr_key(url)) for url in args.pr)
     if refused := state.job_wait_refusal(known, args.waits):
         raise DriveError(refused)
@@ -6152,6 +6153,16 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     waits_opt.add_argument("--no-waits", action="store_true", help="drop every wait it carries before adding any --waits")
+    priority_opt = argparse.ArgumentParser(add_help=False)
+    priority_opt.add_argument(
+        "--priority",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "mark or unmark the job alone as urgent, such as a drive tooling fix for what blocks his answers or this Mac's load: its lanes start past this Mac's"
+            " caps, load gate and its project's daily budget, with none of a priority order's seat or five-minute lines"
+        ),
+    )
     builds_opt = argparse.ArgumentParser(add_help=False)
     builds_opt.add_argument(
         "--builds-nothing",
@@ -6530,6 +6541,15 @@ def parser() -> argparse.ArgumentParser:
         default=None,
         help="a builder whose whole work holds no checkout or compiler, such as a read, as a builder whose goal reads prove <PRs> live is marked or not: it holds no slot of this Mac's builder cap, starts here at once and starts beside any builder carrying its part, since it changes no code",
     )
+    verb.add_argument(
+        "--priority",
+        action="store_true",
+        default=None,
+        help=(
+            "the job alone marked urgent, such as a drive tooling fix for what blocks his answers or this Mac's load: its lanes start past this Mac's"
+            " caps, load gate and its project's daily budget, with none of a priority order's seat or five-minute lines"
+        ),
+    )
     verb.add_argument("kind", type=job_kind, choices=state.JOB_KINDS, help="what the job is; designer, its agent type's name, is design")
     verb.add_argument("--order", required=True, help="the order whose parts it delivers")
     verb.add_argument("--goal", required=True, help="its deliverable, one line")
@@ -6580,7 +6600,7 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.set_defaults(run=job_add)
-    verb = job.add_parser("set", parents=[*both, dry_opt, waits_opt, builds_opt])
+    verb = job.add_parser("set", parents=[*both, dry_opt, waits_opt, builds_opt, priority_opt])
     verb.add_argument("id", help="the job")
     verb.add_argument(
         "--agent",
