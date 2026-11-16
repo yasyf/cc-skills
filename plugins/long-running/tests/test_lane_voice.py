@@ -71,11 +71,14 @@ def test_his_message_reaches_its_lane_by_thread_and_every_lane_in_the_channel_wh
     lanes = {"run-page": {"channel": "C0RUN", "thread": None}, "v3-a": {"channel": "C0SHARED", "thread": "1.1"}, "v3-b": {"channel": "C0SHARED", "thread": "2.2"}}
     monkeypatch.setattr(store, "root", lambda: root)
     monkeypatch.setattr(store, "load_all", lambda drive: lanes)
+    present = []
+    monkeypatch.setattr(store, "heard", lambda drive, asks: present.append((drive, asks)))
     heard = []
     monkeypatch.setattr(verbs, "message", lambda drive, lane_id, words, link, ts: heard.append((lane_id, ts)) or 1)
     assert voice.heard("C0RUN", None, "make this a prio lane", None, "9.9") == "run-page: 1 new"
     assert voice.heard("C0SHARED", "2.2", 'tapped "Approve"', None, "9.8") == "v3-b: 1 new"
     assert voice.heard("C0SHARED", None, "both of these", None, "9.7") == "v3-a: 1 new; v3-b: 1 new"
     assert voice.heard("C0SHARED", "3.3", "an older thread", None, "9.6") == "v3-a: 1 new; v3-b: 1 new"
-    assert voice.heard("C0NONE", None, "hi", None, "9.5") == "no lane holds C0NONE"
+    assert voice.heard("D0DM", None, 'tapped "Approve"', "https://x/p1", "9.5") == "no lane holds D0DM; his presence is kept"
+    assert present == [("demo", [{"ts": "9.5", "link": "https://x/p1"}])]
     assert heard == [("run-page", "9.9"), ("v3-b", "9.8"), ("v3-a", "9.7"), ("v3-b", "9.7"), ("v3-a", "9.6"), ("v3-b", "9.6")]

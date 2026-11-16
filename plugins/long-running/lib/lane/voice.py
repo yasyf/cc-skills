@@ -71,10 +71,13 @@ say.SENDER = send
 
 
 def heard(channel: str, thread: str | None, words: str, link: str | None, ts: str) -> str:
-    """His message or tap in a lane's channel, as cc-slack's heard_command pushes it, appended to each lane it is for, which wakes its owner: in a thread, the lane whose thread it is; at the channel's root, the lane holding the channel with no thread; and when no lane or several lanes fit, every lane in the channel, so it reaches at least one and never none. Nothing for a channel no lane holds."""
-    found = [(drive.name, lane_id, lane) for drive in sorted(store.root().iterdir()) if drive.is_dir() for lane_id, lane in store.load_all(drive.name).items() if lane["channel"] == channel] if store.root().is_dir() else []
+    """His message or tap in a lane's channel, as cc-slack's heard_command pushes it, appended to each lane it is for, which wakes its owner: in a thread, the lane whose thread it is; at the channel's root, the lane holding the channel with no thread; and when no lane or several lanes fit, every lane in the channel, so it reaches at least one and never none. A channel no lane holds, such as his DM where he taps most cards, keeps only his presence on every drive, so a dangerous land counts a tap there."""
+    drives = [drive.name for drive in sorted(store.root().iterdir()) if drive.is_dir()] if store.root().is_dir() else []
+    found = [(drive, lane_id, lane) for drive in drives for lane_id, lane in store.load_all(drive).items() if lane["channel"] == channel]
     fitting = [each for each in found if (each[2].get("thread") or None) == (thread or None)]
     chosen = fitting if len(fitting) == 1 else found
     if not chosen:
-        return f"no lane holds {channel}"
+        for drive in drives:
+            store.heard(drive, [{"ts": ts, "link": link}])
+        return f"no lane holds {channel}; his presence is kept"
     return "; ".join(f"{lane_id}: {verbs.message(drive, lane_id, words, link, ts)} new" for drive, lane_id, _ in chosen)
