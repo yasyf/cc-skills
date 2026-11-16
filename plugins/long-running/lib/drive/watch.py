@@ -1529,13 +1529,18 @@ def closed(watcher: Watcher, head: str, links: list[str], fix: str, moment: date
     from drive import talk
 
     read_ok = f"{', '.join(links)} read OK"
-    with state.edit(watcher.name) as data:
+    loaded = state.load(watcher.name)
+    prs = incident_pr_lines(watcher.name, state.open_incidents(loaded, state.feature_orders(loaded, head)))
+
+    def proven(data: dict) -> tuple[list[str], dict, str | None]:
         group = state.open_incidents(data, state.feature_orders(data, head))
         incident = data["orders"][head]
-        prs = incident_pr_lines(watcher.name, group)
         follow = follow_up(data, head, group, state.stamp(moment))
         for order_id in group:
             data["orders"][order_id]["proof"] = data["orders"][order_id]["proof"] or "; ".join([*([f"{read_ok} at {when(state.stamp(moment))}"] if links else []), fix])
+        return group, incident, follow
+
+    group, incident, follow = state.update(watcher.name, None, proven)
     facts = [
         f"Incident: {incident['text']}",
         *([f"Recovered: {read_ok}"] if links else []),
