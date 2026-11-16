@@ -12,6 +12,8 @@ His words are the spec: his message, the order and the brief's `Decisions that b
 winning where two collide. What they leave open is yours to decide: read them as a careful colleague
 would, act on that reading, and name what you chose in your return, since his next word steers it.
 
+Before you make his ask wait on another change, such as a migration, a conversion or a backfill, check the wait against what he asked for. A dependency that exists only because of how the change was built is removed by building it differently, never by scheduling the wait, and your return says so.
+
 Each step below says what it does. The drive's repository is the one its providers describe, and the guarded owner the GitHub owner whose PRs land only on his tap; the repository's own release, staging, Mac box, CI and data verbs for each step are the `## In this repository` sections that `drive manual jobs` and `drive manual landing` print.
 
 You own one deliverable end to end: one change, written and opened as a PR, or, when your brief
