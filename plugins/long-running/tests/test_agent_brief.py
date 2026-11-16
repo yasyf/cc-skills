@@ -247,15 +247,17 @@ def test_a_builder_whose_wait_still_holds_starts_with_a_note_naming_the_wait(dem
     assert agent_brief.note(briefed("long-running:builder", f"{brief}j2")) is None
 
 
-def test_a_jobs_builder_or_reader_never_starts_as_a_drive_sessions_subagent_but_by_drive_job_start_under_an_opus_advisor(demo: str, run: Run) -> None:
+def test_a_jobs_builder_or_reader_started_as_a_drive_sessions_subagent_is_refused_once_toward_drive_job_start_then_warned(demo: str, run: Run) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Restores", "copy one store", "--parts", "the interface", "the reads")
     run("job", "add", "builder", "--order", "o1", "--part", "the interface", "--goal", "build the interface")
     run("job", "add", "reader", "--order", "o1", "--part", "the reads", "--goal", "research: the reads")
     text = "Order (his words): copy one store\nServes: his order\nGoal: build it\nDrive: demo, order o1, job "
     assert agent_brief.in_process(briefed("long-running:builder", f"{text}j1")) == (
-        "refused: run `drive job start j1`, which starts j1 as its own claude --bg session advised by Opus; a job's builder or reader never runs as this session's subagent, since a subagent takes this session's Fable advisor"
+        "deny",
+        "refused: run `drive job start j1`, which starts j1 as its own claude --bg session advised by Opus; a job's builder or reader as this session's subagent takes this session's Fable advisor. A second start of j1 as a subagent goes ahead with a warning",
     )
-    assert agent_brief.in_process(briefed("long-running:reader", f"{text}j2")).startswith("refused: run `drive job start j2`")
+    assert agent_brief.in_process(briefed("long-running:builder", f"{text}j1"))[0] == "warn"
+    assert agent_brief.in_process(briefed("long-running:reader", f"{text}j2"))[0] == "deny"
     assert agent_brief.in_process(briefed("long-running:builder", f"{text}j1") | {"agent_id": "a1"}) is None
     assert agent_brief.in_process(briefed("long-running:builder", f"{text}j9")) is None
 

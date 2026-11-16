@@ -11,6 +11,7 @@ from drive.render import cut
 BUILDER = "long-running:builder"
 BRIEFED = ("long-running:reader", BUILDER, agents.DESIGNER)
 WORKERS = ("long-running:reader", BUILDER)
+IN_PROCESS_REFUSED = "in-process-refused.json"
 SCOPED = re.compile(r"^(?:Serves|Handoff):", re.MULTILINE)
 SERVES = re.compile(r"^Serves:(.*)$", re.MULTILINE)
 SERVED = re.compile(r"port of #\d+|drive tooling|his order", re.IGNORECASE)
@@ -219,23 +220,31 @@ def note(payload: dict) -> str | None:
     return "\n".join(filter(None, [unscoped(text), waiting(state.load(names[0]), text)])) or None
 
 
-def in_process(payload: dict) -> str | None:
-    """Why a drive session may not start a job's builder or reader as its own subagent: drive job start starts each as its own `claude --bg` session advised by agents.JOB_ADVISOR, by his pick for the drive's job workers, "use opus as the advisor for those", since a subagent takes its root session's Fable advisor."""
+def in_process(payload: dict) -> tuple[str, str] | None:
+    """Whether a drive session's start of a job's builder or reader as its own subagent is refused or warned, as ("deny", why) or ("warn", why): drive job start starts each as its own `claude --bg` session advised by agents.JOB_ADVISOR, by his pick for the drive's job workers, "use opus as the advisor for those", since a subagent takes its root session's Fable advisor; the first such start of a job from a session is refused, kept in IN_PROCESS_REFUSED under the state root, and a repeat goes ahead with a warning, by his rule that a hook blocks once, then warns."""
     call = payload["tool_input"]
-    if payload.get("agent_id") or call.get("subagent_type") not in WORKERS or not (names := state.session_drives(payload.get("session_id") or "")):
+    session = payload.get("session_id") or ""
+    if payload.get("agent_id") or call.get("subagent_type") not in WORKERS or not (names := state.session_drives(session)):
         return None
     if not (named := brief.BRIEF_JOB.search(brief.carried(call.get("prompt") or ""))) or named[1] not in state.load(names[0])["jobs"]:
         return None
-    return f"refused: run `drive job start {named[1]}`, which starts {named[1]} as its own claude --bg session advised by Opus; a job's builder or reader never runs as this session's subagent, since a subagent takes this session's Fable advisor"
+    why = f"run `drive job start {named[1]}`, which starts {named[1]} as its own claude --bg session advised by Opus; a job's builder or reader as this session's subagent takes this session's Fable advisor"
+    path = state.root() / IN_PROCESS_REFUSED
+    refused = json.loads(path.read_text()) if path.is_file() else {}
+    if (key := f"{session}/{names[0]}/{named[1]}") in refused:
+        return "warn", f"{named[1]} starts as this session's subagent, refused once already: next time {why}"
+    path.write_text(json.dumps(refused | {key: state.stamp()}))
+    return "deny", f"refused: {why}. A second start of {named[1]} as a subagent goes ahead with a warning"
 
 
 def main() -> None:
     payload = agents.seen(json.load(sys.stdin))
     made = agents.shaped(payload)
-    if reason := in_process(payload | {"tool_input": made}) or deny_reason(payload | {"tool_input": made}):
+    judged = in_process(payload | {"tool_input": made})
+    if reason := (judged[1] if judged and judged[0] == "deny" else None) or deny_reason(payload | {"tool_input": made}):
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}} | agents.ruled(reason)))
         return
-    told = note(payload | {"tool_input": made})
+    told = "\n".join(filter(None, [judged[1] if judged else None, note(payload | {"tool_input": made})])) or None
     output = ({"updatedInput": made} if made != payload["tool_input"] else {}) | ({"additionalContext": told} if told else {})
     if output:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse"} | output}))

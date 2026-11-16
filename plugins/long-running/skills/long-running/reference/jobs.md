@@ -145,16 +145,18 @@ Contents:
    A Sprite lane, and a role that needs a visible terminal or Orca's ask and reply, runs through
    Orca.
 4. A refused start reaches you as a `relaunch_refused` event. Run `drive job start <j>` again
-   once its refusal clears, or start it on a Sprite as the refusal names. A builder or reader never
-   starts with the Agent tool: the `agent_brief` hook refuses it, since a subagent takes your
+   once its refusal clears, or start it on a Sprite as the refusal names. A builder or reader starts
+   with the Agent tool only past a refusal: the `agent_brief` hook refuses the first such start of a
+   job and warns on a repeat, since a subagent takes your
    session's Fable advisor, while a `drive job start` lane runs Opus as its advisor, by his pick
    "use opus as the advisor for those". A design job starts with the Agent tool, as
    [Design first](design.md) says. A codex job runs no agent: see [Codex jobs](#codex-jobs).
 
 What the hooks do to an Agent call:
 
-- `agent_brief` refuses a job's `long-running:builder` or `long-running:reader`, naming
-  `drive job start <j>`, which starts it as its own `claude --bg` session advised by Opus.
+- `agent_brief` refuses a session's first start of a job's `long-running:builder` or
+  `long-running:reader`, naming `drive job start <j>`, which starts it as its own `claude --bg`
+  session advised by Opus; a repeat start goes ahead with a warning.
 - `agent_brief` sets its shape. It drops `name`, since a named agent joins the agent team and does
   not wake on events. It drops Fable from any agent but `long-running:designer`, starts a design job
   as `long-running:designer` whatever type the call names, and drops `sonnet` or `haiku` from a lane
