@@ -449,8 +449,9 @@ to a PR of another. His Approve keeps the PRs the card he pressed listed then, s
 the card after his press holds nothing below it: the PR he approved lands alone while the card asks
 Approve for the newcomer alone. An Approve in his words, which `drive pr set --tapped` records, or
 on the dashboard answers no card and keeps its PR alone, so it lands with the PRs under it and a PR
-above on the card holds none of them. A card press an older install kept takes that list once, from
-the newest of his stored cards listing its PR asked by his press. While a PR his Approve lands with it cannot land, a ready PR reads `behind` it, and
+above on the card holds none of them. A card press whose tap holds no list, as each an older install
+saved does, since its save drops the list, takes it at every load from the newest of his stored cards
+listing its PR asked by his press. While a PR his Approve lands with it cannot land, a ready PR reads `behind` it, and
 while one below conflicts, every PR above it reads `behind` it whatever its own row reads,
 owed by that PR's owner or the card holding it, so no builder above it is woken: none of them lands
 before it, and only its restack moves them. Each other PR of his card lands in a call of its own, since `stack-enqueue`

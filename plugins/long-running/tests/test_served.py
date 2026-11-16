@@ -557,7 +557,7 @@ def test_a_moved_check_carries_beside_his_approve_in_each_shape_a_drive_stored_i
         data["prs"][KEY] |= moved | {"tap": tap}
     assert served.carry(demo, [KEY]) == [KEY]
     pr = state.load(demo)["prs"][KEY]
-    loaded = {"label": "Approve", "at": tap["at"], "head": "head0", "source": "pressed the button", "action_ts": tap.get("action_ts"), "picks": {}, "card": None}
+    loaded = {"label": "Approve", "at": tap["at"], "head": "head0", "source": "pressed the button", "action_ts": tap.get("action_ts"), "picks": {}, "card": [KEY]}
     assert (pr["checked"]["head"], pr["tap"], served.unread(pr)) == ("head2", loaded, False)
 
 

@@ -265,7 +265,7 @@ def test_the_watch_reads_the_reach_once_and_takes_each_pr_an_older_reach_staged_
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     lifted, kept = state.STAGING_TEST.format(number=42), state.STAGING_TEST.format(number=43)
-    approve = state.new_tap("Approve", "aaaaaaa111", "slack", at=state.stamp(T0))
+    approve = state.new_tap("Approve", "aaaaaaa111", "slack", at=state.stamp(T0), card=[KEY])
     with state.edit(demo) as data:
         del data["reaches_narrowed"]
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "ccccccc333"}
