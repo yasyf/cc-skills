@@ -77,6 +77,7 @@ LENGTH_RULE = (
 )
 ACK_RULE = "The communicator's ack is at most ACK_WORDS words naming the ruling taken, such as \"Got it: deleting all older Cloud agent chats, no compat code.\", never his message restated or \"a handler is reading\"; its handler answers the rest."
 ACK_WORDS = 12
+REFERENCE = re.compile(r"\{[a-z]+:|https?://")
 LINK_RULE = (
     "Link everything he could open where it is named, a PR, a teammate's fix, a card, a release, a build, an alert, a thread"
     " or an earlier decision, so he never has to look it up himself."
@@ -898,12 +899,12 @@ def held_while_away(payload: dict, drive: dict, report: dict, order_id: str | No
 
 
 def long_ack(payload: dict) -> str | None:
-    """Why the communicator's own ack runs past one sentence or ACK_WORDS words: it names the ruling taken inside seconds, never restating his message, and the handler answers the rest."""
+    """Why the communicator's own ack runs past one sentence, or past ACK_WORDS words when it posts no record and links nothing, as an ack never does: it names the ruling taken inside seconds, never restating his message, and the handler answers the rest."""
     tool_input = payload["tool_input"]
     if payload.get("agent_id") or edited(payload) or tool_input.get("card") or tool_input.get("tap_prs"):
         return None
     sentences = [part for part in limits.SENTENCE_BREAK.split(limits.masked(tool_input.get("text") or "").strip()) if part.strip()]
-    if len(sentences) < 2 and (count := limits.words(tool_input.get("text") or "")) <= ACK_WORDS:
+    if len(sentences) < 2 and (tool_input.get("record") or REFERENCE.search(tool_input.get("text") or "") or (count := limits.words(tool_input.get("text") or "")) <= ACK_WORDS):
         return None
     if len(sentences) < 2:
         return agents.Ruled(
