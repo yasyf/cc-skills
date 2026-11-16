@@ -198,14 +198,15 @@ LINE_ORDER = re.compile(r"(?<![\w:/.-])o\d+(?![\w:@-])")
 SLOT_WAIT = "builder-slot"
 USAGE_LIMIT_LOG = "claude-usage-limits.jsonl"
 SPRITE_WAIT = "sprite-slot"
-TURN_WAITS = (SLOT_WAIT, SPRITE_WAIT)
+CUT_WAIT = "release-cut"
+TURN_WAITS = (SLOT_WAIT, SPRITE_WAIT, CUT_WAIT)
 USAGE_LIMIT = re.compile(r"You've hit your (?P<limit>\w+) limit · resets (?P<resets>.+?) \((?P<zone>[^)]+)\)")
 LIMIT_RESET = re.compile(r"(?:(?P<day>[A-Z][a-z]{2} \d{1,2}) at )?(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?P<half>am|pm)")
 HOLDS_NOW = "## Holds now"
 REPLY_WAIT = re.compile(r"reply:(?:(?P<link>https://[\w.-]+/archives/[A-Z0-9]+/p\d{16}(?:\?[^\s,;]*)?)|cci:(?P<seq>[1-9]\d*))")
 REVIEW_WAIT = re.compile(r"review:(?P<login>[A-Za-z0-9][A-Za-z0-9-]{0,38})")
 NOT_STARTED = "not started"
-PROVER_GOAL = re.compile(r"prove (?P<keys>.+) live")
+PROVER_GOAL = re.compile(r"prove (?P<keys>.+?) live(?:: .+)?", re.DOTALL)
 STAGING_LINE = re.compile(r"^[*_`]*STAGING[*_`]*:?[*_`]*[ \t]+(?P<staging>\S.*?)[ \t]*$", re.MULTILINE)
 STAGED = re.compile(r"#(?P<number>\d+)[ \t]+(?P<cases>\S.*)")
 UNSTAGED = re.compile(rf"{NO_FIX}:[ \t]*\S")
@@ -569,8 +570,8 @@ def replies_path(name: str, job_id: str) -> Path:
     return drive_dir(name) / "jobs" / f"{job_id}.replies.jsonl"
 
 
-def proof_path(name: str, job_id: str) -> Path:
-    return drive_dir(name) / "reports" / f"{job_id}.proof.txt"
+def proof_path(name: str, job_id: str, order_id: str | None = None) -> Path:
+    return drive_dir(name) / "reports" / f"{job_id}{f'.{order_id}' if order_id else ''}.proof.txt"
 
 
 def repro_path(name: str, job_id: str, suffix: str) -> Path:
@@ -861,6 +862,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "unowed_fails_undone": True,
         "carried_proofs_delivered": True,
         "change_waits_stacked": True,
+        "cut_provers_marked": True,
         "reader_pilot": None,
     }
 
@@ -1275,7 +1277,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             for mark in data["held"].values():
                 mark["record"] = mark["record"] or data["catch_up"]["record"]
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_cases_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("stopped_handed_off")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped")) and bool(data.get("staging_approves_restored")) and bool(data.get("proofs_rehomed")) and bool(data.get("unowed_fails_undone")) and bool(data.get("carried_proofs_delivered")) and bool(data.get("old_dones_kept")) and bool(data.get("change_waits_stacked"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_cases_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("stopped_handed_off")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped")) and bool(data.get("staging_approves_restored")) and bool(data.get("proofs_rehomed")) and bool(data.get("unowed_fails_undone")) and bool(data.get("carried_proofs_delivered")) and bool(data.get("old_dones_kept")) and bool(data.get("change_waits_stacked")) and bool(data.get("cut_provers_marked"))
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev", "delivered_by_prs", "delivered_restored", "proofs_posted", "proofs_proven", "tap_cards_kept"):
         data.pop(flag, None)
     data["slack"].pop("channel", None)
@@ -1364,6 +1366,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         restore_staging_approves(name, data)
     if not data.get("proofs_rehomed"):
         rehome_proofs(name, data)
+    if not data.get("cut_provers_marked"):
+        mark_cut_backlog(data)
     if uncarded(data):
         keep_tap_cards(name, data)
     if not data.get("unowed_fails_undone"):
@@ -1698,6 +1702,27 @@ def rehome_proofs(name: str, data: dict) -> None:
         if job["state"] in ("failed", "stopped") and (proof := job.get("proof")) and proof.get("result", "").startswith("BLOCKED") and proof["said"].startswith("DONE"):
             job.update(state="done", said=proof["said"], proof=None, updated=stamp())
     data["proofs_rehomed"] = True
+
+
+def mark_cut_backlog(data: dict) -> None:
+    """Mark for the next release cut's prover, by cut set to backlog, each prover a drive saved before one prover proved each cut kept, whose goal reads prove <PRs> live with no words after it, no agent or lane having taken it, naming only Forge-AI/monorepo PRs, waiting on nothing but release waits and owing no after-merge staging pass nor a proof by tests alone, so the watch folds it into that prover once; a prover added after, by hand or by the watch, is never folded."""
+    from drive import install
+
+    for job_id, job in data["jobs"].items():
+        handoff = (job.get("brief_flags") or {}).get("handoff") or ""
+        if (
+            job["kind"] == "builder"
+            and "cut" not in job
+            and ": " not in job["goal"]
+            and unstarted(job)
+            and all(RELEASE_WAIT.fullmatch(wait) for wait in job["waits"])
+            and (keys := install.proves(data, job_id))
+            and all(github.repo_of(key).casefold() == MONOREPO.casefold() for key in keys)
+            and AFTER_MERGE_PASS not in handoff
+            and "changing only tests or CI config" not in handoff
+        ):
+            job["cut"] = "backlog"
+    data["cut_provers_marked"] = True
 
 
 def finish_asked_readers(name: str, data: dict) -> None:
@@ -3543,7 +3568,12 @@ def proven(data: dict, order_id: str, part: str) -> bool:
     if not held["posted"] or ran is None:
         return False
     (_, job), *after = jobs[ran:]
-    return done_or_held(job) and all(other["state"] == "stopped" or staging and done_or_held(other) for _, other in after)
+    return (done_or_held(job) or unit_passed(job, order_id)) and all(other["state"] == "stopped" or staging and done_or_held(other) for _, other in after)
+
+
+def unit_passed(job: dict, order_id: str) -> bool:
+    """Whether the proof unit drive job prove ran for an order on a release cut's prover passed, which delivers that order's work while the prover's other units still run."""
+    return "result" in (job.get("units") or {}).get(order_id, {})
 
 
 def done_or_held(job: dict) -> bool:

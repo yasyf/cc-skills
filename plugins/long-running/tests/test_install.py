@@ -1596,6 +1596,33 @@ def test_a_prover_of_a_merge_outside_yasyf_its_own_agent_proves_installs_nothing
     assert proof_events() == [("Forge-AI/monorepo#9", proven)]
 
 
+def test_a_goal_with_words_after_live_still_reads_as_proving_its_prs() -> None:
+    assert state.PROVER_GOAL.fullmatch("prove Forge-AI/monorepo#55841 live: on plat after the release")["keys"] == "Forge-AI/monorepo#55841"
+    assert state.PROVER_GOAL.fullmatch("prove Forge-AI/monorepo#1, Forge-AI/monorepo#2 live")["keys"] == "Forge-AI/monorepo#1, Forge-AI/monorepo#2"
+
+
+def test_a_cut_provers_order_unit_that_passes_closes_its_order_while_another_orders_failing_unit_keeps_its_own_open(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
+    handing(config, tmp_path, fake([BUILD], {BUILD}), 0, {"state": "running", "said": None, "shipped": ["release:platy:Forge-AI/monorepo#9"]})
+    passing, failing = tmp_path / "o1.sh", tmp_path / "o2.sh"
+    passing.write_text("#!/bin/sh\necho 'PASS o1 is live'\n")
+    failing.write_text("#!/bin/sh\necho 'FAIL o2: not live yet'\nexit 1\n")
+    for script in (passing, failing):
+        script.chmod(0o755)
+    carried = "ship the dashboard"
+    with state.edit("demo") as data:
+        data["orders"]["o2"] = state.new_order(carried, f"slack:D123/{HIS_THREAD}", ("D123", HIS_THREAD), {carried: state.new_part()}, state.stamp()) | {"jobs": ["j1"]}
+        data["jobs"]["j1"].update(carries={"o2": [carried]}, repros={"o1": str(passing), "o2": str(failing)})
+    install.prove("demo", "j1", 900)
+    data = state.load("demo")
+    units = data["jobs"]["j1"]["units"]
+    assert ("result" in units["o1"], "failed" in units["o2"]) == (True, True)
+    assert data["orders"]["o1"]["close_report"]["attr"]["close"] == "o1"
+    assert not data["orders"]["o2"].get("close_report")
+    assert state.proof_path("demo", "j1", "o2").read_text() == "FAIL o2: not live yet\n"
+    with pytest.raises(state.DriveError, match="last proof failed on this same long-running"):
+        install.prove("demo", "j1", 900)
+
+
 def test_only_a_goal_reading_prove_prs_live_proves_those_prs_once_each_merged(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
     handing(config, tmp_path, fake([BUILD], {BUILD}), 0, {"state": "running", "said": None, "brief_flags": {}, "builds_nothing": True})
     data = state.load("demo")
@@ -1861,7 +1888,7 @@ def test_a_proof_of_a_yasyf_merge_beside_a_product_merge_installs_and_proves_the
     assert install.prover_of(data, "Forge-AI/monorepo#9") is None
 
 
-def test_a_product_merge_on_a_build_order_of_several_parts_with_no_reader_takes_done_and_adds_one_builder_starting_at_the_merge_on_no_release(
+def test_a_product_merge_on_a_build_order_of_several_parts_with_no_reader_takes_done_and_adds_one_builder_waiting_on_the_next_release_cut(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
 ) -> None:
     proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
@@ -1881,8 +1908,13 @@ def test_a_product_merge_on_a_build_order_of_several_parts_with_no_reader_takes_
     builder = data["jobs"][builder_id]
     assert (builder_id, builder["kind"], builder["state"], builder["goal"], builder["session"]) == ("j2", "builder", "waiting", "prove Forge-AI/monorepo#9 live", "s-1")
     assert (builder["parts"], builder["carries"], builder["builds_nothing"]) == ([shipped], {"o2": [carried]}, True)
-    assert builder["waits"] == []
-    assert builder["brief_flags"]["handoff"] == f"{merged} merged: install it by the INSTALL: line of j1's return, in reports/j1.md, write its PROVE: line as a proof file, keep it with drive job set <your job> --repro <file> and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part"
+    assert (builder["waits"], builder["cut"]) == ([state.CUT_WAIT], True)
+    assert builder["brief_flags"]["handoff"] == (
+        f"{merged} merged: it goes live on the next production release cut, which this job waits on, and you prove it with every other merge that cut carries:"
+        " for each order your brief names, write the PROVE: lines of its merged jobs' returns, j1's in reports/j1.md among them, as one proof file,"
+        " keep it with drive job set <your job> --repro <file> --order <order> and run drive job prove <your job>, which runs each order's file on its own timeout,"
+        " and each one's exit 0 delivers that order's parts and posts its close while the others still run"
+    )
     assert builder["brief_flags"]["done_when"].startswith(f"drive job prove {builder_id} ")
     assert (builder["brief_flags"]["native"], builder["brief_flags"]["interactions"]) == (page, "open a run's page")
     assert ("j2" in data["orders"]["o1"]["jobs"], "j2" in data["orders"]["o2"]["jobs"]) == (True, True)
@@ -1927,7 +1959,7 @@ def test_a_second_hand_over_of_the_same_prs_goes_to_their_one_prover_widening_it
         started = install.add_prover("demo", data, "j1", reach, {"o2": [carried]}, set())
     data = state.load("demo")
     assert (unstarted, widened, started, list(data["jobs"])) == ("j2", "j2", "j2", ["j1", "j2"])
-    assert (data["jobs"]["j2"]["waits"], data["jobs"]["j2"]["carries"]) == ([], {"o2": [carried]})
+    assert (data["jobs"]["j2"]["waits"], data["jobs"]["j2"]["carries"]) == ([state.CUT_WAIT], {"o2": [carried]})
 
 
 def test_the_mac_line_of_a_merged_builders_return_goes_onto_its_unstarted_provers_brief_flags_once(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
@@ -2000,7 +2032,7 @@ def test_a_merge_with_no_staging_test_reaching_a_target_staging_runs_gets_a_prov
         passing = install.add_prover("demo", data, "j2", reach, {"o1": data["jobs"]["j2"]["parts"]}, {"api"})
     released, passed = install.merged_said("demo", releasing, "added"), install.merged_said("demo", passing, "added")
     data = state.load("demo")
-    assert (releasing, passing, data["jobs"]["j3"]["waits"], data["jobs"]["j4"]["waits"]) == ("j3", "j4", [], [])
+    assert (releasing, passing, data["jobs"]["j3"]["waits"], data["jobs"]["j4"]["waits"]) == ("j3", "j4", [state.CUT_WAIT], [])
     assert data["jobs"]["j4"]["brief_flags"]["handoff"] == (
         f"Forge-AI/monorepo#10 at 0123456789ab merged with no staging test before its merge: run its after-merge staging pass first, by the merge row of agents/builder.md,"
         f" its cases from the bodies of {untested}, the PROVE: line and REPRO: of j2's return in reports/j2.md and the words of o1,"
@@ -2008,7 +2040,7 @@ def test_a_merge_with_no_staging_test_reaching_a_target_staging_runs_gets_a_prov
         f" then install it by the INSTALL: line of j2's return, in reports/j2.md, write its PROVE: line as a proof file, keep it with drive job set <your job> --repro <file>"
         " and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part"
     )
-    assert released == f'JOB j3 o1 added, proves Forge-AI/monorepo#9, waits on no release: the watch starts its agent on its brief {data["jobs"]["j3"]["brief"]}, so start no agent for it; drive job resume reaches it'
+    assert released == "JOB j3 o1 added, proves Forge-AI/monorepo#9, waits on the next production release cut, which the watch binds it to once a cut carries its merges: drive status j3"
     assert passed == (
         "JOB j4 o1 added, proves Forge-AI/monorepo#10, owes its after-merge staging pass first:"
         f' the watch starts its agent on its brief {data["jobs"]["j4"]["brief"]}, so start no agent for it; drive job resume reaches it'

@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import NamedTuple, Self
 
 from drive import agents, answer, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, page, place, procs, reads, receiver, refs, render, served, settled, slack, stage, stall, state, superseded, superseded_procs, train, view
-from drive.install import PROOF_FAILED, add_prover, config_dir, done_before_proofs, done_unproven, merged_done, merged_ready, merges_of, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, released_prs, reported_prs, watch_upgraded as upgraded, watch_proves, widen
+from drive.install import PROOF_FAILED, add_prover, config_dir, handed_on, open_cut, done_before_proofs, done_unproven, merged_done, merged_ready, merges_of, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, released_prs, reported_prs, watch_upgraded as upgraded, watch_proves, widen
 from drive.render import cut, when
 
 POLL_SECONDS = 5
@@ -833,7 +833,7 @@ def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
     ]
     soaks = {wait: found for wait in followed(watcher, data) if (found := state.STAGING_WAIT.fullmatch(wait))}
     fixes = sorted({key for keys in incident_fixes(watcher, data).values() for key in keys})
-    if not merged and not soaks and not fixes:
+    if not merged and not soaks and not fixes and not cut_waiting(data):
         watcher.serving, watcher.fix_waits = {}, {}
         return []
     if watcher.live_at and moment - watcher.live_at < LIVE_EVERY:
@@ -4368,8 +4368,20 @@ def proof_due(data: dict, job_id: str) -> bool:
         return not train.holds(merges_of(data, job_id))
     if proof.get("waits"):
         heard = data["owner"]["heard"]
-        return not state.alive(proof["pid"]) and bool(heard) and state.parse_time(heard) > state.parse_time(proof["at"])
+        return not state.alive(proof["pid"]) and bool(heard) and state.parse_time(heard) > state.parse_time(proof["at"]) and wait_moved(data, job_id, proof)
     return "result" not in proof and proof["version"] != state.VERSION and not state.alive(proof["pid"])
+
+
+def wait_moved(data: dict, job_id: str, proof: dict) -> bool:
+    """Whether what a proof's WAIT line waits on moved since the proof ran, so his word heard after it can be about it: a PR, order or job the line names, by state.named_prs, LINE_ORDER and LINE_JOB, changed after the run; a line naming none waits on any word of his, so his being heard is enough."""
+    job, at = data["jobs"][job_id], state.parse_time(proof["at"])
+    wait = proof["waits"]
+    named = [
+        *(data["prs"][key] for key in state.named_prs(data, job["order"], wait)),
+        *(data["orders"][order_id] for order_id in state.LINE_ORDER.findall(wait) if order_id in data["orders"]),
+        *(data["jobs"][other] for other in state.LINE_JOB.findall(wait) if other in data["jobs"] and other != job_id),
+    ]
+    return not named or any(owner.get("updated") and state.parse_time(owner["updated"]) > at for owner in named)
 
 
 def proving(data: dict, job_id: str) -> bool:
@@ -4400,7 +4412,7 @@ def finished(watcher: Watcher, moment: datetime) -> list[str]:
     merging = [job_id for job_id in heard if at_merge(data, job_id)]
     lines: list[str] = []
     try:
-        reach = cli.release_reach(watcher.name, data, [key for job_id in owed for key in released_prs(data, job_id) if not prover_of(data, key)])
+        reach = cli.release_reach(watcher.name, data, [key for job_id in owed for key in handed_on(data, job_id) if not prover_of(data, key)])
         if watcher.staged is None and any(answer["releases"] for answer in reach.values()):
             live_rows(watcher, data)
     except (github.GithubError, state.DriveError, reads.ReadError) as error:
@@ -4442,6 +4454,89 @@ def folded_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return [merged_said(watcher.name, first, f"took the parts of {job_id}, a duplicate now stopped") for first, job_id in folds]
 
 
+def cut_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Fold each prover state.mark_cut_backlog marked, an older install's for merges outside yasyf/* that reach a release, no agent or lane having taken it, its release waits dropped, into the prover waiting on the next production release cut, by open_cut, the first such one becoming it, so one prover proves each cut; then bind each prover waiting on the cut, by state.CUT_WAIT, to the drive's own production cut still following its release whose start, by its --from commit or its start's time, carries one of its merges, as github.carrier reads them, so it waits on that cut's job, or free it once a production cluster serves a commit carrying one, as the watch's last release live read shows, a cut no job of the drive started included; one line says each fold and each bind."""
+    data = state.load(watcher.name)
+    if not (backlog(data) or cut_waiting(data)):
+        return []
+    said = []
+    with state.edit(watcher.name) as data:
+        for job_id in backlog(data):
+            job = data["jobs"][job_id]
+            if not (first := open_cut(data)):
+                job.update(waits=[state.CUT_WAIT], cut=True, updated=state.stamp(moment))
+                said.append((job_id, "now waits on the next production release cut"))
+                continue
+            widen(data, first, open_served(data, job), [key for key in proves(data, job_id) if key not in proves(data, first)], {flag: (job.get("brief_flags") or {}).get(flag) for flag in ("handoff", "mac")})
+            state.hand_off(data, {job_id: first})
+            job.update(state="stopped", said=f"folded into {first}, the prover of the next production release cut", updated=state.stamp(moment))
+            said.append((first, f"took the parts of {job_id}, a prover of merges the next cut carries, now stopped"))
+    data = state.load(watcher.name)
+    if not (waiting := cut_waiting(data)):
+        return [merged_said(watcher.name, job_id, change) for job_id, change in said]
+    if not (watcher.live or any(state.starts_cut(job) and job["release_build"] and job["state"] not in state.FINISHED_JOB_STATES for job in data["jobs"].values())):
+        return [merged_said(watcher.name, job_id, change) for job_id, change in said]
+    try:
+        binds = cut_binds(watcher, data, waiting)
+    except (state.DriveError, github.GithubError, reads.ReadError) as error:
+        return [*(merged_said(watcher.name, job_id, change) for job_id, change in said), *read_failed(watcher, "release cut", error, moment)]
+    watcher.failures.pop("release cut", None)
+    with state.edit(watcher.name) as data:
+        for job_id, cut in binds.items():
+            job = data["jobs"][job_id]
+            if state.CUT_WAIT not in job["waits"]:
+                continue
+            job.update(waits=[*(wait for wait in job["waits"] if wait != state.CUT_WAIT), *([cut] if cut else [])], cut=cut or "served", updated=state.stamp(moment))
+            said.append((job_id, f"bound to the release cut {cut} starts, {data['jobs'][cut]['release_build']}, which it waits on" if cut else "freed by a production release serving its merges"))
+    return [merged_said(watcher.name, job_id, change) for job_id, change in said]
+
+
+def cut_binds(watcher: Watcher, data: dict, waiting: list[str]) -> dict[str, str | None]:
+    """What each prover waiting on the next cut binds to: the drive's production cut whose start carries one of its merges, by drive_cuts, else None once a production cluster the watch's last release live read shows serves a commit carrying one; a prover neither holds is left out."""
+    checkout = str(orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"], wait=0))
+    carries = github.carrier(checkout)
+    cuts = drive_cuts(data, checkout)
+    serving = list(dict.fromkeys(row["commit"] for row in watcher.live or [] if settled.prod(row["env"], checkout)))
+    binds: dict[str, str | None] = {}
+    for job_id in waiting:
+        merges = {key: data["prs"][key]["merged_sha"] for key in proves(data, job_id) if data["prs"][key]["merged_sha"]}
+
+        def held(commit: str, merges: dict[str, str] = merges) -> bool:
+            return any(carries(commit, sha, github.split(data["prs"][key]["into"] or key)[2]) for key, sha in merges.items())
+
+        if cut := next((cut_id for cut_id, start in cuts.items() if start(merges, held)), None):
+            binds[job_id] = cut
+        elif any(map(held, serving)):
+            binds[job_id] = None
+    return binds
+
+
+def cut_waiting(data: dict) -> list[str]:
+    return [job_id for job_id, job in data["jobs"].items() if state.CUT_WAIT in job["waits"] and job["state"] not in state.FINISHED_JOB_STATES]
+
+
+def backlog(data: dict) -> list[str]:
+    """The provers state.mark_cut_backlog marked for the next cut's prover that no agent or lane took yet."""
+    return [job_id for job_id, job in data["jobs"].items() if job.get("cut") == "backlog" and state.untaken(job)]
+
+
+def drive_cuts(data: dict, checkout: str) -> dict[str, Callable[[dict[str, str], Callable[[str], bool]], bool]]:
+    """Each production cut the drive started that still follows its release, its job holding the build it started, by state.starts_cut, mapped to whether it carries a prover's merges: its --from commit holding one, or, for a start naming none, its start coming after one merged."""
+    cuts = {}
+    for job_id, job in data["jobs"].items():
+        if not (state.starts_cut(job) and job["release_build"] and job["state"] not in state.FINISHED_JOB_STATES):
+            continue
+        starts = brief.started(job["brief_flags"]["release"])
+        if not starts or any(not all(settled.prod(env, checkout) for env in flags.get("env", ())) for flags in starts):
+            continue
+        cuts[job_id] = functools.partial(cut_carries, [commit for flags in starts for commit in flags.get("from", ())], state.parse_time(job["created"]))
+    return cuts
+
+
+def cut_carries(commits: list[str], created: datetime, merges: dict[str, str], held: Callable[[str], bool]) -> bool:
+    return any(map(held, commits)) if commits else any(state.parse_time(install.merged_at(github.repo_of(key), sha)) <= created for key, sha in merges.items())
+
+
 def doubled(data: dict) -> list[str]:
     return [job_id for job_id, job in data["jobs"].items() if state.untaken(job) and folded_into(data, job_id)]
 
@@ -4458,8 +4553,8 @@ def finishes(data: dict, job_id: str) -> bool:
 
 
 def prove(name: str, job_id: str) -> int:
-    """Run `drive job prove` on the job as its own process, outliving the pass that started it, its output appended to the drive's proofs log."""
-    return state.detach(name, ["job", "prove", job_id], PROOFS_LOG)
+    """Run `drive job prove` on the job as its own process, outliving the pass that started it, its output appended to the drive's proofs log, with --again, since the watch starts a proof only on a newer line, a newer install or his word on what a WAIT waits on, never on a failed run's same install, merges and file."""
+    return state.detach(name, ["job", "prove", job_id, "--again"], PROOFS_LOG)
 
 
 def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
@@ -4856,6 +4951,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
                     waits_lines,
                     start_jobs,
                     folded_lines,
+                    cut_lines,
                     finished,
                     recovered_lines,
                     owner_page_lines,
