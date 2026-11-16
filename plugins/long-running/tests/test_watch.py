@@ -4681,7 +4681,7 @@ def test_a_pr_he_approved_that_waits_on_a_running_job_waits_on_it_and_is_freed_w
     assert watch.run_pass(watching, T0 + timedelta(minutes=121)) == []
 
 
-def test_a_pr_he_approved_that_waits_on_a_staging_test_is_owed_by_him_while_its_tester_waits_on_his_card_then_by_the_tester_which_its_deadline_wakes(
+def test_a_pr_he_approved_that_waits_on_a_staging_test_is_owed_by_him_while_its_tester_waits_on_his_card_then_by_the_tester_which_no_deadline_wakes_while_it_runs(
     demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]]
 ) -> None:
     part = "staging test of #42 before it lands"
@@ -4706,7 +4706,7 @@ def test_a_pr_he_approved_that_waits_on_a_staging_test_is_owed_by_him_while_its_
     jobs = []
     monkeypatch.setattr(stage, "wake", lambda name, key, text, job_id=None, marks=(), at=None: jobs.append((key, job_id)))
     watch.run_pass(watching, T0 + timedelta(minutes=61))
-    assert jobs == [(KEY, "j4")]
+    assert (jobs, stage.testing(state.load(demo), KEY, NO_CARDS)) == ([], True)
 
 
 def test_a_pr_he_approved_that_waits_on_a_part_of_an_order_lands_only_once_a_proof_delivers_it_never_on_a_done_at_its_merge_or_of_its_own(
