@@ -706,18 +706,13 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
         elif state.merges_untapped(keys[0]):
             outcome = f"would merge it with {' '.join(MERGE)} --{data['prs'][keys[0]]['merge_method']} --admin once every check at its head finished with none failing on its own change, then board each plugin it changes on the install train, or install it at once for an incident or priority order" if dry_run else admin_merged(name, keys[0])
         else:
-            from drive import cli
-
             below = uncleared_below(data, keys)
             misfiled = {key: why for key in keys if (why := unexempt(data, key))}
-            untested = {key: unstaged for key, unstaged in cli.staging_reach(name, data, [key for key in keys if data["prs"][key]["wants_tap"]]).items() if not state.staging_tested(data, key) and not (unstaged and (data["prs"][key]["exception"] or {}).get("granted"))}
-            changed = {key: github.files(key) for key in keys if key not in untested and not state.staging_tested(data, key) and not lifted(data["prs"][key]) and not any(state.part_wait(data, wait) for wait in data["prs"][key]["waits"])}
-            risky = {key: made for key, files in changed.items() if (made := dangerous(data, files))}
-            if (untested or misfiled or risky) and not dry_run:
+            changed = {key: github.files(key) for key in keys if not state.staging_tested(data, key) and not lifted(data["prs"][key]) and not any(state.part_wait(data, wait) for wait in data["prs"][key]["waits"])}
+            risky = {key: made for key, files in changed.items() if (made := [path for found in state.dangerous(data, files).values() for path in found])}
+            if (misfiled or risky) and not dry_run:
 
                 def reached(edited: dict) -> None:
-                    for key, unstaged in untested.items():
-                        state.reach_staging(edited, key, unstaged)
                     for key, made in risky.items():
                         edited["prs"][key]["paths_at"] = None
                         state.mark_dangerous(edited, key, edited["prs"][key]["head"], changed[key])
@@ -728,14 +723,6 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
                 state.write(name, reached)
             if misfiled:
                 outcome = f"not landed: {'; '.join(misfiled.values())}"
-            elif untested:
-                outcome = f"{WAITED}: " + "; ".join(
-                    f"{key} waits on his exception before it lands, since its paths at its head reach {', '.join(unstaged)}, which staging has no copy of:"
-                    f" its builder's DONE carries the production dry-run plan drive pr plan {key} reads, he reads it on his card, and drive pr set {key} --excepted <his answer> keeps his word"
-                    if unstaged
-                    else f"{key} waits on its staging test before it lands, since its paths at its head reach a component staging runs"
-                    for key, unstaged in untested.items()
-                )
             elif risky:
                 outcome = f"{WAITED}: " + "; ".join(f"{key} waits on its staging test before it lands, since its head changes {', '.join(made[:3])}{', …' if len(made) > 3 else ''}, a dangerous change by AGENTS.md" for key, made in risky.items())
             elif away := next((why for key in keys if (why := unattended(data, key, state.now()))), None):

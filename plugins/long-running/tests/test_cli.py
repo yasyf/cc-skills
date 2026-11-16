@@ -6756,28 +6756,11 @@ def test_a_builders_ready_is_kept_whatever_its_pr_body_says(
     assert state.load("demo")["jobs"]["j1"]["state"] == "waiting"
 
 
-def test_staging_reach_counts_no_path_on_go_cis_dev_list_whose_code_only_its_caller_runs_as_it_counted_56826s_tools_ci_and_go_ci_change(monkeypatch: pytest.MonkeyPatch) -> None:
-    caller_run, released = f"Forge-AI/monorepo#56826", f"Forge-AI/monorepo#7"
-    reach = {
-        caller_run: {"components": ["api", "platy"], "touched": ["platy"], "dev": ["go/ci/internal/tenantsmoke/inside.go", "tools/ci"], "releases": [], "staged": []},
-        released: {"components": ["api", "platy"], "touched": ["api", "platy"], "dev": ["tools/ci"], "releases": ["api"], "staged": ["api"]},
-    }
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: reach[key] for key in keys})
-    assert cli.staging_reach("demo", {"prs": {}}, [caller_run, released]) == {released: []}
-
-
-def test_staging_reach_sends_a_pr_reaching_only_components_staging_has_no_copy_of_to_his_exception_while_one_it_or_a_mac_box_runs_keeps_the_soak(monkeypatch: pytest.MonkeyPatch) -> None:
-    platy, mixed, boxed = (f"Forge-AI/monorepo#{number}" for number in (1, 2, 3))
-    reach = {platy: {"releases": ["platy"], "staged": []}, mixed: {"releases": ["api", "platy"], "staged": ["api"]}, boxed: {"releases": ["sand-next"], "staged": []}}
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: reach[key] for key in keys})
-    assert cli.staging_reach("demo", {"prs": {}}, list(reach)) == {platy: ["platy"], mixed: [], boxed: []}
-
-
 def reaching(monkeypatch: pytest.MonkeyPatch, *reached: str) -> None:
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"components": ["api", "web"], "touched": ["api"] if key in reached else [], "releases": ["api"] if key in reached else [], "staged": ["api"] if key in reached else []} for key in keys})
 
 
-def test_a_builders_pushed_naming_a_monorepo_pr_on_its_staging_test_gives_its_one_tester_the_cases_briefed_on_this_mac_and_no_none_line_stands_for_it(
+def test_a_builders_pushed_naming_a_monorepo_pr_with_its_staging_cases_gives_its_one_tester_the_cases_briefed_on_this_mac(
     home_repo: None,
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -6788,13 +6771,10 @@ def test_a_builders_pushed_naming_a_monorepo_pr_on_its_staging_test_gives_its_on
     monorepo(monkeypatch, Path())
     for url in (PR, STACKED):
         assert run("pr", "add", url, "--job", "j1", *LEAD)[0] == 0
-    on_part = f"{key} waits on its staging test before it lands, since its paths reach a component staging runs, so no `STAGING: none` line stands for it"
     for report, refused in (
-        (f"PUSHED {PR}\n", on_part),
+        (f"PUSHED {PR}\n", f"it names {key}, so {state.STAGING_RULE}"),
         (f"PUSHED {PR}\nSTAGING: none\n", "its STAGING line `none` neither stages"),
         (f"PUSHED {PR}\nSTAGING: #44 run it twice\n", "its STAGING line `#44 run it twice` neither stages"),
-        (f"PUSHED {PR}\n{UNSTAGED}", on_part),
-        (f"PUSHED {PR} {STACKED}\n{UNSTAGED}", on_part),
         (f"PUSHED {PR} {STACKED}\nSTAGING: #42 {cases}\n", f"it names Forge-AI/monorepo#43, so {state.STAGING_RULE}"),
     ):
         code, err = keep(monkeypatch, capsys, "j1", report)
@@ -6812,42 +6792,6 @@ def test_a_builders_pushed_naming_a_monorepo_pr_on_its_staging_test_gives_its_on
     assert (f"Staging: {cli.STAGING_MAC.format(env='plat-usw2-staging')}" in written, "\nMac:" in written, "`drive slot claim plat-usw2-staging --job" in written, "staging-slots" in written) == (True, False, True, False)
     assert place.mac_step(written) is None
     assert ('"incident": "true"' in written, "Researched:" in written) == (True, False)
-
-
-def test_pr_add_and_pr_set_put_a_flake_fix_whose_paths_reach_a_component_on_its_staging_test_before_his_first_card_and_a_failed_reach_read_keeps_nothing(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], draws: Draws
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
-    run("job", "add", "builder", "--order", "o1", "--goal", "land")
-    key, tested, part = "Forge-AI/monorepo#42", "Forge-AI/monorepo#43", state.STAGING_TEST.format(number=42)
-    paths = {key: ["api/src/upload.ts", "api/src/upload.test.ts"], tested: ["rust/crates/sandsql-sql/src/tests.rs"]}
-    monkeypatch.setattr(github, "files", lambda key: paths[key])
-
-    def unread(name: str, data: dict, keys: list[str]) -> dict:
-        raise github.GithubError("HTTP 502")
-
-    monkeypatch.setattr(cli, "release_reach", unread)
-    assert cli.main(["pr", "add", PR, "--job", "j1", "--exempt", state.FLAKE_FIX, *LEAD]) == 2
-    assert f"{key}: refused, nothing added: could not read which components the paths {key} changes reach, so whether it waits on a staging test is unknown: HTTP 502" in capsys.readouterr().err
-    assert (key in state.load("demo")["prs"], draws.keys) == (False, [])
-    reaching(monkeypatch, key, tested)
-    assert run("pr", "add", PR, "--job", "j1", "--exempt", state.FLAKE_FIX, *LEAD) == (0, f"{key}, his card {draws.link}")
-    assert run("pr", "add", STACKED, "--job", "j1", "--exempt", state.FLAKE_FIX, *LEAD) == (0, tested)
-    data = state.load("demo")
-    assert (data["prs"][key]["waits"], data["prs"][key]["wants_tap"], part in data["orders"]["o1"]["parts"], draws.keys) == ([f"o1:{part}"], True, True, [[key]])
-    assert (data["prs"][tested]["waits"], data["prs"][tested]["wants_tap"]) == ([], False)
-    monkeypatch.setattr(cli, "release_reach", unread)
-    assert cli.main(["pr", "set", PR, "--no-waits"]) == 2
-    assert f"{key}: refused, nothing set: could not read which components" in capsys.readouterr().err
-    reaching(monkeypatch, key)
-    assert run("pr", "set", PR, "--no-waits")[0] == 0
-    assert state.load("demo")["prs"][key]["waits"] == [f"o1:{part}"]
-    with edit("demo") as data:
-        data["prs"][key]["waits"] = []
-        del data["orders"]["o1"]["parts"][part]
-    assert run("pr", "set", PR, "--tap")[0] == 0
-    data = state.load("demo")
-    assert (data["prs"][key]["waits"], part in data["orders"]["o1"]["parts"]) == ([f"o1:{part}"], True)
 
 
 @pytest.mark.parametrize(
@@ -7055,7 +6999,7 @@ def test_a_builders_42_none_lifts_a_test_no_job_took_up_and_one_that_ended_with_
     assert (part in data["orders"]["o1"]["parts"], data["prs"][key]["waits"]) == (False, [])
 
 
-def test_a_pr_a_dangerous_class_and_the_release_reach_both_stage_keeps_its_dangerous_tester_hears_its_cases_and_no_none_line_lifts_it(
+def test_a_pr_of_a_dangerous_class_keeps_its_dangerous_tester_which_hears_its_cases(
     home_repo: None,
     run: Run, demo: str, on_github: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -7067,9 +7011,7 @@ def test_a_pr_a_dangerous_class_and_the_release_reach_both_stage_keeps_its_dange
     run("pr", "add", PR, "--job", "j1", *LEAD)
     data = state.load("demo")
     (tester_id, tester), = [(job_id, job) for job_id, job in data["jobs"].items() if state.builds_nothing(job)]
-    assert (data["prs"][key]["waits"], data["prs"][key]["reached"], "each a dangerous change" in tester["goal"]) == ([f"o1:{part}"], True, True)
-    code, err = keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}")
-    assert (code, f"{key} waits on its staging test before it lands, since its paths reach a component staging runs, so no `STAGING: none` line stands for it" in err) == (2, True)
+    assert (data["prs"][key]["waits"], data["prs"][key]["reached"], "each a dangerous change" in tester["goal"]) == ([f"o1:{part}"], False, True)
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 {cases}\n") == (0, "")
     data = state.load("demo")
     assert ([job_id for job_id, job in data["jobs"].items() if state.builds_nothing(job)], [held["words"] for held in data["jobs"][tester_id]["undelivered"]]) == ([tester_id], [state.STAGING_CASE.format(key=key, goal=cases)])
@@ -12828,7 +12770,7 @@ def test_a_jobs_kept_checkout_is_where_its_launch_starts_its_release_checked_aga
     code, out = run("job", "release", "j1")
     assert code != 0 and started == [], out
 
-def test_a_staging_testers_done_is_refused_while_a_case_its_pr_requires_reads_anything_but_pass_and_its_staging_line_lists_the_case_as_o2304_needed(
+def test_a_staging_testers_first_done_short_of_a_case_its_pr_requires_is_refused_once_and_a_later_one_kept_with_a_warning_and_its_staging_line_lists_the_case_as_o2304_needed(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from conftest import HomeRepo, HomeStaging
@@ -12855,15 +12797,13 @@ def test_a_staging_testers_done_is_refused_while_a_case_its_pr_requires_reads_an
     ran = tmp_path / "staging-run.txt"
     ran.write_text("the run page and the gateway call on plat-usw2-staging\n")
     check = f"CHECK: {ran}"
-    for verdict in ("not exercised: staging signs in as one account", "fail: 401 from the gateway"):
-        monkeypatch.setattr("sys.stdin", io.StringIO(f"DONE #42 passed on staging\n{check}\nCASE the run page: pass\nCASE {gateway}: {verdict}\n"))
-        assert cli.main(["job", "report", "j1", "-"]) == 2
-        assert f"a case not exercised is no pass: Forge-AI/monorepo#42 {gateway}: {verdict}" in capsys.readouterr().err
-    monkeypatch.setattr("sys.stdin", io.StringIO(f"DONE #42 passed on staging\n{check}\nCASE the run page: pass\n"))
+    short = "not exercised: staging signs in as one account"
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"DONE #42 passed on staging\n{check}\nCASE the run page: pass\nCASE {gateway}: {short}\n"))
     assert cli.main(["job", "report", "j1", "-"]) == 2
-    assert f"Forge-AI/monorepo#42 {gateway}: no CASE line" in capsys.readouterr().err
-    monkeypatch.setattr("sys.stdin", io.StringIO(f"DONE #42 passed on staging\n{check}\nCASE {gateway}: pass: the Mac agent's call answered 200\n"))
+    assert f"j1: refused once, nothing kept: a DONE passes each staging case its PR requires, and a case not exercised is no pass: Forge-AI/monorepo#42 {gateway}: {short}" in capsys.readouterr().err
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"DONE #42 passed on staging\n{check}\nCASE the run page: pass\n"))
     assert cli.main(["job", "report", "j1", "-"]) == 0
+    assert f"drive job report: kept, though a DONE passes each staging case its PR requires, and a case not exercised is no pass: Forge-AI/monorepo#42 {gateway}: no CASE line" in capsys.readouterr().err
 
 
 def test_a_wave_start_holds_its_start_on_testers_of_orders_two_sessions_hold_and_wakes_each_from_the_top_coordinator_alone(

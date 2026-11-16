@@ -3643,10 +3643,14 @@ def take_report(name: str, job_id: str, whole: str, read_prs: bool = True, tell:
     if refused := (
         brief.report_refusal(name, data, job_id, whole)
         or state.result_refusal(data, job_id, line, whole)
-        or required_refusal(data, job_id, line, whole)
         or (built and (held := state.change_job(data, job["order"], [], job["waits"], job_id, built["branch"], job["repo"], proving=state.builds_nothing(job))) and one_change_job(data, job["order"], job["kind"], [], held, job["waits"], branch=built["branch"], repo=job["repo"], job_id=job_id))
     ):
         raise DriveError(f"{job_id}: refused, nothing kept: {refused}")
+    if (short := required_refusal(data, job_id, line, whole)) and not job["required_refused"]:
+        state.write(name, lambda data: data["jobs"][job_id].update(required_refused=state.stamp()))
+        raise DriveError(f"{job_id}: refused once, nothing kept: {short}; the same DONE sent again is kept, with this line as its warning")
+    if short:
+        print(f"drive job report: kept, though {short}", file=sys.stderr)
     unreached(name, data, state.result_waits(data, job_id, line))
     if job["kind"] == "builder" and state.REPORTED_LINE.match(line) and any(not served.named(cited) for cited in served.deciding(whole)):
         print(f"drive job report: {served.NAMELESS}", file=sys.stderr)
@@ -5812,10 +5816,6 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         raise DriveError(f"{key}: refused, nothing added: {problems[0]}")
     if problems:
         raise DriveError("\n".join([f"{key}: refused, nothing added, for each of these {len(problems)}:", *(f"{number}. {why}" for number, why in enumerate(problems, 1))]))
-    try:
-        staged = staging_reach(name, known, [key] if pending["wants_tap"] and read["state"] == "OPEN" and pending["exempt"] != state.INCIDENT_EXEMPT else [])
-    except DriveError as error:
-        raise DriveError(f"{key}: refused, nothing added: {error}") from None
     work = {"order": known["orders"][added["order"]]["text"], "pr": {"title": read["title"], **(pending["lead"] or {})}}
     approval = settled.approved_by(known, key, added["order"], work) if key not in known["prs"] and read["state"] == "OPEN" and state.asks_tap(known, pending) else None
     def add_pr_write(data: dict):
@@ -5832,8 +5832,6 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         if pr["exempt"] == state.INCIDENT_EXEMPT and read["state"] == "OPEN":
             state.ship_as_incident_fix(data, key)
         testers = [state.mark_dangerous(data, key, read["headRefOid"], [changed["path"] for changed in read["files"]])] if read["state"] == "OPEN" and read["files"] else []
-        if key in staged:
-            testers.append(state.reach_staging(data, key, staged[key]))
         if approval:
             pr["tap"] = state.new_tap("Approve", read["headRefOid"], data["answers"][approval]["link"], card=[key], approval=approval)
         return pr, testers
@@ -5939,10 +5937,6 @@ def pr_set(args: argparse.Namespace) -> int:
     if args.exempt and args.exempt != state.FLAKE_FIX:
         refuse_an_unexempt(name, key, args.exempt, "set")
     failing = install.default_failures(github.repo_of(key)) if args.exempt == state.MAIN_FIX else {}
-    try:
-        staged = staging_reach(name, known, [key] if after["wants_tap"] and before["state"] == "open" and after["exempt"] != state.INCIDENT_EXEMPT else [])
-    except DriveError as error:
-        raise DriveError(f"{key}: refused, nothing set: {error}") from None
     serving = "".join(f"\nhis answer its design cites, kept: {answer}" for answer in (answered["cited"] if answered else []))
     def pr_kept(data: dict):
         pr = find(data["prs"], key, "drive PR")
@@ -5961,8 +5955,7 @@ def pr_set(args: argparse.Namespace) -> int:
         pr["waits"] = merged_waits(data, pr, args.waits, args.no_waits, found)
         if args.exempt == INCIDENT_EXEMPTION and pr["state"] == "open":
             state.ship_as_incident_fix(data, key)
-        reached = state.reach_staging(data, key, staged[key]) if key in staged else None
-        testers = [tester_id for tester_id in [reached, args.staging and state.stage_pr(data, key, args.staging, data["jobs"][pr["job"]].get("session"))] if tester_id]
+        testers = [tester_id for tester_id in [args.staging and state.stage_pr(data, key, args.staging, data["jobs"][pr["job"]].get("session"))] if tester_id]
         delivering = f"\ndelivers {'; '.join(pr['parts'])}" if args.part else ""
         if args.part and delivers:
             delivering += shipped(data, pr["job"], order, args.part)
@@ -6147,7 +6140,7 @@ def staging_required(data: dict, job: dict) -> str:
 
 
 def required_refusal(data: dict, job_id: str, line: str, whole: str) -> str | None:
-    """Why a staging tester's DONE may not be kept: a case the staging provider requires of a PR it tests, by required_cases, that no CASE line reads pass, not exercised and no line at all among them."""
+    """What a staging tester's DONE leaves short: each case the staging provider requires of a PR it tests, by required_cases, that no CASE line reads pass, not exercised and no line at all among them; take_report refuses the job's first such DONE and keeps any later one with this as its warning, since a gate blocks once and then warns."""
     if not re.match(r"DONE\b", line):
         return None
     ran = state.case_lines(whole)
@@ -6171,20 +6164,6 @@ def staging_taps(data: dict, job: dict) -> str:
         for key in state.tested_prs(data, job)
         if key in data["prs"] and (tap := data["prs"][key]["tap"])
     )
-
-
-def staging_reach(name: str, data: dict, keys: list[str]) -> dict[str, list[str]]:
-    """Each PR among keys, the open PRs of the providers' repository waiting on his tap after flake_tap, whatever their exempt class, whose paths reach a component the repository releases through paths off its dev list, the releases of release_reach, so it lands only once its staging test passes, which state.wait_on_staging keeps in the edit that keeps the PR, by his words "a high-risk change marked as a flaky-test fix reaches my Approve card with no staging test waiting on it"; a PR changing only the repository's checkout tools, the dev list's code, which its caller runs from a checkout and no release deploys to staging, reaches none, by his pick bb9cf91 "a change that plans like dev passes untested", never one drive order set --drop-part or his answer let merge before that test, by state.merges_first_lift, which merges first and is tested after its merge, by his answer 2eb7e76; each with the releases staging has no copy of when it has a copy of none, neither one with a staging env, by release_reach's staged, nor one of the Mac box provider's builds, which its prove step signs in to staging, else none, as state.reach_staging reads it, so a PR touching only such a component, such as the release tool's own, goes to his exception after the release dry run's preview of each, by his answer 67caa93, rather than to a soak that cannot deploy it; DriveError when that read fails, so its caller keeps nothing."""
-    keys = [key for key in keys if not state.merges_first_lift(data["prs"].get(key))]
-    try:
-        reach = release_reach(name, data, keys)
-    except github.GithubError as error:
-        raise DriveError(f"could not read which components the paths {', '.join(keys)} changes reach, so whether it waits on a staging test is unknown: {error}; run this again") from None
-    return {
-        key: [] if answer["staged"] or providers.of(data).mac_box.builds & set(answer["releases"]) else answer["releases"]
-        for key in keys
-        if (answer := reach.get(key)) and answer["releases"]
-    }
 
 
 def merged_waits(data: dict, owner: dict, waits: list[str], no_waits: bool, found: dict | None) -> list[str]:

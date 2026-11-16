@@ -499,54 +499,34 @@ def dangerous_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def reach_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read once a drive the repository's reach map of each open PR the release reach put on its staging test, by cli.release_reach, and take each whose paths now reach no component a release deploys off it, by state.unreach, since cli.staging_reach counts no path on the repository's dev list, ahead of the stage_lines that redraws his card on it: a drive kept before that rule holds PRs reaching only code a caller runs from a checkout on a test no release could deploy; each lift and each job it stopped said, the drive marked once the read passed."""
-    from drive import cli
-
+    """Take each open PR the retired release reach put on its staging test off it, by state.unreach, unless its paths are a dangerous class, by land.dangerous and the repository's [[dangerous]] classes, read in one github.paths call, since a PR owes a staging test before it merges only for a dangerous change and any other merges on green CI, proven after its merge on what the promotion deploys; a dangerous one keeps its test, only unmarked reached."""
     data = state.load(watcher.name)
     keys = [key for key, pr in data["prs"].items() if pr["state"] == "open" and pr["reached"]]
-    if data.get("reaches_narrowed") or not keys:
+    if not keys:
         return []
     try:
-        reach = cli.release_reach(watcher.name, data, keys)
-    except (state.DriveError, github.GithubError) as error:
+        read = github.paths(keys)
+    except github.GithubError as error:
         return read_failed(watcher, "release reach", error, moment)
     watcher.failures.pop("release reach", None)
-    def reach_lines_write(data: dict):
-        lifted = {key: state.unreach(data, key) for key in keys if key in reach and not reach[key]["releases"] and data["prs"][key]["reached"]}
-        data["reaches_narrowed"] = True
+
+    def reach_lines_write(data: dict) -> tuple[dict, dict[str, list[str]]]:
+        lifted = {}
+        for key, (_, paths) in read.items():
+            if not data["prs"][key]["reached"]:
+                continue
+            if land.dangerous(data, paths) or state.dangerous(data, paths):
+                data["prs"][key]["reached"] = False
+            else:
+                lifted[key] = state.unreach(data, key)
         return data, lifted
 
     data, lifted = state.write(watcher.name, reach_lines_write, budget=state.WATCH_WRITE_SECONDS)
     lines = []
     for key, stopped in lifted.items():
         ended = f", and {', '.join(stopped)} stopped" if stopped else ""
-        lines.append(f"PR {key}: reaches no component a release deploys, only code its caller runs from a checkout, so it waits on no staging test{ended} {ids(data['prs'][key])}")
+        lines.append(f"PR {key}: {state.UNDANGEROUS_MERGES.format(key=key)}{ended} {ids(data['prs'][key])}")
     return lines
-
-
-def release_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Land at once each open PR the release reach alone holds from a production release, green, approved and changing nothing dangerous, by state.release_held, land.dangerous and the repository's [[dangerous]] classes, read in one github.paths call: its staging test part taken off and merged first, by state.land_for_release, so the lander queues it through the repository's merge queue on this same pass's stage_lines and the cut waits minutes on its landing rather than a skip-or-hold card, by his words state.RELEASE_HOLD_WORDS; a dangerous one stays on its test and his card asks to merge it; each landing and each job it stopped said."""
-    data = state.load(watcher.name)
-    keys = [key for key, pr in data["prs"].items() if pr["reached"] and key not in watcher.stale and state.release_held(data, key) and hears(watcher, data, pr["order"])]
-    if not keys:
-        return []
-    try:
-        read = github.paths(keys)
-    except github.GithubError as error:
-        return read_failed(watcher, "release holds", error, moment)
-    watcher.failures.pop("release holds", None)
-
-    def release_lines_write(data: dict) -> list[str]:
-        lines = []
-        for key, (_, paths) in read.items():
-            if not data["prs"][key]["reached"] or not (orders := state.release_held(data, key)) or land.dangerous(data, paths) or state.dangerous(data, paths):
-                continue
-            stopped = state.land_for_release(data, key, orders)
-            ended = f", and {', '.join(stopped)} stopped" if stopped else ""
-            lines.append(f"PR {key}: {state.RELEASE_LANDS.format(key=key, order=', '.join(orders))}{ended} {ids(data['prs'][key])}")
-        return lines
-
-    return state.write(watcher.name, release_lines_write, budget=state.WATCH_WRITE_SECONDS)
 
 
 def main_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -6317,7 +6297,7 @@ def landing_stages(watcher: Watcher, moment: datetime) -> list[functools.partial
     watcher.cards, watcher.redrawn_whole = view.live_cards(watcher.name), set()
     return [
         functools.partial(github_lines, watcher, moment, polled=True),
-        *(functools.partial(stage, watcher, moment) for stage in (restack_lines, pushed_lines, main_lines, dangerous_lines, reach_lines, release_lines, carried_lines, checks, stage_lines, unscheduled_questions, draw_questions, landed, receiver_lines, redraw_lines)),
+        *(functools.partial(stage, watcher, moment) for stage in (restack_lines, pushed_lines, main_lines, dangerous_lines, reach_lines, carried_lines, checks, stage_lines, unscheduled_questions, draw_questions, landed, receiver_lines, redraw_lines)),
     ]
 
 

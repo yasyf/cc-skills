@@ -189,6 +189,7 @@ STAGING_TEST = "staging test of #{number} before it lands"
 STAGING_PART = re.compile(STAGING_TEST.format(number=r"(?P<number>\d+)"))
 STAGING_PARTS = re.compile(r"staging test of (?P<numbers>#\d+(?:(?:,| with| and)+ #\d+)*) before (?:it lands|they land)")
 AFTER_MERGE_PASS = "after-merge staging pass"
+UNDANGEROUS_MERGES = "{key} changes nothing dangerous, so it owes no staging test before it merges: it merges on green CI, and its after-merge proof reads what the promotion deploys"
 PID_WAIT = re.compile(r"pid:(?P<pid>\d+)(?:@(?P<started>\d+))?")
 NAMED_PIDS = re.compile(r"\bpid:(?P<pids>\d+(?:,\d+)*)(?:@(?P<box>[A-Za-z][\w.-]*))?(?!\w)")
 BOX_PID_WAIT = re.compile(r"pid:(?P<pid>\d+)@(?P<box>[A-Za-z][\w.-]*)")
@@ -217,7 +218,6 @@ SPRITE_WAIT = "sprite-slot"
 CUT_WAIT = "release-cut"
 RELEASE_HOLD_WORDS = '"its saying it will wait all night or skip the mac release for 1 PR which is already green and approved, I just merged it to unblock but whatever in the tooling that did not just merge it then include mac in the release needs to be fixed"'
 APPROVE_LANDS_WORDS = '"I asked for 2 fixes and approved them asap, neither has merged and neither is in the release that\'s supposed to be for them"'
-RELEASE_LANDS ="{key} is green and approved, changes nothing dangerous and holds {order}'s release, so it lands now through the merge queue and the cut's staging retest reruns only what it touches"
 TURN_WAITS = (SLOT_WAIT, SPRITE_WAIT, CUT_WAIT)
 USAGE_LIMIT = re.compile(r"You've hit your (?P<limit>\w+) limit · resets (?P<resets>.+?) \((?P<zone>[^)]+)\)")
 LIMIT_RESET = re.compile(r"(?:(?P<day>[A-Z][a-z]{2} \d{1,2}) at )?(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?P<half>am|pm)")
@@ -2693,7 +2693,7 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
 
 
 def staging_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a builder's READY or PUSHED naming a PR of the providers' repository by link may not be taken: a `STAGING:` line of its report names no such PR as `#N <cases>` nor opens `none: <why>`, a PR the release reach put on its staging test, by reach_staging, has no `#N <cases>` line giving its tester's cases, which no `none` line stands in for, or another such PR has neither, as fix_refusal asks a FIX line, the tooling only helping the builder keep the prose rule, by his words 17f763e."""
+    """Why a builder's READY or PUSHED naming a PR of the providers' repository by link may not be taken: a `STAGING:` line of its report names no such PR as `#N <cases>` nor opens `none: <why>`, or another such PR has neither, as fix_refusal asks a FIX line, the tooling only helping the builder keep the prose rule, by his words 17f763e."""
     if data["jobs"][job_id]["kind"] != "builder" or not REPORTED_LINE.match(line):
         return None
     named = [found[3] for found in PR_URL.finditer(line) if home_repo(data, f"{found[1]}/{found[2]}")]
@@ -2703,9 +2703,6 @@ def staging_refusal(data: dict, job_id: str, line: str, report: str) -> str | No
     if wrong := [staging for staging in stagings if not UNSTAGED.match(staging) and not ((found := STAGED.fullmatch(staging)) and found["number"] in named)]:
         return f"its STAGING line `{wrong[0]}` neither stages a {home(data)} PR its first line names, as `#N <cases>`, nor reads `none: <why AGENTS.md's dangerous rule misses it>`"
     said = {found["number"]: found["cases"] for staging in stagings if (found := STAGED.fullmatch(staging))}
-    staged = {number for number, cases in said.items() if not UNSTAGED.match(cases)}
-    if untested := sorted({number for number in named if (pr := data["prs"].get(f"{home(data)}#{number}")) and pr["reached"]} - staged):
-        return f"{', '.join(f'{home(data)}#{number}' for number in untested)} waits on its staging test before it lands, since its paths reach a component staging runs, so no `STAGING: none` line stands for it: end your report with {STAGING_CASES}"
     if any(UNSTAGED.match(staging) for staging in stagings) or not (unstaged := set(named) - set(said)):
         return None
     return f"it names {', '.join(f'{home(data)}#{number}' for number in sorted(unstaged))}, so {STAGING_RULE}"
@@ -3189,7 +3186,7 @@ def ship_as_incident_fix(data: dict, key: str) -> list[str]:
 
 
 def merges_first_lift(pr: dict | None) -> bool:
-    """Whether his answer dropping the tracked PR's staging test part, or land_for_release, let it merge before that test, by merge_first, which the release reach honours whatever its head."""
+    """Whether his answer dropping the tracked PR's staging test part, let it merge before that test, by merge_first, which the release reach honours whatever its head."""
     return bool(pr and pr["unstaged"] and pr["unstaged"]["merges_first"])
 
 
@@ -3259,24 +3256,16 @@ def wait_on_staging(data: dict, key: str) -> tuple[str, str]:
     return order_id, part
 
 
-def reach_staging(data: dict, key: str, unstaged: list[str]) -> str | None:
-    """Put a PR whose paths reach a component a release deploys, as cli.staging_reach finds, on its staging test, by wait_on_staging, marked reached, so no `STAGING: none` of its builder lifts it, by staging_refusal, since the lander would put it back; when staging runs a copy of none of them, unstaged naming each, it takes no staging part, since no staging build can deliver one: it waits on his exception, by his answer 67caa93, kept as the PR's exception, which its builder's DONE carries the production dry-run plan for and drive pr set --excepted gives; the tester added, or None."""
-    data["prs"][key]["reached"] = True
-    if not unstaged:
-        wait_on_staging(data, key)
-        return None
-    data["prs"][key]["exception"] = data["prs"][key]["exception"] or {"components": unstaged, "granted": None}
-    return None
-
-
 def unreach(data: dict, key: str) -> list[str]:
-    """Take a PR the release reach put on its staging test, by reach_staging, off it once the release provider's map finds its paths reach no component a release deploys, as cli.staging_reach reads the reach since it counts no path on the repository's dev list: unmarked reached, and its `staging test of #N before it lands` part off each order, by drop_part, with the PR's wait on it, whichever job took the test up, since a change that plans like dev passes untested, by his answer bb9cf91, and his ruling 0048b14 that a started staging test is finished binds a high-risk change, so his Approve on it stands; each job drop_part stopped."""
-    pr, part = data["prs"][key], STAGING_TEST.format(number=key.rpartition("#")[2])
+    """Take a PR the retired release reach put on its staging test off it, as watch.reach_lines does for each that changes nothing dangerous: unmarked reached, its ungranted exception cleared, and its `staging test of #N before it lands` part off each order, by drop_part, with its wait on any staging part naming it, a shared one included, whose test a dangerous partner still owes, whichever job took the test up, since a change that plans like dev passes untested, by his answer bb9cf91, and his ruling 0048b14 that a started staging test is finished binds a high-risk change, so his Approve on it stands; each job drop_part stopped."""
+    pr, part, number = data["prs"][key], STAGING_TEST.format(number=key.rpartition("#")[2]), f"#{key.rpartition('#')[2]}"
     pr["reached"] = False
+    if pr["exception"] and not pr["exception"]["granted"]:
+        pr["exception"] = None
     stopped = []
     for order_id in [order_id for order_id, order in data["orders"].items() if part in order["parts"]]:
-        stopped += drop_part(data, order_id, part, f"{key} reaches no component a release deploys, only code its caller runs from a checkout, so it needs no staging test")[1]
-        pr["waits"] = [wait for wait in pr["waits"] if wait != f"{order_id}:{part}"]
+        stopped += drop_part(data, order_id, part, UNDANGEROUS_MERGES.format(key=key))[1]
+    pr["waits"] = [wait for wait in pr["waits"] if not ((found := part_wait(data, wait)) and (named := STAGING_PARTS.fullmatch(found[1])) and number in re.findall(r"#\d+", named["numbers"])) and wait.rpartition(":")[2] != part]
     return stopped
 
 
@@ -3295,17 +3284,6 @@ def release_held(data: dict, key: str) -> list[str]:
     held = [found[0] for wait in pr["waits"] if (found := part_wait(data, wait)) and found[1] == part]
     tapped = (pr["tap"] or {}).get("label") == "Approve"
     return held if held and len(held) == len(pr["waits"]) and (tapped or all(releasing(data, order_id) for order_id in held)) else []
-
-
-def land_for_release(data: dict, key: str, orders: list[str]) -> list[str]:
-    """Take the staging test part off each release order that alone held the PR on it, by drop_part, and let it merge first, by merge_first, so the lander queues it through the repository's merge queue on its next pass, the cut waits minutes on its landing and its after-merge staging pass reruns only what it touches, by his words RELEASE_HOLD_WORDS; each job drop_part stopped."""
-    part = STAGING_TEST.format(number=key.rpartition("#")[2])
-    stopped = []
-    for order_id in orders:
-        why = RELEASE_LANDS.format(key=key, order=order_id)
-        stopped += drop_part(data, order_id, part, why)[1]
-        merge_first(data, order_id, part, why)
-    return stopped
 
 
 def left_changes(data: dict, builder_id: str, found: list[tuple[str, list[int]]], removed: Collection[str]) -> list[str]:
@@ -4451,6 +4429,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "woken": None,
         "handed_to": None,
         "accepted_unproven": [],
+        "required_refused": None,
         "cut_misses": {},
     }
 

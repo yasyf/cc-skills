@@ -212,7 +212,7 @@ def order(**overrides: object) -> dict:
 
 
 def job(**overrides: object) -> dict:
-    base = {"order": "o1", "kind": "builder", "goal": "watch", "prs": [], "branch": None, "waits": [], "questions": [], "state": "running", "said": None, "created": state.stamp(T0), "updated": state.stamp(T0), "accepted_unproven": [], "cut_misses": {}, "watch_said": []}
+    base = {"order": "o1", "kind": "builder", "goal": "watch", "prs": [], "branch": None, "waits": [], "questions": [], "state": "running", "said": None, "created": state.stamp(T0), "updated": state.stamp(T0), "accepted_unproven": [], "cut_misses": {}, "watch_said": [], "required_refused": None}
     return {**base, **overrides}
 
 
@@ -410,25 +410,25 @@ def test_the_watch_reads_the_changed_files_of_each_head_no_read_saw_once_and_sta
     assert (asked[-1], state.load(demo)["prs"][OTHER]["waits"]) == ([OTHER], [f"o1:{state.STAGING_TEST.format(number=43)}"])
 
 
-def test_the_watch_reads_the_reach_once_and_takes_each_pr_an_older_reach_staged_off_its_test_once_it_changes_only_tools_ci_and_go_ci_whoever_took_it_up_so_his_approve_stands_as_56826s_did_not(
-    demo: str, monkeypatch: pytest.MonkeyPatch
+def test_the_watch_takes_each_pr_the_retired_reach_staged_off_its_test_unless_it_is_dangerous_whoever_took_it_up_so_his_approve_stands(
+    home_repo: None, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     lifted, kept = state.STAGING_TEST.format(number=42), state.STAGING_TEST.format(number=43)
     approve = state.new_tap("Approve", "aaaaaaa111", "slack", at=state.stamp(T0), card=[KEY])
     with edit(demo) as data:
-        del data["reaches_narrowed"]
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "ccccccc333"}
         for key in (KEY, OTHER):
-            state.reach_staging(data, key, [])
+            state.wait_on_staging(data, key)
+            data["prs"][key]["reached"] = True
         data["jobs"]["j2"] = state.new_job("o1", "builder", "test #42 on staging", [lifted], state.stamp(T0)) | {"agent": "a2"}
         data["prs"][KEY]["tap"] = approve
     asked: list[list[str]] = []
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {KEY: {"touched": ["platy"], "releases": [], "staged": []}, OTHER: {"touched": ["api"], "releases": ["api"], "staged": ["api"]}})
+    monkeypatch.setattr(github, "paths", lambda keys: asked.append(keys) or {KEY: ("aaaaaaa111", ["dashboard/src/iris/components/Sidebar.tsx"]), OTHER: ("ccccccc333", ["go/sand/next/internal/runtime-api/memory/routes.go"])})
     [line] = watch.reach_lines(watcher(demo), T0)
     data = state.load(demo)
-    assert line == f"PR {KEY}: reaches no component a release deploys, only code its caller runs from a checkout, so it waits on no staging test, and j2 stopped {watch.ids(data['prs'][KEY])}"
+    assert line == f"PR {KEY}: {state.UNDANGEROUS_MERGES.format(key=KEY)}, and j2 stopped {watch.ids(data['prs'][KEY])}"
     assert (lifted in data["orders"]["o1"]["parts"], data["prs"][KEY]["waits"], data["prs"][KEY]["reached"], data["prs"][KEY]["tap"], data["jobs"]["j2"]["state"]) == (False, [], False, approve, "stopped")
-    assert (kept in data["orders"]["o1"]["parts"], data["prs"][OTHER]["waits"], data["prs"][OTHER]["reached"]) == (True, [f"o1:{kept}"], True)
+    assert (kept in data["orders"]["o1"]["parts"], data["prs"][OTHER]["waits"], data["prs"][OTHER]["reached"]) == (True, [f"o1:{kept}"], False)
     assert (watch.reach_lines(watcher(demo), T0), asked) == ([], [[KEY, OTHER]])
 
 
@@ -486,35 +486,6 @@ def test_a_pr_whose_head_changes_a_path_the_repository_providers_dangerous_paths
     assert line.startswith(f'PR {KEY}: {tester_id} builder on "{part}"')
     assert data["prs"][KEY]["waits"] == [f"o1:{part}"]
     assert f"changes {state.PROVIDER_DANGEROUS}: go/sand/next/internal/vm/builtins/browserpkg/extract.go, each a dangerous change" in data["jobs"][tester_id]["goal"]
-
-
-def test_a_green_approved_pr_only_its_staging_test_holds_from_a_production_release_lands_now_unless_it_is_dangerous(home_repo: None, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    held, kept = state.STAGING_TEST.format(number=42), state.STAGING_TEST.format(number=43)
-    with edit(demo) as data:
-        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "ccccccc333"}
-        for key in (KEY, OTHER):
-            state.reach_staging(data, key, [])
-            data["prs"][key] |= {"checks": "pass", "review": "approved", "tap": state.new_tap("Approve", data["prs"][key]["head"] or "aaaaaaa111", "slack", at=state.stamp(T0), card=[key])}
-        data["jobs"]["j20"] = state.new_job("o1", "builder", "cut the release", [], state.stamp(T0)) | {"brief_flags": {"release": "tools/ci release start --targets api --from fff000111222 --order abc1234"}}
-        data["orders"]["o1"]["jobs"].append("j20")
-    monkeypatch.setattr(github, "paths", lambda keys: {KEY: ("aaaaaaa111", ["go/memory/routes.go"]), OTHER: ("ccccccc333", ["go/sand/next/internal/runtime-api/memory/routes.go"])})
-    [line] = watch.release_lines(watcher(demo), T0)
-    data = state.load(demo)
-    assert line.startswith(f"PR {KEY}: {state.RELEASE_LANDS.format(key=KEY, order='o1')}")
-    assert (held in data["orders"]["o1"]["parts"], data["prs"][KEY]["waits"], state.merges_first_lift(data["prs"][KEY])) == (False, [], True)
-    assert (kept in data["orders"]["o1"]["parts"], data["prs"][OTHER]["waits"]) == (True, [f"o1:{kept}"])
-
-
-def test_his_approve_tap_lands_a_green_pr_only_its_staging_test_holds_with_no_release_behind_it_and_tests_it_after_merge_as_57634_was_not(home_repo: None, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    held = state.STAGING_TEST.format(number=42)
-    with edit(demo) as data:
-        state.reach_staging(data, KEY, [])
-        data["prs"][KEY] |= {"checks": "pass", "review": "approved", "tap": state.new_tap("Approve", data["prs"][KEY]["head"] or "aaaaaaa111", "slack", at=state.stamp(T0), card=[KEY])}
-    monkeypatch.setattr(github, "paths", lambda keys: {KEY: ("aaaaaaa111", ["dashboard/src/iris/components/Sidebar.tsx"])})
-    [line] = watch.release_lines(watcher(demo), T0)
-    data = state.load(demo)
-    assert line.startswith(f"PR {KEY}: ")
-    assert (held in data["orders"]["o1"]["parts"], data["prs"][KEY]["waits"], state.merges_first_lift(data["prs"][KEY])) == (False, [], True)
 
 
 @pytest.mark.parametrize("wants_tap", [False, True])
@@ -8301,7 +8272,7 @@ def enqueue_exiting(tmp_path: Path, name: str, code: int) -> str:
     return on_main(tmp_path, name, f'#!/bin/sh\necho "trunk said $*"\nexit {code}\n')
 
 
-def test_a_lander_lands_no_approved_pr_whose_paths_at_its_head_reach_a_component_and_puts_it_on_its_staging_test_which_reads_red_owed_by_its_builder_until_a_tester_runs(
+def test_a_lander_lands_an_approved_green_pr_changing_nothing_dangerous_on_green_ci_with_no_staging_test_however_far_its_paths_reach(
     home_repo: None,
     demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -8309,37 +8280,10 @@ def test_a_lander_lands_no_approved_pr_whose_paths_at_its_head_reach_a_component
     with edit(demo) as data:
         data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
     enqueue_exiting(tmp_path, demo, 0)
-    asked = []
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {key: {"components": ["api"], "touched": ["api"], "releases": ["api"], "staged": ["api"]} for key in keys})
-    part = f"o1:{state.STAGING_TEST.format(number=42)}"
-    held = f"{land.WAITED}: {KEY} waits on its staging test before it lands, since its paths at its head reach a component staging runs"
-    assert land.run(demo, [KEY], dry_run=True) == held
-    assert state.load(demo)["prs"][KEY]["waits"] == []
-    assert land.run(demo, [KEY]) == held
-    assert (state.load(demo)["prs"][KEY]["waits"], asked) == ([part], [[KEY], [KEY]])
-    assert land.run(demo, [KEY]) == f"{land.WAITED}: its staging test {part} has not passed"
-    now = stage.of(state.load(demo), KEY, NO_CARDS)
-    assert (now.name, now.owner, now.why) == ("red", stage.BUILDER, f"it waits on {part}, which no staging tester runs: return PUSHED with {state.STAGING_CASES}")
-
-
-def test_a_lander_holds_an_approved_pr_reaching_only_platy_on_his_exception_with_no_staging_part_and_lands_it_once_his_answer_gives_it(
-    home_repo: None,
-    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    approve(demo, KEY)
-    with edit(demo) as data:
-        data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
-        data["orders"]["o1"]["parts"]["the watch"] = state.new_part()
-    enqueue_exiting(tmp_path, demo, 0)
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"components": ["api", "platy"], "touched": ["platy"], "dev": [], "releases": ["platy"], "staged": []} for key in keys})
-    part = state.STAGING_TEST.format(number=42)
-    assert land.run(demo, [KEY]).startswith(f"{land.WAITED}: {KEY} waits on his exception before it lands, since its paths at its head reach platy, which staging has no copy of: its builder's DONE carries")
-    data = state.load(demo)
-    assert (data["prs"][KEY]["exception"], state.part_testers(data, "o1", part), part in data["orders"]["o1"]["parts"]) == ({"components": ["platy"], "granted": None}, [], False)
-    assert view.staging(data, KEY) == "Not on staging: staging has no copy of platy, so it lands on your exception once you read the production dry run's plan of each"
-    with edit(demo) as data:
-        data["prs"][KEY]["exception"]["granted"] = f"{CARD}9"
+    monkeypatch.setattr(github, "files", lambda key: ["api/src/upload.ts"])
     assert land.run(demo, [KEY]) == land.QUEUED
+    data = state.load(demo)
+    assert (data["prs"][KEY]["waits"], state.STAGING_TEST.format(number=42) in data["orders"]["o1"]["parts"]) == ([], False)
 
 
 def dropped_by_answer(demo: str, part: str) -> None:
@@ -8357,10 +8301,10 @@ def test_drive_order_set_refuses_to_drop_an_open_prs_staging_test_and_only_his_a
         data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
         data["orders"]["o1"]["parts"]["the watch"] = state.new_part()
     enqueue_exiting(tmp_path, demo, 0)
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"], "staged": ["api"]} for key in keys})
+    monkeypatch.setattr(github, "files", lambda key: ["docs/x.md"])
     part = state.STAGING_TEST.format(number=42)
-    held = f"{land.WAITED}: {KEY} waits on its staging test before it lands, since its paths at its head reach a component staging runs"
-    assert land.run(demo, [KEY]) == held
+    with edit(demo) as data:
+        state.wait_on_staging(data, KEY)
     assert cli.main(["order", "set", "o1", "--drop-part", part, "--drive", demo]) == 2
     assert f"the staging test {KEY} waits on before it merges, which only his answer lifts, by his words {state.TESTED_FIRST_RULING}: drive answer <his answer> --dropped o1:<the part>" in capsys.readouterr().err
     assert land.run(demo, [KEY]) == f"{land.WAITED}: its staging test o1:{part} has not passed"

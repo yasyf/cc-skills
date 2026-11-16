@@ -2104,8 +2104,7 @@ def test_a_merge_with_no_staging_test_reaching_a_target_staging_runs_gets_a_prov
     assert data["jobs"]["j4"]["brief_flags"]["handoff"] == (
         f"Forge-AI/monorepo#10 at 0123456789ab merged with no staging test before its merge: run its after-merge staging pass first, by the merge row of agents/builder.md,"
         f" its cases from the bodies of {untested}, the PROVE: line and REPRO: of j2's return in reports/j2.md and the words of o1,"
-        " only in the top coordinator's staging window: return `WAITING staging-slot:<your job>`, which holds until root's START hands you the window, never a soak commit standing in for it,"
-        f" then wait on staging:api/plat-usw2-staging@0123456789abcdef while staging serves no build holding its merge;"
+        " holding no staging slot and claiming nothing: wait on staging:api/plat-usw2-staging@0123456789abcdef until the promotion deploys a build holding its merge, run its cases on what staging serves,"
         f" then install it by the INSTALL: line of j2's return, in reports/j2.md, write its PROVE: line as a proof file, keep it with drive job set <your job> --repro <file>"
         " and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part"
     )

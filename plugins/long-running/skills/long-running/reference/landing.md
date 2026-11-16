@@ -51,9 +51,10 @@ card a job only waits on wakes that job and holds no PR. No card holds a `flake 
 - A started staging test holds its own PR and no other PR of its job or stack. While an order's
   `staging test of #N before it lands` part is undelivered and has a job on it, or the PR waits on
   it, the PR reads waiting on that run. It reads `red`, owed by its builder, while no tester runs it.
-- `drive pr add`, `drive pr set` and the lander put that part on each PR waiting on his tap whose
-  paths reach a released component, whatever its exempt class. Paths the repository's release tool
-  keeps as its own dev tooling, such as that tool and its source, reach none. A part his answer took off, `drive answer <id> --dropped <o>:<part>`,
+- `drive pr add`, the watch and the lander put that part on each PR whose paths are a dangerous
+  class, by the repository's provider, whatever its exempt class. Every other PR owes no test
+  before its merge: it merges on green CI and is proven after it on what the half-hourly
+  promotion deploys. A part his answer took off, `drive answer <id> --dropped <o>:<part>`,
   holds nothing until a builder's `STAGING: #N <cases>` line asks for the test, which puts it back:
   until then that PR merges first and gets its staging pass after the merge. `drive order set
   --drop-part` refuses an open PR's staging part, by his words a9c9edc, "remember everything has to be tested on sandbox first/ staging in detail before merging".
@@ -507,9 +508,11 @@ untested dangerous changes have caused outages. Infra and blue-green changes cou
 is prose the drive keeps with local tooling: add no ruleset, commit status or PR check that every
 PR hits, and the repository hooks into the drive through its providers.
 
-- **Which changes.** Each stack's release plan decides: a change that plans like the default branch
-  passes untested. When the release provider's components read names none of a PR's releases as
-  staged, and none is a client the Mac box provider signs in to staging, staging cannot test it
+- **Which changes.** Only a PR whose paths are a dangerous class, by the repository provider's
+  dangerous paths and its `[[dangerous]]` classes, owes a test before it merges; every other PR
+  merges on green CI and is proven after its merge on what the half-hourly promotion deploys,
+  holding no staging slot. When the release provider's components read names none of a dangerous
+  PR's releases as staged, and none is a client the Mac box provider signs in to staging, staging cannot test it
   (such as CI, an identity account or monitoring). The tester then runs each stack's release dry run from this Mac and asks his
   exception with the counts each preview plans. His yes drops the part and the PR lands on his
   Approve.
@@ -559,12 +562,11 @@ PR hits, and the repository hooks into the drive through its providers.
     dangerous paths the repository's provider names (a class and its path
     globs, less test files and skipped globs) and give a matching PR the same part, wait and
     tester before his card draws.
-  - `drive pr add`, `drive pr set` and the lander do the same for each PR waiting on his tap whose
-    paths reach a component the release provider lists, as
-    [Cards and tests that hold a PR](#cards-and-tests-that-hold-a-pr) says.
+  - Every other PR owes no staging test before it merges: it merges on green CI, and its
+    after-merge proof reads what the half-hourly promotion deploys, holding no staging slot.
 - A later `STAGING: #N` line reaches the running tester as held text. `STAGING: none: <why>` or
-  `STAGING: #N none: <why>` lifts a test no job runs now that the release reach did not give, its
-  why shown on his card. A running test goes to its end.
+  `STAGING: #N none: <why>` lifts a test no job runs now, its why shown on his card. A running
+  test goes to its end.
 - The lander lands the PR once the tester's `DONE` keeps the test's proof as its first `CHECK:`
   line, by [the jobs page](jobs.md). The pass keeps each Approve he gave before it, so one Approve
   lands the PR once its test passes, under [the presence limit](#the-guarded-owners-repository).
@@ -640,11 +642,9 @@ not serve, so its first real request failed.
   packed cut, and a prebuild starting the builds a release at a commit adopts, which `drive job release` runs at the
   commit of each start reaching no production place and keeps as the job's prebuild build, so
   the production start at that commit signs, notarizes and bakes nothing again.
-- **A green, approved PR does not hold a cut.** When only its staging test holds such a PR on an
-  order a production cut serves, the watch's `release_lines` takes the test off and the lander
-  queues it within minutes. The cut waits on that landing, carries the component, and its staging
-  retest reruns only the cases that PR touches. A dangerous PR waits on the presence limit; his
-  pick to merge it is recorded with
+- **A green, approved PR does not hold a cut.** A PR changing nothing dangerous owes no staging
+  test, so it lands on green CI and the cut carries it. A dangerous PR waits on its test and the
+  presence limit; his pick to merge it first is recorded with
   `drive answer <his answer> --dropped <order>:staging test of #N before it lands`.
 - **Drive tooling does not hold a release.** A release-path PR whose staging cases passed while
   the drive refused or never kept their `DONE` lands once that `DONE` is kept, the turn the defect

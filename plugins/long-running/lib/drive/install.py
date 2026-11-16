@@ -1230,8 +1230,8 @@ def add_prover(name: str, data: dict, job_id: str, reach: dict[str, dict], parts
         if keys and all(reach.get(key, {}).get("tested") for key in merges)
         else f"{merged} merged with no staging test before its merge: run its {state.AFTER_MERGE_PASS} first, by the merge row of agents/builder.md,"
         f" its cases from the bodies of {' '.join(map(state.pr_url, keys))}, the PROVE: line and REPRO: of {job_id}'s return in reports/{job_id}.md and the words of {job['order']},"
-        f" only in the top coordinator's staging window: return `WAITING staging-slot:<your job>`, which holds until root's START hands you the window, never a soak commit standing in for it,"
-        f" then wait on {' '.join(stagings)} while staging serves no build holding its merge; then {proving}"
+        f" holding no staging slot and claiming nothing: wait on {' '.join(stagings)} until the promotion deploys a build holding its merge, run its cases on what staging serves,"
+        f" then {proving}"
         if stagings
         else f"{merged} merged: {proving}"
     ) + "".join(
