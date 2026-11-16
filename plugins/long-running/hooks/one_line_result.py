@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, state
+from drive import agents, orca, state
 
 RESULT_CHARS = 500
 HANDLER_FACTS = 3
@@ -153,6 +153,8 @@ def unread(payload: dict, data: dict, handler: bool, job_id: str | None, line: s
 def main() -> None:
     payload = json.load(sys.stdin)
     if payload["hook_event_name"] == "StopFailure":
+        if hit := agents.limit_hit(payload):
+            agents.keep_limit_hit(payload, hit | {"dismissed": orca.dismiss_limit_dialog()})
         if wake := agents.resume(payload):
             print(wake, file=sys.stderr)
             sys.exit(2)

@@ -1,4 +1,5 @@
 import io
+import json
 import os
 from collections.abc import Callable
 from datetime import timedelta
@@ -7,7 +8,7 @@ from pathlib import Path
 import agent_brief
 import pytest
 from conftest import RESEARCH, kept_brief
-from drive import agents, brief, place, state, view, watch
+from drive import agents, brief, orca, place, state, view, watch
 from drive.render import when
 
 Run = Callable[..., tuple[int, str]]
@@ -345,25 +346,39 @@ def test_a_monorepo_builder_over_this_macs_load_limit_starts_here_only_when_its_
     assert start("j1", "Goal: fix the run page") is None
 
 
-def test_a_spent_usage_limit_sends_every_builder_to_a_sprite_and_gives_no_slot_until_it_resets(demo: str, run: Run) -> None:
-    run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Hotfix", "ship his fix", "--parts", "the hotfix", "the cut")
-    run("job", "add", "builder", "--order", "o1", "--part", "the hotfix", "--goal", "build the hotfix")
-    run("job", "add", "builder", "--order", "o1", "--part", "the cut", "--goal", "cut it")
+def test_a_usage_limit_stop_is_kept_on_the_job_whose_lane_runs_in_the_sessions_worktree_and_in_the_shared_log(demo: str, run: Run, tmp_path: Path) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Hotfix", "ship his fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the hotfix")
+    lane = str(tmp_path / "lane")
     with state.edit(demo) as data:
-        place.queue(data["jobs"]["j2"], state.now())
-    assert run("order", "set", "o1", "--priority")[0] == 0
-    stop = state.now()
-    notice = "You've hit your session limit · resets 3:30am (America/Los_Angeles)"
-    assert state.keep_usage_limit(f"{notice} ", stop)
-    held = state.usage_limit(stop)
-    data = state.load(demo)
-    spent = place.crowded(data, "j1", stop)
-    assert spent == f'Claude Code\'s session limit on this Mac is spent until {when(held["until"])}, by a session\'s stop at {when(state.stamp(stop))} on "{notice}"'
-    assert place.turns(data, stop) == ([], 0)
-    refused = agent_brief.deny_reason(briefed("long-running:builder", "Order (his words): ship his fix\nServes: his order\nGoal: build the hotfix\nDrive: demo, order o1, job j1"))
-    assert refused.startswith(f"refused: {spent}, so j1 starts on a Sprite at once")
-    after = state.parse_time(held["until"]) + timedelta(seconds=1)
-    assert (state.usage_limit(after), place.crowded(data, "j1", after), place.turns(data, after)[0]) == (None, None, ["j2"])
+        data["jobs"]["j1"]["worktree"] = lane
+    stop = state.parse_time("2026-11-15T17:33:31-08:00")
+    hit = state.usage_limit_hit("You've hit your weekly limit · resets Nov 17 at 11pm (America/Los_Angeles)", stop)
+    assert hit == {"limit": "weekly", "until": "2026-11-17T23:00:00-08:00", "notice": "You've hit your weekly limit · resets Nov 17 at 11pm (America/Los_Angeles)", "at": "2026-11-15T17:33:31-08:00"}
+    assert state.keep_limit_hit([demo], "s-lane", lane, hit | {"dismissed": True}) == "j1"
+    assert state.keep_limit_hit([demo], "s-root", str(tmp_path), hit | {"dismissed": False}) is None
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["state"], job["limit_hits"]) == ("waiting", [hit | {"dismissed": True}])
+    logged = [json.loads(line) for line in (state.root() / state.USAGE_LIMIT_LOG).read_text().splitlines()]
+    assert [(line["session"], line["job"], line["dismissed"]) for line in logged] == [("s-lane", "j1", True), ("s-root", None, False)]
+
+
+def test_a_limit_dialog_gets_escape_alone_once_it_draws_and_never_an_option(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TMUX", raising=False)
+    monkeypatch.setenv("ORCA_TERMINAL_HANDLE", "term_lane")
+    monkeypatch.setattr(orca.time, "sleep", lambda _: None)
+    screens = iter([["working"], ["What do you want to do?", "3. Add funds to continue with usage credits"]])
+    calls = []
+
+    def answered(*args: str, **_: object) -> dict:
+        calls.append(args)
+        return {"terminal": {"tail": next(screens)}} if args[1] == "read" else {}
+
+    monkeypatch.setattr(orca, "request", answered)
+    assert orca.dismiss_limit_dialog() is True
+    assert calls[-1] == ("terminal", "send", "--terminal", "term_lane", "--text", "\x1b")
+    monkeypatch.delenv("ORCA_TERMINAL_HANDLE")
+    assert orca.dismiss_limit_dialog() is False
 
 
 def test_a_usage_limit_resets_at_the_next_moment_its_words_name() -> None:
@@ -375,4 +390,4 @@ def test_a_usage_limit_resets_at_the_next_moment_its_words_name() -> None:
         "2027-01-02T09:00:00-08:00",
         "2027-12-30T09:00:00-08:00",
     ]
-    assert state.keep_usage_limit("API Error: 500 overloaded", moment) is False
+    assert state.usage_limit_hit("API Error: 500 overloaded", moment) is None
