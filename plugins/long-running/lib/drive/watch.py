@@ -2740,14 +2740,19 @@ def claim_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         watcher.failures.pop(source, None)
         closed = any(message.get("from_claude") for message in messages)
-        with state.edit(watcher.name) as data:
+
+        def claim_said(data: dict) -> bool:
             claims = data["orders"][order_id]["claims"]
             if claims.get(ts, {}).get("since") != held["since"]:
-                continue
+                return False
             if closed:
                 claims.pop(ts)
-                continue
+                return False
             claims[ts]["said"] = state.stamp(moment)
+            return True
+
+        if not state.update(watcher.name, None, claim_said):
+            continue
         lines.append(
             f"DUE {order_id} claim {held['link']} ended {when(held['until'])} with no closing line in its thread: once the work ends, free what it"
             f" claimed and send a POST report with --attr thread={ts} saying it is done, what is free again and the result, as the repository's"
