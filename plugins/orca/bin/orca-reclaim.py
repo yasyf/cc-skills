@@ -938,7 +938,7 @@ def save_script(sprite: Sprite, slug: str, lane: str, refs: dict[str, str], tree
         ]
     lines += [f"save {shlex.quote(name)} {tip}" for name, tip in refs.items()]
     lines += [f'save "$(git -C {tree} symbolic-ref --short -q HEAD)" "$(git -C {tree} rev-parse HEAD)"' for tree in map(shlex.quote, trees)]
-    lines.append(f"git -c credential.helper= -c {shlex.quote('credential.helper=' + helper)} push --quiet https://github.com/{slug}.git $pushed")
+    lines.append(f"git -c credential.helper= -c {shlex.quote('credential.helper=' + helper)} push https://github.com/{slug}.git $pushed")
     return "\n".join(lines)
 
 
