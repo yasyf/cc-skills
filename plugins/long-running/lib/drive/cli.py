@@ -4516,11 +4516,14 @@ def slot_hand(args: argparse.Namespace) -> int:
     if own and held and own[0] not in state.slot_members(data["slots"][args.env]) or not own and not state.top_coordinator(data, os.environ.get("CLAUDE_CODE_SESSION_ID")):
         raise DriveError(f"refused: only the job holding the {args.env} slot or the top coordinator hands it on")
     before = [member for member in [held, *(held["riders"] if held else [])] if member and not member["starts"]]
-    with state.edit(name) as data:
+    def slot_hand_write(data: dict):
         entry, line = state.slot_hand(data, args.env, args.to, state.now())
         until = data["slots"][args.env]["holder"]["until"]
         steps = state.SLOT_GO_STEPS.format(env=args.env, job=args.to) + state.holding(state.repo_config(data).get("release"), data, [args.to])
         stopped = [member["job"] for member in before if data["jobs"][member["job"]]["state"] not in state.SLOT_LIVE_END]
+        return entry, line, steps, stopped, until
+
+    entry, line, steps, stopped, until = state.update(name, None, slot_hand_write)
     for job_id in stopped:
         state.detach(name, ["job", "resume", job_id, state.SLOT_STOP.format(env=args.env, to=args.to)], watch.RELAUNCHES_LOG)
     command = ["job", "release", args.to] if entry["starts"] else ["job", "resume", args.to, f"GO staging {args.env} until {until}: {steps}"]
@@ -4954,7 +4957,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         raise DriveError(f"{key}: refused, nothing added: {error}") from None
     work = {"order": known["orders"][added["order"]]["text"], "pr": {"title": read["title"], **(pending["lead"] or {})}}
     approval = settled.approved_by(known, key, added["order"], work) if key not in known["prs"] and read["state"] == "OPEN" and state.asks_tap(known, pending) else None
-    with state.edit(name) as data:
+    def add_pr_write(data: dict):
         job = find(data["jobs"], job_id, "job")
         if data["orders"][job["order"]]["once"]:
             raise DriveError(f"refused, {job['order']} is a repair he asked to run once: run it, and put up no PR for it")
@@ -4970,6 +4973,9 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
             testers.append(state.reach_staging(data, key, staged[key]))
         if approval:
             pr["tap"] = state.new_tap("Approve", read["headRefOid"], data["answers"][approval]["link"], card=[key], approval=approval)
+        return pr, testers
+
+    pr, testers = state.update(name, None, add_pr_write)
     note_third_person(key, read)
     return pr, [tester for tester in testers if tester]
 

@@ -146,7 +146,7 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
     handler = state.handler_id(known, os.environ.get("CLAUDE_CODE_SESSION_ID"))
     place = None if post.get("edit") else state.link_thread(link)
     if handler or seq or place:
-        with state.edit(name) as data:
+        def spoken_write(data: dict):
             if handler:
                 data["handlers"][handler]["posted"].append(line)
             if seq:
@@ -156,6 +156,8 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
                 for each in state.open_orders(data).values():
                     if state.promise_thread(each) == place:
                         each["last_line"] = max(each["last_line"] or at, at, key=state.parse_time)
+
+        state.update(name, None, spoken_write)
     if warning := reply.get("warning"):
         line += f" WARNING {warning}"
     if found := amended["correction"].get(seq):
