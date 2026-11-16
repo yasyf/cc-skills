@@ -97,7 +97,6 @@ func runWorker(sdir string) {
 	replyTmp := ""
 	rc := 126
 	var cmd cmdSpec
-	loaded := false
 	func() {
 		defer func() {
 			if replyTmp != "" {
@@ -112,7 +111,6 @@ func runWorker(sdir string) {
 		if json.Unmarshal(b, &cmd) != nil || len(cmd.Argv) == 0 {
 			return
 		}
-		loaded = true
 		replyTmp = cmd.ReplyTmp
 		qin, err := os.Open(cmd.Question)
 		if err != nil {
@@ -138,11 +136,6 @@ func runWorker(sdir string) {
 			_ = os.Rename(cmd.ReplyTmp, cmd.Reply)
 		}
 	}()
-	// Terminal status is durable; wake the dispatching owner subagent, if any —
-	// bounded and fail-open, so a dead daemon never crashes the worker.
-	if loaded && cmd.Owner != "" {
-		wakeOwner(deps(), sdir, cmd)
-	}
 	// The parent's pollStatus already unblocked on the status write above, so the
 	// registration runs on time no caller is waiting for (worker orphaned to PID 1).
 	registerTranscript(sdir)

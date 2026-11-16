@@ -69,7 +69,7 @@ The table below is the full catalog; each plugin's own README covers install, pr
 | Plugin | What you get |
 |---|---|
 | [slop-cop](plugins/slop-cop) | Catches LLM prose tells in any file, from filler intensifiers to negation pivots. A `SessionStart` hook fetches the prebuilt binary. |
-| [codex](plugins/codex) | A second opinion from OpenAI's Codex CLI when you're stuck, plus image generation via its `$imagegen` skill. Needs `codex` on `PATH`. On Linux amd64, owner wakes need `codex-ask supervise` running in the foreground; any process of the same user can reach its daemon, so run it only on a single-user machine. |
+| [codex](plugins/codex) | A second opinion from OpenAI's Codex CLI when you're stuck, plus image generation via its `$imagegen` skill. Needs `codex` on `PATH`. |
 | [open-pr](plugins/open-pr) | Opens pull requests matched to the repo's merged PR history and contribution guidelines, then watches CI and bot reviews in the background until the PR is ready to merge. Needs `ccx`, `gh`, `jq`, and the `captain-hook` plugin. |
 | [repo-bootstrap](plugins/repo-bootstrap) | A new repo with agent docs, guard hooks, brand images, and opinionated Python, Go, or Swift layers, scaffolded in one pass. |
 | [llm-prompts](plugins/llm-prompts) | Research-backed prompt-writing guidance, refreshed with current per-provider model behaviors. |

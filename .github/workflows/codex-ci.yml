@@ -81,8 +81,6 @@ jobs:
           version: latest
           working-directory: plugins/codex
 
-  # The linux amd64 release binary under daemonkit's foreground supervisor and
-  # same-user trust, in place of the signed LaunchAgent.
   codex-ask-linux:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -105,7 +103,7 @@ jobs:
         with:
           version: "~> v2"
           args: build --snapshot --clean --id codex-ask-linux
-      - name: Smoke a dispatch round trip through the supervised daemon
+      - name: Smoke a dispatch round trip and the removed subcommands
         run: |
           bin="$PWD/dist/codex-ask-linux_linux_amd64_v1/codex-ask"
           stub="$RUNNER_TEMP/stub"
@@ -120,34 +118,17 @@ jobs:
           echo pong > "$out"
           EOF
           chmod +x "$stub/codex"
-          export PATH="$stub:$PATH" CLAUDE_CODE_SESSION_ID=ci-smoke
+          export PATH="$stub:$PATH" CLAUDE_CODE_SESSION_ID=ci-smoke CODEX_ASK_RUNS_DIR="$RUNNER_TEMP/runs"
           cd "$RUNNER_TEMP"
 
-          if "$bin" direct --agent ci-owner ping > refusal.txt 2>&1; then exit 1; fi
-          grep 'no supervisor is running' refusal.txt
-
-          "$bin" supervise &
-          supervisor=$!
-          for _ in $(seq 100); do
-            [ -S "$HOME/.daemonkit/a/com.yasyf.codex-ask/sv.sock" ] && break
-            sleep 0.1
+          for removed in tools channel direct supervise; do
+            if "$bin" "$removed" --no-tools > refusal.txt 2>&1; then exit 1; fi
+            grep "codex-ask $removed: removed in" refusal.txt
           done
+          if [ -e "$CODEX_ASK_RUNS_DIR" ] && [ -n "$(ls -A "$CODEX_ASK_RUNS_DIR")" ]; then exit 1; fi
 
-          out="$("$bin" --dispatch --owner ci-owner ping)"
+          out="$("$bin" --dispatch ping)"
           reply="$(sed -n 's/^REPLY_FILE: //p' <<<"$out")"
-          log="$(sed -n 's/^LOG_FILE: //p' <<<"$out")"
           sdir="$(dirname "$reply")"
           "$bin" --await "$sdir"
           grep -qx pong "$reply"
-          worker="$(cat "$sdir/pid")"
-          for _ in $(seq 400); do
-            kill -0 "$worker" 2>/dev/null || break
-            sleep 0.1
-          done
-          if kill -0 "$worker" 2>/dev/null; then echo "worker $worker still running" >&2; exit 1; fi
-          if grep 'owner wake failed' "$log"; then exit 1; fi
-
-          "$bin" direct --agent ci-owner ping
-          "$bin" stop
-          kill -TERM "$supervisor"
-          wait "$supervisor"

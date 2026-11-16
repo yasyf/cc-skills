@@ -12,7 +12,6 @@
 - The `codex` CLI on `PATH`.
 - Depends on the `captain-hook` plugin at `>=12.71.1` from the `captain-hook` marketplace.
 - Image generation requires `codex` signed in with a ChatGPT plan, which you can verify with `codex login status`; with API-key auth the hosted image tool never mounts.
-- On Linux amd64, async owner wakes need `codex-ask supervise` running in the foreground; any process of the same user can reach its daemon, so run it only on a single-user machine.
 
 ## Use it
 

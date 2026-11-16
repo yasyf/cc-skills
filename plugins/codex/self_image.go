@@ -12,9 +12,13 @@ import (
 	"time"
 
 	"github.com/yasyf/daemonkit/durable"
+	"github.com/yasyf/daemonkit/paths"
 )
 
-const selfImageLockDeadline = 5 * time.Minute
+const (
+	selfImageLockDeadline = 5 * time.Minute
+	appDir                = ".cc-codex-ask"
+)
 
 func retainSelfImage(source *os.File) (string, error) {
 	info, err := source.Stat()
@@ -26,7 +30,7 @@ func retainSelfImage(source *os.File) (string, error) {
 		return "", err
 	}
 	generation := fmt.Sprintf("%d-%o", info.ModTime().UnixNano(), info.Mode().Perm())
-	dir := filepath.Join(appPaths().StateDir(), "self-images", digest, generation)
+	dir := filepath.Join(paths.Paths{App: appDir}.StateDir(), "self-images", digest, generation)
 	target := filepath.Join(dir, "codex-ask")
 	if present, err := verifySelfImage(target, info, digest); err != nil || present {
 		return target, err

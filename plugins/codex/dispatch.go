@@ -13,8 +13,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"github.com/yasyf/cc-interact/procs"
 )
 
 func requireCredential() {
@@ -31,7 +29,6 @@ func askMode(args []string) {
 	scratch := ""
 	laneName := ""
 	dispatch := false
-	owner := ""
 	lane := ""
 	schemaName := ""
 	var mcpServers []string
@@ -116,12 +113,6 @@ loop:
 		case a == "--dispatch":
 			dispatch = true
 			i++
-		case a == "--owner":
-			if nxt == "" {
-				die("codex-ask: --owner needs an agent id", 2)
-			}
-			owner = nxt
-			i += 2
 		case a == "-h" || a == "--help":
 			fmt.Println(usageStr)
 			os.Exit(0)
@@ -142,9 +133,6 @@ loop:
 		usage()
 	}
 	requireCredential()
-	if owner != "" && !dispatch {
-		die("codex-ask: --owner requires --dispatch", 2)
-	}
 	if scratch != "" && laneName != "" {
 		die("codex-ask: -l and -s are mutually exclusive", 2)
 	}
@@ -159,17 +147,6 @@ loop:
 	if laneName != "" {
 		named = resolveLaneName(laneName)
 	}
-	// An unroutable wake (no session id, no claude ancestor) would enqueue
-	// nothing, silently: refuse before anything is minted.
-	ownerSession, ownerPID := "", 0
-	if owner != "" {
-		ownerSession = os.Getenv("CLAUDE_CODE_SESSION_ID")
-		ownerPID = procs.ClaudePID()
-		if ownerSession == "" && ownerPID == 0 {
-			die("codex-ask: --owner is unroutable: no CLAUDE_CODE_SESSION_ID and no claude ancestor process", 2)
-		}
-	}
-
 	// Read the question up front so an empty one refuses before anything is minted.
 	var qbytes []byte
 	switch {
@@ -307,14 +284,6 @@ loop:
 	}
 	cwd, _ := os.Getwd()
 	cmd := cmdSpec{Argv: argv, Question: question, Reply: reply, ReplyTmp: replyTmp, Log: logf}
-	// An owner subagent's async dispatch records who to wake and the routing keys
-	// resolved now — the orphaned worker cannot recover them later.
-	if owner != "" {
-		cmd.Owner = owner
-		cmd.Session = ownerSession
-		cmd.Scope = cwd
-		cmd.ClaudePID = ownerPID
-	}
 	cb, _ := json.Marshal(cmd)
 	_ = os.WriteFile(join(sdir, "cmd"), cb, 0o644) //nolint:gosec // 0o644 matches the Python spec's cmd-file mode
 
@@ -347,11 +316,6 @@ loop:
 		die("codex-ask: close self image: "+closeErr.Error(), 126)
 	}
 	detachWorker(sdir)
-	// Async: the printed REPLY_FILE/LOG_FILE/AWAIT lines are the owner's recovery
-	// contract, and the worker wakes the owner on completion — return at once
-	// rather than blocking on the status file. Foreground dispatch deliberately
-	// carries the exclusive lock to process exit so no replacement generation can
-	// publish between its final poll and report.
 	if dispatch {
 		os.Exit(0)
 	}

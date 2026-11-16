@@ -43,7 +43,23 @@ const (
 var efforts = []string{"low", "medium", "high", "xhigh"}
 
 const usageStr = "usage: codex-ask [-m sol|luna|astra] [--effort low|medium|high|xhigh] [--incident] [-l [RUN/]LANE | -s ABS_DIR] [--image] [--lane CONTRACT] [--schema NAME|FILE] " +
-	"[--mcp NAMES] [--dispatch [--owner AGENT_ID]] [QUESTION_FILE | - | QUESTION_TEXT] | --cancel RUN_DIR | --ps [RUN[/LANE] | ABS_DIR]..."
+	"[--mcp NAMES] [--dispatch] [QUESTION_FILE | - | QUESTION_TEXT] | --cancel RUN_DIR | --ps [RUN[/LANE] | ABS_DIR]..."
+
+var appVersion = "dev"
+
+var removedSubcommands = map[string]string{
+	"tools":         "1.16.4",
+	"channel":       "1.16.4",
+	"channel-check": "1.16.4",
+	"daemon":        "1.16.5",
+	"stop":          "1.16.5",
+	"agent-start":   "1.16.5",
+	"agent-inject":  "1.16.5",
+	"agent-stop":    "1.16.5",
+	"agent-report":  "1.16.5",
+	"direct":        "1.16.5",
+	"supervise":     "1.16.5",
+}
 
 var terminal = []string{"completed", "failed", "no-run"}
 
@@ -96,8 +112,8 @@ func main() {
 		// install-binary.sh compares this first line against the pinned release.
 		fmt.Println(appVersion)
 		os.Exit(0)
-	case len(args) >= 1 && isConsumerSubcommand(args[0]):
-		runConsumer(args)
+	case len(args) >= 1 && removedSubcommands[args[0]] != "":
+		die(fmt.Sprintf("codex-ask %s: removed in %s", args[0], removedSubcommands[args[0]]), 1)
 	default:
 		askMode(args)
 	}

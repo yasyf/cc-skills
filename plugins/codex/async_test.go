@@ -2,43 +2,17 @@ package main
 
 import (
 	"bytes"
-	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"testing"
 	"time"
-
-	"github.com/yasyf/cc-interact/cmd"
-	"github.com/yasyf/cc-interact/daemon"
-	"github.com/yasyf/cc-interact/store"
 )
-
-// TestMain doubles the test binary as the async fixtures. A "daemon" argv (what
-// the launcher spawns to autostart) exits 1 so autostart fails without serving —
-// the fail-open path. A CODEX_ASK_TEST_WORKER_SDIR env runs the real worker
-// (os.Exit inside), exercising status-write-then-wake with os.Executable as the
-// broken autostart target.
-func TestMain(m *testing.M) {
-	if len(os.Args) > 1 && os.Args[1] == "daemon" {
-		os.Exit(1)
-	}
-	if sdir := os.Getenv("CODEX_ASK_TEST_WORKER_SDIR"); sdir != "" {
-		if ms, err := strconv.Atoi(os.Getenv("CODEX_ASK_TEST_WAKE_MS")); err == nil && ms > 0 {
-			wakeTimeout = time.Duration(ms) * time.Millisecond
-		}
-		runWorker(sdir)
-		return
-	}
-	os.Exit(m.Run())
-}
 
 func stubCodex(listing, body string) string {
 	return "#!/bin/sh\n[ \"$1\" = mcp ] && { printf '%s' '" + listing + "'; exit 0; }\n" + body
@@ -283,85 +257,6 @@ func TestDispatchAsyncReturnsWithoutBlocking(t *testing.T) {
 	if !strings.Contains(string(psOut), sdir) {
 		t.Fatalf("--ps did not list %s:\n%s", sdir, psOut)
 	}
-}
-
-// claudeShim builds the dispatch command behind a /bin/sh symlink named claude,
-// so procs.ClaudePID resolves a known non-zero ancestor (isClaude matches
-// filepath.Base(argv[0])). The `; exit $?` tail stops sh exec'ing itself away,
-// which would erase the very ancestor the shim exists to provide.
-func claudeShim(t *testing.T, bin string, args ...string) *exec.Cmd {
-	t.Helper()
-	shim := filepath.Join(mustTempDir(t), "claude")
-	if err := os.Symlink("/bin/sh", shim); err != nil {
-		t.Fatal(err)
-	}
-	return exec.Command(shim, append([]string{"-c", `"$0" "$@"; exit $?`, bin}, args...)...) //nolint:gosec // drives the built binary under test through the test's own shim
-}
-
-// TestDispatchOwnerRoutingFieldsPersist drives --dispatch --owner through the
-// built binary and reads all four routing fields back off the lane's cmd record.
-// The worker is orphaned to PID 1 and cannot re-derive any of them, so a
-// mis-parsed --owner or a dropped field silently unroutes every wake.
-func TestDispatchOwnerRoutingFieldsPersist(t *testing.T) {
-	bin := codexAskBin(t)
-	home := shortHome(t)
-	runs := mustTempDir(t)
-	stubDir := mustTempDir(t)
-	writeStub(t, stubDir, stubCodexSleep)
-	scope := canonicalScope(t)
-
-	const session = "sess-dispatch-owner"
-	var stdout, stderr bytes.Buffer
-	c := claudeShim(t, bin, "--dispatch", "--owner", "owner-flag", "ping")
-	c.Dir = scope
-	c.Env = dispatchEnv(home, session, runs, stubDir, scope)
-	c.Stdout, c.Stderr = &stdout, &stderr
-	if err := c.Run(); err != nil {
-		t.Fatalf("dispatch: %v\nstderr: %s", err, stderr.String())
-	}
-	reply := stdoutLine(stdout.String(), "REPLY_FILE: ")
-	if reply == "" {
-		t.Fatalf("no REPLY_FILE line:\n%s", stdout.String())
-	}
-	sdir := filepath.Dir(reply)
-	t.Cleanup(func() { killLane(sdir) })
-
-	spec := cmdRecord(t, sdir)
-	if spec.Owner != "owner-flag" {
-		t.Fatalf("cmd.owner = %q, want owner-flag — --owner never reached the dispatch record", spec.Owner)
-	}
-	if spec.Session != session {
-		t.Fatalf("cmd.session = %q, want %q", spec.Session, session)
-	}
-	if spec.Scope != scope {
-		t.Fatalf("cmd.scope = %q, want the dispatch cwd %q", spec.Scope, scope)
-	}
-	if spec.ClaudePID != c.Process.Pid {
-		t.Fatalf("cmd.claude_pid = %d, want the claude shim's pid %d", spec.ClaudePID, c.Process.Pid)
-	}
-}
-
-func TestOwnerWakeDirectiveLands(t *testing.T) {
-	shortHome(t)
-	srv := serveInProcess(t)
-
-	const session = "sess-wake"
-	scope := canonicalScope(t)
-	sub, err := store.NewSubjectStore(srv.DB()).
-		Create(context.Background(), "0123456789abcdef0123456789abcdef", "codex-wake", session, scope, 0, statusOpen)
-	if err != nil {
-		t.Fatalf("seed subject: %v", err)
-	}
-	registerOwner(t, session, scope, "owner-1")
-
-	sdir, reply, logf := completedLane(t)
-	wakeOwner(wakeDeps(), sdir, cmdSpec{
-		Reply: reply, Log: logf,
-		Owner: "owner-1", Session: session, Scope: scope, ClaudePID: 0,
-	})
-
-	assertWakeDialed(t, logf)
-	waitForWake(t, srv.DB(), sub.ID, "owner-1", reply)
 }
 
 // TestDispatchThroughSymlinkFindsAgentsMd provisions bin/codex-ask as a symlink
@@ -1066,84 +961,6 @@ func TestWatchSettlesExpiredRegistration(t *testing.T) {
 	}
 }
 
-// TestOwnerWakeFallsBackToClaudePID seeds the subject with a claude pid, then
-// wakes with a rotated session id: resolution must fall back to (pid, scope) —
-// the production survival path when CLAUDE_CODE_SESSION_ID rotates mid-run.
-func TestOwnerWakeFallsBackToClaudePID(t *testing.T) {
-	shortHome(t)
-	srv := serveInProcess(t)
-
-	scope := canonicalScope(t)
-	sub, err := store.NewSubjectStore(srv.DB()).
-		Create(context.Background(), "fedcba9876543210fedcba9876543210", "codex-rot", "sess-original", scope, 4242, statusOpen)
-	if err != nil {
-		t.Fatalf("seed subject: %v", err)
-	}
-	registerOwner(t, "sess-original", scope, "owner-rot")
-
-	sdir, reply, logf := completedLane(t)
-	wakeOwner(wakeDeps(), sdir, cmdSpec{
-		Reply: reply, Log: logf,
-		Owner: "owner-rot", Session: "sess-rotated", Scope: scope, ClaudePID: 4242,
-	})
-
-	assertWakeDialed(t, logf)
-	waitForWake(t, srv.DB(), sub.ID, "owner-rot", reply)
-}
-
-// TestWorkerWakeFailsOpenWhenDaemonUnreachable runs the real worker with no
-// daemon and a broken autostart (os.Executable is the test binary, which exits on
-// a "daemon" argv): the worker still writes terminal status and exits 0.
-func TestWorkerWakeFailsOpenWhenDaemonUnreachable(t *testing.T) {
-	testExe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	home := shortHome(t)
-	runs := mustTempDir(t)
-	stubDir := mustTempDir(t)
-	writeStub(t, stubDir, stubCodexReply)
-	stub := filepath.Join(stubDir, "codex")
-
-	sdir, err := os.MkdirTemp(runs, "codex-ask.")
-	if err != nil {
-		t.Fatal(err)
-	}
-	reply := filepath.Join(sdir, "codex-r-x")
-	replyTmp := reply + ".tmp"
-	question := filepath.Join(sdir, "codex-q-x")
-	logf := filepath.Join(sdir, "codex-q-x.log")
-	writeFile(t, question, "ping\n")
-	writeFile(t, filepath.Join(sdir, "meta"), reply+"\n"+logf+"\n")
-	spec := cmdSpec{
-		Argv: []string{stub, "-o", replyTmp}, Question: question, Reply: reply, ReplyTmp: replyTmp, Log: logf,
-		Owner: "owner-x", Session: "sess-dead", Scope: "/no/such/scope", ClaudePID: 0,
-	}
-	cb, _ := json.Marshal(spec)
-	writeFile(t, filepath.Join(sdir, "cmd"), string(cb))
-
-	child := exec.Command(testExe, "-test.run=XXX_NO_TEST_XXX") //nolint:gosec // re-execs the test binary as the worker child
-	child.Env = append(os.Environ(),
-		"HOME="+home,
-		"CODEX_ASK_TEST_WORKER_SDIR="+sdir,
-		"CODEX_ASK_TEST_WAKE_MS=1500",
-		"PATH="+stubDir+string(os.PathListSeparator)+os.Getenv("PATH"),
-	)
-	out, err := child.CombinedOutput()
-	if err != nil {
-		t.Fatalf("worker exited non-zero (not fail-open): %v\n%s", err, out)
-	}
-	if got := strings.TrimSpace(readFile(filepath.Join(sdir, "status"))); got != "0" {
-		t.Fatalf("status = %q, want 0 (terminal status must survive a dead daemon)", got)
-	}
-	if got := strings.TrimSpace(readFile(reply)); got != "pong" {
-		t.Fatalf("reply = %q, want pong", got)
-	}
-	if got := readFile(logf); !strings.Contains(got, "owner wake failed (fail-open)") {
-		t.Fatalf("lane log carries no fail-open note, so runWorker never called wakeOwner:\n%s", got)
-	}
-}
-
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint:gosec // test fixture file
@@ -1159,145 +976,6 @@ func writePluginManifest(t *testing.T, root string) {
 	writeFile(t, filepath.Join(root, ".claude-plugin", "plugin.json"), `{"name":"codex"}`)
 }
 
-func serveInProcess(t *testing.T) *daemon.Server {
-	t.Helper()
-	srv, err := buildServer()
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	served := make(chan struct{})
-	go func() {
-		_ = srv.Serve(ctx)
-		close(served)
-	}()
-	t.Cleanup(func() {
-		cancel()
-		<-served
-	})
-	waitDaemonReady(t)
-	return srv
-}
-
-func wakeDeps() cmd.Deps {
-	d := deps()
-	// EnsureCurrent is stubbed: converging would replace the in-process daemon
-	// this test serves with the test binary's own build, closing its database.
-	d.EnsureCurrent = func(context.Context) error { return nil }
-	return d
-}
-
-func completedLane(t *testing.T) (sdir, reply, logf string) {
-	t.Helper()
-	sdir = mustTempDir(t)
-	reply = filepath.Join(sdir, "codex-r-x")
-	logf = filepath.Join(sdir, "codex-q-x.log")
-	writeFile(t, filepath.Join(sdir, "codex-q-x"), "ping\n")
-	writeFile(t, logf, "")
-	writeFile(t, reply, "pong\n")
-	writeFile(t, filepath.Join(sdir, "meta"), reply+"\n"+logf+"\n")
-	writeFile(t, filepath.Join(sdir, "status"), "0\n")
-	if got := classify(sdir).state; got != "completed" {
-		t.Fatalf("lane state = %q, want completed", got)
-	}
-	return sdir, reply, logf
-}
-
-func assertWakeDialed(t *testing.T, logf string) {
-	t.Helper()
-	if got := readFile(logf); strings.Contains(got, "owner wake failed") {
-		t.Fatalf("wake failed open: %s", strings.TrimSpace(got))
-	}
-}
-
-func waitDaemonReady(t *testing.T) {
-	t.Helper()
-	deadline := time.Now().Add(15 * time.Second)
-	var lastErr error
-	for time.Now().Before(deadline) {
-		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		client, err := newClient(ctx)
-		if err == nil {
-			reply, probeErr := client.Do(ctx, daemon.Envelope{Op: daemon.OpStatus, Scope: "/not/a/repo"})
-			_ = client.Close()
-			cancel()
-			if probeErr == nil && reply.OK {
-				return
-			}
-			lastErr = probeErr
-			time.Sleep(20 * time.Millisecond)
-			continue
-		}
-		lastErr = err
-		cancel()
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Fatalf("daemon never became ready: %v", lastErr)
-}
-
-func registerOwner(t *testing.T, session, scope, agentID string) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	client, err := newClient(ctx)
-	if err != nil {
-		t.Fatalf("client: %v", err)
-	}
-	defer func() { _ = client.Close() }()
-	body, _ := json.Marshal(map[string]any{
-		"agent_id": agentID, "agent_type": "worker", "session_id": session, "parent_agent_id": "",
-	})
-	reply, err := client.Do(ctx, daemon.Envelope{
-		Op: daemon.OpAgentStart, Session: session, ClaudePID: 0, Scope: scope, Body: body,
-	})
-	if err != nil {
-		t.Fatalf("agent-start: %v", err)
-	}
-	if !reply.OK {
-		t.Fatalf("agent-start not ok: %s", reply.Error)
-	}
-}
-
-// waitForWake polls the directives store until a directive to agentID names the
-// reply file, asserting the wake is content-free (never carries the payload).
-func waitForWake(t *testing.T, db *sql.DB, subjectID, agentID, replyFile string) {
-	t.Helper()
-	deadline := time.Now().Add(25 * time.Second)
-	var seen []string
-	for time.Now().Before(deadline) {
-		seen = directiveTexts(t, db, subjectID, agentID)
-		for _, text := range seen {
-			if strings.Contains(text, replyFile) {
-				if strings.Contains(text, "pong") {
-					t.Fatalf("wake directive carried the reply payload: %q", text)
-				}
-				return
-			}
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	t.Fatalf("wake naming %q never landed; directives: %v", replyFile, seen)
-}
-
-func directiveTexts(t *testing.T, db *sql.DB, subjectID, agentID string) []string {
-	t.Helper()
-	rows, err := db.QueryContext(context.Background(),
-		`SELECT text FROM directives WHERE subject_id=? AND agent_id=? ORDER BY id`, subjectID, agentID)
-	if err != nil {
-		t.Fatalf("query directives: %v", err)
-	}
-	defer func() { _ = rows.Close() }()
-	var out []string
-	for rows.Next() {
-		var text string
-		if err := rows.Scan(&text); err != nil {
-			t.Fatalf("scan directive: %v", err)
-		}
-		out = append(out, text)
-	}
-	return out
-}
-
 // killLane reaps a detached worker's whole process group (setsid'd off the test)
 // so a sleeping stub codex never outlives the run.
 func killLane(sdir string) {
@@ -1309,4 +987,35 @@ func killLane(sdir string) {
 		_ = syscall.Kill(-pgid, syscall.SIGKILL)
 	}
 	_ = syscall.Kill(pid, syscall.SIGKILL)
+}
+
+func TestRemovedSubcommandRefusesBeforeMinting(t *testing.T) {
+	bin := codexAskBin(t)
+	home := shortHome(t)
+	stubDir := mustTempDir(t)
+	writeStub(t, stubDir, stubCodexReply)
+	scope := canonicalScope(t)
+	for _, args := range [][]string{{"tools"}, {"channel", "--no-tools"}, {"channel-check"}, {"daemon"}, {"agent-start"}, {"direct", "ping"}, {"supervise"}} {
+		t.Run(args[0], func(t *testing.T) {
+			runs := mustTempDir(t)
+			var stderr bytes.Buffer
+			c := exec.Command(bin, args...) //nolint:gosec // runs the binary under test
+			c.Dir = scope
+			c.Env = dispatchEnv(home, "", runs, stubDir, scope)
+			c.Stderr = &stderr
+			if err := c.Run(); err == nil {
+				t.Fatalf("codex-ask %v exited 0", args)
+			}
+			if want := "codex-ask " + args[0] + ": removed in " + removedSubcommands[args[0]]; !strings.Contains(stderr.String(), want) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+			}
+			entries, err := os.ReadDir(runs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 0 {
+				t.Fatalf("codex-ask %v minted %d run entries", args, len(entries))
+			}
+		})
+	}
 }
