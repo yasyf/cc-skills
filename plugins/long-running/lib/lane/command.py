@@ -84,6 +84,13 @@ def main(argv: list[str] | None = None) -> int:
     messaging.add_argument("--link")
     messaging.add_argument("--ts")
 
+    hearing = verbs_parser.add_parser("heard", help="his message or tap in a lane's channel, pushed by cc-slack's heard_command, which finds the lane by its channel")
+    hearing.add_argument("--channel", required=True)
+    hearing.add_argument("--thread")
+    hearing.add_argument("--ts", required=True)
+    hearing.add_argument("--words", required=True)
+    hearing.add_argument("--link")
+
     parking = verbs_parser.add_parser("park")
     parking.add_argument("lane")
     parking.add_argument("--words", required=True)
@@ -174,6 +181,8 @@ def run(args: argparse.Namespace) -> int:
         case "message":
             drive, lane_id = where(args)
             print(f"{verbs.message(drive, lane_id, args.words, args.link, args.ts)} new")
+        case "heard":
+            print(voice.heard(args.channel, args.thread, args.words, args.link, args.ts))
         case "park":
             verbs.park(*where(args), args.words, args.link)
         case "ruling":
