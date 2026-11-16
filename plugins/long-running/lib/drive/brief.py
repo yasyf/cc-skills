@@ -240,6 +240,29 @@ def card_releases(text: str, data: dict) -> list[str]:
     return named
 
 
+INCIDENT_SCOPE_WORDS = "Of only llm-gateway or api or whatever the thing we need here is"
+
+
+def incident_scope(command: str, data: dict) -> list[str]:
+    """What the gate names on a hotfix of an open incident's fix, by gate.gate: no `--only`, so the release tool picks every component and partner the fix's commit reaches, or an `--only` naming one none of the PRs it hotfixes reaches, by the release provider's components read, by his words INCIDENT_SCOPE_WORDS; none when that read fails."""
+    from drive import cli, github
+
+    [flags] = started(command, data)
+    keys = [key for number in flags.get("hotfix", ()) if (key := f"{state.home(data)}#{number}") in data["prs"] and state.open_incidents(data, list(state.served_orders(data, data["prs"][key])))]
+    if not keys:
+        return []
+    try:
+        reached = sorted({component for reach in cli.release_reach(data["name"], data, keys).values() for component in reach["releases"]})
+    except (state.DriveError, reads.ReadError, providers.ProviderError, github.GithubError) as error:
+        print(f"drive job add: the components {', '.join(keys)} reach did not read, so its --only goes unchecked: {error}", file=sys.stderr)
+        return []
+    if not (only := flags.get("only")):
+        return [f'`{command}` hotfixes the open incident fix {", ".join(keys)} with no --only, so it ships whatever the release tool pairs with it, by his words "{INCIDENT_SCOPE_WORDS}": name with --only the components his words name, of the ones it reaches, {", ".join(reached) or "none"}']
+    if wider := sorted(set(only) - set(reached)):
+        return [f'`{command}` names {", ".join(wider)} in --only, which {", ".join(keys)} does not reach: it reaches {", ".join(reached) or "none"}']
+    return []
+
+
 def release_refusal(command: str, data: dict, reading: str | None = None, order_id: str | None = None) -> str | None:
     """Why `drive job add --release` may not start a command: it is not one `ci release start` or `hotfix` alone, naming in --order the answer of his it starts on unless it is a rehearsal() or the top coordinator gave its reading, or it deploys `--local`, which runs in the shell that starts it and starts no build its job could follow."""
     commands = simple_commands(command)

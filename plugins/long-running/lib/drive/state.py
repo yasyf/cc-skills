@@ -990,6 +990,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "reader_prs_handed": True,
         "stale_queued_dropped": True,
         "untested_restaged": True,
+        "incident_goes_given": True,
         "staging_approves_restored": True,
         "proofs_rehomed": True,
         "unowed_fails_undone": True,
@@ -1524,7 +1525,9 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         drop_stale_queued(data)
     if not data.get("untested_restaged"):
         restage_untested(data)
-    incident_goes(data)
+    if not data.get("incident_goes_given"):
+        incident_goes(data)
+        data["incident_goes_given"] = True
     if not data.get("staging_approves_restored"):
         restore_staging_approves(name, data)
     if not data.get("proofs_rehomed"):
@@ -3184,7 +3187,7 @@ def give_go(data: dict, key: str, order_id: str) -> None:
 
 
 def incident_goes(data: dict) -> None:
-    """Give each open PR serving an open incident-class order that order's go, by give_go, by his ruling that an open incident is his go to merge and hotfix its fix, with no session recording it: its dangerous change still keeps its staging test and his presence."""
+    """Give each open PR serving an open incident-class order that order's go, by give_go, by his ruling that an open incident is his go to merge and hotfix its fix, with no session recording it, run when drive order set makes an order an incident and once over a drive saved before it; drive pr add gives a PR registered later its go itself: its dangerous change still keeps its staging test and his presence."""
     going = {order_id for order_id, order in data["orders"].items() if has_go(order)}
     for key, pr in data["prs"].items() if going else ():
         if pr["state"] == "open" and not pr["go"] and (order_id := next((order_id for order_id in served_orders(data, pr) if order_id in going), None)):

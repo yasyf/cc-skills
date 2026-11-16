@@ -208,7 +208,8 @@ def deny_reason(payload: dict) -> str | None:
             return builder_refusal(text) or overloaded(data, text) or crowded(names[0], data, text)
         return unadmitted(names[0], data, text) if kind in BRIEFED else None
     except state.Refused as refused:
-        return agents.Unjudged(f"refused: the drive was too busy to count this agent's slot, so it does not start now: {refused}. Start it again")
+        print(f"agent_brief: started uncounted, since the drive was too busy to count this agent's slot: {refused}", file=sys.stderr)
+        return None
 
 
 def note(payload: dict) -> str | None:

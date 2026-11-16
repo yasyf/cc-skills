@@ -20,7 +20,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import agents, artifacts, brief, children, codex, github, install, land, limits, orca, owing, page_check, pages, picture, place, providers, published, reads, receiver, refs, render, served, settled, slack, state, superseded, watch, work
+from drive import agents, artifacts, brief, children, codex, gate, github, install, land, limits, orca, owing, page_check, pages, picture, place, providers, published, reads, receiver, refs, render, served, settled, slack, state, superseded, watch, work
 from drive.shell import simple_commands
 from drive.state import DriveError
 
@@ -1108,6 +1108,8 @@ def order_set(args: argparse.Namespace) -> int:
             order["class"] = args.order_class
         if args.incident is not None:
             order["incident"] = args.incident
+        if args.order_class or args.incident:
+            state.incident_goes(data)
         if followed:
             order["parts"][followed[0]].update(follow=followed[1], posted=None)
         for part in sorted_parts:
@@ -1798,7 +1800,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     refuse_a_mark_off_a_builder(args.kind, args.builds_nothing)
     lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
     found = check_waits(name, args.waits)
-    unreleased = args.release and (brief.release_refusal(args.release, known := state.load(name), args.reading, args.order) or brief.approval_refusal(args.release, known, args.reading, args.order) or brief.away_refusal("start", args.release, known, state.now()))
+    unreleased = args.release and (brief.release_refusal(args.release, known := state.load(name), args.reading, args.order) or brief.approval_refusal(args.release, known, args.reading, args.order) or brief.away_refusal("start", args.release, known, state.now()) or gate.gate(name, f"release {args.release}", brief.incident_scope(args.release, known)))
     if args.release and not unreleased:
         for line in filter(None, [brief.uncarried(args.release, known), *brief.release_notes([args.release], known)]):
             print(f"drive job add: {line}", file=sys.stderr)
@@ -5682,7 +5684,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         if parts:
             refuse_a_part_its_job_lacks(data, key, parts, False, "added")
             pr["parts"] = list(dict.fromkeys(parts))
-        if (given := next((order_id for order_id in state.served_orders(data, pr) if data["orders"][order_id]["go"]), None)) and read["state"] == "OPEN":
+        if (given := next((order_id for order_id in state.served_orders(data, pr) if state.has_go(data["orders"][order_id])), None)) and read["state"] == "OPEN":
             state.give_go(data, key, given)
         testers = [state.mark_dangerous(data, key, read["headRefOid"], [changed["path"] for changed in read["files"]])] if read["state"] == "OPEN" and read["files"] else []
         if approval:
