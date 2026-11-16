@@ -9,6 +9,7 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 from drive import agents, github, install, providers, served, state, train, view
@@ -154,9 +155,11 @@ def awaits_word(data: dict, pr: dict) -> bool:
 
 
 def not_ci(data: dict, paths: list[str]) -> list[str]:
-    """The paths outside CI configuration and CI tooling, as the repository's provider reads them, which no ci-only PR changes."""
+    """The paths no ci-only PR changes: each dangerous one first, by state.dangerous, since a dangerous change is never tooling whatever its directory, as go/ci/internal/release is not; then each outside CI configuration and CI tooling as the repository's provider reads them and outside the drive and CI tooling paths its toml's [[tooling]] tables list, by his rulings 02a1e36 and d2a8213 that a PR of only long-running or tooling fixes merges with no tap of his."""
     repo = providers.of(data).repo
-    return [path for path in paths if not repo.ci_config(path) and not repo.checkout_tools(path)]
+    found = {path for made in state.dangerous(data, paths).values() for path in made}
+    globs = [glob for table in state.repo_config(data).get("tooling", []) for glob in table["paths"]]
+    return [path for path in paths if path in found or not (repo.ci_config(path) or repo.checkout_tools(path) or any(fnmatchcase(path, glob) for glob in globs))]
 
 
 def outside(data: dict, exempt: str, key: str, read: dict) -> str:

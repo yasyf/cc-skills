@@ -6937,6 +6937,15 @@ def dangerous_repo(tmp_path: Path, on_github: dict, changed: list[str]) -> None:
     on_github |= {"changedFiles": len(changed), "files": [{"path": path} for path in changed]}
 
 
+def test_a_pr_of_only_the_tooling_paths_the_repositorys_toml_lists_is_ci_only_and_a_dangerous_path_among_them_never_is(home_repo: None, demo: str, tmp_path: Path) -> None:
+    (tmp_path / ".claude").mkdir(exist_ok=True)
+    tooling = '[[tooling]]\nclass = "drive and CI tooling"\npaths = [".claude/long-running*", ".agents/skills/*", "tools/*", "api/migrations/tools/*"]\n'
+    (tmp_path / state.REPO_RULES).write_text(DANGEROUS_TOML + tooling)
+    data = state.load(demo)
+    assert land.not_ci(data, [".claude/long-running.toml", ".claude/long-running/providers.py", ".agents/skills/submit-pr/SKILL.md", "tools/drive-lint"]) == []
+    assert land.not_ci(data, ["tools/drive-lint", "api/migrations/tools/seed.sql", "api/src/run.ts"]) == ["api/migrations/tools/seed.sql", "api/src/run.ts"]
+
+
 def test_pr_add_stages_a_monorepo_pr_whose_head_changes_a_dangerous_class_of_file_with_a_tester_naming_each_class_and_its_files_and_none_that_changes_only_tests_docs_and_skipped_paths(
     home_repo: None,
     run: Run, demo: str, on_github: dict, tmp_path: Path

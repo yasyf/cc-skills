@@ -367,8 +367,10 @@ Approve.
   data model is a design part of its order, and `drive pr add` and `drive pr set` refuse it.
 - `test-only`: only test and fixture files.
 - `ci-only`: only CI configuration and CI tooling: `.github/` and the CI tool's
-  source, pipeline definitions and shims the repository lists under `## In this repository`. The
-  class comes from the paths: the first registration of a PR he opened, by `drive pr add`, a
+  source, pipeline definitions and shims the repository lists under `## In this repository`, and
+  the drive and CI tooling paths its `.claude/long-running.toml` lists in `[[tooling]]` tables, by
+  his rulings that a PR of only long-running or tooling fixes merges with no tap of his. A dangerous
+  path is never tooling, whatever its directory. The class comes from the paths: the first registration of a PR he opened, by `drive pr add`, a
   builder's `READY` or `PUSHED` or a report's `FIX` line, keeps it `ci-only` when no class or port
   is named and every changed file is CI. A revert on an open incident's order keeps his tap.
 - `flake fix`: the whole change fixes one named flaking test at its cause and adds no retry, skip,
