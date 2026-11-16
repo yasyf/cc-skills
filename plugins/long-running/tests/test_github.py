@@ -806,22 +806,22 @@ def test_carrier_counts_a_build_at_or_after_a_merge_on_the_line_or_a_hotfix_cher
     assert git_in(clone, "cat-file", "-t", unpicked) == "commit"
 
 
-def test_carrier_counts_a_hotfix_copy_of_a_pr_by_the_source_pr_its_message_records_or_by_its_changes_patch_id_whatever_its_subject(tmp_path: Path) -> None:
+def test_carrier_counts_a_hotfix_copy_of_a_pr_only_by_its_changes_patch_id_never_by_a_message_naming_it_as_a_revert_does(tmp_path: Path) -> None:
     origin, clone = tmp_path / "origin", tmp_path / "clone"
     origin.mkdir()
     git_in(origin, "init", "-q", "-b", "main")
-    old = commit_files(origin, "Fix: the lander (#1)", {"a": "a\n"})
+    old = commit_files(origin, "Fix: the lander (#1)", {"a": "a\n", "b": "b before\n"})
     merge = commit_files(origin, "Fix: the watch (#2)", {"b": "b\n"})
-    git_in(origin, "checkout", "-q", "-b", "recorded", old)
-    recorded = commit_files(origin, "hotfix: releases/2026-11-16/7\n\nSource PRs: #2", {"b": "b changed on the way\n"})
     git_in(origin, "checkout", "-q", "-b", "copied", old)
     copied = commit_files(origin, "hotfix: watch fix for prod", {"b": "b\n"})
-    git_in(origin, "checkout", "-q", "-b", "other", old)
-    other = commit_files(origin, "hotfix: desktop only", {"d": "d\n"})
+    git_in(origin, "checkout", "-q", "-b", "reverted", old)
+    reverted = commit_files(origin, "Revert \"Fix: the watch (#2)\"\n\nThis reverts #2 on prod.", {"b": "b reverted\n"})
+    git_in(origin, "checkout", "-q", "-b", "named", old)
+    named = commit_files(origin, "Follow-up to #2: the page (#2)", {"d": "d\n"})
     git_in(origin, "checkout", "-q", "main")
     git_in(tmp_path, "clone", "-q", "--single-branch", "-b", "main", str(origin), str(clone))
     carries = github.carrier(str(clone))
-    assert [carries(build, merge, 2) for build in (recorded, copied, other)] == [True, True, False]
+    assert [carries(build, merge, 2) for build in (copied, reverted, named)] == [True, False, False]
 
 
 def test_uncarried_finds_each_file_a_pr_changes_since_its_fork_among_a_builds_own_changes_on_any_line_squashed_or_replayed_and_lets_an_unembedded_agent_doc_or_test_differ_as_cut_6ea037ed0480_needed(
