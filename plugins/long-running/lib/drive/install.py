@@ -745,10 +745,11 @@ def repair(data: dict, job_id: str) -> bool:
 
 
 def handed_prs(data: dict, job_id: str) -> list[str]:
-    """The PRs a prover proves live, those its goal names, as proves reads them, on a builder that opened no PR and waits on nothing, such as the release holding a merge, but its own after-merge staging waits, which its agent met by running that pass and the watch drops only at its next release live read, and the his-word wait its own proof's WAITING keeps, whose proof the watch runs again once he is heard, once each merged; none for any other job."""
+    """The PRs a prover proves live, those its goal names, as proves reads them, on a builder that opened no PR and waits on nothing, such as the release holding a merge, but its own after-merge staging waits, which its agent met by running that pass and the watch drops only at its next release live read, the his-word wait its own proof's WAITING keeps, and the wait on its worker that drive work pull wrote when the prove queue handed it out, whose proof the watch runs again once he is heard, once each merged; none for any other job."""
     job = data["jobs"][job_id]
     keys = proves(data, job_id)
-    if job["prs"] or any(not (state.STAGING_WAIT.fullmatch(wait) or state.HIS_WORD_WAIT.fullmatch(wait)) for wait in job["waits"]) or not all(data["prs"][key]["merged_sha"] for key in keys):
+    claimed = (job.get("claim") or {}).get("worker")
+    if job["prs"] or any(not (state.STAGING_WAIT.fullmatch(wait) or state.HIS_WORD_WAIT.fullmatch(wait) or wait == claimed) for wait in job["waits"]) or not all(data["prs"][key]["merged_sha"] for key in keys):
         return []
     return keys
 

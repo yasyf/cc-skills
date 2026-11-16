@@ -5715,14 +5715,14 @@ def cut_binds(watcher: Watcher, data: dict, waiting: list[str]) -> dict[str, str
     binds: dict[str, str | None] = {}
     for job_id, merges in proven.items():
 
-        def held(commit: str, merges: dict[str, str] = merges) -> bool:
+        def held(commit: str, merges: dict[str, str]) -> bool:
             return any(carries(commit, sha, github.split(data["prs"][key]["into"] or key)[2]) for key, sha in merges.items())
 
         def served(key: str, sha: str) -> bool:
             ships = reach[key]["releases"] if key in reach else None
             return any(carries(row["commit"], sha, github.split(data["prs"][key]["into"] or key)[2]) for row in serving if ships is None or row["target"] in ships)
 
-        if cut := next((cut_id for cut_id, start in cuts.items() if start(merges, held)), None):
+        if cut := next((cut_id for cut_id, start in cuts.items() if start(merges, held, reach)), None):
             binds[job_id] = cut
         elif merges and all(served(key, sha) for key, sha in merges.items()):
             binds[job_id] = None
@@ -5738,8 +5738,8 @@ def backlog(data: dict) -> list[str]:
     return [job_id for job_id, job in data["jobs"].items() if job.get("cut") == "backlog" and state.untaken(job)]
 
 
-def drive_cuts(data: dict, checkout: str) -> dict[str, Callable[[dict[str, str], Callable[[str], bool]], bool]]:
-    """Each production cut the drive started that still follows its release, its job holding the build it started, by state.starts_cut, mapped to whether it carries a prover's merges: its --from commit holding one, or, for a start naming none, its start coming after one merged."""
+def drive_cuts(data: dict, checkout: str) -> dict[str, Callable[[dict[str, str], Callable[[str, dict[str, str]], bool], dict[str, dict]], bool]]:
+    """Each production cut the drive started that still follows its release, its job holding the build it started, by state.starts_cut, mapped to whether it carries a prover's merges, by cut_carries."""
     cuts = {}
     for job_id, job in data["jobs"].items():
         if not state.follows_release(job):
@@ -5747,12 +5747,29 @@ def drive_cuts(data: dict, checkout: str) -> dict[str, Callable[[dict[str, str],
         starts = brief.started(job["brief_flags"]["release"], data)
         if not starts or any(not all(settled.prod(env, checkout) for env in flags.get("env", ())) for flags in starts):
             continue
-        cuts[job_id] = functools.partial(cut_carries, [commit for flags in starts for commit in flags.get("from", ())], state.parse_time(job["created"]))
+        cuts[job_id] = functools.partial(cut_carries, starts, state.parse_time(job["created"]), providers.of(data).release.whole)
     return cuts
 
 
-def cut_carries(commits: list[str], created: datetime, merges: dict[str, str], held: Callable[[str], bool]) -> bool:
-    return any(map(held, commits)) if commits else any(state.parse_time(install.merged_at(github.repo_of(key), sha)) <= created for key, sha in merges.items())
+def cut_carries(starts: list[dict[str, tuple[str, ...]]], created: datetime, whole: str, merges: dict[str, str], held: Callable[[str, dict[str, str]], bool], reach: dict[str, dict]) -> bool:
+    """Whether a cut's starts carry one of a prover's merges, so a cut wakes only the provers whose merges it ships, as j8088 woke on hotfix j8115 and j8159 on desktop cut j8149 shipping none of theirs: a merge counts only where a start ships a target its PR reaches, by cut_ships, a hotfix only the PRs it names, and a start with a --from commit only when that commit holds the merge, by merge-base ancestry, else when the start came after the merge."""
+    for flags in starts:
+        shipped = {key: sha for key, sha in merges.items() if cut_ships(flags, key, reach, whole)}
+        if flags.get("hotfix"):
+            shipped = {key: sha for key, sha in shipped.items() if key.split("#")[1] in flags["hotfix"]}
+            if shipped:
+                return True
+        elif flags.get("from") and any(held(commit, shipped) for commit in flags["from"] if shipped):
+            return True
+        elif not flags.get("from") and any(state.parse_time(install.merged_at(github.repo_of(key), sha)) <= created for key, sha in shipped.items()):
+            return True
+    return False
+
+
+def cut_ships(flags: dict[str, tuple[str, ...]], key: str, reach: dict[str, dict], whole: str) -> bool:
+    """Whether a release start ships what a PR reaches: it names no target, names the whole release, or names a target among those the repository's release reach finds the PR's paths reaching."""
+    targets = set(flags.get("targets", ()))
+    return not targets or whole in targets or bool(targets & set((reach.get(key) or {}).get("releases", ())))
 
 
 def doubled(data: dict) -> list[str]:

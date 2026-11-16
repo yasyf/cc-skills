@@ -12755,3 +12755,20 @@ def test_a_staging_testers_staging_line_lists_each_case_its_pr_requires_and_its_
     monkeypatch.setattr("sys.stdin", io.StringIO(f"DONE #42 passed on staging\n{check}\nCASE the run page: pass\n"))
     assert cli.main(["job", "report", "j1", "-"]) == 0
 
+
+
+def test_drive_work_done_takes_the_waiting_line_a_provers_merge_handoff_names_and_the_item_wakes_only_once_staging_serves_it(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it", "--parts", "the store", "the queue")
+    run("job", "add", "builder", "--order", "o1", "--part", "the store", "--goal", "ship")
+    run("job", "add", "builder", "--order", "o1", "--part", "the queue", "--goal", "work the queue")
+    started(demo, "j1", "j2")
+    wait = "staging:api/plat-usw2-staging@4a9dacfe1ddfeb41f6588afbdcbb37bff158dd16"
+
+    def claimed(data: dict) -> None:
+        data["jobs"]["j1"].update(claim={"worker": "j2", "attempt": 1, "at": state.stamp()}, waits=["j2"])
+
+    state.write(demo, claimed)
+    assert "staging-slot" not in install.PROVER_WAIT
+    work.done(demo, "j2", "j1", f"WAITING {wait}\n")
+    data = state.load(demo)
+    assert (data["jobs"]["j1"]["claim"], data["jobs"]["j1"]["waits"], work.KIND[work.PROVE].blocking(data, "j1")) == (None, [wait], [wait])

@@ -12712,3 +12712,32 @@ def test_a_watch_text_reaches_a_job_once_until_its_next_return_and_a_possessive_
     assert [wait.partition("@")[0] for wait in data["jobs"]["j1"]["waits"] if state.LINE_JOB.match(wait)] == ["j2"]
     with edit(demo) as data:
         assert state.hold_text(data["jobs"]["j1"], stop, state.WATCH_SENDER)
+
+
+def test_a_hotfix_cut_wakes_only_the_provers_of_the_prs_it_hotfixes_as_j8088_woke_on_hotfix_j8115() -> None:
+    created = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
+    reach = {"Forge-AI/monorepo#57290": {"releases": ["cloudrunner-next"]}, "Forge-AI/monorepo#57616": {"releases": ["api"]}}
+    hotfix = [{"hotfix": ("57616",), "without": ("plat-usw2-staging",)}]
+    assert watch.cut_carries(hotfix, created, "everything", {"Forge-AI/monorepo#57290": "a2ee567"}, lambda commit, merges: True, reach) is False
+    assert watch.cut_carries(hotfix, created, "everything", {"Forge-AI/monorepo#57616": "de40bfd"}, lambda commit, merges: True, reach) is True
+
+
+def test_a_cut_wakes_only_the_provers_whose_prs_reach_a_target_it_ships_as_j8159_woke_on_desktop_cut_j8149() -> None:
+    created = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
+    reach = {"Forge-AI/monorepo#57499": {"releases": ["llm-gateway"]}}
+    merges = {"Forge-AI/monorepo#57499": "abc1234"}
+    holds = lambda commit, shipped: bool(shipped)
+    assert watch.cut_carries([{"targets": ("desktop",), "from": ("4ebbdc5",)}], created, "everything", merges, holds, reach) is False
+    assert watch.cut_carries([{"targets": ("llm-gateway",), "from": ("4ebbdc5",)}], created, "everything", merges, holds, reach) is True
+    assert watch.cut_carries([{"targets": ("everything",), "from": ("4ebbdc5",)}], created, "everything", merges, holds, reach) is True
+
+
+def test_drive_job_prove_runs_on_a_prover_the_prove_queue_handed_out_its_wait_on_its_worker_ignored(demo: str) -> None:
+    key = "Forge-AI/monorepo#57077"
+    with edit(demo) as data:
+        data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged", "merged_sha": "aaa111"}
+        data["jobs"]["j9"] = state.new_job("o1", "builder", f"prove {key} live", [], state.stamp()) | {"waits": ["j10"], "claim": {"worker": "j10", "attempt": 1, "at": state.stamp()}}
+    assert install.handed_prs(state.load(demo), "j9") == [key]
+    with edit(demo) as data:
+        data["jobs"]["j9"]["waits"] = ["j11"]
+    assert install.handed_prs(state.load(demo), "j9") == []
