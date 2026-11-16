@@ -201,9 +201,12 @@ def deny_reason(payload: dict) -> str | None:
         return refused
     if kind == BUILDER and role not in (None, "meta") and brief.SERVES_TOOLING.search(text):
         return tooling_refusal(names[0], data, text, role)
-    if kind == BUILDER:
-        return builder_refusal(text) or overloaded(data, text) or crowded(names[0], data, text)
-    return unadmitted(names[0], data, text) if kind in BRIEFED else None
+    try:
+        if kind == BUILDER:
+            return builder_refusal(text) or overloaded(data, text) or crowded(names[0], data, text)
+        return unadmitted(names[0], data, text) if kind in BRIEFED else None
+    except state.Refused as refused:
+        return agents.Unjudged(f"refused: the drive was too busy to count this agent's slot, so it does not start now: {refused}. Start it again")
 
 
 def note(payload: dict) -> str | None:

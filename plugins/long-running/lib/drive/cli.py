@@ -189,7 +189,7 @@ def start(args: argparse.Namespace) -> int:
         watched_channels.extend(channel for channel in dict.fromkeys(args.watch) if channel not in watched_channels)
         return data
 
-    data = state.update_or_create(args.name, fresh, started)
+    data = state.create_or_write(args.name, fresh, started)
     state.migrate(args.name)
     held = fresh["roles"][args.role]
     registered = "" if state.scratch() else f"{agents.register(args.name, args.role, args.project, held['cwd'], held['session'])}\n"
@@ -1690,7 +1690,7 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
             order["parts"][part]["posted"] = link
         return order, rooted
 
-    order, rooted = state.write(name, keep)
+    order, rooted = state.write(name, keep, patient=True)
     quoted = ", ".join(f'"{part}"' for part in delivered)
     said = f"{quoted}: posted" if delivered else f"{'closing' if closing else 'progress'} line, no part delivered:"
     away = "" if ours else f", {'in a thread of another channel its members read' if posted.get('thread_ts') else 'at the root of another channel'}, so it is no line to him"
@@ -6693,8 +6693,10 @@ def mac_boxes_hand(args: argparse.Namespace) -> int:
             else:
                 print(f"{job_id}: {error}", file=sys.stderr)
                 return 1
-        with state.edit(name) as data:
-            ended = state.mac_box_handed(data, job_id, f"{job_id}-mac")
+        def handed(data: dict, job: str = job_id) -> tuple[list[str], dict]:
+            return state.mac_box_handed(data, job, f"{job}-mac"), data
+
+        ended, data = state.write(name, handed, patient=True)
         state.append_event(name, "mac_box_handed", job=job_id, box=f"{job_id}-mac", host=None, ended=ended)
         print(f"{job_id}: handed box {job_id}-mac")
     return 0

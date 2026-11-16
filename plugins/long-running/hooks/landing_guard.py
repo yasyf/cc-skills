@@ -897,7 +897,10 @@ def verdict() -> dict | None:
     if reason:
         return denial(reason) if os.environ.get(state.OWN_JOB_ENV) else denial(reason) | {"judged": bool(judged)} | agents.ruled(reason)
     agents.hold(payload)
-    held_posts(payload)
+    try:
+        held_posts(payload)
+    except state.Refused as refused:
+        return denial(f"Refused on purpose: the drive was too busy to hold this post on the job it names, so it is not sent: {refused}. Run it again")
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": context}} if context else None
 
 

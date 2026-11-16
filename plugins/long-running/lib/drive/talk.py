@@ -301,8 +301,7 @@ def unrecorded(name: str, text: str) -> None:
 def record_kept(name: str, kept: Path) -> str:
     """Record a say post on its order from the receipt `recording` kept, waiting out the drive lock however long it is held, since the post is already out, and writing the line it ends with back into the receipt; one that cannot be recorded is sent to the meta session as a defect naming the receipt."""
     receipt = json.loads(kept.read_text())
-    with state.waiting_out_lock():
-        line = recorded(name, receipt, f"; receipt {kept}")
+    line = recorded(name, receipt, f"; receipt {kept}")
     tmp = kept.with_suffix(".tmp")
     tmp.write_text(json.dumps(receipt | {"line": line}))
     os.replace(tmp, kept)

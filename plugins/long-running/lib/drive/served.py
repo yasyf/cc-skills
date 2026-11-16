@@ -206,15 +206,15 @@ def kept(name: str, key: str, result: dict) -> str:
 
 
 def kept_outcome(name: str, key: str, result: dict, outcome: str) -> str:
-    """Keep a check's outcome as kept says, a write of each judged PR's checker, checked and tap alone, so no other write of the drive waits on it."""
-    with state.edit(name, tuple(("prs", member, field) for member in result["heads"] for field in ("checker", "checked", "tap"))) as data:
+    """Keep a check's outcome as kept says, a write of each judged PR's checker, checked and tap, which runs again on the drive as it then stands when another write committed a row it read meanwhile, so no other write of the drive waits on it."""
+    def checked(data: dict) -> list[str] | None:
         fresh = [
             member
             for member in result["heads"]
             if not ((checker := data["prs"][member]["checker"]) and checker["pid"] != result["pid"] and state.parse_time(checker["at"]) > state.parse_time(result["at"]))
         ]
         if key not in fresh:
-            return f"{outcome}; not kept, since another check of {key} started while this one judged"
+            return None
         for member in fresh:
             pr, said = data["prs"][member], result["outcomes"][member]
             if result["checked"]:
@@ -225,6 +225,10 @@ def kept_outcome(name: str, key: str, result: dict, outcome: str) -> str:
             }
             if result["against"] and pr["state"] == "open" and (pr["tap"] or {}).get("approval"):
                 pr["tap"] = None
+        return fresh
+
+    if (fresh := state.write(name, checked)) is None:
+        return f"{outcome}; not kept, since another check of {key} started while this one judged"
     data = state.load(name)
     for member in fresh:
         if (said := result["outcomes"][member]).startswith(CHECKED):
@@ -543,9 +547,12 @@ def kept_answers(name: str, data: dict, key: str) -> dict[str, list[str]]:
     if pr["answers"] is not None:
         return pr["answers"]
     read = answers(data, [pr["design"] or ""], view.live_cards(name))
-    with suppress(state.Refused), state.edit(name, (("prs", key, "design"), ("prs", key, "answers"))) as data:
+    def cited(data: dict) -> None:
         if data["prs"][key]["design"] == pr["design"]:
             data["prs"][key]["answers"] = read
+
+    with suppress(state.Refused):
+        state.write(name, cited)
     return read
 
 

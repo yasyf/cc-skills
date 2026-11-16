@@ -682,8 +682,7 @@ def record_kept(name: str, kept: Path) -> None:
                 events.append(("refused", told | {"reason": change["refused"]}))
         return events
 
-    with state.waiting_out_lock():
-        events = state.write(name, applied)
+    events = state.write(name, applied, patient=True)
     for kind, fields in events:
         state.append_event(name, kind, **fields)
     kept.unlink()
