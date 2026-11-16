@@ -255,6 +255,10 @@ class MacBoxProvider(Provider):
     def affected(self, components: list[str]) -> bool:
         return False
 
+    def affected_paths(self, paths: list[str]) -> bool:
+        """Whether a PR changing paths needs its staging cases run on a Mac box though no component it reaches does, read only when the repository defines it."""
+        return False
+
     def live_commit(self) -> str:
         raise ProviderError("this repository proves no build on a Mac box")
 
