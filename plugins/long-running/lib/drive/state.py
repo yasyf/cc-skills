@@ -113,6 +113,7 @@ TAP_LABELS = ("Approve", "Hold")
 CARDS_FIRST = 'fe09e93 "Buttons only after you answer each question"'
 UNSCHEDULED_RULING = '785e260, "unacceptable", on a card for cutover work while the cutover is not on'
 TOOLING = "Drive tooling:"
+UNASKED_READERS_A_DAY = 10
 TOOLING_DETAILS_RULING = "43aa665"
 REHEARSAL_RULING = "716e70d"
 FRESH_DETAILS_RULING = "ff17121"
@@ -5264,6 +5265,21 @@ def thread_attr(order: dict) -> dict:
 def unasked_tooling(order: dict) -> bool:
     """Whether an order is drive tooling a session opened, from its terminal or one of its records, so no message of his, no thread of his and no teammate's report: a fix nobody asked for, whose close posts no line, its order page on the dashboard showing it live."""
     return order["text"].startswith(TOOLING) and not order["thread"] and not order["reporters"]
+
+
+def unasked_reader_refusal(data: dict, order_id: str, kind: str, moment: str) -> str | None:
+    """Why no reader starts on a drive tooling order a session opened once UNASKED_READERS_A_DAY readers started on such orders this day, by his words of Nov 15 "drive-tooling orders costing so much means we have a lot of cruft and waste to cut down there": the order stays open with no job, so a repeat of it joins it, until a later day, or `drive order set <o> --priority` when it holds back work he waits on; None for any other add."""
+    order = data["orders"][order_id]
+    if kind != "reader" or order["incident"] or order["priority"] or not unasked_tooling(order):
+        return None
+    day = moment[:10]
+    started = sum(1 for job in data["jobs"].values() if job["kind"] == "reader" and job["created"][:10] == day and unasked_tooling(data["orders"][job["order"]]))
+    if started < UNASKED_READERS_A_DAY:
+        return None
+    return (
+        f"{started} readers started today on drive tooling orders no message of his asked for, the most a day takes, so {order_id} stays open with no job"
+        f" for a repeat to join and a later day to start; drive order set {order_id} --priority lifts the cap when it holds back work he waits on"
+    )
 
 
 def pr_threads(data: dict, keys: list[str]) -> list[tuple[str, str]]:

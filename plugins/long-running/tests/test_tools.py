@@ -47,6 +47,20 @@ def test_a_job_call_whose_inline_tooling_order_repeats_an_open_one_adds_no_job_a
     assert (list(state.load(meta)["jobs"]), len([request for request in jev.asked if any(key.startswith("repeats.") for key in request["questions"])])) == (["j1", "j2"], 1)
 
 
+def test_a_job_call_past_the_days_cap_of_readers_on_unasked_tooling_orders_adds_its_order_with_no_job_until_it_is_priority(meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(state, "UNASKED_READERS_A_DAY", 1)
+    filed = {"title": "Install lock stall", "project": "The drive", "workstream": "Drive tooling"}
+    tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL}, "goal": "research: the install lock"}}]})
+    said = tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL_AGAIN}, "goal": "research: the install stall"}}]})
+    assert said.splitlines()[1].startswith("1 job add: none, since 1 readers started today on drive tooling orders no message of his asked for")
+    assert (state.load(meta)["orders"]["o2"]["jobs"], list(state.load(meta)["jobs"])) == ([], ["j1", "j2"])
+    with pytest.raises(DriveError, match="the most a day takes"):
+        tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": "o2", "goal": "research: the install stall"}}]})
+    with state.edit(meta) as data:
+        data["orders"]["o2"]["priority"] = True
+    assert tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": "o2", "goal": "research: the install stall"}}]}).startswith("1 job add: j3")
+
+
 def test_a_job_call_whose_inline_order_add_first_prints_jevs_join_note_adds_its_job_on_the_order_that_add_made(meta: str, jev: Jev) -> None:
     filed = {"title": "Install lock stall", "project": "The drive", "workstream": "Drive tooling"}
     tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL}, "goal": "research: the install lock"}}]})

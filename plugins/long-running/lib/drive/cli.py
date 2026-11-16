@@ -1520,6 +1520,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             or next((removing[part] for part in parts if part in removing), None)
             or (args.model == "astra" and not re.search(r"\bastra\b", order["text"], re.IGNORECASE) and f"--model astra runs only on an order whose words name astra, which {args.order}'s do not")
             or proven_again(data, args.order, args.kind, args.goal)
+            or state.unasked_reader_refusal(data, args.order, args.kind, created)
             or unlandable(data, lands)
             or state.job_wait_refusal(data, args.waits)
             or brief.job_refusal(data, args.order, args.kind, parts, bool(lands or args.release or args.builds_nothing or args.kind == "builder" and args.branch), args.waits)
