@@ -1674,3 +1674,13 @@ def test_a_picture_already_shown_in_a_thread_or_its_root_is_dropped_from_a_post_
     talk.shown_pictures(demo, ("C1", "1.2"), [str(chart)])
     assert talk.unshown(demo, ("C1", "1.2"), [str(copy), str(other)]) == ([str(other)], ["copy.png"])
     assert talk.unshown(demo, ("C1", "9.9"), [str(copy)]) == ([str(copy)], [])
+
+
+def test_a_release_reference_links_its_platy_post_and_one_naming_no_post_refuses(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    platy = "https://acme.slack.com/archives/C0REL/p1794826033725399"
+    monkeypatch.setattr(slack, "release_post", lambda key: platy if key in ("wavy-mckay", "17672") else None)
+    found = refs.resolved(demo, "{release:wavy-mckay} is live, as is {release:17672|the infra release}.")
+    assert found["{release:wavy-mckay}"] == {"kind": "release", "title": "wavy-mckay", "url": platy, "board": platy}
+    assert found["{release:17672|the infra release}"]["url"] == platy
+    with pytest.raises(DriveError, match=r"\{release:nope\} names no Platy post in #releases"):
+        refs.resolved(demo, "{release:nope} is live.")

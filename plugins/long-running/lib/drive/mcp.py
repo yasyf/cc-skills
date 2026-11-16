@@ -36,7 +36,7 @@ INSTRUCTIONS = (
     " shows it on the drive's dashboard."
     " Name a card as {card:<waits id>}, a PR the drive holds as {pr:<number>} and any other as"
     " {pr:<owner/repo#number>|<what it does>}, an order as {order:<id>}, a ruling of his as"
-    " {answer:<id>} and the record that measured a cause or number as {record:<seq>|<what that read measured>} in its text, and the tool links each the way each surface"
+    " {answer:<id>}, a release as {release:<its Platy name or build number>}, which links its Platy post in #releases, never its Buildkite build, and the record that measured a cause or number as {record:<seq>|<what that read measured>} in its text, and the tool links each the way each surface"
     " shows it, under its title or under the words after a |, as {pr:298|the fix that draws charts}, a record always under the words after its |. When a job started or a"
     " record went out is {started:<job>} or {at:<seq>}, which say fills from the drive's stamps, {started:<job>} labelled as"
     " the job's start; neither is ever when a release, build or deploy started, which is quoted as its build or tool printed"

@@ -86,6 +86,8 @@ def resolved(name: str, text: str) -> dict[str, dict]:
                 found[match[0]] = started(data, match[2], label)
             case "at":
                 found[match[0]] = posted_at(name, match[2])
+            case "release":
+                found[match[0]] = release(match[2])
         if label:
             found[match[0]] |= {"own": found[match[0]]["title"], "title": label}
     return found
@@ -239,6 +241,17 @@ def order(name: str, data: dict, order_id: str) -> dict:
     board = f"#/feature/{order_id}"
     url = view.thread_url(data, view.stored_cards(name)[0]["team_url"], data["orders"][order_id]) or dashboard.link(name) + board
     return {"kind": "order", "title": view.order_title(data["orders"][order_id]), "url": url, "board": board}
+
+
+def release(key: str) -> dict:
+    """A release under its name, linked to its Platy post in #releases, which he reads, never its Buildkite build, by his words "no one looks at those"."""
+    try:
+        url = slack.release_post(key)
+    except slack.SlackError as error:
+        raise DriveError(f"{{release:{key}}}: #releases could not be read: {error}") from None
+    if not url:
+        raise DriveError(f"{{release:{key}}} names no Platy post in #releases by that release name or build number; name the release as Platy does, such as wavy-mckay")
+    return {"kind": "release", "title": key, "url": url, "board": url}
 
 
 def record(name: str, seq: str, label: str) -> dict:

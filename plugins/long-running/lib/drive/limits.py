@@ -316,7 +316,7 @@ RELEASE_START = (
     ),
     re.compile(r"\b(?:start(?:s|ed|ing)?|began|begun|begins?|kicked off|launched)\b", re.IGNORECASE),
 )
-REF = re.compile(r"\{(card|pr|order|record|answer|started|at):([^{}\s|\\]+)(?:\\?\|([^{}]+))?\}")
+REF = re.compile(r"\{(card|pr|order|record|answer|started|at|release):([^{}\s|\\]+)(?:\\?\|([^{}]+))?\}")
 UNTYPED = "link"
 PR_LINK = re.compile(rf"<(?P<link>{PR_URL.pattern})[^|<>\s]*(?:\|(?P<words>[^<>]*))?>|{PR_URL.pattern}")
 STAMPED = {
