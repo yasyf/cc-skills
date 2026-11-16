@@ -1,5 +1,6 @@
 import ctypes
 import fcntl
+import functools
 import gc
 import hashlib
 import itertools
@@ -4891,11 +4892,12 @@ def edit(name: str, rows: tuple[Row, ...] | None = None) -> Iterator[dict]:
         if outside := outside_rows(was := marshal.loads(base), data, rows):
             raise DriveError(f"refused, nothing kept: a write of {', '.join('.'.join(filter(None, row)) for row in rows)} changed {', '.join('.'.join(filter(None, row)) for row in outside)} too")
         try:
-            rows_saved(name, held, was, data, rows)
+            _, post = rows_saved(name, held, was, data, rows)
         except Raced as raced:
             with open(drive_dir(name) / "locks.log", "a") as log:
                 log.write(f"{stamp()} pid {os.getpid()} refused: another write changed {'.'.join(raced.args[0])} while it ran: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
             raise Refused(f"refused, nothing kept: another write changed {'.'.join(raced.args[0])} while this ran, so send it again") from None
+    ran(post, [])
 
 
 def changed_since(name: str, rev: int) -> tuple[int, set[Row] | None]:
@@ -4950,8 +4952,8 @@ class Budget(NamedTuple):
         return max(self.asked + self.seconds - time.monotonic(), 0)
 
 
-def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows: tuple[Row, ...], since: int | None = None, reads: frozenset[Row] = frozenset(), budget: Budget | None = None) -> None:
-    """Save a write of rows alone in one short transaction of the drive's database, writing only the records the rows name: each as mine holds it, a row naming one field of a record that field alone on the record as the database holds it, while every record reads as held, the database's when the write loaded the drive as base; Raced at the first another write changed since, even to the value mine holds, since a write that read it may have counted on what it held; with since, the revision of the drive base was loaded at, Raced instead at the first row any write committed after it that is one of the records, one reads names or the order of a job the save finishes, whose standing part keeps its texts, a record or every record of a collection by "*", or at any once the changed table no longer reaches back to it. It waits on the drive's lock and then the database's write lock no longer than budget leaves, DRIVE_LOCK_SECONDS from now unless named, or for good under waiting_out_lock, then raises Busy, keeping nothing. New records take places after the collection's last in the order mine holds them. A job the save moves into done or stopped drops the texts it holds, as rewrite drops them, and each it moves into done, failed or stopped takes down its Mac boxes; once saved, each open order the save moved to another lane, by its own record or by the drive's bindings, tells the lane losing it, by told_moved, and the drive's clocks are drawn again, by redrawn. The drive's lock is held for that transaction alone, while older installs still save the whole drive under it; what a write left to do outside the drive runs after it, by write, in no order across processes, so a file a record names is written by publish."""
+def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows: tuple[Row, ...], since: int | None = None, reads: frozenset[Row] = frozenset(), budget: Budget | None = None) -> tuple[int, list[Callable[[], list[str]]]]:
+    """Save a write of rows alone in one short transaction of the drive's database, writing only the records the rows name: each as mine holds it, a row naming one field of a record that field alone on the record as the database holds it, while every record reads as held, the database's when the write loaded the drive as base; Raced at the first another write changed since, even to the value mine holds, since a write that read it may have counted on what it held; with since, the revision of the drive base was loaded at, Raced instead at the first row any write committed after it that is one of the records, one reads names or the order of a job the save finishes, whose standing part keeps its texts, a record or every record of a collection by "*", or at any once the changed table no longer reaches back to it. It waits on the drive's lock and then the database's write lock no longer than budget leaves, DRIVE_LOCK_SECONDS from now unless named, or for good under waiting_out_lock, then raises Busy, keeping nothing. New records take places after the collection's last in the order mine holds them. A job the save moves into done or stopped drops the texts it holds, as rewrite drops them. It returns the drive's newest revision once it commits and what the commit leaves to do outside the drive, for its caller to run by ran, so a failure there never reads as nothing kept, gives back no id the write took, and stops none of the write's own effects: taking down the Mac boxes of each job it moves into done, failed or stopped, and telling the lane losing each open order the save moved to another lane, by its own record or by the drive's bindings, by told_moved; the drive's clocks are drawn again by redrawn. The drive's lock is held for that transaction alone, while older installs still save the whole drive under it; what a write left to do outside the drive runs after it, by write, in no order across processes, so a file a record names is written by publish."""
     budget = budget or Budget(time.monotonic(), math.inf if WAITS_OUT_LOCK.get() else DRIVE_LOCK_SECONDS)
     jobs = mine.get("jobs", {})
     ended = {key: then["state"] for collection, key in held if collection == "jobs" and isinstance(then := held[(collection, key)], dict) and key in jobs and jobs[key]["state"] in FINISHED_JOB_STATES and then.get("state") != jobs[key]["state"]}
@@ -5003,14 +5005,23 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
         db.execute("COMMIT")
         with suppress(sqlite3.OperationalError):
             db.execute("PRAGMA wal_checkpoint(PASSIVE)")
-    down_mac_boxes(name, mine, [key for collection, key in held if collection == "jobs" and isinstance(then := held[(collection, key)], dict) and key in jobs and gave_box_back(then.get("state"), jobs[key]["state"])])
+    boxes = [key for collection, key in held if collection == "jobs" and isinstance(then := held[(collection, key)], dict) and key in jobs and gave_box_back(then.get("state"), jobs[key]["state"])]
     bound = any(collection == "" and key in BINDINGS for collection, key in held)
-    if bound or any(collection in ("orders", "jobs") for collection, _ in held):
-        if bound:
-            moved = {order_id: (holding_lane(base, order), holding_lane(mine, mine["orders"][order_id])) for order_id, order in open_orders(base).items() if order_id in mine["orders"]}
-        else:
-            moved = {key: (holding_lane(base, base["orders"][key]), holding_lane(base, mine["orders"][key])) for collection, key in held if collection == "orders" and key in open_orders(base) and key in mine["orders"]}
+    moved: dict[str, tuple[str, str]] = {}
+    if bound:
+        moved = {order_id: (holding_lane(base, order), holding_lane(mine, mine["orders"][order_id])) for order_id, order in open_orders(base).items() if order_id in mine["orders"]}
+    elif any(collection in ("orders", "jobs") for collection, _ in held):
+        moved = {key: (holding_lane(base, base["orders"][key]), holding_lane(base, mine["orders"][key])) for collection, key in held if collection == "orders" and key in open_orders(base) and key in mine["orders"]}
+
+    def boxes_down() -> list[str]:
+        down_mac_boxes(name, mine, boxes)
+        return []
+
+    def moves_told() -> list[str]:
         told_moved(name, mine, {order_id: lanes for order_id, lanes in moved.items() if lanes[0] != lanes[1]})
+        return []
+
+    return newest, [boxes_down, moves_told]
 
 
 def told_moved(name: str, data: dict, moved: dict[str, tuple[str, str]]) -> None:
@@ -5242,8 +5253,7 @@ def write[T](name: str, change: Callable[[dict], T], *, budget: float | None = N
             was = marshal.loads(base)
             written = tuple(sorted(written_rows(was, mine)))
             try:
-                if written or attempt.effects:
-                    rows_saved(name, {row: row_of(was, row) if raw is None else raw_row(raw, row) for row in written}, was, mine, written, since, frozenset(reads), waits)
+                post = rows_saved(name, {row: row_of(was, row) if raw is None else raw_row(raw, row) for row in written}, was, mine, written, since, frozenset(reads), waits)[1] if written or attempt.effects else []
             except Raced as raced:
                 why = f"another write changed {'.'.join(raced.args[0])} each time it ran"
                 released(taken)
@@ -5254,14 +5264,18 @@ def write[T](name: str, change: Callable[[dict], T], *, budget: float | None = N
                 why = "another write held the drive's lock or database each time it ran"
                 released(taken)
                 continue
-        if tried >= UPDATE_TRIES:
-            with open(drive_dir(name) / "locks.log", "a") as log:
-                log.write(f"{stamp()} pid {os.getpid()} saved after {tried + 1} runs over {time.monotonic() - waits.asked:.1f}s, since {why}: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
-        ran(attempt.effects, [])
+        ran([*([functools.partial(kept_runs, name, tried + 1, time.monotonic() - waits.asked, why)] if tried >= UPDATE_TRIES else []), *post, *attempt.effects], [])
         return done
     with open(drive_dir(name) / "locks.log", "a") as log:
         log.write(f"{stamp()} pid {os.getpid()} refused after {seconds:g}s, since {why}: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
     raise Refused(f"refused, nothing kept: {why} for {seconds:g}s, so send it again")
+
+
+def kept_runs(name: str, runs: int, seconds: float, why: str) -> list[str]:
+    """Log to locks.log a write that saved only after runs runs over seconds, and why each run before was refused, as an effect of that write, so a log that cannot be written stops none of its other effects."""
+    with open(drive_dir(name) / "locks.log", "a") as log:
+        log.write(f"{stamp()} pid {os.getpid()} saved after {runs} runs over {seconds:.1f}s, since {why}: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
+    return []
 
 
 def update[T](name: str, rows: tuple[Row, ...] | None, change: Callable[[dict], T]) -> T:
@@ -5269,8 +5283,8 @@ def update[T](name: str, rows: tuple[Row, ...] | None, change: Callable[[dict], 
     return write(name, change)
 
 
-def committed(name: str, base: bytes, mine: dict) -> None:
-    """Save a write's changes, mine, made on the drive as base held it, holding no lock while it merges: a drive an older install kept in drive.json moved into its database first, under the drive's lock, by moved; mine laid over a copy of the drive as it stands now, by merged, which raises Raced at the first field both changed differently, saved as the records that merge changed by rows_saved, which keeps them only while no other write committed one of them, the drive's bindings, or the order of a job the save finishes since that load, and merged again over the drive as it then stands each time another write did, up to UPDATE_TRIES times."""
+def committed(name: str, base: bytes, mine: dict) -> list[Callable[[], list[str]]]:
+    """Save a write's changes, mine, made on the drive as base held it, holding no lock while it merges: a drive an older install kept in drive.json moved into its database first, under the drive's lock, by moved; mine laid over a copy of the drive as it stands now, by merged, which raises Raced at the first field both changed differently, saved as the records that merge changed by rows_saved, which keeps them only while no other write committed one of them, the drive's bindings, or the order of a job the save finishes since that load, and merged again over the drive as it then stands each time another write did, up to UPDATE_TRIES times; what that commit leaves to do outside the drive, by rows_saved, none when the merge changed nothing."""
     if not database_path(name).exists():
         with locked(name):
             moved(name)
@@ -5280,10 +5294,9 @@ def committed(name: str, base: bytes, mine: dict) -> None:
         since = LOADED_REV.get()
         saved = marshal.loads(marshal.dumps(merged(was, mine, now)))
         if not (written := tuple(sorted(written_rows(now, saved)))):
-            return
+            return []
         try:
-            rows_saved(name, {row: row_of(now, row) for row in written}, now, saved, written, since, frozenset(("", field) for field in BINDINGS))
-            return
+            return rows_saved(name, {row: row_of(now, row) for row in written}, now, saved, written, since, frozenset(("", field) for field in BINDINGS))[1]
         except Raced:
             continue
     raise Raced(("drive",))
@@ -5318,14 +5331,14 @@ def batch(name: str, dry: bool = False) -> Iterator[list[str]]:
     if dry:
         return
     try:
-        committed(name, base, mine)
+        post = committed(name, base, mine)
     except Raced as raced:
         released(taken)
         raise DriveError(
             f"refused, nothing kept: another write changed {'.'.join(raced.args[0])} differently while this call ran, so send it again"
             + (f" once you have checked what it started as it ran: {', '.join(dict.fromkeys(WENT))}" if WENT else "")
         ) from None
-    ran(effects, lines)
+    ran([*post, *effects], lines)
 
 
 def ran(effects: list[Callable[[], list[str]]], lines: list[str]) -> None:
@@ -5411,8 +5424,12 @@ def create_or_write[T](name: str, fresh: dict, change: Callable[[dict], T]) -> T
         return write(name, change)
     finally:
         made.unlink()
-    pointed(name, fresh)
-    ran(effects, [])
+
+    def pointer() -> list[str]:
+        pointed(name, fresh)
+        return []
+
+    ran([pointer, *effects], [])
     return done
 
 
