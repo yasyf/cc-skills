@@ -16,6 +16,8 @@ HEAD = "0123456789abcdef0123456789abcdef01234567"
 MOVED = "fedcba9876543210fedcba9876543210fedcba98"
 HIS_TAPS = "https://acme.slack.com/archives/D123/p1794515484282799"
 STAGING = "Not on staging: no staging test is set for it"
+AGENT_WORDS = "the soak read view.tester_line and found the old build"
+NO_PASS = "Tested on staging: plat-usw2-staging at f3a6f23, no pass"
 MIGRATION = "api/migrations/1794700000000-UploadRetries.ts"
 SUMMARY = "`upload.Retry` retries a failed upload up to five times instead of dropping the file."
 FIX_BODY = f"""## Summary
@@ -108,7 +110,7 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
         "updated": "2026-11-09T08:00:00-08:00",
         "native": [],
         "now": stage.Stage(named, "", ""),
-        "staging": STAGING,
+        "staging": (STAGING,),
         "reworked_above": (),
     }
     return kept | {"tap_refused": state.tap_refused(judged_job({"orders": {}, "jobs": {}}), kept)}
@@ -179,6 +181,34 @@ def test_a_change_since_his_tap_asks_again_with_what_changed() -> None:
         asked_waits(42),
         "rewritten to do the opposite of the version he held",
     )
+
+
+@pytest.mark.parametrize(
+    ("words", "whole"),
+    [
+        (": the writer kept the old row", True),
+        (": " + " ".join(["word"] * 41), False),
+        (f": {AGENT_WORDS}", False),
+        (": WAITING j6154 runs the soak", False),
+        (": one line\nand another", False),
+    ],
+)
+def test_a_staging_row_draws_its_testers_words_only_while_they_read_as_one_plain_line(words: str, whole: bool) -> None:
+    staged = entry() | {"staging": (NO_PASS, card.Pasted(words))}
+    assert card.render(pr_json(), staged)["prs"][0]["staging"] == (NO_PASS + words if whole else NO_PASS)
+
+
+@pytest.mark.parametrize(
+    ("fundamental", "changed"),
+    [
+        ('Reworked to your words "Topology goes in the meta table": it reads the meta table', 'Reworked to your words "Topology goes in the meta table": it reads the meta table'),
+        (f'Reworked to your words "Topology goes in the meta table": {AGENT_WORDS}', 'Reworked to your words "Topology goes in the meta table"'),
+        ("rewritten to do the opposite of the version he held", "rewritten to do the opposite of the version he held"),
+        (AGENT_WORDS, ""),
+    ],
+)
+def test_what_changed_since_his_answer_draws_the_agents_words_only_while_they_read_as_one_plain_line(fundamental: str, changed: str) -> None:
+    assert card.render(pr_json(), entry() | {"fundamental": fundamental})["prs"][0]["changed"] == changed
 
 
 def test_after_his_approve_while_ci_runs_it_drops_the_buttons_and_the_dashboard_says_he_approved_it() -> None:

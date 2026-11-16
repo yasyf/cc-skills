@@ -88,12 +88,29 @@ RECORD_ID = re.compile(
     r"|\b[ojm]\d{1,5}\b"
     r"|\brmw[0-9a-z]{4,}\b|\bcard-[0-9a-z][0-9a-z-]*"
 )
+REWORKED = re.compile(r'(?P<opening>Reworked to your words ".*?")(?P<change>: .*)', re.DOTALL)
 HIS = re.compile(r"\bhis\b")
 HIM = re.compile(r"\bhim\b")
 Member = tuple[dict, dict, tuple[str, ...], tuple[str, ...]]
 REDRAWN = ("head", "staging")
 EMOJI_CATEGORIES = {"So", "Cf"}
 EMOJI_MARKS = {chr(0xFE0E), chr(0xFE0F), chr(0x20E3), *map(chr, range(0x1F3FB, 0x1F400))}
+
+
+class Pasted(str):
+    """Words an agent wrote, such as a tester's WAITING line or a builder's CHANGE line, pasted into a row his PR card fills from the drive's state rather than the PR's body or lead."""
+
+
+def plain_row(parts: tuple[str, ...]) -> str:
+    """A row his PR card fills from the drive's state, its parts joined, each Pasted part only while it reads as one plain line by limits.line_problems and names no record id, so the row draws as its fixed opening alone rather than paste him words written for agents, by his words "This is incomprehensible nonsense why are you not following your strict formatting and writing rules"."""
+    return "".join(part for part in parts if not isinstance(part, Pasted) or not (limits.line_problems(part) or RECORD_ID.search(part)))
+
+
+def changed_row(fundamental: str) -> tuple[str, ...]:
+    """What changed since his answer as the drive keeps it, by drive pr set --fundamental or a builder's READY on a PR reworked to his words: his words quoted as the fixed opening of a rework, the rest Pasted."""
+    if reworked := REWORKED.fullmatch(fundamental):
+        return reworked["opening"], Pasted(reworked["change"])
+    return (Pasted(fundamental),)
 
 
 def is_emoji(char: str) -> bool:
@@ -347,8 +364,8 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), undrawn: tuple[st
         "url": pr["url"],
         "title": plain,
         "head": pr["headRefOid"],
-        "staging": entry["staging"],
-        "changed": entry.get("fundamental") or "",
+        "staging": plain_row(entry["staging"]),
+        "changed": plain_row(changed_row(entry.get("fundamental") or "")),
         "summary": section_words(found, "summary"),
         "impact": section_words(found, *IMPACT_HEADINGS),
         "refresher": section_words(found, *REFRESHER_HEADINGS) or comment_refresher(pr),
@@ -687,7 +704,7 @@ def drawn_entry(data: dict, entry: dict, found: dict | None) -> dict:
     key = state.pr_key(entry["url"])
     stack = [mate for mate in state.pr_graph(data).stack(key) if mate in data["prs"] and data["prs"][mate]["state"] == "open"]
     above = stack[stack.index(key) + 1 :] if key in stack else []
-    return entry | {"now": stage.on_card(data, key, found), "staging": view.staging(data, key), "reworked_above": tuple(view.pr_link(data["prs"][mate]) for mate in above if data["prs"][mate]["rework"]), "tap_refused": state.tap_refused(data, entry)}
+    return entry | {"now": stage.on_card(data, key, found), "staging": view.staging_row(data, key), "reworked_above": tuple(view.pr_link(data["prs"][mate]) for mate in above if data["prs"][mate]["rework"]), "tap_refused": state.tap_refused(data, entry)}
 
 
 def drawn_lines(data: dict, key: str, found: dict | None) -> dict[str, str]:

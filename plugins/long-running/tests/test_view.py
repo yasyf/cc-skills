@@ -6,13 +6,14 @@ from pathlib import Path
 
 import pytest
 from conftest import SHORT_ASK
-from drive import land, limits, page, pages, pr_graph, render, slack, stage, state, talk, view, watch
+from drive import card, land, limits, page, pages, pr_graph, render, slack, stage, state, talk, view, watch
 from drive.render import when
 
 T0 = state.parse_time("2026-11-09T10:00:00-08:00")
 TEAM = "https://acme.slack.com/"
 DRAW = page.draw
 DASHBOARD = "http://mac:41234/"
+AGENT_WORDS = "the soak read view.tester_line and found the old build"
 
 
 def at(minutes: int) -> str:
@@ -1329,6 +1330,29 @@ def test_a_monorepo_pr_its_builder_lifted_off_staging_says_why_on_its_cards() ->
 def test_a_monorepo_pr_whose_staging_test_was_dropped_says_on_its_cards_it_merges_first_and_is_tested_after() -> None:
     freed = drive_of({"o1": order("ship it", [])}, {}, [tracked(7, unstaged={"why": "his answer took its staging test off its order", "head": "abc", "merges_first": True})])
     assert view.staging(freed, "Forge-AI/monorepo#7") == "Not on staging before it merges: his answer took its staging test off its order, so it is tested on staging after its merge"
+
+
+@pytest.mark.parametrize(
+    ("part", "tester", "unstaged", "drawn"),
+    [
+        ({"soak": SOAK}, {"state": "failed", "said": f"FAILED {AGENT_WORDS}"}, None, "Tested on staging: plat-usw2-staging at f3a6f23, no pass"),
+        ({"soak": SOAK, "posted_by": "j1", "cases": [["a write lands", f"fail: {AGENT_WORDS}"]]}, {"state": "done"}, None, "Tested on staging: plat-usw2-staging at f3a6f23, no pass"),
+        (
+            {"soak": SOAK, "posted": PROOF, "posted_by": "j1", "cases": [["the DuckDB route", f"not exercised: {AGENT_WORDS}"]]},
+            {"state": "done"},
+            None,
+            f"Tested on staging: plat-usw2-staging at f3a6f23, passed, [proof]({PROOF}). Land it without what staging did not exercise. Approve lands it without them; Hold keeps it from landing",
+        ),
+        (None, None, {"why": AGENT_WORDS, "head": "abc", "merges_first": True}, "Not on staging before it merges, so it is tested on staging after its merge"),
+        (None, None, {"why": AGENT_WORDS, "head": "abc", "merges_first": False}, "Not on staging: its builder says AGENTS.md's dangerous rule misses it"),
+    ],
+)
+def test_his_card_draws_a_staging_row_without_words_its_tester_or_builder_wrote_for_agents_which_the_drives_own_lines_keep(part: dict | None, tester: dict | None, unstaged: dict | None, drawn: str) -> None:
+    staging = state.STAGING_TEST.format(number=7)
+    parts = {"ship it": state.new_part()} | ({staging: state.new_part() | part} if part is not None else {})
+    jobs = {"j1": job("o1", "running", parts=[staging], created=at(-20)) | tester} if tester else {}
+    drive = drive_of({"o1": order("ship it", list(jobs), parts=parts)}, jobs, [tracked(7, unstaged=unstaged)])
+    assert (card.plain_row(view.staging_row(drive, "Forge-AI/monorepo#7")), AGENT_WORDS in view.staging(drive, "Forge-AI/monorepo#7")) == (drawn, True)
 
 
 def test_a_pr_outside_the_monorepo_says_its_repo_has_no_staging_env() -> None:
