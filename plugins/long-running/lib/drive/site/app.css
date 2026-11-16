@@ -1320,3 +1320,49 @@ button.task-row { cursor: pointer; }
 .scope-panel .scope-priorities a.on { background: color-mix(in srgb, #f5c542 22%, transparent); color: #7a5200; }
 .prio-lenses { grid-template-columns: auto; }
 @media (min-width: 900px) { .prio-lenses { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); } .prio-lenses > .eyebrow, .prio-lenses > .meta { grid-column: 1 / -1; } }
+
+.ap-glance { display: grid; grid-template-columns: minmax(180px, 1fr) 3fr; gap: 16px; align-items: start; margin: 0 0 18px; padding: 18px 20px; border-radius: 14px; border: 1px solid var(--line); border-left: 5px solid var(--line-2); background: var(--paper); }
+.ap-glance.good { border-left-color: var(--ok); }
+.ap-glance.warn { border-left-color: var(--warm); }
+.ap-glance.bad { border-left-color: var(--bad); }
+.ap-glance-status { display: flex; align-items: center; gap: 10px; font-size: 17px; }
+.dot-big { width: 12px; height: 12px; border-radius: 50%; background: var(--line-2); flex: none; }
+.ap-glance.good .dot-big { background: var(--ok); }
+.ap-glance.warn .dot-big { background: var(--warm); }
+.ap-glance.bad .dot-big { background: var(--bad); }
+.ap-glance dl { display: grid; gap: 8px; margin: 0; }
+.ap-glance dt { font: var(--caps); letter-spacing: 1px; color: var(--muted); }
+.ap-glance dd { margin: 2px 0 0; font-size: 14px; line-height: 1.5; }
+.ap-glance .next dd b { font-size: 15px; }
+.ap-fold > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; cursor: pointer; padding: 2px 0; }
+.ap-fold > summary b { font-size: 15px; }
+.ap-fold > summary span { color: var(--muted); font-size: 13px; }
+.ap-fold[open] > summary { margin-bottom: 12px; }
+.ap-fold > .ap-block { border: 0; padding: 0; margin: 0; box-shadow: none; }
+.ap-tablist { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 12px; }
+.ap-tablist button { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); font-size: 12px; cursor: pointer; }
+.ap-tablist button.on { border-color: currentColor; font-weight: 600; }
+.ap-tabpanel > .ap-block { border: 0; padding: 0; margin: 0; box-shadow: none; }
+.ap-stepper { display: flex; flex-wrap: wrap; gap: 6px 4px; margin: 0 0 12px; }
+.ap-step-body { min-height: 3.5em; }
+.ap-waits { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.ap-wait { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--paper); }
+.ap-wait-kind { font: var(--caps); letter-spacing: 1px; color: var(--muted); }
+.ap-wait-body { display: grid; gap: 2px; min-width: 0; }
+.ap-wait-body small { color: var(--muted); font-size: 12px; }
+.ap-wait-acts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.ap-risk { display: flex; gap: 12px; align-items: flex-start; border-left: 4px solid var(--warm); }
+.ap-risk.bad { border-left-color: var(--bad); }
+.ap-risk p { margin: 4px 0 0; }
+.ap-risk-mark { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--warm); color: var(--paper); font-weight: 700; flex: none; }
+.ap-risk.bad .ap-risk-mark { background: var(--bad); }
+.ap-progress { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(90px, 1fr); gap: 6px; overflow-x: auto; }
+.ap-progress li { display: grid; gap: 3px; font-size: 12px; }
+.ap-progress li i { display: block; height: 6px; border-radius: 3px; background: linear-gradient(90deg, var(--ok) var(--done), var(--line) var(--done)); }
+.ap-progress li.now b { color: var(--accent); }
+.ap-progress li.bad i { background: linear-gradient(90deg, var(--ok) var(--done), var(--bad) var(--done)); }
+.ap-progress small { color: var(--muted); }
+.ap-spark svg { width: 100%; height: 36px; }
+.ap-spark polyline { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+@media (max-width: 700px) { .ap-glance { grid-template-columns: 1fr; } .ap-wait { grid-template-columns: 1fr; } .ap-wait-acts { justify-content: flex-start; } .ap-progress { grid-auto-flow: row; grid-auto-columns: auto; } }
+.card-glance { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin: 6px 0 0; font-size: 13px; color: var(--ink-2); }

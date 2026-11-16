@@ -3,6 +3,7 @@ import io
 import json
 import os
 import subprocess
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -577,8 +578,33 @@ def test_a_composed_layout_keeps_only_the_keys_its_slice_holds_and_composes_agai
     block = applet.SCHEMA["properties"]["blocks"]["items"]["required"]
     drawn = {field: [] for field in block} | {"kind": "approve", "title": "Land it", "text": "", "tone": "plain", "before": "", "after": "", "diagram": "", "prs": ["a/b#1", "a/b#9"], "orders": ["o1", "o7"], "steps": [{"label": "Ship", "orders": ["o1", "o8"]}]}
     monkeypatch.setattr(served, "structured", lambda *args: {"headline": "h", "summary": "s", "blocks": [drawn]})
-    [composed] = applet.compose("demo", {"slug": "run-page", "title": "Run page", "goal": "ship it"}, told)["blocks"]
+    [composed] = applet.compose("demo", {"slug": "run-page", "title": "Run page", "goal": "ship it"}, told, None)["blocks"]
     assert (composed["prs"], composed["orders"], composed["steps"]) == (["a/b#1"], ["o1"], [{"label": "Ship", "orders": ["o1"]}])
     page = {"goal": "ship it"}
     assert applet.digest(page, told) == applet.digest(page, told | {"moments": [{"at": "now"}]})
     assert applet.digest(page, told) != applet.digest(page, told | {"prs": [{"key": "a/b#2"}]})
+
+
+def test_a_page_reaches_him_once_when_first_composed_and_again_only_when_its_compose_says_something_changed_for_him(ordered: str) -> None:
+    from drive import applet
+
+    demo = ordered
+    applet.make(demo, "run-page", "o1", "ship it", None, "communicator")
+    folder = state.drive_dir(demo) / "applets" / "run-page"
+    folder.mkdir(parents=True)
+    glance = {"tone": "warn", "status": "Blocked on you", "changed": "Two PRs passed staging", "next": "Approve the two PRs", "why": "The window opens at 2 PM"}
+    old = folder / "old.json"
+    old.write_text(json.dumps({"headline": "h", "summary": "s", "blocks": []}))
+    assert applet.unannounced(demo) == []
+    first = folder / "first.json"
+    first.write_text(json.dumps({"headline": "h", "summary": "s", "glance": glance, "changed_for_him": "A new page for the release", "blocks": []}))
+    assert [(page["slug"], laid) for page, laid, layout in applet.unannounced(demo)] == [("run-page", "first.json")]
+    applet.announce(demo, "run-page", "first.json")
+    reworded = folder / "reworded.json"
+    reworded.write_text(json.dumps({"headline": "h2", "summary": "s", "glance": glance, "changed_for_him": "", "blocks": []}))
+    os.utime(reworded, (time.time() + 5, time.time() + 5))
+    assert applet.unannounced(demo) == []
+    changed = folder / "changed.json"
+    changed.write_text(json.dumps({"headline": "h", "summary": "s", "glance": glance, "changed_for_him": "A decision now waits on you", "blocks": []}))
+    os.utime(changed, (time.time() + 10, time.time() + 10))
+    assert [laid for page, laid, layout in applet.unannounced(demo)] == ["changed.json"]

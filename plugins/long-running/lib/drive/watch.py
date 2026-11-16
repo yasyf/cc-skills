@@ -2496,7 +2496,7 @@ def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
     """Take each ended codex-ask run, by codex_takes, start the disk check once DISKS_EVERY is due, by check_disks, hand on each staging slot whose lease ended or whose turn came, by slot_lines, tell him once of each Claude usage limit this Mac hit, by limit_lines, then start the handler on each POST report that needs one, by post_lines, so none of these clocks waits on a main pass that runs minutes; the lanes' reads are respond_pass's."""
     clocks_drawn(watcher)
     codex_takes(watcher)
-    return limit_lines(watcher, moment) + check_disks(watcher, moment) + slot_lines(watcher, moment) + post_lines(watcher, moment)
+    return limit_lines(watcher, moment) + page_lines(watcher, moment) + check_disks(watcher, moment) + slot_lines(watcher, moment) + post_lines(watcher, moment)
 
 
 CLOCKS_DRAWN: dict[str, int] = {}
@@ -2901,6 +2901,45 @@ def take_deliveries(watcher: Watcher) -> list[str] | None:
         watcher.checking.update(keys)
         named += keys
     return named
+
+
+def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Send him each applet page made or changed for him since he was last sent it, by applet.unannounced, by his words "a link to one has never been sent to me": one line through milestone in the channel of the page's first order, its seat's by state.channel_seat_of, else his DM, the page's title linked on its words and its glance, once per material change and never per recompose; a post that fails is tried again next pass."""
+    from drive import applet
+
+    if watcher.project is not None:
+        return []
+    data = state.load(watcher.name)
+    board = dashboard.link(watcher.name)
+    for page_shown, laid, layout in applet.unannounced(watcher.name):
+        order_id = page_shown["orders"][0]
+        order = data["orders"][order_id]
+        made = data["slack"]["channels"].get(state.channel_seat_of(data, order) or "")
+        glance = layout["glance"]
+        title = layout["headline"].translate(refs.LINK_WORDS)
+        words = "\n".join([f"<{board}#/pages/{page_shown['slug']}|{title}>", f"*Where it stands:* {glance['status'].rstrip('.')}.", f"*What changed:* {(layout['changed_for_him'] or glance['changed']).rstrip('.')}.", f"*What you do next:* {glance['next'].rstrip('.')}. {glance['why'].rstrip('.')}"])
+        record = {
+            "kind": "report",
+            "attr": {"order": order_id} | ({"channel": made["id"]} if made else {}),
+            "topic": f"page-{page_shown['slug']}-{laid}",
+            "text": f"the page {page_shown['slug']} is new or changed for him",
+            "body": json.dumps({"page": page_shown["slug"], "glance": glance, "changed_for_him": layout["changed_for_him"]}, indent=1) + "\n",
+        }
+        try:
+            milestone_at(watcher, record, words, {"channel_id": made["id"]} if made else {})
+        except (slack.SlackError, state.DriveError) as error:
+            return failed(watcher, f"page {page_shown['slug']}", f"post sending him the page {page_shown['slug']}", error, moment)
+        applet.announce(watcher.name, page_shown["slug"], laid)
+        watcher.failures.pop(f"page {page_shown['slug']}", None)
+    return []
+
+
+def milestone_at(watcher: Watcher, record: dict, words: str, place: dict) -> str:
+    """milestone's post at a place of its own, such as a channel's root."""
+    from drive import talk, tools
+
+    [seq] = tools.sent(watcher.name, LANE, [record])
+    return talk.watch_line(watcher.name, {"text": f"{words} ({{record:{seq}|its facts}}).", "record": seq} | place)
 
 
 def limit_lines(watcher: Watcher, moment: datetime) -> list[str]:

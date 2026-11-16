@@ -10,7 +10,10 @@ The dashboard reads the page's live slice and has a Claude session compose it fr
 
 | Block | Draws |
 |---|---|
-| `story` | beats he reads in order: why the goal exists, where it stands, what is at stake |
+| `waits` | each decision and PR waiting on him, with its recommended pick or Approve one tap away |
+| `story` | two to four steps he walks one at a time: why the goal exists, where it stands, what is at stake |
+| `progress` | a stage bar of steps toward the goal, marking the step it is on |
+| `risk` | the one risk he must weigh, for whom, and what guards against it |
 | `decide` | each decision live as its own applet, with its paths and their consequences, answered as the queue answers |
 | `approve` | PRs he approves together or one by one, each with its plain status and what Approve does |
 | `stack` | a stack bottom first, each change with what it does and where it stands |
@@ -21,8 +24,12 @@ The dashboard reads the page's live slice and has a Claude session compose it fr
 | `compare` | options side by side, each with its consequence, one recommended |
 | `before_after` | what is true before the goal is met and after |
 | `diagram` | a Mermaid diagram labelled in plain words |
-| `metrics` | live counts: PRs ready to land, PRs waiting, decisions, orders done |
+| `metrics` | a strip of live counts with a sparkline of changes landed each day |
 | `callout` | one line he must not miss |
+
+Each page opens on a glance: where the goal stands, what changed, and the one thing he does next and why. Any block can be folded behind its one-line summary, and blocks that show one thing several ways share a group and draw as tabs. The composer's guidance in `applet.py` asks for the fewest blocks that answer "what does he do next, and why", and judges each page against the owner's gold-standard Slack post.
+
+The watch sends him a page's link in the channel of its first order once it is first composed under the current guidance. It sends it again only when a compose says something changed for him, never for a recompose that only rewords it.
 
 Every PR card in the queue walks the same blocks as a five-step story. It opens on the problem and who feels it, then the change as a `diff` with the why of each hunk, and what it does at run time as `before_after` and a `diagram`. Then come the evidence from staging, tests and its risks, and last his call, with what Approve and Hold each do side by side above the Approve bar. The story is written once for each head the PR reaches.
 

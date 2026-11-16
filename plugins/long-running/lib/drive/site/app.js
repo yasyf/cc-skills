@@ -646,7 +646,7 @@ function decisionCard(item, at, total) {
   const action = given?.done ? `<p class="answered">✓ ${esc(given.label)}</p>` : `<div class="story-action"><button class="btn" data-story-review="${esc(key)}"${given && !given.error ? ' disabled' : ''}>Review this choice <kbd>↵</kbd></button><small>Choose first. Review before sending.</small>${given?.error ? `<p role="alert">${esc(given.error)}</p>` : ''}</div>`;
   const lab = `<div class="story-lab">${options}${action}${outcome}<button class="linkish" data-story-compare="${esc(key)}" aria-expanded="${state.compare}">${state.compare ? 'Close comparison' : 'Compare every path'}</button>${state.compare ? table([['Path', 'What changes', ...story.options[0].metrics.map((metric) => metric.label)], ...story.options.map((choice) => [choice.title, choice.consequence, ...choice.metrics.map((metric) => metric.value)])]) : ''}</div>`;
   const interview = `<div class="story-interview"><div class="story-steps" aria-label="Step ${state.step + 1} of 2"><span class="on">1 · Your priority</span><span class="${state.step ? 'on' : ''}">2 · Your path</span></div>${state.step ? `<button class="linkish" data-story-back="${esc(key)}">← Change my priority</button>${outcome}${action}` : `<h3>${esc(story.ask)}</h3><div class="story-options">${story.options.map((choice, i) => `<button class="story-option" data-story-priority="${i}" data-story-card="${esc(key)}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.priority)}</strong><small>${esc(choice.title)}</small></span><span aria-hidden="true">→</span></button>`).join('')}</div>`}</div>`;
-  return `<div class="queue-layout story-layout"><article class="focus-card decision-story ${story.format}" aria-labelledby="item-title" tabindex="-1" data-story="${esc(key)}" data-format="${story.format}"><div class="card-content"><div class="card-top"><span class="type-label">${{ cockpit: 'Decision', lab: 'Decision: compare the paths', interview: 'Decision: what matters most' }[story.format]}</span>${counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(story.headline)}</h2>${decisionChapters(item, key, story, state, cause)}${restored.has(key) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : ''}<h3 class="eyebrow ch-call">Your call</h3>${story.format === 'lab' ? lab : story.format === 'interview' ? interview : `<div class="story-cockpit">${options}<div>${outcome}${action}</div></div>`}</div></article>${decisionRail(item)}</div>`;
+  return `<div class="queue-layout story-layout"><article class="focus-card decision-story ${story.format}" aria-labelledby="item-title" tabindex="-1" data-story="${esc(key)}" data-format="${story.format}"><div class="card-content"><div class="card-top"><span class="type-label">${{ cockpit: 'Decision', lab: 'Decision: compare the paths', interview: 'Decision: what matters most' }[story.format]}</span>${counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(story.headline)}</h2>${story.needs_him || story.waits ? `<p class="card-glance">${story.needs_him ? `<b>${esc(NEEDS_LABEL.get(story.needs_him))}</b>` : ''}${story.needs_him && story.waits ? ' · ' : ''}${story.waits ? esc(story.waits) : ''}</p>` : ''}${decisionChapters(item, key, story, state, cause)}${restored.has(key) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : ''}<h3 class="eyebrow ch-call">Your call</h3>${story.format === 'lab' ? lab : story.format === 'interview' ? interview : `<div class="story-cockpit">${options}<div>${outcome}${action}</div></div>`}</div></article>${decisionRail(item)}</div>`;
 }
 
 function reviewDecision(key) {
@@ -813,6 +813,12 @@ function chapterBody(id, { item, key, row, pr, head, read, entry, lead, told, be
   return `${item.untapped ? `<p class="approve-says">${esc(item.untapped)}</p>` : approvePath(entry, row)}${sides}`;
 }
 
+function cardGlance(entry, row) {
+  const status = prWord(entry, row);
+  const staged = entry?.staging_plain;
+  return `<p class="card-glance">${dot(status)}<b>${esc(status.word)}</b>${staged && staged.word !== status.word ? ` · ${esc(staged.word)}` : ''}${entry?.approve_plain ? ` · ${esc(entry.approve_plain)}` : ''}</p>`;
+}
+
 function chapters(key, pr, parts) {
   const at = prChapters.get(pr) ?? 0;
   const nav = PR_CHAPTERS.map(([id, label], i) => `<li><button class="${i === at ? 'on' : ''}${i < at ? ' seen' : ''}" data-chapter="${i}" data-chapter-of="${esc(pr)}" aria-current="${i === at}"><span class="n">${i + 1}</span>${label}</button></li>`).join('');
@@ -859,6 +865,7 @@ function prCard(item, at, total, embedded = false) {
       <div class="card-content">
         <div class="card-top"><span class="type-label">Pull request <a href="${esc(row.url)}" target="_blank" rel="noopener" data-github data-tip="Open it on GitHub"${embedded ? '' : ' data-key="o"'}>${esc(pr)}</a></span>${embedded ? '' : counter(at, total)}</div>
         <h2 class="card-title" id="item-title">${esc(title)}</h2>
+        ${cardGlance(entry, row)}
         ${walk}
         ${told && !told.story ? untold(told) : ''}
         ${stack}
@@ -1064,7 +1071,9 @@ function pagesScreen(slug) {
 
 const DONE_STATES = new Set(['merged', 'live']);
 const STAGE_ORDER = [['not started', 'Not started'], ['waiting', 'Waiting'], ['blocked', 'Blocked'], ['running', 'Being built'], ['built', 'Built, waits on you'], ['merged', 'Merged'], ['live', 'Live']];
-const BLOCK_DEFAULTS = { title: '', text: '', tone: 'plain', prs: [], questions: [], orders: [], beats: [], steps: [], options: [], before: '', after: '', diagram: '' };
+const BLOCK_DEFAULTS = { title: '', text: '', tone: 'plain', fold: false, group: '', prs: [], questions: [], orders: [], beats: [], steps: [], options: [], before: '', after: '', diagram: '' };
+const appletSteps = new Map();
+const appletTabs = new Map();
 const appletPicks = new Map();
 const TOLD_MOMENTS = new Set(['order', 'answer', 'answered', 'tap', 'merged', 'live', 'failed']);
 
@@ -1075,11 +1084,10 @@ function defaultLayout(page, shown) {
     headline: page.title,
     summary: page.goal,
     blocks: [
+      ...(shown.questions.length || waiting.length ? [{ kind: 'waits', title: 'Waiting on you', questions: shown.questions.map((item) => item.answer), prs: waiting }] : []),
       { kind: 'metrics', title: 'Where it stands' },
-      ...(shown.questions.length ? [{ kind: 'decide', title: 'Decisions only you can make', questions: shown.questions.map((item) => item.answer) }] : []),
-      ...(waiting.length ? [{ kind: 'approve', title: 'Changes awaiting your approval', prs: waiting }] : []),
-      ...(steps.length ? [{ kind: 'path', title: 'The path to done', steps }] : []),
-      { kind: 'timeline', title: 'What moved lately' },
+      ...(steps.length ? [{ kind: 'progress', title: 'The path to done', steps }] : []),
+      { kind: 'timeline', title: 'What moved lately', fold: true, text: 'The newest changes, merges and answers' },
     ],
   };
 }
@@ -1089,12 +1097,38 @@ function appletScreen(page) {
   const layout = page.layout ?? {};
   const composed = layout.composed ?? defaultLayout(page, shown);
   const status = layout.writing ? '<span class="ap-status">Composing this page from the latest work…</span>' : layout.error ? `<span class="ap-status bad">Its last compose failed, so it shows the one before: ${esc(layout.error)}</span>` : '';
-  const blocks = composed.blocks.map((block) => appletBlock(page, shown, { ...BLOCK_DEFAULTS, ...block })).filter(Boolean).join('');
+  const blocks = appletBlocks(page, shown, composed.blocks.map((block) => ({ ...BLOCK_DEFAULTS, ...block })));
   return `<div class="page-head applet-head">
       <div><div class="eyebrow">Page · ${esc([fileName(fileKey(page.project)), fileName(fileKey(page.workstream))].join(' / '))}</div><h1 class="h1">${esc(composed.headline)}</h1><p class="lead">${esc(composed.summary)}</p>${status}</div>
       <a class="map-btn" href="#/feature/${esc(page.orders[0])}">Open the request ›</a>
     </div>
+    ${composed.glance ? glanceHero(composed.glance) : ''}
     <div class="applet" data-applet="${esc(page.slug)}">${blocks}</div>`;
+}
+
+function glanceHero(glance) {
+  return `<section class="ap-glance ${esc(glance.tone)}" aria-label="At a glance"><div class="ap-glance-status"><span class="dot-big" aria-hidden="true"></span><b>${esc(glance.status)}</b></div><dl><div><dt>What changed</dt><dd>${esc(glance.changed)}</dd></div><div class="next"><dt>What you do next</dt><dd><b>${esc(glance.next)}</b> ${esc(glance.why)}</dd></div></dl></section>`;
+}
+
+function appletBlocks(page, shown, blocks) {
+  const drawn = [];
+  const grouped = new Set();
+  for (const block of blocks) {
+    if (block.group) {
+      if (grouped.has(block.group)) continue;
+      grouped.add(block.group);
+      const members = blocks.filter((each) => each.group === block.group).map((each) => [each, appletBlock(page, shown, each)]).filter(([, html]) => html);
+      if (!members.length) continue;
+      const key = `${page.slug}:${block.group}`;
+      const at = Math.min(appletTabs.get(key) ?? 0, members.length - 1);
+      drawn.push(`<section class="ap-block wide ap-tabs"><h2>${esc(block.group)}</h2><div class="ap-tablist" role="tablist">${members.map(([each], i) => `<button role="tab" aria-selected="${i === at}" class="${i === at ? 'on' : ''}" data-ap-tab="${esc(key)}" data-index="${i}">${esc(each.title || sentence(each.kind.replace('_', ' ')))}</button>`).join('')}</div><div class="ap-tabpanel" role="tabpanel">${members[at][1]}</div></section>`);
+      continue;
+    }
+    const html = appletBlock(page, shown, block);
+    if (!html) continue;
+    drawn.push(block.fold ? `<details class="ap-block wide ap-fold"><summary><b>${esc(block.title || sentence(block.kind.replace('_', ' ')))}</b>${block.text ? `<span>${esc(block.text)}</span>` : ''}</summary>${html}</details>` : html);
+  }
+  return drawn.join('');
 }
 
 function blockShell(block, kind, body, wide = true) {
@@ -1121,10 +1155,50 @@ const APPLET_BLOCKS = {
     const done = shown.features.filter((entry) => DONE_STATES.has(entry.state)).length;
     const total = shown.features.length;
     const tile = (n, label, tone = '') => `<div class="ap-tile ${tone}"><b>${n}</b><span>${esc(label)}</span></div>`;
-    return blockShell(block, 'metrics', `<div class="ap-tiles">${tile(shown.questions.length, 'decisions for you', shown.questions.length ? 'warm' : '')}${tile(yours, 'changes awaiting your approval', yours ? 'warm' : '')}${tile(ready, 'ready to land on Approve', ready ? 'good' : '')}<div class="ap-tile ap-done"><b>${done}<small>/${total}</small></b><span>orders finished</span><i style="--done:${total ? Math.round((done / total) * 100) : 0}%"></i></div></div>`);
+    const days = [...Array(14)].map((_, i) => dayOf(new Date(Date.now() - (13 - i) * 86400000).toISOString()));
+    const landed = days.map((day) => shown.story.filter((entry) => (entry.kind === 'merged' || entry.kind === 'live') && dayOf(entry.at) === day).length);
+    const top = Math.max(1, ...landed);
+    const spark = `<div class="ap-tile ap-spark"><svg viewBox="0 0 140 36" preserveAspectRatio="none" aria-hidden="true"><polyline points="${landed.map((n, i) => `${i * (140 / 13)},${34 - (n / top) * 30}`).join(' ')}"/></svg><span>${landed.reduce((a, b) => a + b, 0)} landed in 14 days</span></div>`;
+    return blockShell(block, 'metrics', `<div class="ap-tiles">${spark}${tile(shown.questions.length, 'decisions for you', shown.questions.length ? 'warm' : '')}${tile(yours, 'changes awaiting your approval', yours ? 'warm' : '')}${tile(ready, 'ready to land on Approve', ready ? 'good' : '')}<div class="ap-tile ap-done"><b>${done}<small>/${total}</small></b><span>orders finished</span><i style="--done:${total ? Math.round((done / total) * 100) : 0}%"></i></div></div>`);
   },
   story(page, shown, block) {
-    return block.beats.length ? blockShell(block, 'story', `<ol class="ap-beats">${block.beats.map((beat, i) => `<li><span class="n">${i + 1}</span><b>${esc(beat.label)}</b><p>${esc(beat.text)}</p></li>`).join('')}</ol>`) : '';
+    if (!block.beats.length) return '';
+    const key = `${page.slug}:${block.title}`;
+    const at = Math.min(appletSteps.get(key) ?? 0, block.beats.length - 1);
+    const beat = block.beats[at];
+    const dots = block.beats.map((each, i) => `<button class="${i === at ? 'on' : i < at ? 'seen' : ''}" data-ap-step="${esc(key)}" data-index="${i}" aria-current="${i === at}"><span class="n">${i + 1}</span>${esc(each.label)}</button>`).join('');
+    const foot = `<div class="ch-foot">${at ? `<button class="btn ghost" data-ap-step="${esc(key)}" data-index="${at - 1}">‹ Back</button>` : '<span></span>'}${at < block.beats.length - 1 ? `<button class="btn" data-ap-step="${esc(key)}" data-index="${at + 1}">Next: ${esc(block.beats[at + 1].label)} ›</button>` : ''}</div>`;
+    return blockShell({ ...block, text: '' }, 'story', `<nav class="ch-nav ap-stepper">${dots}</nav><div class="ap-step-body"><p class="ch-lead">${esc(beat.text)}</p></div>${foot}`);
+  },
+  waits(page, shown, block) {
+    const asks = block.questions.map((key) => shown.questions.find((item) => item.answer === key)).filter((item) => item && !answers.get(item.answer)?.done);
+    const prs = blockPRs(shown, block.prs).filter((entry) => entry.group === 'you' && !(answers.get(entry.answer)?.label && !answers.get(entry.answer)?.error));
+    if (!asks.length && !prs.length) return blockShell(block, 'waits', '<p class="ap-empty">✓ Nothing here waits on you now.</p>');
+    const ask = (item) => {
+      const told = opened(model.queue.find((each) => each.answer === item.answer) ?? item).told?.story;
+      const pick = Math.max(0, item.card.options.indexOf(item.card.recommended));
+      const label = told?.options[pick]?.title ?? decisionPlain(optionParts(item.card.options[pick])[0]);
+      const acts = told ? `data-ap-decide="${esc(item.answer)}" data-index="${pick}"` : `data-card="${esc(item.answer)}" data-label="${esc(item.card.options[pick])}"`;
+      return `<li class="ap-wait"><span class="ap-wait-kind">Decision</span><span class="ap-wait-body"><b>${esc(told?.headline ?? item.headline ?? decisionPlain(item.title))}</b>${told?.waits ? `<small>${esc(told.waits)}</small>` : ''}</span><span class="ap-wait-acts"><button class="mini go" ${acts}>Pick: ${esc(label)}</button><a class="linkish" href="${esc(item.href)}">Weigh the paths ›</a></span></li>`;
+    };
+    const tap = (entry) => {
+      const status = prWord(entry);
+      return `<li class="ap-wait"><span class="ap-wait-kind">PR</span><span class="ap-wait-body"><b>${esc(sentence(entry.headline ?? bare(entry.title)))}</b><small>${dot(status)} ${esc(status.word)} · ${esc(entry.approve_plain)}</small></span><span class="ap-wait-acts">${entry.answer ? `<button class="mini go" data-card="${esc(entry.answer)}" data-label="Approve">Approve</button>` : ''}<button class="linkish" data-pr="${esc(entry.key)}">Review ›</button></span></li>`;
+    };
+    return blockShell(block, 'waits', `<ul class="ap-waits">${asks.map(ask).join('')}${[...new Map(prs.map((entry) => [entry.answer, entry])).values()].map(tap).join('')}</ul>`);
+  },
+  risk(page, shown, block) {
+    return block.text ? `<section class="ap-block wide ap-risk ${esc(block.tone === 'bad' ? 'bad' : 'warn')}"><span class="ap-risk-mark" aria-hidden="true">!</span><div>${block.title ? `<b>${esc(block.title)}</b>` : '<b>The risk</b>'}<p>${esc(block.text)}</p></div></section>` : '';
+  },
+  progress(page, shown, block) {
+    const steps = block.steps.map((step) => ({ ...step, entries: step.orders.map((id) => shown.features.find((entry) => entry.id === id)).filter(Boolean) })).filter((step) => step.entries.length);
+    if (!steps.length) return '';
+    const on = steps.findIndex((step) => step.entries.some((entry) => !DONE_STATES.has(entry.state)));
+    return blockShell(block, 'progress', `<ol class="ap-progress">${steps.map((step, i) => {
+      const done = step.entries.filter((entry) => DONE_STATES.has(entry.state)).length;
+      const state = done === step.entries.length ? 'done' : i === on ? 'now' : step.entries.some((entry) => entry.state === 'blocked') ? 'bad' : '';
+      return `<li class="${state}"><i style="--done:${Math.round((done / step.entries.length) * 100)}%"></i><b>${esc(step.label)}</b><small>${done} of ${step.entries.length}</small></li>`;
+    }).join('')}</ol>`);
   },
   decide(page, shown, block) {
     const items = block.questions.map((key) => shown.questions.find((item) => item.answer === key)).filter(Boolean);
@@ -3117,6 +3191,16 @@ document.addEventListener('click', (event) => {
     prChapters.set(chapter.dataset.chapterOf, Number(chapter.dataset.chapter));
     render();
     return $('#main .ch-nav')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+  const apStep = event.target.closest('[data-ap-step]');
+  if (apStep) {
+    appletSteps.set(apStep.dataset.apStep, Number(apStep.dataset.index));
+    return render();
+  }
+  const apTab = event.target.closest('[data-ap-tab]');
+  if (apTab) {
+    appletTabs.set(apTab.dataset.apTab, Number(apTab.dataset.index));
+    return render();
   }
   const prtab = event.target.closest('[data-prtab]');
   if (prtab) {
