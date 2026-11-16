@@ -55,6 +55,7 @@ READS_LOG = "reads.log"
 CONFLICTS = "conflicts with its base"
 NEWEST_MAIL = "newest lane mail"
 LANE_MAIL = "lane mail"
+MARK_READ = "marking lane mail read"
 ANSWERS = "answers"
 LANE_WAIT = timedelta(seconds=reads.LANE_GIVES_UP)
 ANSWER_BY = timedelta(seconds=reads.ANSWER_BY)
@@ -1464,12 +1465,12 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
 
 
 def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Remote lanes' mail while a lane the watch hears is live, read in one call of Orca's whole mailbox and given by senders to the job whose worker sent it, whatever Run Orca filed it on and whatever that job's state, from every worker of its job and not only the newest, and kept in its job's history, where the mail of a worker a relaunch replaced, and Orca's word on a permission prompt, which Claude Code's timer or the bash_guard hook answers while the lane carries on, only stays: reports and statuses become JOB lines, Orca's notice that its mail did not reach a finished worker ends that worker's turn with no STOPPED and says nothing, each read and `DRIVE` question the relay has not taken gets a reader started here, by start_readers, an open question kept before the watch read it as a read included. A follow-up Orca started to carry a recorded worker's unread mail is that job's mail delivery and never its worker: each turn it ends, settles the texts its job keeps queued by that Dispatch's mailbox, by deliveries and state.take_mail, and a follow-up's failed start posts no STOPPED but holds on the job each text its mailbox still shows unread, runs `drive job resume` on the job, which carries them to its worker or relaunches a finished one with them, and says so on one JOB line. The read starts past the newest sequence the watch's last read reached, and a watch's first read past the newest mark of the jobs it hears, each job keeping the sequence of the newest of its messages taken, judged and moved under the lock, so a pass reads only the mail that came since, never Orca's whole history, and a job's mail no watch has taken waits for whichever watch hears it next. A message its job's history already keeps, read again under the lock, is never taken again, so a watch whose mark another install's save lost replays nothing and a question the relay took meanwhile never runs twice."""
+    """Remote lanes' mail while a lane the watch hears is live, read in one call of Orca's whole mailbox and given by senders to the job whose worker sent it, whatever Run Orca filed it on and whatever that job's state, from every worker of its job and not only the newest, and kept in its job's history, where the mail of a worker a relaunch replaced, and Orca's word on a permission prompt, which Claude Code's timer or the bash_guard hook answers while the lane carries on, only stays: reports and statuses become JOB lines, Orca's notice that its mail did not reach a finished worker ends that worker's turn with no STOPPED and says nothing, each read and `DRIVE` question the relay has not taken gets a reader started here, by start_readers, an open question kept before the watch read it as a read included. A follow-up Orca started to carry a recorded worker's unread mail is that job's mail delivery and never its worker: each turn it ends, settles the texts its job keeps queued by that Dispatch's mailbox, by deliveries and state.take_mail, and a follow-up's failed start posts no STOPPED but holds on the job each text its mailbox still shows unread, runs `drive job resume` on the job, which carries them to its worker or relaunches a finished one with them, and says so on one JOB line. The read starts past the newest sequence the watch's last read reached, and a watch's first read past the newest mark of the jobs it hears, each job keeping the sequence of the newest of its messages taken, judged and moved under the lock, and each Run that mail of a job's came on and Orca still shows unread marked read once the lock is let go, by orca.mark_read, so Orca's retention drops it and a Run whose jobs ended retires, so a pass reads only the mail that came since, never Orca's whole history, and a job's mail no watch has taken waits for whichever watch hears it next. A message its job's history already keeps, read again under the lock, is never taken again, so a watch whose mark another install's save lost replays nothing and a question the relay took meanwhile never runs twice."""
     queue_kept_reads(watcher)
     data = state.load(watcher.name)
     if not live_lanes(watcher, data):
         return []
-    lines, messages, delivered, undelivered, owed, asked = [], [], {}, [], [], []
+    lines, messages, delivered, undelivered, owed, asked, unread = [], [], {}, [], [], [], set()
     try:
         mail = lane_mail(watcher, data)
         delivered = deliveries(watcher, data, mail)
@@ -1486,6 +1487,8 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
             kept.cache_clear()
             for message in messages:
                 job_id = sender(message)
+                if job_id and message.get("delivered_at") is None:
+                    unread.add(message["to_handle"].removeprefix("run:"))
                 if not job_id or message["sequence"] <= data["jobs"][job_id]["mail_seen"]:
                     continue
                 data["jobs"][job_id]["mail_seen"] = message["sequence"]
@@ -1518,6 +1521,11 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
         if carried:
             send_held(watcher, job_id, moment)
         lines.append(f"JOB {job_id} {order_id} {render.unread(held, failed)}{carried}")
+    for run in sorted(unread):
+        try:
+            orca.mark_read(run)
+        except orca.OrcaError as error:
+            lines += read_failed(watcher, MARK_READ, error, moment)
     watcher.made += [line for line in lines if line]
     start_readers(watcher.name, data, asked, moment)
     return []

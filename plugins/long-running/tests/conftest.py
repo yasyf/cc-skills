@@ -74,6 +74,7 @@ REAL_SAVED_BRANCHES = github.saved_branches
 REAL_SESSION_OF = orca.session_of
 REAL_SESSION_TERMINALS = orca.session_terminals
 REAL_SPRITES = orca.sprites
+REAL_MARK_READ = orca.mark_read
 SILENT_SPRITE = "ssh exited 255: Connection timed out during banner exchange"
 REAL_KEEP_TRANSCRIPTS = orca.keep_transcripts
 REAL_SPRITE_API = orca.sprite_api
@@ -432,6 +433,14 @@ def drive_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every drive speaks to Orca as the terminals of its own it already keeps, never ones Orca opens for the test."""
     monkeypatch.setattr(orca, "drive_terminal", lambda drive: DRIVE_TERMINAL)
     monkeypatch.setattr(orca, "binder_terminal", lambda drive: BINDER_TERMINAL)
+
+
+@pytest.fixture(autouse=True)
+def marked_read(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Each Run whose lane mail the watch marked read, in turn; a test of the mark itself calls REAL_MARK_READ."""
+    marked: list[str] = []
+    monkeypatch.setattr(orca, "mark_read", marked.append)
+    return marked
 
 
 @pytest.fixture(autouse=True)
