@@ -42,6 +42,8 @@ jobs:
         with:
           node-version: 24
       - run: pip install pytest pytest-xdist pytest-timeout "spawnllm>=0.17.7"
+      - name: warm Chrome
+        run: google-chrome --headless=new --disable-gpu --no-first-run --user-data-dir="$RUNNER_TEMP/chrome-warm" --dump-dom about:blank > /dev/null
       - name: pytest
         run: python -m pytest plugins/long-running/tests -q -n auto --durations=25 --timeout=30
       - uses: astral-sh/setup-uv@v8.2.0
