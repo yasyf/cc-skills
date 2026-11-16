@@ -47,7 +47,7 @@ def read_chunk(ordered: list[tuple[str, int]], commits: int = COMMITS_READ) -> d
     for index, (repo, number) in enumerate(ordered):
         owner, name = repo.split("/", 1)
         parts.append(
-            f'p{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ pullRequest(number: {number}) {{ title state merged headRefOid baseRefName headRefName repository {{ defaultBranchRef {{ name }} }} reviewDecision commits(last: {commits}) {{ totalCount nodes {{ commit {{ oid author {{ user {{ login }} }} statusCheckRollup {{ state }} }} }} }} }} }}'
+            f'p{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ pullRequest(number: {number}) {{ title state merged headRefOid baseRefName headRefName repository {{ defaultBranchRef {{ name }} }} reviewDecision latestReviews(first: 20) {{ nodes {{ state author {{ login }} commit {{ oid }} }} }} commits(last: {commits}) {{ totalCount nodes {{ commit {{ oid author {{ user {{ login }} }} statusCheckRollup {{ state }} }} }} }} }} }}'
         )
     done = subprocess.run(["gh", "api", "graphql", "-f", f"query={{ {' '.join(parts)} }}"], capture_output=True, text=True, check=False, timeout=60)
     if done.returncode:
@@ -60,8 +60,16 @@ def read_chunk(ordered: list[tuple[str, int]], commits: int = COMMITS_READ) -> d
             continue
         nodes = pull["commits"]["nodes"]
         rollup = ((nodes[-1]["commit"].get("statusCheckRollup") or {}).get("state")) if nodes else None
-        read[key] = {"title": pull["title"], "state": pull["state"], "merged": pull["merged"], "head": pull["headRefOid"], "base": pull["baseRefName"], "branch": pull["headRefName"], "default": pull["repository"]["defaultBranchRef"]["name"], "review": pull["reviewDecision"], "rollup": rollup, "commits": [(node["commit"]["oid"], ((node["commit"]["author"] or {}).get("user") or {}).get("login")) for node in nodes], "commit_count": pull["commits"]["totalCount"]}
+        read[key] = {"title": pull["title"], "state": pull["state"], "merged": pull["merged"], "head": pull["headRefOid"], "base": pull["baseRefName"], "branch": pull["headRefName"], "default": pull["repository"]["defaultBranchRef"]["name"], "review": pull["reviewDecision"], "rollup": rollup, "commits": [(node["commit"]["oid"], ((node["commit"]["author"] or {}).get("user") or {}).get("login")) for node in nodes], "commit_count": pull["commits"]["totalCount"], "approvals": {node["author"]["login"]: node["commit"]["oid"] for node in (pull.get("latestReviews") or {}).get("nodes") or [] if node["state"] == "APPROVED" and node.get("author") and node.get("commit")}}
     return read
+
+
+@cache
+def his_login(drive: str) -> str:
+    """His GitHub login, whose approving reviews count as his Approve: the drive's config `his_login`, else the account gh is signed in to, his on this Mac."""
+    if named := store.config(drive).get("his_login"):
+        return named
+    return subprocess.run(["gh", "api", "user", "-q", ".login"], capture_output=True, text=True, check=True, timeout=60).stdout.strip()
 
 
 def side_path(drive: str, folder: str, name: str) -> Path:

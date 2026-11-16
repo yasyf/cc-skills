@@ -167,6 +167,11 @@ def main(argv: list[str] | None = None) -> int:
     granting.add_argument("--holder")
     granting.add_argument("--ttl", type=int, default=30)
     granting.add_argument("--lane")
+    for label in ("approve", "hold"):
+        tapping = verbs_parser.add_parser(label, help=f"record his {label.title()} on a lane PR at a head, as his Slack card or dashboard tap does")
+        tapping.add_argument("ref", help="<owner/repo>#<n>")
+        tapping.add_argument("--head", required=True)
+        tapping.add_argument("--source", default="recorded by hand")
     incident = verbs_parser.add_parser("incident")
     incident.add_argument("--link")
     incident.add_argument("--monitor")
@@ -256,6 +261,11 @@ def run(args: argparse.Namespace) -> int:
                     print(queue.renew(drive, args.resource, holder, args.ttl))
                 case "release":
                     queue.release(drive, args.resource, holder)
+        case "approve" | "hold":
+            drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
+            if not drive:
+                raise store.Refused("name the drive with --drive")
+            print(", ".join(verbs.tapped(drive, *pr_ref(args.ref), args.verb.title(), args.head, args.source)))
         case "incident":
             drive, lane_id = where(args)
             verbs.set_incident(drive, lane_id, token(), args.link, args.monitor, args.fix_live)

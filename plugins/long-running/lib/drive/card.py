@@ -946,6 +946,8 @@ def answered(ask: dict) -> dict:
 
     if "repo" not in ask:
         return question_answered(ask)
+    if lane_tapped(ask):
+        return {"ok": True}
     known = drive_prs()
     key = keys_of([ask], known)[0]
     if key not in known:
@@ -990,6 +992,20 @@ def answered(ask: dict) -> dict:
     else:
         land.halt(name, members, view.live_cards(name))
     return {"ok": True}
+
+
+def lane_tapped(ask: dict) -> bool:
+    """Write his tap on each live lane drive carrying the PR, through lane's own verb, which wakes its lane and leaves the landing to lane-land; false when no live lane drive carries it, so the old drive takes it."""
+    from lane import verbs as lanes
+
+    number = int(ask["number"])
+    drives = lanes.live_drives_holding(ask["repo"], number)
+    for drive in drives:
+        head = ask["heads"].get(f"{ask['repo']}#{number}") or next(iter(ask["heads"].values()), None)
+        if not head:
+            raise state.DriveError(f"his {ask['label']} on {ask['repo']}#{number} names no head")
+        lanes.tapped(drive, ask["repo"], number, ask["label"], head, ask["source"])
+    return bool(drives)
 
 
 def question_answered(ask: dict) -> dict:

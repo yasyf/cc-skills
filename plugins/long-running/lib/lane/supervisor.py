@@ -52,6 +52,25 @@ def fired(drive: str, lane: dict, prs: dict, moment: datetime) -> str | None:
     return None
 
 
+def reviewed(drive: str, prs: dict, login: str) -> None:
+    """Write his GitHub approving review of a lane PR as his Approve, once per review: at the head it reviewed when that is the PR's head now or the row has no Approve yet, so an older review never replaces a newer tap of his on a card; a waiting lane carrying it wakes."""
+
+    def writing(lanes: dict[str, dict]) -> None:
+        for lane in lanes.values():
+            for row in lane["prs"]:
+                pull = prs.get((row["repo"], row["number"])) or {}
+                if not (oid := (pull.get("approvals") or {}).get(login)) or row.get("reviewed_head") == oid:
+                    continue
+                row["reviewed_head"] = oid
+                if oid == pull.get("head") or not row.get("approved_head"):
+                    row["approved_head"] = oid
+                    store.note(lane, f"his GitHub Approve on {row['repo']}#{row['number']} at {oid[:12]}")
+                    if lane["state"] == store.WAITING:
+                        verbs.woken(lane, f"his GitHub Approve on {row['repo']}#{row['number']}")
+
+    store.transact(drive, writing)
+
+
 def backoff(lane: dict, moment: datetime, shape: dict) -> timedelta | None:
     recent = [stamp for stamp in lane.get("restarts", []) if moment - store.parse(stamp) < RESTART_WINDOW]
     over = len(recent) - shape["restarts_before_backoff"]
@@ -90,6 +109,8 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
             prs = facts.read_prs(facts.pr_keys(store.load_all(drive)), commits=1)
         except store.Refused as failed:
             errors.append(str(failed))
+        if prs:
+            reviewed(drive, prs, facts.his_login(drive))
         lanes_now = store.load_all(drive)
         monitors = dict(rank.last(drive).get("monitors", {}))
         try:

@@ -635,3 +635,29 @@ def test_a_lane_whose_owner_restarted_keeps_its_place_in_line_and_its_grant(worl
     assert queue.renew(DRIVE, "staging-env", "a", 30)
     queue.release(DRIVE, "staging-env", "a")
     assert queue.take(DRIVE, "staging-env", "b", "b", 30)["granted"] is True
+
+
+def test_his_tap_lands_on_every_lane_row_carrying_the_pr_and_wakes_its_lane(world: dict) -> None:
+    from drive import card
+
+    opened("a", prs=[("acme/app", 7)])
+    ended("a", ["pr_merged:acme/app#9"], "6h")
+    (store.drive_dir(DRIVE) / store.LIVE).touch()
+    assert card.answered({"repo": "acme/app", "number": 7, "label": "Approve", "heads": {"acme/app#7": "h7"}, "source": "pressed the button", "action_ts": None, "waits": ""}) == {"ok": True}
+    lane = store.load(DRIVE, "a")
+    assert (lane["prs"][0]["approved_head"], lane["wait"]["fired_why"]) == ("h7", "his Approve on acme/app#7")
+    verbs.tapped(DRIVE, "acme/app", 7, "Hold", "h7", "his dashboard")
+    assert store.load(DRIVE, "a")["prs"][0]["held"].startswith("his Hold at h7")
+    with pytest.raises(store.Refused, match="no lane of"):
+        verbs.tapped(DRIVE, "acme/app", 8, "Approve", "h8", "his dashboard")
+
+
+def test_his_github_approving_review_is_his_approve_once_and_never_replaces_a_newer_tap(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(facts, "his_login", lambda drive: "him")
+    opened("a", prs=[("acme/app", 7), ("acme/app", 8)])
+    world["prs"][("acme/app", 7)] = pull(head="h7") | {"approvals": {"him": "h7", "bot": "h7"}}
+    world["prs"][("acme/app", 8)] = pull(head="h8b") | {"approvals": {"him": "h8a"}}
+    store.update(DRIVE, "a", lambda lane: lane["prs"][1].__setitem__("approved_head", "h8b"))
+    supervisor.run_pass(DRIVE)
+    rows_now = store.load(DRIVE, "a")["prs"]
+    assert [(row["approved_head"], row["reviewed_head"]) for row in rows_now] == [("h7", "h7"), ("h8b", "h8a")]

@@ -13,6 +13,43 @@ def woken(lane: dict, why: str) -> None:
     lane["wait"] = {"on": [{"kind": "his_reply"}], "until": moment, "why": why, "set": moment, "fired": moment, "fired_why": why}
 
 
+TAP_LABELS = ("Approve", "Hold")
+
+
+def live_drives_holding(repo: str, number: int) -> list[str]:
+    """Each live lane drive with a lane whose rows carry the PR."""
+    found = store.root()
+    if not found.is_dir():
+        return []
+    return [folder.name for folder in sorted(found.iterdir()) if (folder / store.LIVE).exists() and any((row["repo"], row["number"]) == (repo, number) for lane in store.load_all(folder.name).values() for row in lane["prs"])]
+
+
+def tapped(drive: str, repo: str, number: int, label: str, head: str, source: str) -> list[str]:
+    """His Approve or Hold on a lane PR at a head, written on each row carrying it: an Approve sets its approved_head and lifts his Hold, so lane-land lands it on its next pass, and a Hold names when and where he gave it; a waiting lane carrying it wakes. The lanes it was written on."""
+    if label not in TAP_LABELS:
+        raise store.Refused(f"his tap is Approve or Hold, not {label!r}")
+    carrying = [lane_id for lane_id, lane in store.load_all(drive).items() if any((row["repo"], row["number"]) == (repo, number) for row in lane["prs"])]
+    if not carrying:
+        raise store.Refused(f"no lane of {drive} carries {repo}#{number}")
+    moment = store.stamp()
+
+    def tapping(lane: dict) -> None:
+        for row in lane["prs"]:
+            if (row["repo"], row["number"]) == (repo, number):
+                if label == "Approve":
+                    row["approved_head"], row["held"] = head, None
+                else:
+                    row["held"] = f"his Hold at {head[:12]}, {source}, {moment}"
+        store.note(lane, f"his {label} on {repo}#{number} at {head[:12]}, {source}")
+        if lane["state"] == store.WAITING:
+            woken(lane, f"his {label} on {repo}#{number}")
+
+    for lane_id in carrying:
+        store.update(drive, lane_id, tapping)
+    store.kick(drive)
+    return carrying
+
+
 def open_lane(drive: str, lane_id: str, title: str, words: str | None = None, channel: str | None = None, thread: str | None = None, link: str | None = None, ts: str | None = None, parks: str | None = None, park_words: str | None = None, prs: list[tuple[str, int]] = (), worktree: str | None = None, next_step: str | None = None, incident: dict | None = None) -> dict:
     """Open a lane, woken at once so the same call starts its owner; at the cap it must name the lane it parks, with his words."""
     cap = store.config(drive)["active"]
