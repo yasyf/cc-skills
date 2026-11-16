@@ -175,6 +175,16 @@ DECIDES = (
     'drive job ask: Jev reads this card as asking only a detail of drive tooling, which his ruling {ruling} leaves to the job, so asking'
     ' it keeps it decided on its recommended option, "{option}", with no card'
 )
+REHEARSED = "{option}: decided without you, since a release on staging or sandbox alone needs no word of yours"
+REHEARSED_LINE = (
+    '{file} keeps {job}\'s question decided on its recommended option, "{option}", with no card: every release it names runs on plat-usw2-staging'
+    " or plat-usw2-sandbox alone, which his ruling {ruling} leaves to the drive, so the top coordinator starts it with `drive job add --release` and no --order"
+)
+REHEARSES = (
+    "drive job ask: every release this card's recommended option names runs on plat-usw2-staging or plat-usw2-sandbox alone, which his ruling {ruling}"
+    ' leaves to the drive, so asking it keeps it decided on that option, "{option}", with no card'
+)
+RULED = {state.TOOLING_DETAILS_RULING: (DECIDED, DECIDED_LINE, DECIDES), state.REHEARSAL_RULING: (REHEARSED, REHEARSED_LINE, REHEARSES)}
 JEV_MARK = re.compile(re.escape(MARKED).replace(re.escape("{option}"), ".+") + r"\Z")
 UNSETTLED = (
     'drive job ask: kept the card unsettled as "{unsettled}", asking him to lift {id}, {asked}, so it holds its PR from landing'
@@ -330,11 +340,9 @@ ORDERED = (
 )
 LEADING_NUMBER = re.compile(r"\s*(\d+)\b(?![.,]\d)")
 UNCHANGED = frozenset({"env", "without", "from", "order"})
-SOAKED = frozenset({"targets", "only"})
-STARTS = frozenset({"emergency", "manual", "rollback"})
 PROSE_FLAGS = frozenset({"targets", *UNCHANGED, "emergency"})
 FOR_PRODUCTION = "for-production"
-SPOKEN_FLAGS = frozenset({*PROSE_FLAGS, *SOAKED, "exclude", FOR_PRODUCTION})
+SPOKEN_FLAGS = frozenset({*PROSE_FLAGS, "only", "exclude", FOR_PRODUCTION})
 TENANTS = re.compile(r"^tenants:\n((?:[ -].*(?:\n|$))*)", re.MULTILINE)
 TEAM_NAME = re.compile(r"^[ -] (?:name|displayName): *(.+?) *$", re.MULTILINE)
 STAGE = re.compile(r"^stage: *(\S+) *$", re.MULTILINE)
@@ -842,9 +850,9 @@ def detail(case: str, words: list[dict]) -> bool:
     return reading(read["preference"]) is False
 
 
-def tooling_decided(option: str, link: str | None) -> dict:
-    """How a drive tooling job's question ends when its job decides it by his ruling state.TOOLING_DETAILS_RULING: answered by that ruling on its recommended option."""
-    return state.new_close("answered", DECIDED.format(option=option), link, ruling=state.TOOLING_DETAILS_RULING)
+def ruled_close(option: str, link: str | None, ruling: str) -> dict:
+    """How a job's question ends when a ruling of his decides it on its recommended option with no card: answered by that ruling, state.TOOLING_DETAILS_RULING for a detail of drive tooling, else state.REHEARSAL_RULING for a release on staging or sandbox alone."""
+    return state.new_close("answered", RULED[ruling][0].format(option=option), link, ruling=ruling)
 
 
 def decided(title: str, words: str, older: dict[str, dict]) -> set[str]:
@@ -936,7 +944,7 @@ def unordered(answer: dict, release: str, data: dict) -> str | None:
 
 
 def ordered_by(answer: dict, release: str, flags: dict, matches: Callable[[dict, dict, str, str], str | None], data: dict) -> str | None:
-    """Why his answer does not order a release, its flags as shipped() reads them and the start Jev reads; None when it does. When the card his answer answers is kept, found by answered_card(), and his leading option number or tap picks an option whose words name a release in backticks, code decides: his answer orders the release when matches, placed() or tests(), reads it shipping what one of those ships, its `--only` left out by narrowed() where the card says those components ship alone, placed() every flag the same but its places, `--from` and `--order`, and on staging alone under one on staging alone its targets, `--only` and how it starts, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. An answer no kept card holds, to a question listing releases as numbered items, his own or one the drive recorded the same message of his under, by message_questions(), orders in code a release one item it picks orders, by listed_order(). Any other answer Jev reads in one request, his words and the drive's notes on them beside that card, his answers recorded before it in its thread, by threaded(), as many as fill() holds whole, and the places the release runs on with their stages and the components its `--only` ships alone, by runs_on(), one Noul whether his words have that release run and one whether it ships more than they order: it orders the release at YES on the first and under NO on the second, either in the band between refusing it as unsure; Unheard when Jev gave no answer."""
+    """Why his answer does not order a release, its flags as shipped() reads them and the start Jev reads; None when it does. When the card his answer answers is kept, found by answered_card(), and his leading option number or tap picks an option whose words name a release in backticks, code decides: his answer orders the release when matches, placed() or tests(), reads it shipping what one of those ships, its `--only` left out by narrowed() where the card says those components ship alone, placed() every flag the same but its places, `--from` and `--order`, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. An answer no kept card holds, to a question listing releases as numbered items, his own or one the drive recorded the same message of his under, by message_questions(), orders in code a release one item it picks orders, by listed_order(). Any other answer Jev reads in one request, his words and the drive's notes on them beside that card, his answers recorded before it in its thread, by threaded(), as many as fill() holds whole, and the places the release runs on with their stages and the components its `--only` ships alone, by runs_on(), one Noul whether his words have that release run and one whether it ships more than they order: it orders the release at YES on the first and under NO on the second, either in the band between refusing it as unsure; Unheard when Jev gave no answer."""
     from drive import brief
 
     said = his(answer["body"])
@@ -1136,9 +1144,8 @@ def narrowed(release: dict, option: dict, words: str) -> dict:
 
 
 def placed(release: dict, option: dict, rest: str, cwd: str) -> str | None:
-    """Why a release does not ship what a card option's release ships, each read by shipped(), on the option's places and those his words past its number name; None when it does. A release on staging alone under an option's release on staging alone ships it with targets and `--only` of its own wherever the option's names none, started with `--emergency`, `--manual` or `--rollback` or not, so his standing yes 23eefb9, whose option starts `tools/ci release start --emergency --env plat-usw2-staging`, orders each soak's start and the restore or rollback that returns staging after it: "A standing yes: the drive soaks any dangerous branch on staging alone, while production keeps waiting for your word"."""
-    free = UNCHANGED | (SOAKED - set(option) | STARTS if staging_only(release, cwd) and staging_only(option, cwd) else frozenset())
-    if {name: values for name, values in release.items() if name not in free} != {name: values for name, values in option.items() if name not in free}:
+    """Why a release does not ship what a card option's release ships, each read by shipped(), on the option's places and those his words past its number name; None when it does."""
+    if {name: values for name, values in release.items() if name not in UNCHANGED} != {name: values for name, values in option.items() if name not in UNCHANGED}:
         return "and this release ships another change"
     if (added := beyond(release, option)) is None:
         return "and this release runs on every place it does not leave out, where that option names its own"
@@ -1207,11 +1214,6 @@ def shipped(release: dict) -> dict[str, tuple[str, ...]]:
         if values:
             read[name] = tuple(sorted({*read.get(name, ()), *values}))
     return read
-
-
-def staging_only(release: dict, cwd: str) -> bool:
-    """Whether a release, as shipped() reads it, runs on staging alone, by go/ci's StagingOnly: it names places, and each one's infra/envs file marks it `stage: staging`."""
-    return bool(places := release.get("env")) and all(stage(place, cwd) == STAGING for place in places)
 
 
 def off_production(release: dict, cwd: str) -> bool:

@@ -669,7 +669,8 @@ hold holds. The top coordinator starts it with `drive job add builder --order <o
 ships>" --release "<the start> --order <his answer id>"` with no second card or question first. That
 one call starts it from the top's checkout, prints its build link and writes the job's brief on that
 build. With no such answer, the top reads the release's plan and asks him with `drive job ask` whether
-to start that exact command. At the approve hold the job's agent reads each held migration, delete and replace against the
+to start that exact command, but for a release on `plat-usw2-staging` or `plat-usw2-sandbox` alone,
+which it starts with no `--order` and no card. At the approve hold the job's agent reads each held migration, delete and replace against the
 code at the release's commit, then runs `tools/ci release approve <id> --via <agent>`, naming in
 `--leave-out` each stack it cannot vouch for, never cancelling the release or asking him, by his pick
 "Land whole stacks and read the gate: no schema change merges without its writer; a stack's bottom

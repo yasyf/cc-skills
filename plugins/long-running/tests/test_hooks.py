@@ -1721,7 +1721,7 @@ def test_while_he_holds_every_release_a_drive_runs_none_but_on_his_exception_rec
     asked = len(jev.asked)
     refused = [landing_guard.deny_reason(bash(command) | top) for command in HELD_VERBS]
     assert refused[0] == held("tools/ci release resume 15495", "it names no `--order`, and neither does a `Release:` line of its job's brief")
-    assert [reason.startswith(f'refused: he holds every release, by his words "{RELEASE_HOLD["body"]}" (15c4de1, {HOLD_LINK})') for reason in refused] == [True] * len(HELD_VERBS)
+    assert [reason.startswith(f'refused: he holds every release reaching past plat-usw2-staging and plat-usw2-sandbox, by his words "{RELEASE_HOLD["body"]}" (15c4de1, {HOLD_LINK})') for reason in refused] == [True] * len(HELD_VERBS)
     assert len(jev.asked) == asked
     jev.picks("none")
     assert brief.approval_refusal(start.format("8b2e4f7"), data) == held(
@@ -2133,21 +2133,22 @@ def test_his_number_on_a_kept_card_orders_the_release_its_option_names_in_prose_
     answered_cut(run, demo, [SOAK_PICK, acme], SOAK_CARD)
     recorded.shown = {answer["id"][:7]: answer for answer in (SOAK_PICK, acme)}
     data = state.load(demo)
-    ordered = (SOAK.format(targets="cloudrunner-next", env="plat-usw2-staging", order="0a09bcc"), SOAK.format(targets="cloudrunner-next", env="plat-usw2-staging,tnt-usw2-acme", order="0a1ace0"))
-    assert [brief.approval_refusal(release, data) for release in ordered] == [None, None]
+    assert brief.approval_refusal(SOAK.format(targets="cloudrunner-next", env="plat-usw2-staging,tnt-usw2-acme", order="0a1ace0"), data) is None
     assert jev.asked == []
     read = (
-        SOAK.format(targets="cloudrunner-next", env="plat-usw2-prod", order="0a09bcc"),
-        SOAK.format(targets="cloudrunner-next,runtime-api-next", env="plat-usw2-staging", order="0a09bcc"),
-        "tools/ci release start cloudrunner-next --from 216f90221a4708e2f694823ea207ae738992e829 --emergency --order 0a09bcc",
-        SOAK.format(targets="cloudrunner-next", env="plat-usw2-staging", order="0a09bcc") + " --landed 56278",
-        SOAK.format(targets="cloudrunner-next", env="plat-usw2-staging,tnt-usw2-acme", order="0a09bcc"),
+        (SOAK.format(targets="cloudrunner-next", env="plat-usw2-prod", order="0a09bcc"), SOAK_PICK),
+        (SOAK.format(targets="cloudrunner-next,runtime-api-next", env="plat-usw2-staging,tnt-usw2-acme", order="0a1ace0"), acme),
+        ("tools/ci release start cloudrunner-next --from 216f90221a4708e2f694823ea207ae738992e829 --emergency --order 0a09bcc", SOAK_PICK),
+        (SOAK.format(targets="cloudrunner-next", env="plat-usw2-staging,tnt-usw2-acme", order="0a1ace0") + " --landed 56278", acme),
+        (SOAK.format(targets="cloudrunner-next", env="plat-usw2-staging,tnt-usw2-acme", order="0a09bcc"), SOAK_PICK),
     )
-    refused = f'refused: `--order 0a09bcc` names his answer to "{SOAK_PICK["title"]}", "{SOAK_PICK["body"]}", and Jev does not read it as approving this release. {brief.RELEASE_APPROVAL}'
-    assert [brief.approval_refusal(release, data) for release in read] == [refused] * len(read)
-    staging = "plat-usw2-staging (stage staging)"
-    places = ("plat-usw2-prod (stage prod)", staging, settled.PRODUCTION, staging, f"{staging}, tnt-usw2-acme")
-    assert [asked["state"]["action"] for asked in jev.asked] == [f"start this release on {where}: `{release}`" for where, release in zip(places, read, strict=True)]
+    assert [brief.approval_refusal(release, data) for release, _ in read] == [
+        f'refused: `--order {answer["id"][:7]}` names his answer to "{answer["title"]}", "{answer["body"]}", and Jev does not read it as approving this release. {brief.RELEASE_APPROVAL}'
+        for _, answer in read
+    ]
+    staging = "plat-usw2-staging (stage staging), tnt-usw2-acme"
+    places = ("plat-usw2-prod (stage prod)", staging, settled.PRODUCTION, staging, staging)
+    assert [asked["state"]["action"] for asked in jev.asked] == [f"start this release on {where}: `{release}`" for where, (release, _) in zip(places, read, strict=True)]
 
 
 
@@ -2236,15 +2237,20 @@ SOAK_CASES = {
     "tags": ["scope:durable"],
     "created_at": "2026-11-14T16:02:00Z",
 }
-STAGING_SOAKS = (
-    "tools/ci release start runtime-api-next cloudrunner-next --from e299550554d12e3ad79acb5b736f9d998734f7be --emergency --env plat-usw2-staging --order 23eefb9",
-    "tools/ci release start db platform restate runtime-api-next cloudrunner-next executor dashboard --from 044e8552b6941d1b184aca11b8e201fd0ade2e31 --emergency --env plat-usw2-staging --order 23eefb9",
-    "tools/ci release start restate --only rsw-search --from 28f00bc3506ef72c80cbe879b21182da80c0a71b --emergency --env plat-usw2-staging --order 23eefb9",
-    "tools/ci release start platform --only api --from d28a1ecb7a48 --emergency --env plat-usw2-staging --order 23eefb9",
+REHEARSALS = (
+    "tools/ci release start runtime-api-next cloudrunner-next --from e299550554d12e3ad79acb5b736f9d998734f7be --emergency --env plat-usw2-staging",
+    "tools/ci release start db platform restate runtime-api-next cloudrunner-next executor dashboard --from 044e8552b6941d1b184aca11b8e201fd0ade2e31 --emergency --env plat-usw2-staging",
+    "tools/ci release start restate --only rsw-search --from 28f00bc3506ef72c80cbe879b21182da80c0a71b --emergency --hotfix 55865 --env plat-usw2-staging,plat-usw2-sandbox",
+    "tools/ci release start platform --only api --from d28a1ecb7a48 --emergency --env plat-usw2-staging",
+    "tools/ci release start --stack runtime-api-next/plat-usw2-staging,cloudrunner-next/plat-usw2-staging,dashboard/plat-usw2-staging,sandsql/plat-usw2-staging"
+    " --commit afb881f9207650b5a87f1e2e10c6b4d53c2448d0 --manual --emergency",
+    "tools/ci release start runtime-api-next cloudrunner-next dashboard sandsql --from 8ab0e2526f06587a3086ca246aff87f7b4ac005b --emergency --env plat-usw2-staging",
+    "tools/ci release start --manual --stack rsw-search/plat-usw2-sandbox --commit 5a6f43db99dd9671fd132bce1c939e33ac3a2b81 --rollback",
+    "tools/ci release start --stack sandsql/plat-usw2-sandbox --commit 3ebaa825dbd7116cb00a2f799c91861371d9e4d8 --manual --emergency",
 )
 
 
-def test_his_standing_yes_to_soak_on_staging_orders_each_soak_there_whatever_it_ships_and_no_release_past_staging_with_no_jev_read(
+def test_a_release_on_staging_or_sandbox_alone_runs_under_his_hold_with_no_order_and_no_jev_read_and_one_reaching_past_them_waits_on_his_word(
     demo: str, run: Run, recorded: Answers, jev: Jev
 ) -> None:
     answered_cut(run, demo, [STANDING_SOAK], STANDING_SOAK_CARD)
@@ -2253,74 +2259,53 @@ def test_his_standing_yes_to_soak_on_staging_orders_each_soak_there_whatever_it_
     recorded.listed = [RELEASE_HOLD, STANDING_SOAK, SOAK_CASES]
     recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
     data = state.load(demo)
-    assert [brief.approval_refusal(release, data) for release in STAGING_SOAKS] == [None] * len(STAGING_SOAKS)
-    first, narrowed = STAGING_SOAKS[0], STAGING_SOAKS[2]
-    picks = f'`--order 23eefb9` names his answer to "{STANDING_SOAK["title"]}", and it picks option 1 of the card it answers, `tools/ci release start --emergency --env plat-usw2-staging`'
-    refused = {
-        first.replace("plat-usw2-staging", "plat-usw2-prod"): "and this release ships another change",
-        first.replace("plat-usw2-staging", "plat-usw2-staging,plat-usw2-prod"): "and this release ships another change",
-        first.replace(" --env plat-usw2-staging", ""): "and this release ships another change",
-        narrowed.replace("--emergency", "--emergency --hotfix 55865"): "and this release ships another change",
-        first.replace("plat-usw2-staging", "plat-gbl-staging"): "and this release also runs on plat-gbl-staging, which his words past its number do not name",
-    }
-    assert {release: brief.approval_refusal(release, data) for release in refused} == {release: held(release, f"{picks}, {why}") for release, why in refused.items()}
+    hold = settled.hold(data["roles"]["coordinator"]["cwd"])
+    releases = [gated for release in REHEARSALS for gated in (release, f"{release} --order 3bfcce8")]
+    assert [(brief.release_refusal(release), brief.approval_refusal(release, data), brief.hold_refusal(release, data, hold)) for release in releases] == [(None, None, None)] * len(releases)
     assert jev.asked == []
-    unapproved = narrowed.replace("23eefb9", "3bfcce8")
+    first = REHEARSALS[0]
+    past = [
+        *(first.replace("plat-usw2-staging", place) for place in ("plat-usw2-prod", "plat-usw2-staging,plat-usw2-prod", "plat-gbl-staging")),
+        first.replace(" --env plat-usw2-staging", ""),
+        REHEARSALS[-1].replace("sandsql/plat-usw2-sandbox", "sandsql/plat-usw2-sandbox,sandsql/plat-usw2-prod"),
+    ]
+    assert [brief.release_refusal(release) for release in past] == [f"--release names no --order. {brief.RELEASE_APPROVAL}"] * len(past)
+    assert [brief.hold_refusal(release, data, hold) for release in past] == [held(release, "it names no `--order`, and neither does a `Release:` line of its job's brief") for release in past]
+    tested = f"{first} --for-production"
+    assert (brief.release_refusal(tested), brief.hold_refusal(tested, data, hold)) == (
+        f"--release names no --order. {brief.RELEASE_APPROVAL}",
+        held(tested, "it names no `--order`, and neither does a `Release:` line of its job's brief"),
+    )
+    picks = f'`--order 23eefb9` names his answer to "{STANDING_SOAK["title"]}", and it picks option 1 of the card it answers, `tools/ci release start --emergency --env plat-usw2-staging`'
+    ordered = [f"{release} --order 23eefb9" for release in past]
+    assert [brief.approval_refusal(release, data) for release in ordered] == [held(release, f"{picks}, and this release ships another change") for release in ordered]
+    assert jev.asked == []
     jev.picks("none")
+    unapproved = f"{past[0]} --order 3bfcce8"
     assert brief.approval_refusal(unapproved, data) == held(unapproved, f'`--order 3bfcce8` names his answer to "{SOAK_CASES["title"]}", and Jev does not read it as approving this release')
-    assert jev.asked[-1]["state"]["action"] == f"start this release on plat-usw2-staging (stage staging), shipping only rsw-search: `{unapproved}`"
+    assert [asked["state"]["action"] for asked in jev.asked] == [f"start this release on plat-usw2-prod (stage prod): `{unapproved}`"]
 
 
-def test_his_standing_yes_on_a_card_another_drive_keeps_orders_a_staging_soak_on_this_drive_and_no_production_start_with_no_jev_read(
+def test_his_pick_on_a_card_another_drive_keeps_orders_its_release_on_this_drive_and_no_other_release_with_no_jev_read(
     demo: str, run: Run, recorded: Answers, jev: Jev
 ) -> None:
-    standing = STANDING_SOAK | {"tags": ["scope:durable", f"drive:{demo}"]}
-    answered_cut(run, demo, [standing], STANDING_SOAK_CARD)
+    picked = CUT_PICK | {"tags": ["scope:durable", f"drive:{demo}"]}
+    answered_cut(run, demo, [picked])
     run("start", "ssql-duckdb", "--role", "coordinator")
-    recorded.listed = [RELEASE_HOLD, standing]
+    recorded.listed = [RELEASE_HOLD, picked]
     recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
     data = state.load("ssql-duckdb")
-    assert standing["id"] not in data["answers"]
-    soak = STAGING_SOAKS[0]
-    production = soak.replace("plat-usw2-staging", "plat-usw2-prod")
-    picks = f'`--order 23eefb9` names his answer to "{STANDING_SOAK["title"]}", and it picks option 1 of the card it answers, `tools/ci release start --emergency --env plat-usw2-staging`'
-    held_here = brief.RELEASE_HELD.format(said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=production, why=f"{picks}, and this release ships another change")
-    assert [brief.approval_refusal(release, data) for release in (soak, production)] == [None, held_here]
+    assert picked["id"] not in data["answers"]
+    cut = "tools/ci release start --hotfix 101 --only api --without tnt-usw2-acme --order 5d17d9c"
+    everything = "tools/ci release start --order 5d17d9c"
+    picks = f'`--order 5d17d9c` names his answer to "{CUT_PICK["title"]}", and it picks option 1 of the card it answers, `ci release start --hotfix 101 --only api --without tnt-usw2-acme`'
+    held_here = brief.RELEASE_HELD.format(said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=everything, why=f"{picks}, and this release ships another change")
+    assert [brief.approval_refusal(release, data) for release in (cut, everything)] == [None, held_here]
     assert jev.asked == []
-    recorded.shown["23eefb9"] = STANDING_SOAK | {"tags": ["scope:durable", "drive:gone"]}
-    unread = f'`--order 23eefb9` names his answer to "{STANDING_SOAK["title"]}", and {settled.UNORDERED}'
-    assert brief.approval_refusal(soak, data) == brief.RELEASE_HELD.format(said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=soak, why=unread)
+    recorded.shown["5d17d9c"] = picked | {"tags": ["scope:durable", "drive:gone"]}
+    unread = f'`--order 5d17d9c` names his answer to "{CUT_PICK["title"]}", and {settled.UNORDERED}'
+    assert brief.approval_refusal(cut, data) == brief.RELEASE_HELD.format(said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=cut, why=unread)
     assert len(jev.asked) == 1
-
-
-SPILL_STACKS = (
-    "tools/ci release start --stack runtime-api-next/plat-usw2-staging,cloudrunner-next/plat-usw2-staging,dashboard/plat-usw2-staging,sandsql/plat-usw2-staging"
-    " --commit afb881f9207650b5a87f1e2e10c6b4d53c2448d0 --manual --emergency --order 23eefb9"
-)
-SPILL_RESTORE = "tools/ci release start runtime-api-next cloudrunner-next dashboard sandsql --from 8ab0e2526f06587a3086ca246aff87f7b4ac005b --emergency --env plat-usw2-staging --order 23eefb9"
-STAGING_ROLLBACK = "tools/ci release start --manual --stack rsw-search/plat-usw2-staging --commit 5a6f43db99dd9671fd132bce1c939e33ac3a2b81 --rollback --order 23eefb9"
-
-
-def test_his_standing_yes_to_soak_on_staging_orders_each_stack_restore_and_rollback_there_and_no_stack_past_staging_with_no_jev_read(
-    demo: str, run: Run, recorded: Answers, jev: Jev
-) -> None:
-    answered_cut(run, demo, [STANDING_SOAK], STANDING_SOAK_CARD)
-    with state.edit(demo) as data:
-        data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
-    recorded.listed = [RELEASE_HOLD, STANDING_SOAK]
-    recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
-    data = state.load(demo)
-    assert [brief.approval_refusal(release, data) for release in (SPILL_STACKS, SPILL_RESTORE, STAGING_ROLLBACK)] == [None, None, None]
-    picks = f'`--order 23eefb9` names his answer to "{STANDING_SOAK["title"]}", and it picks option 1 of the card it answers, `tools/ci release start --emergency --env plat-usw2-staging`'
-    refused = {
-        STAGING_ROLLBACK.replace("plat-usw2-staging", "plat-usw2-prod"): "and this release ships another change",
-        SPILL_STACKS.replace("sandsql/plat-usw2-staging", "sandsql/plat-usw2-prod"): "and this release ships another change",
-        SPILL_RESTORE.replace("plat-usw2-staging", "plat-usw2-staging,plat-usw2-prod"): "and this release ships another change",
-        STAGING_ROLLBACK.replace("plat-usw2-staging", "plat-usw2-sandbox"): "and this release ships another change",
-        STAGING_ROLLBACK.replace("plat-usw2-staging", "plat-gbl-staging"): "and this release also runs on plat-gbl-staging, which his words past its number do not name",
-    }
-    assert {release: brief.approval_refusal(release, data) for release in refused} == {release: held(release, f"{picks}, {why}") for release, why in refused.items()}
-    assert jev.asked == []
 
 
 SANDBOX_TESTS = {
@@ -2330,27 +2315,20 @@ SANDBOX_TESTS = {
     "tags": ["scope:durable", "drive:demo"],
     "created_at": "2026-11-15T12:04:59Z",
 }
-SANDBOX_TEST = "tools/ci release start --stack sandsql/plat-usw2-sandbox --commit 3ebaa825dbd7116cb00a2f799c91861371d9e4d8 --manual --emergency --order 077d93a"
 
 
-def test_jev_reads_a_stack_release_on_the_places_its_stacks_name_so_his_words_to_test_on_a_sandbox_reach_it_on_the_sandbox_and_a_production_stack_on_production(
-    demo: str, run: Run, recorded: Answers, jev: Jev
-) -> None:
+def test_jev_reads_a_stack_release_on_the_places_its_stacks_name_so_a_production_stack_reads_as_production(demo: str, run: Run, recorded: Answers, jev: Jev) -> None:
     answered_cut(run, demo, [STANDING_SOAK], STANDING_SOAK_CARD)
     with state.edit(demo) as data:
         data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
     recorded.listed = [RELEASE_HOLD, SANDBOX_TESTS]
     recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
-    data = state.load(demo)
-    jev.picks("orders")
-    assert brief.approval_refusal(SANDBOX_TEST, data) is None
-    production = SANDBOX_TEST.replace("plat-usw2-sandbox", "plat-usw2-prod")
+    production = f'{REHEARSALS[-1].replace("plat-usw2-sandbox", "plat-usw2-prod")} --order 077d93a'
     jev.picks("none")
-    assert brief.approval_refusal(production, data) == held(production, f'`--order 077d93a` names his answer to "{SANDBOX_TESTS["title"]}", and Jev does not read it as approving this release')
-    assert [asked["state"]["action"] for asked in jev.asked] == [
-        f"start this release on plat-usw2-sandbox (stage sandbox): `{SANDBOX_TEST}`",
-        f"start this release on plat-usw2-prod (stage prod): `{production}`",
-    ]
+    assert brief.approval_refusal(production, state.load(demo)) == held(
+        production, f'`--order 077d93a` names his answer to "{SANDBOX_TESTS["title"]}", and Jev does not read it as approving this release'
+    )
+    assert [asked["state"]["action"] for asked in jev.asked] == [f"start this release on plat-usw2-prod (stage prod): `{production}`"]
 
 
 FOR_PRODUCTION_START = "tools/ci release start platform dashboard --from afb881f92076 --for-production --env plat-gbl-staging,plat-usw2-staging --order {order}"
@@ -2433,12 +2411,12 @@ def test_his_standing_yes_to_soak_and_his_words_to_test_on_staging_order_no_stag
     ]
 
 
-def test_a_stack_names_its_project_as_a_target_and_its_env_as_a_place_beside_env_so_a_manual_staging_deploy_ships_what_an_option_on_staging_names(
+def test_a_stack_names_its_project_as_a_target_and_its_env_as_a_place_beside_env_so_a_manual_deploy_ships_what_a_manual_option_names(
     demo: str, run: Run, recorded: Answers
 ) -> None:
     answered_cut(run, demo, [CUT_PICK])
     cwd = state.load(demo)["roles"]["coordinator"]["cwd"]
-    [option] = map(settled.shipped, brief.started("tools/ci release start sandsql --from 3ebaa825dbd7 --emergency --env plat-usw2-staging"))
+    [option] = map(settled.shipped, brief.started("tools/ci release start sandsql --commit 3ebaa825dbd7 --manual --emergency --env plat-usw2-staging"))
     manual = "tools/ci release start --stack sandsql/plat-usw2-staging --commit 3ebaa825dbd7 --manual --emergency"
     assert settled.shipped(brief.started(f"{manual} --env plat-usw2-sandbox")[0]) == {
         "targets": ("sandsql",),

@@ -464,7 +464,9 @@ event needs. The first five events then return as step 7 says.
   `hotfix`, since the top coordinator starts each one with `drive job add --release`, which reads his
   answer approving it and briefs a job on the build it started. A change that needs a release returns
   `WAITING release` naming the exact `tools/ci release start` or `hotfix` to run, a hotfix's pull
-  requests given to it as `--hotfix <n>` and `--order <his answer id>` when he already ordered it;
+  requests given to it as `--hotfix <n>` and `--order <his answer id>` when he already ordered it,
+  or no `--order` for one on `plat-usw2-staging` or `plat-usw2-sandbox` alone, which needs no word
+  or card of his;
   outside an incident, run `tools/ci release plan` at those flags first and name what each stack
   changes, since his go answers that command.
 - Your brief's `Release:` and `Release build:` lines name the release the top started for you and its
