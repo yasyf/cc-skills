@@ -221,6 +221,13 @@ def deliver(monkeypatch: pytest.MonkeyPatch, *batches: list[dict]) -> list[int |
     return calls
 
 
+def orca_mail(monkeypatch: pytest.MonkeyPatch, mail: list[dict]) -> list[int | None]:
+    """Orca's mail as orca.mail reads it, each read returning every message past the sequence it names, and the sequence each read named, in order."""
+    marks = []
+    monkeypatch.setattr(orca, "mail", lambda after: marks.append(after) or [message for message in mail if after is None or message["sequence"] > after])
+    return marks
+
+
 @pytest.fixture(autouse=True)
 def reads_inline(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each read the watch starts runs to its end before the pass goes on, the moment its lane asked it, as a reader process that ended before the next pass."""
@@ -5624,12 +5631,11 @@ def test_the_watch_answers_a_read_question_itself_and_keeps_the_job_as_it_was(
     assert (job["ask"], job["state"], job["said"]) == (None, "running", None)
 
 
-def test_the_relay_answers_a_read_from_orcas_newest_mail_beside_the_passes_and_lane_mail_never_runs_it_again(
+def test_the_relay_answers_a_read_from_orcas_mail_past_its_own_mark_beside_the_passes_and_lane_mail_never_runs_it_again(
     remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     question = message("question", "READ cci show 2065", id="msg_read")
-    monkeypatch.setattr(orca, "newest_mail", lambda: [question, message("question", "READ cci show 1", id="msg_elsewhere", from_handle="dispatch:ctx_other", to_handle="run:run_other")])
-    deliver(monkeypatch, [question])
+    orca_mail(monkeypatch, [question, message("question", "READ cci show 1", id="msg_elsewhere", from_handle="dispatch:ctx_other", to_handle="run:run_other")])
     asked, replies = [], []
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: asked.append(question) or "m2065 the field facts")
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
@@ -5643,8 +5649,7 @@ def test_the_relay_answers_a_read_from_orcas_newest_mail_beside_the_passes_and_l
 
 def test_a_read_the_relay_takes_while_lane_mail_reads_the_same_question_runs_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     question = message("question", "READ cci show 2065", id="msg_read")
-    deliver(monkeypatch, [question])
-    monkeypatch.setattr(orca, "newest_mail", lambda: [question])
+    orca_mail(monkeypatch, [question])
     asked = []
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: asked.append(question) or "m2065")
     monkeypatch.setattr(orca, "call", lambda *args: {})
@@ -5670,9 +5675,59 @@ def test_a_relay_pass_reads_orcas_mail_once_however_many_sprite_lanes_are_live_a
         data["jobs"].update({f"j{number}": {**lane, "run": f"run_lane{number}", "dispatch": f"ctx_lane{number}"} for number in range(2, lanes + 1)})
         lane["state"] = "running" if lanes else "done"
     read = []
-    monkeypatch.setattr(orca, "newest_mail", lambda: read.append("inbox") or [])
+    monkeypatch.setattr(orca, "mail", lambda after: read.append("inbox") or [])
     assert watch.relay_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0) == []
     assert len(read) == mail_reads
+
+
+def test_the_relay_takes_each_read_asked_since_its_last_read_however_much_mail_came_after_it(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    first = message("question", "READ cci show 1", id="relay_first")
+    mail = [first]
+    marks = orca_mail(monkeypatch, mail)
+    asked = []
+    monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: asked.append(question) or "m")
+    monkeypatch.setattr(orca, "call", lambda *args: {})
+    relaying = watch.Watcher(remote, offset=state.events_end(remote))
+    assert watch.relay_pass(relaying, T0) == []
+    statuses = [message("status", "working", id=f"msg_status{number}") for number in range(orca.MAIL_LIMIT)]
+    mail += [*statuses, message("question", "READ cci show 2", id="relay_second"), *(message("status", "working", id=f"msg_later{number}") for number in range(orca.MAIL_LIMIT))]
+    assert watch.relay_pass(relaying, T0 + timedelta(seconds=watch.RELAY_SECONDS)) == []
+    assert (asked, marks) == (["READ cci show 1", "READ cci show 2"], [None, first["sequence"]])
+
+
+@pytest.mark.parametrize(
+    "take", [watch.relay_pass, lambda watching, moment: staged(watch.lane_lines, watching, moment)], ids=["the relay", "lane mail"]
+)
+def test_a_read_its_worker_asked_again_before_the_watch_took_it_runs_once_on_the_later_question(
+    take: Callable[[watch.Watcher, datetime], list[str]], remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = message("question", 'DRIVE job report j1 -\n{"stdin": "PUSHED x"}', id="relay_first")
+    other = message("question", "READ cci show 1", id="relay_other")
+    again = message("question", 'DRIVE job report j1 -\n{"stdin": "PUSHED y"}', id="relay_again")
+    orca_mail(monkeypatch, [first, other, again])
+    ran, replies = [], []
+    monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: ran.append(question) or "drive exited 0")
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    assert take(watch.Watcher(remote, offset=state.events_end(remote)), T0) == []
+    assert ran == [again["body"], "READ cci show 1"]
+    assert [args[2] for args in replies if args[0] == "reply"] == ["relay_again", "relay_other"]
+    assert [reply["id"] for reply in state.replies(remote, "j1")] == ["relay_first", "relay_other", "relay_again"]
+
+
+@pytest.mark.parametrize(
+    ("asked_before", "started"),
+    [(timedelta(minutes=1), ["relay_late"]), (watch.LANE_WAIT + timedelta(seconds=1), [])],
+    ids=["within the Sprite's wait", "past the Sprite's give-up"],
+)
+def test_the_relay_keeps_a_question_its_lanes_drive_gave_up_on_and_starts_no_reader_on_it(
+    asked_before: timedelta, started: list[str], remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    orca_mail(monkeypatch, [message("question", "READ cci show 1", id="relay_late", created_at=state.stamp(T0))])
+    spawned = []
+    monkeypatch.setattr(watch, "spawn_reader", lambda name, job_id, message_id: spawned.append(message_id))
+    monkeypatch.setattr(orca, "call", lambda *args: {})
+    assert watch.relay_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0 + asked_before) == []
+    assert (spawned, [reply["id"] for reply in state.replies(remote, "j1")]) == (started, ["relay_late"])
 
 
 def test_each_answer_a_dead_reader_left_unsent_goes_in_a_relay_reply_of_its_own_with_no_bind_and_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -5683,7 +5738,7 @@ def test_each_answer_a_dead_reader_left_unsent_goes_in_a_relay_reply_of_its_own_
         watch.answer_file(remote, message_id).with_suffix(".unsent").touch()
     calls = []
     monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {})
-    monkeypatch.setattr(orca, "newest_mail", list)
+    deliver(monkeypatch)
     relaying = watch.Watcher(remote, offset=state.events_end(remote))
     assert [watch.relay_pass(relaying, T0 + timedelta(seconds=s)) for s in (0, 2)] == [[], []]
     assert [args for args in calls if args[0] == "reply"] == [
@@ -5729,7 +5784,6 @@ def test_a_read_answer_orca_refuses_its_reader_is_sent_again_by_the_relay_until_
 ) -> None:
     deliver(monkeypatch, [message("question", "READ cci show 2065", id="msg_read")])
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: "m2065")
-    monkeypatch.setattr(orca, "newest_mail", list)
     replies, refusals = [], iter(range(4))
 
     def busy_four_times(*args: str) -> dict:
@@ -5957,7 +6011,6 @@ def test_a_read_stopped_before_it_finished_is_answered_as_cut_off_and_never_run_
     replies = []
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: pytest.fail(f"the next watch ran {question} again"))
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
-    monkeypatch.setattr(orca, "newest_mail", list)
     assert watch.answer_read(remote, "j1", "relay_read", T0) == (None, "another reader took j1's relay_read")
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     assert watch.relay_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0 + timedelta(minutes=5)) == []
@@ -6039,7 +6092,7 @@ def test_a_question_asked_past_the_sprite_drives_give_up_never_runs_and_no_answe
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: pytest.fail(f"ran {question}"))
     replies = []
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
-    monkeypatch.setattr(orca, "newest_mail", list)
+    deliver(monkeypatch)
     assert watch.answer_read(remote, "j1", "relay_late", T0 + asked_before) == (None, f"j1's worker no longer waits on relay_late, asked {state.stamp(T0)}, so it is not run")
     watch.answer_file(remote, "relay_late").parent.mkdir(exist_ok=True)
     watch.answer_file(remote, "relay_late").write_text(json.dumps({"job": "j1", "reader": None, "answer": "drive exited 0\nyasyf/demo#7", "why": None}))
@@ -6052,7 +6105,6 @@ def test_a_relay_pass_while_a_reader_runs_sends_nothing_so_only_its_final_answer
     question = "READ ccn answer search repro cut"
     deliver(monkeypatch, [message("question", question, id="relay_read")])
     ran, replies = [], []
-    monkeypatch.setattr(orca, "newest_mail", list)
     relaying = watch.Watcher(remote, offset=state.events_end(remote))
 
     def answered_as_the_relay_passes(question: str, root: Path, drive: str, job_id: str) -> str:
@@ -6073,7 +6125,6 @@ def test_a_break_glass_answer_orca_refuses_is_sent_again_and_its_command_never_r
     deliver(monkeypatch, [message("question", BREAK_GLASS_READ, id="msg_glass")])
     ran = []
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: ran.append(question) or "DROP TABLE")
-    monkeypatch.setattr(orca, "newest_mail", list)
     replies, refusals = [], iter(range(2))
 
     def refused_twice(*args: str) -> dict:
@@ -6536,6 +6587,14 @@ def test_orca_mail_reads_every_runs_mail_in_one_call_and_none_the_drive_sent_a_w
     monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {"messages": mailbox[::-1]})
     assert [mail["id"] for mail in orca.mail(None)] == ["msg_1", "msg_2"]
     assert calls == [("inbox", "--limit", str(orca.MAIL_LIMIT))]
+
+
+def test_orca_mail_reads_ten_times_deeper_while_the_newest_messages_hold_none_at_or_before_its_mark(monkeypatch: pytest.MonkeyPatch) -> None:
+    mailbox = [message("status", "step", id=f"msg_{number}") for number in range(250)]
+    calls = []
+    monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {"messages": mailbox[::-1][: int(args[-1])]})
+    assert [mail["id"] for mail in orca.mail(mailbox[49]["sequence"])] == [f"msg_{number}" for number in range(50, 250)]
+    assert calls == [("inbox", "--limit", str(orca.MAIL_LIMIT)), ("inbox", "--limit", str(orca.MAIL_LIMIT * 10))]
 
 
 FOLLOW_UP = "ctx_52c40ab71a25"

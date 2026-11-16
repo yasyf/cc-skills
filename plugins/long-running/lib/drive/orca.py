@@ -795,11 +795,6 @@ def mail(after: int | None) -> list[dict]:
     return sorted((message for message in messages if message["to_handle"].startswith("run:") and (after is None or message["sequence"] > after)), key=lambda message: message["sequence"])
 
 
-def newest_mail() -> list[dict]:
-    """The newest MAIL_LIMIT messages to every recipient, read without binding or consuming, so one call hears every lane's newest questions."""
-    return call("inbox", "--limit", str(MAIL_LIMIT))["messages"]
-
-
 def mailbox(job: dict, dispatch: str) -> list[dict]:
     """The mail in one Dispatch mailbox of the job, read or not, oldest first, from the Orca that keeps it: this Mac's for a lane here, and for a lane on a Sprite that Sprite's own, by the job's environment, since this Mac's Orca only relays a Sprite lane's mail and keeps none of it; read without binding or consuming as mail reads every Run's. A message keeps its read flag there once its worker reads it, and Orca moves a reported worker's unread mail to the mailbox of the follow-up it starts to carry it."""
     environment = [] if state.on_mac(job) else ["--environment", job["environment"]]
