@@ -19,6 +19,7 @@ from pathlib import Path, PurePosixPath
 from drive import github, state, train
 
 POLL_SECONDS = 20
+READ_EVERY_SECONDS = 60
 FAILED_TEST = re.compile(r"^\S+ (?:FAILED|ERROR) (?P<test>\S+\.py(?:::[^\r\n]+?)?)(?: - [^\r\n]*)?\r?$", re.MULTILINE)
 GITHUB_REPO = re.compile(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?/?$")
 DEFAULT_BRANCH = "refs/heads/default"
@@ -777,17 +778,18 @@ def plugin_copies_first() -> str:
 
 
 def await_ci(merges: dict[str, str]) -> bool:
-    """Follow the CI of the push that carried each merge onto its repository's default branch until it passed the merge, as pushed_ci judges it and drive pr ci prints it, however many runs or statuses failed or were cancelled before it, since each one on that branch tests the merge again beside every merge after it; a merge no CI reported on, on its commit or any commit after it, waits on nothing. The verdict is read again each time the receiver hears a workflow run complete on that branch, the repository hooked first when no hook of the receiver's sends those, and a read that fails is said and read again within POLL_SECONDS; no deadline cuts the wait, since the next push's CI tests the merge again, so a proof waits through a red default branch until it passes. Whether a read found CI that had not passed the merge yet."""
+    """Follow the CI of the push that carried each merge onto its repository's default branch until it passed the merge, as pushed_ci judges it and drive pr ci prints it, however many runs or statuses failed or were cancelled before it, since each one on that branch tests the merge again beside every merge after it; a merge no CI reported on, on its commit or any commit after it, waits on nothing. The verdict is read again each time the receiver hears a workflow run complete on that branch, at most once every READ_EVERY_SECONDS, since a busy branch completes runs of other merges far more often than this one's CI changes, the repository hooked first when no hook of the receiver's sends those, once a proof, and a read that fails is said and read again within POLL_SECONDS; no deadline cuts the wait, since the next push's CI tests the merge again, so a proof waits through a red default branch until it passes. Whether a read found CI that had not passed the merge yet."""
     from drive import receiver
 
     waited = False
     for key, sha in merges.items():
-        repo, last = key.partition("#")[0], ""
+        repo, last, hooked = key.partition("#")[0], "", False
         while True:
-            heard, failed = receiver.heard(repo, "ci"), False
+            heard, failed, read_at = receiver.heard(repo, "ci"), False, clock()
             try:
-                if receiver.unhooked({repo}):
+                if not hooked and receiver.unhooked({repo}):
                     receiver.hook(repo)
+                hooked = True
                 if not (unpassed := [line for line, passed in pushed_ci(repo, sha) if not passed]):
                     break
                 waiting, waited = ", ".join(unpassed), True
@@ -800,12 +802,15 @@ def await_ci(merges: dict[str, str]) -> bool:
                 sleep(POLL_SECONDS)
             else:
                 receiver.hear(repo, "ci", heard)
+                if (rest := read_at + READ_EVERY_SECONDS - clock()) > 0:
+                    sleep(rest)
     return waited
 
 
 def ci_runs(repo: str, listed: str, query: str) -> list[dict]:
+    """The newest hundred workflow runs a listing names, newest first, as one read: a run on the default branch tests every merge its commit holds, so the newest runs judge a merge as well as all of them, and the pages past the first cost a read each on every wake of a proof."""
     jq = ".workflow_runs[] | {id, workflow_id, name, head_sha, created_at, status, conclusion, html_url}"
-    return [json.loads(line) for line in github.read(f"{repo}'s workflow runs", ["gh", "api", "--paginate", f"repos/{repo}/actions/{listed}?per_page=100&{query}", "--jq", jq]).splitlines()]
+    return [json.loads(line) for line in github.read(f"{repo}'s workflow runs", ["gh", "api", f"repos/{repo}/actions/{listed}?per_page=100&{query}", "--jq", jq]).splitlines()]
 
 
 def ci_passed(run: dict) -> bool:
