@@ -2087,6 +2087,9 @@ def test_a_staging_tests_done_frees_a_pr_changing_only_tools_ci_and_go_ci_by_a_c
         reach = released
         refused = done(commit(head))
         assert refused.startswith(f"j2's DONE frees {key} from waiting on its staging test, and no build the CHECK: lines heading its cases name deployed a commit carrying it to staging: they name no Buildkite build.")
+    reach = {key: {"components": ["api", "platy"], "touched": ["platy"], "dev": ["go/ci/internal/tenantsmoke/inside.go", "tools/ci"], "releases": []}}
+    monkeypatch.setattr(github, "build", lambda pipeline, number: {"jobs": [], "commit": older})
+    assert done("https://buildkite.com/forge/release/builds/17535", commit(head)) is None
 
 
 def test_a_full_pass_by_the_builder_of_the_pr_it_tests_delivers_its_staging_part_while_its_done_waits_on_that_pr_and_after_the_watch_takes_its_merge(state_root: Path) -> None:
