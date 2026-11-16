@@ -1,1 +1,1 @@
-{"load_per_core": 1000000, "free_memory": 0}
+{"machine": {"load": 0, "cores": 4, "free_memory": 100}}

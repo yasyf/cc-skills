@@ -7,7 +7,7 @@ from pathlib import Path
 
 import agent_brief
 import pytest
-from conftest import RESEARCH, kept_brief
+from conftest import REAL_MACHINE, RESEARCH, kept_brief
 from drive import agents, brief, cli, orca, place, state, view, watch
 from drive.render import when
 
@@ -494,3 +494,14 @@ def test_drive_job_start_starts_a_briefed_reader_as_its_own_session_bound_as_the
         data["jobs"]["j1"].update(agent=agent, where="local", session=os.environ["CLAUDE_CODE_SESSION_ID"], state="running")
     assert state.agent_address(state.load(demo)["jobs"]["j1"]) == "peer:bg-session"
     assert watch.carrier("j1", state.load(demo)["jobs"]["j1"], state.load(demo), None) == ["job", "resume", "j1"]
+
+
+def test_the_load_gate_reads_the_machine_caps_json_injects_and_closes_on_load_or_memory(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(place, "machine", REAL_MACHINE)
+    path = state.root() / place.CAPS_FILE
+    path.write_text(json.dumps({"machine": {"load": 9, "cores": 4, "free_memory": 50}}))
+    assert place.strained() == f"this Mac's 1-minute load is 9, over its 4 cores times 1, set by {path}"
+    path.write_text(json.dumps({"machine": {"load": 1, "cores": 4, "free_memory": 9}}))
+    assert place.strained() == f"9% of this Mac's memory is free, under 15%, set by {path}"
+    path.write_text(json.dumps({"machine": {"load": 1, "cores": 4, "free_memory": 50}}))
+    assert place.strained() is None
