@@ -227,6 +227,7 @@ def waited_on(orders: range, lined: timedelta) -> None:
                 "jobs": [job_id],
             }
             data["jobs"][job_id] = state.new_job(order_id, "builder", "fix it", [], state.stamp(moment)) | {"state": "running", "agent": f"a-{number}"}
+    state.redrawn("demo")
 
 
 def overdue_at_call(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], payload: dict) -> list[str]:
@@ -271,6 +272,7 @@ def test_a_jobs_call_shows_its_own_order_alone_most_overdue_first_a_thread_lined
     with state.edit("demo") as data:
         data["jobs"]["j3"]["state"] = "done"
         data["orders"]["o3"]["every"] = 20
+    state.redrawn("demo")
     lines = overdue_at_call(monkeypatch, capsys, {"session_id": coordinator})
     assert [line.split(":")[0] for line in lines[1:]] == ["- o3 Fix 3", "- o1 Fix 1", "- o2 Fix 2"]
     assert (lines[1].endswith(", 10 min past due"), lines[2].endswith(", 3 min past due"), lines[3].endswith(", not past due")) == (True, True, True)
@@ -284,9 +286,11 @@ def test_a_jobs_call_shows_its_own_order_alone_most_overdue_first_a_thread_lined
     assert overdue_at_call(monkeypatch, capsys, builder)[1].endswith(", 1 min past due")
     with state.edit("demo") as data:
         data["jobs"]["j1"]["lost_since"] = state.stamp(later)
+    state.redrawn("demo")
     assert overdue_at_call(monkeypatch, capsys, {"session_id": coordinator, "agent_id": "a-1", "agent_type": "long-running:builder"}) == []
     with state.edit("demo") as data:
         data["owner"]["away"] = state.stamp(later - timedelta(minutes=1))
+    state.redrawn("demo")
     assert overdue_at_call(monkeypatch, capsys, {"session_id": coordinator})[1].endswith("; he is away, so its line is owed at his return")
     monkeypatch.setattr(state, "now", lambda: later + timedelta(minutes=45))
     assert overdue_at_call(monkeypatch, capsys, {"session_id": coordinator}) == []

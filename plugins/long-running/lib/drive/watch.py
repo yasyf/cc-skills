@@ -2071,8 +2071,22 @@ def respond_pass(watcher: Watcher, moment: datetime) -> list[str]:
 
 def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
     """Take each ended codex-ask run, by codex_takes, then start the handler on each POST report that needs one, by post_lines, so no main pass stands between either and its next step; the lanes' reads are the responder's, by respond_pass."""
+    clocks_drawn(watcher)
     codex_takes(watcher)
     return post_lines(watcher, moment)
+
+
+CLOCKS_DRAWN: dict[str, int] = {}
+
+
+def clocks_drawn(watcher: Watcher) -> None:
+    """Draw the drive's clocks row again from the drive's own relay once any write changed the drive since its last draw, by state.redrawn, its one writer, so the overdue block every session's call reads stays current by the rules installed now."""
+    if watcher.project or state.scratch():
+        return
+    if CLOCKS_DRAWN.get(watcher.name) == state.drive_rev(watcher.name):
+        return
+    state.redrawn(watcher.name)
+    CLOCKS_DRAWN[watcher.name] = state.drive_rev(watcher.name)
 
 
 def post_lines(watcher: Watcher, moment: datetime) -> list[str]:

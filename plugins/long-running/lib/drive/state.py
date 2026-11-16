@@ -4603,7 +4603,7 @@ def edit(name: str, rows: tuple[Row, ...] | None = None) -> Iterator[dict]:
                 data = load(name)
                 before = holding_lanes(data)
                 yield data
-                save(name, data | {CLOCKS: clocks(data)})
+                save(name, data)
                 tell_moved(name, data, before)
             return
         data, held = loaded_rows(name, rows)
@@ -4689,7 +4689,6 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
         else:
             moved = {key: (holding_lane(base, base["orders"][key]), holding_lane(base, mine["orders"][key])) for collection, key in held if collection == "orders" and key in open_orders(base) and key in mine["orders"]}
         told_moved(name, mine, {order_id: lanes for order_id, lanes in moved.items() if lanes[0] != lanes[1]})
-        redrawn(name)
 
 
 def told_moved(name: str, data: dict, moved: dict[str, tuple[str, str]]) -> None:
@@ -4701,8 +4700,14 @@ def told_moved(name: str, data: dict, moved: dict[str, tuple[str, str]]) -> None
         append_event(name, ORDERS_MOVED, lane=lane, orders=orders, to=sorted({moved[order_id][1] for order_id in orders}))
 
 
+def drive_rev(name: str) -> int:
+    """The drive's newest change, the rev every write of a row bumps."""
+    with closing(connect(database_path(name))) as db:
+        return db.execute("SELECT COALESCE(MAX(rev), 0) FROM changed").fetchone()[0]
+
+
 def redrawn(name: str) -> None:
-    """After a write of rows, save the drive's clocks as clocks draws them from the drive as it then stands, in one transaction that keeps them only while no other write committed since that read, reading again up to UPDATE_TRIES times, and leaving them to the next write that saves them once each try raced."""
+    """The one writer of the clocks row, run by the watch's relay once the drive changed since its last draw, by the Nov 16 decision that only the watch writes it, so no session's process on an older install draws it by older rules: save the drive's clocks as clocks draws them from the drive as it then stands, in one transaction that keeps them only while no other write committed since that read, reading again up to UPDATE_TRIES times, and leaving them to the next write that saves them once each try raced."""
     for _ in range(UPDATE_TRIES):
         data = load(name)
         rev = LOADED_REV.get()
@@ -4940,7 +4945,7 @@ def committed(name: str, base: bytes, mine: dict, version: int | None, before: d
             now = load(name)
             before = holding_lanes(now)
             saved = merged(marshal.loads(base), mine, now)
-        save(name, saved | {CLOCKS: clocks(saved)})
+        save(name, saved)
         tell_moved(name, saved, before)
 
 
@@ -5028,7 +5033,7 @@ def edit_or_create(name: str, fresh: dict) -> Iterator[dict]:
         data = load(name) if exists(name) else fresh
         before = holding_lanes(data)
         yield data
-        save(name, data | {CLOCKS: clocks(data)})
+        save(name, data)
         tell_moved(name, data, before)
 
 
