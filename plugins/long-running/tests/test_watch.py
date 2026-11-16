@@ -7055,7 +7055,7 @@ def test_his_question_cards_asked_over_a_day_ago_go_out_once_a_day_in_one_digest
     watching = watcher(demo)
     watching.cards = view.NO_CARDS | {"questions": [fresh, old]}
     assert watch.digest_lines(watching, T0) == ["DIGEST 2026-11-09: 1 of his question cards asked more than a day ago, linked in https://acme.slack.com/archives/D123/p1794400200000100"]
-    assert (len(posts), posts[0]["request_key"], "{card:demo:j1-1-a}" in posts[0]["text"], "{card:demo:j1-2-a}" in posts[0]["text"]) == (1, "digest:2026-11-09", True, False)
+    assert (len(posts), posts[0]["request_key"].split("-", 1)[1], "{card:demo:j1-1-a}" in posts[0]["text"], "{card:demo:j1-2-a}" in posts[0]["text"]) == (1, f"{demo}.digest.2026-11-09", True, False)
     assert watch.digest_lines(watching, T0 + timedelta(hours=1)) == [] and len(posts) == 1
     data = state.load(demo)
     assert data["slack"]["digest"]["waits"] == ["demo:j1-1-a"]

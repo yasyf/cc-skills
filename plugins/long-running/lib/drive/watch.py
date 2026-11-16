@@ -2286,7 +2286,8 @@ def digest_lines(watcher: Watcher, moment: datetime) -> list[str]:
         return []
     from drive import talk
 
-    day = moment.astimezone(view.ZONE).date().isoformat()
+    midnight = moment.astimezone(view.ZONE).replace(hour=0, minute=0, second=0, microsecond=0)
+    day = midnight.date().isoformat()
     if (state.load(watcher.name)["slack"]["digest"] or {}).get("day") == day:
         return []
     old = sorted((shown for shown in watcher.cards["questions"] if shown["card"].get("waits") and moment - state.parse_time(shown["asked"]) > DIGEST_AGE), key=lambda shown: shown["asked"])
@@ -2295,7 +2296,7 @@ def digest_lines(watcher: Watcher, moment: datetime) -> list[str]:
         rows = "\n".join(f"| {when(shown['asked'])} | {{card:{shown['card']['waits']}}} |" for shown in old)
         words = f"*Asked over a day ago and still waiting on you: {len(old)} questions.* Each card takes your answer where it sits.\n\n| Asked | Question |\n| --- | --- |\n{rows}"
         try:
-            folded["message"] = talk.posted(watcher.name, {"text": words, "request_key": f"digest:{day}"})["permalink"]
+            folded["message"] = talk.posted(watcher.name, {"text": words, "request_key": f"{int(midnight.timestamp() * 1000)}-{watcher.name}.digest.{day}"})["permalink"]
         except (slack.SlackError, state.DriveError) as error:
             return failed(watcher, "digest", "post of the daily digest of his old questions", error, moment)
         watcher.failures.pop("digest", None)
