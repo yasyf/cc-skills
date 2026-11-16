@@ -7409,11 +7409,10 @@ def test_a_report_takes_a_waiting_or_built_job_and_a_stopped_ones_is_kept_ahead_
 
 
 def test_drive_work_done_refuses_a_waiting_the_watch_cannot_free_as_drive_job_report_does_and_the_item_stays_claimed(run: Run, demo: str) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
-    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
-    run("job", "add", "builder", "--order", "o1", "--goal", "work the queue")
-    started(demo, "j1")
-    started(demo, "j2")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it", "--parts", "the store", "the queue")
+    run("job", "add", "builder", "--order", "o1", "--part", "the store", "--goal", "ship")
+    run("job", "add", "builder", "--order", "o1", "--part", "the queue", "--goal", "work the queue")
+    started(demo, "j1", "j2")
 
     def claimed(data: dict) -> None:
         data["jobs"]["j1"].update(claim={"worker": "j2", "attempt": 1, "at": state.stamp()}, waits=["j2"])

@@ -162,7 +162,7 @@ def report_line(name: str, seq: str) -> str:
     place = {"channel_id": channel} if channel else {}
     if (made.get("place") == "thread" or incident) and (under :=(channel, thread) if thread else corrected and state.link_thread(corrected)):
         place = {"thread_ts": under[1]} | ({"channel_id": under[0]} if under[0] else {})
-    owes = {key: attrs[key] for key in ("due", "owes") if attrs.get(key)}
+    owes = {key: attrs[key] for key in ("due", "owes", "outcome") if attrs.get(key)}
     line = spoken(name, shown | {"record": seq} | place | owes, known, recorded_first=bool(state.closed_orders(attrs)))
     return line + "".join(closed(name, order_id, seq) for order_id in state.closed_orders(attrs) if state.load(name)["orders"][order_id]["state"] not in state.CLOSED_ORDER_STATES)
 
@@ -248,7 +248,7 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
         due = post.get("due") and state.parse_time(post["due"])
 
         def owed_write(data: dict) -> str | None:
-            return owing.posted(data, order, link, due, post.get("owes"), state.now())
+            return owing.posted(data, order, link, due, post.get("owes"), [each.strip() for each in str(post.get("outcome") or "").split(",") if each.strip()], state.now())
 
         if item_id := state.write(name, owed_write, patient=True):
             line += f"; owes {item_id} by {render.when(state.stamp(due))}"

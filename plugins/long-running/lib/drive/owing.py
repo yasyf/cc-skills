@@ -46,10 +46,12 @@ def close(item: dict, by: str, moment: datetime, why: str | None = None) -> None
     item["closed"] = {"at": state.stamp(moment), "by": by, "why": why}
 
 
-def posted(data: dict, order_id: str, link: str, due: datetime | None, owes: str | None, moment: datetime) -> str | None:
-    """A post on the order is the next line each step it owed promised him, so it ends them; with a due it owes its own next step, the writer naming what and by when, his words "any time you tell him a next step, give it a due"; the new item's id."""
+def posted(data: dict, order_id: str, link: str, due: datetime | None, owes: str | None, outcome: list[str], moment: datetime) -> str | None:
+    """A post on the order ends each step it names as its outcome, and with a due owes its own next step, replacing every step the order still owed, the writer naming what and by when, his words "any time you tell him a next step, give it a due"; a post naming neither leaves each step open, by his ruling that a promised step closes only on its outcome or a new due. The new item's id."""
     for item in still_open(data["orders"][order_id]):
-        if item["kind"] == STEP:
+        if item["kind"] == STEP and item["id"] in outcome:
+            close(item, "delivered", moment, link)
+        elif item["kind"] == STEP and due:
             close(item, "replaced", moment, link)
     if not due:
         return None

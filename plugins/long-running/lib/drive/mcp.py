@@ -178,6 +178,7 @@ SAY = {
                 "description": "When this post tells him a next step, the RFC 3339 time he should hear its outcome by; with owes, say keeps it on the post's order as one owed item, and the drive wakes the order's holder once if it passes with nothing posted on the order after, then the coordinator, then him",
             },
             "owes": {"type": "string", "description": "With due: the next step this post tells him of, in a few words"},
+            "outcome": {"type": "string", "description": "The owed step or steps, as w<n>, comma-separated, whose outcome this post tells him, which ends each; a post naming no outcome and no due leaves every step it owed open"},
             "done": {
                 "type": "boolean",
                 "description": (

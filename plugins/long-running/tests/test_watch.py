@@ -11406,13 +11406,13 @@ def test_his_open_card_that_left_a_show_me_picture_off_redraws_in_place_once_git
     assert redraws.asked == [state.pr_url(KEY)]
 
 
-def test_a_step_owed_by_6_30_wakes_the_orders_holder_once_then_the_coordinator_then_him_and_a_later_post_ends_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_step_owed_by_6_30_wakes_the_orders_holder_once_then_the_coordinator_then_him_and_only_the_post_telling_its_outcome_ends_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     post = "https://example.slack.com/archives/C1/p1794817827631909"
     opened, by = state.parse_time("2026-11-09T05:07:00-08:00"), state.parse_time("2026-11-09T06:30:00-08:00")
     reports = []
     monkeypatch.setattr(watch, "reported", lambda watcher, records: reports.extend(records) or ["1"] * len(records))
     with edit(demo) as data:
-        assert owing.posted(data, "o1", post, by, "its staging test result", opened) == "w1"
+        assert owing.posted(data, "o1", post, by, "its staging test result", [], opened) == "w1"
     watching = watcher(demo)
     assert watch.owing_lines(watching, by - timedelta(minutes=1)) == []
     [first] = watch.owing_lines(watching, by + timedelta(minutes=1))
@@ -11423,8 +11423,10 @@ def test_a_step_owed_by_6_30_wakes_the_orders_holder_once_then_the_coordinator_t
     assert (watch.owing_lines(watching, by + timedelta(minutes=123)), len(reports)) == ([], 1)
     assert "its staging test result was due" in reports[0]["text"]
     with edit(demo) as data:
-        assert owing.posted(data, "o1", "https://example.slack.com/archives/C1/p1794817900000000", None, None, by + timedelta(hours=3)) is None
-        assert (owing.still_open(data["orders"]["o1"]), data["orders"]["o1"]["owed"][0]["closed"]["by"]) == ([], "replaced")
+        assert owing.posted(data, "o1", "https://example.slack.com/archives/C1/p1794817900000000", None, None, [], by + timedelta(hours=3)) is None
+        assert [item["id"] for item in owing.still_open(data["orders"]["o1"])] == ["w1"]
+        assert owing.posted(data, "o1", "https://example.slack.com/archives/C1/p1794817950000000", None, None, ["w1"], by + timedelta(hours=3)) is None
+        assert (owing.still_open(data["orders"]["o1"]), data["orders"]["o1"]["owed"][0]["closed"]["by"]) == ([], "delivered")
 
 
 def test_closing_an_order_owing_an_open_item_warns_and_the_item_stays_open_in_status(demo: str) -> None:

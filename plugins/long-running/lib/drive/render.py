@@ -27,7 +27,7 @@ RECORDING = (
 PREVENTED = "A post telling him the drive failed says how that is prevented: the tool change and its order or PR."
 OWED = (
     "Any time you tell him a next step, give it a due: due=<RFC 3339 time> and owes=<the step> on say, or --attr due and"
-    " --attr owes on a POST report. A miss wakes you, then your coordinator, then him; drive owed list shows each."
+    " --attr owes on a POST report; the post telling its outcome names it, outcome=<w>. A miss wakes you, then your coordinator, then him."
 )
 STAMPS = (
     "What he reads, a say post, a card or a POST or ready record to the communicator, names when a job started as"
