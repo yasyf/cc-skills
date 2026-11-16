@@ -816,7 +816,7 @@ def test_review_lists_every_open_pr_by_whether_it_waits_on_him_and_carries_its_c
     assert all(entry["card"] is None and entry["thread"] is None for entry in entries[1:])
 
 
-def test_review_says_his_approve_queues_a_green_monorepo_pr_with_no_tap_at_once() -> None:
+def test_review_says_his_approve_queues_a_green_monorepo_pr_with_no_tap_at_once(named_repo: None) -> None:
     _, entry = pr(5, "o1", wants_tap=True)
     key = "Forge-AI/monorepo#5"
     data = drive_of({"o1": order("ship the page", ["j1"])}, {"j1": job("o1", "running")}, [(key, entry | {"url": "https://github.com/Forge-AI/monorepo/pull/5"})])

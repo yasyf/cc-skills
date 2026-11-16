@@ -5830,6 +5830,7 @@ def test_a_done_on_a_staging_test_part_names_its_cases_and_one_whose_case_failed
 
 
 def test_a_staging_testers_full_pass_delivers_only_the_part_whose_pr_it_names_and_one_naming_none_is_refused_as_j4683s_left_55051_delivered(
+    named_repo: None,
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     tested, untested = "staging test of #42 before it lands", "staging test of #43 before it lands"

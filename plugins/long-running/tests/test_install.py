@@ -2251,6 +2251,7 @@ def test_a_proof_of_something_he_sees_takes_blocked_naming_every_gap_in_each_use
 
 @pytest.mark.parametrize(("exits", "delivered"), [(0, True), (1, False)])
 def test_a_staging_testers_done_on_a_brief_naming_user_stories_is_kept_for_drive_job_prove_which_delivers_its_part_on_the_unmerged_pr_only_when_its_proof_file_exits_0(
+    named_repo: None,
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, exits: int, delivered: bool
 ) -> None:
     part = "staging test of #42 before it lands"

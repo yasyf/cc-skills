@@ -4619,6 +4619,7 @@ def test_a_pr_he_approved_that_waits_on_a_part_of_an_order_lands_only_once_a_pro
 
 
 def test_a_part_open_prs_of_two_jobs_outside_one_stack_wait_on_frees_neither_on_any_done_while_a_part_of_a_prs_own_frees_it_on_its_builders_done(
+    named_paths: None,
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     with state.edit(demo) as data:
@@ -4663,6 +4664,7 @@ def test_a_part_open_prs_of_two_jobs_outside_one_stack_wait_on_frees_neither_on_
 
 
 def test_a_builders_done_while_its_own_pr_is_open_waits_on_that_pr_its_change_undelivered_while_its_check_delivers_the_prs_staging_test_so_the_pr_lands_as_j1308s_did_not(
+    named_paths: None,
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     staging, proof = "staging test of #42 before it lands", "https://buildkite.com/forge/release/builds/16121"
@@ -7344,6 +7346,7 @@ ONE_CARD, TWO_CARDS = [[KEY, OTHER]], [[KEY], [OTHER]]
     ],
 )
 def test_a_lander_queues_the_prs_his_card_drew_whole_with_those_below_them_never_a_pr_above_on_its_own_card_and_nothing_while_his_card_holds_it(
+    named_paths: None,
     demo: str, landers: list[tuple[str, ...]], approved: tuple[str, ...], cards: list[list[str]], card: str | None, unit: tuple[str, ...] | None
 ) -> None:
     stacked(demo, cards=cards)
@@ -7384,6 +7387,7 @@ def test_a_lander_queues_the_prs_his_card_drew_whole_with_those_below_them_never
     ],
 )
 def test_an_open_question_holds_a_stack_from_landing_while_its_holds_line_names_a_pr_of_it_by_number_or_whole_branch_or_another_jobs_names_a_change_the_stacks_job_builds_the_design_or_research_of_or_is_named_by(
+    named_paths: None,
     demo: str, landers: list[tuple[str, ...]], asker: str, holds: str | None, held: bool
 ) -> None:
     stacked(demo)
@@ -7682,6 +7686,7 @@ def test_a_card_naming_a_pr_on_the_job_it_moved_off_holds_it_no_more_and_no_card
 
 
 def test_the_watch_stops_a_lander_when_a_card_opens_on_the_work_of_a_job_holding_its_pr_and_the_pr_lands_once_he_answers(
+    named_paths: None,
     demo: str, landers: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     approve(demo, KEY)
@@ -7725,7 +7730,7 @@ def queued(name: str) -> None:
         data["prs"][KEY] |= {"checks": "pass", "review": "approved", "lander": {"head": "aaaaaaa111", "pid": 1, "at": state.stamp(T0), "outcome": land.QUEUED, "below": []}}
 
 
-def test_his_hold_on_a_pr_trunk_queued_after_its_lander_ended_reads_held_and_the_watch_starts_one_dequeue_of_it(demo: str, landers: list[tuple[str, ...]]) -> None:
+def test_his_hold_on_a_pr_trunk_queued_after_its_lander_ended_reads_held_and_the_watch_starts_one_dequeue_of_it(named_paths: None, demo: str, landers: list[tuple[str, ...]]) -> None:
     approve(demo, KEY)
     queued(demo)
     watching = watcher(demo)
@@ -7831,6 +7836,7 @@ def test_a_dequeue_trunk_answers_not_queued_for_as_56900s_after_its_tests_passed
 
 @pytest.mark.parametrize(("cards", "first"), [(ONE_CARD, []), (TWO_CARDS, [(KEY,)])])
 def test_a_pr_above_waiting_on_an_open_pr_holds_the_bottom_of_its_own_card_and_no_other_card_and_lands_once_that_pr_merges(
+    named_paths: None,
     demo: str, landers: list[tuple[str, ...]], cards: list[list[str]], first: list[tuple[str, ...]]
 ) -> None:
     stacked(demo, cards=cards)
@@ -7891,6 +7897,7 @@ def test_his_approve_in_words_of_the_bottom_of_a_card_lands_it_while_a_red_pr_ab
 
 
 def test_his_approve_of_49869_and_53227_lands_them_while_55258_stacked_later_on_its_own_card_grades_and_passes_none_of_it_to_55258(
+    named_paths: None,
     demo: str, landers: list[tuple[str, ...]]
 ) -> None:
     bottom, renewal, reparent = "Forge-AI/monorepo#49869", "Forge-AI/monorepo#53227", "Forge-AI/monorepo#55258"
@@ -7940,6 +7947,7 @@ def test_a_tap_stage_adopt_copied_onto_an_open_pr_is_dropped_and_one_he_gave_is_
 
 
 def test_his_approve_under_a_pr_the_hold_label_holds_queues_it_with_the_prs_under_it_and_leaves_the_held_pr_open(
+    named_paths: None,
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     reads = three_stacked(demo, monkeypatch)
@@ -7978,6 +7986,7 @@ def test_his_approve_on_a_branch_of_a_stack_tree_beside_an_unapproved_one_queues
 
 
 def test_a_native_stack_on_another_tracked_prs_branch_joins_its_landing_stack_and_lands_with_it_once_he_approves_each(
+    named_paths: None,
     demo: str, landers: list[tuple[str, ...]]
 ) -> None:
     with state.edit(demo) as data:
@@ -7996,6 +8005,7 @@ def test_a_native_stack_on_another_tracked_prs_branch_joins_its_landing_stack_an
 
 
 def test_his_approve_above_a_pr_he_has_not_approved_reads_behind_it_owed_by_him_says_nothing_and_lands_once_he_approves_that_pr(
+    named_paths: None,
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     three_stacked(demo, monkeypatch)
@@ -8656,6 +8666,7 @@ def test_a_trunk_failed_label_left_from_before_its_landers_try_at_a_pushed_head_
 
 
 def test_replayed_monorepo_56508_a_pr_trunk_cancelled_after_its_landers_try_queued_it_is_out_of_the_queue_and_waits_on_its_own_wait_never_landing(
+    named_paths: None,
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     approve(demo, KEY)
@@ -11930,7 +11941,7 @@ def test_a_wake_writes_the_marks_the_watch_asked_for_only_once_it_delivered_its_
     assert (state.load(demo)["mains"]["Forge-AI/monorepo"]["test_one"]["woke"], state.load(demo)["mains"]["Forge-AI/monorepo"]["test_one"]["waking"]) == (asked, None)
 
 
-def test_a_builders_staging_line_after_its_staging_test_passed_writes_no_wait_so_the_watch_says_free_once(demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]) -> None:
+def test_a_builders_staging_line_after_its_staging_test_passed_writes_no_wait_so_the_watch_says_free_once(named_paths: None, demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]) -> None:
     part = "staging test of #42 before it lands"
     proof = "https://buildkite.com/forge/release/builds/16121"
     with state.edit(demo) as data:

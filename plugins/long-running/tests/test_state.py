@@ -1801,6 +1801,7 @@ def test_a_drive_saved_keeping_a_staging_claims_thread_as_posted_or_not_at_all_k
 
 
 def test_a_drive_saved_with_a_builders_done_on_its_own_open_pr_puts_it_back_waiting_on_that_pr_once_its_staging_test_delivered_by_its_first_check_proof_as_j1308s_was_not(
+    named_repo: None,
     state_root: Path,
 ) -> None:
     make("demo")
@@ -1955,6 +1956,7 @@ def staging_reads(data: dict) -> tuple[bool, str | None, str | None]:
     ids=["every-case-passes", "a-case-fails", "a-case-not-exercised", "every-case-not-exercised", "a-case-skipped", "no-case-line", "a-prose-line-opening-case", "a-verdict-after-what-ran", "a-verdict-before-what-ran", "a-failing-verdict-after-what-ran"],
 )
 def test_a_staging_test_part_is_delivered_by_its_testers_done_only_when_a_case_passes_and_each_other_passes_or_was_not_exercised_as_j164s_was_not(
+    named_repo: None,
     state_root: Path, cases: str, read: tuple[bool, str | None, str | None]
 ) -> None:
     data = staging_drive("j1")
@@ -1962,7 +1964,7 @@ def test_a_staging_test_part_is_delivered_by_its_testers_done_only_when_a_case_p
     assert (data["jobs"]["j1"]["state"], staging_reads(data)) == ("done", read)
 
 
-def test_a_staging_test_parts_full_pass_holds_only_while_its_tester_still_holds_that_done_and_no_newer_tester_is_at_work_or_failed(state_root: Path) -> None:
+def test_a_staging_test_parts_full_pass_holds_only_while_its_tester_still_holds_that_done_and_no_newer_tester_is_at_work_or_failed(named_repo: None, state_root: Path) -> None:
     data = staging_drive("j1")
     staging_return(data, "j1", "DONE every case of #42 passed", "CASE a rollback refused: pass\n")
     passed = staging_reads(data)
@@ -1997,6 +1999,7 @@ def test_a_staging_test_parts_full_pass_holds_only_while_its_tester_still_holds_
     ],
 )
 def test_a_staging_pass_leaving_a_case_not_exercised_takes_back_his_older_approve_so_his_card_asks_again_as_56963_needed_while_a_full_pass_keeps_it(
+    named_repo: None,
     state_root: Path, cases: str, tap: str | None
 ) -> None:
     data = staging_drive("j1")
@@ -2157,7 +2160,7 @@ def test_a_staging_tests_done_frees_a_pr_changing_only_tools_ci_and_go_ci_by_a_c
     assert done("https://buildkite.com/forge/release/builds/17535", commit(head)) is None
 
 
-def test_a_full_pass_by_the_builder_of_the_pr_it_tests_delivers_its_staging_part_while_its_done_waits_on_that_pr_and_after_the_watch_takes_its_merge(state_root: Path) -> None:
+def test_a_full_pass_by_the_builder_of_the_pr_it_tests_delivers_its_staging_part_while_its_done_waits_on_that_pr_and_after_the_watch_takes_its_merge(named_repo: None, state_root: Path) -> None:
     data = staging_drive("j1")
     url = "https://github.com/Forge-AI/monorepo/pull/42"
     data["jobs"]["j1"]["prs"] = [url]
@@ -2170,7 +2173,7 @@ def test_a_full_pass_by_the_builder_of_the_pr_it_tests_delivers_its_staging_part
     assert [held, (data["jobs"]["j1"]["state"], staging_reads(data))] == [("waiting", (True, PROOF, "j1")), ("done", (True, PROOF, "j1"))]
 
 
-def test_a_job_following_a_release_it_started_on_a_staging_test_part_is_no_staging_run_and_its_done_naming_no_case_leaves_the_testers_pass_as_j5978s_did_not(state_root: Path) -> None:
+def test_a_job_following_a_release_it_started_on_a_staging_test_part_is_no_staging_run_and_its_done_naming_no_case_leaves_the_testers_pass_as_j5978s_did_not(named_repo: None, state_root: Path) -> None:
     data = staging_drive("j1", "j2")
     data["jobs"]["j2"] |= {"brief_flags": {"release": "kaleidoscopic-gamsakhurdia"}, "builds_nothing": True, "waits": ["staging:monorepo/plat-usw2-staging@70f5e5b"]}
     staging_return(data, "j1", "DONE every case of #42 passed", "CASE a rollback refused: pass\n")
@@ -2181,7 +2184,7 @@ def test_a_job_following_a_release_it_started_on_a_staging_test_part_is_no_stagi
 APPROVE = {"label": "Approve", "at": "2026-11-14T10:30:00-08:00", "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}
 
 
-def test_a_staging_tests_full_pass_keeps_his_approve_given_before_it_on_the_pr_its_part_holds_as_56802s_rehearsal_did_not(state_root: Path) -> None:
+def test_a_staging_tests_full_pass_keeps_his_approve_given_before_it_on_the_pr_its_part_holds_as_56802s_rehearsal_did_not(named_repo: None, state_root: Path) -> None:
     data = staging_drive("j1")
     data["jobs"]["j2"] = state.new_job("o1", "builder", "ship the writer", [], "2026-11-14T10:00:00-08:00")
     data["orders"]["o1"]["jobs"].append("j2")
@@ -2243,6 +2246,7 @@ def test_each_open_tap_saved_with_no_card_gives_a_card_press_the_prs_of_the_newe
 
 
 def test_a_drive_saved_reading_staging_passes_by_prose_case_lines_and_release_followers_reads_each_again_from_its_testers_returns_dated_by_the_first_carrying_it_as_56594s_and_56677s_were_not(
+    named_repo: None,
     state_root: Path,
 ) -> None:
     data = staging_drive()
@@ -2341,7 +2345,7 @@ CHECK: /Users/yasyf/.local/state/long-running/durable-agents/scratch/j6143/out/B
 """
 
 
-def test_a_done_testing_prs_of_two_orders_keeps_on_each_part_the_cases_whose_case_lines_name_its_pr_so_only_the_failing_prs_part_reads_no_pass_as_j6143s_did_not(state_root: Path) -> None:
+def test_a_done_testing_prs_of_two_orders_keeps_on_each_part_the_cases_whose_case_lines_name_its_pr_so_only_the_failing_prs_part_reads_no_pass_as_j6143s_did_not(named_repo: None, state_root: Path) -> None:
     data = staging_drive("j1")
     parts = {number: state.STAGING_TEST.format(number=number) for number in ("55974", "56754", "56058")}
     data["orders"]["o1"]["parts"] = {parts["55974"]: state.new_part(), parts["56754"]: state.new_part()}
@@ -2381,7 +2385,7 @@ def test_a_drive_saved_before_after_merge_passes_were_kept_reads_each_merged_prs
     ]
 
 
-def test_a_builder_only_following_a_release_another_job_started_neither_stands_in_for_the_tester_nor_holds_its_pass_its_cases_not_exercised_as_j6240s_did(state_root: Path) -> None:
+def test_a_builder_only_following_a_release_another_job_started_neither_stands_in_for_the_tester_nor_holds_its_pass_its_cases_not_exercised_as_j6240s_did(named_repo: None, state_root: Path) -> None:
     data = staging_drive("j1", "j2")
     data["jobs"]["j1"]["state"] = "running"
     data["jobs"]["j2"] |= {"goal": "follow the staging release radiant-tudor to applied", "builds_nothing": True, "state": "running"}
