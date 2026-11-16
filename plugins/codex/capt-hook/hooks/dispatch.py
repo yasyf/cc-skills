@@ -94,7 +94,7 @@ hook(
     ],
     message=(
         "Run `codex-ask` in the foreground, never with `&`, `nohup`, `setsid`, or `run_in_background`. "
-        f"For async work run `{PLUGIN_BIN} --dispatch --owner <agent-id>` and park on the await tool."
+        f"For async work run `{PLUGIN_BIN} --dispatch`, then run its `AWAIT:` line in the foreground."
     ),
     max_fires=1,
     tests={

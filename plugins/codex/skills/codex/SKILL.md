@@ -42,7 +42,7 @@ timed-out foreground call.
 Runs use the standard tier. The fast tier is for incident lanes only: pass
 `--incident` on an active or urgent production alert, never otherwise. On the
 standard tier an xhigh prompt can run 10–30 minutes, so anything past a narrow
-question dispatches async (`--dispatch` plus an owner, or `--await` from a
+question dispatches async (`--dispatch`, then its `AWAIT:` line in a fresh
 foreground call) instead of holding a 10-minute foreground Bash call. Keep
 questions bounded and specific: a narrow question returns in a few minutes, an
 open-ended design essay does not.
@@ -167,56 +167,43 @@ once the caller has already unblocked, so it can trail the narration or even a
 pass (→ codex `--output-schema`; a JSON Schema file path still works).
 Implementation lanes return prose led by their `REPLY_FILE:` pointer line.
 
-## Async Dispatch (owner subagents and the steering channel)
+## Async Dispatch (owner subagents and Monitor)
 
 Blocking foreground is the default because a backgrounded call lets a subagent
 end its turn before codex answers — the gap the guard hook exists for.
 `--dispatch` is the sanctioned async path: the call returns as soon as the
-worker detaches, and completion wakes the waiting agent through the codex-ask
-steering channel instead of a Bash return.
+worker detaches, and the run's own status file on disk says when it settles.
 
-1. **Know your agent id.** It arrives in your greeting directive, the first
-   steering-channel message you see. No greeting means no channel — use the
-   blocking flow instead.
-2. **Dispatch async.** `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --dispatch --owner <agent-id> - <<'QUESTION'`
-   (`--owner` requires `--dispatch`; `--dispatch` alone is fire-and-forget,
-   recovered via its `AWAIT:` line). The usual
-   `REPLY_FILE:`/`LOG_FILE:`/`AWAIT:` lines print, then the call returns with
-   the run still going.
-3. **Park on `await`.** Call the `await` tool with your `agent_id`, sizing
-   `timeout_seconds` to the run — xhigh typically returns in ~2 minutes, a
-   review sweep can take 10–30. Progress pings hold a parked call open. An
-   elapsed window returns a "no directive" notice, not an error: first read
-   the run dir's `status` file — a terminal state means another delivery rung
-   already drained the directive, so read the reply; re-park only while the
-   run is still going.
-4. **On wake, read the disk.** The directive names the run's terminal status
-   and reply file; it never carries the reply. Read the `REPLY_FILE:` path
-   and evaluate per Step 3 below.
-5. **A missed wake costs nothing.** The wake is fail-open: a dead daemon
-   means no directive, never a lost run — the `AWAIT:` line
-   (`codex-ask --await <run-dir>`) recovers from any session. An owner that
-   finished before the wake landed gets collected by the relay: its parent is
-   nudged to wake it, and that wake is authorized — call `await` to collect.
+1. **Dispatch async.** `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --dispatch - <<'QUESTION'`.
+   The usual `REPLY_FILE:`/`LOG_FILE:`/`AWAIT:` lines print, then the call
+   returns with the run still going.
+2. **Wait on the disk.** An owner subagent runs the `AWAIT:` line
+   (`codex-ask --await <run-dir>`) in the foreground with `timeout: 600000`,
+   rerunning it on a Bash timeout until it exits. It polls the run's `status`
+   file and needs no daemon — xhigh typically settles in ~2 minutes, a review
+   sweep in 10–30.
+3. **Read the disk.** Read the `REPLY_FILE:` path and evaluate per Step 3
+   below. A caller that died or compacted strands nothing: the `AWAIT:` line
+   recovers the run from any session.
 
 The fan-out shape above composes unchanged: the parent mints the roster, spawns
-one owner subagent per lane, each owner dispatches `--dispatch --owner` into
-its lane with `-l` and parks; the daemon wakes owners as their runs finish,
-and the terminal `--collect` still gates.
+one owner subagent per lane (the `codex:codex-wrapper-async` agent packages
+this), each owner dispatches `--dispatch` into its lane with `-l` and waits on
+its own `AWAIT:` line, and the terminal `--collect` still gates.
 
-**Top-level sessions use Monitor + `--watch`, not the channel.** From the main
+**Top-level sessions use Monitor + `--watch`.** From the main
 conversation — the one place Monitor wakes actually deliver — dispatch with
-`--dispatch` alone, then arm `Monitor` on
+`--dispatch`, then arm `Monitor` on
 `"${CLAUDE_SKILL_DIR}/../../bin/codex-ask" --watch <run-or-dir>...`
 (fan-out roots expand to their lanes; `--watch --all` covers every in-flight
 run). The watch emits one JSONL record per run as it settles — completed,
 failed, or died, never silence — and exits once all watched runs have
 settled. Arm it after dispatching: a lane that hasn't dispatched yet reads
 `no-run` and settles immediately. Placement rule: top-level async is
-Monitor + `--watch`; an owner subagent parks on `await` (Monitor wakes are
-dropped inside subagents); a workflow stage's own dispatch stays
-script-driven and blocking, though a workflow may spawn owner subagents that
-park; a plain subagent without the channel foreground-blocks as ever.
+Monitor + `--watch`; an owner subagent waits on its `AWAIT:` line in the
+foreground (Monitor wakes are dropped inside subagents); a workflow stage's
+own dispatch stays script-driven and blocking, though a workflow may spawn
+owner subagents.
 
 ## Workflow
 

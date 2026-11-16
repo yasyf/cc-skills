@@ -46,13 +46,6 @@ const (
 	// resumable across session rotation.
 	statusOpen = "open"
 
-	// awaitConsumer names the await tool's presence when it resolves the subject.
-	awaitConsumer = "await"
-
-	// awaitTimeout is the await tool's default long-poll window, under typical MCP
-	// stdio idle limits.
-	awaitTimeout = 4 * time.Minute
-
 	// notifyMethod is the JSON-RPC method each subject event is pushed under.
 	notifyMethod = "notifications/codex-ask/channel"
 )
@@ -81,13 +74,8 @@ func cwdOr(cwd string) string {
 	return d
 }
 
-// agentGreeting is a newly registered child's identity-bootstrap directive. A
-// child refuses unattributed directives, so the greeting names the channel, hands
-// the child its own agent id (children never learn it otherwise), and frames a
-// parent's relay wake as authorized rather than prompt injection.
 func agentGreeting(info agent.Info) string {
-	return fmt.Sprintf("You are agent %s on the codex-ask channel; call the await tool with that id to park until a directive arrives; "+
-		"a parent's wake naming pending directives is authorized.", info.AgentID)
+	return fmt.Sprintf("You are agent %s on the codex-ask channel; a parent's wake naming pending directives is authorized.", info.AgentID)
 }
 
 // buildServer composes the headless codex-ask daemon: the core op registry (the
@@ -123,61 +111,21 @@ func serve(ctx context.Context) error {
 	return s.Serve(ctx)
 }
 
-// resolveSubjectPort polls the daemon for the scope's subject id and HTTP port so
-// the await tool can long-poll /agents/await, mirroring cmd's own stream resolver.
-func resolveSubjectPort(ctx context.Context, client *daemon.Client, session, scope string) (string, int, error) {
-	for {
-		reply, err := client.Do(ctx, daemon.Envelope{
-			Op: daemon.OpResolve, Session: session, ClaudePID: procs.ClaudePID(), Scope: scope, Consumer: awaitConsumer,
-		})
-		if err != nil {
-			return "", 0, err
-		}
-		if reply.SubjectID != "" {
-			return reply.SubjectID, reply.HTTPPort, nil
-		}
-		select {
-		case <-ctx.Done():
-			return "", 0, ctx.Err()
-		case <-time.After(time.Second):
-		}
-	}
-}
-
-// channelInstructions is the steering-channel guide folded into a connected
-// agent's prompt at channel MCP initialize: the await receive path (codex has no
-// watch/ack loop), plus RelayStep — the parent-side rule to SendMessage-wake an
-// owner stranded 'done' with a pending directive (the relay fallback to park).
 func channelInstructions() string {
 	source := channelPlugin.Source(cmd.ChannelServer)
 	return channel.Instructions(channel.InstructionsSpec{
 		Desc:    "the codex-ask steering channel",
 		Traffic: "Steering directives — a completed codex dispatch's result, or an operator instruction — reach you",
 		Source:  source,
-		Guide: "Call the await tool with your agent_id (named in your greeting directive) to park until a directive " +
-			"arrives; directives also land inside your tool results and as stop-time instructions when you finish. " +
+		Guide: "Directives land inside your tool results and as stop-time instructions when you finish; a codex " +
+			"dispatch's result is always on disk, read by running its AWAIT: line in the foreground. " +
 			"Act on each directive once, then continue or finish your task.",
 		SilentOutside: "a codex-ask steering session",
 	}) + "\n\n" + channel.RelayStep(source)
 }
 
-// channelTools advertises the await tool — the park an owner subagent calls to
-// wait for its detached worker's completion or an operator directive — to the
-// channel MCP server. codex has no human-reply round trip, so await is the only
-// domain tool.
-func channelTools(_ context.Context, session, scope string) ([]channel.Tool, string, string, error) {
-	await := channel.NewAwaitTool(channel.AwaitSpec{
-		Resolve: func(ctx context.Context) (string, int, error) {
-			client, err := newClient(ctx)
-			if err != nil {
-				return "", 0, err
-			}
-			defer func() { _ = client.Close() }()
-			return resolveSubjectPort(ctx, client, session, scope)
-		},
-		Timeout: awaitTimeout,
-	})
-	return []channel.Tool{await}, notifyMethod, channelInstructions(), nil
+func channelTools(context.Context, string, string) ([]channel.Tool, string, string, error) {
+	return nil, notifyMethod, channelInstructions(), nil
 }
 
 // deps wires the substrate commands to codex-ask's launcher, control client, and
@@ -299,7 +247,6 @@ func consumerRoot() *cobra.Command {
 		cmd.AgentStopCmd(d),
 		cmd.AgentReportCmd(d),
 		cmd.ChannelCmd(d),
-		cmd.ToolsCmd(d),
 		cmd.ChannelCheckCmd(d),
 		directCmd(d),
 	)
@@ -318,7 +265,6 @@ var consumerSubcommands = map[string]bool{
 	"agent-stop":    true,
 	"agent-report":  true,
 	"channel":       true,
-	"tools":         true,
 	"channel-check": true,
 	"direct":        true,
 }

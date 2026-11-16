@@ -40,7 +40,7 @@ func TestConsumerRoutesStop(t *testing.T) {
 func TestAgentGreetingIsOneShortLine(t *testing.T) {
 	id := "a74f3ecc92e9dfc1c"
 	got := agentGreeting(agent.Info{AgentID: id})
-	if strings.Count(got, id) != 1 || !strings.Contains(got, "await") || strings.Contains(got, "\n") || len(got) >= 200 {
+	if strings.Count(got, id) != 1 || !strings.Contains(got, "codex-ask channel") || strings.Contains(got, "\n") || len(got) >= 200 {
 		t.Fatalf("greeting (%d bytes) = %q", len(got), got)
 	}
 }
