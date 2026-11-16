@@ -240,7 +240,7 @@ def lane_posted(name: str, lane: str) -> bool:
 
 
 def order_add(args: argparse.Namespace) -> int:
-    """Record his order, refusing a --parts name a part cannot hold, by state.unquotable_part; an incident order records a job on each of its parts, its fix among them, unless it joins the open incident on the same failing service; an order whose words Jev reads as on the feature an open build order of its side holds, drive tooling's or his work's, joins that order under its project and workstream, each unfinished job on the feature carrying it and holding his words, so one feature keeps one coordinator, one set of rulings and its jobs; it reworks only the PRs --rework names and names each other open PR card of his in its thread, which it leaves up, and names each open question card of his its words point at, by state.asked_lines."""
+    """Record his order, refusing a --parts name a part cannot hold, by state.unquotable_part; an incident order records a job on each of its parts, its fix among them, unless it joins the open incident on the same failing service; a drive tooling order whose words Jev reads as repeating an open tooling order joins it unasked, by his pick 3caa184, and his order joins one only by its --joins, Jev's read of the open order its words are on printed for it, so no guess files his order on an unrelated feature; a joined order takes the head's project and workstream, each unfinished job on the feature carrying it and holding his words, so one feature keeps one coordinator, one set of rulings and its jobs; it reworks only the PRs --rework names and names each other open PR card of his in its thread, which it leaves up, and names each open question card of his its words point at, by state.asked_lines."""
     name = state.resolve(args.drive)
     reworks = heard_reworks(name, args.rework)
     order_id, order, started, incidents = added_order(args)
@@ -5712,7 +5712,7 @@ def parser() -> argparse.ArgumentParser:
         help=(
             "the open order this one repeats, an incident's on the same failing service: it takes that order's record and kind and starts no job,"
             " since that incident's owner, or else each unfinished job on that order, carries it, and with none its own jobs are added on it;"
-            ' a "Drive tooling:" order Jev reads as repeating an open tooling order joins it unasked'
+            ' a "Drive tooling:" order Jev reads as repeating an open tooling order joins it unasked, while his order joins one only by this flag'
         ),
     )
     verb.add_argument(
