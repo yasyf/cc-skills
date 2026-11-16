@@ -1523,7 +1523,7 @@ def test_a_jobs_own_done_on_work_delivers_its_part_only_once_drive_job_prove_run
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit], exits: int, delivered: bool
 ) -> None:
     git = fake([BUILD], {BUILD})
-    watched = {"pid": os.getpid(), "at": state.stamp(), "said": "DONE checked it by hand", "version": state.VERSION}
+    watched = {"child": state.born(os.getpid()), "state": "adopted", "at": state.stamp(), "said": "DONE checked it by hand", "version": state.VERSION}
     script = repairing(config, tmp_path, git, exits, {"state": "done", "said": "DONE checked it by hand", "proof": watched})
     part = "Drive tooling: prove each install"
     assert (install.done_unproven(state.load("demo"), "j1"), state.delivered(state.load("demo"), "o1", part)) == (True, False)
@@ -1538,7 +1538,7 @@ def test_a_jobs_own_done_on_work_delivers_its_part_only_once_drive_job_prove_run
 def test_a_jobs_own_done_citing_prs_other_jobs_opened_proves_only_itself_and_says_nothing_on_their_lines(config: Path, tmp_path: Path, fake: Callable[..., FakeGit], exits: int) -> None:
     git = fake([BUILD], {BUILD})
     cited = "DONE 1,216 PRs checked at 27c34883bf69: 0 gaps; no readers added. #41015 held by its o2 part and j5676/#56696"
-    watched = {"pid": os.getpid(), "at": state.stamp(), "said": cited, "version": state.VERSION}
+    watched = {"child": state.born(os.getpid()), "state": "adopted", "at": state.stamp(), "said": cited, "version": state.VERSION}
     script = repairing(config, tmp_path, git, exits, {"state": "done", "said": cited, "proof": watched})
     with edit("demo") as data:
         for number, job_id in (("41015", "j0"), ("56696", "j5676")):
@@ -1710,7 +1710,7 @@ def test_a_builder_whose_brief_only_cites_a_merged_pr_as_a_staging_tester_does_p
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit], brief: dict
 ) -> None:
     said = "DONE the staging case of Forge-AI/monorepo#9 passed on plat-usw2-staging"
-    watched = {"pid": os.getpid(), "at": state.stamp(), "said": said, "version": state.VERSION}
+    watched = {"child": state.born(os.getpid()), "state": "adopted", "at": state.stamp(), "said": said, "version": state.VERSION}
     handing(config, tmp_path, fake([BUILD], {BUILD}), 0, {"state": "done", "said": said, "proof": watched} | brief)
     carried = "sand exec keeps its env secrets"
     with edit("demo") as data:

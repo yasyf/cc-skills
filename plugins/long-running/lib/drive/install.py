@@ -798,7 +798,7 @@ def take_back(name: str, data: dict, job_id: str) -> None:
     reported = job["state"] == "failed" and next((line for line in lines if state.REPORTED_LINE.match(line) or line.startswith("DONE") and not state.MERGED_LINE.match(line)), None)
     if (said := reported or job["said"]) and (reported or job["state"] in ("failed", "stopped") and own_proof(data, job_id)):
         taken = "done" if said.startswith("DONE") else "waiting"
-        job.update(state=taken, said=said, updated=state.stamp(), proof={"pid": os.getpid(), "at": state.stamp(), "said": said, "version": state.VERSION})
+        job.update(state=taken, said=said, updated=state.stamp(), proof=proof_mark(job) | {"said": said})
 
 
 def released_prs(data: dict, job_id: str) -> list[str]:
