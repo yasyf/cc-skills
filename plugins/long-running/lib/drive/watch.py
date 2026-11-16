@@ -144,6 +144,7 @@ BUILD_FIELDS = (
 )
 BUILD_ENDS = ("PASSED", "FAILED", "CANCELED", "BLOCKED", "SKIPPED", "NOT_RUN")
 FOLLOW_ENDS = tuple(end for end in BUILD_ENDS if end != "BLOCKED")
+RELEASE_BLOCKED_AFTER = timedelta(minutes=30)
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^[A-Z]+ (?:\S+ )?(?:j\d+ )?(?P<named>o\d+)\b")
 MOVED_LINE = re.compile(r"MOVED (?:o\d+, )*o\d+ from (?P<lane>\S+) to ")
 
@@ -750,12 +751,14 @@ def exited_text(name: str, job_id: str, exited: list[str]) -> str:
 
 
 def build_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read from Buildkite, for waits_lines and status_lines, each build a wait the watch follows names or a part of an order it hears follows: once as it is first held, then again only once a delivery of Buildkite's to the receiver's /buildkite route names it. One read_builds call reads them all, run in the drive's checkout as orca.checkout moves it to its default branch's head, and each answer is kept on the watcher as builds while the build is held, None for a build Buildkite answers none for; a read that fails is said as a failed read is and owed again next pass."""
+    """Read from Buildkite, for waits_lines, status_lines and release_end_lines, each build a wait the watch follows names, a part of an order it hears follows or a job it hears keeps as the release it started, by state.follows_release: once as it is first held, then again only once a delivery of Buildkite's to the receiver's /buildkite route names it, or on every pass while Buildkite never delivered to the receiver, by receiver.buildkite_silent. One read_builds call reads them all, run in the drive's checkout as orca.checkout moves it to its default branch's head, and each answer is kept on the watcher as builds while the build is held, None for a build Buildkite answers none for; a read that fails is said as a failed read is and owed again next pass."""
     data = state.load(watcher.name)
-    held = sorted({wait for wait in followed(watcher, data) if github.BUILD.fullmatch(wait)} | state.followed_builds(heard_orders(watcher, data)))
+    releases = {job["release_build"] for job in data["jobs"].values() if state.follows_release(job) and heard_job(watcher, data, job)}
+    held = sorted({wait for wait in followed(watcher, data) if github.BUILD.fullmatch(wait)} | state.followed_builds(heard_orders(watcher, data)) | releases)
     watcher.builds = {link: read for link, read in watcher.builds.items() if link in held}
     watcher.builds_heard &= set(held)
-    if not (due := [link for link in held if link not in watcher.builds or link in watcher.builds_heard]):
+    silent = receiver.buildkite_silent()
+    if not (due := [link for link in held if silent or link not in watcher.builds or link in watcher.builds_heard]):
         return []
     try:
         read = read_builds(orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"], wait=0), due)
@@ -773,6 +776,78 @@ def read_builds(checkout: Path, links: list[str]) -> dict[str, dict | None]:
     query = "{ " + " ".join(f"b{at}: build(slug: {json.dumps(slug)}) {{ {BUILD_FIELDS} }}" for at, slug in enumerate(slugs)) + " }"
     read = json.loads(reads.run([str(checkout / "tools" / "ci"), "bk", "graphql", query], checkout))
     return {link: read[f"b{at}"] for at, link in enumerate(links)}
+
+
+def release_end_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Tell each job the watch hears that follows the release it started, by state.follows_release, and the coordinator sessions acting on it and holding its order, by state.job_lane and state.holding_lane, in one cci record the moment the watch's newest Buildkite read of its release build, which build_lines makes, finds it ended, or stopped at an approve step RELEASE_BLOCKED_AFTER, by release_told, so no session polls its release and none goes unheard. The state each read finds is kept on the job as its release_heard with the time the watch first read it and the seq of the record that told it, so each build's outcome is told once whichever watch or install reads it again; a tell that fails is said as a failed read is and tried again next pass."""
+    data = state.load(watcher.name)
+    lines = []
+    for job_id, job in data["jobs"].items():
+        if not (state.follows_release(job) and heard_job(watcher, data, job) and (read := watcher.builds.get(job["release_build"]))):
+            continue
+        heard = release_heard(job, read, moment)
+        if heard != job["release_heard"]:
+            with state.edit(watcher.name) as kept:
+                kept["jobs"][job_id]["release_heard"] = heard
+        if heard["told"] or not (read["state"] in FOLLOW_ENDS or read["state"] == "BLOCKED" and moment - state.parse_time(heard["since"]) >= RELEASE_BLOCKED_AFTER):
+            continue
+        source = f"release {job['release_build']}"
+        try:
+            release_told(watcher, job_id, read, moment)
+        except (reads.ReadError, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
+            lines += failed(watcher, source, f"tell {job_id} its release {job['release_build']} reads {read['state']}", error, moment)
+            continue
+        watcher.failures.pop(source, None)
+    return lines
+
+
+def release_heard(job: dict, read: dict, moment: datetime) -> dict:
+    """What the watch keeps of its read of a job's release build: the job's kept release_heard while it names the same build and state, else that build and state, first read now and told by no record."""
+    kept = job["release_heard"]
+    if kept and kept["build"] == job["release_build"] and kept["state"] == read["state"]:
+        return kept
+    return {"build": job["release_build"], "state": read["state"], "since": state.stamp(moment), "told": None}
+
+
+def release_told(watcher: Watcher, job_id: str, read: dict, moment: datetime) -> None:
+    """Post one handoff record telling how a job's release build reads to the job, held on it by state.hold_addressed for its worker as any held text, and to the coordinator sessions acting on it and holding its order, keyed by the build and its state so a repost returns the stored record, and keep its seq as the job's release_heard told. The repository's release tool, by brief.release_record, names the release and the build it runs as: a build other than the one the job keeps, such as the release build a launch build triggered and passed on, becomes the job's release build in place of the post, which the next pass reads."""
+    data = state.load(watcher.name)
+    job, link = data["jobs"][job_id], data["jobs"][job_id]["release_build"]
+    record = brief.release_record(link, data) or {}
+    if (moved := record.get("build")) and moved != link:
+        with state.edit(watcher.name) as kept:
+            kept["jobs"][job_id].update(release_build=moved, release_heard=None)
+        print(f"{state.stamp(moment)} {job_id}'s release build {link} reads {read['state']} and started {moved}, which {job_id} follows now", flush=True)
+        return
+    text, body = release_words(data, job_id, link, read, record, moment)
+    to = list(dict.fromkeys([job_id, state.job_lane(data, job), state.holding_lane(data, data["orders"][job["order"]])]))
+    argv = ["cci", "post", "--drive", watcher.name, "--lane", LANE, "--kind", "handoff", *(arg for lane in to for arg in ("--to", f"{lane}@{watcher.name}")), "--topic", f"release-{job_id}"]
+    argv += ["--id", f"release-{link}-{read['state']}", "--json", "--path", "-", "--text", reads.withheld(text)]
+    seq = str(json.loads(reads.run(argv, Path(data["roles"]["coordinator"]["cwd"]), reads.posting(), stdin=reads.withheld(body)))["seq"])
+    with state.edit(watcher.name) as kept:
+        kept["jobs"][job_id]["release_heard"]["told"] = seq
+        state.hold_addressed(kept, {"kind": "handoff", "text": text, "body": body, "to": [f"{lane}@{watcher.name}" for lane in to]}, LANE, seq, None)
+
+
+def release_words(data: dict, job_id: str, link: str, read: dict, record: dict, moment: datetime) -> tuple[str, str]:
+    """A release record's text and body: the job, its order, the release's name, its build and how it reads, the first failure the repository's release tool names, its step, its own cause line and its job's link, else the first step Buildkite read as not passing, or the approve step it stopped at and for how long, then the repository's [release] show command with the release filled; its body each failure on a line of its own and Buildkite's read."""
+    job = data["jobs"][job_id]
+    failures = record.get("failures") or [{"step": label.strip('"')} for label in unpassed_steps(read)]
+    if read["state"] == "BLOCKED":
+        how = f"stopped {minutes(moment - state.parse_time(job['release_heard']['since']))} min at its approve step {', '.join(approve_steps(read))}"
+    elif read["state"] == "PASSED" or not failures:
+        how = read["state"].lower()
+    else:
+        how = f"{read['state'].lower()} at {failure_said(failures[0])}"
+    release = record.get("name")
+    show = state.repo_config(data).get("release", {}).get("show")
+    text = f"RELEASE {job_id} {job['order']}: release {f'{release} ' if release else ''}{link} {how}" + (f"; `{show.replace('{release}', shlex.quote(release or link))}` shows it" if show else "")
+    body = "\n".join([*(failure_said(failure) for failure in failures if read["state"] != "PASSED"), build_said(link, read) or f"{link} reads {read['state']}"])
+    return text, body
+
+
+def failure_said(failure: dict) -> str:
+    return " ".join(filter(None, [f'"{failure["step"]}"' + (":" if failure.get("said") else ""), failure.get("said"), failure.get("job")]))
 
 
 def build_said(link: str, read: dict | None) -> str | None:
@@ -4474,7 +4549,7 @@ def cut_lines(watcher: Watcher, moment: datetime) -> list[str]:
     data = state.load(watcher.name)
     if not (waiting := cut_waiting(data)):
         return [merged_said(watcher.name, job_id, change) for job_id, change in said]
-    if not (watcher.live or any(state.starts_cut(job) and job["release_build"] and job["state"] not in state.FINISHED_JOB_STATES for job in data["jobs"].values())):
+    if not (watcher.live or any(map(state.follows_release, data["jobs"].values()))):
         return [merged_said(watcher.name, job_id, change) for job_id, change in said]
     try:
         binds = cut_binds(watcher, data, waiting)
@@ -4524,7 +4599,7 @@ def drive_cuts(data: dict, checkout: str) -> dict[str, Callable[[dict[str, str],
     """Each production cut the drive started that still follows its release, its job holding the build it started, by state.starts_cut, mapped to whether it carries a prover's merges: its --from commit holding one, or, for a start naming none, its start coming after one merged."""
     cuts = {}
     for job_id, job in data["jobs"].items():
-        if not (state.starts_cut(job) and job["release_build"] and job["state"] not in state.FINISHED_JOB_STATES):
+        if not state.follows_release(job):
             continue
         starts = brief.started(job["brief_flags"]["release"])
         if not starts or any(not all(settled.prod(env, checkout) for env in flags.get("env", ())) for flags in starts):
@@ -4929,6 +5004,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
                     follow_lines,
                     serving_lines,
                     build_lines,
+                    release_end_lines,
                     status_lines,
                     waits_lines,
                     start_jobs,

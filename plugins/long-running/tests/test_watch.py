@@ -1646,6 +1646,7 @@ def test_a_build_his_ask_follows_keeps_one_status_message_current_from_the_watch
 
 def test_a_followed_build_is_read_once_as_first_held_and_one_buildkite_answers_none_for_posts_nothing_and_is_said_from_its_third_pass(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = buildkite_reads(monkeypatch, {"forge/release/14185": None})
+    heard_from_buildkite()
     part = following(demo)
     monkeypatch.setattr(talk, "posted", lambda name, post: pytest.fail("posted with no build read"))
     watching = watcher(demo)
@@ -4910,12 +4911,81 @@ def buildkite_reads(monkeypatch: pytest.MonkeyPatch, answers: dict[str, dict | N
     return calls
 
 
+def heard_from_buildkite() -> None:
+    receiver.home().mkdir(parents=True, exist_ok=True)
+    receiver.took_builds("ping", [])
+
+
+LAUNCH_BUILD = "https://buildkite.com/forge/release/builds/17468"
+TRIGGERED_BUILD = "https://buildkite.com/forge/release/builds/17469"
+DEPLOY_STEP = ":pulumi: Deploy the service"
+CAUSE = "The service's deploy: too few of its pods became ready before it timed out."
+
+
+def test_a_release_job_follows_the_build_its_launch_triggered_and_it_and_the_coordinator_are_told_once_in_one_record_when_that_build_fails(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    answers = {"forge/release/17468": {**BUILD_RUNNING, "state": "PASSED"}, "forge/release/17469": BUILD_RUNNING}
+    builds: list[list[str]] = []
+    posts: list[tuple[list[str], str | None]] = []
+
+    def run(argv: list[str], checkout: Path, env: dict | None = None, stdin: str | None = None) -> str:
+        if argv[0] == "cci":
+            posts.append((argv, stdin))
+            return json.dumps({"seq": 731000})
+        slugs = re.findall(r'build\(slug: "([^"]+)"\)', argv[3])
+        builds.append(slugs)
+        return json.dumps({f"b{at}": answers[slug] for at, slug in enumerate(slugs)})
+
+    monkeypatch.setattr(watch.reads, "run", run)
+    monkeypatch.setattr(watch.orca, "checkout", lambda name, clone, wait=0: DRIVE_CHECKOUT)
+    failure = {"step": DEPLOY_STEP, "said": CAUSE, "job": f"{TRIGGERED_BUILD}#01a1"}
+    records = {LAUNCH_BUILD: {"name": "auric-aristides", "build": TRIGGERED_BUILD}, TRIGGERED_BUILD: {"name": "auric-aristides", "build": TRIGGERED_BUILD, "failures": [failure]}}
+    monkeypatch.setattr(watch.brief, "release_record", lambda release, data: records[release])
+    with state.edit(demo) as data:
+        (Path(data["roles"]["coordinator"]["cwd"]) / state.REPO_RULES).write_text('[release]\nshow = "ci release status {release}"\n')
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "follow the release", [], state.stamp(T0)) | {"brief_flags": RELEASED, "release_build": LAUNCH_BUILD}
+    watching = watcher(demo)
+    for minute in (1, 2):
+        assert watch.build_lines(watching, T0 + timedelta(minutes=minute)) == []
+        assert watch.release_end_lines(watching, T0 + timedelta(minutes=minute)) == []
+    assert (state.load(demo)["jobs"]["j2"]["release_build"], posts) == (TRIGGERED_BUILD, [])
+    answers["forge/release/17469"] = {**BUILD_RUNNING, "state": "FAILED", "failed": {"edges": [{"node": {"label": DEPLOY_STEP, "retried": False}}]}}
+    for minute in (3, 4):
+        assert watch.build_lines(watching, T0 + timedelta(minutes=minute)) == []
+        assert watch.release_end_lines(watching, T0 + timedelta(minutes=minute)) == []
+    text = f'RELEASE j2 o1: release auric-aristides {TRIGGERED_BUILD} failed at "{DEPLOY_STEP}": {CAUSE} {TRIGGERED_BUILD}#01a1; `ci release status auric-aristides` shows it'
+    [(argv, body)] = posts
+    assert [argv[at + 1] for at, arg in enumerate(argv) if arg == "--to"] == ["j2@demo", "root@demo"]
+    assert (argv[argv.index("--kind") + 1], argv[argv.index("--id") + 1], argv[-1]) == ("handoff", f"release-{TRIGGERED_BUILD}-FAILED", text)
+    assert body == f'"{DEPLOY_STEP}": {CAUSE} {TRIGGERED_BUILD}#01a1\n{TRIGGERED_BUILD} reads FAILED, its steps that did not pass "{DEPLOY_STEP}"'
+    job = state.load(demo)["jobs"]["j2"]
+    assert (job["release_heard"]["told"], [held["seq"] for held in job["undelivered"]]) == ("731000", ["731000"])
+    assert builds == [["forge/release/17468"], ["forge/release/17469"], ["forge/release/17469"], ["forge/release/17469"]]
+
+
+def test_a_release_build_stopped_at_its_approve_step_is_told_once_it_has_stood_there_half_an_hour(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    blocked = {**BUILD_RUNNING, "state": "BLOCKED", "blocks": {"edges": [{"node": {"label": APPROVE_STEP}}]}}
+    buildkite_reads(monkeypatch, {"forge/release/17469": blocked})
+    told: list[tuple[str, str]] = []
+    monkeypatch.setattr(watch, "release_told", lambda watcher, job_id, read, moment: told.append((job_id, read["state"])))
+    with state.edit(demo) as data:
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "follow the release", [], state.stamp(T0)) | {"brief_flags": RELEASED, "release_build": TRIGGERED_BUILD}
+    watching = watcher(demo)
+    for minute in (0, 29, 30):
+        watch.build_lines(watching, T0 + timedelta(minutes=minute))
+        watch.release_end_lines(watching, T0 + timedelta(minutes=minute))
+    assert (told, state.load(demo)["jobs"]["j2"]["release_heard"]["since"]) == ([("j2", "BLOCKED")], state.stamp(T0))
+
+
 def test_a_buildkite_build_wait_is_read_once_as_first_held_then_only_on_a_delivery_naming_it_holding_while_it_runs_and_freeing_at_its_approve_step(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
     answers = {"forge/release/14769": BUILD_RUNNING, "forge/release/99999999": None}
     calls = buildkite_reads(monkeypatch, answers)
+    heard_from_buildkite()
     with state.edit(demo) as data:
         data["prs"][KEY].update(state="merged", merged_sha="abc123")
         data["orders"]["o1"]["jobs"] = ["j1", "j2"]

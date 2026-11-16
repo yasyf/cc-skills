@@ -4063,6 +4063,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "worktree": None,
         "prs": [],
         "release_build": None,
+        "release_heard": None,
         "release_pass": None,
         "waits": [],
         "stacks_on": [],
@@ -5458,6 +5459,11 @@ def agent_lane(data: dict, job: dict) -> str | None:
 def starts_cut(job: dict) -> bool:
     """Whether a job starts a production cut, its brief carrying a Release line: the top coordinator's job on any order, since the top alone starts, approves and rolls back cuts, by his words "the top starts, approves and rolls back production cuts, one at a time"."""
     return bool((job.get("brief_flags") or {}).get("release"))
+
+
+def follows_release(job: dict) -> bool:
+    """Whether a job follows the release it started: it starts a cut, by starts_cut, keeps the build its start named and is not finished."""
+    return starts_cut(job) and bool(job["release_build"]) and job["state"] not in FINISHED_JOB_STATES
 
 
 def readers_piloted(data: dict, order: dict) -> bool:

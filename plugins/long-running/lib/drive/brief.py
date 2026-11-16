@@ -312,7 +312,7 @@ def followed(words: list[str], verb: str) -> str | None:
 
 
 def release_record(release: str, data: dict) -> dict | None:
-    """What the repository's release tool keeps of a release, by the `status` command of its [release] table with `{release}` filled, run by the shell in the drive's checkout: a JSON object naming the release's `name`, `build`, the `order` approving it, its `commit` and the targets it `carries`, those it picked and each one the tool pulled in; None when the repository names no such command or the command reads none."""
+    """What the repository's release tool keeps of a release, by the `status` command of its [release] table with `{release}` filled, run by the shell in the drive's checkout: a JSON object naming the release's `name`, `build`, the `order` approving it, its `commit`, the targets it `carries`, those it picked and each one the tool pulled in, and each of its `failures` as the `step` that failed, the tool's `said` cause line and the `job` link, which watch.release_told reads; None when the repository names no such command or the command reads none."""
     if not (command := state.repo_config(data).get("release", {}).get("status")):
         return None
     done = subprocess.run(command.replace("{release}", shlex.quote(release)), shell=True, cwd=data["roles"]["coordinator"]["cwd"], capture_output=True, text=True, timeout=settled.RELEASE_COMMAND_SECONDS)
