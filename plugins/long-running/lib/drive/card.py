@@ -648,7 +648,7 @@ def kept_later(known: dict[str, tuple[str, dict]], changes: dict[str, dict]) -> 
 
 
 def record_kept(name: str, kept: Path) -> None:
-    """Apply a receipt kept_later kept to the drive in one write that is never refused, since the card is already drawn: each PR's stack, its undrawn pictures and its refusal, telling the session hearing its order a reason it was not told before, so a refusal cc-slack gives again after every draw is told once until its reason changes; a PR the drive stopped tracking since is passed over. The receipt is removed once applied."""
+    """Apply a receipt kept_later kept to the drive in one write that is never refused and waits out the drive's lock however long it is held, since the card is already drawn: each PR's stack, its undrawn pictures and its refusal, telling the session hearing its order a reason it was not told before, so a refusal cc-slack gives again after every draw is told once until its reason changes; a PR the drive stopped tracking since is passed over. The receipt is removed once applied."""
     changes = json.loads(kept.read_text())
 
     def applied(data: dict) -> list[tuple[str, dict]]:
@@ -669,7 +669,9 @@ def record_kept(name: str, kept: Path) -> None:
                 events.append(("refused", told | {"reason": change["refused"]}))
         return events
 
-    for kind, fields in state.update(name, None, applied):
+    with state.waiting_out_lock():
+        events = state.update(name, None, applied)
+    for kind, fields in events:
         state.append_event(name, kind, **fields)
     kept.unlink()
 

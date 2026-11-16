@@ -4948,7 +4948,7 @@ def read_updated[T](name: str, change: Callable[[dict], T]) -> T:
 
 def update[T](name: str, rows: tuple[Row, ...] | None, change: Callable[[dict], T]) -> T:
     """Apply change, a function of the drive that only reads and changes data, to the drive and return what it returns, as a write of rows that is never refused, or with rows None as a write naming no rows: on the drive as it loads, saved by rows_saved, and again on the drive as it then stands each time another write changed one of the rows meanwhile, up to UPDATE_TRIES runs; a change changing a row it did not name, or one raced past those runs, runs once more as a write naming no rows; locks.log names each such last run."""
-    if name in BATCHED or WAITS_OUT_LOCK.get() or not database_path(name).exists():
+    if name in BATCHED or not database_path(name).exists():
         with edit(name) as data:
             return change(data)
     if rows is None:
