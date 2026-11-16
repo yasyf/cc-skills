@@ -307,10 +307,14 @@ def test_a_show_me_he_called_useless_is_refused_naming_its_rule_and_what_to_carr
     assert re.search(r"his Nov 10 1[01]:\d\d PM words", str(refused.value))
 
 
-def test_the_blob_record_card_whose_every_option_keeps_a_row_per_file_and_namer_is_refused_until_it_offers_a_count_per_file_and_names_it_simplest() -> None:
+def test_the_blob_record_card_whose_every_option_keeps_a_row_per_file_and_namer_has_the_rule_printed_for_its_asker_until_it_offers_a_count_per_file_and_names_it_simplest(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     options = [limits.RECOMMENDED.sub("", line.removeprefix("- ")) for line in BLOB_NAMES_OPTIONS.splitlines()]
-    with pytest.raises(DriveError, match=re.escape("no `Simplest:` line under `Findings:`")):
+    with pytest.raises(DriveError) as refused:
         limits.question(BLOB_NAMES_ASK)
+    assert "no `Simplest:` line under `Findings:`" not in str(refused.value)
+    assert "weigh before it draws: no `Simplest:` line under `Findings:`" in capsys.readouterr().err
     [unnamed] = limits.root_cause_problems(BLOB_NAMES_FINDINGS, options)
     assert unnamed.startswith("no `Simplest:` line under `Findings:`")
     assert limits.SIMPLEST_RULING in unnamed

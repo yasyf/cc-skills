@@ -234,6 +234,10 @@ Posting it:
 
 - `drive job ask` posts the card, as `drive pr add` posts a PR card. The watch posts on its next
   read any kept question whose card did not draw then.
+- `drive job ask` refuses only a block it cannot read or a card cc-slack cannot draw. Each finding on
+  what the card's words say, such as a bare mechanism, an option that retries or sweeps, a request
+  for a sign-in or a fact, a vague object or a missing root cause, prints as `weigh before it
+  draws:` with its rule: you weigh it and fix the card when the rule applies.
 - A kept ASK file changes through `drive job ask`. `drive job card` and `drive cards redraw` do not
   draw a kept file whose words no longer hash to its name. A question already asked redraws under
   the rules it was asked under.

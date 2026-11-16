@@ -2130,21 +2130,32 @@ def test_a_block_drive_job_ask_keeps_posts_as_written_and_only_a_card_no_drive_k
     assert posted(transcript, card=unkept | {"options": longer}).startswith("refused: this card is 151 words")
 
 
-def test_a_block_starts_from_the_root_cause_and_names_the_option_that_removes_it() -> None:
+WEIGH = "weigh before it draws: "
+
+
+def advice(capsys: pytest.CaptureFixture[str]) -> list[str]:
+    return [line.removeprefix(WEIGH) for line in capsys.readouterr().err.splitlines() if line.startswith(WEIGH)]
+
+
+def weighed(capsys: pytest.CaptureFixture[str], block: str) -> list[str]:
+    limits.question(block)
+    return advice(capsys)
+
+
+def test_a_block_starts_from_the_root_cause_and_prints_the_rule_for_the_option_that_removes_it_for_its_asker(capsys: pytest.CaptureFixture[str]) -> None:
     cause = STRAY_CAUSE
     shown = "New app moves its chats once into a folder of its own and lists unloaded chats as loading; the old build cannot reach them."
-    with pytest.raises(DriveError, match="no `Root cause:` line under `Findings:`"):
-        limits.question(STRAY_CHATS_ASK.replace(cause, ""))
+    assert [line.split(":")[0] for line in weighed(capsys, STRAY_CHATS_ASK.replace(cause, ""))] == ["no `Root cause"]
     _, problems = limits.question_problems(STRAY_CHATS_ASK.replace(cause, "").replace(f"Simplest: {shown}\n", ""))
     assert [problem.split(":")[0] for problem in problems] == ["no `Simplest", "no `Root cause"]
-    with pytest.raises(DriveError, match="has no `First principles:` line"):
-        limits.question(STRAY_CHATS_ASK.replace(f"First principles: {shown}\n", ""))
-    with pytest.raises(DriveError, match="`First principles: Wait for the copy` names no option"):
-        limits.question(STRAY_CHATS_ASK.replace(f"First principles: {shown}", "First principles: Wait for the copy"))
+    [unprincipled] = weighed(capsys, STRAY_CHATS_ASK.replace(f"First principles: {shown}\n", ""))
+    assert "has no `First principles:` line" in unprincipled
+    [waiting] = weighed(capsys, STRAY_CHATS_ASK.replace(f"First principles: {shown}", "First principles: Wait for the copy"))
+    assert "`First principles: Wait for the copy` names no option" in waiting
     refuses = "New app refuses chats created without setup and lists unloaded chats as loading; smaller, but the old build still writes strays into the shared folder."
     assert limits.question(STRAY_CHATS_ASK.replace(f"First principles: {shown}", f"First principles: {refuses}")).recommended == shown
-    with pytest.raises(DriveError, match=re.escape("says not what measures the cause and which job: write `Root cause: not found: <what measures it>, by j<n>`")):
-        limits.question(STRAY_CHATS_ASK.replace(cause, "Root cause: not found: j12 reads his chat files\n"))
+    [unmeasured] = weighed(capsys, STRAY_CHATS_ASK.replace(cause, "Root cause: not found: j12 reads his chat files\n"))
+    assert "says not what measures the cause and which job: write `Root cause: not found: <what measures it>, by j<n>`" in unmeasured
     unfound = limits.question(STRAY_CHATS_ASK.replace(cause, "Root cause: not found: which build writes each of his chat files, by j12\n"))
     assert unfound.cause == "not found: which build writes each of his chat files"
     assert "j12" not in unfound.card("demo", "demo:j12-1")["body"]
@@ -2191,29 +2202,39 @@ def test_an_interim_fix_line_his_card_draws_is_one_line_long_and_names_no_job_he
 
 
 @pytest.mark.parametrize(
-    ("cause", "refusal"),
+    ("cause", "rule"),
     [
         ("Root cause: both builds share one chat folder on his Mac\n", "names no measured number"),
         ("Root cause: both builds share one chat folder, read at lib/drive/state.py:12 and in 0c59046\n", "names no measured number"),
         (f"Root cause: {' '.join(['slow'] * 59)} 3 ms\n", "`Root cause:` is 61 words"),
         ("Root cause: j2749's reader measured 3,214 ms an entry against 86 ms\n", '`Root cause:` holds "j2749"'),
         ("Root cause: none: o722 asks for a pick between his designs\n", '`Root cause:` holds "o722"'),
-        ("Root cause: both builds share one chat folder, as #4771 measured on 9 chats\n", '"#4771" is a number he cannot open'),
     ],
 )
-def test_a_root_cause_line_his_card_draws_is_one_line_long_measured_and_names_nothing_he_cannot_open(cause: str, refusal: str) -> None:
-    with pytest.raises(DriveError, match=re.escape(refusal)):
-        limits.question(STRAY_CHATS_ASK.replace(STRAY_CAUSE, cause))
+def test_a_root_cause_line_his_card_draws_is_one_line_long_measured_and_names_nothing_he_cannot_open_is_drawn_with_the_rule_printed_for_its_asker(
+    cause: str, rule: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    [printed_rule] = weighed(capsys, STRAY_CHATS_ASK.replace(STRAY_CAUSE, cause))
+    assert rule in printed_rule
     assert limits.question(STRAY_CHATS_ASK.replace(STRAY_CAUSE, cause), kept=True).cause == cause.removeprefix("Root cause: ").strip()
 
 
-def test_a_card_asking_only_when_a_merged_fix_ships_names_the_structure_it_removed_and_links_that_pr() -> None:
+def test_a_root_cause_line_naming_a_number_he_cannot_open_is_refused_for_the_number_and_prints_no_rule(capsys: pytest.CaptureFixture[str]) -> None:
+    cause = "Root cause: both builds share one chat folder, as #4771 measured on 9 chats\n"
+    with pytest.raises(DriveError, match=re.escape('"#4771" is a number he cannot open')):
+        limits.question(STRAY_CHATS_ASK.replace(STRAY_CAUSE, cause))
+    assert advice(capsys) == []
+    assert limits.question(STRAY_CHATS_ASK.replace(STRAY_CAUSE, cause), kept=True).cause == cause.removeprefix("Root cause: ").strip()
+
+
+def test_a_card_asking_only_when_a_merged_fix_ships_names_the_structure_it_removed_and_links_that_pr(capsys: pytest.CaptureFixture[str]) -> None:
     cause = STRAY_CAUSE
     unprincipled = "\n".join(line for line in STRAY_CHATS_ASK.splitlines() if not line.startswith("First principles:")) + "\n"
     removed = "Root cause: fixed: both builds shared one chat folder on his Mac; removed by https://github.com/acme/app/pull/12\n"
     assert limits.question(unprincipled.replace(cause, removed)).recommended
-    with pytest.raises(DriveError, match=re.escape("links no merged PR: write `Root cause: fixed: <the structure>, removed by <the merged PR's link>`")):
-        limits.question(unprincipled.replace(cause, "Root cause: fixed: both builds shared one chat folder on his Mac\n"))
+    assert advice(capsys) == []
+    [unlinked] = weighed(capsys, unprincipled.replace(cause, "Root cause: fixed: both builds shared one chat folder on his Mac\n"))
+    assert "links no merged PR: write `Root cause: fixed: <the structure>, removed by <the merged PR's link>`" in unlinked
 
 
 def test_the_case_jev_reads_carries_the_show_me_each_option_with_its_description_and_the_root_cause_lines(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2339,10 +2360,11 @@ def test_a_bare_drive_id_is_refused_wherever_the_card_draws_it(ask: str, found: 
         limits.question(ask)
 
 
-def test_an_option_asking_someone_to_retry_or_confirm_is_refused_naming_the_fix_to_offer() -> None:
-    with pytest.raises(DriveError, match='option "ask Rowan to retry the restore" asks someone to retry or confirm "ask Rowan to retry", which fixes nothing: offer the fix itself'):
-        limits.question(options_ask("restore from the replica (recommended)", "ask Rowan to retry the restore"))
+def test_an_option_asking_someone_to_retry_or_confirm_is_drawn_with_the_fix_to_offer_printed_for_its_asker(capsys: pytest.CaptureFixture[str]) -> None:
+    [retrying] = weighed(capsys, options_ask("restore from the replica (recommended)", "ask Rowan to retry the restore"))
+    assert retrying.startswith('option "ask Rowan to retry the restore" asks someone to retry or confirm "ask Rowan to retry", which fixes nothing: offer the fix itself')
     assert limits.question(options_ask("restore from the replica (recommended)", "restore from last night's backup")).options
+    assert advice(capsys) == []
 
 
 @pytest.mark.parametrize(
@@ -2378,16 +2400,23 @@ def test_an_option_asking_someone_to_retry_or_confirm_is_refused_naming_the_fix_
         (options_ask("Your Touch ID: cc-sudo reads the pass box's API key from SSM (recommended)", "Close on the fix"), 'with "Your Touch ID"'),
     ],
 )
-def test_a_card_asking_him_to_sign_in_or_tap_touch_id_for_an_aws_action_is_refused_naming_the_machine_profile_route(block: str, found: str) -> None:
-    with pytest.raises(DriveError) as refused:
+def test_a_card_asking_him_to_sign_in_or_tap_touch_id_for_an_aws_action_has_the_machine_profile_route_printed_for_its_asker_and_never_in_its_refusal(
+    block: str, found: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    refusal = ""
+    try:
         limits.question(block)
-    assert found in str(refused.value)
-    assert (
+    except DriveError as refused:
+        refusal = str(refused)
+    route = (
         "this Mac's machine profile runs it with no sign-in, Touch ID or cc-sudo, every AWS call under a profile ~/.aws/config chains to the"
         " machine certificate, such as `AWS_PROFILE=plat-prod tools/ci pass-box launch`, and break-glass as `drive break-glass <job> --stack"
         ' <domain>/<env> --reason "<why>" -- <command>` from a lane on this Mac, so that run takes its place'
         f" ({limits.MACHINE_PROFILE_RULING})"
-    ) in str(refused.value)
+    )
+    assert any(found in line and route in line for line in advice(capsys))
+    assert found not in refusal
+    assert route not in refusal
 
 
 @pytest.mark.parametrize(
@@ -2434,15 +2463,14 @@ def test_a_touch_id_lending_his_browsers_sign_in_is_judged_by_its_own_option_and
         ),
     ],
 )
-def test_a_card_asking_him_for_a_fact_or_value_is_refused_naming_where_its_job_reads_it(block: str, found: str) -> None:
-    with pytest.raises(DriveError) as refused:
-        limits.question(block)
-    assert found in str(refused.value)
+def test_a_card_asking_him_for_a_fact_or_value_is_drawn_with_where_its_job_reads_it_printed_for_its_asker(block: str, found: str, capsys: pytest.CaptureFixture[str]) -> None:
+    [asking_for_a_fact] = weighed(capsys, block)
+    assert found in asking_for_a_fact
     assert (
         "he is asked only a decision that is his, so its job reads that value where it is defined, such as the app's own settings, its"
         " manifest or the infra that makes it, and asks him only a choice; when no read of the job's reaches it, return `BLOCKED` naming the"
         f' value and the read it needs (his words "{limits.FACT_QUOTE}", {limits.FACT_ASKED})'
-    ) in str(refused.value)
+    ) in asking_for_a_fact
 
 
 @pytest.mark.parametrize(
@@ -2461,29 +2489,30 @@ def test_a_card_whose_job_reads_the_value_ruling_out_a_paste_or_quoting_his_word
     assert limits.question(block).options
 
 
-def test_an_option_ruling_out_a_retry_or_a_sweeper_is_no_option_proposing_one() -> None:
+def test_an_option_ruling_out_a_retry_or_a_sweeper_is_no_option_proposing_one(capsys: pytest.CaptureFixture[str]) -> None:
     assert limits.question(options_ask("restore from the replica; never ask Rowan to retry the restore (recommended)", "restore from last night's backup")).options
     assert limits.question(options_ask("restore from the replica; ask Rowan not to retry (recommended)", "restore from last night's backup")).options
     assert limits.question(options_ask("one owner holds the lease until it ends; remove the sweeper (recommended)", "the run gives the lease back as it exits")).options
-    with pytest.raises(DriveError, match='cleans up a bad state with "sweep orphaned"'):
-        limits.question(options_ask("remove the sweeper, then sweep orphaned leases hourly (recommended)", "one owner holds the lease until it ends"))
+    assert advice(capsys) == []
+    [sweeping] = weighed(capsys, options_ask("remove the sweeper, then sweep orphaned leases hourly (recommended)", "one owner holds the lease until it ends"))
+    assert 'cleans up a bad state with "sweep orphaned"' in sweeping
 
 
-def test_an_option_that_cleans_up_a_bad_state_is_refused_unless_unsettled_names_his_ruling() -> None:
+def test_an_option_that_cleans_up_a_bad_state_is_drawn_with_his_ruling_printed_for_its_asker_unless_unsettled_names_it(capsys: pytest.CaptureFixture[str]) -> None:
     swept = options_ask("sweep orphaned leases every 10 min (recommended)", "one owner holds the lease until it ends")
-    with pytest.raises(DriveError) as refused:
-        limits.question(swept)
+    [sweeping] = weighed(capsys, swept)
     assert (
         'option "sweep orphaned leases every 10 min" cleans up a bad state with "sweep orphaned", a sweeper, time rule or reclaim'
         ' loop: design the state out so it cannot exist, such as one owner holding it until it ends, or keep the option with'
         ' `drive job ask <j> <the file holding this block> --unsettled "b89209a: <why the state cannot be designed out>"`, the one'
         " verb taking --unsettled, and for a reader's DESIGN run `drive job report <j> -` again after it, which keeps that"
         ' --unsettled (his ruling b89209a, "No sweepers")'
-    ) in str(refused.value)
-    with pytest.raises(DriveError, match='cleans up a bad state with "older than a minute"'):
-        limits.question(options_ask("a placed row older than a minute counts as waiting (recommended)", "one owner holds the lease until it ends"))
+    ) in sweeping
+    [timed] = weighed(capsys, options_ask("a placed row older than a minute counts as waiting (recommended)", "one owner holds the lease until it ends"))
+    assert 'cleans up a bad state with "older than a minute"' in timed
     assert limits.question(swept, unsettled="b89209a: the lease lives in a store no owner can hold").recommended == "sweep orphaned leases every 10 min"
     assert limits.question(options_ask("one owner holds the lease until it ends (recommended)", "the run gives the lease back as it exits")).options
+    assert advice(capsys) == []
 
 
 def test_a_post_naming_the_change_links_it_and_a_link_refusal_says_how_to_say_it_does_not_exist_yet(talker: str, transcript: Path) -> None:
@@ -2520,17 +2549,16 @@ def test_first_principles_names_an_option_whose_first_part_holds_a_double_colon(
     assert limits.option_head("Read https://example.com/a: the page says so") == "Read https://example.com/a"
 
 
-def test_a_question_or_option_naming_a_mechanism_by_a_bare_word_is_refused_until_it_says_what_runs_and_what_reaches_whom() -> None:
-    with pytest.raises(DriveError) as refused:
-        limits.question(WATCH_ASK)
+def test_a_question_or_option_naming_a_mechanism_by_a_bare_word_is_drawn_with_the_rule_printed_until_it_says_what_runs_and_what_reaches_whom(capsys: pytest.CaptureFixture[str]) -> None:
+    weighing = "\n".join(weighed(capsys, WATCH_ASK))
     for where, found in [
         ("the question", "or the first source of an event:: subscription API"),
         (f'option "{WATCH_OPTIONS[0]}"', "Polls only"),
         (f'option "{WATCH_OPTIONS[1]}"', "taking a Poll source first and pushed sources later"),
         (f'option "{WATCH_OPTIONS[1]}"', "named before the event system is designed"),
     ]:
-        assert f'{where} names a mechanism by a bare word in "{found}"' in str(refused.value)
-    assert f'option "{WATCH_OPTIONS[2]}" names a mechanism' not in str(refused.value)
+        assert f'{where} names a mechanism by a bare word in "{found}"' in weighing
+    assert f'option "{WATCH_OPTIONS[2]}" names a mechanism' not in weighing
     assert limits.question(WATCH_ASK, kept=True).recommended == WATCH_OPTIONS[0]
     concrete = {
         WATCH_QUESTION: "Should the builtin that reruns a check function and messages the agent on a change be named watch:: or event::?",
@@ -2541,6 +2569,7 @@ def test_a_question_or_option_naming_a_mechanism_by_a_bare_word_is_refused_until
     for bare, said_plainly in concrete.items():
         rewritten = rewritten.replace(bare, said_plainly)
     assert limits.question(rewritten).recommended == concrete[WATCH_OPTIONS[0]]
+    assert advice(capsys) == []
 
 
 DESCRIBED_ASK = """ASK Where does the one manager for SandSQL's helper processes run?

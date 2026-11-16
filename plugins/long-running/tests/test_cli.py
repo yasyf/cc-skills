@@ -2246,7 +2246,7 @@ def test_job_ask_refuses_a_compare_fence_holding_a_markdown_table_by_the_fence_i
     for argv in (["job", "ask", asking, "--check", str(block)], ["job", "ask", asking, str(block)]):
         assert cli.main(argv) == 2
         refusal = capsys.readouterr().err
-        assert refusal.startswith("drive: the ASK is out of shape")
+        assert "drive: the ASK is out of shape" in refusal
         assert (
             "the Show me ```compare fence is not the JSON it draws from: Expecting value at its line 1, column 1;"
             f" write {limits.COMPARE_SHAPE}, or put a markdown table outside any fence, which Slack draws as its own table"
@@ -2309,15 +2309,16 @@ RESTORE_OPENING = RESTORE_ASK.splitlines()[1]
         'For {order:o1}: the restore keeps "your pick" readable once the reader switch ships.',
     ],
 )
-def test_job_ask_check_refuses_a_summary_whose_first_line_never_says_the_work_it_serves_and_what_his_pick_changes(
+def test_job_ask_check_says_ready_and_prints_the_rule_for_a_summary_whose_first_line_never_says_the_work_it_serves_and_what_his_pick_changes(
     opening: str, run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(RESTORE_ASK.replace(RESTORE_OPENING, opening))
-    assert cli.main(["job", "ask", asking, "--check", str(block)]) == 2
-    refusal = capsys.readouterr().err
-    assert "the summary's first line never says" in refusal
-    assert limits.OPENING_RULING in refusal
+    assert cli.main(["job", "ask", asking, "--check", str(block)]) == 0
+    printed = capsys.readouterr()
+    assert printed.out == "ready\n"
+    assert "weigh before it draws: the summary's first line never says" in printed.err
+    assert limits.OPENING_RULING in printed.err
     assert limits.question(RESTORE_ASK, kept=True).summary[0] == RESTORE_OPENING
 
 
@@ -2382,7 +2383,7 @@ def test_job_ask_and_card_refuse_a_file_that_is_not_there_by_its_path(
     assert not (state_root / "demo" / "asks").exists()
 
 
-def test_job_ask_keeps_an_option_his_no_sweepers_ruling_refuses_only_when_unsettled_names_that_ruling(
+def test_job_ask_check_prints_his_no_sweepers_ruling_for_an_option_that_cleans_up_a_bad_state_only_when_unsettled_names_no_such_ruling(
     run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     block = tmp_path / "ask.md"
@@ -2393,10 +2394,14 @@ def test_job_ask_keeps_an_option_his_no_sweepers_ruling_refuses_only_when_unsett
             "Findings:\nRoot cause: none: a design pick\nSimplest: one owner holds the lease until it ends\nHolds: none: no option changes code any job builds\nTwo runs held one lease.\n"
         )
     )
-    assert cli.main(["job", "ask", asking, "--check", str(block)]) == 2
-    assert 'cleans up a bad state with "reclaim orphaned"' in capsys.readouterr().err
+    assert cli.main(["job", "ask", asking, "--check", str(block)]) == 0
+    printed = capsys.readouterr()
+    assert printed.out == "ready\n"
+    assert 'weigh before it draws: option "reclaim orphaned leases every 10 minutes" cleans up a bad state with "reclaim orphaned"' in printed.err
     assert cli.main(["job", "ask", asking, "--check", str(block), "--unsettled", "b89209a: the lease lives in a store no owner can hold"]) == 0
-    assert capsys.readouterr().out == "ready\n"
+    printed = capsys.readouterr()
+    assert printed.out == "ready\n"
+    assert "weigh before it draws" not in printed.err
 
 
 def test_job_ask_names_every_way_an_ask_is_out_of_shape(
@@ -2502,15 +2507,16 @@ def test_job_ask_refuses_a_pr_named_with_no_link_and_keeps_the_linked_copy(
     assert '"their PR" names something he could open with no link there, in "with their PR"' in capsys.readouterr().err
 
 
-def test_job_ask_refuses_a_question_that_hides_the_terms_its_findings_name(
+def test_job_ask_draws_a_question_that_hides_the_terms_its_findings_name_with_the_rule_printed_for_its_asker(
     run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK.replace("ASK How should a finished run's files be laid out", "ASK How should the change be laid out"))
-    assert cli.main(["job", "ask", asking, str(block)]) == 2
-    assert 'the question names its object only as "the change", while its summary and findings name SQLite, LTX' in capsys.readouterr().err
+    assert cli.main(["job", "ask", asking, str(block)]) == 0
+    assert 'weigh before it draws: the question names its object only as "the change", while its summary and findings name SQLite, LTX' in capsys.readouterr().err
     block.write_text(SHORT_ASK.replace("ASK How should a finished run's files be laid out", "ASK How should a finished run's LTX files be laid out"))
-    assert run("job", "ask", asking, str(block))[0] == 0
+    assert cli.main(["job", "ask", asking, str(block)]) == 0
+    assert "weigh before it draws" not in capsys.readouterr().err
 
 
 def test_job_ask_refuses_a_show_me_out_of_shape(run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -2574,16 +2580,19 @@ The run page change's base branch is the run history change's branch, so the mer
 """)
 
 
-def test_job_ask_sends_an_ask_to_land_prs_to_their_stack_card_and_still_redraws_one_it_kept(
+def test_job_ask_prints_the_stack_card_rule_for_an_ask_to_land_prs_and_still_redraws_one_it_kept(
     asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(LANDING_ASK)
-    assert cli.main(["job", "ask", asking, str(block)]) == 2
-    assert "it asks him to land PRs, which is his tap on their stack card and never a question card: return READY" in capsys.readouterr().err
+    assert cli.main(["job", "ask", asking, str(block)]) == 0
+    assert "weigh before it draws: it asks him to land PRs, which is his tap on their stack card and never a question card: return READY" in capsys.readouterr().err
     assert limits.question(LANDING_ASK, kept=True).recommended == "Land both now, run history first"
+    assert cli.main(["job", "ask", asking, str(block)]) == 0
+    assert "weigh before it draws: it asks him to land PRs" in capsys.readouterr().err
     block.write_text(LANDING_ASK.replace("ASK Land your", "ASK Keep your"))
     assert cli.main(["job", "ask", asking, str(block)]) == 0
+    assert "weigh before it draws" not in capsys.readouterr().err
 
 
 def test_job_card_draws_the_show_me_code_as_pictures_on_lines_of_their_own(
@@ -4571,19 +4580,20 @@ def test_a_card_citing_a_pick_a_lane_made_provisionally_draws_no_already_answere
     assert limits.ALREADY_ANSWERED not in json.loads(printed)["options"]
 
 
-def test_job_ask_refuses_a_card_whose_sentence_recommending_an_option_cites_his_recorded_answer_naming_the_option_to_build_unless_unsettled_names_it(
+def test_job_ask_draws_a_card_whose_sentence_recommending_an_option_cites_his_recorded_answer_printing_the_option_to_build_for_its_asker_unless_unsettled_names_it(
     run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], recorded: Answers
 ) -> None:
     recorded.shown["c952dbb"] = {"id": "c952dbb", "title": "How are a finished run's files kept?", "body": f"{SNAPSHOT_PICK}\nNotes: cci owner 1", "tags": [], "created_at": "2026-11-05T11:33:00Z"}
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK.replace("so any finished run opens in 3 requests.", "as {answer:c952dbb|your Nov 5 pick} chose."))
-    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert cli.main(["job", "ask", asking, str(block)]) == 0
     assert (
-        '\n- its summary recommends "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests" by his recorded'
+        'weigh before it draws: its summary recommends "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests" by his recorded'
         f' answer c952dbb, "One snapshot file per finished run", which already chose it, so no card asks him again: {settled.CHOSEN.format(id="c952dbb", job=asking)}'
     ) in capsys.readouterr().err
-    assert state.load("demo")["jobs"][asking]["questions"] == []
-    assert run("job", "ask", asking, str(block), "--unsettled", "c952dbb: this card asks him to lift his Nov 5 pick")[0] == 0
+    assert len(state.load("demo")["jobs"][asking]["questions"]) == 1
+    assert cli.main(["job", "ask", asking, str(block), "--unsettled", "c952dbb: this card asks him to lift his Nov 5 pick"]) == 0
+    assert "weigh before it draws" not in capsys.readouterr().err
 
 
 def test_job_ask_drop_answer_ends_the_jobs_own_open_question_on_his_card_on_his_recorded_answer_closing_the_card_in_place_on_his_words_and_refuses_any_other(

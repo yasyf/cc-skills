@@ -2494,10 +2494,10 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
         )
     recommending = [sentence for sentence in limits.SENTENCE_BREAK.split("\n".join(asked.summary)) if re.search(r"\brecommend", sentence, re.IGNORECASE)]
     if chosen := next((answer for sentence in recommending for answer in cited_answers(sentence, cited) if answer["answer"] not in (unsettled or "")), None):
-        problems.append(
+        problems.append(limits.Advice(
             f'its summary recommends "{asked.recommended}" by his recorded answer {chosen["answer"]}, "{render.cut(chosen["words"], settled.QUOTED_CHARS)}",'
             f" which already chose it, so no card asks him again: {settled.CHOSEN.format(id=chosen['answer'], job=job_id)}; a card asking him to lift those words names {chosen['answer']} in --unsettled"
-        )
+        ))
     findings = []
     try:
         found = refs.resolved(name, "\n".join(asked.summary))
@@ -2564,8 +2564,8 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
             problems.append(str(error))
     if refused := slack.draw_refusal(asked.card(name, f"{name}:{job_id}-0")):
         problems.append(f"the ASK's card is out of shape, so cc-slack would not draw it: {refused}")
-    if problems:
-        raise DriveError(limits.out_of_shape(problems))
+    if refused := limits.shaped(problems):
+        raise DriveError(limits.out_of_shape(refused))
     picture.drawn(pictures, asked.show_me)
     if raw := limits.checked(findings, limits.RAW_IDS):
         print(limits.RAW.format(found=", ".join(raw), advisory=limits.ADVISORY), file=sys.stderr)

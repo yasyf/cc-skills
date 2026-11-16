@@ -755,12 +755,23 @@ def ask_block(text: str) -> str:
     return DESIGN_OPENING.sub("ASK ", text, count=1)
 
 
+class Advice(str):
+    """A finding on a card's words that the session asking judges from its rule, printed on stderr and never refused, by his words "get rid of hard-coded stuff, give it the rules, and let it make the call"."""
+
+
 def question(text: str, kept: bool = False, unsettled: str | None = None, hurting: bool = False) -> Question:
-    """The one question a job's ASK block puts to him, refused with every way its words are out of shape, by `question_problems`."""
+    """The one question a job's ASK block puts to him, refused with every way its words are out of shape, by `question_problems`, each Advice printed instead."""
     asked, problems = question_problems(text, kept, unsettled, hurting)
-    if problems:
-        raise DriveError(out_of_shape(problems))
+    if refused := shaped(problems):
+        raise DriveError(out_of_shape(refused))
     return asked
+
+
+def shaped(problems: list[str]) -> list[str]:
+    """The problems that refuse a card, each Advice among them printed on stderr as a rule its asker weighs."""
+    for advice in (problem for problem in problems if isinstance(problem, Advice)):
+        print(f"weigh before it draws: {advice}", file=sys.stderr)
+    return [problem for problem in problems if not isinstance(problem, Advice)]
 
 
 def out_of_shape(problems: list[str]) -> str:
@@ -847,36 +858,36 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
         for found in MARKUP.findall(line)
     ]
     problems += [
-        f'{where} names a mechanism by a bare word in "{found}", which leaves him to guess what runs, what it watches and what'
-        f" reaches whom: say {MECHANISM_SHAPE}, such as {MECHANISM_EXAMPLE} ({MECHANISM_RULING})"
+        Advice(f'{where} names a mechanism by a bare word in "{found}", which leaves him to guess what runs, what it watches and what'
+        f" reaches whom: say {MECHANISM_SHAPE}, such as {MECHANISM_EXAMPLE} ({MECHANISM_RULING})")
         for where, line in [("the question", title), *((f'option "{option}"', option) for option in options)]
         for found in bare_mechanisms(line)
     ]
-    problems += option_problems(options, unsettled)
+    problems += map(Advice, option_problems(options, unsettled))
     problems += description_problems(options, described)
-    problems += sign_in_problems(
+    problems += map(Advice, sign_in_problems(
         [("the question", title), *(("the summary", line) for line in summary)],
         [(f'option "{option}"', [option, *lines]) for option, lines in zip(options, described, strict=True)],
-    )
-    problems += fact_problems(asked)
+    ))
+    problems += map(Advice, fact_problems(asked))
     if marked and LANDING.match(title) and LANDING.match(marked[0]) and PR_URL.search("\n".join(summary)):
-        problems.append(
+        problems.append(Advice(
             "it asks him to land PRs, which is his tap on their stack card and never a question card: return READY naming"
             f" every PR it lands, bottom first, and the stack card that carries them needs no Show me ({STACK_RULING})"
-        )
-    problems += vague_problems(title, [*summary, *(findings[:1])])
-    problems += opening_problems(summary)
+        ))
+    problems += map(Advice, vague_problems(title, [*summary, *(findings[:1])]))
+    problems += map(Advice, opening_problems(summary))
     problems += [
-        f"{where} names {', '.join(named)}, which tell him nothing of what the card is: say what he would see go wrong or what your pick"
+        Advice(f"{where} names {', '.join(named)}, which tell him nothing of what the card is: say what he would see go wrong or what your pick"
         f" changes for him in the words he uses for it, such as the memory move or expiry, and name the code in the summary's later lines"
-        f" and the findings, as a PR card's lead leaves its code to the Summary ({CODED_OPENING_RULING}; {OPENING_RULING})"
+        f" and the findings, as a PR card's lead leaves its code to the Summary ({CODED_OPENING_RULING}; {OPENING_RULING})")
         for where, line in [("the question", title), *(("the summary's first line", REF.sub(lambda found: f" {found[3] or ''} ", line)) for line in summary[:1])]
         if (named := code_names(line))
     ]
     if not findings or not findings[0].strip():
         problems.append("no `Findings:` line with the evidence under it; it stays on disk, for the record and Explain more")
     elif len(marked) == 1:
-        problems += root_cause_problems(findings[0], options)
+        problems += map(Advice, root_cause_problems(findings[0], options))
     if not (held and held[1] and held[1].casefold() != "none"):
         problems.append(f"no `Holds:` line under `Findings:` naming what his open card holds: write {HOLDS_SHAPE} ({HOLDS_RULING})")
     if (count := words(asked.interim)) > LINE_WORDS:
@@ -890,7 +901,7 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
             f" which his card draws without the job, or link what ships it ({PROPER_TERMS_RULING})"
         )
     if hurting:
-        problems += interim_fix_problems("".join(findings[:1]))
+        problems += map(Advice, interim_fix_problems("".join(findings[:1])))
     return asked, problems
 
 
