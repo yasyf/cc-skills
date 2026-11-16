@@ -111,6 +111,9 @@ lines, none starting `- `, each saying `none` when empty:
 - `build:` in one line, the change you recommend its builder make, the deliverable and not the
   order's subject, since it becomes that builder's `Goal: build <that line>`. `build: none: <why>`
   names no goal, and the builder keeps its parts' goal with your research in its brief.
+  An edge case that drops work, such as a rare race losing one edit, is accepted: recommend
+  nothing for it. He ruled, Nov 16, 2026: "its ok for edge cases to drop stuff dont build a bunch of
+  complex shit for edge casews thats a rule we need to codify".
 
 ## A choice that is his
 
