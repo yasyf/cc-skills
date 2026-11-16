@@ -60,3 +60,7 @@ def test_a_report_with_nothing_new_posts_nothing():
 def test_a_report_line_is_checked_as_an_answer_is():
     assert answer.report_of(f"{answer.POST}\nThe memory test fails one case on <https://buildkite.com/forge/release/builds/17166|its staging build>.", ROWS)[1] == answer.POST
     assert answer.report_of(f"{answer.POST}\nBuild 17999 is red.", ROWS)[1] is None
+
+
+def test_a_verb_written_with_a_colon_reads_as_that_verb():
+    assert answer.report_of(f"{answer.NOTHING}: no job moved", ROWS) == (None, answer.NOTHING, "no job moved")
