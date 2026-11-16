@@ -1351,7 +1351,7 @@ def typed_reload(drive: str, seat: str, held: dict, terminal: str, onto: str, pl
 
 
 def idle_pid(session: str) -> int | None:
-    """The pid of the Claude Code process running the session once its turn is over, waiting each second until the status Claude Code keeps in its sessions/<pid>.json reads idle, which it writes as the turn ends, never while it runs or shows a menu or permission prompt the command would answer; None once the process exits or runs another session."""
+    """The pid of the Claude Code process running the session once its turn is over, waiting each second until the status Claude Code keeps in its sessions/<pid>.json reads idle, which it writes as the turn ends, never while it runs or shows a menu or permission prompt the command would answer, a newer install landing meanwhile taking the wait over in this process by reopen, so no older install holds the seat's reload lock; None once the process exits or runs another session."""
     from drive import orca
 
     if not (pid := orca.live_pid(session)):
@@ -1359,6 +1359,7 @@ def idle_pid(session: str) -> int | None:
     while (status := session_status(pid, session)) != "idle":
         if status is None:
             return None
+        reopen(sys.argv[1:])
         sleep(1)
     return pid
 
