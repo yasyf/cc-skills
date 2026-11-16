@@ -17,7 +17,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import HomeRepo, provide, DRIVE_TERMINAL, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged
+from conftest import DRY_RUN, DashboardBoxes, EnvsRelease, HomeRepo, MonorepoRepo, SlotStaging, provide, DRIVE_TERMINAL, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged
 from drive import agents, card, cli, codex, dashboard, github, install, land, launchd, limits, orca, place, providers, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, train, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -233,6 +233,27 @@ def ready_records(monkeypatch: pytest.MonkeyPatch) -> list[list[dict]]:
     sent: list[list[dict]] = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append(records) or ["9"])
     return sent
+
+
+class LiveRelease(EnvsRelease):
+    """The monorepo's release reads, its live read run in the checkout the drive's watch moves, as the watch's own read did."""
+
+    def live(self) -> list[dict]:
+        checkout = orca.checkout("demo", str(self.clone), wait=0)
+        return json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "live", "--json"], checkout))
+
+
+@pytest.fixture(autouse=True)
+def monorepo_providers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every drive's providers the monorepo's fixture ones, each on the drive's clone, unless a test names its own by provide()."""
+
+    def built(clone: Path) -> providers.Providers:
+        return providers.Providers(
+            None, {}, repo=MonorepoRepo(clone, clone, {}), release=LiveRelease(clone, clone, {}), staging=SlotStaging(clone, clone, {}), mac_box=DashboardBoxes(clone, clone, {})
+        )
+
+    monkeypatch.setattr(providers, "of", lambda data: built(Path(data["roles"]["coordinator"]["cwd"])))
+    monkeypatch.setattr(providers, "at", lambda clone, checkout=None: built(clone))
 
 
 @pytest.fixture(autouse=True)
@@ -7832,7 +7853,7 @@ def test_a_lander_puts_an_approved_pr_reaching_only_platy_on_a_tester_asking_his
     assert land.run(demo, [KEY]) == f"{land.WAITED}: {KEY} waits on his exception before it lands, since its paths at its head reach platy, which staging has no copy of"
     data = state.load(demo)
     [(_, tester)] = state.part_testers(data, "o1", part)
-    assert (state.EXCEPTED.match(tester["goal"])["components"], cli.mac_lines(demo, tester, {"mac": None, "release": None})[0]) == ("platy", cli.EXCEPTION_MAC)
+    assert (state.EXCEPTED.match(tester["goal"])["components"], cli.mac_lines(demo, tester, {"mac": None, "release": None})[0]) == ("platy", DRY_RUN)
     assert view.staging(data, KEY) == "Not on staging: staging has no copy of platy, so it lands on your exception once you read the release dry run's preview of each"
     dropped_by_answer(demo, part)
     assert land.run(demo, [KEY]) == land.QUEUED

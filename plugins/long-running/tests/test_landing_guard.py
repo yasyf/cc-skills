@@ -7,7 +7,7 @@ from pathlib import Path
 
 import landing_guard
 import pytest
-from conftest import LEAD, SESSION, SHORT_ASK, Answers
+from conftest import LEAD, SESSION, SHORT_ASK, Answers, monorepo
 from drive import agents, brief, github, land, limits, render, settled, shell, stage, state, view
 
 Run = Callable[..., tuple[int, str]]
@@ -234,6 +234,7 @@ def test_a_sprite_lanes_release_verb_asks_the_coordinators_mac_whether_his_hold_
 def test_a_release_resume_waits_for_his_next_word_once_he_last_wrote_15_minutes_ago_while_a_rollback_a_harmless_hotfix_on_any_order_and_a_staging_or_sandbox_start_run(
     run: Run, demo: str, sprite: list[list[str]], recorded: Answers, no_calls: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monorepo(monkeypatch, Path(state.load(demo)["roles"]["coordinator"]["cwd"]))
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "release the fix")
     with state.edit(demo) as data:
