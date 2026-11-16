@@ -9091,7 +9091,9 @@ def test_an_urgent_part_starts_its_design_past_the_caps_and_a_design_waiting_30_
     assert place.preempts(data, data["jobs"][design]) is False
     now = state.now()
     with state.edit(demo) as data:
-        data["jobs"][reader].update(state="done", updated=state.stamp(now - timedelta(minutes=29)))
+        for job_id, job in state.part_jobs(data, "o1", part):
+            if job["kind"] == "reader":
+                job.update(state="done", updated=state.stamp(now - timedelta(minutes=29)))
     assert watch.read_for(state.load(demo), design, state.load(demo)["jobs"][design], "o1", part, now) is None
     with state.edit(demo) as data:
         data["jobs"][reader]["updated"] = state.stamp(now - timedelta(minutes=31))

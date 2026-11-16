@@ -2411,7 +2411,7 @@ def untaken(job: dict) -> bool:
     return job["state"] in ("running", "waiting") and not (job["agent"] or job.get("dispatch") or job["prs"])
 
 
-WORKED = ("session", "bg", "worker_started", "codex_run", "returned")
+WORKED = ("bg", "worker_started", "codex_run", "returned")
 
 
 def never_worked(job: dict) -> bool:
