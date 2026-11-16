@@ -7389,11 +7389,11 @@ def slot_release(data: dict, env: str, job_id: str) -> str:
 
 
 def train_waiting(data: dict, env: str) -> list[str]:
-    """The releases waiting for an env a cut holds, the release train, which goes before any new cut: each unfinished job drive job add --release marked for the env whose release has not started and that holds no lease on it and no cut its lease set aside, his priority's and an open incident's first, by jumps_queue, then the oldest."""
+    """The releases waiting for an env a cut holds, the release train, which goes before any new cut: each unfinished job drive job add --release marked for the env whose release has not started and that holds no lease on it and no cut its lease set aside, an open incident's first, then his priority's, by jumps_queue, then the oldest."""
     slot = data["slots"].get(env) or {"holder": None}
     held = {*slot_members(slot), *slot_members({"holder": (slot["holder"] or {}).get("preempted")})}
     waiting = [job_id for job_id, job in data["jobs"].items() if job.get("train") == env and job["state"] not in FINISHED_JOB_STATES and not job.get("release_build") and job_id not in held]
-    return sorted(waiting, key=lambda job_id: (not jumps_queue(data, job_id), parse_time(data["jobs"][job_id]["created"])))
+    return sorted(waiting, key=lambda job_id: (not open_incidents(data, [data["jobs"][job_id]["order"], *data["jobs"][job_id]["carries"]]), not jumps_queue(data, job_id), parse_time(data["jobs"][job_id]["created"])))
 
 
 def train_lease(data: dict, env: str, job_id: str, moment: datetime) -> bool:
