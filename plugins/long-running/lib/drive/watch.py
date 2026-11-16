@@ -1764,6 +1764,8 @@ def beside_passes(name: str, project: str | None, lines: int, flag: str, passing
             if every_project():
                 joined(passer, state.now(), held_beside(name), lambda project: Watcher(name, offset=state.watch_cursor(name, project), project=project))
             for one in [passer, *passer.others.values()]:
+                if ended:
+                    break
                 for line in passing(one, state.now()):
                     written.write(f"{relayed(one, LINE_BREAKS.sub(' ', line))}\n")
             time.sleep(seconds)
@@ -1795,6 +1797,8 @@ def landing_loop(name: str, project: str | None, lines: int) -> int:
                 if every_project():
                     joined(landing, state.now(), held_beside(name), functools.partial(landing_watcher, name))
                 for one in [landing, *landing.others.values()]:
+                    if ended:
+                        break
                     if one.untracked != told.get(one.project):
                         told[one.project] = dict(one.untracked)
                         untracked.write(f"{relayed(one, json.dumps(told[one.project]))}\n")
