@@ -8494,7 +8494,7 @@ def test_launch_local_records_a_lane_on_this_mac_as_its_own_claude_bg_session_th
         "turn_open": False,
     }
     assert (job["bg"] | {"agent": None, "started": None}, launched["prompt"]) == (
-        {"agent": None, "session": "bg-1", "started": None, "cwd": str(launched["cwd"]), "pointed": [], "pool": False},
+        {"agent": None, "session": "bg-1", "started": None, "cwd": str(launched["cwd"]), "pointed": []},
         f"Read your brief first: {state.drive_dir(demo) / 'jobs' / 'j1.md'}",
     )
 

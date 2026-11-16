@@ -131,12 +131,12 @@ def unbacked(text: str, rows: str) -> str | None:
 
 
 def again(words: str, said: str, why: str) -> str:
-    """The words for a second call after the check refused the first reply, naming why, so a fixable slip such as a link's missing words costs one more call, never a handler."""
+    """The words for a second call after the check refused the first reply, naming why, so a fixable slip such as a link's missing words costs one more call, never an escalation."""
     return f"{words}\n\nYour last reply was:\n{said}\n\nIt was refused: {why}. Reply again in the same shape, fixing that."
 
 
 def reply_of(said: str, rows: str) -> tuple[str | None, str]:
-    """The answer to post and why, or None and why the message goes to a handler instead."""
+    """The answer to post and why, or None and why the message goes to the communicator instead."""
     head, _, rest = said.partition("\n")
     if head.strip().rstrip(":") != ANSWER:
         return None, said.removeprefix(ESCALATE).strip() or "the model escalated it"
@@ -152,24 +152,12 @@ def holder_session(data: dict) -> str:
     return agents.beside(data)[1]["session"]
 
 
-def drop_handed(name: str, link: str) -> None:
-    """Take his answered message out of every brief handed to a handler, so one starting later posts no second answer to it."""
-    from drive import agents
-
-    ts = state.slack_message(link)[1]
-    def drop_handed_write(data: dict):
-        for entry in data["handlers"].values():
-            entry["handed"] = [brief for brief in entry["handed"] if not (agents.HIS_WORDS in brief and (found := agents.LINK.search(brief)) and (named := state.slack_message(found[1])) and named[1] == ts)]
-
-    state.update(name, None, drop_handed_write)
-
-
 def claim_path(name: str, ts: str) -> Path:
     return state.drive_dir(name) / "answered" / f"{ts}.json"
 
 
 def claimed(path: Path) -> dict:
-    """What the answer that claimed his message first found, waiting up to CLAIM_WAIT while it runs, so the watch and the communicator's handler call never both answer him."""
+    """What the answer that claimed his message first found, waiting up to CLAIM_WAIT while it runs, so the watch and the answer-now verb never both answer him."""
     deadline = time.time() + CLAIM_WAIT
     while not (kept := path.read_text()) and time.time() < deadline:
         time.sleep(0.5)
@@ -177,7 +165,7 @@ def claimed(path: Path) -> dict:
 
 
 def answer(name: str, link: str, words: str, dry_run: bool = False) -> dict:
-    """Answer his message from the drive's rows for its thread within seconds, once whichever of the watch and the handler verb reaches it first, by its claim file: eyes on it at once, one tool-less model call over those rows, and the answer posted in his thread as the session holding his DM, which answers his message there, or, when the model escalates or its answer names what the rows do not print, nothing posted and the reason, for a handler to take it; a later call on the same message returns what the first found."""
+    """Answer his message from the drive's rows for its thread within seconds, once whichever of the watch and the answer-now verb reaches it first, by its claim file: eyes on it at once, one tool-less model call over those rows, and the answer posted in his thread as the session holding his DM, which answers his message there, or, when the model escalates or its answer names what the rows do not print, nothing posted and the reason, for a handler to take it; a later call on the same message returns what the first found."""
     channel, ts, thread = state.slack_message(link)
     if dry_run:
         return found_answer(name, link, words, channel, thread or ts, True)
@@ -210,7 +198,6 @@ def found_answer(name: str, link: str, words: str, channel: str, thread: str, dr
     if text and not dry_run:
         reply = talk.posted(name, {"text": text, "thread_ts": thread, "asked": link, "answering": holder_session(data)})
         found["answered"] = reply["permalink"]
-        drop_handed(name, link)
     if not dry_run:
         slack.cc_slack("pickup", "--url", link, "--session", holder_session(data), "--done")
     log = state.drive_dir(name) / "answers.log"

@@ -18,23 +18,21 @@ def test_idle_background_session_retires_after_its_job_turn(
     job = {
         "state": job_state,
         "agent": "worker" if bound else None,
-        "bg": {"agent": "worker", "session": "background", "cwd": "/work", "pool": False},
+        "bg": {"agent": "worker", "session": "background", "cwd": "/work"},
     }
     ended = retirement(monkeypatch, job)
     watch.rest_sessions(SimpleNamespace(name="demo"), datetime.now(UTC))
     assert ended == [("background", Path("/work"), job_state in state.FINISHED_JOB_STATES)]
 
 
-@pytest.mark.parametrize("change", ["running", "busy", "pool", "replacement"])
+@pytest.mark.parametrize("change", ["running", "busy", "replacement"])
 def test_retirement_keeps_active_or_replaced_background_session(monkeypatch: pytest.MonkeyPatch, change: str) -> None:
-    job = {"state": "waiting", "agent": None, "bg": {"agent": "worker", "session": "background", "cwd": "/work", "pool": False}}
+    job = {"state": "waiting", "agent": None, "bg": {"agent": "worker", "session": "background", "cwd": "/work"}}
     ended = retirement(monkeypatch, job)
     if change == "running":
         job["state"] = "running"
     elif change == "busy":
         monkeypatch.setattr(agents, "busy", lambda session, records: True)
-    elif change == "pool":
-        job["bg"]["pool"] = True
     else:
         replacement = deepcopy(job)
         replacement["bg"]["session"] = "replacement"

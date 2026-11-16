@@ -39,7 +39,6 @@ NO_DRIVE = "0a0a0a0a-no-drive-session"
 COORDINATOR = "coordinator-fixture"
 COMMUNICATOR = "communicator-fixture"
 DRIVE_AGENTS = "long-running:"
-HANDLER = "long-running:handler"
 BUILDER = "long-running:builder"
 POST = "mcp__plugin_cc-inbox_cci__post"
 CLOSE = "mcp__plugin_cc-inbox_cci__close"
@@ -93,14 +92,12 @@ for script in scripts:
 """
 TURN = Path(__file__).resolve().parent / "tests" / "fixtures" / "turn.jsonl"
 COMMUNICATOR_TURN = TURN.with_name("communicator.jsonl")
-HANDLER_TURN = TURN.with_name("handler.jsonl")
 BRIEFS = TURN.with_name("state") / "fixture" / "jobs"
 HIS_DM_HOME = FileFixture(
     home=True,
     name=".claude/plugins/installed_plugins.json",
     content=json.dumps({"plugins": {"cc-slack@cc-slack": [{"installPath": str(TURN.with_name("cc-slack"))}]}}),
 )
-HANDLER_SESSION = "handler-fixture"
 THREAD = "1794378983.440769"
 ACK = "You set the staging-claim rule and want the fuzzing box back; both orders are handed off."
 RESUMED = "drive job resume now works from a session that did not start the job's agent."
@@ -160,18 +157,18 @@ BOUND_FIELDS = ("driver", "roles", "subcoordinators")
 
 
 def saved_sessions(data: dict) -> frozenset[str]:
-    """Every session a saved drive binds, as `state.session_drives` reads them: each role's, each sub-coordinator's and each handler's."""
+    """Every session a saved drive binds, as `state.session_drives` reads them: each role's and each sub-coordinator's."""
     roles = {"coordinator": data["driver"]} if "driver" in data else data["roles"]
-    held = [*roles.values(), *data.get("subcoordinators", {}).values(), *data.get("handlers", {}).values()]
+    held = [*roles.values(), *data.get("subcoordinators", {}).values()]
     return frozenset(entry["session"] for entry in held)
 
 
 def saved_bindings(folder: Path) -> dict:
-    """A drive's bindings as its database saved them, read as `state.saved` reads them: its roles, sub-coordinators and handlers rows."""
+    """A drive's bindings as its database saved them, read as `state.saved` reads them: its roles and sub-coordinators rows."""
     fields = ", ".join("?" * len(BOUND_FIELDS))
     with closing(sqlite3.connect(folder / "drive.db")) as db:
-        rows = db.execute(f"SELECT collection, key, body FROM rows WHERE collection = '' AND key IN ({fields}) OR collection = 'handlers'", BOUND_FIELDS).fetchall()
-    return {key: json.loads(body) for collection, key, body in rows if not collection} | {"handlers": {key: json.loads(body) for collection, key, body in rows if collection}}
+        rows = db.execute(f"SELECT collection, key, body FROM rows WHERE collection = '' AND key IN ({fields})", BOUND_FIELDS).fetchall()
+    return {key: json.loads(body) for _, key, body in rows}
 
 
 def bound_sessions() -> frozenset[str]:
@@ -424,9 +421,6 @@ def no_slack_reads(evt: BaseHookEvent) -> HookResult | None:
         Input(tool="AskUserQuestion", tool_input={"questions": [{"question": "Ship it?"}]}, session_id=COMMUNICATOR, agent_id="a1", agent_type=BUILDER): Block(
             pattern="return it as your `ASK` or `DESIGN`"
         ),
-        Input(tool="AskUserQuestion", tool_input={"questions": [{"question": "Ship it?"}]}, session_id=HANDLER_SESSION, agent_type=HANDLER): Block(
-            pattern="which draws his card on it for fixture"
-        ),
         Input(tool="mcp__computer-use__request_access", tool_input={"apps": ["Slack"], "reason": "x"}, session_id=NO_DRIVE): Allow(),
         Input(tool="mcp__computer-use__request_access", tool_input={"apps": ["Slack"], "reason": "x"}, session_id=COMMUNICATOR, agent_id="a1", agent_type=BUILDER): Block(
             pattern="return a check they cannot settle as `UNPROVEN: <the check>: <the proof that settles it>`"
@@ -462,7 +456,7 @@ def landing_guard(evt: BaseHookEvent) -> HookResult | None:
             command="drive job report j955 --drive fixture; drive status j955 --drive fixture",
             session_id=COMMUNICATOR,
             agent_id="a1",
-            agent_type=HANDLER,
+            agent_type=BUILDER,
         ): Allow(),
         Input(tool="Bash", tool_input={"command": 'drive job resume j1 "go"', "run_in_background": True}, session_id=COORDINATOR): Rewrite(
             pattern="drive job resume j1", run_in_background="False", timeout="20000"
@@ -477,13 +471,6 @@ def bash_guard(evt: BaseHookEvent) -> HookResult | None:
     Event.PreToolUse,
     only_if=[Tool(*AGENT)],
     tests={
-        Input(tool="Agent", tool_input={"subagent_type": HANDLER, "prompt": "Record: 1", "model": "sonnet"}, session_id=NO_DRIVE): Allow(),
-        Input(
-            tool="Agent",
-            tool_input={"subagent_type": HANDLER, "prompt": "Record: 1"},
-            session_id=COMMUNICATOR,
-            commands=PASSED,
-        ): Block(pattern="a handler starts with the drive's handler tool"),
         Input(
             tool="Agent",
             tool_input={"subagent_type": BUILDER, "prompt": f"Read your brief first: {BRIEFS / 'j1.brief.md'}"},
@@ -548,7 +535,6 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
             session_id=COMMUNICATOR,
             agent_id="a1",
-            agent_type=HANDLER,
             transcript=COMMUNICATOR_TURN,
             commands={"python3 -I": handler_reads(NOT_READ), **verdict("hold", HELD_BACK)},
         ): Block(pattern="Jev held back this post"),
@@ -557,7 +543,6 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
             session_id=COMMUNICATOR,
             agent_id="a1",
-            agent_type=HANDLER,
             transcript=COMMUNICATOR_TURN,
             commands={"python3 -I": json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": UNROOMED}, "judged": False})},
         ): Block(pattern="largest first: record:716852"),
@@ -573,7 +558,6 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             tool_input={"text": "The fix merged."},
             session_id=COMMUNICATOR,
             agent_id="a1",
-            agent_type=HANDLER,
             transcript=COMMUNICATOR_TURN,
             commands={"python3 -I": json.dumps(refused_post("The fix merged.", AWAY)), **verdict("hold", AWAY)},
         ): Block(pattern="he is away"),

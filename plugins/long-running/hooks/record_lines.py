@@ -10,14 +10,8 @@ from drive.reports import CALL_FIELDS, addressed, attrs, chatter, hand_ask, kind
 
 SILENT_LANES = {"long-running:reader", "long-running:designer"}
 TO_OWNER = (
-    "refused: a {agent} posts nothing to him, since the communicator's handler is the one voice he hears; keep what you found"
+    "refused: a {agent} posts nothing to him, since the communicator is the one voice he hears; keep what you found"
     " with `drive job report <j>` in your return, or send a tool's defect to meta@<drive>"
-)
-AGENT_DEFECT = (
-    "refused: a handler posts no defect record, so only one fix starts; return a `DEFECT <tool>: <what"
-    " happened, any refusal verbatim>` line, and the session holding drive tooling starts the fix. A step the session"
-    " holding an order owes on it, such as redrawing its card, is a `handoff` record on the drive's `record` tool, its"
-    " order as `attrs: {order: <o>}`, which reaches that session"
 )
 READY_GONE = (
     "refused: no ready record draws his card: drive pr add draws it when the PR is registered, and the watch draws it on"
@@ -44,7 +38,7 @@ def trimmed(record: dict) -> dict:
 
 
 def amended(drive: dict, lane: str | None, record: dict) -> dict:
-    """The record as cci keeps it: a report to the communicator re the seq of a POST report its own lane sent there corrects that report, whatever kind its writer named, so the watch starts the handler that rewords the post it went out in."""
+    """The record as cci keeps it: a report to the communicator re the seq of a POST report its own lane sent there corrects that report, whatever kind its writer named, so the watch hands the communicator the post it went out in, and no rule of reports, one a thread a turn included, holds it to the next turn."""
     named = listed(record.get("re"))
     if kind(record) != "report" or not addressed(record, "communicator") or len(named) != 1 or not named[0].isdigit():
         return record
@@ -55,11 +49,9 @@ def amended(drive: dict, lane: str | None, record: dict) -> dict:
 
 
 def misaddressed(payload: dict, record: dict) -> str | None:
-    """Why an agent's record goes to the wrong place: a reader or designer posting to him, or a handler posting a defect its return carries."""
+    """Why an agent's record goes to the wrong place: a reader or designer posting to him."""
     if (agent := payload.get("agent_type")) in SILENT_LANES and addressed(record, "owner"):
         return TO_OWNER.format(agent=agent.removeprefix("long-running:"))
-    if payload.get("agent_type") == agents.HANDLER and kind(record) == "defect":
-        return AGENT_DEFECT
     return None
 
 

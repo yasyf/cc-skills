@@ -1221,7 +1221,7 @@ def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
         try:
             agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'reporter-{seq}'}")
         except state.DriveError as error:
-            lines += failed(watcher, f"reporter {order_id}", f"handler on the line {order_id}'s reporters get once its fix is live", error, moment)
+            lines += failed(watcher, f"reporter {order_id}", f"hand-off of the line {order_id}'s reporters get once its fix is live", error, moment)
     return lines + proved_lines(watcher, moment)
 
 
@@ -1240,7 +1240,7 @@ def proved_lines(watcher: Watcher, moment: datetime) -> list[str]:
             outcome = f"{order_id} live line posted by the watch: {talk.proved_line(watcher.name, post)}"
             closes = state.load(watcher.name)["orders"][order_id]["state"] in state.CLOSED_ORDER_STATES
         except (state.DriveError, slack.SlackError) as error:
-            outcome, closes = f"{order_id} live line left to its handler: {error}", report["seq"] not in state.load(watcher.name)["carried"]
+            outcome, closes = f"{order_id} live line left to the communicator: {error}", report["seq"] not in state.load(watcher.name)["carried"]
         with open(state.drive_dir(watcher.name) / POSTS_LOG, "a") as log:
             log.write(f"{when(state.stamp(moment))} {outcome}\n")
         if not closes:
@@ -1306,11 +1306,11 @@ def closed(watcher: Watcher, head: str, links: list[str], fix: str, moment: date
     try:
         said = talk.watch_line(watcher.name, live)
     except (slack.SlackError, state.DriveError) as error:
-        lines = failed(watcher, f"live line {head}", f"Live line of {head}, left to a handler", error, moment)
+        lines = failed(watcher, f"live line {head}", f"Live line of {head}, left to the communicator", error, moment)
         try:
             agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'live-{seq}'}")
         except state.DriveError as failure:
-            lines += failed(watcher, f"live handler {head}", f"handler on the Live line of {head}", failure, moment)
+            lines += failed(watcher, f"live hand-off {head}", f"hand-off of the Live line of {head}", failure, moment)
     with state.edit(watcher.name) as data:
         for order_id in group:
             data["orders"][order_id]["recovered"] = state.stamp(moment)
@@ -1585,7 +1585,7 @@ def released(data: dict, owner: dict, own: str, cards: dict | None, out: dict[st
 
 
 def replies(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, str], list[str]]:
-    """Each reply wait of a live job the watch hears, his cards asking it nothing, that a teammate's reply or another drive's record ended, with who replied or posted and its link or seq, read once a minute: for a teammate's, the first message after the drive's question from anyone but the drive and a bot, which first goes to the communicator in a report, whose handler posts it in the thread of the job's order, and onto the job's held texts, which the watch carries it once nothing holds it; for another drive's, by posted_after. A failed read or write is said as a failed read is and tried again next read, the report under the same idempotency key."""
+    """Each reply wait of a live job the watch hears, his cards asking it nothing, that a teammate's reply or another drive's record ended, with who replied or posted and its link or seq, read once a minute: for a teammate's, the first message after the drive's question from anyone but the drive and a bot, which first goes to the communicator in a report, which the communicator posts it in the thread of the job's order, and onto the job's held texts, which the watch carries it once nothing holds it; for another drive's, by posted_after. A failed read or write is said as a failed read is and tried again next read, the report under the same idempotency key."""
     out, lines, followed = {}, [], {}
     for job_id, job in data["jobs"].items():
         if job["state"] in state.FINISHED_JOB_STATES or not heard_job(watcher, data, job) or view.open_cards(job):
@@ -2278,7 +2278,7 @@ def post_lines(watcher: Watcher, moment: datetime) -> list[str]:
     try:
         agents.start_posts(watcher.name, moment)
     except (slack.SlackError, state.DriveError) as error:
-        return failed(watcher, "POST reports", "start of the POST reports' handlers", error, moment)
+        return failed(watcher, "POST reports", "hand-off of the POST reports", error, moment)
     watcher.failures.pop("POST reports", None)
     return []
 
@@ -2807,8 +2807,6 @@ def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Get each message of his answered that `cc-slack dm-owed` lists, in his DM and each operator channel, since no post answering it named it as asked, as an ack never does, while the session this drive's handlers run beside holds his DM, so the drive owes it: at once, `drive route` detached on each no route or answer claimed yet, whose one Jev call sends it to the coordinator, a seat, a handler or the communicator's answer from the drive's rows; two minutes on, the watch hands it as a message of his to the live handler holding its thread each read until it starts one of its own on it, which it does once, and ten minutes on writes one report for the handler in its thread to say there what the answer waits on. Each handler starts detached, as the handler tool starts one, so a read owing many messages hands and reports each in seconds, never waiting on one `claude --bg` launch after another while the messages after it go stale. An open order the message started is left to that order's own lines. The drive keeps each message's marks while cc-slack owes it, so a watch restart hands nothing twice. A failed read or write is said as a failed read is and tried again next read; a launch that fails tells the session the handlers run beside, as the handler tool's does."""
     if watcher.project:
         return []
-    agents.release_quiet(watcher.name)
-    agents.reap_orphans(watcher.name)
     data = state.load(watcher.name)
     try:
         replies = slack.owed(agents.beside(data)[1]["session"])
@@ -2830,7 +2828,7 @@ def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         source = f"owed {ts}"
         try:
-            if not mark["handed"] and not agents.handle(watcher.name, owed_brief(watcher.name, reply, channel, thread), detached=True)[1]:
+            if not mark["handed"] and not agents.handle(watcher.name, owed_brief(watcher.name, reply, channel, thread))[1]:
                 def owed_lines_write2(saved: dict):
                     saved["owed_replies"][ts]["handed"] = True
 
@@ -2929,7 +2927,7 @@ def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
             threads = f"the thread {asked}, has not heard {heard}" if len(owed) == 1 else f"the threads {asked}, have not heard {heard}"
             lines.append(
                 f"TELL {order_id}: {happened} and nothing moved on it for 10 minutes, but {' and '.join(held['link'] for held in owed)}, {threads}:"
-                f" send its report with --attr close={order_id}, whose handler posts {note} {'there' if len(owed) == 1 else 'in each'} and records it with"
+                f" send its report with --attr close={order_id}, which the communicator posts {note} {'there' if len(owed) == 1 else 'in each'} and records it with"
                 f" drive order told {order_id} <its permalink>; done refuses until then"
             )
     return lines
@@ -3533,7 +3531,7 @@ def resume_lane(watcher: Watcher, job_id: str, job: dict, terminal: str, stop: t
 
 def agent_transcript(holder: dict, job: dict, data: dict) -> Path:
     """A local job's agent's transcript: its handler's own session's, else the one beside the session holding it."""
-    return Path(own) if (own := state.own_transcript(data, job)) else transcript(holder, job["agent"])
+    return Path(own) if (own := state.own_transcript(job)) else transcript(holder, job["agent"])
 
 
 def last_write(job: dict, data: dict) -> tuple[datetime, dict | None]:

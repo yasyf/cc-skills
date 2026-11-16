@@ -51,7 +51,7 @@ def project(data: dict, job: dict) -> str:
 def transcripts(data: dict, job: dict) -> list[Path]:
     """Every transcript on this Mac a job's workers wrote: its agent's here, each session's in the worktree its lane here ran in, and each one a dead or ended Sprite lane's copy keeps; a lane at work on a Sprite counts once its transcripts are copied here."""
     found = []
-    if job.get("agent") and job.get("where") != "remote" and (state.own_transcript(data, job) or watch.session_of(job, data)):
+    if job.get("agent") and job.get("where") != "remote" and (state.own_transcript(job) or watch.session_of(job, data)):
         found.append(watch.agent_transcript(watch.session_of(job, data), job, data))
     if job.get("worktree"):
         found += (watch.config_dir() / "projects" / watch.NOT_SLUG.sub("-", job["worktree"])).glob("*.jsonl")

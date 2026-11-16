@@ -834,7 +834,6 @@ def test_a_refused_team_data_call_blocks_outright_since_jev_never_weighs_it(demo
     assert "judged" not in json.loads(capsys.readouterr().out)
 
 
-HANDLER_SESSION = "5e48f8c7-ad54-49d0-bf4e-bbc509e11035"
 MONITOR_READ = (
     "pup monitors get 337843756 2>&1 | python3 -I -c \"import json,sys; d=json.load(sys.stdin); d=d.get('data',d);"
     " print({k:d.get(k) for k in ['name','overall_state','overallState']}); print(json.dumps(d.get('state',{}))[:600])\""
@@ -847,12 +846,9 @@ LOGS_READ = (
 )
 
 
-def test_handler_9d78cc4es_pup_reads_are_refused_naming_the_datadog_mcp(communicator: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    with state.edit(communicator) as data:
-        data["handlers"]["9d78cc4e"] = {"session": HANDLER_SESSION, "started": state.stamp(), "holds": None, "handed": []}
-    own = {"agent_type": "long-running:handler", "transcript_path": str(tmp_path / "handler.jsonl")}
+def test_the_communicators_pup_reads_are_refused_naming_the_datadog_mcp(communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     for command in (MONITOR_READ, LOGS_READ):
-        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(bash(command, session=HANDLER_SESSION, **own))))
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(bash(command))))
         bash_guard.main()
         output = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
         assert (output["permissionDecision"], output["permissionDecisionReason"]) == ("deny", bash_guard.DATADOG_READ), command

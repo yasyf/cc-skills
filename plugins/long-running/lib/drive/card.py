@@ -929,7 +929,7 @@ def unrecorded(name: str, ask: dict, tap: str, failure: Exception) -> None:
 
 def answer_question(name: str, ask: dict) -> dict:
     """What question_answered does once it heard his tap, which land.start runs for each card his Approve on a PR picks an option on, that Approve heard already, with its Slack action, which dates the answer record and keeps it idempotent; his tap ends each question on the card view.tappable lets it, in place of whatever answer of his ended it before the tap, whose cc-notes answer recording the tap supersedes, and the question's own card follows when he tapped another copy of it."""
-    from drive import settled, superseded, tools, view
+    from drive import agents, settled, superseded, tools, view
 
     undone = bool(ask.get("undone"))
     data = state.load(name)
@@ -948,8 +948,8 @@ def answer_question(name: str, ask: dict) -> dict:
             raise state.DriveError(tools.UNHEARD.format(failure=failure)) from failure
         if asks:
             thread = view.card_thread(ask["url"])
-            state.detach(name, ["route", f"Message (his words): {ask['label']}\nLink: {ask['url']}\nThread: {state.slack_message(ask['url'])[0]} {thread}\nDrive: {name}\nScratch: {state.drive_dir(name) / 'scratch' / f'other-{thread}'}\nContext: his words in the Other box of the question card {ask['waits']}, which they answer nothing on"], "routes-run.log")
-            return {"ok": False, "asks": True, "routed": True, "why": asks}
+            agents.handle(name, f"Message (his words): {ask['label']}\nLink: {ask['url']}\nThread: {state.slack_message(ask['url'])[0]} {thread}\nDrive: {name}\nScratch: {state.drive_dir(name) / 'scratch' / f'other-{thread}'}\nContext: his words in the Other box of the question card {ask['waits']}, which they answer nothing on")
+            return {"ok": False, "asks": True, "handed": True, "why": asks}
     closed = state.new_close("answered", said, ask["url"], at=state.tap_time(item.get("id")), tap=ask.get("action_ts"))
     if undone and (drawn := view.drawn_on(data, ask["waits"], ask["url"])):
         if not (taken := answered_at(data, drawn, ask["url"])):

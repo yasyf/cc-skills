@@ -1,5 +1,4 @@
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -41,22 +40,7 @@ def respond(payload: dict) -> dict | None:
     return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}
 
 
-def open_item(handler_env: str) -> dict | None:
-    """A pool handler's open item as the drive's rows hold it, its brief and each brief handed to it since, so a wake, resume or compaction that lost its context reads its work again from the rows; None while it rests."""
-    name, _, handler = handler_env.partition("/")
-    entry = state.saved(name)["handlers"].get(handler)
-    if not entry or not entry["brief"]:
-        return None
-    briefs = "\n\n".join([entry["brief"], *entry["took"], *entry["handed"]])
-    text = f"Your open item, as the drive's rows hold it, which you have not finished: handle it by your definition and end on its line.\n\n{briefs}"
-    return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}
-
-
 def main() -> None:
-    if handler_env := os.environ.get(state.HANDLER_ENV):
-        if output := open_item(handler_env):
-            print(json.dumps(output))
-        return
     payload = json.load(sys.stdin)
     try:
         output = respond(payload)

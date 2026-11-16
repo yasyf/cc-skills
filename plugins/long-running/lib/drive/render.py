@@ -12,7 +12,6 @@ from drive.state import CLOCKS, DRIVE_TOOLING, communicator_lane, FINISHED_JOB_S
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
-DRIVE_TOOLS = "mcp__plugin_long-running_drive__"
 CCI_TOOLS = "mcp__plugin_cc-inbox_cci__"
 REACHING = (
     "Post, read and close records with the cci MCP tools while that server is up, `cci post` only while it is gone;"
@@ -21,7 +20,7 @@ REACHING = (
 RECORDING = (
     "Every record you send goes on the drive's record tool: owner for his words, answer with re <seq> for a session's"
     " record you answer, handoff and defect. Make no other cci call, a cci tool or a `cci` command, but `cci drive use`,"
-    " since a record's body is a handler's to read; while cci is down, SendMessage `<drive>-<role>` after ListAgents: a"
+    " since a record's body is the reader's to read; while cci is down, SendMessage `<drive>-<role>` after ListAgents: a"
     " disconnect never excuses a message."
 )
 PREVENTED = "A post telling him the drive failed says how that is prevented: the tool change and its order or PR."
@@ -32,7 +31,6 @@ STAMPS = (
     " build or tool, so its first write passes the check that refuses a typed one; a time after the write passes, naming its day when it falls on another, as \"6:54 AM tomorrow\", and a"
     " SendMessage, a defect or any other record between sessions quotes times as it needs."
 )
-HANDLER_LABELS = ("Record", "Message (his words)", "Link", "Thread", "Drive", "Paths", "Scratch", "Deliverable", "Context", "Waits")
 COMMUNICATOR_RULES = (
     (
         "You are his front, as a root session working for him is: his messages reach you, and you answer each yourself in"
@@ -197,7 +195,7 @@ FILED = "The projects and workstreams in use, which a new order reuses where it 
 WHOLE = sys.maxsize
 REPO_RULES_HEADING = f"The rules of the repository this drive works in, which its {REPO_RULES} holds at its default branch's head, and every session and job of every drive working in it follows:"
 UNLISTED_TOOL_LINE = (
-    "A drive tool these rules name that your session does not list, such as handler or job, is one an install added"
+    "A drive tool these rules name that your session does not list, such as job, is one an install added"
     " since its drive MCP server last listed its tools: pipe the tool's fields as JSON to drive tool <name> in Bash"
     " until a call of any drive tool relists them."
 )
@@ -512,20 +510,6 @@ def subcoordinator_line(project: str, held: dict, seen: dict[str, str]) -> str:
     """A sub-coordinator's project, cci lane, session, where he opens it, and whether its watch runs."""
     watching = f"its watch runs as pid {held['watch']}" if held["watch"] else f"its watch is not running; {shlex.join(['drive', 'watch', '--project', project])} from its session starts it"
     return f"sub-coordinator {project}: lane {project_lane(project)}, session {held['session']}, {seen[f'sub-coordinator {project}']}; {watching}"
-
-
-def live_block(drive: dict, order_id: str, order: dict) -> list[str]:
-    """An order as a handler's brief draws it: its line, its orphans, and each unfinished job with its last said line, its questions and its PRs, never its parts line or a finished job, which drive status draws."""
-    lines = [f"- {order_line(drive, order_id, order, WHOLE, promise_thread(order))}", *orphans(drive, order_id, WHOLE)]
-    for job_id in order["jobs"]:
-        if (job := drive["jobs"][job_id])["state"] in FINISHED_JOB_STATES:
-            continue
-        lines.append(f"  - {job_line(drive, job_id, job, WHOLE)}")
-        if job["said"]:
-            lines.append(f"    said: {cut(job['said'], WHOLE)}")
-        lines.extend(f"    - {question_line(question)}" for question in job["questions"])
-        lines.extend(f"    - {line}" for line in job_pr_lines(drive, job_id, job))
-    return lines
 
 
 def order_block(drive: dict, order_id: str, order: dict) -> list[str]:

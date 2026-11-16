@@ -25,8 +25,6 @@ def respond(payload: dict) -> dict | None:
 
 
 def main() -> None:
-    if os.environ.get(state.HANDLER_ENV):
-        return
     try:
         output = respond(json.load(sys.stdin))
     except Exception:

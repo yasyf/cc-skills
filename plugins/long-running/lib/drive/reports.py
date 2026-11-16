@@ -18,14 +18,14 @@ FANNED = (
     " or blocker whose words name each lane's step goes to several. Pick the lane that acts, or post one record per lane that has its own step"
 )
 OPENING = re.compile(r"(?:POST|FYI)\b")
-UNOPENED = "refused: a report's text opens `POST`, for a handler to post, or `FYI`, kept as context; add the one it is"
+UNOPENED = "refused: a report's text opens `POST`, for the communicator to post, or `FYI`, kept as context; add the one it is"
 UNFINISHED = (
-    "record_lines: this POST report goes out naming nothing its post finishes, so its handler closes no order; `--attr close=<o,…>`"
+    "record_lines: this POST report goes out naming nothing its post finishes, so the communicator closes no order; `--attr close=<o,…>`"
     " names each order it finishes{about}, `--attr part=<o>:<part>` the part it delivers{parts}, and `--attr progress=true` a progress line"
 )
 LAST_PART = (
     "refused: this report delivers {parts}, the last {noun} of {order} not yet delivered, so its post finishes the order; add"
-    " `--attr close={order}`, so its handler closes {order} once the line is posted"
+    " `--attr close={order}`, so the communicator closes {order} once the line is posted"
 )
 STRAY_PARTS = (
     "refused: the drive reads no {strays} attr on a report, so the part it carries is never delivered; one `part` attr carries every"
@@ -69,10 +69,10 @@ ON_HIM = re.compile(
 )
 CARD_NAMED = re.compile(r"slack\.com/archives/|\{card:|\b[\w-]+:j\d+-\d+\b|github\.com/[^/\s]+/[^/\s]+/pull/\d+")
 UNCARDED = (
-    "refused: this report waits on him or asks him to decide, a yes or no or a pick, and names no card, so its handler would post"
+    "refused: this report waits on him or asks him to decide, a yes or no or a pick, and names no card, so the communicator would post"
     " it as plain text with no buttons; keep a question no card asks yet with `drive job ask <j> <file>`, which draws his card"
     " with its buttons, and report no question to him; a report on a card already up names it: its permalink, the PR whose card"
-    " it is, or its waits id with `--attr waits=<drive>:<j>-<n>`, so the handler links the card"
+    " it is, or its waits id with `--attr waits=<drive>:<j>-<n>`, so the communicator links the card"
 )
 UNCARDED_RULE = (
     "A decision the drive needs from him, anything waiting on him, a yes or no or a pick between options, reaches him as a"

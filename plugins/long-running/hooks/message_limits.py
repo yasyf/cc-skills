@@ -1,7 +1,6 @@
 import html
 import itertools
 import json
-import os
 import re
 import sys
 from collections.abc import Callable
@@ -10,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, cli, limits, mcp, orca, picture, reads, refs, render, route, settled, slack, state, talk, tools, view, watch
+from drive import agents, cli, limits, mcp, orca, picture, reads, refs, render, settled, slack, state, talk, tools, view, watch
 from drive.state import DriveError
 
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
@@ -114,7 +113,6 @@ PREVENTION_RULE = (
 DOWN_RULE = f"A coordinator that is down is restarted that minute, and he hears it was restarted, never only that it is down, by {DOWN_RULING}."
 NO_READ = "your transcript shows no read of his thread {thread}, and a read by another agent or session does not count for yours"
 OLD_READ = "your last read of his thread {thread} was {minutes} minutes ago, and a read counts for 10"
-ROUTED_AWAY = timedelta(minutes=15)
 FAILED_READ = "your slack_thread call on his thread {thread} failed"
 UNOPENED_READ = "your read of his thread {thread} was saved to {file}, which you have not opened since"
 ANSWERED = "his message this post answers"
@@ -613,24 +611,6 @@ def claimed(claim: str, titled: dict[str, str]) -> str:
     return claim
 
 
-def routed_away(payload: dict, drive: dict) -> str | None:
-    """Why the communicator's own line in a thread, carrying no record, may be a second reply: the hearer routed a message of his there to another seat in the last ROUTED_AWAY, and that route answers him, so a line from the communicator too would be his second reply to one message."""
-    if payload["tool_name"] != SAY or payload.get("agent_id") or os.environ.get(state.HANDLER_ENV) or payload["tool_input"].get("record"):
-        return None
-    if not (thread := payload["tool_input"].get("thread_ts")):
-        return None
-    away = [
-        kept["route"]
-        for kept in drive["routed"].values()
-        if kept.get("thread") == thread and kept["route"] and kept["route"] != route.COMMUNICATOR and state.now() - state.parse_time(kept["at"]) <= ROUTED_AWAY
-    ]
-    if not away:
-        return None
-    return agents.Unjudged(
-        f"the hearer routed his message in thread {thread} to {away[-1]}, which answers him there, so this line is his second reply to that message"
-    )
-
-
 def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> str | None:
     """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, a question's thread one answer once it is posted to him, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a thread outside his DM, such as an alert's, is named with its channel_id, a post to the people of a reporter's or watched teammate's thread or of another channel passes `cc-slack check-post`, and then, every finding at once, a handler's line in his thread follows its read of that thread, the post keeps its length, links what it names, links, in his DM, the open question card of his asking about each PR or error it names, asks no tap that is not owed, links no Slack message from a table cell, backs each cause, and each state of work a session posting on its own tells him, with the record of the read that measured it, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, calls no job stuck or silent before its poster read that job's transcript, says no work sits with no one on it while it names no job on it now, tells him of no coming card but an open one it names or draws, types no clock time for work already done, says in a summary what a PR it names serves, which a PR card's line above its card already quotes, names in its writer's own words no failure of the drive's without the order or PR preventing it, puts up for change in no line of a list an item a recorded answer of his orders or keeps, and `cc-slack check-post` passes its exact words."""
     dm = slack.dm()
@@ -660,7 +640,6 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
     long = over_length(payload, dm, thread_words(messages, drive["name"]), linked)
     return every(
         [
-            routed_away(payload, drive),
             long and agents.Ruled(long, LENGTH_RULE, found=long.found),
             long_ack(payload),
             unlinked(payload, drive, order_id),
@@ -858,15 +837,14 @@ def card_edit(payload: dict, drive: dict) -> str | None:
 
 
 def said_order(payload: dict, drive: dict) -> tuple[dict, str | None]:
-    """The report a post carries and the one order its checks read: the order say records it on, as cli.post_order decides it for the posting session, a handler's own `claude --bg` session included, or for an edit, which say records on none, the order the post it rewords went out on; a post through another tool goes on none."""
+    """The report a post carries and the one order its checks read: the order say records it on, as cli.post_order decides it, or for an edit, which say records on none, the order the post it rewords went out on; a post through another tool goes on none."""
     tool_input = payload["tool_input"]
     report = cli.report_attrs(seq) if (seq := tool_input.get("record")) else {}
     if payload["tool_name"] != SAY:
         return report, None
     if tool_input.get("edit"):
         return report, edited_order(drive["name"], tool_input["edit"])
-    session = payload.get("handler_session") or payload.get("session_id")
-    return report, cli.post_order(drive, session, tool_input, report)
+    return report, cli.post_order(drive, tool_input, report)
 
 
 def edited_order(name: str, link: str) -> str | None:
@@ -1115,8 +1093,8 @@ def unroomed(post: int, parts: list[tuple[str, int]]) -> str:
 
 
 def own_communicator(payload: dict) -> bool:
-    """Whether the post is the communicator's own, typed in its turn, not a handler's, a subagent's or the watch's run of these checks under its session."""
-    return not payload.get("agent_id") and not os.environ.get(state.HANDLER_ENV) and not str(payload.get("tool_use_id") or "").startswith("watch-") and his_drive(payload.get("session_id") or "") is not None
+    """Whether the post is the communicator's own, typed in its turn, not a subagent's or the watch's run of these checks under its session."""
+    return not payload.get("agent_id") and not str(payload.get("tool_use_id") or "").startswith("watch-") and his_drive(payload.get("session_id") or "") is not None
 
 
 CRAFT_SECONDS = 5

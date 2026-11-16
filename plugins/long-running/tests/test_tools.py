@@ -1259,7 +1259,7 @@ def test_the_communicators_own_answer_to_a_record_goes_out_while_his_cards_canno
     assert len(posted) == 1
 
 
-def test_a_handlers_handoff_goes_to_the_coordinator_that_wrote_the_record_it_answers_else_the_session_holding_the_order_its_order_attr_names(
+def test_the_communicators_handoff_goes_to_the_coordinator_that_wrote_the_record_it_answers_else_the_session_holding_the_order_its_order_attr_names(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
@@ -1269,9 +1269,6 @@ def test_a_handlers_handoff_goes_to_the_coordinator_that_wrote_the_record_it_ans
     run("start", demo, "--role", "coordinator", "--project", "Iris")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", demo, "--role", "communicator")
-    with state.edit(demo) as data:
-        data["handlers"]["h1"] = {"session": "handler-1", "transcript": None, "started": state.stamp(), "holds": [], "handed": [], "posted": []}
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "handler-1")
     monkeypatch.setattr(agents, "shown", lambda seq: {"lane": "root"})
     records = [{"kind": "handoff", "text": "redraw the run page card with both PRs", "attrs": {"order": order}} for order in ("o1", "o2", "o3")]
     answering = {"kind": "handoff", "text": "the permalink of his release card", "re": "686826", "attrs": {"order": "o1"}}
@@ -1357,10 +1354,7 @@ def test_an_answer_or_handoff_naming_a_job_goes_to_the_coordinator_session_whose
     run("start", demo, "--role", "coordinator", "--project", "Iris")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", demo, "--role", "communicator")
-    with state.edit(demo) as data:
-        data["handlers"]["h1"] = {"session": "handler-1", "transcript": None, "started": state.stamp(), "holds": [], "handed": [], "posted": []}
     open_cards(monkeypatch, "demo:j1-7")
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "handler-1")
     records = [
         {"kind": "answer", "text": "Yes: the normal release hands each primary over on its own node", "url": UNDER_CARD, "to": "root", "waits": "demo:j1-7"},
         {"kind": "handoff", "text": "Resume j1 now: plan, then start, the clock release", "to": "root", "attrs": {"job": "j1", "order": "o1"}},
@@ -1539,21 +1533,6 @@ def test_his_owner_words_under_a_question_card_ordering_other_work_beside_it_go_
     jev.beside.clear()
     withdrawn = beside | {"text": "Drop the ring question, the run page ships without it"}
     assert tools.run("record", demo, {"records": [withdrawn]}).splitlines()[1] == '1 j1\'s question "Which ring?" ended withdrawn by 61'
-
-
-def test_his_words_withdrawing_a_card_go_out_with_the_handler_call_so_its_question_ends_before_the_handler_starts(
-    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
-    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
-    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 61}\n', ""))
-    open_cards(monkeypatch, "demo:j1-7")
-    withdraw = {"kind": "owner", "text": "So then withdraw the card", "url": UNDER_CARD, "about": "his work", "thread_card": "demo:j1-7"}
-    brief = f"Message (his words): So then withdraw the card\nLink: {UNDER_CARD}\nDrive: demo"
-    said = tools.run("handler", demo, {"brief": brief, "records": [withdraw]}).splitlines()
-    assert said[:2] == ["1 owner 61", '1 j1\'s question "Which ring?" ended withdrawn by 61']
-    handler = said[-1].removeprefix("started ")
-    assert "Context: his owner record went out with the handler call: 1 owner 61; " in agents.brief_path(demo, handler).read_text()
 
 
 def test_his_feedback_on_a_card_leaves_its_question_asking_even_under_a_drive_tooling_card(

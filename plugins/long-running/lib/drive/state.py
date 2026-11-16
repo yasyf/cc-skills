@@ -150,7 +150,6 @@ ROLES = ("communicator", "coordinator", "meta")
 REPO_RULES = ".claude/long-running.toml"
 HOLDERS = ("communicator", "meta")
 ORDERS_MOVED = "orders_moved"
-HANDLER_ENV = "LONG_RUNNING_HANDLER"
 JOB_ENV = "LONG_RUNNING_JOB"
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
 OWN_JOB_ENV = "LONG_RUNNING_OWN_JOB"
@@ -332,10 +331,10 @@ BACKUP = "drive.json.before-sqlite"
 MOVED = "moved_to"
 MOVED_SAVER = "999999.0.0"
 SCHEMA = "1"
-COLLECTIONS = ("orders", "jobs", "prs", "answers", "handlers", "stalls")
+COLLECTIONS = ("orders", "jobs", "prs", "answers", "stalls")
 FIELDS_ONCE_COLLECTIONS = ("routed", "routes")
 CLOCKS = "clocks"
-BINDINGS = ("driver", "roles", "subcoordinators", "communicators", "handlers")
+BINDINGS = ("driver", "roles", "subcoordinators", "communicators")
 TABLES = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
 CREATE TABLE rows (collection TEXT NOT NULL, key TEXT NOT NULL, place INTEGER NOT NULL, body TEXT, PRIMARY KEY (collection, key)) WITHOUT ROWID;
@@ -848,7 +847,6 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "roles": {role: {"session": session, "cwd": cwd, "started": stamp()}},
         "subcoordinators": {},
         "communicators": {},
-        "handlers": {},
         "slack": {"page": None, "watch": [], "swept": None, "waiting": {}, "digest": None, "channels": {}},
         "owner": {"heard": None, "away": None, "absence": None},
         "orders": {},
@@ -856,8 +854,6 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "prs": {},
         "answers": {},
         "stalls": {},
-        "routed": {},
-        "routes": {},
         "slots": {},
         "stand_ins": {},
         "owed_replies": {},
@@ -907,7 +903,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
 
 
 def saved(name: str) -> dict:
-    """The drive's name and the sessions bound to it as saved, read alone from its database: each role's, each sub-coordinator's and each handler's, one saved with a single driver session reading as that session coordinating."""
+    """The drive's name and the sessions bound to it as saved, read alone from its database: each role's, each sub-coordinator's and each project communicator's, one saved with a single driver session reading as that session coordinating."""
     return bound(stored(name, BINDINGS)) | {"name": name}
 
 
@@ -1055,24 +1051,11 @@ def bound(data: dict) -> dict:
         data["roles"] = {"coordinator": data.pop("driver")}
     data.setdefault("subcoordinators", {})
     data.setdefault("communicators", {})
-    data.setdefault("handlers", {})
     data.setdefault("launched", {})
     data.setdefault("terminal", None)
     data.setdefault("binder", None)
     data.pop("run", None)
     data.pop("saved_by", None)
-    for handler in data["handlers"].values():
-        handler.setdefault("holds", None)
-        handler.setdefault("brief", None)
-        handler["handed"] = [*handler.get("handed", []), *handler.pop("held_back", [])]
-        handler.setdefault("took", [])
-        handler.setdefault("posted", [])
-        handler.setdefault("pool", False)
-        handler.setdefault("busy", True)
-        handler.setdefault("ended", None)
-        handler.setdefault("given", handler["started"])
-        handler.setdefault("topics", [])
-        handler.setdefault("items", 0)
     for held in [*data["roles"].values(), *data["subcoordinators"].values(), *data["communicators"].values()]:
         held.pop("terminal", None)
     return data
@@ -1338,8 +1321,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data.pop("held", None)
     data.pop("catch_up", None)
     data.setdefault("owed_replies", {})
-    data.setdefault("routed", {})
-    data.setdefault("routes", {})
+    data.pop("routed", None)
+    data.pop("routes", None)
     data.setdefault("carried", {})
     data.setdefault("posts", {"mark": None})
     data["posts"].pop("unposted", None)
@@ -1367,8 +1350,6 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         kept.setdefault("pinned", False)
     for job in data["jobs"].values():
         job.pop("may_settle", None)
-        if job.get("bg"):
-            job["bg"].setdefault("pool", False)
         for question in job["questions"]:
             question.setdefault("refused", None)
             if "settled" in question:
@@ -4363,7 +4344,7 @@ def moved(name: str) -> None:
 
 def pointed(name: str, data: dict) -> None:
     """Replace drive.json with a pointer to the drive's database, saved_by an install newer than any, so every older install's load, edit, batch and edit_or_create refuse the drive as a newer install's, its bindings kept so an older verb still resolves the drive and says so."""
-    pointer = {MOVED: DATABASE, "backup": BACKUP, "saved_by": MOVED_SAVER, "name": name, "roles": {}, "subcoordinators": {}, "communicators": {}, "handlers": {}, "launched": {}}
+    pointer = {MOVED: DATABASE, "backup": BACKUP, "saved_by": MOVED_SAVER, "name": name, "roles": {}, "subcoordinators": {}, "communicators": {}, "launched": {}}
     tmp = state_path(name).with_name("drive.json.tmp")
     tmp.write_text(json.dumps(pointer | {field: data[field] for field in BINDINGS if field in data}, indent=2) + "\n")
     os.replace(tmp, state_path(name))
@@ -4730,7 +4711,7 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
             db.execute("PRAGMA wal_checkpoint(PASSIVE)")
     down_mac_boxes(name, mine, [job_id for job_id, then in ended.items() if then not in FINISHED_JOB_STATES])
     bound = any(collection == "" and key in BINDINGS for collection, key in held)
-    if bound or any(collection in ("orders", "jobs", "handlers") for collection, _ in held):
+    if bound or any(collection in ("orders", "jobs") for collection, _ in held):
         if bound:
             moved = {order_id: (holding_lane(base, order), holding_lane(mine, mine["orders"][order_id])) for order_id, order in open_orders(base).items() if order_id in mine["orders"]}
         else:
@@ -5103,13 +5084,13 @@ def next_id(records: dict, prefix: str) -> str:
 
 
 def session_role(data: dict, session: str | None) -> str | None:
-    """The role a session holds; a sub-coordinator's is coordinator and a handler's the communicator's, so every rule of that role binds it too."""
+    """The role a session holds; a sub-coordinator's is coordinator, so every rule of that role binds it too."""
     role = next((role for role, held in data["roles"].items() if session and held["session"] == session), None)
     if role:
         return role
     if session_project(data, session):
         return "coordinator"
-    return "communicator" if communicator_project(data, session) or handler_id(data, session) else None
+    return "communicator" if communicator_project(data, session) else None
 
 
 def top_coordinator(data: dict, session: str | None) -> bool:
@@ -5138,19 +5119,11 @@ def held_since(held: list[dict]) -> str:
     return "".join(f"\n{since_heading(who)}" + "".join(f"\n- {kept['words']}" for kept in held if kept["sender"] == who) for who in senders)
 
 
-def handler_id(data: dict, session: str | None) -> str | None:
-    """The handler a `claude --bg` session runs for the communicator: for this process's own session the one its LONG_RUNNING_HANDLER names, which its launch sets before the session exists, so a handler is bound from its first step though its launch saves its session only once `claude --bg` returns and the drive's lock frees; else the one whose entry keeps the session."""
-    own = os.environ.get(HANDLER_ENV, "").partition("/")[2]
-    if session and session == os.environ.get("CLAUDE_CODE_SESSION_ID") and own in data["handlers"]:
-        return own
-    return next((handler for handler, held in data["handlers"].items() if session and held["session"] == session), None)
-
-
-def own_transcript(data: dict, job: dict) -> str | None:
-    """The transcript of a job a handler holds, or one whose agent `drive job start` started, its own claude --bg session's rather than one beside the communicator's or its starter's: that session's while it runs, once Claude Code has written it, the job's own once it ended."""
+def own_transcript(job: dict) -> str | None:
+    """The transcript of a job whose agent `drive job start` started, its own claude --bg session's rather than one beside the communicator's or its starter's: that session's while it runs, once Claude Code has written it, the job's own once it ended."""
     from drive import install
 
-    session = (data["handlers"].get(job.get("agent")) or {}).get("session") or own_session(job)
+    session = own_session(job)
     return job.get("transcript") or (session and next(map(str, (install.config_dir() / "projects").glob(f"*/{session}.jsonl")), None))
 
 
@@ -5741,12 +5714,11 @@ def last_started(data: dict) -> str:
 
 
 def session_drives(session: str) -> list[str]:
-    """The drives that bind the session, a handler's included, by handler_id, the newest binding first, read from each drive's saved bindings alone, so a call loads no drive it is not bound to."""
+    """The drives that bind the session, the newest binding first, read from each drive's saved bindings alone, so a call loads no drive it is not bound to."""
     bound = []
     for name in names():
         data = saved(name)
         bound += [(held["started"], name) for held in bound_sessions(data).values() if held["session"] == session]
-        bound += [(data["handlers"][handler]["started"], name)] if (handler := handler_id(data, session)) else []
     return list(dict.fromkeys(name for _, name in sorted(bound, reverse=True)))
 
 
@@ -5915,7 +5887,7 @@ def open_orders(data: dict) -> dict[str, dict]:
 
 
 def clocks(data: dict) -> list[dict]:
-    """Each open order he asked a line every so many minutes on, by his words "And give me updates, every 15 mins, concise, on all 3 of these, in this thread, until all done", due that many minutes after its thread's last line, with when that thread last got a line, the session of the role holding it and of each handler holding a message in its thread, and the agent of each job of it running, an incident or one with a thread that no recovery, close report, close or proof finished; a promised time and five quiet minutes owe no line, by his words "clearly these reports are useless / not valuable / spammy, so remove them entirely or rethink the whole model". Each edit and batch saves it as one row, which hooks/role_rules.py reads alone with no lock."""
+    """Each open order he asked a line every so many minutes on, by his words "And give me updates, every 15 mins, concise, on all 3 of these, in this thread, until all done", due that many minutes after its thread's last line, with when that thread last got a line, the session of the role holding it, and the agent of each job of it running, an incident or one with a thread that no recovery, close report, close or proof finished; a promised time and five quiet minutes owe no line, by his words "clearly these reports are useless / not valuable / spammy, so remove them entirely or rethink the whole model". Each edit and batch saves it as one row, which hooks/role_rules.py reads alone with no lock."""
     from drive import view
 
     waited = {
@@ -5928,18 +5900,13 @@ def clocks(data: dict) -> list[dict]:
     for order_id, order in waited.items():
         lined = parse_time(order["last_line"] or order["created"])
         heard[keyed[order_id]] = max(heard.get(keyed[order_id], lined), lined)
-    handled: dict[str, list[str]] = {}
-    for handler in data["handlers"].values():
-        if thread := (handler["holds"] or {}).get("thread"):
-            handled.setdefault(thread, []).append(handler["session"])
     entries = []
     for order_id, order in waited.items():
         since = heard[keyed[order_id]]
         running = [job for job in orders_jobs(data, [order_id]).values() if at_work(job)]
         if not order["every"]:
             continue
-        where = own_thread(order)
-        sessions = [holding_role(data, order)[1].get("session"), *(handled.get(where[1], []) if where else [])]
+        sessions = [holding_role(data, order)[1].get("session")]
         entries.append(
             {
                 "order": order_id,
@@ -6193,7 +6160,7 @@ def second_close(data: dict, order_id: str, report: dict) -> str | None:
     if not closer or closer == report.get("seq"):
         return None
     posting = "" if order["closed_on"] else ", which the watch posts on its next read,"
-    return f"refused, report {closer}{posting} already closes {order_id}, so this second close of it posts nothing: send no close of {order_id}, and a handler passed this one returns NOTHING {order_id} closes on report {closer}"
+    return f"refused, report {closer}{posting} already closes {order_id}, so this second close of it posts nothing: send no close of {order_id}"
 
 
 def part_items(report: dict, order_id: str | None) -> list[tuple[str | None, str]]:

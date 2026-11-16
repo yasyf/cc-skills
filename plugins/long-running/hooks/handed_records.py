@@ -9,15 +9,8 @@ from drive import agents, state
 
 
 def main() -> None:
-    if started := os.environ.get(state.JOB_ENV):
-        if pointed := agents.take_pointed(*started.split("/")[:2]):
-            print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": agents.pointed(pointed)}}))
-        return
-    json.load(sys.stdin)
-    name, _, handler = os.environ[state.HANDLER_ENV].partition("/")
-    if not (briefs := agents.take_handed(name, handler)):
-        return
-    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": agents.handed(briefs)}}))
+    if pointed := agents.take_pointed(*os.environ[state.JOB_ENV].split("/")[:2]):
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": agents.pointed(pointed)}}))
 
 
 if __name__ == "__main__":

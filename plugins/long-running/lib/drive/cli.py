@@ -18,7 +18,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import agents, artifacts, brief, children, codex, github, install, land, limits, orca, page_check, pages, picture, place, published, reads, receiver, refs, render, route, served, settled, slack, state, superseded, watch
+from drive import agents, artifacts, brief, children, codex, github, install, land, limits, orca, page_check, pages, picture, place, published, reads, receiver, refs, render, served, settled, slack, state, superseded, watch
 from drive.shell import simple_commands
 from drive.state import DriveError
 
@@ -122,12 +122,12 @@ REPORTER_HELP = (
 )
 WATCH_HELP = (
     "a teammate's Slack thread he ordered watched, by its permalink or slack:<channel>/<its thread's ts>: the watch reads it once"
-    " a minute and starts a handler on each new message there from anyone but him, the drive and a bot, until the order closes"
+    " a minute and hands the communicator each new message there from anyone but him, the drive and a bot, until the order closes"
 )
 FOLLOW_HELP = (
     "a Buildkite build's link and his message in his DM asking to be kept updated on it: the watch keeps one status message in the thread"
     " of his ask current with the build's running steps, rewriting it each minute from the Buildkite read each delivery to the receiver"
-    " makes, and once the build ends starts a handler on the end line, which delivers the part --part names, the order's only part by"
+    " makes, and once the build ends hands the communicator the end line, which delivers the part --part names, the order's only part by"
     " default; no other post delivers that part meanwhile"
 )
 ALERT_HELP = (
@@ -155,7 +155,7 @@ PAGE_STORIES = (
 LIST_ITEM = re.compile(r"\s*(?:[-*] |\d+\. )")
 MANIFEST = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
 LAUNCHED = ("run", "dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree", "sprite_config")
-MCP_TOOLS = ("say", "heard", "handler", "record", "order", "job", "pr", "incident", "status", "search_plan", "page")
+MCP_TOOLS = ("say", "heard", "record", "order", "job", "pr", "incident", "status", "search_plan", "page")
 
 
 def emit(args: argparse.Namespace, line: str, payload: object) -> int:
@@ -1225,12 +1225,12 @@ def untold(data: dict, order_id: str, order: dict) -> str:
     if order["kind"] == "answer":
         heard = (
             f"its question was asked in {links}, and no note of its answer there is recorded. Once the answer is posted, the"
-            f" handler of a report on it posts the answer in one plain line in {there} with slack_reply"
+            f" communicator posts a report on it as the answer in one plain line in {there} with slack_reply"
         )
     else:
         heard = (
             f"its bug was reported in {links}, and no fix-live note there is recorded. Once drive order set {order_id} --proof"
-            f" <the check> keeps the proof its fix is live, the handler of a report on it posts one plain line in {there} with"
+            f" <the check> keeps the proof its fix is live, the communicator posts a report on it as one plain line in {there} with"
             " slack_reply saying what is fixed and since when"
         )
     return (
@@ -1328,7 +1328,7 @@ def need_record_close(data: dict, order_id: str, seq: str | None, dropped_with_n
     if seq is None:
         if not dropped_with_note and state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) == "communicator":
             raise DriveError(
-                f"{order_id}: a handler closes only an order the report record it posted names in its close attr;"
+                f"{order_id}: the communicator closes only an order the report record it posted names in its close attr;"
                 " pass --record <that record's seq>, or drop an order no record names with --state dropped --note <why>"
             )
         return {}
@@ -1475,14 +1475,9 @@ def communicators_order(data: dict, order_id: str) -> dict:
 
 
 def recording_refusal(data: dict, route: str) -> str | None:
-    """Why this session may post nothing to him, record no post on an order nor take back a part's mark, the one check say runs before it posts and order posted and order told run, `route` naming what the session does instead: only the communicator's side does them, the communicator and each handler the drive binds to it, and a handler's session the drive binds to no handler is unbound, bound to the drive as nothing."""
+    """Why this session may post nothing to him, record no post on an order nor take back a part's mark, the one check say runs before it posts and order posted and order told run, `route` naming what the session does instead: only the communicator does them."""
     if state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) == "communicator":
         return None
-    if handler := os.environ.get(state.HANDLER_ENV, "").partition("/")[2]:
-        return (
-            f"this session runs handler {handler} and is unbound: the drive binds no handler {handler} to it, so it is bound to the drive as nothing,"
-            " while only the communicator and a handler bound to it record a post on an order or take back a part's mark; post no copy, and return a DEFECT line quoting this"
-        )
     return route
 
 
@@ -1505,20 +1500,13 @@ def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
     return f"refused, the report is the {state.title(writer)}'s and {order_id} is the {state.title(holder)}'s order, so it delivers nothing there: {carried}, or post with no record, a progress line"
 
 
-def post_order(data: dict, session: str | None, post: dict, report: dict) -> str | None:
-    """The one order a say post is recorded on, which say decides and no caller names: a post carrying a record goes on the order that record is about, the report it relays or the record of his words it answers; a handler's close goes on the order the record it holds names, else the order his message it holds started, never another order that only shares the thread, which is not that message's to close; any other post with no record goes on the open answer order whose message its asked names, which it answers; an edit, a card, a PR card, an answer in a teammate's watched thread and a post with neither go on none."""
+def post_order(data: dict, post: dict, report: dict) -> str | None:
+    """The one order a say post is recorded on, which say decides and no caller names: a post carrying a record goes on the order that record is about, the report it relays or the record of his words it answers; any other post with no record goes on the open answer order whose message its asked names, which it answers; an edit, a card, a PR card, an answer in a teammate's watched thread and a post with neither go on none."""
     if post.get("edit") or post.get("card") or post.get("tap_prs") or report.get("watch"):
         return None
     if post.get("record"):
         return state.report_order(data, report)
-    if not post.get("close"):
-        return next((order_id for order_id in data["orders"] if answers_order(data, order_id, post)), None)
-    if not (handler := state.handler_id(data, session)):
-        return None
-    held = data["handlers"][handler]["holds"] or {}
-    return (held.get("record") and state.named_order(data, agents.shown(held["record"])["fields"].get("attrs", {}))) or (
-        held.get("message") and state.started_order(data, state.slack_message(held["link"])[0], held["message"])
-    ) or None
+    return next((order_id for order_id in data["orders"] if answers_order(data, order_id, post)), None)
 
 
 def answers_order(data: dict, order_id: str, post: dict) -> bool:
@@ -3763,7 +3751,7 @@ def job_start(args: argparse.Namespace) -> int:
             raise DriveError(f"{args.id}: refused, not started: {refused}")
         agent, cwd = uuid.uuid4().hex[:17], orca.checkout(name, held["cwd"])
         def job_start_write(data: dict):
-            data["jobs"][args.id]["bg"] = {"agent": agent, "session": None, "started": state.stamp(), "cwd": str(cwd), "pointed": [], "pool": False}
+            data["jobs"][args.id]["bg"] = {"agent": agent, "session": None, "started": state.stamp(), "cwd": str(cwd), "pointed": []}
             return data
 
         data = state.update(name, None, job_start_write)
@@ -4292,7 +4280,7 @@ def started_here(name: str, job_id: str, kept: Path, text: str, cwd: Path) -> di
     if not held.get("session"):
         raise orca.Unstarted(f"{kept.stem}: no worker started, since no session holds {job['order']}, so none would hear its agent")
     call = agents.shaped({"session_id": held["session"], "tool_input": {"subagent_type": state.JOB_AGENTS[job["kind"]][0], "prompt": f"Read your brief first: {kept}"}})
-    bg = {"agent": uuid.uuid4().hex[:17], "session": None, "started": state.stamp(), "cwd": str(cwd), "pointed": [], "pool": False}
+    bg = {"agent": uuid.uuid4().hex[:17], "session": None, "started": state.stamp(), "cwd": str(cwd), "pointed": []}
     try:
         bg["session"] = agents.start_job(name, job_id, bg["agent"], call, held, cwd)
     except (reads.ReadError, state.DriveError) as error:
@@ -6100,37 +6088,6 @@ def page_owner(args: argparse.Namespace) -> int:
     return emit(args, paged, {"paged": paged, "order": args.order})
 
 
-def handler(args: argparse.Namespace) -> int:
-    name = state.resolve(args.drive)
-    if extra := agents.beyond_brief(args.brief):
-        raise DriveError(
-            f"refused: a handler's brief is its lines alone, every line under one of {', '.join(render.HANDLER_LABELS)};"
-            f" `{render.cut(extra, 44)}` is more: a rule in a brief overrides its agent definition, so drop the line"
-        )
-    if re.search(rf"^{re.escape(agents.HIS_WORDS)}:", args.brief, re.MULTILINE):
-        if (linked := agents.LINK.search(args.brief)) and state.slack_message(linked[1]):
-            found = route.route(name, args.brief, args.answer, args.away)
-            return emit(args, routed_line(found) if "handler" not in found else f"{'handed to' if found['handed'] or found.get('again') else 'started'} {found['handler']}", found)
-        watch.hear(name, state.now(), args.away)
-    briefs = briefing(name, args.brief, args.answer) is not None
-    handler_id, handed = agents.handle(name, args.brief, detached=True, answer=args.answer, briefs=briefs)
-    if handed:
-        return emit(args, f"handed to {handler_id}", {"handler": handler_id, "handed": True})
-    return emit(args, f"started {handler_id}", {"handler": handler_id})
-
-
-def route_message(args: argparse.Namespace) -> int:
-    found = route.route(state.resolve(args.drive), args.brief)
-    return emit(args, routed_line(found), found)
-
-
-def routed_line(found: dict) -> str:
-    """Where the router sent his message: the route, why, what took it, and how long Jev and the whole route took, or that an earlier call routed it."""
-    took = found.get("answered") or found.get("recorded") or (found.get("handler") and f"{'handed to' if found['handed'] else 'started'} {found['handler']}")
-    line = f"ROUTED {found['route']}{' again' if found.get('again') else ''}: {found.get('why') or 'routed earlier'}" + (f"; {took}" if took else "") + (f"; {found['fell']}" if found.get("fell") else "")
-    return f"{line} (Jev {found['jev_ms']} ms, {found['ms']} ms in all)" if "ms" in found else line
-
-
 def answer_message(args: argparse.Namespace) -> int:
     from drive import answer
 
@@ -6144,10 +6101,6 @@ def say_record(args: argparse.Namespace) -> int:
     from drive import talk
 
     return emit(args, talk.record_kept(state.resolve(args.drive), Path(args.receipt)), {"receipt": args.receipt})
-
-
-def handler_start(args: argparse.Namespace) -> int:
-    return emit(args, agents.start_kept(state.resolve(args.drive), args.id), {"handler": args.id})
 
 
 def mac_boxes_down(args: argparse.Namespace) -> int:
@@ -6166,53 +6119,6 @@ def fde_scan(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     checkout = orca.checkout(name, state.load(name)["roles"]["coordinator"]["cwd"])
     return subprocess.run([str(checkout / GO_CI), "fde-scan", *args.arguments], cwd=checkout, stdin=subprocess.DEVNULL, check=False).returncode
-
-
-def briefing(name: str, brief: str, answer: str | None) -> Callable[[str], str] | None:
-    """What writes a handler's brief from its id: answering's for his read-only question with an --answer title, else in_thread's; the handler's own start runs it, so the handler call returns before its writes and reads."""
-    return answering(name, brief, answer) if answer else in_thread(name, brief)
-
-
-def answering(name: str, brief: str, answer: str) -> Callable[[str], str]:
-    """The brief of his read-only question's handler once its answer order, titled as --answer names and filed under no project or workstream, and the handler's reader job on it are added, naming both, the pairs in use, which the handler picks from when it files the order with drive order set, and every open order in his thread with its jobs, questions and PRs, read from the drive and its stored cards, so the handler reads no drive status."""
-    held = agents.holds(brief)
-    if not (held["link"] and re.search(rf"^{re.escape(agents.HIS_WORDS)}:", brief, re.MULTILINE)):
-        raise DriveError("--answer: refused, no handler started: it adds his answer order from his message, so the brief carries his words and the Link of his message")
-
-    def briefed(handler_id: str) -> str:
-        words = agents.his_words(brief)
-        order_id = added_order(parser().parse_args(["order", "add", words, "--from", held["link"], "--kind", "answer", "--complex", "--title", answer, "--drive", name]), unfiled=True)[0]
-        part = state.load(name)["orders"][order_id]["title"]
-        job_id = added_job(parser().parse_args(["job", "add", "reader", "--order", order_id, "--part", part, "--goal", answer, "--agent", handler_id, "--drive", name]))[0]
-        data = state.load(name)
-        return "\n".join([brief.strip(), f"{agents.ORDER}: {order_id}, job {job_id}", f"{agents.PAIRS}: {pairs_in_use(data)}", *thread_work(name, data, held["thread"], order_id)])
-
-    return briefed
-
-
-def in_thread(name: str, brief: str) -> Callable[[str], str] | None:
-    """The brief of a handler whose brief names a Thread, with the work of that thread added by thread_work, so the handler answers from that thread's work alone and reads no drive status; None for a brief naming none."""
-    if not (line := agents.THREAD.search(brief)):
-        return None
-    return lambda _: "\n".join([brief.strip(), *thread_work(name, state.load(name), line[1])])
-
-
-def thread_work(name: str, data: dict, thread: str | None, but: str | None = None) -> list[str]:
-    """A handler brief's In his thread block: each open order but the one named that has a thread at ts thread, else none. With no order named, an order whose own thread is at ts thread is drawn by render.live_block, its unfinished jobs each with its last said line, its questions and PRs, the cards of those alone read by with_cards; every other order is one line naming the drive status that draws it whole, so a brief never carries whole orders a thread only touches, which grew handler briefs to 162 KB and their starts to 90 s."""
-    ids = thread_orders(data, thread, but)
-    asked = [] if but else [order_id for order_id in ids if (own := state.own_thread(data["orders"][order_id])) and own[1] == thread]
-    if asked:
-        with_cards(name, data, only(data, asked))
-    work = [
-        line
-        for order_id in ids
-        for line in (
-            render.live_block(data, order_id, data["orders"][order_id])
-            if order_id in asked
-            else [f"- {render.order_line(data, order_id, data['orders'][order_id])}; whole: drive status {order_id}"]
-        )
-    ]
-    return [f"{agents.IN_THREAD}:{'' if work else ' none'}", *work]
 
 
 def thread_orders(data: dict, thread: str | None, but: str | None = None) -> list[str]:
@@ -7177,7 +7083,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--record",
         metavar="SEQ",
-        help="the report record a handler posted; a close from the communicator's session needs it and closes only an order its close attr names",
+        help="the report record the communicator posted; a close from the communicator's session needs it and closes only an order its close attr names",
     )
     verb.set_defaults(run=rehearsed(order_set))
     verb = order.add_parser("unfiled", parents=both, help="each open order that names no project, workstream or title yet, then the project and workstream pairs in use")
@@ -7228,7 +7134,7 @@ def parser() -> argparse.ArgumentParser:
         "told",
         parents=both,
         help=(
-            "the communicator's handler posted the one note each of the order's reporters gets in the thread of their message, or in the"
+            "the communicator posted the one note each of the order's reporters gets in the thread of their message, or in the"
             " group DM of that reporter, him and the bot when the bot cannot post there: a bug's fix-live note once its proof is kept, or a"
             " question's answer once it is posted to him; done refuses until each is recorded"
         ),
@@ -8154,58 +8060,17 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--order", help="the order the page is for, so the watch does not page him for it again")
     verb.set_defaults(run=page_owner)
     verb = verbs.add_parser(
-        "handler",
-        parents=both,
-        help=(
-            "start a handler on its brief as its own claude --bg session, recording that he wrote when the brief carries his"
-            " words; its line comes back as one cci record when it ends; prints started <its id>, or handed to <id> for a"
-            " brief, his words or a record, on the message of his, in the thread or on the re chain a live handler is at work on"
-        ),
-    )
-    verb.add_argument(
-        "brief",
-        help=f"the handler's brief: its lines, each opening with one of {', '.join(label + ':' for label in render.HANDLER_LABELS)}",
-    )
-    verb.add_argument("--away", action="store_true", help="he said he is going to sleep or away, for a brief carrying his words")
-    verb.add_argument(
-        "--answer",
-        metavar="TITLE",
-        help=(
-            "his read-only question's title, a few words naming it: the call adds his answer order from the brief's words and Link,"
-            " filed under no project or workstream, and the handler's reader job on it, and writes both into the brief with the"
-            " pairs in use and every open order in his thread, its jobs, questions and PRs, so the handler reads no drive status,"
-            " files the order with drive order set <o> --project --workstream and closes it with say(close=true)"
-        ),
-    )
-    verb.set_defaults(run=handler)
-    verb = verbs.add_parser(
-        "route",
-        parents=both,
-        help=(
-            "route his message once: hear him, one tool-less Jev call over his words, his thread's rows and the open routes picks the coordinator,"
-            " a seat working an order, a handler or the communicator's answer from the rows, the drive records the route and why with its"
-            " timings in its routed rows and routes.log, and the route takes it; prints ROUTED <route>: <why>"
-        ),
-    )
-    verb.add_argument("brief", help="a handler brief carrying his words and the Link of his message")
-    verb.set_defaults(run=route_message)
-    verb = verbs.add_parser(
         "answer-now",
         parents=both,
         help=(
             "answer his message from the drive's rows for its thread in seconds: eyes on it, one tool-less model call over those rows,"
-            " and the answer posted in his thread, or ESCALATE and why, for a handler to take it; the handler verb runs it first on every brief carrying his words"
+            " and the answer posted in his thread, or ESCALATE and why, for the communicator to take it"
         ),
     )
     verb.add_argument("link", help="his message's permalink")
     verb.add_argument("words", help="his words")
     verb.add_argument("--dry-run", action="store_true", help="print the answer it would post, posting nothing and adding no eyes")
     verb.set_defaults(run=answer_message)
-    verb = verbs.add_parser(
-        "handler-start", parents=both, help="start the handler drive handler kept, as its own claude --bg session; the handler verb runs it detached once it returns"
-    )
-    verb.add_argument("id", help="the handler's id, as drive handler printed it")
-    verb.set_defaults(run=handler_start)
     verb = verbs.add_parser(
         "mac-boxes-down", parents=both, help="take down the Mac box each job holds with the [mac_box] down command of the drive checkout's .claude/long-running.toml, {box} the job's id and {holder} <drive>/<job>; a save that finishes a job runs it detached, and the watch hourly for each finished job a live box is named after"
     )

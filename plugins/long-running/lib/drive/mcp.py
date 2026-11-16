@@ -42,10 +42,10 @@ INSTRUCTIONS = (
     " the job's start; neither is ever when a release, build or deploy started, which is quoted as its build or tool printed"
     " it, in backticks or its link's words, on the line linking it; a time a tool or query measured, such as an outage window, is typed in Pacific on the line linking it, and otherwise only a time after the write, as in \"the deploy window opens at 5:40 AM\", is typed, naming its day when it falls on another, as \"6:54 AM tomorrow\". Its hook finds a clock time typed for work already done, a line naming a cause"
     " with no {record:}, a line of a session posting on its own telling him work is fixed, merged, queued, live or covers his"
-    " case with no {record:} of the read that measured it and no unverified on it, a line telling him the drive failed with no {order:} or {pr:} carrying how that is prevented, a handler's line in his DM telling news on what one of his open question cards asks him to decide, the PR its question names or the error its root cause quotes, with no {card:} of that card, a file, path or name both share being no shared subject, and"
+    " case with no {record:} of the read that measured it and no unverified on it, a line telling him the drive failed with no {order:} or {pr:} carrying how that is prevented, an agent's line in his DM telling news on what one of his open question cards asks him to decide, the PR its question names or the error its root cause quotes, with no {card:} of that card, a file, path or name both share being no shared subject, and"
     " each `cc-slack check-post` finding, every check reading only the words typed, each reference as the words after its | or as one word, never the title or time say draws for it, and Jev judges each by the rule it stands for and his words before say"
     " posts it: the post goes out as written, and each finding Jev reads as holding comes back beside its link as a warning, to reword in place; when Jev cannot finish,"
-    " the post goes out with the checks' findings as warnings; on a handler's post Jev also checks each of its claims against the read it names, whole, and warns"
+    " the post goes out with the checks' findings as warnings; on an agent's post Jev also checks each of its claims against the read it names, whole, and warns"
     " of a claim that read does not back, a claim saying only, every, no or never of a set whose read reads one member,"
     " a sentence about code, a number or a state its claims do not hold word for word, and an answer under a card leaving"
     " a term of the card's first line his question turns on unexplained, weighing a read too long for one of Jev's"
@@ -53,7 +53,7 @@ INSTRUCTIONS = (
     " only a claim naming a read that matches none of the poster's calls holds the post back; a comment,"
     " message, doc, PR body or earlier answer being a claim to test, never a source, and a record's or job report's line"
     " backing only what the read it shows measured; it posts exactly the words it is given and adds none."
-    " The drive's verbs are tools too: heard, handler, which starts a handler as its own session, record for the"
+    " The drive's verbs are tools too: heard, record for the"
     " records between the drive's sessions, order, job and pr taking several ops a call, and status; each takes"
     " dry_run, and drive, the drive it acts on when this session is bound to none or several."
 )
@@ -104,7 +104,7 @@ CLAIMS = {
         "required": ["claim", "read"],
     },
     "description": (
-        "On a handler's post, each line saying where code lives, what it does or why, or a number or state, beside the read"
+        "On an agent's post, each line saying where code lives, what it does or why, or a number or state, beside the read"
         " behind it, the claims holding every word of each such sentence, one whose parts stand on several reads split into"
         " the claims of its parts, each beside its own read. Jev checks each claim against its read, whole, and holds the"
         " post for a claim it does not back, a read matching no call of yours, a claim saying only, every, no or never of a"
@@ -120,7 +120,7 @@ SAY = {
         "Post a line, an answer, a PR card (tap_prs) or a question card (card) to his Slack DM, with any visuals, pictures and screen"
         " recordings included, and"
         " show it on the drive's dashboard, in one call; with channel_id, post a line, or a card's line linking the card it draws in"
-        " his DM, in a thread outside his DM, such as an alert's, through cc-slack reply, or with no thread_ts a new post through cc-slack send, at the root of that channel, such as a staging claim to its members, or with a person's user id in the group DM of that person, him and the bot; cc-slack's Slack permission hook judges either as it judges slack_reply or slack_send. A post at a channel's root speaks to its members, never him, and so does a reply in that post's thread, a reporter's thread or a teammate's thread the drive watches, so none of the checks of a line to him, such as its length, his time away or the card it links, holds it, while Jev still checks each claim of a handler's post against the read it names; the post at that root and each line in its thread get a reader's checks instead: cc-slack check-post passes its exact words, each is at most 60 words naming no file or function unless his message it answers, passed as asked, asks for code, the root the one line a person would type, with no line break or bold, such as 'testing X on staging for 30, lmk if anyone objects', citing the repository's rule for the claim with no PR list or formatting, and a report's until attr names the end of what it claims, from which the watch owes its thread a closing line: the root goes out only on a report whose until is still to come and whose words say how long it holds or its clock time, and a report naming no until or a past one goes back to its writer as a refused record, so you post nothing and return NOTHING sent back to <writer>. A post in a reporter's or teammate's thread passes cc-slack check-post on its exact words too. Every post stands alone and says no sorry: it names nothing its reader never saw, such as another draft of it, so it never opens on 'here's the longer version'. In text, {card:<waits id>}, {pr:<number, owner/repo#number or"
+        " his DM, in a thread outside his DM, such as an alert's, through cc-slack reply, or with no thread_ts a new post through cc-slack send, at the root of that channel, such as a staging claim to its members, or with a person's user id in the group DM of that person, him and the bot; cc-slack's Slack permission hook judges either as it judges slack_reply or slack_send. A post at a channel's root speaks to its members, never him, and so does a reply in that post's thread, a reporter's thread or a teammate's thread the drive watches, so none of the checks of a line to him, such as its length, his time away or the card it links, holds it, while Jev still checks each claim of an agent's post against the read it names; the post at that root and each line in its thread get a reader's checks instead: cc-slack check-post passes its exact words, each is at most 60 words naming no file or function unless his message it answers, passed as asked, asks for code, the root the one line a person would type, with no line break or bold, such as 'testing X on staging for 30, lmk if anyone objects', citing the repository's rule for the claim with no PR list or formatting, and a report's until attr names the end of what it claims, from which the watch owes its thread a closing line: the root goes out only on a report whose until is still to come and whose words say how long it holds or its clock time, and a report naming no until or a past one goes back to its writer as a refused record, so you post nothing and return NOTHING sent back to <writer>. A post in a reporter's or teammate's thread passes cc-slack check-post on its exact words too. Every post stands alone and says no sorry: it names nothing its reader never saw, such as another draft of it, so it never opens on 'here's the longer version'. In text, {card:<waits id>}, {pr:<number, owner/repo#number or"
         " URL>} and {order:<id>} link under the card's question, the PR's title or the order's title, or the words after a |, as"
         " {pr:298|the fix that draws charts}; cc-slack draws the tap card of each PR a line links, by {pr:} or by its PR card's {card:}, right under the line before it goes out while that PR still waits on his tap, and nothing for one approved, merged or closed. {record:<seq>|<what that read measured>} links what that"
         " record measured, its url, under the words after its |, and a bare {record:<seq>}, which would draw the record's own words, is refused. {answer:<id>}"
@@ -133,20 +133,20 @@ SAY = {
         " link's words, on the line linking it, and is flagged with either stamp in a clause naming no job or record. Returns POSTED"
         " <permalink>, CARD <permalink> for a card, the question card's own link first, recorded as the card of the"
         " question asked under its waits id, and the line recording the post on the one order say decides, which no caller names:"
-        " a post carrying a record goes on the order that record is about, a handler's close on the order the record it holds"
-        " names or the order his message it holds started, never another order of that thread, any other post with no record on the open answer order whose message its asked names,"
-        " which it closes, and an edit, a card, a PR card, an answer in a teammate's watched thread and a post with neither on none; a post on an order from a session that may not record it there, any but the communicator's and a handler's the"
-        " drive binds to it, posts nothing and says why, naming a handler's session the drive binds to nothing unbound; it is recorded wherever it goes, a thread the order holds not yet becoming one of its threads, and it promises him no next line. A refusal posts nothing and names its fix: a reference that names nothing,"
+        " a post carrying a record goes on the order that record is about,"
+        " any other post with no record on the open answer order whose message its asked names,"
+        " which it closes, and an edit, a card, a PR card, an answer in a teammate's watched thread and a post with neither on none; a post on an order from a session that may not record it there, any but the communicator's,"
+        " posts nothing and says why; it is recorded wherever it goes, a thread the order holds not yet becoming one of its threads, and it promises him no next line. A refusal posts nothing and names its fix: a reference that names nothing,"
         " a thread say cannot place, a post out of turn in the thread a bug report or question came from, or a claim naming a read that matches none of your calls: make the fix and call again."
         " Jev judges every post before say posts it, and"
-        " the post goes out as written, with a warning beside its link naming what to reword in place: a handler's claim"
+        " the post goes out as written, with a warning beside its link naming what to reword in place: an agent's claim"
         " the read it names in claims does not back, an order or job id such as j1700, a post over its length, or a finding Jev read its rule as holding against, such as a line"
         " naming a cause (because, caused) with no {record:}, a session's own line telling him work is fixed, merged, queued, live or covers"
         " his case with no {record:} of the read that measured it in this turn and no unverified on it, a line telling him a card, check, hook, session, job or tool of"
-        " the drive failed, refused or disconnected with no {order:} or {pr:} on it carrying how that is prevented, a handler's line saying a job"
+        " the drive failed, refused or disconnected with no {order:} or {pr:} on it carrying how that is prevented, an agent's line saying a job"
         " is being started with no {started:<j>} and no unanswered handoff asking for one on its order, or a"
         " word `cc-slack check-post` flags."
-        " A say that fails after cc-slack posted, called again with the same words, of the same record or from the same handler,"
+        " A say that fails after cc-slack posted, called again with the same words, of the same record,"
         " gets back the post Slack already holds and posts nothing twice, while a post in other words goes out. A reference, link or mention written inside the"
         " words of a raw <url|words> link is refused outright, since Slack draws it as a broken link: close that link first and"
         " put the inner one after it. edit=<the permalink of a post of yours, in his DM or in a thread outside it>"
@@ -177,8 +177,8 @@ SAY = {
                 "description": (
                     "Each message of his this post answers, word for word or by its permalink in his DM, one per entry, so the answer goes out"
                     " whole; a post outside the thread his message is in, such as a share he ordered to another person's group DM, passes its permalink."
-                    " A post naming his message that started an open answer order, such as the one drive handler --answer adds, is that order's"
-                    " answer: say closes the order on it as close does, in place of any record on that order it carries"
+                    " A post naming his message that started an open answer order is that order's"
+                    " answer: say writes its report from the communicator's lane with the post's words and closes the order done on it, in place of any record on that order it carries"
                 ),
             },
             "card": {"type": "object", "description": "A question card exactly as drive job card printed it"},
@@ -213,31 +213,19 @@ SAY = {
                 ),
             },
             "visuals": {"type": "array", "items": VISUAL},
-            "close": {
-                "type": "boolean",
-                "description": (
-                    "With no record: this post is the answer that finishes the order the record your handler holds names, by its order,"
-                    " close or job attr, or else the order his message it holds started, such as the answer order drive handler --answer"
-                    " adds, and posts nothing when neither names one, since another order of that thread is not that message's to close;"
-                    " say writes its report from the"
-                    " communicator's lane with the post's words, closes the order done on it, and keeps POSTED <permalink> as the return"
-                    " of the reader job your handler holds on it, the line you end on; one call in place of a report, a say and drive"
-                    " order set"
-                ),
-            },
             "record": {
                 "type": "string",
                 "description": (
                     "The seq of the record this post carries, the report it relays or the record of his words the drive's record tool"
-                    " wrote for the message it answers, which puts the post on the order that record is about; a post with none, but a"
-                    " close or an answer asked names, goes on no order, so every line a handler posts passes one. A record of his words delivers no part; a report"
+                    " wrote for the message it answers, which puts the post on the order that record is about; a post with none, but an"
+                    " answer asked names, goes on no order, so every line the communicator posts on an order passes one. A record of his words delivers no part; a report"
                     " delivers each part its part attr names,"
                     " `<o>:<part>` items separated by `;`, on that order and every other order an item names, or every part when its"
                     " close attr names the order, but no work he ordered, every part of a build order or an incident, but an incident's first check and cause and a part"
                     " drive order set --kind answer --part sorted as an answer that no builder, codex or design job holds, which only a builder or codex job's DONE or a merged PR"
                     " delivers; a record naming neither, as one with progress=true, is a progress line"
                     " delivering no part, whatever job it names, and so is a post with no record. A report is the order's holder's: on an"
-                    " order the communicator holds, such as his read-only question, a report the handler posts from the communicator's"
+                    " order the communicator holds, such as his read-only question, a report posted from the communicator's"
                     " lane, and on one the meta session holds, a report from the meta lane, since a coordinator's report is refused"
                     " there, by the check drive order posted and drive order set --state done run too. A correction record re a report a post carried names that post to reword."
                 ),
