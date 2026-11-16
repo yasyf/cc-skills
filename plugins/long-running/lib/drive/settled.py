@@ -1538,6 +1538,7 @@ def jev(state: dict, questions: dict[str, Noul | Pick], seconds: float = DECIDE_
     from spawnllm import Binary, BinaryAnswer, DecideError, DecideKeyMissing, Label, LabelAnswer, Provider, decide_sync
 
     deadline = time.monotonic() + seconds
+    sized(state, questions)
     try:
         token = jev_key()
         decision = decide_sync(state, {key: Label(*question) if isinstance(question, Pick) else Binary(*question) for key, question in questions.items()}, provider=Provider("jev", MODEL), timeout=deadline - time.monotonic(), api_key=token)
@@ -1546,6 +1547,16 @@ def jev(state: dict, questions: dict[str, Noul | Pick], seconds: float = DECIDE_
     if declined := [key for key, answer in decision.answers.items() if not isinstance(answer, BinaryAnswer | LabelAnswer)]:
         raise Unheard(f"Jev declined {', '.join(declined)}")
     return {key: answer.choice if isinstance(answer, LabelAnswer) else answer.p_yes for key, answer in decision.answers.items()}
+
+
+JEV_SIZES = "jev-sizes.jsonl"
+
+
+def sized(request: dict, questions: dict[str, Noul | Pick]) -> None:
+    """Keep the size of one Jev request, in characters, beside the call site it serves and its question keys, so each call's input can be read as p50 and max against its contract."""
+    caller = sys._getframe(2).f_code.co_name
+    with (state.root() / JEV_SIZES).open("a") as out:
+        out.write(json.dumps({"at": state.stamp(), "caller": caller, "chars": size(request, questions), "keys": sorted(questions)[:6]}) + "\n")
 
 
 def opus(told: dict, questions: dict[str, Noul | Pick], seconds: float = OPUS_SECONDS) -> dict[str, float | str]:
