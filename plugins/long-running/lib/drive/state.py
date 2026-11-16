@@ -6016,9 +6016,20 @@ def own_thread(order: dict) -> tuple[str, str] | None:
     return (order["thread"][0], order["thread"][1]) if order["thread"] and not in_reporter_thread(order) else None
 
 
-def promise_thread(order: dict) -> tuple[str, str] | None:
-    """The channel and thread an order's lines go in: an incident's own thread, such as an alert's, which hears its status and fix-live lines, else the thread of his DM its lines to him go in."""
-    return own_thread(order) if order["incident"] else dm_thread(order)
+def promise_thread(data: dict, order: dict) -> tuple[str, str] | None:
+    """The channel and thread an order's lines go in: an incident's own thread outside his DM, such as an alert's, which hears its status and fix-live lines; else, while the drive keeps channels, the thread of one of them the order keeps, by channel_thread, so no line of the drive goes to his DM, by his words "everything should be out of DMs now for drive stuff"; else the thread of his DM its lines to him go in."""
+    from drive import slack
+
+    own = own_thread(order)
+    if order["incident"] and own and not (data["slack"]["channels"] and own[0] == slack.dm()):
+        return own
+    return channel_thread(data, order) if data["slack"]["channels"] else dm_thread(order)
+
+
+def channel_thread(data: dict, order: dict) -> tuple[str, str] | None:
+    """The thread of a channel the drive keeps an order's lines go in: its own when it is in one, else the first of them it keeps; None, the root of its seat's channel, for one keeping none, so its next line there starts its thread in that channel."""
+    held = {made["id"] for made in data["slack"]["channels"].values()}
+    return next((where for where in [own_thread(order), *((channel, ts) for channel, ts, _, _ in order["threads"])] if where and where[0] in held), None)
 
 
 def dm_thread(order: dict) -> tuple[str, str] | None:
@@ -6035,9 +6046,13 @@ def in_reporter_thread(order: dict) -> bool:
     return bool(order["thread"]) and any((held["channel"], held["thread"]) == tuple(order["thread"]) for held in order["reporters"])
 
 
-def thread_attr(order: dict) -> dict:
-    """The thread attr of a record about an order, naming the thread its lines go in, none for one whose lines go at his DM's root."""
-    return {"thread": where[1]} if (where := promise_thread(order)) else {}
+def thread_attr(data: dict, order: dict) -> dict:
+    """The thread attr of a record about an order, naming the thread its lines go in, and its channel attr for one outside his DM, such as a channel the drive keeps, which a say post takes as channel_id; none for one whose lines go at the root."""
+    from drive import slack
+
+    if not (where := promise_thread(data, order)):
+        return {}
+    return {"thread": where[1]} | ({} if where[0] == slack.dm() else {"channel": where[0]})
 
 
 def unasked_tooling(order: dict) -> bool:
@@ -6135,14 +6150,14 @@ def pr_threads(data: dict, keys: list[str]) -> list[tuple[str, str]]:
         dict.fromkeys(
             where
             for order_id in orders
-            if data["orders"][order_id]["state"] not in CLOSED_ORDER_STATES and (where := promise_thread(data["orders"][order_id]))
+            if data["orders"][order_id]["state"] not in CLOSED_ORDER_STATES and (where := promise_thread(data, data["orders"][order_id]))
         )
     )
 
 
 def incident_threads(data: dict, order_ids: list[str]) -> list[str]:
     """The thread of each of these incident orders, where the drive says at once that a card of his blocks it."""
-    return [where[1] for order_id in order_ids if (where := promise_thread(data["orders"][order_id]))]
+    return [where[1] for order_id in order_ids if (where := promise_thread(data, data["orders"][order_id]))]
 
 
 def closed_orders(report: dict) -> list[str]:

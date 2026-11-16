@@ -71,6 +71,11 @@ def operators() -> set[str]:
     return {dm(), *(channel["id"] for channel in operator_channels())}
 
 
+def homes(data: dict) -> set[str]:
+    """His DM, each operator channel and each channel the drive keeps, which may be one cc-slack named after whoami was read: the places dm-status posts the drive's lines to him."""
+    return operators() | {made["id"] for made in data["slack"]["channels"].values()}
+
+
 def handle() -> str:
     """His Slack handle, as `cc-slack whoami` names it, which opens the name of each channel a drive makes."""
     return whoami()["handle"]
@@ -92,7 +97,7 @@ def channel_project(project: str | None) -> str | None:
 
 
 def project_channel(data: dict, project: str | None) -> str:
-    """The channel a drive's post about a project goes in at its root: the project's own once the drive made it, by channel_project, else the drive's own channel once made, else his DM."""
+    """The channel a drive's post about a project goes in at its root: the project's own once the drive made it, by channel_project, else the drive's own channel once made, else his DM, for a drive keeping no channel."""
     held = data["slack"]["channels"]
     made = held.get(channel_project(project) or "") or held.get("")
     return made["id"] if made else dm()

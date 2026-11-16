@@ -1003,7 +1003,7 @@ def close_proven(name: str, data: dict, job_id: str, order_id: str, keys: list[s
             "kind": "report",
             "to": [f"communicator@{name}"],
             "topic": f"install-proved-{order_id}",
-            "attr": {"close": order_id} | state.thread_attr(order),
+            "attr": {"close": order_id} | state.thread_attr(data, order),
             "text": f"POST {title} {post}",
             "body": f"Fixed: {', '.join(filter(None, [title, ' '.join(map(state.pr_url, keys))]))}\n{facts}",
         }

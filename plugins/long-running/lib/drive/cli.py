@@ -409,7 +409,7 @@ def heard_reworks(name: str, marks: list[tuple[str, str]], job_id: str | None = 
 
 
 def thread_cards(name: str, order: dict) -> list[dict]:
-    return [card for card in fresh_pr_cards(name) if state.link_thread(card["url"]) == where] if (where := state.promise_thread(order)) else []
+    return [card for card in fresh_pr_cards(name) if state.link_thread(card["url"]) == where] if (where := state.promise_thread(state.load(name), order)) else []
 
 
 def rework_named_prs(name: str, order_id: str, reworks: list[dict], cards: list[dict], how: str) -> list[str]:
@@ -512,7 +512,7 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
             project, workstream = head["project"], head["workstream"]
         incidents = [render.incident_line(other_id, other) for other_id, other in state.open_orders(data).items() if args.incident and not joined and other["incident"]]
         order_id = state.next_id(data["orders"], "o")
-        paced = next((each for each, other in state.open_orders(data).items() if not other["incident"] and thread and state.promise_thread(other) == tuple(thread)), order_id) if minutes else None
+        paced = next((each for each, other in state.open_orders(data).items() if not other["incident"] and thread and state.promise_thread(data, other) == tuple(thread)), order_id) if minutes else None
         parts = {part: state.new_part() for part in args.parts or [title]}
         order = data["orders"][order_id] = state.new_order(args.words, slack_key(args.source, message), thread, parts, created) | {
             "alerts": alerts,
@@ -863,7 +863,7 @@ def his_words(link: str, deed: str) -> str:
 
 
 def drive_post_at(link: str, data: dict, order_id: str, sent: str | None = None, named: str | None = None) -> tuple[dict, bool, tuple[str, str] | None]:
-    """The drive's post as Slack holds it, or, for one say just made, from the words it was sent with, reading nothing; whether it is a line to him, as talk.to_him reads where it went, in the channel_id say named, a person's user id for the group DM of that person, him and the bot, else the channel its link names; and its thread when the order holds it not yet, which the call naming the order joins to the order's threads: a post at his DM root on an order whose lines go in no thread, one with no thread or whose own thread holds no line to him, is the thread its next lines reply under, and a post say made at the root of another channel, such as a staging claim, the thread that channel's members reply under."""
+    """The drive's post as Slack holds it, or, for one say just made, from the words it was sent with, reading nothing; whether it is a line to him, as talk.to_him reads where it went, in the channel_id say named, a person's user id for the group DM of that person, him and the bot, else the channel its link names; and its thread when the order holds it not yet, which the call naming the order joins to the order's threads: a post at the root of his DM or of a channel the drive keeps on an order whose lines go in no thread, one with no thread or whose own thread holds no line to him, is the thread its next lines reply under, and a post say made at the root of another channel, such as a staging claim, the thread that channel's members reply under."""
     from drive import talk
 
     posted = slack.posted(link, sent) if sent else slack.message(link)
@@ -872,10 +872,15 @@ def drive_post_at(link: str, data: dict, order_id: str, sent: str | None = None,
     where = (state.CARD_LINK.search(link)[1], posted.get("thread_ts"))
     order = data["orders"][order_id]
     ours = talk.to_him(data, named or where[0], where[1])
-    if not where[1] and (named and not ours or where[0] == slack.dm() and not state.promise_thread(order)):
+    if not where[1] and (named and not ours or where[0] in rooms(data) and not state.promise_thread(data, order)):
         where = (where[0], posted["ts"])
     gained = where if where[1] and where not in slack.order_threads(data, order_id, order) else None
     return posted, ours, gained
+
+
+def rooms(data: dict) -> set[str]:
+    """His DM and each channel the drive keeps, where a post at the root starts the thread of an order whose lines go in none."""
+    return {slack.dm(), *(made["id"] for made in data["slack"]["channels"].values())}
 
 
 def pick_parts(order_id: str, order: dict, named: list[str]) -> list[str]:
@@ -1574,7 +1579,7 @@ def record_post(name: str, order_id: str, link: str, report: dict, sent: str | N
 
 
 def record_on(name: str, order_id: str, link: str, report: dict, items: list[tuple[str | None, str]], sent: str | None = None, named: str | None = None) -> tuple[str, dict]:
-    """Record the drive's post on one order: the order's last line, only for a line to him, the parts its report's items deliver there, the end its report's until attr names for a post at another channel's root or a line in its thread, from which the watch owes that thread its closing line, and its thread among the order's, with when it joined, when the order holds it not yet, as members for a thread whose readers are another channel's members, such as the one under a staging claim say posted at that channel's root, or as the order's own thread when it has none and the post started that thread at his DM root, so its every later line replies under its first."""
+    """Record the drive's post on one order: the order's last line, only for a line to him, the parts its report's items deliver there, the end its report's until attr names for a post at another channel's root or a line in its thread, from which the watch owes that thread its closing line, and its thread among the order's, with when it joined, when the order holds it not yet, as members for a thread whose readers are another channel's members, such as the one under a staging claim say posted at that channel's root, or as the order's own thread when it has none and the post started that thread at the root of his DM or of a channel the drive keeps, so its every later line replies under its first; an order whose own thread is in his DM keeps a thread a post started in a channel the drive keeps as one of its threads, which its lines go in from then on."""
     data = state.load(name)
     order = find(data["orders"], order_id, "order")
     if refused := report_refusal(data, order_id, report):
@@ -1589,7 +1594,7 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
 
     def keep(data: dict) -> tuple[dict, bool]:
         order = data["orders"][order_id]
-        rooted = gained == (slack.dm(), posted["ts"]) and not order["thread"]
+        rooted = bool(gained) and gained[1] == posted["ts"] and gained[0] in rooms(data) and not order["thread"]
         if rooted:
             order["thread"] = list(gained)
         elif gained:
@@ -2667,8 +2672,8 @@ def ask_card(name: str, job_id: str, file: Path) -> dict:
 def card_places(data: dict, job: dict) -> tuple[list[str], tuple[str, str] | None, bool]:
     """The open incidents a job's card blocks, the channel and thread the job's lines go in, the open incident's or else its order's, and whether that thread takes the card's line: a thread outside his DM does, such as an alert's, so his card draws at his DM root alone and the line is its one message in that thread, while a thread of his DM takes the card itself, an incident's included, by his words "in the future let's not create split threads like this"."""
     incidents = state.open_incidents(data, [job["order"], *job["carries"]])
-    where = state.promise_thread(data["orders"][incidents[0] if incidents else job["order"]])
-    return incidents, where, bool(where and where[0] != slack.dm())
+    where = state.promise_thread(data, data["orders"][incidents[0] if incidents else job["order"]])
+    return incidents, where, bool(where and where[0] not in slack.homes(data))
 
 
 def building(data: dict, job_id: str, *cards: str) -> list[str]:
@@ -3463,7 +3468,7 @@ def starters_lane(data: dict, job_id: str, job: dict, resume: bool) -> str | Non
 
 def answer_first(name: str, order: dict, order_id: str, job_id: str) -> str:
     """Where an answer order's reader sends his answer the moment it is proven, by his pick "answer-only jobs also post their answer once found": a progress report the communicator's handler posts in the order's thread, ahead of the full report the coordinator closes the order with."""
-    attrs = state.thread_attr(order) | {"order": order_id, "job": job_id, "progress": "true"}
+    attrs = state.thread_attr(state.load(name), order) | {"order": order_id, "job": job_id, "progress": "true"}
     return ANSWER_FIRST.format(drive=name, attrs=json.dumps(attrs))
 
 
@@ -3571,7 +3576,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         "Researched": found and found[0],
         "Answer": answers and answer_first(name, order, job["order"], job_id),
         "Staging": staged
-        and STAGING_FIRST.format(drive=name, attrs=json.dumps(state.thread_attr(order) | {"order": job["order"], "job": job_id, "progress": "true", "incident": "true"}))
+        and STAGING_FIRST.format(drive=name, attrs=json.dumps(state.thread_attr(data, order) | {"order": job["order"], "job": job_id, "progress": "true", "incident": "true"}))
         + staging_mac_box(name, data, job)
         + staging_taps(data, job),
         "Native": flags["native"],
@@ -6341,7 +6346,7 @@ def open_channel(name: str, project: str | None) -> dict:
     project = slack.channel_project(project)
     made = slack.cc_slack("operator-channel", slack.channel_name(name, project, priority_words(state.load(name), project)))
     def open_channel_write(fresh: dict):
-        fresh["slack"]["channels"][project or ""] = {"id": made["id"], "name": made["name"]}
+        fresh["slack"]["channels"][project or ""] = fresh["slack"]["channels"].get(project or "", {}) | {"id": made["id"], "name": made["name"]}
         if held := fresh["roles"].get("communicator"):
             held.pop("rules", None)
 

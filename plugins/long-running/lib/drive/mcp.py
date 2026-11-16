@@ -162,7 +162,7 @@ SAY = {
         "type": "object",
         "properties": {
             "text": {"type": "string", "description": "The post's exact words, with its references, where a markdown table draws as Slack's own data table and the dashboard's table; none for a question card"},
-            "thread_ts": {"type": "string", "description": "The thread the post goes in, in his DM unless channel_id names another channel, which a thread outside his DM, such as an alert's, always takes; none for his DM root"},
+            "thread_ts": {"type": "string", "description": "The thread the post goes in, in his DM unless channel_id names another channel, which a thread outside his DM, such as an alert's, always takes, as a record's channel attr names it; none for the root, which is his DM's only for a drive keeping no channel"},
             "channel_id": {
                 "type": "string",
                 "description": (

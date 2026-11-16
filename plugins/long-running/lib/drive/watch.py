@@ -251,6 +251,11 @@ def failed(watcher: Watcher, source: str, what: str, error: Exception, moment: d
     return [f"WATCH {what} failed {failures} times in a row: {error}"]
 
 
+def placed(attr: dict) -> dict:
+    """The say place a record's thread and channel attrs name, none for a record naming no thread."""
+    return ({"thread_ts": attr["thread"]} if attr.get("thread") else {}) | ({"channel_id": attr["channel"]} if attr.get("thread") and attr.get("channel") else {})
+
+
 def ids(pr: dict) -> str:
     return f"[{pr['order']} {pr['job']}]"
 
@@ -997,7 +1002,7 @@ def milestone(watcher: Watcher, record: dict, words: str) -> str:
     from drive import talk, tools
 
     [seq] = tools.sent(watcher.name, LANE, [record])
-    post = {"text": f"{words} ({{record:{seq}|its facts}}).", "record": seq} | ({"thread_ts": thread} if (thread := (record.get("attr") or {}).get("thread")) else {})
+    post = {"text": f"{words} ({{record:{seq}|its facts}}).", "record": seq} | placed(record.get("attr") or {})
     return talk.watch_line(watcher.name, post)
 
 
@@ -1237,7 +1242,7 @@ def proved_lines(watcher: Watcher, moment: datetime) -> list[str]:
         if not (report := order["close_report"]) or "seq" not in report:
             continue
         words = report["text"].removeprefix("POST ")
-        post = {"text": f"{words} ({{record:{report['seq']}|proof}}).", "record": report["seq"]} | ({"thread_ts": thread} if (thread := report["attr"].get("thread")) else {})
+        post = {"text": f"{words} ({{record:{report['seq']}|proof}}).", "record": report["seq"]} | placed(report["attr"])
         try:
             outcome = f"{order_id} live line posted by the watch: {talk.proved_line(watcher.name, post)}"
             closes = state.load(watcher.name)["orders"][order_id]["state"] in state.CLOSED_ORDER_STATES
@@ -1294,7 +1299,7 @@ def closed(watcher: Watcher, head: str, links: list[str], fix: str, moment: date
     record = {
         "kind": "report",
         "topic": f"watch-recovered-{head}",
-        "attr": {"close": ",".join(group)} | state.thread_attr(incident),
+        "attr": {"close": ",".join(group)} | state.thread_attr(data, incident),
         "text": f"incident {head} is over: {'its monitors read OK and ' if links else ''}its fix is live",
         "body": "\n".join(facts) + "\n",
     }
@@ -1304,7 +1309,7 @@ def closed(watcher: Watcher, head: str, links: list[str], fix: str, moment: date
         return failed(watcher, f"close of {head}", f"close record of {head}", error, moment)
     watcher.failures.pop(f"close of {head}", None)
     lines, said = [], None
-    live = {"text": f"Live: {incident['title'] or cut(incident['text'], 80)} is over, {'its monitors read OK and ' if links else ''}its fix is live ({{record:{seq}|its facts}}).", "record": seq} | ({"thread_ts": thread} if (thread := record["attr"].get("thread")) else {})
+    live = {"text": f"Live: {incident['title'] or cut(incident['text'], 80)} is over, {'its monitors read OK and ' if links else ''}its fix is live ({{record:{seq}|its facts}}).", "record": seq} | placed(record["attr"])
     try:
         said = talk.watch_line(watcher.name, live)
     except (slack.SlackError, state.DriveError) as error:
@@ -1337,7 +1342,7 @@ def follow_up(data: dict, head: str, group: list[str], created: str) -> str | No
         return None
     order_id = state.next_id(data["orders"], "o")
     parts = {part: data["orders"][other]["parts"].pop(part) for other, names in left.items() for part in names}
-    follow = data["orders"][order_id] = state.new_order(incident["text"], incident["from"], state.promise_thread(incident), parts, created) | {
+    follow = data["orders"][order_id] = state.new_order(incident["text"], incident["from"], state.promise_thread(data, incident), parts, created) | {
         "owner": incident["owner"],
         "project": incident["project"],
         "workstream": incident["workstream"],
@@ -3828,7 +3833,7 @@ def safeguard_report(data: dict, job_id: str, turn: dict) -> dict:
     return {
         "kind": "report",
         "topic": f"watch-safeguards-{job_id}",
-        "attr": {"order": job["order"], "job": job_id} | state.thread_attr(order),
+        "attr": {"order": job["order"], "job": job_id} | state.thread_attr(data, order),
         "text": f"{job_id}'s agent was {SAFEGUARDED} and the drive restarts nothing",
         "body": "\n".join(facts) + "\n",
     }

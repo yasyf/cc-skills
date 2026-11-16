@@ -1261,15 +1261,35 @@ def test_an_order_an_older_install_saved_with_a_bare_thread_reads_as_the_channel
 def test_an_orders_lines_to_him_go_in_a_thread_of_his_dm_and_in_a_channel_thread_only_for_an_incident() -> None:
     at = "2026-11-13T10:00:00-08:00"
     release = ["C0B75AL4XEW", "1794436805.002349"]
+    data = {"slack": {"channels": {}}}
     order = state.new_order("ship the release", "slack:C0B75AL4XEW/1794436805.002349", tuple(release), {}, at)
     kept = [["C0B75AL4XEW", "1794436900.000100", at, "posted"], ["D123", "1794437000.000200", at, "question"]]
     assert [
-        state.promise_thread(order),
-        state.promise_thread(order | {"threads": kept}),
-        state.promise_thread(order | {"threads": kept, "incident": True}),
-        state.promise_thread(order | {"thread": ["D123", "1794437100.000300"], "threads": kept}),
-        state.promise_thread(order | {"thread": None, "threads": kept}),
+        state.promise_thread(data, order),
+        state.promise_thread(data, order | {"threads": kept}),
+        state.promise_thread(data, order | {"threads": kept, "incident": True}),
+        state.promise_thread(data, order | {"thread": ["D123", "1794437100.000300"], "threads": kept}),
+        state.promise_thread(data, order | {"thread": None, "threads": kept}),
     ] == [None, ("D123", "1794437000.000200"), tuple(release), ("D123", "1794437100.000300"), None]
+
+
+def test_while_the_drive_keeps_channels_an_orders_lines_go_in_a_thread_of_one_of_them_else_at_its_seats_channel_root_never_his_dm() -> None:
+    at = "2026-11-13T10:00:00-08:00"
+    data = {"slack": {"channels": {"": {"id": "C100", "name": "him-drive-demo"}, "Iris": {"id": "C200", "name": "him-drive-demo-iris"}}}}
+    his = ["D123", "1794437100.000300"]
+    order = state.new_order("index the tables", "slack:D123/1794437100.000300", tuple(his), {}, at)
+    started = [["C200", "1794437200.000400", at, "posted"]]
+    alert = ["C0B75AL4XEW", "1794436805.002349"]
+    assert [
+        state.promise_thread(data, order),
+        state.promise_thread(data, order | {"threads": started}),
+        state.promise_thread(data, order | {"thread": ["C200", "1794437300.000500"]}),
+        state.promise_thread(data, order | {"thread": alert, "incident": True}),
+        state.promise_thread(data, order | {"incident": True}),
+        state.promise_thread(data, order | {"incident": True, "threads": started}),
+    ] == [None, ("C200", "1794437200.000400"), ("C200", "1794437300.000500"), tuple(alert), None, ("C200", "1794437200.000400")]
+    assert state.thread_attr(data, order | {"threads": started}) == {"thread": "1794437200.000400", "channel": "C200"}
+    assert state.thread_attr(data, order) == {}
 
 
 def test_an_order_an_older_install_saved_with_one_reporter_reads_as_a_list_of_that_reporter_and_one_with_none_as_no_reporters(state_root: Path) -> None:

@@ -762,7 +762,7 @@ def test_an_order_from_his_reply_goes_in_the_thread_his_reply_is_in_in_the_chann
         ("--channel", "C0BUGS1", "--thread", bug_reply, "--limit", "1"),
     ]
     data = state.load("demo")
-    assert {order_id: (order["from"], order["thread"], state.promise_thread(order)) for order_id, order in data["orders"].items()} == {
+    assert {order_id: (order["from"], order["thread"], state.promise_thread(data, order)) for order_id, order in data["orders"].items()} == {
         "o1": (f"slack:D123/{reply}", ["D123", root], ("D123", root)),
         "o2": (f"slack:C0BUGS1/{bug_reply}", ["C0BUGS1", bug_root], None),
         "o3": (f"slack:C0BUGS1/{bug_reply}", ["C0BUGS1", bug_root], None),
@@ -810,9 +810,9 @@ def test_an_order_he_gives_in_a_thread_a_teammate_started_takes_that_thread_as_i
     data = state.load("demo")
     orders = data["orders"]
     assert orders["o1"]["reporters"] == [state.reporter(f"slack:C0BUGS1/{report}")]
-    assert (orders["o1"]["thread"], state.promise_thread(orders["o1"]), state.thread_attr(orders["o1"])) == (["C0BUGS1", report], None, {})
+    assert (orders["o1"]["thread"], state.promise_thread(data, orders["o1"]), state.thread_attr(data, orders["o1"])) == (["C0BUGS1", report], None, {})
     assert limits.his_words(orders["o1"]) == "fix this"
-    assert [(orders[order_id]["reporters"], state.own_thread(orders[order_id]), state.promise_thread(orders[order_id])) for order_id in ("o2", "o3")] == [([], ("C0BUGS1", report), None)] * 2
+    assert [(orders[order_id]["reporters"], state.own_thread(orders[order_id]), state.promise_thread(data, orders[order_id])) for order_id in ("o2", "o3")] == [([], ("C0BUGS1", report), None)] * 2
     slack_thread.messages[0] |= {"from_bot": True}
     assert run(*filed, "unpause the release", "--from", f"slack:C0BUGS1/{report}/{reply}") == (0, "o4")
     assert state.load("demo")["orders"]["o4"]["reporters"] == []
