@@ -55,7 +55,7 @@ def make(name: str, session: str | None = None, started: str | None = None) -> N
     state.create(data)
 
 
-def test_a_save_takes_down_the_mac_boxes_of_each_job_it_moves_into_done_failed_or_stopped_once(state_root: Path, mac_boxes_downed: list[str]) -> None:
+def test_a_save_takes_down_the_mac_boxes_of_each_job_it_moves_out_of_running_or_into_done_failed_or_stopped_once(state_root: Path, mac_boxes_downed: list[str]) -> None:
     make("demo")
     with state.edit("demo") as data:
         data["jobs"] |= {job_id: state.new_job("o1", "builder", "use a Mac box", [], state.stamp()) for job_id in ("j1", "j2", "j3", "j4")}
@@ -76,6 +76,11 @@ def test_a_save_takes_down_the_mac_boxes_of_each_job_it_moves_into_done_failed_o
     with state.edit("demo") as data:
         data["jobs"]["j1"]["state"] = "done"
     assert mac_boxes_downed == ["demo/j1", "demo/j4", "demo/j2", "demo/j1"]
+    with state.edit("demo") as data:
+        data["jobs"]["j3"]["state"] = "running"
+    with state.edit("demo") as data:
+        data["jobs"]["j3"]["state"] = "waiting"
+    assert mac_boxes_downed == ["demo/j1", "demo/j4", "demo/j2", "demo/j1", "demo/j3"]
 
 
 def test_a_save_hands_a_finished_jobs_mac_boxes_to_a_process_of_its_own_that_takes_them_down_from_the_drives_checkout(

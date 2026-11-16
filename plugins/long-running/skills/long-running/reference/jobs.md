@@ -116,9 +116,10 @@ Contents:
 - **Mac boxes.** A Mac box comes down with the job that holds it.
   `<ci> mac-box up <name> --holder <drive>/<job>` refuses a box with no holder. The lane names the
   drive and job from its brief's `Drive:` line, which tags the box `mac-box:holder`. The save that
-  moves a job to done, failed or stopped starts `drive mac-boxes-down <job>`, which runs
-  `<ci> mac-box down --holder <drive>/<job>` and logs to the drive's `mac-boxes.log`. A waiting job
-  keeps its box. To hand a box on, run <mac box hand over> before the old job's save: it moves the
+  moves a job out of running, or to done, failed or stopped, starts `drive mac-boxes-down <job>`, which runs
+  `<ci> mac-box down --holder <drive>/<job>` and logs to the drive's `mac-boxes.log`. A job holds a
+  box only while it runs: the save that moves it to waiting, by WAITING or any other line, takes its
+  box down too, and it runs `<ci> mac-box up` again when it resumes. To hand a box on, run <mac box hand over> before the old job's save: it moves the
   tag. A box handed on without it comes down at the old job's save, and its host
   sits in AWS's scrub for an hour or more.
 

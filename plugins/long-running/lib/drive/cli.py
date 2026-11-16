@@ -8128,7 +8128,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--dry-run", action="store_true", help="print the answer it would post, posting nothing and adding no eyes")
     verb.set_defaults(run=answer_message)
     verb = verbs.add_parser(
-        "mac-boxes-down", parents=both, help="take down the Mac box each job holds with the [mac_box] down command of the drive checkout's .claude/long-running.toml, {box} the job's id and {holder} <drive>/<job>; a save that finishes a job runs it detached, and the watch hourly for each finished job a live box is named after"
+        "mac-boxes-down", parents=both, help="take down the Mac box each job holds with the [mac_box] down command of the drive checkout's .claude/long-running.toml, {box} the job's id and {holder} <drive>/<job>; a save that moves a job out of running or finishes it runs it detached, and the watch hourly for each job not running that the [mac_box] list command names as a holder"
     )
     verb.add_argument("jobs", nargs="+", help="the jobs whose Mac boxes come down")
     verb.set_defaults(run=mac_boxes_down)

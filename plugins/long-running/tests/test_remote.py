@@ -5647,14 +5647,15 @@ def test_a_restarted_watch_asks_for_a_left_sprite_again_only_once_the_reclaim_an
     assert ended_lanes == []
 
 
-def test_the_watch_takes_down_each_live_mac_box_named_after_a_finished_job_once_an_hour_unless_an_open_job_names_it(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_watch_takes_down_each_live_mac_box_its_jobs_hold_unless_they_run_or_a_running_job_names_it(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "set", "o1", "--add-part", "still at work")
     run("job", "add", "builder", "--order", "o1", "--part", "still at work", "--goal", "still at work", "--remote")
     checkout = Path(state.load(remote)["roles"]["coordinator"]["cwd"])
     (checkout / ".claude").mkdir(parents=True, exist_ok=True)
-    (checkout / ".claude" / "long-running.toml").write_text('[mac_box]\nlist = "echo j1 j2 step7-rss"\ndown = "true"\n')
+    (checkout / ".claude" / "long-running.toml").write_text(f'[mac_box]\nlist = "echo {remote}/j1 other/j1 None"\ndown = "true"\n')
     with state.edit(remote) as data:
         data["jobs"]["j1"]["state"] = "done"
+        data["jobs"]["j2"]["state"] = "running"
     started: list[list[str]] = []
     monkeypatch.setattr(state, "detach", lambda name, args, log: started.append(args) or ENDED_READER)
     monkeypatch.setattr(state, "scratch", lambda: False)
@@ -5663,9 +5664,14 @@ def test_the_watch_takes_down_each_live_mac_box_named_after_a_finished_job_once_
         watch.finished_boxes(watching, at)
     assert started == [["mac-boxes-down", "j1"], ["mac-boxes-down", "j1"]]
     with state.edit(remote) as data:
+        data["jobs"]["j1"]["state"] = "waiting"
         data["jobs"]["j2"]["handoff"] = "Your Mac box, mine to name: box j1, up and signed in to staging; your turn on it comes next"
     watch.finished_boxes(watching, T0 + 2 * watch.BOX_SWEEP)
     assert started == [["mac-boxes-down", "j1"], ["mac-boxes-down", "j1"]]
+    with state.edit(remote) as data:
+        data["jobs"]["j2"]["state"] = "waiting"
+    watch.finished_boxes(watching, T0 + 3 * watch.BOX_SWEEP)
+    assert started == [["mac-boxes-down", "j1"], ["mac-boxes-down", "j1"], ["mac-boxes-down", "j1"]]
 
 
 def test_reclaim_destroys_a_left_sprite_and_marks_a_lane_on_this_mac_freed_so_no_watch_reclaims_it_again(

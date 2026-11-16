@@ -4326,7 +4326,8 @@ def rewrite(db: sqlite3.Connection, data: dict, copy: Copy | None) -> tuple[list
             wrote[collection] = rows
     newest = db.execute("SELECT COALESCE(MAX(rev), 0) FROM changed").fetchone()[0]
     db.execute("DELETE FROM changed WHERE rev <= ?", (newest - CHANGES_KEPT,))
-    return [job_id for job_id, then in ended.items() if then not in FINISHED_JOB_STATES], (wrote, newest) if current else None
+    returned = [job_id for job_id in changed["jobs"] if job_id in was and gave_box_back(parse(was[job_id][1])["state"], data["jobs"][job_id]["state"])]
+    return returned, (wrote, newest) if current else None
 
 
 def marshalled(record: dict) -> bytes | None:
@@ -4349,17 +4350,22 @@ def drop_ended_texts(data: dict, ended: dict[str, str]) -> list[str]:
     return dropped
 
 
+def gave_box_back(then: str | None, now: str) -> bool:
+    """Whether a job whose state a save moved from then to now gives its Mac box back: it stopped running, returning WAITING or any other line, or it finished, by his Nov 16 words "a waiting job should not hold a box"; it takes a box again when it resumes."""
+    return now != then and now != "running" and (then == "running" or now in FINISHED_JOB_STATES and then not in FINISHED_JOB_STATES)
+
+
 def down_mac_boxes(name: str, data: dict, finished: list[str]) -> None:
-    """Take down every Mac box each job a save just finished holds: `drive mac-boxes-down` on those jobs, a process of its own that outlives the save, its output appended to the drive's mac-boxes.log, so a box comes down with the job it is named after while the save neither waits on the drive's checkout nor fails with it, unless box_wanted keeps it for a job still to take its turn there. None for a scratch drive, a proof's or a test's, or a repository whose .claude/long-running.toml names no [mac_box] down command, which holds no Mac box."""
+    """Take down every Mac box each job a save just moved out of running or finished holds: `drive mac-boxes-down` on those jobs, a process of its own that outlives the save, its output appended to the drive's mac-boxes.log, so a box comes down with the job it is named after while the save neither waits on the drive's checkout nor fails with it, unless box_wanted keeps it for a job still to take its turn there. None for a scratch drive, a proof's or a test's, or a repository whose .claude/long-running.toml names no [mac_box] down command, which holds no Mac box."""
     if not finished or scratch() or not mac_box_command(data, "down") or not (freed := [job_id for job_id in finished if not box_wanted(data, job_id)]):
         return
     detach(name, ["mac-boxes-down", *freed], MAC_BOXES_LOG)
 
 
 def box_wanted(data: dict, box: str) -> bool:
-    """Whether a job not yet finished names the Mac box anywhere on its row, its handoff and the texts it was given or holds included, as a job queued to take its next turn on a finished job's box does, so that box stays up for it."""
+    """Whether another job running now names the Mac box anywhere on its row, its handoff and the texts it was given or holds included, as a job taking its turn on that box does, so that box stays up for it; a waiting job holds no box and takes one when it resumes."""
     pattern = re.compile(rf"\b{re.escape(box)}\b")
-    return any(pattern.search(json.dumps(job)) for job in data["jobs"].values() if job["state"] not in FINISHED_JOB_STATES)
+    return any(pattern.search(json.dumps(job)) for job_id, job in data["jobs"].items() if job_id != box and job["state"] == "running")
 
 
 def placed(before: dict[str, tuple[int, str | None]], order: list[str]) -> dict[str, int]:
@@ -4754,7 +4760,7 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
             effect()
         with suppress(sqlite3.OperationalError):
             db.execute("PRAGMA wal_checkpoint(PASSIVE)")
-    down_mac_boxes(name, mine, [job_id for job_id, then in ended.items() if then not in FINISHED_JOB_STATES])
+    down_mac_boxes(name, mine, [key for collection, key in held if collection == "jobs" and isinstance(then := held[(collection, key)], dict) and key in jobs and gave_box_back(then.get("state"), jobs[key]["state"])])
     bound = any(collection == "" and key in BINDINGS for collection, key in held)
     if bound or any(collection in ("orders", "jobs") for collection, _ in held):
         if bound:
