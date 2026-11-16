@@ -5371,9 +5371,13 @@ def untapped_lines(watcher: Watcher, moment: datetime) -> list[str]:
     untapped = [key for key, pr in data["prs"].items() if pr["state"] == "open" and pr["exempt"] == state.FLAKE_FIX and pr["wants_tap"] and not cli.flake_tap(key, state.waits_his_tap(data, key, pr["order"]))]
     if not untapped:
         return []
-    with state.edit(watcher.name) as data:
+
+    def untapped_prs(data: dict) -> dict:
         for key in untapped:
             data["prs"][key]["wants_tap"] = False
+        return data
+
+    data = state.update(watcher.name, None, untapped_prs)
     told = [f"PR {key}: waits on his tap no more, its flake fix changing only test and fixture code at {(pr := data['prs'][key])['head'][:7]}, which lands with no tap [{pr['order']} {pr['job']}]" for key in untapped]
     return told + redraw_lines(watcher, moment, set(untapped))
 
