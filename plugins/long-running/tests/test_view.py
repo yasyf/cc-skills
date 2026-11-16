@@ -1479,3 +1479,27 @@ def test_staging_lookups_share_one_order_partition_per_projection() -> None:
     with state.indexed(drive):
         assert state.orders_holding(drive, parts[1]) == ["o1", "o65"]
     assert state.INDEX.get() is None
+
+
+@pytest.mark.parametrize(
+    ("line", "word", "tone"),
+    [
+        ("Tested on staging: plat-usw2-staging at abc1234, passed at 6:37 AM", "Passed on staging", "good"),
+        ("Testing on staging: plat-usw2-staging at abc1234, running", "Testing on staging now", "warn"),
+        ("Not on staging yet: waiting for plat-usw2-staging to run abc1234", "Queued for staging", "warn"),
+        ("Not on staging: no staging test is set for it", "No staging test", ""),
+        ("Not on staging: its test ended, no pass: CASE waits", "Failed on staging", "bad"),
+        ("Not on staging: Forge-AI/litestream has no staging env", "No staging for this repo", ""),
+    ],
+)
+def test_a_staging_line_reads_as_a_few_plain_words_with_no_env_commit_or_job(line: str, word: str, tone: str) -> None:
+    assert view.staging_plain(line) == {"word": word, "tone": tone}
+
+
+def test_what_approve_does_reads_as_one_plain_sentence_never_a_jobs_own_words() -> None:
+    testing = {"word": "Testing on staging now", "tone": "warn"}
+    waits = "waiting: it waits on its staging run by j5170, WAITING o1513:each shared staging cut is assembled"
+    assert view.approve_plain(waits, testing) == "It merges once its staging test passes. Testing on staging now."
+    assert view.approve_plain("", testing) == "Approve sends it to merge now."
+    assert view.approve_plain("behind: it sits on lane, the branch of j9", testing) == "It merges once the change under it merges."
+    assert view.approve_plain(None, testing) == "Approve records your yes; its author merges it."
