@@ -1818,10 +1818,11 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[str]:
             else:
                 owing.append(order_id)
     registered = render.prs_by_job(data)
+    joined = state.joined_orders(data)
     for order_id in owing:
         source = f"due {order_id}"
         order = data["orders"][order_id]
-        group = [order_id, *state.joined_orders(data).get(order_id, [])]
+        group = thread_group(data, joined, order_id)
         facts = line_facts(data, group, registered, watcher.cards, moment)
         working = [job_id for job_id, job in state.orders_jobs(data, group).items() if job["state"] == "running"]
         try:
@@ -1916,7 +1917,7 @@ def claim_reply_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def last_line(data: dict, group: list[str]) -> datetime:
-    """When he last had a line on an open order or incident, by the orders state.feature_orders names for it: the newest drive post on any of them, else when the first was opened."""
+    """When he last had a line on an open order or incident, by the orders of its thread_group: the newest drive post on any of them, else when the first was opened."""
     lined = [data["orders"][order_id]["last_line"] for order_id in group if data["orders"][order_id]["last_line"]]
     return max(map(state.parse_time, lined or [data["orders"][group[0]]["created"]]))
 
@@ -2022,15 +2023,26 @@ def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def news_groups(data: dict, orders: dict[str, dict]) -> dict[str, list[str]]:
+    """Each open order and incident owed lines in a thread, by its head, with the orders of its thread_group, while none of them keeps a proof: a head joins no order, or joins one whose lines go in another thread, so each report names only the news of the thread it goes in."""
     joined = state.joined_orders(data)
     groups = {}
     for head, order in orders.items():
-        if not (order["incident"] or order["thread"]) or order["joins"] or order["recovered"] or order["close_report"] or order["closed_on"]:
+        if not (order["incident"] or order["thread"]) or order["joins"] and in_head_thread(data, order) or order["recovered"] or order["close_report"] or order["closed_on"]:
             continue
-        group = [head, *joined.get(head, [])]
+        group = thread_group(data, joined, head)
         if not any(data["orders"][order_id]["proof"] for order_id in group):
             groups[head] = group
     return groups
+
+
+def thread_group(data: dict, joined: dict[str, list[str]], head: str) -> list[str]:
+    """The order and each order joined to it whose news goes in its thread, by in_head_thread."""
+    return [head, *(order_id for order_id in joined.get(head, []) if in_head_thread(data, data["orders"][order_id]))]
+
+
+def in_head_thread(data: dict, order: dict) -> bool:
+    """Whether an order joined to another tells its news in that order's thread: an incident always, so an alert's order keeps its incident's line, and an order that is no incident when its own lines go there by state.promise_thread or it keeps no thread of his DM, so one with a thread of its own heads its own group and none opens a thread at his DM root."""
+    return order["incident"] or state.promise_thread(order) in (None, state.promise_thread(data["orders"][order["joins"]]))
 
 
 def untold(order: dict, facts: dict[str, list]) -> list[str]:
@@ -2038,7 +2050,7 @@ def untold(order: dict, facts: dict[str, list]) -> list[str]:
 
 
 def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], since: datetime, moment: datetime, moved: list[str], working: list[str], due: str | None = None) -> str:
-    """Write the report owing him a line in one thread, for the handler that posts it there: on the orders and incidents with news in it, each by its head and the orders state.feature_orders names for it, then each job and PR of them once, however many of those orders list or name it, or, given due, on the one order owing him the line it promised by that time, which the report calls late once he read present ten minutes past it, never counting the minutes of his absence, and which says when he went away of a line that waited for his return; each card of his among the moved facts that waited_cards reads open past CARD_WAIT, for the line to say once that it still waits and what it holds; its seq."""
+    """Write the report owing him a line in one thread, for the handler that posts it there: on the orders and incidents with news in it, each by the orders of its thread_group, head first and each once, then each job and PR of them once, however many of those orders list or name it, or, given due, on the one order owing him the line it promised by that time, which the report calls late once he read present ten minutes past it, never counting the minutes of his absence, and which says when he went away of a line that waited for his return; each card of his among the moved facts that waited_cards reads open past CARD_WAIT, for the line to say once that it still waits and what it holds; its seq."""
     heads = list(groups)
     minutes = int((moment - since).total_seconds() // 60)
     one = len(heads) == 1
@@ -2067,7 +2079,7 @@ def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], sin
     else:
         asked = "post what changed since its last line in its thread: the finding a job returned, each PR that went up or changed stage with his card on it linked, his tap, and who owes the next step, such as the session that re-lands a PR Trunk ejected."
     facts = [
-        *(f"{'Incident' if data['orders'][head]['incident'] else 'Order'} {head}, {', '.join(group)}: {data['orders'][head]['text']}" for head, group in groups.items()),
+        *(f"{'Incident' if data['orders'][head]['incident'] else 'Order'} {', '.join(group)}: {data['orders'][head]['text']}" for head, group in groups.items()),
         *incident_pr_lines(watcher.name, orders),
         f"No line to him since {when(state.stamp(since))}, {minutes} minutes.",
         *(
@@ -3895,7 +3907,7 @@ def orphan_lines(watcher: Watcher, moment: datetime, said: type = str) -> list[s
 
 
 def hear(name: str, moment: datetime, away: bool = False) -> dict:
-    """Record him heard at moment, by his words or his tap on a card, the owner row keeping the moment he reads away from, moment itself with away, else an hour later; when he was away, keep that absence on the owner row, from when he went away, the moment he read away from and moment, which state.present reads, and add to the catch-up the drive owes him, which keeps the time of the first such absence it covers and which the watch's next pass posts, each open order and incident whose line facts moved since its thread's last line or the watch's last report on it, by the one test quiet_lines owes a line on, with the orders joined to it, keeping those facts as told so no thread gets a line on news his catch-up carries, and each order a report held for his catch-up is on."""
+    """Record him heard at moment, by his words or his tap on a card, the owner row keeping the moment he reads away from, moment itself with away, else an hour later; when he was away, keep that absence on the owner row, from when he went away, the moment he read away from and moment, which state.present reads, and add to the catch-up the drive owes him, which keeps the time of the first such absence it covers and which the watch's next pass posts, each open order and incident whose line facts moved since its thread's last line or the watch's last report on it, by the one test quiet_lines owes a line on, with the orders of its thread_group, keeping those facts as told so no thread gets a line on news his catch-up carries, and each order a report held for his catch-up is on."""
     with state.edit(name) as data:
         back = state.owner_away(data, moment)
         owner = data["owner"]

@@ -1321,11 +1321,27 @@ def test_a_due_report_names_a_job_carrying_orders_joined_to_its_order_once_in_it
     said = due_owed(monkeypatch)
     with state.edit(demo) as data:
         data["orders"]["o1"].update(thread=["D123", "1794200000.000100"], due=state.stamp(T0 - timedelta(minutes=30)), promised=state.stamp(T0 - timedelta(minutes=60)))
-        data["orders"]["o2"] = order(text="the same ask again", joins="o1")
+        data["orders"]["o2"] = order(text="the same ask again", joins="o1", thread=["D123", "1794200000.000100"])
         data["jobs"]["j1"]["carries"] = {"o2": ["the same ask again"]}
     [report, _] = owed(watcher(demo), T0, said)
     lines = report["body"].splitlines()
     assert [line.rpartition(". At work: ")[2] for line in lines if line.startswith("Moved since")] == ["j1."]
+    assert lines[lines.index("Jobs: 1") + 1 :] == [f"- {render.job_line(state.load(demo), 'j1', state.load(demo)['jobs']['j1'])}"]
+    assert lines[0] == "Order o1, o2: ship the watch"
+
+
+def test_replaying_720284_a_due_report_names_no_order_joined_to_its_order_whose_lines_go_in_another_thread_nor_its_jobs(
+    demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread"
+) -> None:
+    serve(monkeypatch, {})
+    said = due_owed(monkeypatch)
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(thread=["D123", O1114_THREAD], due=state.stamp(T0 - timedelta(minutes=30)), promised=state.stamp(T0 - timedelta(minutes=60)))
+        data["orders"]["o2"] = order(text=O768_WORDS, joins="o1", thread=["D123", O768_THREAD], jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2", kind="reader", state="done", said="DONE the replay passes on one staging pass box")
+    [report, _] = owed(watcher(demo), T0, said)
+    lines = report["body"].splitlines()
+    assert (report["topic"], report["attr"]["thread"], lines[0]) == ("watch-due-o1", O1114_THREAD, "Order o1: ship the watch")
     assert lines[lines.index("Jobs: 1") + 1 :] == [f"- {render.job_line(state.load(demo), 'j1', state.load(demo)['jobs']['j1'])}"]
 
 
@@ -1860,8 +1876,8 @@ def test_incidents_sharing_a_thread_owe_him_one_line_there_through_one_report_an
     assert (report["text"], report["topic"]) == ("POST incidents o1, o3 have had no line to him in 5 minutes: post where each stands now in its thread", "watch-quiet-o1")
     lines = body.splitlines()
     assert lines[:4] == [
-        "Incident o1, o1, o2: ship the watch",
-        "Incident o3, o3: checkout is down too",
+        "Incident o1, o2: ship the watch",
+        "Incident o3: checkout is down too",
         "PRs, as the watch last read them from GitHub: 1",
         shown_pr(demo, KEY),
     ]
@@ -1892,13 +1908,81 @@ def test_a_quiet_report_names_each_job_and_pr_of_its_thread_once_however_many_of
     lines = body.splitlines()
     jobs = state.load(demo)["jobs"]
     assert lines[:4] == [
-        "Incident o1, o1, o2: ship the watch",
-        f"Incident o3, o3: checkout is down too, since {KEY}",
+        "Incident o1, o2: ship the watch",
+        f"Incident o3: checkout is down too, since {KEY}",
         "PRs, as the watch last read them from GitHub: 1",
         shown_pr(demo, KEY),
     ]
     assert f"Moved since the thread's last line or the watch's last report on it: {KEY}. At work: j1, j2, j3." in lines
     assert lines[lines.index("Jobs: 3") + 1 :] == [f"- {render.job_line(state.load(demo), job_id, jobs[job_id])}" for job_id in ("j1", "j2", "j3")]
+
+
+O1114_THREAD = "1794562114.050739"
+O768_THREAD = "1794509787.694279"
+O768_WORDS = "replay the SandSQL folder list on one staging pass box"
+
+
+def joined_from_another_thread(demo: str) -> None:
+    """o1114 and o768 as 720284 found them: o768, an order that is no incident with its own thread in his DM, joined to o1114 by a FIX line naming its PR, each with a job at work."""
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(thread=["D123", O1114_THREAD])
+        data["orders"]["o2"] = order(text=O768_WORDS, joins="o1", thread=["D123", O768_THREAD], jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2", kind="reader")
+
+
+def test_replaying_720284_the_news_of_an_order_joined_to_another_whose_lines_go_in_its_own_thread_goes_there_naming_its_jobs_alone(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    joined_from_another_thread(demo)
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=1)) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j2"].update(state="done", said="DONE the replay passes on one staging pass box")
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=6)) == []
+    [(report, body), _] = calls
+    lines = body.splitlines()
+    assert (report["text"], report["topic"], report["attr"]["thread"]) == ("POST order o2 has news since the thread's last line: post what changed there", "watch-quiet-o2", O768_THREAD)
+    assert lines[0] == f"Order o2: {O768_WORDS}"
+    assert "Moved since the thread's last line or the watch's last report on it: j2. At work: no job." in lines
+    assert lines[lines.index("Jobs: 1") + 1 :] == [f"- {render.job_line(state.load(demo), 'j2', state.load(demo)['jobs']['j2'])}"]
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=30)) == []
+    assert len(calls) == 2
+
+
+def test_a_line_in_the_own_thread_of_an_order_joined_to_another_leaves_the_clock_and_news_of_that_others_thread_as_they_were(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    joined_from_another_thread(demo)
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=1)) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="done", said="DONE the reply went out")
+        data["orders"]["o2"]["last_line"] = state.stamp(T0 + timedelta(minutes=4))
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=6)) == []
+    [(report, body), _] = calls
+    lines = body.splitlines()
+    assert (report["topic"], report["attr"]["thread"], lines[0]) == ("watch-quiet-o1", O1114_THREAD, "Order o1: ship the watch")
+    assert "Moved since the thread's last line or the watch's last report on it: j1. At work: no job." in lines
+    assert lines[lines.index("Jobs: 1") + 1 :] == [f"- {render.job_line(state.load(demo), 'j1', state.load(demo)['jobs']['j1'])}"]
+
+
+def test_the_news_of_an_order_joined_to_another_keeping_no_thread_of_his_dm_goes_in_that_others_thread_never_his_dm_root(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(thread=["D123", O1114_THREAD])
+        data["orders"]["o2"] = order(text=O768_WORDS, joins="o1", thread=["C777", O768_THREAD], jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2", kind="reader")
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=1)) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j2"].update(state="done", said="DONE the replay passes on one staging pass box")
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=6)) == []
+    [(report, body), _] = calls
+    assert (report["topic"], report["attr"]["thread"], body.splitlines()[0]) == ("watch-quiet-o1", O1114_THREAD, "Order o1, o2: ship the watch")
 
 
 def test_a_quiet_incident_owes_a_line_while_a_job_works_then_one_when_it_returns_or_his_card_is_answered_and_none_while_every_job_waits(
