@@ -1305,6 +1305,21 @@ def test_a_post_saying_a_pr_waits_on_his_tap_is_refused_unless_he_has_its_tap_ca
     assert "Forge-AI/monorepo#53971: no open tap card of his stands at its head" in posted(transcript, text=f"{text} <{link}|Its tap card> is up.")
 
 
+def test_a_release_s_approve_step_beside_a_merged_pr_says_nothing_waits_on_his_tap(talker: str) -> None:
+    url, release = "https://github.com/Forge-AI/monorepo/pull/4242", "https://ci.example.com/release/builds/7"
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(url, "j1", "o1") | {"head": "abc123", "state": "merged"}
+    data = state.load("demo")
+    for line in (
+        f"<{url}|The cache fix> merged but its deploy waits behind the approve hold of <{release}|the release>.",
+        f"<{url}|The cache fix> merged; the deploy jobs stay blocked behind the unpressed approve button.",
+        f"<{url}|The cache fix> merged after waiting on the reviewer bot's approval.",
+    ):
+        assert view.tap_claim_refusal(data, "o1", line, []) is None
+    for line in (f"<{url}|The cache fix> waits on your approval.", f"<{url}|The cache fix> still needs his Approve."):
+        assert "Forge-AI/monorepo#4242: merged" in view.tap_claim_refusal(data, "o1", line, [])
+
+
 def test_a_sentence_saying_one_pr_shipped_and_another_waits_on_his_approve_is_judged_by_the_tap_card_it_links(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
