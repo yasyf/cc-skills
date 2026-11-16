@@ -1689,11 +1689,13 @@ def posted_after(watcher: Watcher, data: dict, followed: dict[str, list[str]], m
             firsts[wait] = (anchor, min(after, key=lambda record: record["seq"]))
     if not firsts:
         return {}, []
-    with state.edit(watcher.name) as saved:
+    def posted_after_write(saved: dict) -> None:
         for wait, (anchor, first) in firsts.items():
             for job_id in followed[wait]:
                 words = f"{first['kind']} record {first['seq']} from {first['lane']}@{first['drive']}, the first on topic {anchor['topic']} after {anchor['seq']} that {job_id} waited on: {Path(body).read_text().strip() if (body := first['refs'].get('path')) else first['text']}"
                 state.hold_text(saved["jobs"][job_id], words, state.WATCH_SENDER, seq=str(first["seq"]))
+
+    state.update(watcher.name, None, posted_after_write)
     return {wait: f"{first['lane']}@{first['drive']} posted {first['seq']} on {anchor['topic']}" for wait, (anchor, first) in firsts.items()}, []
 
 
