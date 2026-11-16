@@ -4942,8 +4942,8 @@ def test_a_release_job_follows_the_build_its_launch_triggered_and_it_and_the_coo
     failure = {"step": DEPLOY_STEP, "said": CAUSE, "job": f"{TRIGGERED_BUILD}#01a1"}
     records = {LAUNCH_BUILD: {"name": "auric-aristides", "build": TRIGGERED_BUILD}, TRIGGERED_BUILD: {"name": "auric-aristides", "build": TRIGGERED_BUILD, "failures": [failure]}}
     monkeypatch.setattr(watch.brief, "release_record", lambda release, data: records[release])
+    monkeypatch.setattr(state, "repo_config", lambda data: {"release": {"show": "ci release status {release}"}})
     with state.edit(demo) as data:
-        (Path(data["roles"]["coordinator"]["cwd"]) / state.REPO_RULES).write_text('[release]\nshow = "ci release status {release}"\n')
         data["orders"]["o1"]["jobs"].append("j2")
         data["jobs"]["j2"] = state.new_job("o1", "builder", "follow the release", [], state.stamp(T0)) | {"brief_flags": RELEASED, "release_build": LAUNCH_BUILD}
     watching = watcher(demo)
@@ -9019,6 +9019,7 @@ def test_merges_of_two_orders_share_the_one_prover_of_the_next_release_cut_which
             "release_build": "https://buildkite.com/forge/release/builds/1",
         }
         data["orders"]["o1"]["jobs"].append("j20")
+    monkeypatch.setattr(watch, "read_builds", lambda checkout, links: dict.fromkeys(links))
     lines = watch.run_pass(watching, T0 + timedelta(minutes=31))
     job = state.load(demo)["jobs"][prover]
     assert (job["waits"], job["cut"]) == (["j20"], "j20")
