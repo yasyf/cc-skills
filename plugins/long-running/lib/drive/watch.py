@@ -1930,9 +1930,21 @@ def started(pid: int) -> str | None:
     return procs.lstart(seconds) if (seconds := procs.started(pid)) is not None else None
 
 
-def shipped(watcher: Watcher, data: dict) -> dict[str, str]:
-    """Each release wait of a live job or open PR that out_because frees, each staging wait whose env runs its soak commit, each Buildkite build that ended or stopped at an approve step and each PR the drive does not track that merged or closed, with what says so."""
-    return {wait: said for order_id, owner in release_owners(data) if hears(watcher, data, order_id) for wait in owner["waits"] if (said := out_because(watcher, data, wait))}
+def shipped(watcher: Watcher, data: dict, keys: set[str]) -> dict[str, str]:
+    """Each merged PR among keys production already carries, with how: every target the repository's release reach names for the PR's paths, by cli.release_reach, has a production cluster serving a commit holding its merge in the watch's last release live read; a release or hotfix that only named the PR, as the desktop-only cuts did for #57634, carries nothing."""
+    from drive import cli
+
+    checkout = str(orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"], wait=0))
+    carries = github.carrier(checkout)
+    serving = [row for row in watcher.live or [] if settled.prod(row["env"], checkout)]
+    merged = {key: data["prs"][key]["merged_sha"] for key in keys if key in data["prs"] and data["prs"][key]["merged_sha"]}
+    reach = cli.release_reach(watcher.name, data, list(merged))
+    carried = {}
+    for key, sha in merged.items():
+        held = {target: next((row for row in serving if row["target"] == target and carries(row["commit"], sha, github.split(data["prs"][key]["into"] or key)[2])), None) for target in reach.get(key, {}).get("releases", ())}
+        if held and all(held.values()):
+            carried[key] = "; ".join(f"{target} on {row['env']} serves {row['commit'][:12]}" for target, row in held.items())
+    return carried
 
 
 def out_because(watcher: Watcher, data: dict, wait: str) -> str | None:
@@ -5620,7 +5632,7 @@ def folded_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def shipped_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """End the staging waits of each prover whose merges production already carries, by shipped, so a fix a hotfix or release put live never waits on a staging deploy, as j8152 and j8153 waited on frozen staging for fixes their hotfix had shipped; each prover freed, said once."""
+    """End the staging waits of each prover whose merges production already carries on every target that ships them, by shipped, so a fix a release put live never waits on a staging deploy, as j8152 and j8153 waited on frozen staging for fixes their hotfix had shipped; each prover freed, said once."""
     data = state.load(watcher.name)
     staged = {job_id: keys for job_id, job in data["jobs"].items() if job["state"] not in state.FINISHED_JOB_STATES and any(map(state.STAGING_WAIT.fullmatch, job["waits"])) and (keys := proves(data, job_id))}
     if not staged or not watcher.live:
