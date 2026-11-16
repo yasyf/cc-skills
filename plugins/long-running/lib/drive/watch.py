@@ -5108,12 +5108,15 @@ def standing_lines(watcher: Watcher, moment: datetime) -> list[str]:
     data = state.load(watcher.name)
     if not any(isinstance(gap, Restart) for gap in part_gaps(watcher, data, moment).values()):
         return []
-    with state.edit(watcher.name) as data:
+
+    def added_passes(data: dict) -> tuple[list[tuple[str, str]], list[tuple[tuple[str, str], str | None, str]]]:
         gaps = part_gaps(watcher, data, moment)
         checks = [key for key, gap in gaps.items() if isinstance(gap, Recheck)]
         for order_id, part in checks:
             data["orders"][order_id]["parts"][part]["check"].update(ran=state.stamp(moment), exit=None, said=None)
-        restarts = [(key, gap.last, added_pass(data, key, gap.last, moment)) for key, gap in gaps.items() if isinstance(gap, Restart) and not isinstance(gap, Recheck)]
+        return checks, [(key, gap.last, added_pass(data, key, gap.last, moment)) for key, gap in gaps.items() if isinstance(gap, Restart) and not isinstance(gap, Recheck)]
+
+    checks, restarts = state.update(watcher.name, None, added_passes)
     for order_id, part in checks:
         state.detach(watcher.name, ["order", "check", order_id, "--part", part], STANDING_CHECKS_LOG)
     return [launched_pass(watcher.name, *restart) for restart in restarts]
