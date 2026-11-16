@@ -1471,9 +1471,10 @@ def checks(watcher: Watcher, moment: datetime) -> None:
 
 def objections(watcher: Watcher) -> None:
     """Send through drive pr wake each NOT READY the check against his words keeps at a head of a PR the watch hears and faults, once a head and once to each job the PRs it faults belong to, while neither his Approve nor an open card of his holds any PR of its stack, by his_hold, so the finding wakes only a builder that owes a step now and waits on his Approve or question, never on his Hold or the hold label, which stop only its landing; the head told is kept as the PR's objected, outside its checker, so a check run again at that head, or a newer install dropping its checker, tells it no second time."""
-    told: dict[tuple[str, str], tuple[str, str, list[str]]] = {}
     moment = state.now()
-    with state.edit(watcher.name) as data:
+
+    def objections_write(data: dict) -> dict[tuple[str, str], tuple[str, str, list[str]]]:
+        told: dict[tuple[str, str], tuple[str, str, list[str]]] = {}
         stacks = land.landing_stacks(data)
         for key in state.open_pr_keys(data):
             pr = data["prs"][key]
@@ -1485,7 +1486,9 @@ def objections(watcher: Watcher) -> None:
                 continue
             pr["objecting"] = {"head": pr["head"], "at": state.stamp(moment)}
             told.setdefault((stage.owner_job(data, key) or pr["job"], pr["checker"]["outcome"]), (key, f"PR {key}: {pr['checker']['outcome']} {ids(pr)}", []))[2].append(f"objected:{key}@{pr['head']}")
-    for key, line, marks in told.values():
+        return told
+
+    for key, line, marks in state.update(watcher.name, None, objections_write).values():
         stage.wake(watcher.name, key, line, marks=marks, at=state.stamp(moment))
 
 
