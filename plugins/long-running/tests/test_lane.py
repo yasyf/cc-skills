@@ -804,3 +804,15 @@ def test_his_word_to_a_running_lane_reaches_its_owner_at_every_tool_call_until_a
     answered("a")
     assert not store.asks_path(DRIVE, "a").exists()
     assert called({}) == ""
+
+
+def test_an_owner_started_before_the_asks_hook_gets_his_word_in_its_note(world: dict) -> None:
+    opened("a")
+    answered("a")
+    store.update(DRIVE, "a", lambda lane: lane["owner"].pop("asks_hook"))
+    verbs.message(DRIVE, "a", "lets change our topologies", None, "1794872633.408209")
+    assert "lets change our topologies" in store.note_path(DRIVE, "a").read_text()
+    opened("b")
+    answered("b")
+    verbs.message(DRIVE, "b", "and this one", None, "1794872633.408300")
+    assert not store.note_path(DRIVE, "b").exists()

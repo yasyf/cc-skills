@@ -165,7 +165,7 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
                     continue
             woke = f"its owner's lease lapsed ({old.get('session') or 'never started'}); you take over from the lane file" if old else lane["wait"].get("fired_why", "woken")
             token = store.new_token()
-            lane["state"], lane["wait"], lane["owner"] = store.RUNNING, None, {"token": token, "started": store.stamp(moment), "woke": woke}
+            lane["state"], lane["wait"], lane["owner"] = store.RUNNING, None, {"token": token, "started": store.stamp(moment), "woke": woke, "asks_hook": True}
             store.note(lane, f"owner {token} starts: {woke}")
             starts.append({"lane": lane_id, "token": token, "old": old, "woke": woke})
         return starts

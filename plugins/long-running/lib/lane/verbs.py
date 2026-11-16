@@ -122,7 +122,7 @@ def unpark(drive: str, lane_id: str) -> None:
 
 
 def take_messages(drive: str, lanes: dict[str, dict], lane_id: str, asks: list[dict], cap: int) -> int:
-    """Append his messages and taps to a lane by ts, once each, and keep his presence from their Slack ts by store.heard, the one inbound path for his words. A parked lane unparks on his word, since his ask would otherwise wait unanswered; past the cap the check names it. The count appended."""
+    """Append his messages and taps to a lane by ts, once each, and keep his presence from their Slack ts by store.heard, the one inbound path for his words. An owner started before its hook read his unanswered words, which fires only on the handover note, gets each one appended to that note whole, so it reads it at its next tool call. A parked lane unparks on his word, since his ask would otherwise wait unanswered; past the cap the check names it. The count appended."""
     lane = lanes[lane_id]
     known = {ask.get("ts") for ask in lane.get("asks", []) if ask.get("ts")}
     fresh = [ask for ask in asks if not ask.get("ts") or ask["ts"] not in known]
@@ -130,6 +130,9 @@ def take_messages(drive: str, lanes: dict[str, dict], lane_id: str, asks: list[d
         return 0
     lane["asks"] = [*lane.get("asks", []), *fresh]
     store.heard(drive, fresh)
+    if lane["state"] == store.RUNNING and not (lane.get("owner") or {}).get("asks_hook"):
+        with store.note_path(drive, lane_id).open("a") as note:
+            note.write("".join(f"His words to this lane at {ask['at']}{', ' + ask['link'] if ask.get('link') else ''}, not answered yet: answer them with `lane say` now.\n{ask['words']}\n\n" for ask in fresh))
     if lane["state"] == store.PARKED:
         woken(lane, "his word in a parked lane")
         store.note(lane, f"unparked by his word{'' if len(store.active(lanes)) <= cap else f'; {len(store.active(lanes))} lanes are active, over the cap of {cap}'}")

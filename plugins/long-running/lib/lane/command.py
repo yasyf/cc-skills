@@ -82,7 +82,7 @@ def note_hook(drive: str, lane_id: str) -> int:
         said = "\n\n".join(f"[{ask['at']}{', ' + ask['link'] if ask.get('link') else ''}]\n{ask['words']}" for ask in waiting)
         shown.append(f"He wrote to lane {lane_id} while you run, and it is not answered yet. Reply now with `lane say \"<your answer>\"`, before your next step; this shows at every tool call until you do:\n\n{said}")
     if path.is_file():
-        shown.append(f"Handover for lane {lane_id}, set while you run; it is no ask of his and wants no reply:\n{path.read_text()}")
+        shown.append(f"Note for lane {lane_id}, set while you run. Read it now; any words of his in it are owed an answer with `lane say` before your next step:\n{path.read_text()}")
         path.unlink()
     if shown:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "\n\n".join(shown)}}))
