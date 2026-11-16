@@ -1371,7 +1371,7 @@ class LocalTest(LaunchTest):
         self.assert_refused(self.launch, self.launch.run(model="gpt-6.1-sol", WORKER_LOCAL="1"), "the local route starts only claude, and codex runs gpt-6.1-sol; nothing launched", [])
 
     def test_the_local_route_refuses_sprite_checkout_settings(self):
-        refused = "WORKER_REF, WORKER_EXPECT_BASE and WORKER_SESSION pick a Sprite's checkout or session; the local route takes WORKER_BASE_BRANCH, or WORKER_WORKSPACE to continue in a worktree; nothing launched"
+        refused = "WORKER_REF, WORKER_EXPECT_BASE, WORKER_SESSION and WORKER_TRANSCRIPT pick a Sprite's checkout or session; the local route takes WORKER_BASE_BRANCH, or WORKER_WORKSPACE to continue in a worktree; nothing launched"
         for env, line in (
             ({"WORKER_REF": "dev"}, refused),
             ({"WORKER_EXPECT_BASE": BASE}, refused),

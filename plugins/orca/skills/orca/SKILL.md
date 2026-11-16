@@ -211,7 +211,8 @@ explicit local worktree route. Do not pass it as the remote branch, strip
 arbitrary prefixes, or replace the requested ref with a commit ID from a local
 prelookup. The prepared record's `baseCommit` is the actual VM base. Setting
 `WORKER_BASE_BRANCH` on the remote route refuses; `WORKER_REF`,
-`WORKER_EXPECT_BASE` and `WORKER_SESSION` refuse on the local route.
+`WORKER_EXPECT_BASE`, `WORKER_SESSION` and `WORKER_TRANSCRIPT` refuse on the local
+route.
 
 `WORKER_WORKSPACE` names a recorded cc-remote workspace to continue, such as the
 Sprite of a lane that died holding work on no remote. The launcher then calls
@@ -221,7 +222,11 @@ worker starts in that Sprite's checkout as it was left, and it takes no
 `<brief-stem>.worker.<n>`, leaving that Sprite claimed with its idle terminal.
 `WORKER_SESSION`, with `WORKER_WORKSPACE`, names a Claude session on that
 Sprite, and the launcher adds `--resume <session>`, so the worker resumes that
-session with its whole conversation instead of starting a new one. On the
+session with its whole conversation instead of starting a new one.
+`WORKER_TRANSCRIPT`, with no `WORKER_WORKSPACE`, is a kept
+`<session-id>.jsonl` transcript, and the launcher adds `--resume-transcript
+<file>`, so the worker on the fresh Sprite resumes that session, which needs
+cc-remote 0.27.55 or later. On the
 local route `WORKER_WORKSPACE` is the absolute path of a worktree Orca lists,
 such as the one holding a lane's PR branch, which git checks out in no other
 worktree: the launcher cuts no worktree, opens a terminal in that one and starts
