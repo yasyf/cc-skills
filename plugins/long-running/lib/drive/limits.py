@@ -372,6 +372,7 @@ STAMPED = {
     ),
 }
 SENTENCE_END = re.compile(r"[.;!?]+[*_~)\]]*(?=\s|$)")
+SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|(?<=[.!?][*_~)\]])\s+|\n+")
 BACKTICKED = re.compile(r"`[^`\n]*`")
 SOURCE_LINK = re.compile(r"https?://|\{record:")
 SOURCED_LINE = re.compile(rf"^.*(?:{SOURCE_LINK.pattern}).*$", re.MULTILINE)

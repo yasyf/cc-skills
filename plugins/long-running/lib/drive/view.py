@@ -92,7 +92,6 @@ TAP_CLAIM = re.compile(
     r"(?<!not )(?<!n't )(?<!never )\b(?:wait\w*|await\w*|needs?|owed?|pending|blocked|holds|holding)\b(?:(?!\b(?:no|not|never|without)\b)[^.!?\n]){0,40}?\b(?:tap|(?:his|your) approv(?:e|al))\b",
     re.IGNORECASE,
 )
-SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n")
 TAP_CLAIM_RULING = 'his Nov 11 1:51 PM words "Again you fucking told me something waits for my tap and didn\'t give me something to tap"'
 
 
@@ -675,7 +674,7 @@ def tap_claim_refusal(data: dict, order_id: str, text: str, pr_cards: list[dict]
 def tap_claims(text: str) -> list[tuple[str, str]]:
     """Each sentence of the text's lines and each row of its tables, as read, its links by their words and a row's cells each under its header, beside it as written."""
     lines = text.splitlines()
-    sentences = [(SLACK_LINK.sub(r"\1", sentence), sentence) for sentence in SENTENCE_BREAK.split(limits.untabled(text))]
+    sentences = [(SLACK_LINK.sub(r"\1", sentence), sentence) for sentence in limits.SENTENCE_BREAK.split(limits.untabled(text))]
     rows = [
         (". ".join(f"{head}: {cell}" for head, cell in zip(shown[0], row, strict=False)), "|".join(written))
         for shown, table in zip(limits.tables([SLACK_LINK.sub(r"\1", line) for line in lines]), limits.tables(lines), strict=True)

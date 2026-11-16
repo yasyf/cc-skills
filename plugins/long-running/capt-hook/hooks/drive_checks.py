@@ -116,7 +116,7 @@ GUESSED_CLAIMS = [{"claim": GUESSED, "read": "cloudrunner/inbox.go"}]
 CLOUD_READ = 'ccx_code_read {"path": "go/sand/next/internal/cloudrunner/inbox.go"}\n57  rows, err := r.postgres.Query(ctx, selectInbox, agentID)'
 NOT_READ = 'none: no call of the handler\'s own holds "cloudrunner/inbox.go"'
 HELD_BACK = "Jev held back this post: claim \"The cloud's inbox reader queries Postgres straight.\" does not stand on its read."
-UNSURE = "message_limits: this post goes out as written; Jev is unsure of finding he is away: if one is wrong, reword the post in place."
+UNSURE = "message_limits: this post goes out as written; Jev is unsure of whether it reaches past the work of his thread: if one is wrong, reword the post in place."
 UNROOMED = (
     "refused: no Jev request of 10,000 characters holds these parts whole beside the post's 1,678 characters, largest first:"
     ' record:716852 "716852" beside the 5 claims naming it, 12,936.'
@@ -135,11 +135,11 @@ def handler_reads(read: str) -> str:
     return json.dumps({"his_words": [], "reads": [named], "post": {"text": GUESSED, "thread_ts": THREAD, "claims": [{"claim": GUESSED, "read": "read:1"}]}})
 
 
-def refused_post(text: str, reason: str, counted: str = "") -> dict:
-    """What message_limits.py hands Jev for a say post one finding refuses, beside the rule that finding stands for, and the finding again as counted when a count or a mark decides it."""
+def refused_post(text: str, reason: str) -> dict:
+    """What message_limits.py hands Jev for a say post one finding refuses, beside the rule that finding stands for."""
     denied = {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}
     findings = [{"rule": reason, "found": reason}]
-    return {"hookSpecificOutput": denied, "rule": reason, "findings": findings, "his_words": [], "reads": [], "post": {"text": text}} | ({"counted": counted} if counted else {})
+    return {"hookSpecificOutput": denied, "rule": reason, "findings": findings, "his_words": [], "reads": [], "post": {"text": text}}
 
 
 def state_root() -> Path:
@@ -374,7 +374,7 @@ def refused(evt: BaseHookEvent, reason: str, verdict: dict) -> HookResult | None
 
 
 def judged(evt: BaseHookEvent, output: dict) -> HookResult | None:
-    """Jev's verdict on a post the drive's checks hand with his words, as settled.post_verdict weighs it, before the post goes out: a held post stays back; a warning, such as a verdict Jev could not finish, goes out beside the post with what the checks heard."""
+    """Jev's verdict on a post the drive's checks hand with his words, as settled.post_verdict weighs it, before the post goes out: a held post stays back; a warning, such as a verdict Jev could not finish on a post no check refused, goes out beside the post with what the checks heard."""
     heard = (output.get("hookSpecificOutput") or {}).get("additionalContext") or ""
     verdict = weighed(evt, {"post": output})
     if verdict["verdict"] == "hold":
@@ -529,7 +529,7 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             transcript=COMMUNICATOR_TURN,
             file=HIS_DM_HOME,
             commands=verdict("warn", UNSURE),
-        ): Warn(pattern="Jev is unsure of finding he is away"),
+        ): Warn(pattern="Jev is unsure of whether"),
         Input(
             tool=SAY,
             tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
@@ -562,7 +562,7 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             agent_id="a1",
             agent_type=HANDLER,
             transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": json.dumps(refused_post("The fix merged.", AWAY, AWAY)), **verdict("hold", AWAY)},
+            commands={"python3 -I": json.dumps(refused_post("The fix merged.", AWAY)), **verdict("hold", AWAY)},
         ): Block(pattern="he is away"),
     },
 )
