@@ -1014,8 +1014,20 @@ def release_post(name: str, data: dict, job_id: str, text: str, body: str, recor
     return seq
 
 
+def testing_on(data: dict, env: str) -> list[str]:
+    """The jobs testing on what a staging env serves now: each unfinished job whose waits or last return name staging serving a commit on that env, and each item of the work queue's cut on it, or of its prove queue on the drive's staging env, that a worker runs now, claimed and waiting on nothing but that worker; never an item a worker holds that has not started, waiting on more, as j8242 was handed API-1NQ1 on a cut it had not run."""
+    def names_env(job: dict) -> bool:
+        return any((found := state.STAGING_WAIT.fullmatch(token)) and found["env"] == env for token in [*job["waits"], *(job["said"] or "").split("\n", 1)[0].split()])
+
+    slot = data["slots"].get(env) or {"holder": None}
+    queued = [*state.slot_members(slot), *((job_id for job_id, job in data["jobs"].items() if work.KIND[work.PROVE].matches(data, job)) if env == work.env(data) else ())]
+    running = [job_id for job_id in queued if (worker := (data["jobs"][job_id].get("claim") or {}).get("worker")) and data["jobs"][job_id]["waits"] == [worker]]
+    named = [job_id for job_id, job in data["jobs"].items() if job["state"] not in state.FINISHED_JOB_STATES and not work.worker(job) and names_env(job)]
+    return [job_id for job_id in dict.fromkeys([*named, *running]) if data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES]
+
+
 def env_alert_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Hand each new alert in a staging env's alert channel, as drive channels --env-alerts names it, to each job testing on that env, the holder of its drive slot and a job its slot's hold is for, as one handoff record with the alert's link and words, keyed by env, alert and job so none is handed twice, by his words "if a lane is doing staging tests it should automatically get the things posted in alerts-staging channel sent to it": the slot decides who gets it, never a judgment. Each env's channel is read at most once every ENV_ALERT_EVERY, from the newest alert it read; a read or post that fails goes again next read, said from its third failure in a row."""
+    """Hand each new alert in a staging env's alert channel, as drive channels --env-alerts names it, to each job testing on what that env serves now, by testing_on, as one handoff record with the alert's link and words, keyed by env, alert and job so none is handed twice, by his words "if a lane is doing staging tests it should automatically get the things posted in alerts-staging channel sent to it": the slot decides who gets it, never a judgment. Each env's channel is read at most once every ENV_ALERT_EVERY, from the newest alert it read; a read or post that fails goes again next read, said from its third failure in a row."""
     if watcher.project:
         return []
     data = state.load(watcher.name)
@@ -1033,8 +1045,7 @@ def env_alert_lines(watcher: Watcher, moment: datetime) -> list[str]:
         fresh = sorted((message for message in read if float(message["ts"]) > float(watched["seen"]) and not message.get("from_claude") and not message.get("from_user")), key=lambda message: float(message["ts"]))
         if not fresh:
             continue
-        slot = data["slots"].get(env) or {}
-        testing = [job for job in dict.fromkeys([*(state.slot_members(slot) if slot.get("holder") else []), (slot.get("holder") or {}).get("work")]) if job in data["jobs"] and data["jobs"][job]["state"] not in state.FINISHED_JOB_STATES]
+        testing = testing_on(data, env)
         try:
             for message in fresh:
                 for job_id in testing:

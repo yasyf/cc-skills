@@ -12598,11 +12598,13 @@ def test_a_wait_on_a_stopped_job_reads_as_one_on_the_job_that_took_its_part_and_
     }
 
 
-def test_each_new_alert_in_a_staging_envs_channel_goes_once_to_each_job_testing_on_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_each_new_alert_in_a_staging_envs_channel_goes_once_to_each_job_testing_on_what_it_serves_never_to_a_cut_item_not_yet_started_as_j8242_was(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     with edit(demo) as data:
-        data["jobs"]["j2"] = job()
+        data["jobs"]["j1"].update(state="waiting", waits=["j9"], claim={"worker": "j9", "attempt": 1, "at": state.stamp(T0)})
+        data["jobs"]["j2"] = job(state="waiting", waits=["j9", "j4"], claim={"worker": "j9", "attempt": 1, "at": state.stamp(T0)})
         data["jobs"]["j3"] = job(state="done")
-        data["slots"]["plat-usw2-staging"] = {"holder": {"job": "j1", "riders": [{"job": "j2"}, {"job": "j3"}]}}
+        data["jobs"]["j5"] = job(waits=[f"staging:api/plat-usw2-staging@{'a' * 40}"])
+        data["slots"]["plat-usw2-staging"] = {"holder": {"job": "j1", "riders": [{"job": "j2"}, {"job": "j3"}], "work": "j9"}}
         data["slack"]["env_alerts"]["plat-usw2-staging"] = {"channel": "C0ALERTS", "seen": "1800000000.000000"}
     history = [
         {"ts": "1800000200.000000", "user_name": "Sentry", "from_claude": False, "from_user": None, "text": "[api] TypeError: boom\nmore", "permalink": "https://acme.slack.com/archives/C0ALERTS/p1800000200000000"},
@@ -12615,9 +12617,9 @@ def test_each_new_alert_in_a_staging_envs_channel_goes_once_to_each_job_testing_
     watcher = watch.Watcher(demo, offset=state.events_end(demo))
 
     lines = watch.env_alert_lines(watcher, T0)
-    assert lines == ["WATCH alert in plat-usw2-staging handed to j1, j2: https://acme.slack.com/archives/C0ALERTS/p1800000200000000"]
-    assert [argv[argv.index("--id") + 1] for argv in sent] == ["alert-plat-usw2-staging-1800000200.000000-j1", "alert-plat-usw2-staging-1800000200.000000-j2"]
-    assert [argv[argv.index("--to") + 1] for argv in sent] == ["j1@demo", "j2@demo"]
+    assert lines == ["WATCH alert in plat-usw2-staging handed to j5, j1: https://acme.slack.com/archives/C0ALERTS/p1800000200000000"]
+    assert [argv[argv.index("--id") + 1] for argv in sent] == ["alert-plat-usw2-staging-1800000200.000000-j5", "alert-plat-usw2-staging-1800000200.000000-j1"]
+    assert [argv[argv.index("--to") + 1] for argv in sent] == ["j5@demo", "j1@demo"]
     assert sent[0][sent[0].index("--text") + 1].startswith("ALERT in plat-usw2-staging, which you are testing on: Sentry: [api] TypeError: boom https://acme.slack.com/archives/C0ALERTS/p1800000200000000")
     assert state.load(demo)["slack"]["env_alerts"]["plat-usw2-staging"]["seen"] == "1800000200.000000"
     assert watch.env_alert_lines(watcher, T0 + watch.ENV_ALERT_EVERY) == [] and len(sent) == 2
