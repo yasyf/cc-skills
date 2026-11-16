@@ -417,10 +417,13 @@ def asked_words(tool_input: dict, messages: list[dict], linked: dict[str, dict])
 
 def heard_him(drive: dict, messages: list[dict], linked: dict[str, dict]) -> None:
     """Record him heard at the newest message of his a post answers, in its thread since the bot's last post there or linked by its asked, when the drive last heard him before it: his message in a handler's thread reaches that handler alone, never the communicator, whose handler start records the rest, so this keeps him present while he writes."""
-    said = [slack.sent_at(message) for message in unanswered(messages)] + [datetime.fromisoformat(word["said_at"]) for word in linked.values()]
-    last = (drive.get("owner") or {}).get("heard")
-    if said and (last is None or max(said) > state.parse_time(last)):
-        watch.hear(drive["name"], max(said))
+    said = [(slack.sent_at(message), f"slack:{slack.dm()}/{message['ts']}") for message in unanswered(messages)]
+    said += [(datetime.fromisoformat(word["said_at"]), entry.strip().strip("<>")) for entry, word in linked.items()]
+    if not said:
+        return
+    moment, link = max(said)
+    if (last := (drive.get("owner") or {}).get("heard")) is None or moment > state.parse_time(last):
+        watch.hear(drive["name"], link)
 
 
 def unanswered(messages: list[dict]) -> list[dict]:

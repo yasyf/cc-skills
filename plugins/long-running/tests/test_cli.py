@@ -59,6 +59,12 @@ cat >"{request}"
 cat "{answer}"
 """
 REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
+
+
+def his_message(moment: datetime) -> str:
+    return f"https://acme.slack.com/archives/D123/p{moment.timestamp():.6f}".replace(".", "")
+
+
 ROOT_CAUSE = "Root cause: none: where a copy runs is a pick between two designs, with no defect behind it\n"
 HOLDS = "Holds: none: no option changes code any job builds\n"
 UNSTAGED = "STAGING: none: it changes no path AGENTS.md calls dangerous\n"
@@ -325,9 +331,9 @@ def test_heard_returns_one_word_whatever_sub_coordinator_his_thread_is_filed_und
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", "demo", "--role", "coordinator", "--project", "Iris")
-    assert run("heard") == (0, "heard")
-    assert tools.run("heard", "demo", {}) == "heard"
-    assert tools.run("heard", "demo", {"away": True}) == "away"
+    assert run("heard", "--by", his_message(state.now() - timedelta(minutes=2))) == (0, "heard")
+    assert tools.run("heard", "demo", {"by": his_message(state.now() - timedelta(minutes=1))}) == "heard"
+    assert tools.run("heard", "demo", {"by": his_message(state.now()), "away": True}) == "away"
     with pytest.raises(state.DriveError, match="drive heard takes no thread"):
         tools.run("heard", "demo", {"thread": "1794200000.000100"})
 
@@ -11045,13 +11051,40 @@ def test_status_names_the_open_incidents_and_tells_no_running_job_of_a_restarted
 def test_heard_prints_one_word_with_orders_in_use(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the watch")
     run("order", "add", "--title", "Short title", "--project", "Billing", "--workstream", "Invoices", "why is the invoice late?")
-    assert run("heard") == (0, "heard")
-    assert run("heard", "--away") == (0, "away")
+    assert run("heard", "--by", his_message(state.now() - timedelta(minutes=1))) == (0, "heard")
+    assert run("heard", "--by", his_message(state.now()), "--away") == (0, "away")
     assert "in_use" not in json.loads(run("heard", "--json")[1])
 
 
+def test_bare_heard_reads_when_he_was_last_heard_and_what_heard_him_writing_nothing(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+    assert run("heard") == (0, "never heard: the drive holds no word or tap of his")
+    assert state.load(demo)["owner"]["heard"] is None
+    said = state.now() - timedelta(minutes=5)
+    assert run("heard", "--by", his_message(said)) == (0, "heard")
+    owner = state.load(demo)["owner"]
+    assert (owner["heard"], owner["by"]) == (state.stamp(said.replace(microsecond=0)), his_message(said))
+    code, out = run("heard")
+    assert (code, out.splitlines()[1]) == (0, f"set by his message {his_message(said)}")
+    assert state.load(demo)["owner"] == owner
+    assert [event["by"] for event, _ in state.read_events(demo) if event["kind"] == "heard"] == [his_message(said)]
+    assert cli.main(["heard", "--away"]) == 2
+    assert "recording him heard needs --by <the Slack permalink of his message>" in capsys.readouterr().err
+    assert state.load(demo)["owner"] == owner
+
+
+def test_his_message_heard_again_such_as_a_restarted_handlers_brief_keeps_the_stamp_it_set_at_its_own_time(run: Run, demo: str) -> None:
+    said = state.now() - timedelta(minutes=40)
+    assert run("heard", "--by", his_message(said)) == (0, "heard")
+    owner = state.load(demo)["owner"]
+    assert run("heard", "--by", his_message(said)) == (0, "unchanged")
+    assert run("heard", "--by", his_message(said - timedelta(minutes=1))) == (0, "unchanged")
+    assert state.load(demo)["owner"] == owner
+    assert state.absence(state.load(demo), state.now()) == "he last wrote or tapped 40 minutes ago"
+
+
 def test_heard_last_takes_back_a_tap_that_was_not_his_so_he_reads_away_an_hour_after_his_last_word(run: Run, demo: str) -> None:
-    assert run("heard") == (0, "heard")
+    with state.edit(demo) as data:
+        data["owner"] |= {"heard": state.stamp(), "away": state.stamp(state.now() + state.AWAY_AFTER), "by": None}
     taken = state.load(demo)["owner"]["heard"]
     last = state.stamp(state.parse_time(taken) - timedelta(minutes=75))
     assert cli.main(["heard", "--last", last]) == 2
@@ -11065,35 +11098,44 @@ def test_heard_last_takes_back_a_tap_that_was_not_his_so_he_reads_away_an_hour_a
     assert state.load(demo)["owner"]["heard"] == last
 
 
+def test_heard_last_never_takes_back_a_stamp_his_own_message_set_and_names_it(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+    said = state.now() - timedelta(minutes=2)
+    assert run("heard", "--by", his_message(said)) == (0, "heard")
+    owner = state.load(demo)["owner"]
+    assert cli.main(["heard", "--last", state.stamp(said - timedelta(minutes=30)), "--why", "my own bare call"]) == 2
+    assert f"by his message {his_message(said)}, his own word, which --last never takes back" in capsys.readouterr().err
+    assert state.load(demo)["owner"] == owner
+
+
 def test_heard_reads_nothing_from_github_so_a_refusal_there_never_leaves_him_unheard(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the watch")
     monkeypatch.setattr(github, "run", lambda *args, **kwargs: pytest.fail("drive heard read GitHub"))
     monkeypatch.setattr(card, "run", lambda *args, **kwargs: pytest.fail("drive heard read GitHub"))
-    assert run("heard") == (0, "heard")
+    assert run("heard", "--by", his_message(state.now())) == (0, "heard")
     assert state.load(demo)["owner"]["heard"] is not None
 
 
 def test_heard_refuses_his_words_repeating_a_part_no_live_job_carries(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "ship the unfurl fix and its check", "--parts", "fix", "check")
-    assert run("heard")[0] == 0
+    assert run("heard", "--by", his_message(state.now() - timedelta(minutes=9)))[0] == 0
     owner = state.load("demo")["owner"]
-    assert cli.main(["heard", "--repeats", "o1", "--part", "fix"]) == 2
+    assert cli.main(["heard", "--by", his_message(state.now() - timedelta(minutes=8)), "--repeats", "o1", "--part", "fix"]) == 2
     refusal = capsys.readouterr().err
     assert 'his words repeat o1 "ship the unfurl fix and its check", part "fix", and no running, waiting or built job or open card of his carries it' in refusal
     assert 'start its job with drive job add <kind> --order o1 --part <part> --goal "<its deliverable>", file a defect with this refusal verbatim' in refusal
     assert state.load("demo")["owner"] == owner
-    assert cli.main(["heard", "--part", "fix"]) == 2
+    assert cli.main(["heard", "--by", his_message(state.now() - timedelta(minutes=7)), "--part", "fix"]) == 2
     assert "pass --repeats <o> with it" in capsys.readouterr().err
-    assert cli.main(["heard", "--repeats", "o1"]) == 2
+    assert cli.main(["heard", "--by", his_message(state.now() - timedelta(minutes=6)), "--repeats", "o1"]) == 2
     assert 'o1 has parts "fix", "check"; name the one this covers with --part' in capsys.readouterr().err
     run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "ship the fix")
-    assert run("heard", "--repeats", "o1", "--part", "fix")[1].splitlines()[0] == "heard"
+    assert run("heard", "--by", his_message(state.now() - timedelta(seconds=59)), "--repeats", "o1", "--part", "fix")[1].splitlines()[0] == "heard"
     with state.edit("demo") as data:
         data["jobs"]["j1"]["state"] = "waiting"
-    assert run("heard", "--repeats", "o1", "--part", "fix")[0] == 0
+    assert run("heard", "--by", his_message(state.now() - timedelta(seconds=58)), "--repeats", "o1", "--part", "fix")[0] == 0
     with state.edit("demo") as data:
         data["jobs"]["j1"]["state"] = "done"
-    assert cli.main(["heard", "--repeats", "o1", "--part", "fix"]) == 2
+    assert cli.main(["heard", "--by", his_message(state.now() - timedelta(seconds=55)), "--repeats", "o1", "--part", "fix"]) == 2
 
 
 def test_heard_takes_a_part_a_done_jobs_card_still_open_waits_on(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -11105,10 +11147,10 @@ def test_heard_takes_a_part_a_done_jobs_card_still_open_waits_on(run: Run, demo:
     question = {"question": "Which unfurl?", "options": ["Bot", "Link"], "recommended": "Bot", "asked": state.stamp(), "url": DESIGN_CARD, "card": {"title": "Which unfurl?"}}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [question], "pr_cards": [], "closed": []})
     view.refresh_cards("demo")
-    assert run("heard", "--repeats", "o1", "--part", "fix")[1].splitlines()[0] == "heard"
+    assert run("heard", "--by", his_message(state.now() - timedelta(seconds=57)), "--repeats", "o1", "--part", "fix")[1].splitlines()[0] == "heard"
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"][-1]["closed"] = state.new_close("answered", "Bot", DESIGN_CARD)
-    assert run("heard", "--repeats", "o1", "--part", "fix")[0] == 2
+    assert run("heard", "--by", his_message(state.now() - timedelta(seconds=56)), "--repeats", "o1", "--part", "fix")[0] == 2
 
 
 def test_drive_move_takes_his_word_records_it_on_the_role_and_prints_steps_two_to_four(

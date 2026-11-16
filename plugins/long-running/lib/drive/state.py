@@ -246,6 +246,9 @@ DAY_OFFSETS = {"yesterday": -1, "today": 0, "tonight": 0, "tomorrow": 1}
 OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 AWAY_AFTER = timedelta(minutes=60)
 PRESENT_WITHIN = timedelta(minutes=15)
+HEARD_TAP = "tap:"
+HEARD_TERMINAL = "terminal"
+TAKEN_BACK = "unheard:"
 QUIET_THREAD = timedelta(minutes=5)
 PRESENCE_WORDS = '"merging or rleasing dangerous things should only be done wehn the human is present"'
 TAKEN_BY_PASS = "its staging test passed after your Approve"
@@ -812,7 +815,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "subcoordinators": {},
         "handlers": {},
         "slack": {"page": None, "watch": [], "swept": None, "waiting": {}},
-        "owner": {"heard": None, "away": None, "absence": None},
+        "owner": {"heard": None, "away": None, "absence": None, "by": None},
         "orders": {},
         "jobs": {},
         "prs": {},
@@ -1260,6 +1263,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data.pop("resumable", None)
     data.setdefault("posted", {})
     data["owner"].setdefault("absence", None)
+    data["owner"].setdefault("by", None)
     if isinstance(away := data["owner"]["away"], bool):
         data["owner"]["away"] = (heard := data["owner"]["heard"]) and stamp(parse_time(heard) + (timedelta() if away else AWAY_AFTER))
     data.setdefault("mains", {})
@@ -5198,6 +5202,30 @@ def absence(data: dict, moment: datetime) -> str | None:
     if (quiet := moment - parse_time(heard)) < PRESENT_WITHIN:
         return None
     return f"he last wrote or tapped {int(quiet.total_seconds() // 60)} minutes ago"
+
+
+def tap_heard(ask: dict) -> str:
+    """The owner row's by for his tap on a card, as the record his card tap posts as is named: the card's waits id, else the PR it answers, and Slack's action ts, which only a tap Slack delivered carries."""
+    card = ask["waits"] or f"{ask['repo']}#{ask['number']}"
+    return f"{HEARD_TAP}{card}:{ask['action_ts']}" if ask["action_ts"] else f"{HEARD_TAP}{card}"
+
+
+def his_word(by: str | None) -> bool:
+    """Whether the owner row's by names his own word: a message of his by its Slack permalink or slack: source, a tap Slack delivered, or his words typed in the communicator's terminal; a tap with no Slack action, such as a dashboard click a job can make, a take-back or a row kept before by existed names none."""
+    if not by or by.startswith(TAKEN_BACK):
+        return False
+    if by.startswith(HEARD_TAP):
+        return TAP_ID.fullmatch(by) is not None
+    return by == HEARD_TERMINAL or slack_message(by) is not None
+
+
+def heard_at(by: str) -> datetime | None:
+    """When the word of his a source names was said, by its own Slack ts, his message's or his tap's action, so a brief handed again or a tap delivered again never reads as a new word; None for words typed in the communicator's terminal, heard as they are typed, and for a source naming no word of his."""
+    if by == HEARD_TERMINAL or not his_word(by):
+        return None
+    if tapped := tap_time(by):
+        return parse_time(tapped)
+    return datetime.fromtimestamp(float(slack_message(by)[1])).astimezone()
 
 
 def present(data: dict, since: datetime, moment: datetime) -> timedelta:

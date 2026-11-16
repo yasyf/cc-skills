@@ -4662,30 +4662,36 @@ def orphan_lines(watcher: Watcher, moment: datetime, said: type | tuple[type, ..
     return lines
 
 
-def hear(name: str, moment: datetime, away: bool = False) -> dict:
-    """Record him heard at moment, by his words or his tap on a card, the owner row keeping the moment he reads away from, moment itself with away, else an hour later; when he was away, keep that absence on the owner row, from when he went away, the moment he read away from and moment, which state.present reads, and, when a report was held for his return, owe him the catch-up at his DM root, which keeps the time of the first such absence it covers, and give each held report no post carried yet to the next line of its thread, by held_report_lines, or to that catch-up, so the relay posts both within RELAY_SECONDS; no order's news is marked told, since only its own thread's line tells it, by his words c91b1a9 "stop telling me about the whole drive I never asked for that"."""
+def hear(name: str, by: str, away: bool = False) -> dict:
+    """Record him heard by by, his message, his tap on a card or his words typed in the communicator's terminal as state.his_word reads it, at the moment state.heard_at reads from its own Slack ts, never the moment of the call, so a brief handed again or a tap delivered again keeps the stamp his word set; only a word newer than the owner row's stamp changes it, each change kept with by as a heard event, and a source naming no word of his, such as a dashboard click a job can make, changes nothing, since presence lets a dangerous change merge or release, by his words 27ea387 "merging or rleasing dangerous things should only be done wehn the human is present". The owner row keeps by and the moment he reads away from, moment itself with away, else an hour later; when he was away, keep that absence on the owner row, from when he went away, the moment he read away from and moment, which state.present reads, and, when a report was held for his return, owe him the catch-up at his DM root, which keeps the time of the first such absence it covers, and give each held report no post carried yet to the next line of its thread, by held_report_lines, or to that catch-up, so the relay posts both within RELAY_SECONDS; no order's news is marked told, since only its own thread's line tells it, by his words c91b1a9 "stop telling me about the whole drive I never asked for that"."""
+    moment = (state.heard_at(by) or state.now()).replace(microsecond=0)
     with state.edit(name) as data:
-        back = state.owner_away(data, moment)
         owner = data["owner"]
         since = owner["heard"]
+        if not state.his_word(by) or since and moment <= state.parse_time(since):
+            return {"kept": False, "away": away, "back": False, "since": since, "catch_up": bool(data["catch_up"]), "held": []}
+        back = state.owner_away(data, moment)
         absence = {"since": since, "from": owner["away"], "until": state.stamp(moment)} if back and since else owner["absence"]
-        data["owner"] = {"heard": state.stamp(moment), "away": state.stamp(moment if away else moment + state.AWAY_AFTER), "absence": absence}
+        data["owner"] = {"heard": state.stamp(moment), "away": state.stamp(moment if away else moment + state.AWAY_AFTER), "absence": absence, "by": by}
         held = list(data["held"]) if back and since else []
         for seq in held:
             data["held"][seq]["record"] = None
         if held:
             data["catch_up"] = (data["catch_up"] or state.new_catch_up(since)) | {"record": None}
-    return {"away": away, "back": back, "since": since, "catch_up": bool(data["catch_up"]), "held": held}
+    state.append_event(name, "heard", heard=state.stamp(moment), by=by, away=away)
+    return {"kept": True, "away": away, "back": back, "since": since, "catch_up": bool(data["catch_up"]), "held": held}
 
 
 def unhear(name: str, last: datetime, why: str) -> dict:
-    """Take back what the drive heard of him after last, his last word or tap, such as a job's tap kept as his: the owner row reads him heard at last and away an hour after it, its absence kept, and the moment taken back is kept with why in the drive's events; refused when the drive heard nothing of him after last."""
+    """Take back what the drive heard of him after last, his last word or tap, such as a job's tap kept as his: the owner row reads him heard at last and away an hour after it, its absence kept, and the moment taken back is kept with why and what set it in the drive's events; refused when the drive heard nothing of him after last, or when his own message, tap or typed words set the stamp, by state.his_word."""
     with state.edit(name) as data:
-        taken = data["owner"]["heard"]
+        taken, by = data["owner"]["heard"], data["owner"]["by"]
         if not taken or last >= state.parse_time(taken):
             raise state.DriveError(f"refused, nothing changed: the drive last heard him at {taken}, so it heard nothing after {state.stamp(last)} to take back")
-        data["owner"] |= {"heard": state.stamp(last), "away": state.stamp(last + state.AWAY_AFTER)}
-    state.append_event(name, "unheard", heard=state.stamp(last), taken=taken, why=why)
+        if state.his_word(by):
+            raise state.DriveError(f"refused, nothing changed: the drive last heard him at {taken} {render.heard_by(by)}, his own word, which --last never takes back")
+        data["owner"] |= {"heard": state.stamp(last), "away": state.stamp(last + state.AWAY_AFTER), "by": f"{state.TAKEN_BACK}{why}"}
+    state.append_event(name, "unheard", heard=state.stamp(last), taken=taken, by=by, why=why)
     return {"heard": state.stamp(last), "taken": taken}
 
 

@@ -5525,6 +5525,12 @@ def settled_mark(text: str) -> tuple[str, Path | None]:
     return key, Path(file).expanduser().resolve() if file else None
 
 
+def heard_source(text: str) -> str:
+    if state.slack_message(text) is None:
+        raise argparse.ArgumentTypeError("--by takes the Slack permalink of his message, whose own time the drive hears him at")
+    return text
+
+
 def reopened_mark(text: str) -> tuple[str, str]:
     key, _, job_id = text.rpartition("=")
     if not key or not job_id:
@@ -5535,12 +5541,19 @@ def reopened_mark(text: str) -> tuple[str, str]:
 def heard(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     if args.last:
-        if not args.why or args.away or args.repeats or args.part:
-            raise DriveError("--last takes back what the drive heard after his last word or tap: it needs --why <whose taps or words they were>, and no --away, --repeats or --part")
+        if not args.why or args.away or args.repeats or args.part or args.by:
+            raise DriveError("--last takes back what the drive heard after his last word or tap: it needs --why <whose taps or words they were>, and no --by, --away, --repeats or --part")
         return emit(args, "unheard", watch.unhear(name, args.last, args.why))
+    if not args.by:
+        if args.away or args.repeats or args.part:
+            raise DriveError("refused, nothing changed: recording him heard needs --by <the Slack permalink of his message>; with no flag drive heard only reads when he was last heard")
+        owner = state.load(name)["owner"]
+        reading = render.owner_reading(owner)
+        return emit(args, f"{reading}\nset {render.heard_by(owner['by'])}" if reading else "never heard: the drive holds no word or tap of his", owner)
     if args.repeats or args.part:
         refuse_an_unheld_repeat(name, state.load(name), args.repeats, args.part)
-    return emit(args, "away" if args.away else "heard", watch.hear(name, state.now(), args.away))
+    kept = watch.hear(name, args.by, args.away)
+    return emit(args, ("away" if args.away else "heard") if kept["kept"] else "unchanged", kept)
 
 
 def page_owner(args: argparse.Namespace) -> int:
@@ -5566,8 +5579,9 @@ def handler(args: argparse.Namespace) -> int:
             f" `{render.cut(extra, 44)}` is more: a rule in a brief overrides its agent definition, so drop the line"
         )
     if re.search(rf"^{re.escape(agents.HIS_WORDS)}:", args.brief, re.MULTILINE):
-        watch.hear(name, state.now(), args.away)
-        if (link := agents.LINK.search(args.brief)) and (answered := answer_from_rows(name, link[1], agents.his_words(args.brief)))["answered"]:
+        link = agents.LINK.search(args.brief)
+        watch.hear(name, link[1] if link else state.HEARD_TERMINAL, args.away)
+        if link and (answered := answer_from_rows(name, link[1], agents.his_words(args.brief)))["answered"]:
             return emit(args, f"ANSWERED {answered['answered']}: the drive answered his message from its rows, so no handler started", answered)
     briefs = briefing(name, args.brief, args.answer) is not None
     owed = bool((named := agents.RECORD.search(args.brief)) and agents.posting(name, agents.shown(named[1])))
@@ -7360,8 +7374,9 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser(
         "heard",
         parents=both,
-        help="he wrote: record it, owing each report held while he was away to its thread's line and his catch-up at his DM root, which the watch's relay posts; prints heard, away, or unheard for --last, and nothing to act on",
+        help="with no flag, read when he was last heard and the message, tap or record that set it, writing nothing; with --by, he wrote: record it, owing each report held while he was away to its thread's line and his catch-up at his DM root, which the watch's relay posts; prints heard, away, unchanged, or unheard for --last, and nothing to act on",
     )
+    verb.add_argument("--by", type=heard_source, metavar="PERMALINK", help="the Slack permalink of his message: every write needs it, and the drive hears him at that message's own time, changing nothing when it heard a later word already, which prints unchanged")
     verb.add_argument("--away", action="store_true", help="he said he is going to sleep or away")
     verb.add_argument(
         "--repeats",
@@ -7373,7 +7388,7 @@ def parser() -> argparse.ArgumentParser:
         "--last",
         type=state.parse_time,
         metavar="TIME",
-        help="when his last word or tap was, as an ISO time: what the drive heard after it was not his, such as a job's test tap, so he reads heard then and away an hour later; refused when the drive heard nothing after it",
+        help="when his last word or tap was, as an ISO time: what the drive heard after it was not his, such as a job's test tap, so he reads heard then and away an hour later; refused when the drive heard nothing after it, or when his own message, tap or typed words set the stamp, which the refusal names",
     )
     verb.add_argument("--why", help="with --last, whose the taps or words heard after it were, kept in the drive's events")
     verb.set_defaults(run=heard)

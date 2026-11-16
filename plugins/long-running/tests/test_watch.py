@@ -1629,7 +1629,7 @@ def test_a_promised_time_passing_while_he_is_away_owes_no_report_until_the_first
     assert slack_thread.reads == []
     data = state.load(demo)
     assert render.order_line(data, "o1", data["orders"]["o1"]).startswith(f"o1 working due {render.when(due)}, waiting on his return: ")
-    watch.hear(demo, back)
+    watch.hear(demo, his_message(back))
     shown[0] = back + timedelta(minutes=1)
     data = state.load(demo)
     assert data["owner"]["absence"] == {"since": state.stamp(gone), "from": state.stamp(gone + state.AWAY_AFTER), "until": state.stamp(back)}
@@ -1676,7 +1676,7 @@ def test_a_line_late_before_he_went_away_is_owed_at_once_on_his_return_and_late_
         )
     watching = watcher(demo)
     assert owed(watching, due + timedelta(minutes=31), said) == []
-    watch.hear(demo, back)
+    watch.hear(demo, his_message(back))
     [report, _] = owed(watching, back + timedelta(minutes=1), said)
     assert report["text"] == f"POST order o1's line promised by {render.when(state.stamp(due))} is 31 minutes late: post where it stands now in its thread, saying it is late"
     assert (
@@ -2906,8 +2906,12 @@ def catching_up(monkeypatch: pytest.MonkeyPatch, demo: str) -> list[tuple[list[s
     return calls
 
 
+def his_message(moment: datetime) -> str:
+    return f"slack:D123/{moment.timestamp():.6f}"
+
+
 def heard_now(demo: str, capsys: pytest.CaptureFixture[str], *flags: str) -> str:
-    assert cli.main(["heard", "--drive", demo, *flags]) == 0
+    assert cli.main(["heard", "--drive", demo, "--by", his_message(state.now()), *flags]) == 0
     return capsys.readouterr().out.strip()
 
 
@@ -2948,7 +2952,7 @@ def test_his_return_reads_no_orders_news_however_many_orders_are_open(demo: str,
     saves: list[str] = []
     save = state.save
     monkeypatch.setattr(state, "save", lambda name, data: saves.append(name) or save(name, data))
-    assert watch.hear(demo, BACK) == {"away": False, "back": True, "since": state.stamp(T0), "catch_up": True, "held": ["700"]}
+    assert watch.hear(demo, his_message(BACK)) == {"kept": True, "away": False, "back": True, "since": state.stamp(T0), "catch_up": True, "held": ["700"]}
     assert saves == [demo]
     assert (state.load(demo)["catch_up"], state.load(demo)["held"]["700"]["record"]) == (state.new_catch_up(state.stamp(T0)), None)
 
@@ -2969,7 +2973,7 @@ def test_once_he_is_back_the_relay_gives_each_thread_a_held_report_was_to_go_in_
     watching = watcher(demo)
     assert watch.held_report_lines(watching, BACK) == []
     assert calls == []
-    watch.hear(demo, BACK)
+    watch.hear(demo, his_message(BACK))
     assert watch.held_report_lines(watching, BACK) == []
     [(first, first_body), (second, second_body), (start, _), (other, _)] = calls
     assert first["attr"] == {"order": "o1", "progress": "true", "quiet": "true", "thread": INCIDENT_THREAD}
@@ -10476,7 +10480,7 @@ def test_a_proof_waiting_on_his_next_word_holds_its_job_with_no_orphan_and_runs_
     watching = watcher(demo)
     assert [watch.run_pass(watching, T0 + timedelta(minutes=minutes)) for minutes in (0, 31, 62)] == [[], [], []]
     assert provers == []
-    watch.hear(demo, T0 + timedelta(minutes=63))
+    watch.hear(demo, his_message(T0 + timedelta(minutes=63)))
     assert watch.run_pass(watching, T0 + timedelta(minutes=64)) == []
     assert provers == ["j1"]
     assert "waits" not in state.load(demo)["jobs"]["j1"]["proof"]
@@ -10498,7 +10502,7 @@ def test_a_repair_waiting_on_the_proof_it_marked_holds_with_no_free_or_orphan_an
     watching = watcher(demo)
     assert [watch.run_pass(watching, T0 + timedelta(minutes=minutes)) for minutes in (0, 31, 62)] == [[], [], []]
     assert provers == []
-    watch.hear(demo, T0 + timedelta(minutes=63))
+    watch.hear(demo, his_message(T0 + timedelta(minutes=63)))
     assert watch.run_pass(watching, T0 + timedelta(minutes=64)) == []
     assert provers == ["j1"]
 

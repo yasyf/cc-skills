@@ -13,6 +13,7 @@ from drive.github import GithubError
 
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
 HEAD = "0123456789abcdef0123456789abcdef01234567"
+TAPPED_TS = "1794434242.000000"
 MOVED = "fedcba9876543210fedcba9876543210fedcba98"
 HIS_TAPS = "https://acme.slack.com/archives/D123/p1794515484282799"
 STAGING = "Not on staging: no staging test is set for it"
@@ -1326,25 +1327,34 @@ def test_answer_on_an_unknown_pr_fails(drive: str) -> None:
 @pytest.mark.parametrize(
     "tap",
     [
-        {"answer": {"repo": "Forge-AI/monorepo", "number": 42, "waits": asked_waits(42), "label": "Approve", "heads": {}, "action_ts": "", "source": "slack"}},
-        {"answer": {"waits": "demo:j3-661440", "label": "Ring", "url": "https://acme.slack.com/archives/D123/p1794200000000100", "action_ts": "", "source": "slack"}},
+        {"answer": {"repo": "Forge-AI/monorepo", "number": 42, "waits": asked_waits(42), "label": "Approve", "heads": {}, "action_ts": TAPPED_TS, "source": "slack"}},
+        {"answer": {"waits": "demo:j3-661440", "label": "Ring", "url": "https://acme.slack.com/archives/D123/p1794200000000100", "action_ts": TAPPED_TS, "source": "slack"}},
     ],
 )
-def test_his_tap_on_any_card_records_him_heard_and_brings_the_catch_up_he_was_held_for_reading_nothing_from_github(
+def test_his_tap_on_any_card_records_him_heard_at_its_slack_action_and_brings_the_catch_up_he_was_held_for_reading_nothing_from_github(
     drive: str, monkeypatch: pytest.MonkeyPatch, tap: dict
 ) -> None:
-    heard, tapped = "2026-11-11T12:36:02-08:00", state.parse_time("2026-11-11T13:57:22-08:00")
+    heard, tapped = "2026-11-11T12:36:02-08:00", datetime.fromtimestamp(float(TAPPED_TS)).astimezone()
     with state.edit(drive) as data:
         data["owner"] = {"heard": heard, "away": "2026-11-11T13:36:02-08:00"}
         data["held"]["665753"] = {"order": None, "at": "2026-11-11T13:40:00-08:00", "told": "665754"}
-    monkeypatch.setattr(state, "now", lambda: tapped)
+    monkeypatch.setattr(state, "now", lambda: tapped + timedelta(minutes=9))
     monkeypatch.setattr(card, "run", lambda *args, **kwargs: pytest.fail("a tap read GitHub"))
     monkeypatch.setattr(github, "run", lambda *args, **kwargs: pytest.fail("a tap read GitHub"))
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, '{"seq": 661500}\n', ""))
     ask(tap)
     absence = {"since": heard, "from": "2026-11-11T13:36:02-08:00", "until": state.stamp(tapped)}
-    assert state.load(drive)["owner"] == {"heard": state.stamp(tapped), "away": state.stamp(tapped + state.AWAY_AFTER), "absence": absence}
+    by = f"tap:{tap['answer']['waits']}:{TAPPED_TS}"
+    assert state.load(drive)["owner"] == {"heard": state.stamp(tapped), "away": state.stamp(tapped + state.AWAY_AFTER), "absence": absence, "by": by}
     assert state.load(drive)["catch_up"] == state.new_catch_up(heard)
+
+
+def test_a_tap_carrying_no_slack_action_such_as_a_dashboard_click_leaves_him_unheard(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    owner = {"heard": "2026-11-11T12:36:02-08:00", "away": "2026-11-11T13:36:02-08:00", "absence": None, "by": "slack:D123/1794200000.000100"}
+    with state.edit(drive) as data:
+        data["owner"] = owner
+    card.hear_tap(drive, {"repo": "Forge-AI/monorepo", "number": 42, "waits": "", "action_ts": None})
+    assert state.load(drive)["owner"] == owner
 
 
 STACK_BODY = "## The stack\nthe orders table moves to a new one without a pause\n\nReaders read both tables, every row is copied across, then the old table goes.\n\n"

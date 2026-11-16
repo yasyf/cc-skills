@@ -827,7 +827,7 @@ def answered(ask: dict) -> dict:
     if ask["label"] not in (*TAP_LABELS, WORDS):
         raise state.DriveError(f"a PR card answers Approve, Hold or {WORDS}, not {ask['label']!r}")
     name = known[key][0]
-    hear_tap(name)
+    hear_tap(name, ask)
     asked = state.ASK_WAITS.fullmatch(ask["waits"])
     stacked = asked or state.LONG_ASK_WAITS.fullmatch(ask["waits"])
     numbers = asked[1].split(".") if asked else [member.rpartition("#")[2] for member in ask["heads"]]
@@ -887,7 +887,7 @@ def question_answered(ask: dict) -> dict:
     name, _, _ = ask["waits"].partition(":")
     if name not in state.names():
         return {"ok": False, "why": f"{ask['waits']} is no drive's question card, so his tap on it stays with the session it reached"}
-    hear_tap(name)
+    hear_tap(name, ask)
     return answer_question(name, ask)
 
 
@@ -990,11 +990,11 @@ def card_question(drawn: list[tuple[str, dict]], waits: str) -> dict:
     return min((question for _, question in drawn), key=lambda question: (question["waits"] != waits, bool(question["replaced"])))
 
 
-def hear_tap(name: str) -> None:
-    """Record him heard on the drive his tap reached, since a tap is word from him as a message is."""
+def hear_tap(name: str, ask: dict) -> None:
+    """Record him heard on the drive his tap reached, by that tap, since a tap is word from him as a message is."""
     from drive import watch
 
-    watch.hear(name, state.now())
+    watch.hear(name, state.tap_heard(ask))
 
 
 def respond(request: dict) -> dict:

@@ -710,7 +710,7 @@ nothing waits there it reads "No open cards".
   work moved or that the drive failed him included; a report owing a line promised by a time is owed
   at his return instead, and a handler's line carrying no report is refused, by his words "Just do
   less realtime more summary / batching, with a catch up post once I'm back". `drive status` prints
-  the away beside when he was last heard, `drive heard --away` records his going, and each tap on a
+  the away beside when he was last heard, `drive heard --by <his permalink> --away` records his going, and each tap on a
   card records him heard as a message does. Incidents and customer outages post by
   [incidents.md](incidents.md); summaries, due-time lines and job results wait.
   A report whose line say holds is marked held on the drive, and `drive status` lists it

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from drive import slack
-from drive.state import AWAY_HOLD, CLOCKS, DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owed, owed_at, owed_at_return, owing, owner_away, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, present, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
+from drive.state import AWAY_HOLD, CLOCKS, DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, HEARD_TAP, HEARD_TERMINAL, NOT_STARTED, TAKEN_BACK, TAP_ID, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owed, owed_at, owed_at_return, owing, owner_away, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, present, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -379,6 +379,21 @@ def owner_reading(owner: dict) -> str | None:
     if now() >= parse_time(away):
         return f"away since {when(away)}: last heard {heard}, an hour with no word or tap"
     return f"here until {when(away)}: last heard {heard}, and an hour with no word or tap reads him away"
+
+
+def heard_by(by: str | None) -> str:
+    """What set the owner row's heard stamp, from its by: his message, his tap, his words typed in the communicator's terminal, a take-back by drive heard --last, or nothing for a stamp kept before by existed."""
+    if not by:
+        return "by nothing the drive kept, since it set this stamp before it named what heard him"
+    if by.startswith(TAKEN_BACK):
+        return f"by drive heard --last, taking back a later stamp: {by.removeprefix(TAKEN_BACK)}"
+    if TAP_ID.fullmatch(by):
+        return f"by his tap on {by.removeprefix(HEARD_TAP).rpartition(':')[0]}"
+    if by.startswith(HEARD_TAP):
+        return f"by a tap on {by.removeprefix(HEARD_TAP)} carrying no Slack action"
+    if by == HEARD_TERMINAL:
+        return "by his words typed in the communicator's terminal"
+    return f"by his message {by}"
 
 
 def corrected_by(seqs: list[str]) -> str:
