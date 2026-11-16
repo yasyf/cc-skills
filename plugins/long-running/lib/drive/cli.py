@@ -6584,14 +6584,12 @@ def hand_over_filled(text: str, drive: str | None) -> str:
 
 
 def repo_page(drive: str | None, page: str) -> str:
-    """What the [[page]] tables of the .claude/long-running.toml in the drive's checkout and the repository's providers add to a page of the skill, under an `## In this repository` heading, or nothing when no drive or no such text is there to read."""
+    """What the repository's providers add to a page of the skill, under an `## In this repository` heading, or nothing when no drive or no such text is there to read."""
     try:
         data = state.load(state.resolve(drive))
     except DriveError:
         return ""
-    if not state.bound_sessions(data):
-        return ""
-    texts = [table["text"].strip() for table in state.repo_config(data).get("page", []) if table["page"] == page] + providers.of(data).pages(page)
+    texts = providers.of(data).pages(page) if state.bound_sessions(data) else []
     return "\n## In this repository\n\n" + "\n\n".join(texts) + "\n" if texts else ""
 
 
@@ -8338,7 +8336,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--prs", action="store_true", help="only a table of each open PR he approved or that waits on him: its stage, what holds it, who owes its next step and since when")
     verb.add_argument("--full", action="store_true", help="for orders, every row of each and of its jobs and PRs, read fresh, in place of the summary read from the drive's saved rows")
     verb.set_defaults(run=status)
-    verb = verbs.add_parser("manual", parents=[drive_opt], help="print one page of the long-running skill, then what the [[page]] tables of the drive checkout's .claude/long-running.toml add to it")
+    verb = verbs.add_parser("manual", parents=[drive_opt], help="print one page of the long-running skill, then what the repository's providers add to it")
     verb.add_argument("page", nargs="?", choices=manual_pages(), help="default: list the pages")
     verb.add_argument("row", nargs="?", help="print only the table rows whose first cell names this, such as TAP or READY, else each section, list item, row, fenced block and paragraph carrying it")
     verb.set_defaults(run=manual)
