@@ -6760,9 +6760,14 @@ def holder(path: Path) -> int | None:
     return int(held) if held.isdigit() and state.alive(int(held)) else None
 
 
+def pid_claimed(path: Path) -> contextlib.AbstractContextManager[None]:
+    """Hold the lock of a watch's pid file while one watch claims or releases it."""
+    return state.flocked(path.with_name(f".{path.name}.lock"))
+
+
 def claim(name: str, project: str | None = None) -> bool:
     path = state.pid_path(name, project)
-    with state.locked(name):
+    with pid_claimed(path):
         if holder(path) not in (None, os.getpid()):
             return False
         path.write_text(f"{os.getpid()}\n")
@@ -6771,7 +6776,7 @@ def claim(name: str, project: str | None = None) -> bool:
 
 def release(name: str, project: str | None = None) -> None:
     path = state.pid_path(name, project)
-    with state.locked(name):
+    with pid_claimed(path):
         if path.exists() and path.read_text().strip() == str(os.getpid()):
             path.unlink()
 
