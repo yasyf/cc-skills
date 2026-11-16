@@ -2526,7 +2526,7 @@ def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
             with state.edit(watcher.name) as data:
                 for head in heads:
                     data["orders"][head]["quiet"] |= {"record": seq, "at": None, "handler": None}
-            handler, _ = agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'quiet-{seq}'}")
+            handler = quiet_handler(watcher.name, seq)
         except (reads.ReadError, state.DriveError) as error:
             lines += failed(watcher, source, f"line owed in the thread of {', '.join(heads)}", error, moment)
             continue
@@ -2535,6 +2535,14 @@ def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
             for head in heads:
                 data["orders"][head]["quiet"] |= {"record": seq, "at": state.stamp(moment), "handler": handler, "news": facts[head]}
     return lines
+
+
+def quiet_handler(name: str, seq: str) -> str | None:
+    """Start the handler on a quiet report, but none on one say's rules settle with no post, such as one held for his return while he is away, by talk.unhandled; the handler started, else None."""
+    try:
+        return agents.handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'quiet-{seq}'}")[0]
+    except agents.Carried:
+        return None
 
 
 def news_groups(data: dict, orders: dict[str, dict]) -> dict[str, list[str]]:

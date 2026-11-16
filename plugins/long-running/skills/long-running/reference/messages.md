@@ -714,9 +714,11 @@ nothing waits there it reads "No open cards".
   card records him heard as a message does. Incidents and customer outages post by
   [incidents.md](incidents.md); summaries, due-time lines and job results wait.
   A report whose line say holds is marked held on the drive, and `drive status` lists it
-  under `Held for his return`, so nobody takes it for a line he got. A correction record `--re`
-  a held report travels with it, since cci never changes the report: `drive status` names it on
-  the report's line, and a `say` of the correction posts nothing while its report is held. A
+  under `Held for his return`, so nobody takes it for a line he got; the watch's own quiet
+  reports are held by that same rule before any handler starts, so none is started only to
+  post nothing. A correction record `--re` a held report travels with it, since cci never
+  changes the report: `drive status` names it on the report's line, and no handler starts on
+  the correction while its report is held. A
   report found wrong while it is held, such as a close of an order not done, its writer takes
   back with the cci `post` tool, `kind: withdraw`, `re` the report's own seq,
   `to: communicator@<drive>`: `drive status` names the withdrawal on the report's line, no post

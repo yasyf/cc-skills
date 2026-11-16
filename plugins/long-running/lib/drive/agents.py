@@ -336,8 +336,8 @@ def holds(prompt: str) -> dict:
 
 
 def answered(seq: str) -> dict:
-    """The message of his a record carries or answers: an owner or answer record's own permalink, else that of the record its re names, followed up the chain, unless the record's post goes outside that message's thread, in another thread its thread attr names or at the root of a channel outside his DM as rooted reads it, since that post answers no message of his there; the record's thread, its attrs and each record the chain names either way."""
-    record = shown(seq)
+    """The message of his a record carries or answers: an owner or answer record's own permalink, else that of the record its re names, followed up the chain, unless the record's post goes outside that message's thread, in another thread its thread attr names or at the root of a channel outside his DM as rooted reads it, since that post answers no message of his there; the record's thread, its attrs, the record itself as report, for talk.unhandled, and each record the chain names either way."""
+    record = report = shown(seq)
     attrs = record["fields"].get("attrs", {})
     thread = attrs.get("thread")
     chain: list[str] = []
@@ -346,12 +346,12 @@ def answered(seq: str) -> dict:
             message = f"{found[2]}.{found[3]}"
             if chain and (rooted(attrs) or thread not in (None, found[4] or message)):
                 break
-            return {"message": message, "link": record["refs"]["url"], "thread": thread or found[4] or message, "re": chain, "attrs": attrs}
+            return {"message": message, "link": record["refs"]["url"], "thread": thread or found[4] or message, "re": chain, "attrs": attrs, "report": report}
         if not record.get("re"):
             break
         chain.append(str(record["re"]))
         record = shown(chain[-1])
-    return {"message": None, "link": None, "thread": thread, "re": chain, "attrs": attrs}
+    return {"message": None, "link": None, "thread": thread, "re": chain, "attrs": attrs, "report": report}
 
 
 def rooted(attrs: dict) -> bool:
@@ -584,8 +584,12 @@ def signalled(pid: int) -> bool:
 
 
 def handle(name: str, brief: str, detached: bool = False, answer: str | None = None, briefs: bool = False, owed: bool = False) -> tuple[str, bool]:
-    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time, but for a message of his reaching a handler waiting its turn on this Mac to start, by its wakes, which starts a handler of its own at once, since his answer never waits on a report's start: a brief for another record or another message of his, on that message, in that thread or on its record's re chain, is handed to that handler, which takes it at its next step, and a copy, the same record or the same message of his, is handed to it with nothing added, since that handler already holds it; the id of the handler at work on the brief, and whether it was handed. A record whose brief, attrs and re chain name no thread and reach no message of his is in the thread its order's lines go in, as the thread attr the drive stamps on its own records names it, and one whose post goes elsewhere than that thread or the thread of the message of his its chain reaches, at the root of a channel outside his DM such as a staging claim or in another thread its thread attr names, holds that place alone, so it waits on no handler of his messages there. A handler whose turn is over holds nothing, however it ended: it leaves the drive, and each brief handed to it that it never took goes to the handler this brief reaches, but one for the record this brief names; one that never started leaves its own brief with them, by forget. With briefs, the brief a new handler starts on is written from its id by cli.briefing, with answer its --answer title, in the process that starts it, recording what it adds, so the call returns before those writes and reads take the drive's lock; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool and the watch's hand of each message of his cc-slack owes run it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch's other stages start it in the call, so a start that fails is tried again at their next read. Owed, as the handler tool's and the watch's read's start on a `POST` report is, a report the drive owes no post is refused, naming the post or done record that carries it or his catch-up holding it, and one whose last handler ended posting nothing, died or never started starts on a brief closing on the line that handler ended on, checked in the same save that starts it, a handler that died or never started keeping DIED as its line, and the brief briefed writes closes on that line too. A brief for a record a post carries goes to no handler."""
+    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time, but for a message of his reaching a handler waiting its turn on this Mac to start, by its wakes, which starts a handler of its own at once, since his answer never waits on a report's start: a brief for another record or another message of his, on that message, in that thread or on its record's re chain, is handed to that handler, which takes it at its next step, and a copy, the same record or the same message of his, is handed to it with nothing added, since that handler already holds it; the id of the handler at work on the brief, and whether it was handed. A record whose brief, attrs and re chain name no thread and reach no message of his is in the thread its order's lines go in, as the thread attr the drive stamps on its own records names it, and one whose post goes elsewhere than that thread or the thread of the message of his its chain reaches, at the root of a channel outside his DM such as a staging claim or in another thread its thread attr names, holds that place alone, so it waits on no handler of his messages there. A handler whose turn is over holds nothing, however it ended: it leaves the drive, and each brief handed to it that it never took goes to the handler this brief reaches, but one for the record this brief names; one that never started leaves its own brief with them, by forget. With briefs, the brief a new handler starts on is written from its id by cli.briefing, with answer its --answer title, in the process that starts it, recording what it adds, so the call returns before those writes and reads take the drive's lock; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool and the watch's hand of each message of his cc-slack owes run it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch's other stages start it in the call, so a start that fails is tried again at their next read. Owed, as the handler tool's and the watch's read's start on a `POST` report is, a report the drive owes no post is refused, naming the post or done record that carries it or his catch-up holding it, and one whose last handler ended posting nothing, died or never started starts on a brief closing on the line that handler ended on, checked in the same save that starts it, a handler that died or never started keeping DIED as its line, and the brief briefed writes closes on that line too. A brief for a record a post carries goes to no handler., nor one for a record say's own rules settle with no post, such as a quiet report held for his return while he is away, by talk.unhandled, which is refused as Carried naming why."""
+    from drive import talk
+
     read = holds(brief)
+    if read["record"] and (went := talk.unhandled(name, read)):
+        raise Carried(f"refused, no handler started: POST report {read['record']} needs no handler, since {went}")
     asked = brief
     handler_id = uuid.uuid4().hex[:8]
     with state.edit(name) as data:
@@ -648,7 +652,7 @@ def his_message(held: dict) -> bool:
 
 def threaded(data: dict, held: dict) -> dict:
     """What a brief holds, as holds read it, but its record's attrs: a record whose brief, attrs and re chain name no thread and reach no message of his is in the thread its order's lines go in, as the thread attr the drive stamps on its own records names it, but for one whose post goes at the root of a channel outside his DM as rooted reads it, such as a staging claim, which starts a thread of its own and so holds none."""
-    found = {key: value for key, value in held.items() if key != "attrs"}
+    found = {key: value for key, value in held.items() if key not in ("attrs", "report")}
     attrs = held.get("attrs", {})
     if not found["thread"] and not rooted(attrs) and (order_id := state.report_order(data, attrs)):
         found |= state.thread_attr(data["orders"][order_id])
