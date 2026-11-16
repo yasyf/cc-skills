@@ -443,6 +443,7 @@ def real_drive(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every test's drive takes a real drive's paths, its sessions, watch, webhooks and dashboard each stubbed, though its state root is the test's own folder, which state.scratch reads as a script's drive; each launch agent it would load reads as loaded already, so none is; a test of a scratch drive puts back REAL_SCRATCH."""
     monkeypatch.setattr(state, "scratch", lambda: False)
     monkeypatch.setattr(launchd, "kept", lambda label: True)
+    monkeypatch.setattr(launchd, "launchctl", lambda *args: None)
 
 
 @pytest.fixture(autouse=True)
