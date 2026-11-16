@@ -10,9 +10,11 @@ import signal
 import subprocess
 import tarfile
 import time
+import urllib.parse
 import uuid
 from collections.abc import Iterator
 from contextvars import ContextVar
+from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
 
@@ -103,7 +105,9 @@ echo "== {KERNEL_ERRORS}"; {KERNEL_ERRORS}
 SECTION = re.compile(r"^== (.*)\n", re.MULTILINE)
 KERNEL_LINE = re.compile(r"^<[0-3]>\[\s*[\d.]+\] (.*)$")
 GIB = 2**30
-SPRITE_TRANSCRIPTS = 'tar -czf - -C "$HOME/.claude/projects" . || [ $? -eq 1 ]'
+SPRITE_TRANSCRIPTS = ".claude/projects"
+QUIET_SECONDS = 1800
+SPRITES_ORG = re.compile(r"^providers:[ \t]*\n(?:[ \t].*\n)*?([ \t]+)sprites:[ \t]*\n(?:\1[ \t]+.*\n)*?\1[ \t]+org:[ \t]*[\"']?([^\s\"']+)", re.MULTILINE)
 UNKEPT = "unkept.txt"
 TRANSCRIPTS = ".transcripts"
 RELAY_BYTES = 64 * 1024
@@ -659,10 +663,22 @@ def worktree(clone: str, folder: str) -> Path | None:
     return next((path for path in paths if path.name == folder), None)
 
 
+def cc_remote_config(checkout: Path) -> Path:
+    """The cc-remote config a Sprite launched from the checkout is made from, read where the launcher reads it: CC_REMOTE_CONFIG, else ccRemoteConfig in the checkout's .orca.json."""
+    return checkout / (os.environ.get("CC_REMOTE_CONFIG") or json.loads((checkout / ".orca.json").read_text())["ccRemoteConfig"])
+
+
 def sprite_config(checkout: Path) -> str:
-    """The SHA-256 of the cc-remote config a Sprite launched from the checkout is made from, which pins the payload its pool mounts and the keys a launch exports into its terminal, read where the launcher reads it: CC_REMOTE_CONFIG, else ccRemoteConfig in the checkout's .orca.json."""
-    config = os.environ.get("CC_REMOTE_CONFIG") or json.loads((checkout / ".orca.json").read_text())["ccRemoteConfig"]
-    return hashlib.sha256((checkout / config).read_bytes()).hexdigest()
+    """The SHA-256 of the cc-remote config a Sprite launched from the checkout is made from, which pins the payload its pool mounts and the keys a launch exports into its terminal."""
+    return hashlib.sha256(cc_remote_config(checkout).read_bytes()).hexdigest()
+
+
+def sprites_org(checkout: Path) -> str:
+    """The Sprites org that the cc-remote config a Sprite launched from the checkout is made from names as providers.sprites.org, the one cc-remote's sprites provider makes and reads each Sprite in; OrcaError when it names none."""
+    config = cc_remote_config(checkout)
+    if not (found := SPRITES_ORG.search(config.read_text())):
+        raise OrcaError(f"{config} names no providers.sprites.org")
+    return found[2]
 
 
 def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: str | None, workspace: str | None, session: str | None) -> dict:
@@ -928,11 +944,12 @@ def moved_here(job_id: str) -> str:
 
 
 def woken(drive: str, job_id: str, job: dict, unreached: str) -> LaneEnd | None:
-    """Wake the Sprite of a lane Orca cannot reach with the reclaimer's --wake from the drive's checkout, which reopens its forward and adopts the Orca runtime a cold boot started, then read the lane again, saying each step by state.said: None when its worker takes messages again, its end when its worker finished with its terminal held, and else what its Sprite says over cc-remote's ssh: the refusal again when something listens on the port Orca's runtime serves on there, since Orca then fails on this Mac and no lane restarts for it, and otherwise an unfit end, which restarts the lane on a fresh Sprite, by his pick "Wake and restart in place: on an unreachable lane the watch wakes its Sprite and restarts the lane there, else on a fresh Sprite": when it answers with nothing listening there, as when a full disk crash-loops that runtime, which saves the lane first, and when it does not answer, as a Sprite whose memory thrashes until its sshd sends no banner does, which restart asks nothing more and keeps, since every later step on it, a launcher's prepare --existing there included, waits on that same silence. Every end it comes to but a finished worker's is kept on the lane's death by died, so the wake runs once per death."""
+    """Wake the Sprite of a lane Orca cannot reach with the reclaimer's --wake from the drive's checkout, which reopens its forward and adopts the Orca runtime a cold boot started, then read the lane again, saying each step by state.said: None when its worker takes messages again, its end when its worker finished with its terminal held, and else what its Sprite says over cc-remote's ssh: the refusal again when something listens on the port Orca's runtime serves on there, since Orca then fails on this Mac and no lane restarts for it, and otherwise an unfit end, which restarts the lane on a fresh Sprite, by his pick "Wake and restart in place: on an unreachable lane the watch wakes its Sprite and restarts the lane there, else on a fresh Sprite": when it answers with nothing listening there, as when a full disk crash-loops that runtime, which saves the lane first, and when it does not answer, as a Sprite whose memory thrashes until its sshd sends no banner does, which restart asks nothing more over ssh and keeps, since every later step there, a launcher's prepare --existing included, waits on that same silence. A Sprite that does not answer ssh is read through the Sprites file API too, by transcript_written, since a worker can write its transcript and relay questions for 40 minutes after its Sprite's sshd sends no banner: while a transcript there was written under QUIET_SECONDS ago its worker reads as at work, so it raises an OrcaError naming that write and nothing restarts, and only a Sprite whose transcripts stayed unwritten that long, or that the file API cannot list, ends unfit. Every end it comes to but a finished worker's is kept on the lane's death by died, so the wake runs once per death."""
     workspace = job["workspace"]
+    root = checkout(drive, state.load(drive)["roles"]["coordinator"]["cwd"])
     state.said(job_id, f"Orca cannot reach its lane, so it wakes Sprite {workspace} with {RECLAIMER} --wake, for at most {RECLAIM_SECONDS} s")
     try:
-        reclaimer(checkout(drive, state.load(drive)["roles"]["coordinator"]["cwd"]), "--wake", workspace)
+        reclaimer(root, "--wake", workspace)
         end = shown_end(job, worker(job["dispatch"]))
     except OrcaError as error:
         unreached = f"{unreached}, and its wake read {error}"
@@ -943,7 +960,15 @@ def woken(drive: str, job_id: str, job: dict, unreached: str) -> LaneEnd | None:
             case False:
                 return died(drive, job_id, job["dispatch"], LaneEnd(f"{unreached}, and its Sprite has nothing listening on the port Orca's runtime serves on there", None, None, unfit=True))
             case silent:
-                return died(drive, job_id, job["dispatch"], LaneEnd(f"{unreached}, and its Sprite did not answer: {silent}", None, None, unfit=True))
+                unreached = f"{unreached}, and its Sprite did not answer: {silent}"
+        state.said(job_id, f"its Sprite did not answer over ssh, so it reads when its worker last wrote a transcript there through the Sprites file API, for at most {CALL_SECONDS} s")
+        written = transcript_written(root, workspace)
+        if isinstance(written, str):
+            return died(drive, job_id, job["dispatch"], LaneEnd(f"{unreached}, and {written}", None, None, unfit=True))
+        minutes = int((state.now() - written).total_seconds() // 60)
+        if minutes < QUIET_SECONDS // 60:
+            raise OrcaError(f"{unreached}, yet its worker wrote a transcript there {minutes} minutes ago, so it reads as at work until {QUIET_SECONDS // 60} minutes pass with no write, and nothing restarts", error.code) from None
+        return died(drive, job_id, job["dispatch"], LaneEnd(f"{unreached}, and its worker last wrote a transcript there {minutes} minutes ago", None, None, unfit=True))
     if end is None or end.worktree:
         return end
     return died(drive, job_id, job["dispatch"], end._replace(why=f"{unreached}, and once it woke {end.why}", unreached=True))
@@ -1113,6 +1138,39 @@ def on_sprite(workspace: str, command: str, given: bytes, seconds: float) -> sub
     )
 
 
+def sprite_api(root: Path, workspace: str, call: str, *curl: str) -> str:
+    """What the Sprites API answers at the call under the workspace's Sprite, such as fs/list?path=…, through the sprite CLI's api under the org sprites_org reads in the drive's checkout, root, as cc-remote's sprites provider reads a file off a Sprite, never over that Sprite's ssh or exec, which a Sprite the API reads as running can leave unanswered; curl takes the further arguments. OrcaError naming why it gave no answer: cc-remote records no task for the workspace, the CLI did not run or exited non-zero, with its last line, or it ran past CALL_SECONDS and grouped killed it."""
+    try:
+        machine = json.loads((CC_REMOTE_TASKS / f"{workspace}.json").read_text())["machine"]
+    except OSError:
+        raise OrcaError("cc-remote records no task for it") from None
+    try:
+        done = grouped(["sprite", "api", "-o", sprites_org(root), f"/v1/sprites/{machine}/{call}", "--", "-sS", "-f", *curl], timeout=CALL_SECONDS)
+    except subprocess.TimeoutExpired:
+        raise OrcaError(f"the Sprites API ran past {CALL_SECONDS} s") from None
+    except OSError as error:
+        raise OrcaError(f"the sprite CLI did not run: {error}") from None
+    if done.returncode:
+        said = done.stderr.strip().splitlines()
+        raise OrcaError(f"the Sprites API exited {done.returncode}: {said[-1] if said else 'no output'}")
+    return done.stdout
+
+
+def sprite_listing(root: Path, workspace: str, folder: str) -> dict[Path, dict]:
+    """Each file under the folder of the workspace's Sprite, a path from its home, by its path from that folder, as the Sprites file API's recursive fs/list answers it through sprite_api: its absolute path there, its size and its modTime, when it was last written; OrcaError when that API gives no answer, a folder it does not hold included."""
+    listed = json.loads(sprite_api(root, workspace, f"fs/list?{urllib.parse.urlencode({'path': folder, 'recursive': 'true'})}"))
+    return {Path(entry["path"]).relative_to(listed["path"]): entry for entry in listed["entries"] or [] if entry["type"] == "file"}
+
+
+def transcript_written(root: Path, workspace: str) -> datetime | str:
+    """When a Claude Code transcript on the workspace's Sprite was last written, the newest modTime sprite_listing lists under its ~/.claude/projects, where the worker's Claude Code appends to its transcript and its subagents' at each step, read through the Sprites API, which answers while that Sprite's ssh and exec may not; else why it could not tell: that API gave no answer, or that folder holds no file."""
+    try:
+        files = sprite_listing(root, workspace, SPRITE_TRANSCRIPTS)
+    except OrcaError as error:
+        return f"the Sprites file API did not list its transcripts: {error}"
+    return max((state.parse_time(entry["modTime"]) for entry in files.values()), default="the Sprites file API lists no transcript on it")
+
+
 def session_of(job_id: str, workspace: str, dispatch: str) -> str | None:
     """The Claude session the worker on this dispatch ran on the workspace's Sprite, found by the dispatch id Orca's preamble wrote into its transcript, the newest when several hold it; None when the Sprite cannot be read or holds no such transcript."""
     state.said(job_id, f"it asks Sprite {workspace} over ssh for the Claude session its worker ran, for at most {CALL_SECONDS} s")
@@ -1190,23 +1248,33 @@ def transcripts(drive: str, job_id: str, dispatch: str) -> Path:
     return state.drive_dir(drive) / "jobs" / f"{job_id}.{dispatch}{TRANSCRIPTS}"
 
 
-def keep_transcripts(drive: str, job_id: str, job: dict, dispatch: str) -> Path | None:
-    """Copy whole to transcripts, before an end or a relaunch can destroy it, the ~/.claude/projects folder of the Sprite of the job's lane on this dispatch, every Claude Code transcript it holds, the worker's and any earlier lane's on that Sprite; a file the live worker wrote while tar read it, which GNU tar exits 1 for, is still kept. The worker's own transcript, the newest, or None when none was copied, a Sprite ssh cannot read leaving UNKEPT there saying why."""
+def keep_transcripts(drive: str, job_id: str, job: dict, dispatch: str, root: Path) -> Path | None:
+    """Copy whole to transcripts, before an end or a relaunch can destroy it, the ~/.claude/projects folder of the Sprite of the job's lane on this dispatch, every Claude Code transcript it holds, the worker's and any earlier lane's on that Sprite, through the Sprites file API under the org root's cc-remote config names, as cc-remote's sprites provider reads a file, so a Sprite whose ssh and exec give no answer while that API reads it running still gives them up: each file sprite_listing lists there, read whole by fs/read as it stands then, a file the live worker is still writing included, and given the write time that listing names. The worker's own transcript, the newest, or None when none was copied; UNKEPT there says why the listing, or each file's read, gave no answer."""
     kept = transcripts(drive, job_id, dispatch)
     kept.mkdir(parents=True, exist_ok=True)
-    state.said(job_id, f"it copies the Claude Code transcripts of Sprite {job['workspace']} over ssh, for at most {CALL_SECONDS} s")
+    state.said(job_id, f"it copies the Claude Code transcripts of Sprite {job['workspace']} through the Sprites file API, for at most {CALL_SECONDS} s a call")
     try:
-        done = on_sprite(job["workspace"], SPRITE_TRANSCRIPTS, b"", CALL_SECONDS)
-        if not done.returncode:
-            with tarfile.open(fileobj=io.BytesIO(done.stdout), mode="r:gz") as archive:
-                archive.extractall(kept, filter="data")
-            (kept / UNKEPT).unlink(missing_ok=True)
-            return max(kept.glob("*/*.jsonl"), key=lambda path: path.stat().st_mtime, default=None)
-        why = f"ssh exited {done.returncode}: {done.stderr.decode(errors='replace').strip()}"
-    except (OSError, subprocess.TimeoutExpired, tarfile.TarError) as error:
-        why = f"{job['workspace']} could not be read: {error}"
-    (kept / UNKEPT).write_text(f"{why}\n")
-    return None
+        files = sprite_listing(root, job["workspace"], SPRITE_TRANSCRIPTS)
+    except OrcaError as error:
+        (kept / UNKEPT).write_text(f"the Sprites file API did not list its transcripts: {error}\n")
+        return None
+    unread = []
+    for name, entry in files.items():
+        into = kept / name
+        into.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            sprite_api(root, job["workspace"], f"fs/read?{urllib.parse.urlencode({'path': entry['path']})}", "-o", str(into))
+        except OrcaError as error:
+            into.unlink(missing_ok=True)
+            unread.append(f"{entry['path']}: {error}")
+            continue
+        written = state.parse_time(entry["modTime"]).timestamp()
+        os.utime(into, (written, written))
+    if unread:
+        (kept / UNKEPT).write_text("".join(f"{line}\n" for line in unread))
+    else:
+        (kept / UNKEPT).unlink(missing_ok=True)
+    return max(kept.glob("*/*.jsonl"), key=lambda path: path.stat().st_mtime, default=None)
 
 
 def reply(drive: str, run: str, message_id: str, body: str, request: str | None = None) -> None:
