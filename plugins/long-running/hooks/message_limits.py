@@ -313,7 +313,7 @@ def unchecked(tool_input: dict, messages: list[dict], linked: dict[str, dict], d
     try:
         findings = refs.answer_ids(slack.post_findings(text, bool(tool_input.get("card") or tool_input.get("tap_prs")), asked), drive)
     except slack.SlackError as error:
-        return [f"refused: `cc-slack check-post` could not check this post's words, so it does not go out: {error}."]
+        return [agents.Unjudged(f"refused: `cc-slack check-post` could not check this post's words, so it does not go out: {error}.")]
     if any(ALERT_LINK.match(finding) for finding in findings) and talk.outage(drive, tool_input, report, order_id):
         findings = [finding for finding in findings if not ALERT_LINK.match(finding)]
     if not findings:
@@ -353,7 +353,7 @@ def teammate_findings(payload: dict) -> str | None:
     try:
         findings = slack.post_findings(tool_input.get("text") or "", True, tool_input.get("asked") or "")
     except slack.SlackError as error:
-        return f"refused: `cc-slack check-post` could not check this post's words, so it does not go out: {error}."
+        return agents.Unjudged(f"refused: `cc-slack check-post` could not check this post's words, so it does not go out: {error}.")
     return every(check_post_refusals(findings))
 
 
@@ -707,7 +707,7 @@ def members_findings(payload: dict, dm: str) -> str | None:
         findings = slack.post_findings(text, False)
         long = limits.word_refusal(tool_input, limits.LINE_WORDS, "a line to a channel's members", edited_words(payload, dm), MEMBERS_READING, MEMBERS_REST)
     except slack.SlackError as error:
-        return f"refused: this post's words could not be checked, by `cc-slack check-post` or against the post it edits, so it does not go out: {error}."
+        return agents.Unjudged(f"refused: this post's words could not be checked, by `cc-slack check-post` or against the post it edits, so it does not go out: {error}.")
     named = ", ".join(limits.code_names(text))
     lines = len(text.strip().splitlines())
     bold = BOLD.search(text)
@@ -1139,7 +1139,7 @@ def main() -> None:
         if judged and (unfit := settled.unfit(judged))[1]:
             reason, heard, judged = unroomed(*unfit), {}, {}
     except Exception as error:
-        reason, heard, judged = (
+        reason, heard, judged = agents.Unjudged(
             f"refused: the drive's message check failed on this post with {type(error).__name__}: {error}, so it does not go"
             " out unchecked. Name it on a DEFECT line, and the post goes out once the check's fix is installed."
         ), {}, {}

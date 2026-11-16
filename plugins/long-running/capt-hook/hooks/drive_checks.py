@@ -116,7 +116,7 @@ GUESSED_CLAIMS = [{"claim": GUESSED, "read": "cloudrunner/inbox.go"}]
 CLOUD_READ = 'ccx_code_read {"path": "go/sand/next/internal/cloudrunner/inbox.go"}\n57  rows, err := r.postgres.Query(ctx, selectInbox, agentID)'
 NOT_READ = 'none: no call of the handler\'s own holds "cloudrunner/inbox.go"'
 HELD_BACK = "Jev held back this post: claim \"The cloud's inbox reader queries Postgres straight.\" does not stand on its read."
-UNSURE = "message_limits: Jev is unsure of finding he is away, so the post goes out as written: if one is wrong, reword the post in place."
+UNSURE = "message_limits: this post goes out as written; Jev is unsure of finding he is away: if one is wrong, reword the post in place."
 UNROOMED = (
     "refused: no Jev request of 10,000 characters holds these parts whole beside the post's 1,678 characters, largest first:"
     ' record:716852 "716852" beside the 5 claims naming it, 12,936.'
@@ -338,7 +338,7 @@ def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
         return judged(evt, output)
     if reason and output.get("judged", True):
         call = {"tool": payload.get("tool_name") or payload.get("hook_event_name") or "", "input": payload.get("tool_input") or {"message": payload.get("last_assistant_message") or ""}}
-        return refused(evt, reason, weighed(evt, {"refusal": {"rule": output.get("rule") or reason, "call": call}}))
+        return refused(evt, reason, weighed(evt, {"refusal": {"rule": output.get("rule") or reason, "call": call, "output": output}}))
     if reason:
         return evt.block(reason)
     if made := found.get("updatedInput"):
@@ -364,12 +364,12 @@ def weighed(evt: BaseHookEvent, request: dict) -> dict:
 
 
 def refused(evt: BaseHookEvent, reason: str, verdict: dict) -> HookResult | None:
-    """A judged refusal as Jev weighed it: the block, beside Jev's note when it is unsure, a warning when Jev gave no verdict in time, and the call let through when Jev reads it as a match its rule never meant."""
+    """A judged refusal as Jev weighed it: the block, beside Jev's note when it is unsure, the note alone when Jev gave no verdict in time, since it names each finding the call goes ahead with and a refusal's words would say it never ran, and the call let through when Jev reads it as a match its rule never meant."""
     match verdict["verdict"]:
         case "hold":
             return evt.block("\n\n".join(filter(None, [reason, verdict["note"]])))
         case "warn":
-            return evt.context(f"{verdict['note']}\n```\n{reason}\n```")
+            return evt.context(verdict["note"])
     return None
 
 

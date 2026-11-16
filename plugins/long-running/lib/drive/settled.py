@@ -1280,32 +1280,34 @@ PROTECTS = Noul(
 )
 NO_READ = "none: "
 SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
+GOES_OUT = "message_limits: this post goes out as written;"
 SET_WORDS = re.compile(r"\b(?:only|every|each|all|no|none|nobody|nothing|never)\b", re.IGNORECASE)
 
 
 def weighed(request: dict) -> dict:
-    """The verdict of the capt-hook pack's one Jev request on a call a drive check refused or a post it hands with his words, as `post_verdict` or `refusal_verdict` gives it within the seconds the request leaves it, the pack reading only its verdict, hold, warn or pass, and its note."""
+    """The verdict of the capt-hook pack's one Jev request on a call a drive check refused or a post it hands with his words, as `post_verdict` or `refusal_verdict` gives it within the seconds the request leaves it, the pack reading only its verdict, hold, warn or pass, and its note; a refusal from a pack capt-hook loaded before the check's output rode beside it names no findings, since capt-hook keeps the pack it first found until it restarts."""
     left = request.get("seconds")
     if "refusal" in request:
-        return refusal_verdict(request["refusal"]["rule"], request["refusal"]["call"], REFUSAL_SECONDS if left is None else min(REFUSAL_SECONDS, left))
+        refusal = request["refusal"]
+        return refusal_verdict(refusal["rule"], refusal["call"], check_findings(refusal.get("output", {})), REFUSAL_SECONDS if left is None else min(REFUSAL_SECONDS, left))
     return post_verdict(request["post"], DECIDE_SECONDS if left is None else min(DECIDE_SECONDS, left))
 
 
-def refusal_verdict(rule: str, call: dict, seconds: float = REFUSAL_SECONDS) -> dict:
-    """Whether a drive check's refusal stands, by one Noul over the rule it names and the call, the call's input filled whole field by field: it holds at YES or more and in the band between NO and YES, since a call the rule may stop waits, and passes under NO, as a match its rule never meant; when Jev cannot finish within the seconds given, REFUSAL_SECONDS at most, the call goes ahead with the refusal beside it as a warning."""
+def refusal_verdict(rule: str, call: dict, findings: list[dict], seconds: float = REFUSAL_SECONDS) -> dict:
+    """Whether a drive check's refusal stands, by one Noul over the rule it names and the call, the call's input filled whole field by field: it holds at YES or more and in the band between NO and YES, since a call the rule may stop waits, and passes under NO, as a match its rule never meant; when Jev cannot finish within the seconds given, REFUSAL_SECONDS at most, the call goes ahead with a warning saying so and naming each of the check's findings, never the refusal's words, which would tell the session the call never ran."""
     fields = (({"call": {"input": {key: value}}}, {}) for key, value in call["input"].items())
     told, _, _ = fill({"rule": rule, "call": {"tool": call["tool"], "input": {}}}, {"protects": PROTECTS}, fields)
     try:
         protects = reading(jev(told, {"protects": PROTECTS}, seconds)["protects"])
     except Unheard as failure:
-        return {"verdict": "warn", "note": f"Jev gave no verdict ({failure}) on whether this call is what the refusal's rule protects against, so the call goes ahead and the refusal only warns."}
+        return {"verdict": "warn", "note": f"This call goes ahead: Jev gave no verdict ({failure}) on whether it is what the refusal's rule protects against, so what the check found only warns:{warned(findings)}"}
     if protects is None:
         return {"verdict": "hold", "note": "Jev is unsure whether this call is what its rule protects against, so the refusal stands."}
     return {"verdict": "hold" if protects else "pass", "note": ""}
 
 
 def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
-    """Whether a post the drive's checks hand with his words holds, by the requests `requests` packs, asked of Jev at once, every item Jev cannot weigh the post without whole in one of them, a read too long for one request by whole lines across several, since `unfit` refuses a post before it reaches here when one item alone has no room: it holds for a claim whose read, or each part of it, is under BACKS or matched none of the handler's calls, a claim saying only, every, no or never of a set whose read reads one member rather than what decides every member at YES, a sentence no claim holds whole that states a fact beyond the claims at YES, a post answering his question under a card while leaving a term of the card's first line it turns on unexplained at YES, a post in a thread of his DM holding orders that tells him of work past that thread's while his words there name no more at YES, by his ruling 98c20ce "we're talking about the work this thread is about", and a finding that holds at YES with no lift at NO or more, by his pick f9e9302 "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims"; a claim at BACKS or more stands, since every unbacked claim of the drive's recorded posts drew under it; any other Noul in the band between, or a finding with no room left, only warns, naming it. When Jev cannot finish, a finding a count or a mark decides still holds, since no judgment lifts it, and every other only warns, by his pick b80a8b1 "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning"."""
+    """Whether a post the drive's checks hand with his words holds, by the requests `requests` packs, asked of Jev at once, every item Jev cannot weigh the post without whole in one of them, a read too long for one request by whole lines across several, since `unfit` refuses a post before it reaches here when one item alone has no room: it holds for a claim whose read, or each part of it, is under BACKS or matched none of the handler's calls, a claim saying only, every, no or never of a set whose read reads one member rather than what decides every member at YES, a sentence no claim holds whole that states a fact beyond the claims at YES, a post answering his question under a card while leaving a term of the card's first line it turns on unexplained at YES, a post in a thread of his DM holding orders that tells him of work past that thread's while his words there name no more at YES, by his ruling 98c20ce "we're talking about the work this thread is about", and a finding that holds at YES with no lift at NO or more, by his pick f9e9302 "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims"; a claim at BACKS or more stands, since every unbacked claim of the drive's recorded posts drew under it; any other Noul in the band between, or a finding with no room left, only warns, naming it; a post that goes out says so first and names what it warns of, never in a refusal's words, which would tell the session nothing went out. When Jev cannot finish, a finding a count or a mark decides still holds, since no judgment lifts it, and every other only warns, by his pick b80a8b1 "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning"."""
     reason = refusal_reason(output)
     reads = {item["id"]: item for item in output.get("reads") or []}
     claims = output["post"].get("claims") or []
@@ -1326,7 +1328,7 @@ def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
             held.append(f'claim "{claim["claim"]}" speaks for a whole set while its read reads one member of it: name a read that finds every member, such as a grep across the code, or cut the claim to the member it reads')
         elif spans is None:
             unsure.append(f'claim "{claim["claim"]}" speaking for more of a set than its read reads')
-    for number, finding in enumerate(post_findings(output), 1):
+    for number, finding in enumerate(findings := check_findings(output), 1):
         holds, lifted = read.get(f"f{number}.holds"), read.get(f"f{number}.lifted", 0.0)
         if holds is None:
             unsure.append(f"finding {finding['found']}, which had no room in Jev's {REQUEST_CHARS:,} characters")
@@ -1349,12 +1351,11 @@ def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
             held.append("it tells him of work past what his thread holds, which his words there never asked about: answer from the orders its In his thread lines list, with each card and PR their jobs wait on, and leave the rest of the drive out")
         elif past is None:
             unsure.append("whether it reaches past the work of his thread")
-    shown = f"\n```\n{reason}\n```" if reason else ""
     if held:
-        return {"verdict": "hold", "note": f"Jev held back this post: {'; '.join(held)}. So fix each, then call say again.{shown}"}
+        return {"verdict": "hold", "note": f"Jev held back this post: {'; '.join(held)}. So fix each, then call say again." + (f"\n```\n{reason}\n```" if reason else "")}
     if unsure:
-        return {"verdict": "warn", "note": f"message_limits: Jev is unsure of {'; '.join(unsure)}, so the post goes out as written: if one is wrong, reword the post in place.{shown}"}
-    return {"verdict": "warn" if reason else "pass", "note": "message_limits: Jev read no finding's rule as holding against this post, so it goes out as written." if reason else ""}
+        return {"verdict": "warn", "note": f"{GOES_OUT} Jev is unsure of {'; '.join(unsure)}: if one is wrong, reword the post in place."}
+    return {"verdict": "warn", "note": f"{GOES_OUT} Jev read none of these findings' rules as holding against it:{warned(findings)}"} if reason else {"verdict": "pass", "note": ""}
 
 
 def asked(output: dict) -> tuple[dict, list[tuple[str, tuple[dict, dict[str, Noul]]]], list[tuple[dict, dict[str, Noul]]]]:
@@ -1385,7 +1386,7 @@ def asked(output: dict) -> tuple[dict, list[tuple[str, tuple[dict, dict[str, Nou
     rest = [
         *(
             ({"findings": {f"f{number}": finding}}, {f"f{number}.holds": asking(HOLDS, finding=f"f{number}"), **({f"f{number}.lifted": asking(LIFTED, finding=f"f{number}")} if words else {})})
-            for number, finding in enumerate(post_findings(output), 1)
+            for number, finding in enumerate(check_findings(output), 1)
         ),
         *(({"his_words": {word["id"]: word["quote"]}}, {}) for word in [*(word for word in words if not word.get("said_at")), *sorted((word for word in words if word.get("said_at")), key=lambda word: word["said_at"], reverse=True)]),
     ]
@@ -1407,14 +1408,19 @@ def requests(output: dict) -> list[tuple[dict, dict[str, Noul]]]:
 
 
 def refusal_reason(output: dict) -> str:
-    """The refusal the drive's checks made of a post, as its hook output names it, or none."""
-    return (output.get("hookSpecificOutput") or {}).get("permissionDecisionReason") or ""
+    """The refusal a drive check made of a post or call, as its hook output names it, a Stop hook's block reason included, or none."""
+    return (output.get("hookSpecificOutput") or {}).get("permissionDecisionReason") or (output.get("decision") == "block" and output.get("reason")) or ""
 
 
-def post_findings(output: dict) -> list[dict]:
-    """Each finding the drive's checks hand beside a post, or its refusal as one finding when they name none."""
+def check_findings(output: dict) -> list[dict]:
+    """Each finding a drive check hands beside a post or a refused call, or its refusal as one finding when it names none."""
     reason = refusal_reason(output)
     return output.get("findings") or ([{"rule": reason, "found": reason.removeprefix("refused: ")}] if reason else [])
+
+
+def warned(findings: list[dict]) -> str:
+    """Each finding a warning names on a post or call that goes ahead, a numbered line each by what its check found, so the session reads what to reword in place and never a refusal's words."""
+    return "".join(f"\n{number}. {finding['found']}" for number, finding in enumerate(findings, 1))
 
 
 def unmatched(reads: dict[str, dict], claim: dict) -> bool:
@@ -1482,8 +1488,8 @@ def unheard_post(output: dict, reason: str, failure: str) -> dict:
     if counted := output.get("counted"):
         return {"verdict": "hold", "note": f"message_limits: Jev gave no verdict ({failure}), and a finding a count or a mark decides refuses without one: fix it, then call say again.\n```\n{counted}\n```"}
     if reason:
-        return {"verdict": "warn", "note": f"message_limits: Jev gave no verdict ({failure}), so each finding below only warns and the post goes out as written: if one holds, reword the post in place.\n```\n{reason}\n```"}
-    return {"verdict": "warn", "note": f"message_limits: Jev gave no verdict ({failure}) on whether each claim of this post stands on the read it names, so the post goes out as written."}
+        return {"verdict": "warn", "note": f"{GOES_OUT} Jev gave no verdict ({failure}), so each finding only warns: if one holds, reword the post in place:{warned(check_findings(output))}"}
+    return {"verdict": "warn", "note": f"{GOES_OUT} Jev gave no verdict ({failure}) on whether each claim of it stands on the read it names."}
 
 
 def uncovered(output: dict) -> list[tuple[int, str]]:

@@ -137,7 +137,7 @@ class Ruled(str):
 
 
 class Unjudged(str):
-    """A refusal its check decides by the call's shape alone, which Jev never weighs, so the same call gets the same verdict every time."""
+    """A refusal Jev never weighs, so the same call gets the same verdict every time: one its check decides by the call's shape alone, or a check that could not run, whose words say the call does not go ahead."""
 
 
 def ruled(reason: str) -> dict:
