@@ -449,8 +449,8 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   its path on your Sprite, then prints all it printed there and exits with its status, in about a
   second. Wrap it in no `timeout` or other kill, which ends the wait and prints nothing while the
   Mac still runs it.
-- `drive job report <your job> -` answers once your report is kept, and Jev's checks of it run
-  after. One that refuses it wakes you with a message naming the fix: send the report again. A
+- `drive job report <your job> -` answers once your report is kept, and on a Sprite the read of a
+  `READY`'s PRs on GitHub runs after. One that refuses it wakes you with a message naming the fix: send the report again. A
   verb stopped mid-run answers that it stopped and does not run twice, so read what it changed
   before you type it again.
 - It runs `job report`, `job ask`, `job set --repro`, `job replies`, `job held`, `pr add`,
@@ -623,12 +623,10 @@ that ends your run.
   until `drive job ask <your job> --drop <its path>` throws it away. One on his card that a recorded
   answer of his already settles ends on his words with
   `drive job ask <your job> --drop <its path> --answer <id>`, which closes the card in place.
-- The verb keeps every block in shape and prints what Opus and Jev find in it: an option that breaks
-  a recorded answer of his, a code name never said in plain words, a raw id. Those findings are
-  advice: when one holds, rewrite that part and ask again, which redraws the card. The exception is
-  a card whose option breaks a recorded ruling of his: the verb keeps it unsettled, as `--unsettled`
-  does, asking him to lift those words, and that mark holds its PR on an incident too, so push with
-  `ccx vcs ship --no-pr --no-watch` and return `BUILT`.
+- The verb keeps every block in shape and reads it against nothing: search his answers yourself
+  first, with `cc-notes answer search "<the question>"`. A card whose option breaks a recorded
+  ruling of his takes `--unsettled`, which asks him to lift those words, and that mark holds its PR
+  on an incident too, so push with `ccx vcs ship --no-pr --no-watch` and return `BUILT`.
 
 ````
 ASK <the question, one line>

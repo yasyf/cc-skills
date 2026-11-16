@@ -63,9 +63,9 @@ Its return opens `DESIGN <part>`. `drive job report <j>` prints the rest:
 
 When his words tell the system to choose by a rule, such as by usage or size, the design builds the
 abstraction the strategies share first and walks each strategy through it on paper. A fork on it
-asks him about the strategies and the rule that picks one, not about one outcome. `drive job report`
-refuses a design Jev reads as building less or later than his words name with no fork asking him, or
-as building a strategy before the abstraction it shares.
+asks him about the strategies and the rule that picks one, not about one outcome. No check reads
+a design for this: a design that builds less or later than his words name, with no fork asking
+him, is a defect the designer and the coordinator catch.
 
 ## What the designer decides
 

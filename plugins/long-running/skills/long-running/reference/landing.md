@@ -522,11 +522,11 @@ PR hits, and the monorepo hooks into the drive through its `.claude/long-running
 - **How it runs.** Short, aggressive and agent-led, exercising every scenario that could break on
   production, then a 2-hour soak after the merge. Changes touching different files share one cut,
   one freeze and one claim. The drive starts each test on staging with no card and no `--order`.
-- **Its tools.** The steps are the monorepo `AGENTS.md`'s **Landing** rule. `<ci> release soak`,
-  once on `dev`, freezes staging, deploys the branches, waits for their tests and unfreezes. It
-  stamps the database's staging rollout with the tested head, and its `--fail` redeploys the
-  soaked stacks at the latest green release candidate. `<ci> staging-smoke soak` runs your
-  scenarios on staging as the smoke-test account.
+- **Its tools.** The steps are the monorepo `AGENTS.md`'s **Landing** rule, and no one verb runs
+  them: cherry-pick the changes onto the commit staging serves, freeze their stacks as the claim
+  below says, deploy the cut with one `<ci> release start <targets> --from <cut> --env <staging env>`,
+  run each change's tests and your scenarios, then `<ci> release unfreeze`.
+  `<ci> staging-smoke soak` runs your scenarios on staging as the smoke-test account.
 - **Its restore.** Staging goes back to the commit it served before the test with
   `<ci> release start <each soaked target> --from <restore commit> --emergency --env <staging env>`.
   The restore commit is an empty commit on the base, `git commit-tree <base>^{tree} -p <base>`,
@@ -668,7 +668,7 @@ session's confirmation or a card first. A change no words of his cover rides the
   `drive job held --release`. The hold reaches a drive session, its agents, a Sprite lane, a codex
   job (through the hook `drive job launch` keeps in `~/.codex/hooks.json`) and the watchdog, and a
   wrapper such as `drive break-glass`, `timeout` or `xargs` changes nothing.
-- **Freezes.** `<ci> release freezes` reads each freeze standing now. A job's brief carries them and his hold on a `Release freezes:` line, and `drive status` adds
+- **Freezes.** The `freezes` command of the repository's `[release]` settings reads each freeze standing now, and a repository naming none shows none. A job's brief carries them and his hold on a `Release freezes:` line, and `drive status` adds
   the line when a shown job or PR waits on a release. `say` and `record` refuse words saying a
   release may start that leave out a standing freeze or hold.
 - **One cut at a time.** One cut carries every project's changes, so the top coordinator starts,

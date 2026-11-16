@@ -62,8 +62,8 @@ Existing code is evidence of what must keep working, not the shape to keep.
 - Give the smallest design that does what his words mean, with every piece he would otherwise ask
   for.
 - Cutting or deferring something his words or an answer of his name is product scope, so build it
-  in or keep it as his card. `drive job report` refuses a design Jev reads as building less or
-  later than his words with no fork asking him.
+  in or keep it as his card. No check reads a design for this, so it is
+  yours to get right.
 - A shape others already observe, such as a wire, file or API shape, a default or a command's
   output, costs its users when it changes. Change it where the design needs it and say so on
   `Design:`.
@@ -76,8 +76,7 @@ Existing code is evidence of what must keep working, not the shape to keep.
   `drive job ask <job> <file> --redraws <its waits id>`.
 - Where his words name several strategies, such as time and hash partitioning, design the
   abstraction they share first and walk each strategy through it on paper. The abstraction is
-  change 1 and each strategy a later `Change:` line waiting on it. `drive job report` refuses a
-  design Jev reads as building a strategy before that abstraction.
+  change 1 and each strategy a later `Change:` line waiting on it.
 - Where a row, a placement or a status could reach a bad state, shape it so the state cannot
   exist, under one durable owner. He ruled out sweepers, time rules and reclaim loops as cleanup.
 - Give each piece a worked example: the real calls of an API, imperative beside declarative; the
@@ -125,18 +124,14 @@ Replaces: <only on a question built on other open questions of his: each one's A
 
 What `drive job ask` does with a block:
 
-- It keeps every well-shaped card and prints what Opus and Jev find: an option that breaks his
-  words, his rule on team data or what a linked page shows, a code name or run id never said in
-  plain words, a name used as if he knew it, a raw id. Rewrite a part whose finding holds and ask
-  the same question again, which redraws its card.
-- When he already answered the block's own question in the same words, it keeps the block settled
-  by that answer with no card and tells the coordinator. Build on it and add the fork to `rulings:`.
-- When Opus reads an option, the recommended one first, as breaking a recorded answer of his, it
-  keeps the card unsettled, asking him to lift those words, unless that answer orders a release the
-  recommended option names in backticks, which `drive job add --release` starts with no card.
-- When his words on the order say to ask him nothing, it refuses the card: build the recommended
-  option and name those words on `rulings:`. A card asking him to land a PR, release to production
-  or post as him still draws.
+- It keeps every well-shaped card and reads it against nothing, so search his answers yourself
+  first, with `cc-notes answer search "<the question>"`. A question he already answered is not
+  asked: build on that answer and add the fork to `rulings:`.
+- A card whose option breaks a recorded answer of his takes `--unsettled`, which asks him to lift
+  those words.
+- When his words on the order say to ask him nothing, draw no card: build the recommended option
+  and name those words on `rulings:`. A card asking him to land a PR, release to production or
+  post as him still draws.
 
 The template states each line's word limit, and `--check` counts them. What it leaves unsaid:
 

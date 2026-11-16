@@ -194,10 +194,9 @@ How an agent is recorded on a job:
 
 The first line piped to `drive job report <j> -` sets the job's state and said line. Nothing else
 does, except a codex job's run and `drive job set <j> --state stopped`. `drive job report` refuses,
-naming the fix: a line opening with no result word, a `WAITING` nothing can wake, a design lane's
-`DESIGN` that Jev reads as building less or later than his words name with no fork for him, a
-strategy designed before the abstraction it shares, and a reader's `DESIGN` that `drive job ask`
-refuses as his card.
+naming the fix: a line opening with no result word, a `WAITING` nothing can wake, and a reader's
+`DESIGN` that `drive job ask` refuses as his card. It checks the report's shape only: whether a
+design builds all his words name is the designer's to get right and the coordinator's to read.
 
 | First line | The job's state |
 |---|---|
@@ -344,7 +343,7 @@ exit status.
   this Mac.
 - The reader answers a relayed verb by running it, and the lane's `drive` prints what it printed.
   A `job report <its job> -` is answered once the return is kept: `drive job check <j>` then reads
-  it with Jev, Opus and GitHub in a process of its own and wakes the lane by `drive job resume`
+  a `READY`'s PRs on GitHub in a process of its own and wakes the lane by `drive job resume`
   on a refusal. With no answer, the lane's `drive` says so on stderr every 30 s and exits 1 at
   240 s, a worst-case cap.
 
