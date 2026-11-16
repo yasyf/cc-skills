@@ -395,12 +395,13 @@ def test_a_session_holding_a_role_binds_no_sub_coordinator_and_a_sub_coordinator
     assert (list(data["subcoordinators"]), data["roles"]["coordinator"]["session"], "communicator" in data["roles"]) == (["Iris"], "session-under-test", False)
 
 
-def test_heard_returns_one_word_whatever_sub_coordinator_his_thread_is_filed_under(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_heard_returns_heard_and_his_open_asks_whatever_sub_coordinator_his_thread_is_filed_under(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", "demo", "--role", "coordinator", "--project", "Iris")
-    assert run("heard", "--now") == (0, "heard")
-    assert tools.run("heard", "demo", {"now": True}) == "heard"
+    code, out = run("heard", "--now")
+    assert (code, out.splitlines()[0], out.splitlines()[1].startswith('ask a1 on o1, at '), out.splitlines()[1].endswith('"ship the run page" terminal')) == (0, "heard", True, True)
+    assert tools.run("heard", "demo", {"now": True}).splitlines()[0] == "heard"
     assert tools.run("heard", "demo", {"away": True}) == "away"
     with pytest.raises(state.DriveError, match="drive heard takes no thread"):
         tools.run("heard", "demo", {"thread": "1794200000.000100"})
@@ -10814,10 +10815,15 @@ def test_status_names_the_open_incidents_and_tells_no_running_job_of_a_restarted
     assert run("status", "j4")[1].splitlines()[1].startswith("- o3 ")
 
 
-def test_heard_prints_one_word_with_orders_in_use(run: Run, demo: str) -> None:
+def test_heard_prints_his_open_asks_newest_first_and_his_taps_of_the_last_hour_with_orders_in_use(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the watch")
     run("order", "add", "--title", "Short title", "--project", "Billing", "--workstream", "Invoices", "why is the invoice late?")
-    assert run("heard", "--now") == (0, "heard")
+    with edit(demo) as data:
+        data["orders"]["o1"]["asks"]["a1"]["at"] = state.stamp(state.now() - timedelta(minutes=5))
+        data["prs"]["acme/app#7"] = state.new_pr("https://github.com/acme/app/pull/7", None, "o1") | {"title": "Fix the watch", "tap": state.new_tap("Approve", "abc", "card")}
+        data["prs"]["acme/app#8"] = state.new_pr("https://github.com/acme/app/pull/8", None, "o1") | {"title": "Older", "tap": state.new_tap("Approve", "def", "card", at=state.stamp(state.now() - timedelta(hours=2)))}
+    lines = run("heard", "--now")[1].splitlines()
+    assert [line.split(", at ")[0] for line in lines] == ["heard", "ask a2 on o2", "ask a1 on o1", 'tap Approve on acme/app#7 "Fix the watch", on o1']
     assert run("heard", "--away") == (0, "away")
     assert "in_use" not in json.loads(run("heard", "--now", "--json")[1])
 
@@ -10853,7 +10859,7 @@ def test_heard_reads_nothing_from_github_so_a_refusal_there_never_leaves_him_unh
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the watch")
     monkeypatch.setattr(github, "run", lambda *args, **kwargs: pytest.fail("drive heard read GitHub"))
     monkeypatch.setattr(card, "run", lambda *args, **kwargs: pytest.fail("drive heard read GitHub"))
-    assert run("heard", "--now") == (0, "heard")
+    assert run("heard", "--now")[1].splitlines()[0] == "heard"
     assert state.load(demo)["owner"]["heard"] is not None
 
 

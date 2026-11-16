@@ -6744,7 +6744,24 @@ def heard(args: argparse.Namespace) -> int:
         return emit(args, f"He is {reading}" if reading else "never heard: the drive has heard no word or tap of his", owner)
     if args.repeats or args.part:
         refuse_an_unheld_repeat(name, state.load(name), args.repeats, args.part)
-    return emit(args, "away" if args.away else "heard", watch.hear(name, state.now(), args.away))
+    found = watch.hear(name, state.now(), args.away)
+    if args.away:
+        return emit(args, "away", found)
+    context = his_context(state.load(name), state.now())
+    return emit(args, "\n".join(["heard", *context]), found | {"context": context})
+
+
+TAPS_HEARD = timedelta(hours=1)
+
+
+def his_context(data: dict, moment: datetime) -> list[str]:
+    """What the hearing session reads his message against, newest first: each open ask of each open order, its id, order, his words and permalink, and each tap of his on a PR in the last TAPS_HEARD, so it resolves words such as "both" or "those two" to asks by name and says which in its reply, by his rethink step 5."""
+    asks = sorted(((ask["at"], ask_id, order_id, ask) for order_id in state.open_orders(data) for ask_id, ask in state.open_asks(data, order_id).items()), key=lambda row: state.parse_time(row[0]), reverse=True)
+    taps = sorted(((pr["tap"]["at"], key, pr) for key, pr in data["prs"].items() if pr["tap"] and moment - state.parse_time(pr["tap"]["at"]) <= TAPS_HEARD), key=lambda row: state.parse_time(row[0]), reverse=True)
+    return [
+        *(f'ask {ask_id} on {order_id}, at {render.when(at)}: "{render.cut(ask["words"], 200)}" {ask["link"]}' for at, ask_id, order_id, ask in asks),
+        *(f'tap {pr["tap"]["label"]} on {key} "{pr["title"]}", on {pr["order"]}, at {render.when(at)}' for at, key, pr in taps),
+    ]
 
 
 def page_owner(args: argparse.Namespace) -> int:

@@ -207,7 +207,8 @@ def verb_tools() -> list[dict]:
         {
             "name": "heard",
             "description": (
-                "Record that he wrote, each time he does, with now, away or repeats set. Returns heard, or away when away is set, and nothing to act on."
+                "Record that he wrote, each time he does, with now, away or repeats set. Returns away when away is set; otherwise heard, then each open ask of his, newest first,"
+                " with its id, order, his words and permalink, and each tap of his on a PR in the last hour: read his message against them, so words such as \"both\" resolve to asks you name by id and his words."
                 " With none of them it only reads, returning when he was last heard and writing nothing."
                 " last with why takes back what it heard after his last"
                 " word or tap that was not his, such as a job's test tap, returning unheard."

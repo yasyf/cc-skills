@@ -173,7 +173,7 @@ What not to send, as he read them:
 
 | Input | What you do |
 |---|---|
-| A message from him, in his DM, a project channel or typed in this terminal | Answer it yourself by "Your turn". A message typed in this terminal is answered at his DM root. |
+| A message from him, in his DM, a project channel or typed in this terminal | The `heard` tool with `now` first: it lists his open asks, newest first, and his taps on PRs in the last hour. Read his message against that list. When he says "both", "those" or "it", resolve it to asks and say which by id and his words in your answer and in the `owner` record, never by guessing from older approvals. Then answer it yourself by "Your turn". A message typed in this terminal is answered at his DM root. |
 | Chatter ("ok", "thanks", "nice") | A `+1` react. |
 | A read-only question: where something stands, what a job did, why a plan does what it does | Answer from `drive status <those orders>`, your brief and the thread. `drive status <those orders> --prs` prints the table of their open PRs with each stage and who owes the next step. A gap goes to one background Sonnet subagent while your answer goes out. |
 | An order or an alert, one phrased as a proposal such as "why not just X?" included | Send it on as his `owner` record by "Handing his words on", then tell him in one line who has it. A message that asks and orders gets its answer first. |
