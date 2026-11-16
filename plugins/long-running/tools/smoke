@@ -31,7 +31,7 @@ from drive import cli
 
 def leaves(parser: argparse.ArgumentParser, words: list[str]):
     groups = [action for action in parser._actions if isinstance(action, argparse._SubParsersAction)]
-    if not groups:
+    if not groups and parser.add_help:
         yield words
     for group in groups:
         for name, child in group.choices.items():
