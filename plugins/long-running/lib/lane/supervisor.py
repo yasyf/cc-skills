@@ -69,13 +69,13 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
         except store.Refused as failed:
             errors.append(str(failed))
         lanes_now = store.load_all(drive)
+        monitors = dict(rank.last(drive).get("monitors", {}))
         try:
-            monitors = facts.monitor_states(drive, {str(lane["incident"]["monitor"]) for lane in lanes_now.values() if (lane.get("incident") or {}).get("monitor") and not lane["incident"].get("fix_live")})
+            monitors |= facts.monitor_states(drive, {str(lane["incident"]["monitor"]) for lane in lanes_now.values() if (lane.get("incident") or {}).get("monitor") and not lane["incident"].get("fix_live")})
         except store.Refused as failed:
-            errors.append(str(failed))
-            monitors = {}
+            errors.append(f"{failed}; the last monitor states read stand")
         hurt = {lane_id for lane_id, lane in lanes_now.items() if facts.hurting(lane, monitors)}
-        order = rank.ranked(drive, facts.viewed(lanes_now, prs), moment, hurt)
+        order = rank.ranked(drive, facts.viewed(lanes_now, prs), moment, hurt, monitors)
         if order.get("error"):
             errors.append(f"rank kept its last order: {order['error']}")
     else:

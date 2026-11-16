@@ -146,36 +146,44 @@ def his_messages(lane: dict) -> list[dict]:
 
 
 def datadog_keys(drive: str) -> dict[str, str]:
-    """The Datadog API and application keys: DD_API_KEY and DD_APPLICATION_KEY in the environment, else the JSON object the drive config's datadog_keys command prints."""
+    """The Datadog API and application keys: DD_API_KEY and DD_APPLICATION_KEY in the environment, else the drive config's datadog_keys, {"command": argv, "names": {"DD_API_KEY": name, "DD_APPLICATION_KEY": name}}, whose command prints either those keys as a JSON object or a parameter-store answer, {"Parameters": [{"Name", "Value"}]}, read by those names. The keys are cached for the process."""
     if os.environ.get("DD_API_KEY") and os.environ.get("DD_APPLICATION_KEY"):
         return {"DD_API_KEY": os.environ["DD_API_KEY"], "DD_APPLICATION_KEY": os.environ["DD_APPLICATION_KEY"]}
-    if not (command := store.config(drive).get("datadog_keys")):
-        raise store.Refused("no Datadog keys: set DD_API_KEY and DD_APPLICATION_KEY, or the drive config's datadog_keys command")
-    done = subprocess.run(command, capture_output=True, text=True, check=False, timeout=60)
+    if drive in KEYS:
+        return KEYS[drive]
+    if not (shape := store.config(drive).get("datadog_keys")):
+        raise store.Refused("no Datadog keys: set DD_API_KEY and DD_APPLICATION_KEY, or the drive config's datadog_keys")
+    done = subprocess.run(shape["command"], capture_output=True, text=True, check=False, timeout=60, stdin=subprocess.DEVNULL)
     if done.returncode:
         raise store.Refused(f"the datadog_keys command failed: {done.stderr.strip()[:200]}")
-    return json.loads(done.stdout)
+    printed = json.loads(done.stdout)
+    if "Parameters" in printed:
+        values = {row["Name"]: row["Value"] for row in printed["Parameters"]}
+        printed = {key: values[name] for key, name in shape["names"].items()}
+    KEYS[drive] = {"DD_API_KEY": printed["DD_API_KEY"], "DD_APPLICATION_KEY": printed["DD_APPLICATION_KEY"]}
+    return KEYS[drive]
+
+
+KEYS: dict[str, dict[str, str]] = {}
 
 
 def monitor_states(drive: str, ids: set[str]) -> dict[str, str]:
-    """Each Datadog monitor's overall state, one read per monitor."""
+    """Each Datadog monitor's overall state, in one request for all of them."""
     if not ids:
         return {}
     keys = datadog_keys(drive)
     site = os.environ.get("DD_SITE", "datadoghq.com")
-    states = {}
-    for monitor in sorted(ids):
-        request = urllib.request.Request(f"https://api.{site}/api/v1/monitor/{monitor}", headers={"DD-API-KEY": keys["DD_API_KEY"], "DD-APPLICATION-KEY": keys["DD_APPLICATION_KEY"]})
-        try:
-            with urllib.request.urlopen(request, timeout=20) as answer:
-                states[monitor] = json.loads(answer.read())["overall_state"]
-        except OSError as failed:
-            raise store.Refused(f"Datadog read of monitor {monitor} failed: {failed}") from None
-    return states
+    request = urllib.request.Request(f"https://api.{site}/api/v1/monitor?monitor_ids={','.join(sorted(ids))}", headers={"DD-API-KEY": keys["DD_API_KEY"], "DD-APPLICATION-KEY": keys["DD_APPLICATION_KEY"]})
+    try:
+        with urllib.request.urlopen(request, timeout=20) as answer:
+            return {str(monitor["id"]): monitor["overall_state"] for monitor in json.loads(answer.read())}
+    except OSError as failed:
+        KEYS.pop(drive, None)
+        raise store.Refused(f"Datadog read of monitors {', '.join(sorted(ids))} failed: {failed}") from None
 
 
 def hurting(lane: dict, monitors: dict[str, str]) -> bool:
-    """Whether a lane's incident hurts users now, from facts and never a hand-set flag: its record is open with no fix live, and its Datadog monitor, when it names one, still alerts; a monitor whose state could not be read counts as alerting."""
+    """Whether a lane's incident hurts users now, from facts and never a hand-set flag: its record is open with no fix live, and its Datadog monitor, when it names one, alerts by monitors, the states read this pass or else the last ones read; a monitor never read counts as alerting."""
     incident = lane.get("incident") or {}
     if not incident or incident.get("fix_live"):
         return False

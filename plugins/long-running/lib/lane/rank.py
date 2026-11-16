@@ -66,7 +66,7 @@ def judge(text: str, told: list[dict]) -> dict[str, float]:
     return {key: answer.score for key, answer in decision.answers.items() if isinstance(answer, ScoreAnswer)}
 
 
-def ranked(drive: str, lanes: dict[str, dict], moment: datetime, hurt: set[str] = frozenset()) -> dict:
+def ranked(drive: str, lanes: dict[str, dict], moment: datetime, hurt: set[str] = frozenset(), monitors: dict[str, str] | None = None) -> dict:
     """The order lanes take slots and staging in, best first: the model's scores when the rule or the facts changed since the last ask, else the last ones; a failed ask keeps the last scores and says why."""
     text = rule(drive)
     told = [facts(lane, moment, lane["id"] in hurt) for lane in lanes.values()]
@@ -81,7 +81,7 @@ def ranked(drive: str, lanes: dict[str, dict], moment: datetime, hurt: set[str] 
             key = kept.get("key")
     order = sorted(lanes, key=lambda lane_id: (lanes[lane_id]["state"] == store.PARKED, -scores.get(lane_id, 0.0), lanes[lane_id]["created"]))
     asks = [{"lane": lane_id, "ts": ask.get("ts"), "at": ask["at"], "words": ask["words"][:200], "replied": ask.get("replied")} for lane_id in order for ask in sorted(lanes[lane_id].get("asks", []), key=lambda ask: ask["at"]) if not ask.get("done")]
-    result = {"at": store.stamp(moment), "key": key, "order": order, "scores": scores, "asks": asks, "hurting": sorted(hurt), "error": error}
+    result = {"at": store.stamp(moment), "key": key, "order": order, "scores": scores, "asks": asks, "hurting": sorted(hurt), "monitors": monitors or {}, "error": error}
     fresh = path(drive).with_name(".rank.json.tmp")
     fresh.parent.mkdir(parents=True, exist_ok=True)
     fresh.write_text(json.dumps(result, indent=1) + "\n")

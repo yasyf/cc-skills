@@ -422,6 +422,15 @@ def test_an_incident_hurts_users_by_its_facts_until_its_fix_is_live(world: dict,
     states["42"] = "OK"
     supervisor.run_pass(DRIVE)
     assert rank.last(DRIVE)["hurting"] == []
+
+    def down(drive: str, ids: set[str]) -> dict:
+        raise store.Refused("Datadog down")
+
+    monkeypatch.setattr(facts, "monitor_states", down)
+    result = supervisor.run_pass(DRIVE)
+    assert rank.last(DRIVE)["hurting"] == []
+    assert any("last monitor states read stand" in error for error in result["errors"])
+    monkeypatch.setattr(facts, "monitor_states", lambda drive, ids: {key: states[key] for key in ids})
     states["42"] = "Alert"
     verbs.set_incident(DRIVE, "a", token_of("a"), fix_live="https://release/live")
     supervisor.run_pass(DRIVE)
