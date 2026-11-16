@@ -7635,8 +7635,8 @@ def test_a_staging_testers_waiting_naming_the_builder_of_the_pr_waiting_on_its_t
     assert run("pr", "add", url, "--job", "j1", *LEAD)[0] == 0
     assert run("pr", "set", url, "--waits", f"o1:{staging}")[0] == 0
     code, err = keep(monkeypatch, capsys, "j2", f"WAITING {url} fails its soak\n")
-    assert (code, "name with it the job whose work frees j2, as j<n>, which frees it once that job's change merges, or once that job next reports" in err) == (2, True)
-    assert keep(monkeypatch, capsys, "j2", f"WAITING {url} fails its soak, waits on j1's fix\n") == (0, "")
+    assert (code, "name with it the job whose work frees j2, as a plain j<n>, never j<n>'s, which names that job's work, which frees it once that job's change merges, or once that job next reports" in err) == (2, True)
+    assert keep(monkeypatch, capsys, "j2", f"WAITING {url} fails its soak, waits on j1 to fix it\n") == (0, "")
     pinned = f"j1@{state.returned_second(state.load(demo)['jobs']['j1'])}"
     assert state.load(demo)["jobs"]["j2"]["waits"] == [pinned]
     assert run("job", "set", "j2", "--waits", "j1")[0] == 0
