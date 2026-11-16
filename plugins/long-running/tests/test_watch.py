@@ -7963,6 +7963,14 @@ def test_a_staging_test_started_on_a_pr_trunk_queued_after_its_lander_ended_read
     assert (stage.alone(state.load(demo), KEY, NO_CARDS).name, landers) == ("waiting", [("--dequeue", KEY)])
 
 
+def test_a_queued_pr_put_back_on_its_staging_test_leaves_the_merge_queue_in_the_same_call_with_no_watch_pass(home_repo: None, demo: str, landers: list[tuple[str, ...]]) -> None:
+    approve(demo, KEY)
+    queued(demo)
+    state.write(demo, lambda data: state.wait_on_staging(data, KEY))
+    assert landers == [("--dequeue", KEY)]
+    assert (stage.alone(state.load(demo), KEY, NO_CARDS).name, state.holder(state.load(demo)["prs"][KEY]["lander"]["dequeue"])) == ("waiting", os.getpid())
+
+
 def test_a_dangerous_pr_trunk_queued_before_he_went_quiet_leaves_the_queue_while_he_is_away_and_lands_again_at_his_next_word(
     home_repo: None,
     demo: str, tmp_path: Path, landers: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
