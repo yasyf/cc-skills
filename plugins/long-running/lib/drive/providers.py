@@ -203,6 +203,10 @@ class ReleaseProvider(Provider):
         """The cluster Job the release pipeline's build numbered build starts, as mutation() gives one, read now; None when it starts none; a ProviderError or the CI read's own error when it cannot be read."""
         return None
 
+    def leased_start(self, words: list[str], branch: str) -> list[str] | None:
+        """The words of a start of the staging cut on branch, which holds the env its words name, rewritten to the form the release tool starts a commit only that branch holds with, such as a manual start of that commit; None when the words already start it as they stand."""
+        return None
+
 
 class StagingProvider(Provider):
     """Where the repository stages a change before it lands, and the steps a staging pass takes there."""

@@ -2025,6 +2025,9 @@ def job_release(args: argparse.Namespace) -> int:
     command = job["brief_flags"]["release"]
     session = args.session or job["session"]
     [words] = simple_commands(command)
+    if made := cut_start(state.load(name), words):
+        print(f"{args.id}: starts the leased cut's commit as `{shlex.join(made)}` in place of `{command}`", file=sys.stderr, flush=True)
+        command, words = shlex.join(made), made
     manual = "manual" in providers.of(state.load(name)).release.start(words)
     kept = args.checkout or job.get("release_checkout")
     cwd = release_checkout(name, command, Path(kept)) if kept else None
@@ -2058,6 +2061,13 @@ def job_release(args: argparse.Namespace) -> int:
     kicked = prebuild(name, args.id, command, answer.get("commit"))
     print("\n".join([*replaced, f"{args.id} started `{command}` as {build} and left it running: its agent follows it with `{answer['follow']}` and reads its approve hold", *kicked, line]))
     return 0
+
+
+def cut_start(data: dict, words: list[str]) -> list[str] | None:
+    """The words the release provider starts a staging cut's commit with, by its leased_start, when the start reaches one staging env whose slot a cut job holds on a branch of its own, since only that branch holds the cut's commit, as 736332 found; None for any other start."""
+    if not (env := brief.leased_env(words, data)) or not (holder := (data["slots"].get(env) or {}).get("holder")) or not (branch := (data["jobs"].get(holder["job"]) or {}).get("branch")):
+        return None
+    return providers.of(data).release.leased_start(words, branch)
 
 
 def release_once(name: str, job_id: str, command: str, words: list[str], manual: bool, session: str | None, cwd: Path | None) -> tuple[dict, str | None]:
