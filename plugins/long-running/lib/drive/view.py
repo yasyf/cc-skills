@@ -531,13 +531,18 @@ def proof_words(proof: str) -> str:
 
 
 def tester_line(drive: dict, tester: str) -> str:
-    """What a staging tester says of itself to each PR it tests: its WAITING line while it waits on what that line names, else the waits drive job set --waits pointed it at once one is not in that line, else its state."""
+    """What a staging tester says of itself to each PR it tests: its WAITING line while it waits on what that line names, else the waits drive job set --waits pointed it at once one is not in that line, unless the line is the drive's own for a job waiting its turn for a builder slot or Sprite lane, else its state."""
     job = drive["jobs"][tester]
     if job["state"] != "waiting" or not job["said"]:
         return job["state"]
-    if any(wait not in job["said"] and not state.HIS_WORD_WAIT.fullmatch(wait) for wait in job["waits"]):
+    if not {state.SLOT_WAIT, state.SPRITE_WAIT} & set(job["waits"]) and any(not said_names(job["said"], wait) for wait in job["waits"]):
         return f"waiting on {', '.join(job['waits'])}"
     return job["said"]
+
+
+def said_names(said: str, wait: str) -> bool:
+    """Whether a WAITING line names this wait: by its own words, a PR wait by its url too, and a his-word wait the drive adds itself always."""
+    return wait in said or bool(state.HIS_WORD_WAIT.fullmatch(wait)) or bool(state.PR_KEY.fullmatch(wait)) and state.pr_url(wait) in said
 
 
 def tap_card(data: dict, pr: dict, found: dict | None) -> str | None:
