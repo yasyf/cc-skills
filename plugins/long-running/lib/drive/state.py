@@ -4307,10 +4307,16 @@ def drop_ended_texts(data: dict, ended: dict[str, str]) -> list[str]:
 
 
 def down_mac_boxes(name: str, data: dict, finished: list[str]) -> None:
-    """Take down every Mac box each job a save just finished holds: `drive mac-boxes-down` on those jobs, a process of its own that outlives the save, its output appended to the drive's mac-boxes.log, so a box comes down with the job it is named after while the save neither waits on the drive's checkout nor fails with it. None for a scratch drive, a proof's or a test's, or a repository whose .claude/long-running.toml names no [mac_box] down command, which holds no Mac box."""
-    if not finished or scratch() or not mac_box_command(data, "down"):
+    """Take down every Mac box each job a save just finished holds: `drive mac-boxes-down` on those jobs, a process of its own that outlives the save, its output appended to the drive's mac-boxes.log, so a box comes down with the job it is named after while the save neither waits on the drive's checkout nor fails with it, unless box_wanted keeps it for a job still to take its turn there. None for a scratch drive, a proof's or a test's, or a repository whose .claude/long-running.toml names no [mac_box] down command, which holds no Mac box."""
+    if not finished or scratch() or not mac_box_command(data, "down") or not (freed := [job_id for job_id in finished if not box_wanted(data, job_id)]):
         return
-    detach(name, ["mac-boxes-down", *finished], MAC_BOXES_LOG)
+    detach(name, ["mac-boxes-down", *freed], MAC_BOXES_LOG)
+
+
+def box_wanted(data: dict, box: str) -> bool:
+    """Whether a job not yet finished names the Mac box anywhere on its row, its handoff and the texts it was given or holds included, as a job queued to take its next turn on a finished job's box does, so that box stays up for it."""
+    pattern = re.compile(rf"\b{re.escape(box)}\b")
+    return any(pattern.search(json.dumps(job)) for job in data["jobs"].values() if job["state"] not in FINISHED_JOB_STATES)
 
 
 def placed(before: dict[str, tuple[int, str | None]], order: list[str]) -> dict[str, int]:

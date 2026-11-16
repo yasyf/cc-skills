@@ -4060,7 +4060,7 @@ def rest_sessions(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def finished_boxes(watcher: Watcher, moment: datetime) -> list[str]:
-    """Take down, by `drive mac-boxes-down` in a process of its own, each live Mac box named after a done, failed or stopped job the watch hears, read by the repository's [mac_box] list command once every BOX_SWEEP, so a box whose save never took it down, or whose down refused, comes down after; the lines a failed list makes."""
+    """Take down, by `drive mac-boxes-down` in a process of its own, each live Mac box named after a done, failed or stopped job the watch hears, read by the repository's [mac_box] list command once every BOX_SWEEP, so a box whose save never took it down, or whose down refused, comes down after, except one state.box_wanted keeps; the lines a failed list makes."""
     data = state.load(watcher.name)
     if watcher.boxes_at is not None and moment - watcher.boxes_at < BOX_SWEEP or not (command := state.mac_box_command(data, "list")):
         return []
@@ -4072,7 +4072,11 @@ def finished_boxes(watcher: Watcher, moment: datetime) -> list[str]:
     if done.returncode:
         return read_failed(watcher, BOX_LIST, orca.OrcaError(f"{command} exited {done.returncode}: {(done.stderr.strip().splitlines() or ['no output'])[-1]}"), moment)
     watcher.failures.pop(BOX_LIST, None)
-    held = [job_id for job_id in sorted(set(done.stdout.split())) if (job := data["jobs"].get(job_id)) and job["state"] in state.FINISHED_JOB_STATES and heard_job(watcher, data, job)]
+    held = [
+        job_id
+        for job_id in sorted(set(done.stdout.split()))
+        if (job := data["jobs"].get(job_id)) and job["state"] in state.FINISHED_JOB_STATES and heard_job(watcher, data, job) and not state.box_wanted(data, job_id)
+    ]
     if held:
         state.detach(watcher.name, ["mac-boxes-down", *held], state.MAC_BOXES_LOG)
     return []

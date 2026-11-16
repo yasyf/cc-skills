@@ -5604,7 +5604,7 @@ def test_a_restarted_watch_asks_for_a_left_sprite_again_only_once_the_reclaim_an
     assert ended_lanes == []
 
 
-def test_the_watch_takes_down_each_live_mac_box_named_after_a_finished_job_once_an_hour(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_watch_takes_down_each_live_mac_box_named_after_a_finished_job_once_an_hour_unless_an_open_job_names_it(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     run("job", "add", "builder", "--order", "o1", "--goal", "still at work", "--remote")
     checkout = Path(state.load(remote)["roles"]["coordinator"]["cwd"])
     (checkout / ".claude").mkdir(parents=True, exist_ok=True)
@@ -5617,6 +5617,10 @@ def test_the_watch_takes_down_each_live_mac_box_named_after_a_finished_job_once_
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     for at in (T0, T0 + timedelta(minutes=30), T0 + watch.BOX_SWEEP):
         watch.finished_boxes(watching, at)
+    assert started == [["mac-boxes-down", "j1"], ["mac-boxes-down", "j1"]]
+    with state.edit(remote) as data:
+        data["jobs"]["j2"]["handoff"] = "Your Mac box, mine to name: box j1, up and signed in to staging; your turn on it comes next"
+    watch.finished_boxes(watching, T0 + 2 * watch.BOX_SWEEP)
     assert started == [["mac-boxes-down", "j1"], ["mac-boxes-down", "j1"]]
 
 
