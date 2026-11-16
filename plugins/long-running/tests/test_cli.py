@@ -4828,6 +4828,12 @@ def test_slot_queue_lists_the_work_queues_stage_test_items_marked_in_the_queue_s
     assert cli.queue_items(data, work.env(data)) == []
 
 
+def test_a_slot_hold_goes_before_the_work_queues_next_cut_only_when_urgent_and_the_queue_owes_nothing_while_it_is_off(run: Run, demo: str) -> None:
+    data = {"jobs": {"j1": {"priority": True}, "j2": {}}, "work": {"kinds": []}}
+    assert [state.urgent_hold(data, hold) for hold in (None, {"for": "j9", "urgent": True}, {"for": "j1"}, {"for": "j9"})] == [False, True, True, False]
+    assert work.owed(state.load(demo), work.env(state.load(demo)), state.now()) is False
+
+
 def test_slot_queue_runs_end_to_end_with_stage_test_on_and_lists_a_queued_tester_before_any_slot_is_claimed(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Soak it", "--project", "The drive", "--workstream", "Drive tooling", "soak it", "--kind", "build", "--parts", "staging test of #42 before it lands")
     run("job", "add", "builder", "--order", "o1", "--part", "staging test of #42 before it lands", "--goal", "soak #42 on staging")

@@ -222,9 +222,9 @@ class StageTest(Kind):
             return f"the {env(data)} slot is held by {slot['holder']['job']}'s cut until {slot['holder']['until']}"
         if not (items := self.line(data)):
             return f"no {self.name} item is ready"
-        if not state.held_for(data, slot, items[0], moment):
-            return f"the {env(data)} slot is held for {slot['hold']['for']} until {slot['hold']['until']}"
-        if ahead := self.legacy_ahead(data, items[0]):
+        if not state.held_for(data, slot, items[0], moment) and state.urgent_hold(data, slot["hold"]):
+            return f"the {env(data)} slot is held for {slot['hold']['for']} until {slot['hold']['until']}, an urgent hold ahead of the queue"
+        if not (slot.get("hold") and parse_live(slot["hold"], moment)) and (ahead := self.legacy_ahead(data, items[0])):
             return f"{ahead} of the {env(data)} slot's old line comes first"
         return None
 
@@ -331,6 +331,15 @@ class Build(Kind):
 STAGE = StageTest()
 KIND = {kind.name: kind for kind in (STAGE, Prove(), Build())}
 KINDS = tuple(KIND)
+
+
+def parse_live(hold: dict, moment: datetime) -> bool:
+    return state.parse_time(hold["until"]) > moment
+
+
+def owed(data: dict, slot_env: str, moment: datetime) -> bool:
+    """Whether the queue's next stage-test cut takes the env's free slot now, before its old line hands it on: stage-test is on, the env is the queue's, the slot is free, why_not lets a cut start and this Mac admits its worker, by admitted, and a hold no urgency marks never stops, by his order that back-to-back holds never starve ready staging tests while one he ordered urgent still goes first."""
+    return enabled(data, STAGE_TEST) and slot_env == env(data) and STAGE.why_not(data, moment) is None and admitted(data, STAGE, moment) is None
 
 
 def kind_of(data: dict, job: dict) -> Kind | None:

@@ -7471,6 +7471,8 @@ def slot_hand(data: dict, env: str, to: str, moment: datetime) -> tuple[dict, st
     slot = data["slots"].get(env) or {"holder": None, "queue": []}
     if not (entry := next((each for each in slot["queue"] if each["job"] == to), None)):
         raise DriveError(f"{to}: refused, it waits in no {env} slot queue: drive slot queue {env} names who does")
+    if slot["holder"] is None and queue_owed(data, env, moment) and not urgent_hold(data, {"for": to}):
+        raise DriveError(f"{to}: refused, the {env} slot is free and the work queue's ready staging tests take it first, its next cut before any hold that is not urgent: drive slot hold {env} --for {to} --urgent puts it ahead")
     slot["queue"].remove(entry)
     if held := slot["holder"]:
         back = [{key: member[key] for key in QUEUED_KEYS} for member in [held, *held["riders"]] if data["jobs"][member["job"]]["state"] not in SLOT_LIVE_END]
@@ -7490,15 +7492,27 @@ def held_for(data: dict, slot: dict, job_id: str, moment: datetime) -> bool:
     return not hold or parse_time(hold["until"]) <= moment or hold["for"] == job_id
 
 
-def slot_hold(data: dict, env: str, held: str, until: datetime, reason: str, moment: datetime) -> str:
-    """Hold a staging env's slot for one job until a time, by drive slot hold, so the watch gives it to no other job and hands a lease that ends to that job first in its queue; the line saying so, refused for an order."""
+def queue_owed(data: dict, env: str, moment: datetime) -> bool:
+    """Whether the work queue's next staging cut takes an env's free slot before its old line and any hold that is not urgent, by work.owed."""
+    from drive import work
+
+    return work.owed(data, env, moment)
+
+
+def urgent_hold(data: dict, hold: dict | None) -> bool:
+    """Whether a slot hold goes before the work queue's next cut: one drive slot hold --urgent set, or one for a job marked priority alone or carrying a part drive order set --urgent marked, by urgent_part, so a hold root chains for an apply he did not order urgent never starves the queue's ready staging tests."""
+    return bool(hold) and (bool(hold.get("urgent")) or hold["for"] in data["jobs"] and (bool(data["jobs"][hold["for"]].get("priority")) or urgent_part(data, data["jobs"][hold["for"]])))
+
+
+def slot_hold(data: dict, env: str, held: str, until: datetime, reason: str, moment: datetime, urgent: bool = False) -> str:
+    """Hold a staging env's slot for one job until a time, by drive slot hold, so the watch gives it to no other job and hands a lease that ends to that job first in its queue, after the work queue's next cut unless the hold is urgent, by urgent_hold; the line saying so, refused for an order."""
     if not JOB_ID.fullmatch(held):
         raise DriveError(f"{held}: refused, a slot hold names one job, never an order, so no other job of the order takes a GO")
     if until <= moment:
         raise DriveError(f"refused: --until {stamp(until)} has passed")
     slot = data["slots"].setdefault(env, {"holder": None, "queue": []})
-    slot["hold"] = {"for": held, "until": stamp(until), "reason": reason, "at": stamp(moment)}
-    return f"{env} held for {held} until {stamp(until)}: {reason}"
+    slot["hold"] = {"for": held, "until": stamp(until), "reason": reason, "at": stamp(moment), "urgent": urgent}
+    return f"{env} held for {held} until {stamp(until)}{', urgent, ahead of the work queue' if urgent else ''}: {reason}"
 
 
 def mid_case(data: dict, slot: dict, env: str) -> list[str]:
@@ -7619,7 +7633,7 @@ def slot_turns(data: dict, moment: datetime, release: Any = None) -> list[tuple[
         slot["queue"] = [each for each in slot["queue"] if each not in riding]
         if slot["holder"] is None and slot.get("hold"):
             slot["queue"].sort(key=lambda each: not held_for(data, slot, each["job"], moment))
-        if slot["holder"] is None and slot["queue"] and held_for(data, slot, slot["queue"][0]["job"], moment):
+        if slot["holder"] is None and slot["queue"] and held_for(data, slot, slot["queue"][0]["job"], moment) and not queue_owed(data, env, moment):
             head, riders = packed(slot["queue"])
             slot["queue"][:0] = [rider for rider in riders if not held_for(data, slot, rider["job"], moment)]
             riders = [rider for rider in riders if held_for(data, slot, rider["job"], moment)]
