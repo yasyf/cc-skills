@@ -1,12 +1,13 @@
 import io
 import json
+import os
 import subprocess
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import Cci, Chrome, Images, Jev, Judge, Redraws
+from conftest import Cci, Chrome, Images, Jev, Judge, Redraws, card_node, card_reads, changed_reads
 from drive import card, cli, github, land, limits, picture, render, settled, stage, stall, state, superseded, view, watch
 from drive.github import GithubError
 
@@ -69,9 +70,9 @@ def pr_json(
     }
 
 
-def answering(pr: dict) -> Callable[[list[str]], str]:
-    """A stand-in for gh answering card.read: the PR without its comments for gh pr view, and its comments for the REST read."""
-    return lambda cmd, **_: json.dumps(pr["comments"] if cmd[1] == "api" else {field: value for field, value in pr.items() if field != "comments"})
+def answering(pr: dict) -> Callable[..., str]:
+    """A stand-in for gh answering card.github_reads with the PR for every number it asks."""
+    return card_reads(lambda number: pr)
 
 
 def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = None, pr_state: str = "open", checks: str = "pending", now: str | None = None) -> dict:
@@ -451,8 +452,7 @@ def test_a_card_read_asks_gh_pr_view_for_no_field_only_his_token_answers_and_tak
     monkeypatch.setattr(card, "run", gh)
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
     assert drawn["card"]["prs"][0]["refresher"] == "Uploads try again."
-    viewed = [cmd[-1].split(",") for cmd in asked if cmd[1:3] == ["pr", "view"]]
-    assert viewed and not {"comments", "reactionGroups", "reviewRequests"} & {field for fields in viewed for field in fields}
+    assert asked and not any("viewerDidAuthor" in cmd[-1] for cmd in asked)
 
 
 def test_a_monorepo_migration_risk_section_states_how_its_stored_data_moves() -> None:
@@ -575,9 +575,8 @@ def test_prs_draws_each_known_pr_and_omits_the_rest(
         "skipped": [{"repo": "yasyf/cc-skills", "number": 42, "reason": untapped}],
     }
     assert asked == [
-        ["gh", "pr", "view", "42", "-R", "Forge-AI/monorepo", "--json", card.FIELDS],
-        ["gh", "api", "--paginate", "repos/Forge-AI/monorepo/issues/42/comments?per_page=100"],
-        ["gh", "pr", "view", "42", "-R", "yasyf/cc-skills", "--json", card.FIELDS],
+        ["gh", "api", "graphql", "-f", f"query={github.query(['Forge-AI/monorepo#42'], card.FIELDS)}"],
+        ["gh", "api", "graphql", "-f", f"query={github.query(['yasyf/cc-skills#42'], card.FIELDS)}"],
     ]
     err = capsys.readouterr().err
     assert "yasyf/cc-skills#42" in err
@@ -631,7 +630,7 @@ def test_prs_matches_the_lowercase_repo_cc_slack_asks_with(drive: str, monkeypat
 
 
 def test_a_pr_whose_wait_holds_redraws_his_open_card_with_its_buttons(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card, "run", lambda cmd, **_: json.dumps(pr_json()))
+    monkeypatch.setattr(card, "run", answering(pr_json()))
     with state.edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["waits"] = ["release:dashboard:Forge-AI/monorepo#7"]
     tap_card = {"url": "https://acme.slack.com/archives/D123/p1794029589141509", "prs": [URL], "asked": "2026-11-09T08:00:00-08:00", "card": {"title": "Fix: approve retry flaky uploads?"}}
@@ -1331,16 +1330,13 @@ def stacked(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> list[list[str]
     state.create(data)
     asked: list[list[str]] = []
 
-    def gh(cmd: list[str], **_: str) -> str:
-        asked.append(cmd)
-        if cmd[1] == "api":
-            return "[]"
-        number = int(cmd[3])
+    def pr_of(number: int) -> dict:
         title, base, branch = STACK.get(number, ("Fix: a later fix on top", "move-3", "move-4"))
         body = STACK_BODY + FIX_BODY if number == 41 else FIX_BODY
-        return json.dumps(pr_json(title=title, body=body, url=stack_url(number), base=base, branch=branch))
+        return pr_json(title=title, body=body, url=stack_url(number), base=base, branch=branch)
 
-    monkeypatch.setattr(card, "run", gh)
+    read = card_reads(pr_of)
+    monkeypatch.setattr(card, "run", lambda cmd, **kwargs: asked.append(cmd) or read(cmd, **kwargs))
     return asked
 
 
@@ -1364,16 +1360,7 @@ def test_a_stack_draws_one_card_listing_each_pr_bottom_first(stacked: list[list[
 
 def test_a_stack_cards_pictures_titled_alike_are_numbered_apart_so_each_pr_keeps_its_own(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
-    stacked_gh = card.run
-
-    def gh(cmd: list[str], **_: str) -> str:
-        if cmd[1] == "api":
-            return stacked_gh(cmd)
-        pr = json.loads(stacked_gh(cmd))
-        pr["body"] += f"\n## Show me\n```mermaid\nflowchart TD\n  a --> b{cmd[3]}\n```\n"
-        return json.dumps(pr)
-
-    monkeypatch.setattr(card, "run", gh)
+    monkeypatch.setattr(card, "run", changed_reads(card.run, lambda number, pr: pr | {"body": pr["body"] + f"\n## Show me\n```mermaid\nflowchart TD\n  a --> b{number}\n```\n"}))
     [drawn] = ask(asks(41, 42))["cards"]
     assert [[Path(path).name for path in row["pictures"]] for row in drawn["card"]["prs"]] == [["Diagram"], ["Diagram (2)"]]
 
@@ -1402,15 +1389,7 @@ def test_a_pr_whose_show_me_shows_a_picture_by_its_path_on_a_sprite_draws_it_fro
         data["jobs"]["j2"] = state.new_job("o1", "builder", "take it over", [], "2026-11-09T09:00:00-08:00")
         data["jobs"]["j1"]["prs"] = [stack_url(42)]
         state.take_pr(data, "j2", "Forge-AI/monorepo#42")
-    stacked_gh = card.run
-
-    def gh(cmd: list[str], **kwargs: str) -> str:
-        pr = json.loads(stacked_gh(cmd))
-        if cmd[1] != "api" and int(cmd[3]) == 42:
-            pr["body"] += f"\n## Show me\n![1 · Before, dev]({shot})\n"
-        return json.dumps(pr)
-
-    monkeypatch.setattr(card, "run", gh)
+    monkeypatch.setattr(card, "run", changed_reads(card.run, lambda number, pr: pr | {"body": pr["body"] + f"\n## Show me\n![1 · Before, dev]({shot})\n"} if number == 42 else pr))
     [drawn] = ask(asks(41, 42))["cards"]
     assert [[Path(path).name for path in row["pictures"]] for row in drawn["card"]["prs"]] == [[], ["1 · Before, dev"]]
     assert images.fetched == [copy.as_uri()]
@@ -1419,19 +1398,10 @@ def test_a_pr_whose_show_me_shows_a_picture_by_its_path_on_a_sprite_draws_it_fro
 def test_a_stack_whose_show_me_arch_does_not_draw_still_asks_his_approve_naming_the_picture_left_off_and_draws_it_once_its_body_does(
     stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch, chrome: Chrome
 ) -> None:
-    stacked_gh = card.run
     shows = {41: f"\n## Show me\nThe fork snapshot share:\n```arch\n{json.dumps(FORK_SHARE)}\n```\n"}
-    ages: list[tuple[int, str]] = []
-
-    def gh(cmd: list[str], **kwargs: str) -> str:
-        if cmd[1] == "api":
-            return stacked_gh(cmd)
-        ages.append((int(cmd[3]), kwargs["max_age"]))
-        pr = json.loads(stacked_gh(cmd))
-        pr["body"] += shows.get(int(cmd[3]), "")
-        return json.dumps(pr)
-
-    monkeypatch.setattr(card, "run", gh)
+    ages: list[str] = []
+    shown = changed_reads(card.run, lambda number, pr: pr | {"body": pr["body"] + shows.get(number, "")})
+    monkeypatch.setattr(card, "run", lambda cmd, **kwargs: ages.append(kwargs["max_age"]) or shown(cmd, **kwargs))
     chrome.refusal = UNSTORED
     [drawn] = ask(asks(41, 42))["cards"]
     assert (drawn["card"]["options"], drawn["card"]["status"]) == (["Approve", "Hold"], "needs_you")
@@ -1442,7 +1412,7 @@ def test_a_stack_whose_show_me_arch_does_not_draw_still_asks_his_approve_naming_
     assert (prs["Forge-AI/monorepo#41"]["undrawn"]["why"], prs["Forge-AI/monorepo#42"]["undrawn"]) == (why, None)
     ages.clear()
     ask(asks(41, 42) | {"redraw": True})
-    assert ages == [(41, "0s"), (42, card.READ_AGE)]
+    assert ages == ["0s"]
     assert [(event["kind"], event["reason"]) for event in events("demo") if event["kind"] in ("undrawn", "refused")] == [("undrawn", why)]
     shows[41] = shows[41].replace('"medium": "queue"', '"medium": "memory"')
     chrome.refusal = None
@@ -1464,6 +1434,31 @@ def test_a_native_stack_of_six_prs_draws_one_card_whose_approve_taps_each(stacke
     assert (drawn["card"]["waits"], drawn["card"]["options"]) == (asked_waits(41, 42, 43, 44, 45, 46), ["Approve", "Hold"])
     ask({"answer": {"repo": "Forge-AI/monorepo", "number": 41, "waits": drawn["card"]["waits"], "label": "Approve", "heads": {}, "action_ts": "", "source": "slack"}})
     assert [state.load("demo")["prs"][key]["tap"]["label"] for key in keys] == ["Approve"] * 6
+
+
+@pytest.mark.parametrize("count", [1, 1000 if os.environ.get("FORGE_CI_AT_SCALE") == "1" else 100])
+def test_a_stack_card_reads_github_once_per_25_prs_and_draws_under_no_drive_lock_however_tall_the_stack(
+    stacked: list[list[str]], native_stacks: dict[str, list[tuple[str, str]]], monkeypatch: pytest.MonkeyPatch, count: int
+) -> None:
+    numbers = range(41, 41 + count)
+    keys = [f"Forge-AI/monorepo#{n}" for n in numbers]
+    with state.edit("demo") as data:
+        data["prs"] = {key: {**kept_entry(), "url": state.pr_url(key)} for key in keys}
+    native_stacks.update(dict.fromkeys(keys, [(key, "open") for key in keys]))
+    receipts: list[list[str]] = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: receipts.append(args) or 0)
+    taken: list[str] = []
+    locked = state.locked
+    monkeypatch.setattr(state, "locked", lambda name: taken.append(name) or locked(name))
+    stacked.clear()
+    [drawn] = ask(asks(*numbers))["cards"]
+    assert (len(drawn["card"]["prs"]), len(stacked), taken) == (count, -(-count // github.PRS_PER_QUERY), [])
+    [(verb, receipt)] = receipts
+    card.record_kept("demo", Path(receipt))
+    assert (verb, taken, Path(receipt).exists()) == ("card-record", ["demo"], False)
+    assert all(state.load("demo")["prs"][key]["stack"] == keys for key in keys)
+    ask(asks(*numbers))
+    assert len(receipts) == 1
 
 
 def test_one_approve_on_a_stack_card_lifts_his_hold_of_a_pr_on_it_and_starts_landing_the_whole_card(
@@ -1530,8 +1525,7 @@ def test_a_stack_of_three_merged_prs_on_one_order_redraws_as_done(
     with state.edit("demo") as data:
         for key in keys:
             data["prs"][key]["state"] = "merged"
-    stacked_gh = card.run
-    monkeypatch.setattr(card, "run", lambda cmd, **_: stacked_gh(cmd) if cmd[1] == "api" else json.dumps(json.loads(stacked_gh(cmd)) | {"state": "MERGED"}))
+    monkeypatch.setattr(card, "run", changed_reads(card.run, lambda number, pr: pr | {"state": "MERGED"}))
     [drawn] = ask(asks(41, 42, 43) | {"redraw": True})["cards"]
     assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(41), stack_url(42), stack_url(43)]
     assert drawn["card"]["status"] == "done"
@@ -1581,11 +1575,7 @@ def siblings(monkeypatch: pytest.MonkeyPatch, orders: dict[int, str], drawn_alon
             key = f"Forge-AI/monorepo#{number}"
             served = {"serves": order, "checked": {"head": HEAD, "read": HEAD, "orders": ["o1", order], "lines": {}, "beside": {}}}
             data["prs"][key] = {**kept_entry(), "url": stack_url(number), **served, **({"stack": [key]} if drawn_alone else {})}
-    monkeypatch.setattr(
-        card,
-        "run",
-        lambda cmd, **_: "[]" if cmd[1] == "api" else json.dumps(pr_json(title="Fix: one move of the cutover", url=stack_url(int(cmd[3])), base="main", branch=f"cutover-{cmd[3]}")),
-    )
+    monkeypatch.setattr(card, "run", card_reads(lambda number: pr_json(title="Fix: one move of the cutover", url=stack_url(number), base="main", branch=f"cutover-{number}")))
     return keys
 
 
@@ -1619,9 +1609,8 @@ def test_five_prs_of_one_order_in_no_native_stack_draw_one_card(stacked: list[li
 def test_a_base_branch_chain_keeps_its_own_card_beside_a_sibling_pr_of_its_order_as_the_watch_names_them(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
     with state.edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#50"] = {**kept_entry(), "url": stack_url(50)}
-    stacked_gh = card.run
-    sibling = json.dumps(pr_json(title="Fix: a sibling on main", url=stack_url(50), base="main", branch="sibling-50"))
-    monkeypatch.setattr(card, "run", lambda cmd, **_: sibling if cmd[1] != "api" and cmd[3] == "50" else stacked_gh(cmd))
+    sibling = card_node(pr_json(title="Fix: a sibling on main", url=stack_url(50), base="main", branch="sibling-50"))
+    monkeypatch.setattr(card, "run", changed_reads(card.run, lambda number, pr: sibling if number == 50 else pr))
     drawn = ask(asks(41, 42, 50))["cards"]
     assert [[row["url"] for row in each["card"]["prs"]] for each in drawn] == [[stack_url(41), stack_url(42)], [stack_url(50)]]
 
@@ -1683,8 +1672,7 @@ def test_a_push_that_takes_back_his_approve_on_a_stack_card_asks_again_under_a_n
     ask({"answer": {"repo": "Forge-AI/monorepo", "number": 41, "waits": drawn["card"]["waits"], "label": "Approve", "heads": {}, "action_ts": "1794516000.000001", "source": "slack"}})
     with state.edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#42"].update(head=MOVED, tap=None, fundamental="it now copies rows in batches")
-    stacked_gh = card.run
-    monkeypatch.setattr(card, "run", lambda cmd, **_: stacked_gh(cmd) if cmd[1] == "api" or cmd[3] != "42" else json.dumps(json.loads(stacked_gh(cmd)) | {"headRefOid": MOVED}))
+    monkeypatch.setattr(card, "run", changed_reads(card.run, lambda number, pr: pr | {"headRefOid": MOVED} if number == 42 else pr))
     [again] = ask(asks(41, 42, 43) | {"redraw": True})["cards"]
     assert [row["url"] for row in again["card"]["prs"]] == [stack_url(41), stack_url(42), stack_url(43)]
     assert (again["card"]["status"], again["card"]["options"], again["card"]["waits"]) == ("needs_you", ["Approve", "Hold"], asked_waits(42, head=MOVED))
@@ -1757,15 +1745,9 @@ def test_a_pr_in_a_native_stack_draws_its_native_stack_and_the_rest_of_the_chain
     for n in (41, 42, 43, 44):
         native_stacks[keys[n]] = [("Forge-AI/monorepo#40", "open"), (keys[41], "open"), (keys[42], "open"), (keys[43], "closed"), (keys[44], "open")]
     loose = {45: ("Fix: retry the upload", "main", "retry-1"), 46: ("Fix: retry the download", "retry-1", "retry-2")}
-    stacked_gh = card.run
-
-    def gh(cmd: list[str], **_: str) -> str:
-        if cmd[1] == "api" or int(cmd[3]) not in loose:
-            return stacked_gh(cmd)
-        title, base, branch = loose[int(cmd[3])]
-        return json.dumps(pr_json(title=title, url=stack_url(int(cmd[3])), base=base, branch=branch))
-
-    monkeypatch.setattr(card, "run", gh)
+    monkeypatch.setattr(
+        card, "run", changed_reads(card.run, lambda number, pr: card_node(pr_json(title=loose[number][0], url=stack_url(number), base=loose[number][1], branch=loose[number][2])) if number in loose else pr)
+    )
     drawn = ask(asks(41, 42, 44, 45, 46))["cards"]
     assert [[row["url"] for row in each["card"]["prs"]] for each in drawn] == [[stack_url(n) for n in (41, 42, 44)], [stack_url(45), stack_url(46)]]
     assert [each["card"]["waits"] for each in drawn] == [asked_waits(41, 42, 44), asked_waits(45, 46)]

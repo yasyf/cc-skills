@@ -5500,6 +5500,13 @@ def card_command(args: argparse.Namespace) -> int:
     return card.main(sys.stdin, sys.stdout)
 
 
+def card_record(args: argparse.Namespace) -> int:
+    from drive import card
+
+    card.record_kept(state.resolve(args.drive), Path(args.receipt))
+    return emit(args, f"applied {args.receipt}", {"receipt": args.receipt})
+
+
 def mcp_command(args: argparse.Namespace) -> int:
     from drive import mcp
 
@@ -6962,6 +6969,9 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=cards_withdraw)
     card_help = "cc-slack's card_command: reads one request JSON on stdin and prints one JSON reply"
     verbs.add_parser("card", help=card_help, description=card_help).set_defaults(run=card_command)
+    verb = verbs.add_parser("card-record", parents=both, help="apply what a drive card request changed on its PRs from the receipt it kept; drive card runs it detached")
+    verb.add_argument("receipt", help="the receipt file drive card kept under the drive's card-records folder")
+    verb.set_defaults(run=card_record)
     verb = verbs.add_parser("mcp", help="serve say and the drive's verbs as MCP tools to a Claude Code session over stdio")
     verb.add_argument("--list", action="store_true", help="print the tools as JSON and serve nothing")
     verb.add_argument("--warm", action="store_true", help="fork one process per call the MCP server sends on stdin, from this one with the drive already imported")

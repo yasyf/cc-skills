@@ -1354,6 +1354,29 @@ def settled_notes(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
     return told
 
 
+CARD_READ = re.compile(r"p(\d+): pullRequest\(")
+
+
+def card_node(pr: dict) -> dict:
+    """A PR given in `gh pr view --json`'s shape as GitHub's node answering card.FIELDS."""
+    return pr | {"author": pr.get("author"), "labels": {"nodes": pr["labels"]}, "files": {"nodes": pr["files"]}, "comments": {"nodes": pr.get("comments") or []}}
+
+
+def card_reads(pr_of: Callable[[int], dict | None]) -> Callable[..., str]:
+    """A stand-in for gh answering card.github_reads: each PR its GraphQL query names, as pr_of gives it for its number in `gh pr view --json`'s shape, or none for None."""
+    return lambda cmd, **_: json.dumps({"data": {"r0": {f"p{number}": (pr := pr_of(int(number))) and card_node(pr) for number in CARD_READ.findall(cmd[-1])}}})
+
+
+def changed_reads(gh: Callable[..., str], change: Callable[[int, dict], dict]) -> Callable[..., str]:
+    """gh's answer to card.github_reads with each PR's node as change gives it from its number and node."""
+
+    def changed(cmd: list[str], **kwargs: str) -> str:
+        reply = json.loads(gh(cmd, **kwargs))
+        return json.dumps({"data": {"r0": {alias: node and change(int(alias[1:]), node) for alias, node in reply["data"]["r0"].items()}}})
+
+    return changed
+
+
 @pytest.fixture(autouse=True)
 def on_github(monkeypatch: pytest.MonkeyPatch) -> dict:
     pr = {
@@ -1372,7 +1395,7 @@ def on_github(monkeypatch: pytest.MonkeyPatch) -> dict:
         "changedFiles": 0,
         "files": [],
     }
-    monkeypatch.setattr(card, "run", lambda cmd, **_: json.dumps(pr["comments"] if cmd[1] == "api" else pr))
+    monkeypatch.setattr(card, "run", card_reads(lambda number: pr))
     return pr
 
 
@@ -1468,6 +1491,9 @@ def detached_in_the_call(monkeypatch: pytest.MonkeyPatch) -> None:
     def detach(name: str, args: list[str], log: str) -> int:
         if args[:1] == ["handler-start"]:
             agents.start_kept(name, args[1])
+            return 0
+        if args[:1] == ["card-record"]:
+            card.record_kept(name, Path(args[1]))
             return 0
         if args[:1] == ["say-record"]:
             with pytest.MonkeyPatch.context() as sessionless:

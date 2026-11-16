@@ -16,7 +16,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import ACME_CUT, CAP_RULING, CARD_BODY, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, carrying, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, Redraws, SessionLaunches, Thread, WatchProcess, Withdrawals
+from conftest import ACME_CUT, CAP_RULING, CARD_BODY, card_reads, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, carrying, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, Redraws, SessionLaunches, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -8006,7 +8006,7 @@ def test_a_yasyf_pr_reads_ready_for_the_lander_once_its_builders_ready_is_taken_
 
 @pytest.fixture
 def merged_originals(monkeypatch: pytest.MonkeyPatch, on_github: dict) -> None:
-    monkeypatch.setattr(card, "run", lambda cmd, **_: json.dumps(on_github["comments"] if cmd[1] == "api" else on_github | ({"state": "MERGED"} if cmd[3] in ("51234", "4100") else {})))
+    monkeypatch.setattr(card, "run", card_reads(lambda number: on_github | ({"state": "MERGED"} if number in (51234, 4100) else {})))
 
 
 def test_pr_add_of_a_port_takes_the_pure_port_exemption_and_no_tap(run: Run, demo: str, on_github: dict, merged_originals: None) -> None:
@@ -8459,7 +8459,7 @@ def test_port_of_refuses_an_original_the_drive_does_not_track_until_github_reads
     assert cli.main(["pr", "set", PR, "--port-of", "4100"]) == 2
     assert "#4100, the PR it ports, is not merged on GitHub and the drive does not track it" in capsys.readouterr().err
     assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["port_of"] == 51234
-    monkeypatch.setattr(card, "run", lambda cmd, **_: json.dumps(on_github["comments"] if cmd[1] == "api" else on_github | ({"state": "MERGED"} if cmd[3] == "4100" else {})))
+    monkeypatch.setattr(card, "run", card_reads(lambda number: on_github | ({"state": "MERGED"} if number == 4100 else {})))
     assert run("pr", "set", PR, "--port-of", "4100")[0] == 0
     assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["port_of"] == 4100
 
@@ -11772,7 +11772,7 @@ def test_his_answer_reopening_the_top_pr_of_a_two_pr_stack_card_cards_the_pr_it_
     view.refresh_cards("demo")
     assert stage.of(state.load("demo"), designing, view.live_cards("demo")).name == "uncarded"
     read = {"title": "Fix: land it", "body": CARD_BODY, "state": "OPEN", "isDraft": False, "headRefOid": "abc", "baseRefName": "main", "headRefName": "land-it", "reviewDecision": "APPROVED", "labels": [], "changedFiles": 0, "files": []}
-    monkeypatch.setattr(card, "run", lambda cmd, **_: "[]" if cmd[1] == "api" else json.dumps(read | {"url": f"https://github.com/Forge-AI/monorepo/pull/{cmd[3]}"}))
+    monkeypatch.setattr(card, "run", card_reads(lambda number: read | {"url": f"https://github.com/Forge-AI/monorepo/pull/{number}"}))
     drawn = card.respond({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})
     assert [([row["url"] for row in each["card"]["prs"]], each["card"]["waits"], each["card"]["options"]) for each in drawn["cards"]] == [([PR], f"merge:42:{state.ask_hash('abc')}", ["Approve", "Hold"])]
     assert drawn["skipped"] == []
