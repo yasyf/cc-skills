@@ -45,6 +45,7 @@ from drive import (
 )
 from drive.card import body_of, sections
 from drive.state import DriveError
+from lane import store as lane_store
 
 CODE = str(Path(__file__).resolve().parent)
 SITE = Path(__file__).resolve().parent / "site"
@@ -332,12 +333,12 @@ class Board:
         self.composer = applet.Composer(name)
 
     def stamp(self) -> tuple[int, ...]:
-        """What the board is built from, as it stands: the database's data_version on this board's own connection, which changes with each commit another connection makes, the time drive.json, his stored cards, the messages of his stored as owed an answer, the pages and the stories written for his cards last changed, and how many events of the board's history the events log holds, each new one read here, so an event the board never shows rebuilds nothing."""
+        """What the board is built from, as it stands: the database's data_version on this board's own connection, which changes with each commit another connection makes, the time drive.json, his stored cards, the messages of his stored as owed an answer, the pages and the stories written for his cards, and the lane drive's folder, its lane files and the rank, queue and GitHub view beside them, last changed, and how many events of the board's history the events log holds, each new one read here, so an event the board never shows rebuilds nothing."""
         if self.database is None and state.database_path(self.name).exists():
             self.database = state.connect(state.database_path(self.name))
         committed = self.database.execute("PRAGMA data_version").fetchone()[0] if self.database else 0
         self.read_history()
-        paths = (state.state_path(self.name), state.cards_path(self.name), state.owed_path(self.name), pages.pages_dir(self.name), self.stories.folder, self.composer.folder)
+        paths = (state.state_path(self.name), state.cards_path(self.name), state.owed_path(self.name), pages.pages_dir(self.name), self.stories.folder, self.composer.folder, lane_store.drive_dir(self.name))
         return (committed, *(path.stat().st_mtime_ns if path.exists() else 0 for path in paths), len(self.events), self.records)
 
     def read_history(self) -> None:
@@ -424,7 +425,7 @@ class Board:
             self.body = json.dumps(view.summary(model) | {"version": self.version}).encode()
             self.model = model
             self.answers = {item["answer"]: item["card"]["options"] for item in asked}
-            self.heads = {entry["key"]: entry["head"] for entry in model["review"]}
+            self.heads = {entry["key"]: entry["head"] for entry in model["review"]} | {item["key"]: item["head"] for item in model["queue"] if item.get("lane")}
             self.pictures = pictures
             self.threads = {item["thread"] for item in [*model["queue"], *model["review"]] if item.get("thread")}
             self.repo = model["repo"]

@@ -1,0 +1,33 @@
+"""His dashboard's queue as the lane drive holds it: each PR waiting on his tap by lane-land's rule, lane by lane in the priority queue's order, a lane whose incident hurts users first, for the old dashboard to draw in its own item shape."""
+
+from lane import page, rank, store
+from lane.rows import CHECKS
+
+
+def taps(drive: str) -> list[dict] | None:
+    """Each lane PR waiting on his tap, in queue order: its lane, its position, whether its lane's incident hurts users, and the PR at the head GitHub read last; None when the drive runs no live lanes, so the old drive's queue stands."""
+    if not store.live(drive):
+        return None
+    lanes = store.load_all(drive)
+    ranked = rank.last(drive)
+    hurting = set(ranked.get("hurting", []))
+    order = [lane_id for lane_id in ranked.get("order", []) if lane_id in lanes] + sorted(set(lanes) - set(ranked.get("order", [])))
+    order.sort(key=lambda lane_id: lane_id not in hurting)
+    seen = page.view(drive)["prs"]
+    found = []
+    for position, lane_id in enumerate(order, 1):
+        for row in page.tapless(lanes[lane_id], seen):
+            key = f"{row['repo']}#{row['number']}"
+            found.append({
+                "key": key,
+                "url": f"https://github.com/{row['repo']}/pull/{row['number']}",
+                "head": seen[key]["head"],
+                "checks": CHECKS.get(row["checks"] or "", "pending"),
+                "words": row.get("words"),
+                "moved": row["moved"],
+                "lane": lane_id,
+                "lane_title": lanes[lane_id]["title"],
+                "position": position,
+                "hurting": lane_id in hurting,
+            })
+    return found

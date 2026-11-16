@@ -864,8 +864,43 @@ def tap_item(drive: dict, pr: dict, card: dict | None) -> dict:
     }
 
 
+def lane_tap_item(tap: dict, found: dict) -> dict:
+    """A lane PR waiting on his tap as the queue draws a tap item, on his newest open card showing its head when one carries it."""
+    pr = {"url": tap["url"], "head": tap["head"]}
+    card = head_card(pr, found["pr_cards"])
+    moved = f"; commits since your Approve: {', '.join(tap['moved'])}" if tap["moved"] else ""
+    checks = {"pass": "green", "fail": "red", "pending": "CI running"}[tap["checks"]]
+    item = {
+        "kind": "tap",
+        "key": tap["key"],
+        "head": tap["head"],
+        "lane": tap["lane"],
+        "tasks": [tap["lane"]],
+        "title": tap["words"] or tap["key"],
+        "detail": f"{checks}, {'no Approve of yours yet' if tap['moved'] is None else 'approved on an older head'}{moved}; lane {tap['lane_title']}",
+        "pr": tap["url"],
+        "checks": tap["checks"],
+        "since": card["asked"] if card else None,
+        "due": None,
+        "url": card["url"] if card else tap["url"],
+        "links": [{"label": "Pull request", "url": tap["url"]}],
+        "prs": [{"title": tap["words"] or tap["key"], "url": tap["url"], "state": "open", "checks": tap["checks"], "review": "stale" if tap["moved"] else "none", "tap": "wanted"}],
+        "project": None,
+        "workstream": None,
+        "rank_why": f"{'incident hurting users, ' if tap['hurting'] else ''}lane {tap['lane_title']} is #{tap['position']} in the queue",
+        "reason": {"tone": "bad", "label": "Fixes a live incident", "text": tap["lane_title"]} if tap["hurting"] else {"tone": "plain", "label": f"Lane #{tap['position']} in the queue", "text": tap["lane_title"]},
+    }
+    if card:
+        item |= {"card": card["card"], "answer": card["url"], "thread": card_thread(card["url"])}
+    return item
+
+
 def queue(drive: dict, found: dict, moment: datetime, features: list[dict], answering: dict[str, str]) -> list[dict]:
     from drive import land
+    from lane import board
+
+    if (lane_taps := board.taps(drive["name"])) is not None:
+        return lane_queue(drive, found, moment, features, answering, lane_taps)
 
     taps = [(pr, head_card(pr, found["pr_cards"])) for pr in drive["prs"].values() if waits_on_tap(pr)]
     taps = list({card["url"] if card else pr["url"]: (pr, card) for pr, card in taps}.values())
@@ -888,6 +923,27 @@ def queue(drive: dict, found: dict, moment: datetime, features: list[dict], answ
         item | {"priority": {"rank": position, "answering": rank[0], "incident": not rank[2], "weight": -rank[4]}}
         for position, (rank, item) in enumerate(sorted(ranked, key=lambda entry: entry[0]), 1)
     ]
+
+
+def lane_queue(drive: dict, found: dict, moment: datetime, features: list[dict], answering: dict[str, str], lane_taps: list[dict]) -> list[dict]:
+    """His queue on a live lane drive: the PRs waiting on his tap by the lanes' priority queue, those of a lane whose incident hurts users first, then his open question cards as the old queue ranks them, then the rest of the taps in queue order."""
+    from drive import land
+
+    waiting = waiting_on_him(drive, found)
+    holding = [(pr, {message_key(held) for held in land.pr_cards(drive, pr)}) for pr in drive["prs"].values() if pr["state"] == "open" and pr["checks"] == "pass" and pr["review"] == "approved"]
+    filed = {entry["id"]: entry for entry in features}
+    urgent = {entry["id"]: entry["title"] for entry in incidents(drive)}
+    questions = []
+    for card in found["questions"]:
+        item = question_item(drive, card, features, waiting, holding)
+        home = next((filed.get(order_id) or drive["orders"][order_id] for order_id in item["tasks"] if order_id in drive["orders"]), None)
+        item |= {"project": home and home["project"], "workstream": home and home["workstream"]}
+        rank, item["rank_why"] = ranking(drive, item, item["tasks"], urgent, moment, answering.get(item.get("thread")))
+        item["reason"] = reason(item, rank, urgent)
+        questions.append((rank, item))
+    taps = [lane_tap_item(tap, found) for tap in lane_taps]
+    items = [*(item for item in taps if item["reason"]["tone"] == "bad"), *(item for _, item in sorted(questions, key=lambda entry: entry[0])), *(item for item in taps if item["reason"]["tone"] != "bad")]
+    return [item | {"priority": {"rank": position, "answering": False, "incident": item["reason"]["tone"] == "bad", "weight": 0}} for position, item in enumerate(items, 1)]
 
 
 def ranking(drive: dict, item: dict, orders: list[str], urgent: dict[str, str], moment: datetime, asked: str | None) -> tuple[tuple, str]:

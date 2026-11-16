@@ -661,3 +661,20 @@ def test_his_github_approving_review_is_his_approve_once_and_never_replaces_a_ne
     supervisor.run_pass(DRIVE)
     rows_now = store.load(DRIVE, "a")["prs"]
     assert [(row["approved_head"], row["reviewed_head"]) for row in rows_now] == [("h7", "h7"), ("h8b", "h8a")]
+
+
+def test_his_dashboard_queue_on_a_live_lane_drive_lists_lane_taps_in_queue_order_an_incident_first(world: dict) -> None:
+    from drive import view
+    from lane import board
+
+    opened("a", prs=[("acme/app", 7)])
+    opened("b", prs=[("acme/app", 8)])
+    world["prs"][("acme/app", 7)] = pull(head="h7", rollup="SUCCESS")
+    world["prs"][("acme/app", 8)] = pull(head="h8")
+    world["scores"] = {"a": 9, "b": 1}
+    supervisor.run_pass(DRIVE)
+    assert board.taps(DRIVE) is None
+    (store.drive_dir(DRIVE) / store.LIVE).touch()
+    assert [(tap["key"], tap["position"]) for tap in board.taps(DRIVE)] == [("acme/app#7", 1), ("acme/app#8", 2)]
+    item = view.lane_tap_item(board.taps(DRIVE)[0], {"pr_cards": []})
+    assert (item["kind"], item["key"], item["head"], item["checks"], item["reason"]["label"]) == ("tap", "acme/app#7", "h7", "pass", "Lane #1 in the queue")
