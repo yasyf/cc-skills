@@ -871,6 +871,34 @@ def test_the_post_that_answered_a_part_stops_delivering_it_while_a_builder_takes
     assert [answered, taken, done, (state.delivered(data, "o1", part), data["orders"]["o1"]["parts"][part]["posted"])] == [True, (False, [("o1", part)]), False, (True, proof)]
 
 
+def test_a_drive_saved_before_old_dones_kept_puts_back_each_done_of_its_own_from_before_post_proofs_whose_first_proof_failed_and_leaves_the_others_to_their_proof(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["old_dones_kept"]
+    data["own_done_proofs_since"] = state.stamp(state.POST_PROOFS_MERGED)
+    flipped, unproven, since = "the flipped fix", "the unproven fix", "the fix since the rule"
+    blocked = "BLOCKED j1: repro/j1.sh exits 1 on long-running 1.0.1170, its output reports/j1.proof.txt: it printed no FAIL line"
+    data["orders"] = {"o1": state.new_order("fix it", "slack", None, {part: state.new_part() for part in (flipped, unproven, since)}, state.stamp()) | {"kind": "build", "jobs": ["j1", "j2", "j3"]}}
+    data["jobs"] = {
+        "j1": state.new_job("o1", "builder", "fix it", [flipped], state.stamp()) | {"state": "failed", "said": blocked, "proof": {"pid": 1, "at": state.stamp(), "said": "DONE checked by hand", "version": "1.0.1170"}},
+        "j2": state.new_job("o1", "codex", "end it", [unproven], state.stamp()) | {"state": "done", "said": "DONE ended by hand"},
+        "j3": state.new_job("o1", "builder", "fix it since", [since], state.stamp()) | {"state": "failed", "said": blocked, "proof": {"pid": 1, "at": state.stamp(), "said": "DONE checked since", "version": "1.0.1170"}},
+    }
+    state.create(data)
+    for job_id, line, at in (
+        ("j1", "DONE checked by hand", "2026-11-12T17:26:26-08:00"),
+        ("j1", blocked, "2026-11-15T07:07:57-08:00"),
+        ("j2", "DONE ended by hand", "2026-11-13T09:00:00-08:00"),
+        ("j3", "DONE checked since", "2026-11-15T07:30:00-08:00"),
+        ("j3", blocked, "2026-11-15T07:31:00-08:00"),
+    ):
+        state.keep_report("demo", job_id, line, f"{line}\n", state.parse_time(at))
+    loaded = state.load("demo")
+    assert [(loaded["jobs"][job_id]["state"], loaded["jobs"][job_id]["said"]) for job_id in ("j1", "j2", "j3")] == [("done", "DONE checked by hand"), ("done", "DONE ended by hand"), ("failed", blocked)]
+    assert (install.done_before_proofs(loaded, "j1"), install.done_unproven(loaded, "j1")) == (True, False)
+    assert ({part: fields["posted"] for part, fields in loaded["orders"]["o1"]["parts"].items()}, loaded["old_dones_kept"]) == ({flipped: None, unproven: None, since: None}, True)
+
+
 def test_an_answer_saved_before_answers_listed_waiting_jobs_reads_with_no_job_to_mark(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")

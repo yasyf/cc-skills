@@ -1500,6 +1500,18 @@ def test_a_jobs_own_done_on_a_part_a_later_job_holds_is_never_proven_since_the_p
     assert (state.load("demo")["jobs"]["j1"]["state"], git.claude_calls()) == ("done", [])
 
 
+def test_a_passing_proof_of_a_jobs_own_done_naming_an_open_pr_says_live_only_its_merged_one(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, 0)
+    opened = "https://github.com/yasyf/cc-skills/pull/8"
+    with state.edit("demo") as data:
+        data["prs"]["yasyf/cc-skills#8"] = state.new_pr(opened, "j1", "o1")
+        data["jobs"]["j1"].update(state="done", said=f"DONE {URL} {opened} checked by hand", prs=[URL, opened])
+    install.prove("demo", "j1", 900)
+    assert state.load("demo")["jobs"]["j1"]["said"] == f"WAITING {opened} to merge: DONE {URL} live: {script} exits 0 on long-running {state.VERSION}"
+    assert [key for key, _ in proof_events()] == ["yasyf/cc-skills#7"]
+
+
 def test_a_repair_its_own_agent_proves_installs_nothing_takes_done_naming_no_pr_and_closes_its_order_under_the_orders_title(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
 ) -> None:
