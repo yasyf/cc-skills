@@ -305,6 +305,9 @@ class Backoff:
 PACING = Backoff(BACKOFF)
 
 
+UNPARSED_BACKOFF_S = (1, 3, 0)
+
+
 class GitHubRefusal(Exception):
     @classmethod
     def of(cls, done: subprocess.CompletedProcess[str]) -> GitHubRefusal:
@@ -318,15 +321,24 @@ class Landed:
 
     def __contains__(self, head: str) -> bool:
         argv = ["gh", "pr", "list", "--repo", self.origin, "--state", "closed", "--search", head, "--json", "number,headRefOid"]
-        done = subprocess.run(argv, capture_output=True, text=True)
+        done = gh(argv)
         if done.returncode != 0:
             raise GitHubRefusal.of(done)
         found = json.loads(done.stdout)
         return any(pull["number"] in self.squashed and pull["headRefOid"] == head for pull in found)
 
 
+def gh(argv: list[str]) -> subprocess.CompletedProcess[str]:
+    for backoff in UNPARSED_BACKOFF_S:
+        done = subprocess.run(argv, capture_output=True, text=True)
+        if done.returncode != 0 or done.stdout.strip():
+            return done
+        time.sleep(backoff)
+    raise RuntimeError(f"{' '.join(argv[:3])} exited 0 with empty output {len(UNPARSED_BACKOFF_S)} times")
+
+
 def github(path: str):
-    done = subprocess.run(["gh", "api", path], capture_output=True, text=True)
+    done = gh(["gh", "api", path])
     if done.returncode == 0:
         return json.loads(done.stdout)
     if UNKNOWN_TO_GITHUB.search(done.stderr):
@@ -423,11 +435,19 @@ class Orca:
             raise OrcaSlow(self.slowed)
         orchestration = args[0] == "orchestration"
         started = time.monotonic()
-        try:
-            done = subprocess.run([*ORCA, *args, *(("--full",) if orchestration else ()), "--json"], capture_output=True, text=True, timeout=CALL_TIMEOUT_S if self.bounded else None)
-        except subprocess.TimeoutExpired:
-            self.slowed = f"orca {' '.join(args[:2])} gave no answer in {CALL_TIMEOUT_S} s"
-            raise OrcaSlow(self.slowed) from None
+        for backoff in UNPARSED_BACKOFF_S:
+            try:
+                done = subprocess.run([*ORCA, *args, *(("--full",) if orchestration else ()), "--json"], capture_output=True, text=True, timeout=CALL_TIMEOUT_S if self.bounded else None)
+            except subprocess.TimeoutExpired:
+                self.slowed = f"orca {' '.join(args[:2])} gave no answer in {CALL_TIMEOUT_S} s"
+                raise OrcaSlow(self.slowed) from None
+            try:
+                reply = json.loads(done.stdout or done.stderr)
+                break
+            except json.JSONDecodeError:
+                time.sleep(backoff)
+        else:
+            raise RuntimeError(f"orca {' '.join(args[:2])} exited {done.returncode} with no JSON reply {len(UNPARSED_BACKOFF_S)} times: {(done.stderr or done.stdout).strip()[-300:] or 'empty output'}")
         took = time.monotonic() - started
         if self.bounded and tuple(args[:2]) not in MUTATIONS:
             with self.spending:
@@ -436,7 +456,6 @@ class Orca:
                     self.slowed = f"orca {' '.join(args[:2])} took {took:.1f} s, over the {SLOW_READ_S:.0f} s a read may take"
                 elif self.spent > PASS_ORCA_S:
                     self.slowed = f"this pass spent {self.spent:.0f} s on Orca reads, over its {PASS_ORCA_S:.0f} s"
-        reply = json.loads(done.stdout or done.stderr)
         if orchestration and reply.get("ok") and "_meta" not in reply:
             raise RuntimeError(f"orca {' '.join(args[:2])} printed its concise view, not the full record")
         return reply
