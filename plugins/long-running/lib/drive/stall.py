@@ -14,36 +14,50 @@ ANSWER = re.compile(r"^(WHY|WHO|NEXT|UNREAD):(.*(?:\n(?!(?:WHY|WHO|NEXT|UNREAD):
 def chains(data: dict, cards: dict, on_hold: bool, moment: datetime) -> dict[str, list[tuple[str, str, bool]]]:
     """The chain of waits behind each open PR and each waiting job of the drive, from it to each end, by his pick "an automated watchdog that spawns a small agent if it detects anything truly stick": never a job or PR with a set time to come, nor a chain chain() ends at a running job, whose agent moves it or whose gap the watch says as its own line, at a step of his, which his card or answer already asks of him, or at a PR the drive does not track, which only its own author moves, on_hold true while his hold on every release stands."""
     found = {}
+    graph = WaitGraph(data, cards, on_hold)
     for key, pr in data["prs"].items():
         if pr["state"] != "open" or not pr["stage"] or state.timed(data, data["jobs"][pr["job"]], moment):
             continue
-        if (links := chain(data, cards, on_hold, key, set())) is not None:
+        if (links := graph.trace(key, set())) is not None:
             found[key] = links
     for job_id, job in data["jobs"].items():
         if job["state"] != "waiting" or not job["waits"] or state.timed(data, job, moment):
             continue
-        if (links := chain(data, cards, on_hold, job_id, set())) is not None:
+        if (links := graph.trace(job_id, set())) is not None:
             found[job_id] = links
     return found
 
 
 def chain(data: dict, cards: dict, on_hold: bool, subject: str, seen: set[str]) -> list[tuple[str, str, bool]] | None:
     """Each link from a job, PR or wait to the ends it waits on, by id, in words that change only when it moves, and whether it is an end, waiting on nothing that holds, each by stage.onward, as stage.ends walks it, a wait on a stopped job walked on to each job that took its part, by moved, so a stopped job whose parts all have a successor is never an end; None once it reaches a running job, a PR only its repository's maintainers merge, by state.upstream, as one merged outside the drive, a step of his or a PR the drive does not track: a PR whose stage he owes, as a green one his Hold or the hold label holds does, while a red one's builder owes its fix, or that sits on a PR outside the drive, whose stage someone outside it owes, his open question card, whether a wait names it, a job asked it or it holds a PR from landing, or a release while on_hold, his hold on every release, stands."""
-    if subject in seen:
-        return []
-    seen.add(subject)
-    pr, job = data["prs"].get(subject), data["jobs"].get(subject)
-    if pr and (pr["stage"] and pr["stage"]["owner"] in (stage.HIM, stage.OUTSIDE) or state.upstream(pr)) or job and job["state"] == "running":
-        return None
-    if not pr and not job and (state.card_wait(data, subject) or on_hold and state.RELEASE_WAIT.fullmatch(subject)):
-        return None
-    here, nexts = link(data, cards, subject)
-    links = [(subject, here, not nexts)]
-    for wait in nexts:
-        if (more := chain(data, cards, on_hold, wait, seen)) is None:
+    return WaitGraph(data, cards, on_hold).trace(subject, seen)
+
+
+class WaitGraph:
+    """One snapshot's wait links, resolved once and traversed independently for each root."""
+
+    def __init__(self, data: dict, cards: dict, on_hold: bool) -> None:
+        self.data, self.cards, self.on_hold = data, cards, on_hold
+        self.links: dict[str, tuple[str, list[str]]] = {}
+
+    def trace(self, subject: str, seen: set[str]) -> list[tuple[str, str, bool]] | None:
+        if subject in seen:
+            return []
+        seen.add(subject)
+        pr, job = self.data["prs"].get(subject), self.data["jobs"].get(subject)
+        if pr and (pr["stage"] and pr["stage"]["owner"] in (stage.HIM, stage.OUTSIDE) or state.upstream(pr)) or job and job["state"] == "running":
             return None
-        links += more
-    return links
+        if not pr and not job and (state.card_wait(self.data, subject) or self.on_hold and state.RELEASE_WAIT.fullmatch(subject)):
+            return None
+        if subject not in self.links:
+            self.links[subject] = link(self.data, self.cards, subject)
+        here, nexts = self.links[subject]
+        links = [(subject, here, not nexts)]
+        for wait in nexts:
+            if (more := self.trace(wait, seen)) is None:
+                return None
+            links += more
+        return links
 
 
 def link(data: dict, cards: dict, subject: str) -> tuple[str, list[str]]:
