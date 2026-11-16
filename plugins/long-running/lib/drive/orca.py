@@ -802,13 +802,13 @@ def unsent(brief: Path) -> bool:
 
 
 def reclaim(run: str, dispatch: str, checkout: Path) -> str:
-    return reclaimer(checkout, "--run", run, "--done", dispatch)
+    return reclaimer(checkout, "--run", run, "--done", dispatch, seconds=RECLAIM_SECONDS)
 
 
 def release(drive: str, job_id: str, job: dict, checkout: Path, unverified: bool = False) -> str:
     """Destroy the Sprite at the job's workspace, with its Orca environment and forward, once the reclaimer's --destroy has saved what it holds on no remote to GitHub as save does, or, unverified, at once when ssh cannot read its checkout even after a revive, as for a superseded attempt's Sprite: what it saved and destroyed; OrcaError naming why its checkout could not be read, the save failed, what it still holds, or cc-remote's refusal, which keeps it, or that cc-remote records no such Sprite, so nothing was destroyed."""
     state.said(job_id, f"it destroys Sprite {job['workspace']} with {RECLAIMER} --destroy{' --unverified' if unverified else ''}, for at most {RECLAIM_SECONDS} s")
-    return reclaimer(checkout, "--destroy", job["workspace"], lane_of(drive, job_id, job), *(("--unverified",) if unverified else ()))
+    return reclaimer(checkout, "--destroy", job["workspace"], lane_of(drive, job_id, job), *(("--unverified",) if unverified else ()), seconds=RECLAIM_SECONDS)
 
 
 def holds_sprite(job: dict) -> bool:
@@ -821,7 +821,7 @@ def save(drive: str, job_id: str, job: dict, checkout: Path) -> str | None:
     if state.on_mac(job):
         return None
     state.said(job_id, f"it saves to GitHub what Sprite {job['workspace']} holds on no remote with {RECLAIMER} --save, for at most {RECLAIM_SECONDS} s")
-    return reclaimer(checkout, "--save", job["workspace"], lane_of(drive, job_id, job))
+    return reclaimer(checkout, "--save", job["workspace"], lane_of(drive, job_id, job), seconds=RECLAIM_SECONDS)
 
 
 def saved(drive: str, job_id: str, job: dict, checkout: Path, every: bool = False) -> list[str]:
@@ -835,7 +835,7 @@ def lane_of(drive: str, job_id: str, job: dict) -> str:
     return job.get("lane") or lane_name(drive, job_id)
 
 
-def reclaimer(checkout: Path, *args: str, seconds: int = RECLAIM_SECONDS) -> str:
+def reclaimer(checkout: Path, *args: str, seconds: int) -> str:
     """The reclaimer's output, run by grouped; OrcaError naming its last line when it fails, or naming seconds once it runs past them and grouped killed it with every process it started."""
     try:
         done = grouped([tool(RECLAIMER), *args], cwd=checkout, timeout=seconds)
@@ -867,13 +867,16 @@ def sprites() -> set[str]:
 
 
 def grouped(argv: list[str], *, timeout: float, **given: object) -> subprocess.CompletedProcess[str]:
-    """Run argv as a process group of its own with its output captured as text, as subprocess.run does; subprocess.TimeoutExpired carrying all it wrote once it runs past timeout seconds, after every process left in its group is killed, such as the ssh or sprite exec a launcher or the reclaimer left waiting on a Sprite that never answers, which a kill of argv's own process alone leaves running."""
+    """Run argv as a process group of its own with its output captured as text, as subprocess.run does; subprocess.TimeoutExpired carrying all it wrote once it runs past timeout seconds, after every process left in its group is killed, such as the ssh or sprite exec a launcher or the reclaimer left waiting on a Sprite that never answers, which a kill of argv's own process alone leaves running; any other exception while it runs, such as a signal or a test's timeout, kills that group too before it goes on, so leaving never waits on it."""
     with subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True, **given) as running:
         try:
             out, err = running.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             reads.signal_group(running.pid, signal.SIGKILL)
             raise subprocess.TimeoutExpired(argv, timeout, *running.communicate()) from None
+        except BaseException:
+            reads.signal_group(running.pid, signal.SIGKILL)
+            raise
     return subprocess.CompletedProcess(argv, running.returncode, out, err)
 
 
