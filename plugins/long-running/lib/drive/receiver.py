@@ -236,10 +236,10 @@ def settles(want: dict, delivery: dict) -> bool:
     return want["number"] in delivery.get("numbers", []) or bool(want["head"]) and delivery.get("head") == want["head"]
 
 
-def waited(want: dict, seconds: float) -> dict | None:
-    """Block until the receiver appends a delivery after now that settles what drive wait waits on, by settles, as kqueue reports each append to the deliveries log, so the wait reads GitHub never and wakes on the webhook; the delivery, or None once seconds pass with none."""
+def waited(want: dict, seconds: float, after: int | None = None) -> tuple[dict | None, int]:
+    """Block until the receiver appends a delivery past the log offset after, else past its end now, that settles what drive wait waits on, by settles, as kqueue reports each append to the deliveries log, so the wait reads GitHub never and wakes on the webhook, and a wait given the offset the last one ended at misses no delivery that came between them; the delivery, or None once seconds pass with none, beside the offset it read to."""
     path = deliveries_path()
-    offset = state.lines_end(path)
+    offset = state.lines_end(path) if after is None else after
     deadline = time.monotonic() + seconds
     log = os.open(path, os.O_RDONLY)
     try:
@@ -249,9 +249,9 @@ def waited(want: dict, seconds: float) -> dict | None:
                 for delivery, end in state.read_lines(path, offset):
                     offset = end
                     if settles(want, delivery):
-                        return delivery
+                        return delivery, offset
                 if (left := deadline - time.monotonic()) <= 0:
-                    return None
+                    return None, offset
                 queue.control(None, 1, left)
     finally:
         os.close(log)
