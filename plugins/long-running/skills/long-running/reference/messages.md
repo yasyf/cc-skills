@@ -807,7 +807,10 @@ restating it.
   backs a line saying what that PR changes. A record or a job's kept report is another agent's
   reads: its line showing the read that measured it, the code by path and line or the call and
   what it printed, backs a claim saying what that line states, in its words or others, such as
-  whose a red is to fix, and any other line of it is a claim to test. A line about every case
+  whose a red is to fix, and any other line of it is a claim to test. A claim naming a PR the
+  drive tracks also stands on the drive's own line for it, as `drive status <PR>` prints it,
+  which `say` hands Jev beside that claim, since the drive owns where a PR stands and who owes its
+  fix. A line about every case
   stands on a read of what decides it, a line of an absence
   read from one metric, span or log series, such as no calls, zero rows or nothing since, stands also on a second source with no
   shared emitter showing the same absence, such as the caller's client spans beside the server's

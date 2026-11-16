@@ -587,6 +587,7 @@ def test_jev_reads_a_refused_say_post_as_slack_gets_it_and_a_reference_nested_in
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     with state.edit("demo") as data:
+        data["orders"]["o1"] = state.new_order("show the run page's history", "", None, {}, state.stamp()) | {"jobs": ["j1"]}
         data["jobs"]["j1"] = state.new_job("o1", "builder", "show the run page's history", [], state.stamp())
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1") | {"title": "New: \U0001f680 the run page shows its history"}
     release = "https://buildkite.com/acme/release/builds/14765"
@@ -1054,6 +1055,31 @@ def test_claims_sharing_a_read_hand_jev_its_calls_once_at_any_count_each_claim_n
     assert (refused["judged"], "reads" in refused) == (False, False)
     assert reason.startswith("refused: no Jev request of 10,000 characters holds these parts whole beside the post's ")
     assert 'largest first: read:1 "tools/ci bk api /pipelines/release/builds/15427" beside the 101 claims naming it, ' in reason
+
+
+def test_a_claim_naming_a_drive_pr_hands_jev_the_drives_line_for_it_once_beside_every_claim_naming_it_at_any_count(
+    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    tool(lane_of(transcript), *REPORT)
+    key = "Forge-AI/monorepo#56983"
+    with state.edit("demo") as data:
+        data["orders"]["o1"] = state.new_order("keep one epoch", "", None, {}, state.stamp()) | {"jobs": ["j1"]}
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "keep one epoch", [], state.stamp())
+        data["prs"][key] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/56983", "j1", "o1") | {"title": "Fix: the journal keeps one epoch"}
+
+    def claimed(many: int) -> list[dict]:
+        return [
+            *({"claim": f"Its builder owes #56983's fix, step {n}.", "read": "j1880.md"} for n in range(many)),
+            {"claim": "{pr:56983} waits on its builder", "read": "j1880.md"},
+            {"claim": "yasyf/cc-skills#9 merged", "read": "j1880.md"},
+        ]
+
+    payload = agents.seen(call("slack_dm_status", transcript, text=HISTORY_POST, thread_ts="1.2") | {"tool_name": message_limits.SAY})
+    one, many = ([read for read in message_limits.read_evidence(payload, claimed(count)) if read["id"].startswith("stage:")] for count in (1, 100))
+    [(call_line, line)] = [read["quote"].split("\n") for read in one]
+    assert (call_line, line.startswith(f'{key} "Fix: the journal keeps one epoch" open'), ", owed by " in line) == (f"drive status {key}", True, True)
+    assert [(read["id"], read["read"], read["source"], read["claims"]) for read in one] == [("stage:1", f"drive status {key}", message_limits.STAGE_SOURCE, [1, 2])]
+    assert [(read["id"], read["quote"], read["claims"]) for read in many] == [("stage:1", one[0]["quote"], list(range(1, 102)))]
 
 
 def test_a_handlers_answer_under_a_card_hands_jev_the_cards_first_line_beside_his_question_though_the_communicators_ack_came_between(
