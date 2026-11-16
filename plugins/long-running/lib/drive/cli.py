@@ -6479,7 +6479,7 @@ def channels(args: argparse.Namespace) -> int:
         return emit(args, "\n".join(channels_held(name, args.hold, args.kinds)), {"held_by": state.load(name)["slack"]["held_by"]})
     if not (args.make or args.move_cards):
         kept = [f"#{made['name']} {made['id']} {seat or 'the drive'}" for seat, made in data["slack"]["channels"].items()]
-        unmade = [f"no channel yet for {project or 'the drive'}: --make makes it" for project in missing]
+        unmade = [f"no channel yet for {slack.channel_project(project) or 'the drive'}: --make makes it" for project in missing]
         return emit(args, "\n".join([*kept, *unmade]), {"channels": data["slack"]["channels"], "missing": missing})
     made = [open_channel(name, project) for project in missing] if args.make else []
     data = state.load(name)

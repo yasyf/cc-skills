@@ -244,7 +244,7 @@ def test_a_priority_order_gets_a_coordinator_session_of_its_own_that_hears_it_al
     code, out = run("order", "set", "o1", "--priority")
     data = state.load("demo")
     assert (code, data["orders"]["o1"]["priority"], data["orders"]["o2"]["priority"]) == (0, "Priority o1", None)
-    assert out.splitlines()[1:3] == ["started the sub-coordinator for Priority o1, which holds this order alone, in Orca terminal term_priority-o11; its project's coordinator hears it until it binds", "the communicator for Priority o1 did not start: the drive keeps no channel; drive channels makes them"]
+    assert out.splitlines()[1:3] == ["started the sub-coordinator for Priority o1, which holds this order alone, in Orca terminal term_priority-o11; its project's coordinator hears it until it binds", "the communicator for Priority o1 did not start: the drive keeps no channel; drive channels --make makes them"]
     assert (session_launches.started, data["launched"]["sub-coordinator Priority o1"]) == ([("demo", "coordinator", "Priority o1", data["roles"]["coordinator"]["cwd"])], "term_priority-o11")
     assert [state.order_lane(data, data["orders"][order_id]) for order_id in ("o1", "o2")] == ["sandsql", "sandsql"]
     assert "an earlier drive order set --priority opened" in run("order", "set", "o1", "--priority")[1]
@@ -9062,7 +9062,7 @@ def test_status_reads_the_prs_from_the_drive_and_never_from_github(run: Run, wit
 
 def test_an_urgent_part_starts_its_design_past_the_caps_and_a_design_waiting_30_minutes_after_its_reader_is_flagged(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     part = "Every blob goes through blobstore to one folder"
-    run("order", "add", "--title", "Blobs", "--project", "The drive", "--workstream", "Drive tooling", "--parts", part, "every blob through blobstore")
+    run("order", "add", "--title", "Blobs", "--project", "The drive", "--workstream", "Drive tooling", "every blob through blobstore", "--parts", part)
     run("job", "add", "reader", "--order", "o1", "--part", part, "--goal", "research the blob writers")
     run("job", "add", "design", "--order", "o1", "--part", part, "--goal", "design the move")
     data = state.load(demo)
