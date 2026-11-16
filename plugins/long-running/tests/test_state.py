@@ -263,6 +263,31 @@ def test_migrate_labels_his_old_taps_approving_a_pr_in_the_coordinators_checkout
     assert backfilled == ["/work"]
 
 
+def test_migrate_starts_each_job_an_older_install_queued_on_builder_slot_here_at_once_and_only_takes_the_wait_off_a_finished_one(
+    state_root: Path, monkeypatch: pytest.MonkeyPatch, mac_boxes_downed: list[str]
+) -> None:
+    started: list[list[str]] = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: started.append(args) or 1)
+    data = state.new_drive("demo", "coordinator", None, "/work")
+    made = "2026-11-15T05:00:00-08:00"
+    data["jobs"] |= {
+        "j1": state.new_job("o1", "builder", "prove it on a Mac box", [], made) | {"state": "waiting", "waits": ["builder-slot"], "said": "waits its turn for a builder slot on this Mac"},
+        "j2": state.new_job("o1", "builder", "move here from its Sprite", [], made)
+        | {"state": "waiting", "where": "remote", "dispatch": "ctx_1", "waits": ["Forge-AI/monorepo#1", "builder-slot"], "said": "WAITING Forge-AI/monorepo#1 waits on CI"},
+        "j3": state.new_job("o1", "builder", "failed in line", [], made) | {"state": "failed", "waits": ["builder-slot"]},
+        "j4": state.new_job("o1", "builder", "build the reads", [], made) | {"state": "waiting", "waits": ["j1"], "slot": made},
+    }
+    state.create(data)
+    state.migrate("demo")
+    jobs = state.load("demo")["jobs"]
+    assert started == [["job", "launch", "j1", "--local"], ["job", "launch", "j2", "--local"]]
+    assert [jobs[job_id]["waits"] for job_id in ("j1", "j2", "j3", "j4")] == [[], ["Forge-AI/monorepo#1"], [], ["j1"]]
+    assert (jobs["j1"]["said"], jobs["j2"]["said"]) == (None, "WAITING Forge-AI/monorepo#1 waits on CI")
+    assert "slot" not in jobs["j4"]
+    state.migrate("demo")
+    assert len(started) == 2
+
+
 def test_migrations_run_at_once_take_turns_so_only_the_first_makes_the_change(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     make("demo")
     (state.drive_dir("demo") / state.APPROVALS_LABELLED).unlink()

@@ -187,6 +187,7 @@ SHELLS = frozenset({b"sh", b"bash", b"zsh"})
 READER_QUESTION_GOAL = re.compile(r"build what j\d+'s research finds: ")
 CHANGE_BUILDER_GOAL = re.compile(r"build j\d+'s change: ")
 REBUILT_ASKS = ".rebuilt"
+QUEUED_WAIT = "builder-slot"
 NOT_LANE = re.compile(r"[^a-z0-9]+")
 BARE_WAITS = re.compile(r"(j\d+)-(\d+)")
 WAITS_ID = re.compile(rf"([\w.-]+):{BARE_WAITS.pattern}")
@@ -861,6 +862,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         job.setdefault("where", "remote" if job.get("dispatch") else "local")
         job.setdefault("returned", job["updated"])
         job.pop("stall", None)
+        job.pop("slot", None)
         if job.pop("checks", None):
             job["parts"] = []
         if job.get("ask") and any(reported(text.lstrip()) for text in (job["said"] or "", job["report"] or "")):
@@ -1387,7 +1389,7 @@ def ask_hash(text: str) -> str:
 
 
 def migrate(name: str) -> None:
-    """Make each one-time change to the drive's files that an older install's drive still owes, each skipped once its mark exists; `drive install` runs it from the new install before any session reloads onto it and `drive start` on the drive it makes, and two at once take turns, the second finding each mark written."""
+    """Make each one-time change to the drive's files that an older install's drive still owes, each skipped once its mark exists or, for the jobs an older install queued on builder-slot, once none is left; `drive install` runs it from the new install before any session reloads onto it and `drive start` on the drive it makes, and two at once take turns, the second finding each mark written."""
     with flocked(drive_dir(name) / ".migrate.lock"):
         data = load(name)
         if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
@@ -1396,6 +1398,24 @@ def migrate(name: str) -> None:
             rebuild_asks(name, data)
         if "coordinator" in data["roles"] and not (drive_dir(name) / APPROVALS_LABELLED).exists():
             label_approvals(name, data["roles"]["coordinator"]["cwd"])
+        if any(QUEUED_WAIT in job["waits"] for job in data["jobs"].values()):
+            start_queued(name)
+
+
+def start_queued(name: str) -> None:
+    """Take builder-slot, the wait an older install held a builder on until its turn for a slot on this Mac came, off each job holding it, and start each one not finished with the drive job launch --local that turn ran, since a builder whose brief declares a step only this Mac runs now starts here at once whatever the cap."""
+    from drive import watch
+
+    with edit(name) as data:
+        queued = [job_id for job_id, job in data["jobs"].items() if QUEUED_WAIT in job["waits"]]
+        for job_id in queued:
+            job = data["jobs"][job_id]
+            rewait(job, [wait for wait in job["waits"] if wait != QUEUED_WAIT])
+            if job["said"] == "waits its turn for a builder slot on this Mac":
+                job["said"] = None
+        unfinished = [job_id for job_id in queued if data["jobs"][job_id]["state"] not in FINISHED_JOB_STATES]
+    for job_id in unfinished:
+        detach(name, ["job", "launch", job_id, "--local"], watch.RELAUNCHES_LOG)
 
 
 def label_approvals(name: str, cwd: str) -> None:
