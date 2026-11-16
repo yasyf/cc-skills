@@ -25,7 +25,7 @@ RUNS_AS = re.compile(r"^Runs as:(?![ \t]*none\b)[ \t]*(.+)$", re.MULTILINE | re.
 FROM_THIS_MAC = re.compile(r"\bbreak[- ]?glass\w*|\bmachine[- ]profile\b", re.IGNORECASE)
 FIELD = re.compile(
     r"^(Order \(his words\)|From|Linked messages|Serves|Goal|Done when|Where|Runs as|Release|Release build|Mac|Handoff|Decisions that bind|Repo rules|Research|Researched|Answer"
-    r"|Native|Interactions|Would he ask|Plan|Incident|Scratch|Transcripts|Drive):",
+    r"|Native|Interactions|Would he ask|Plan|Incident|Scratch|Earlier parts|Transcripts|Drive):",
     re.MULTILINE,
 )
 RESEARCHED = re.compile(r"^[ \t]*Researched:.*$", re.MULTILINE)
