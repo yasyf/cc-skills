@@ -46,7 +46,7 @@ from conftest import (
     staged,
     unheld,
 )
-from drive import agents, artifacts, cli, github, orca, place, reads, render, state, superseded, tools, view, watch
+from drive import agents, artifacts, cli, github, install, orca, place, reads, render, state, superseded, tools, view, watch
 
 pytestmark = pytest.mark.usefixtures("ccx_worktrees")
 
@@ -937,6 +937,23 @@ def test_launch_refuses_a_brief_naming_a_drive_file_the_drive_keeps_no_text_of_a
         " so its lane would stop to ask for each; launch it on a brief file that leaves each out: drive job launch j1 <file>\n"
     )
     assert state.load(demo)["jobs"]["j1"] == before
+
+
+def test_the_prover_add_prover_gives_a_product_merge_launches_on_this_mac_on_the_brief_the_drive_writes_for_it(run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cloned(tmp_path, demo)
+    product = "https://github.com/Forge-AI/monorepo/pull/9"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(said=f"READY {product}", prs=[product])
+        data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(product, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210", "title": "Fix: the soak"}
+        install.merged_done(demo, data, "j1")
+        prover = install.add_prover(demo, data, "j1", {"Forge-AI/monorepo#9": {"components": [], "touched": [], "dev": [], "releases": []}}, {"o1": data["jobs"]["j1"]["parts"]}, set())
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
+    monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
+    assert run("job", "launch", prover) == (0, f"{prover} started on this Mac as dispatch {DISPATCH}, since its brief declares a step only this Mac runs")
+    assert state.load(demo)["jobs"][prover]["route"] == state.LOCAL_ROUTE
 
 
 def test_a_builder_added_waiting_on_his_card_with_no_lane_starts_on_his_tap_from_its_drive_written_brief_and_hears_his_answer_from_that_launch_as_j3074_could_not(
