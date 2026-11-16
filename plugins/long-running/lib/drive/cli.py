@@ -194,7 +194,7 @@ def meta_started(name: str, worktree: str, earlier: str | None) -> str:
     if state.scratch():
         return ""
     try:
-        handle = orca.start_meta(name, worktree, earlier)
+        handle = orca.start_session(name, "meta", None, worktree, earlier)
     except orca.OrcaError as error:
         return f"the meta session, which holds drive tooling, did not start: {error}; drive manual start prints its commands\n"
     if handle is None:
@@ -204,9 +204,28 @@ def meta_started(name: str, worktree: str, earlier: str | None) -> str:
     return f"started the meta session, which holds drive tooling, in Orca terminal {handle}\n"
 
 
+def seat_started(name: str, seat: str) -> str:
+    """Start the sub-coordinator session of a priority order's seat in an Orca terminal of its own while none is bound for it, by his words "when something gets marked as priority it gets its own dedicated coordinator spun uo for it", in the top coordinator's checkout, so its first turn binds it with drive start --role coordinator --project <seat> and starts its watch, which then hears the order in place of its project's; the line saying so, or nothing for a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves."""
+    if state.scratch():
+        return ""
+    data = state.load(name)
+    if seat in data["subcoordinators"]:
+        return f"the sub-coordinator for {seat} is bound, session {data['subcoordinators'][seat]['session']}, and hears the order"
+    key = f"sub-coordinator {seat}"
+    try:
+        handle = orca.start_session(name, "coordinator", seat, data["roles"]["coordinator"]["cwd"], data["launched"].get(key))
+    except orca.OrcaError as error:
+        return f"the sub-coordinator for {seat} did not start: {error}; drive manual start prints its commands"
+    if handle is None:
+        return f"the sub-coordinator for {seat} starts in Orca terminal {data['launched'][key]}, which an earlier drive order set --priority opened"
+    with state.edit(name) as data:
+        data["launched"][key] = handle
+    return f"started the sub-coordinator for {seat}, which holds this order alone, in Orca terminal {handle}; its project's coordinator hears it until it binds"
+
+
 def bind_subcoordinator(data: dict, project: str, held: dict) -> None:
-    """Bind this session as the project's sub-coordinator, replacing any session bound for it before, and keep where the event log ended at its first binding, which its watch reads from; refused for a project no order is filed under, a session holding another seat, and a lane another seat, record or numbered name of the drive takes."""
-    if project not in (filed := state.projects(data)):
+    """Bind this session as the project's sub-coordinator, or as a priority order's by the seat drive order set --priority names, replacing any session bound for it before, and keep where the event log ended at its first binding, which its watch reads from; refused for a project no order is filed under and no order holds as its seat, a session holding another seat, and a lane another seat, record or numbered name of the drive takes."""
+    if project not in (filed := [*state.projects(data), *sorted(order["priority"] for order in data["orders"].values() if order["priority"])]):
         raise DriveError(f"--project {project}: no order is filed under it; the projects in use: {', '.join(filed) or 'none'}")
     session = held["session"]
     if role := next((role for role, bound in data["roles"].items() if session and bound["session"] == session), None):
@@ -797,7 +816,7 @@ def refuse_unquotable_parts(flag: str, parts: list[str]) -> None:
 
 
 def order_set(args: argparse.Namespace) -> int:
-    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; --add-part refuses a name a part cannot hold, by state.unquotable_part, and --add-part and --drop-part change only the parts they name, by change_parts, and --add-part prints each open part of another order and open PR Jev reads as already making a new part's change, by repeated_lines; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time, closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns; --incident turns an open order into an incident by turned_incident and names each open question card of his its words point at, by state.asked_lines; --kind answer --part takes each part off each done builder, codex or design job holding it, whose hold would keep it work he ordered, and delivers it by the post one's POSTED line names when that answer reaches him only by a post, saying so by answered_line; --standing keeps each --part standing on its goal, or takes it out with an empty one, by standing_parts, which --part needs no --kind for; a change to its parts, kind, standing parts, options-only mark or incident mark from a session of the drive that does not hold the order is refused before anything is written, by state.held_elsewhere, the check every job verb makes, but for the communicator and its handlers, which file his words onto any order's parts and kind and are refused only the incident mark. --unjoin takes it off the order it joined, by state.unjoin, filed under its own project and workstream by filing, from any session, since it changes no part. --priority puts its work first at each admission point, by state.first_in_line, from any session."""
+    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; --add-part refuses a name a part cannot hold, by state.unquotable_part, and --add-part and --drop-part change only the parts they name, by change_parts, and --add-part prints each open part of another order and open PR Jev reads as already making a new part's change, by repeated_lines; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time, closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns; --incident turns an open order into an incident by turned_incident and names each open question card of his its words point at, by state.asked_lines; --kind answer --part takes each part off each done builder, codex or design job holding it, whose hold would keep it work he ordered, and delivers it by the post one's POSTED line names when that answer reaches him only by a post, saying so by answered_line; --standing keeps each --part standing on its goal, or takes it out with an empty one, by standing_parts, which --part needs no --kind for; a change to its parts, kind, standing parts, options-only mark or incident mark from a session of the drive that does not hold the order is refused before anything is written, by state.held_elsewhere, the check every job verb makes, but for the communicator and its handlers, which file his words onto any order's parts and kind and are refused only the incident mark. --unjoin takes it off the order it joined, by state.unjoin, filed under its own project and workstream by filing, from any session, since it changes no part. --priority puts its work first at each admission point, by state.first_in_line, and gives it a coordinator session of its own, by seat_started, from any session."""
     name = state.resolve(args.drive)
     withdrawn = his_words(args.withdrawn, "withdraw a promised line") if args.withdrawn else None
     unreported = his_words(args.no_reporter, "take the reporters off an order") if args.no_reporter else None
@@ -863,7 +882,6 @@ def order_set(args: argparse.Namespace) -> int:
         "withdrawn": withdrawn,
         "options_only": args.options_only,
         "once": args.once,
-        "priority": args.priority,
         "watch": watched,
     }
     moment = state.now()
@@ -944,6 +962,8 @@ def order_set(args: argparse.Namespace) -> int:
             order["kind"] = args.kind
         if args.complex is not None:
             order["complex"] = args.complex
+        if args.priority is not None:
+            order["priority"] = state.priority_seat(args.id) if args.priority else None
         if args.reporter or unreported:
             order["reporters"] = reporters
         unjoined = unjoined_lines(args.id, *state.unjoin(data, args.id)) if args.unjoin else []
@@ -963,7 +983,8 @@ def order_set(args: argparse.Namespace) -> int:
     parts = [answered_lines.get(part) or f"{args.id} {render.part_line(data, args.id, part)}" for part in dict.fromkeys([*sorted_parts, *standing, *([followed[0]] if followed else [])])]
     turned += state.asked_lines(data, order["text"]) if turning else []
     repeated = repeated_lines(data, args.id, list(dict.fromkeys(args.add_part)))
-    return emit(args, render.order_line(data, args.id, order) + promised + "".join(f"\n{line}" for line in [*turned, *unjoined, *parts, *stopped, *repeated, *render.builder_lines(name, data, added), *reworked]), {"id": args.id, **order})
+    seated = [said] if args.priority and (said := seat_started(name, order["priority"])) else []
+    return emit(args, render.order_line(data, args.id, order) + promised + "".join(f"\n{line}" for line in [*turned, *unjoined, *parts, *stopped, *repeated, *render.builder_lines(name, data, added), *reworked, *seated]), {"id": args.id, **order})
 
 
 def unjoined_lines(order_id: str, head: str, carriers: list[str], told: list[str]) -> list[str]:

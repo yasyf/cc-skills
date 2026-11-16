@@ -39,6 +39,7 @@ def order(
         "title": None,
         "incident": False,
         "owner": None,
+        "priority": None,
     }
 
 

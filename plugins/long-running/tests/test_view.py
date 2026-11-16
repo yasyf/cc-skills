@@ -49,6 +49,7 @@ def order(text: str, jobs: list[str], **overrides: object) -> dict:
         "title": None,
         "kind": "build",
         "options_only": False,
+        "priority": None,
         "parts": {text: state.new_part()},
     }
     return base | overrides

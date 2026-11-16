@@ -128,6 +128,7 @@ def order(**overrides: object) -> dict:
         "reporters": [],
         "owner": None,
         "project": None,
+        "priority": None,
         "title": None,
         "proof": None,
         "close_report": None,

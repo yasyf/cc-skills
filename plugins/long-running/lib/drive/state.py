@@ -951,7 +951,8 @@ def bare_seq(seq: str | None) -> str | None:
 def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     """The drive as saved brought up to the fields this install reads, and whether shaping it read only the database: true once every once-only pass over files on this Mac had run before this shaping, the cards closed included."""
     data = bound(saved)
-    for order in data["orders"].values():
+    for order_id, order in data["orders"].items():
+        order["priority"] = priority_seat(order_id) if order.get("priority") is True else order.get("priority") or None
         if "parts" not in order:
             whole = whole_order(order["text"])
             order["parts"] = {whole: new_part()}
@@ -968,7 +969,6 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order.setdefault("complex", False)
         order.setdefault("options_only", False)
         order.setdefault("once", False)
-        order.setdefault("priority", False)
         order.pop("releases", None)
         order.pop("shipped", None)
         order.setdefault("proof", None)
@@ -3433,7 +3433,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "complex": False,
         "options_only": False,
         "once": False,
-        "priority": False,
+        "priority": None,
         "owner": None,
         "project": None,
         "workstream": None,
@@ -4109,8 +4109,8 @@ def projects(data: dict) -> list[str]:
 
 
 def order_lane(data: dict, order: dict) -> str:
-    """The cci lane of the coordinator session that hears an order: the sub-coordinator's for its project, else root."""
-    return project_lane(order["project"]) if order["project"] in data["subcoordinators"] else "root"
+    """The cci lane of the coordinator session that hears an order: the sub-coordinator's for its seat, by coordinator_seat, else root."""
+    return project_lane(seat) if (seat := coordinator_seat(data, order)) in data["subcoordinators"] else "root"
 
 
 def heard_lane(data: dict, order_id: str) -> str:
@@ -4348,8 +4348,8 @@ def bound_drives(names: list[str]) -> dict[str, dict]:
 
 
 def hears(data: dict, order: dict, project: str | None) -> bool:
-    """Whether the coordinator session for project hears an order: a sub-coordinator its project's, the top coordinator every other one, unfiled or filed under a project no sub-coordinator is bound for."""
-    return order["project"] == project if project else order["project"] not in data["subcoordinators"]
+    """Whether the coordinator session for project hears an order: a sub-coordinator the orders its seat names, by coordinator_seat, the top coordinator every other one, unfiled or filed under a project no sub-coordinator is bound for."""
+    return coordinator_seat(data, order) == project if project else coordinator_seat(data, order) not in data["subcoordinators"]
 
 
 def runs(data: dict, order: dict, project: str | None) -> bool:
@@ -4542,8 +4542,8 @@ def holding_session(data: dict, order: dict) -> tuple[str, str]:
 
 def holding_role(data: dict, order: dict) -> tuple[str, dict]:
     """Who holds an order and the binding of its session, empty while none is bound: its project's sub-coordinator, else the role holding it, the top coordinator for an order heard at root."""
-    if holder_lane(order) is None and order["project"] in data["subcoordinators"]:
-        return f"the sub-coordinator for {order['project']}", data["subcoordinators"][order["project"]]
+    if holder_lane(order) is None and (seat := coordinator_seat(data, order)) in data["subcoordinators"]:
+        return f"the sub-coordinator for {seat}", data["subcoordinators"][seat]
     role = holder_lane(order) or "coordinator"
     return f"the {title(role)}", data["roles"].get(role) or {}
 
@@ -4759,6 +4759,16 @@ def show_overdue(name: str, caller: str, shown: list[list]) -> bool:
 
 def open_incidents(data: dict, order_ids: list[str]) -> list[str]:
     return [order_id for order_id in order_ids if data["orders"][order_id]["incident"] and data["orders"][order_id]["state"] not in CLOSED_ORDER_STATES]
+
+
+def priority_seat(order_id: str) -> str:
+    """The seat of the coordinator session drive order set --priority starts for one order alone, a sub-coordinator seat no project of an order takes."""
+    return f"Priority {order_id}"
+
+
+def coordinator_seat(data: dict, order: dict) -> str | None:
+    """The sub-coordinator seat that hears an order: its own priority seat once that session is bound, by his words "when something gets marked as priority it gets its own dedicated coordinator spun uo for it", else its project's."""
+    return order["priority"] if order["priority"] in data["subcoordinators"] else order["project"]
 
 
 def first_in_line(data: dict, job: dict) -> bool:

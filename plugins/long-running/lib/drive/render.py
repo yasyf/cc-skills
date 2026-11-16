@@ -629,10 +629,15 @@ def opening(drive: dict, role: str, project: str | None) -> list[str]:
             hold_line(drive, role),
         ]
     lane = project_lane(project)
+    seated = [order_id for order_id, order in drive["orders"].items() if order["priority"] == project]
+    held = (
+        f"{project} of drive {drive['name']}: you run his order {seated[0]} alone, which drive order set --priority put first in line, its jobs,"
+        if seated
+        else f"project {project} of drive {drive['name']}: you run his orders filed under {project}, their jobs,"
+    )
     return [
         (
-            f"You are the sub-coordinator for project {project} of drive {drive['name']}: you run his orders filed under"
-            f" {project}, their jobs, events, landings and installs, while the top coordinator starts, approves and rolls"
+            f"You are the sub-coordinator for {held} events, landings and installs, while the top coordinator starts, approves and rolls"
             f" back production cuts. The top coordinator: {who(drive, 'coordinator')}. The communicator:"
             f" {who(drive, 'communicator')}. A background agent this session started ignores this block."
         ),

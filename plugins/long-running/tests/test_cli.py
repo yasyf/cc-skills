@@ -16,7 +16,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import ACME_CUT, CAP_RULING, CARD_BODY, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, carrying, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
+from conftest import ACME_CUT, CAP_RULING, CARD_BODY, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, carrying, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, Redraws, SessionLaunches, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -168,23 +168,23 @@ def test_a_coordinators_start_starts_the_watch_and_says_so(run: Run, watch_proce
 
 
 def test_drive_start_starts_the_meta_session_beside_the_others_once_until_it_binds(
-    run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, meta_launches: MetaLaunches
+    run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, session_launches: SessionLaunches
 ) -> None:
     out = run("start", "demo", "--role", "communicator")[1]
     registered = "demo-communicator registered: cci session run keeps session session-under-test running in tmux"
     assert f"\n\n{registered}\nstarted the meta session, which holds drive tooling, in Orca terminal term_meta1\ncommunicator: " in out
-    assert (meta_launches.started, state.load("demo")["launched"]) == ([("demo", str(tmp_path))], {"meta": "term_meta1"})
+    assert (session_launches.started, state.load("demo")["launched"]) == ([("demo", "meta", None, str(tmp_path))], {"meta": "term_meta1"})
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "coordinator-session")
     registered = "demo-coordinator registered: cci session run keeps session coordinator-session running in tmux"
     assert f"\n\n{registered}\nthe meta session starts in Orca terminal term_meta1, which an earlier drive start opened\n" in run("start", "demo", "--role", "coordinator")[1]
-    meta_launches.open.clear()
+    session_launches.open.clear()
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-2")
     assert "in Orca terminal term_meta2\ncommunicator: " in run("start", "demo", "--role", "communicator")[1]
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
     run("start", "demo", "--role", "meta")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "coordinator-session")
     assert "the meta session starts in" not in run("start", "demo", "--role", "coordinator")[1]
-    assert len(meta_launches.started) == 2
+    assert len(session_launches.started) == 2
 
 
 def test_a_sub_coordinator_binds_beside_the_top_for_a_project_an_order_is_filed_under_and_a_new_session_replaces_it(
@@ -212,6 +212,44 @@ def test_a_sub_coordinator_binds_beside_the_top_for_a_project_an_order_is_filed_
     assert data["roles"]["coordinator"]["session"] == "session-under-test"
     assert {project: held["session"] for project, held in data["subcoordinators"].items()} == {"Iris": "iris-2"}
     assert state.session_project(data, "iris-1") is None
+
+
+def test_a_priority_order_gets_a_coordinator_session_of_its_own_that_hears_it_alone_once_bound_and_its_project_hears_it_again_after_no_priority(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, session_launches: SessionLaunches
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Releases", "ship the SandSQL release")
+    run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Releases", "tidy the SandSQL docs")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sandsql-1")
+    assert run("start", "demo", "--role", "coordinator", "--project", "SandSQL")[0] == 0
+    session_launches.started.clear()
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
+    code, out = run("order", "set", "o1", "--priority")
+    data = state.load("demo")
+    assert (code, data["orders"]["o1"]["priority"], data["orders"]["o2"]["priority"]) == (0, "Priority o1", None)
+    assert out.endswith("\nstarted the sub-coordinator for Priority o1, which holds this order alone, in Orca terminal term_priority-o11; its project's coordinator hears it until it binds")
+    assert (session_launches.started, data["launched"]["sub-coordinator Priority o1"]) == ([("demo", "coordinator", "Priority o1", data["roles"]["coordinator"]["cwd"])], "term_priority-o11")
+    assert [state.order_lane(data, data["orders"][order_id]) for order_id in ("o1", "o2")] == ["sandsql", "sandsql"]
+    assert "an earlier drive order set --priority opened" in run("order", "set", "o1", "--priority")[1]
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "priority-1")
+    code, out = run("start", "demo", "--role", "coordinator", "--project", "Priority o1")
+    assert out.startswith("You are the sub-coordinator for Priority o1 of drive demo: you run his order o1 alone, which drive order set --priority put first in line, its jobs,")
+    data = state.load("demo")
+    assert [state.order_lane(data, data["orders"][order_id]) for order_id in ("o1", "o2")] == ["priority-o1", "sandsql"]
+    assert [state.hears(data, data["orders"]["o1"], project) for project in ("Priority o1", "SandSQL", None)] == [True, False, False]
+    assert state.holding_role(data, data["orders"]["o1"]) == ("the sub-coordinator for Priority o1", data["subcoordinators"]["Priority o1"])
+    assert run("order", "set", "o1", "--priority")[1].endswith("the sub-coordinator for Priority o1 is bound, session priority-1, and hears the order")
+    assert len(session_launches.started) == 1
+    assert run("order", "set", "o1", "--no-priority")[0] == 0
+    data = state.load("demo")
+    assert (data["orders"]["o1"]["priority"], state.order_lane(data, data["orders"]["o1"])) == (None, "sandsql")
+
+
+def test_a_priority_mark_an_earlier_install_saved_reads_as_its_orders_own_seat_and_an_unmarked_order_reads_none(run: Run, demo: str) -> None:
+    for words in ("ship the release", "tidy the docs", "fix the page"):
+        run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Releases", words)
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["priority"], data["orders"]["o2"]["priority"] = True, False
+    assert [order["priority"] for order in state.load(demo)["orders"].values()] == ["Priority o1", None, None]
 
 
 def test_start_refuses_a_project_to_the_communicator_and_one_no_order_is_filed_under(
