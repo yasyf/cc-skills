@@ -1266,6 +1266,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     for owned in data["mains"].values():
         for kept in owned.values():
             kept.setdefault("waking", None)
+            kept.setdefault("job", kept["owner"] and data["prs"][kept["owner"]]["job"])
     if "catch_up" not in data:
         data["catch_up"] = new_catch_up(min(mark["at"] for mark in data["held"].values())) if data["held"] else None
     if data["catch_up"]:
@@ -5639,6 +5640,34 @@ def ships_untapped(data: dict, key: str) -> bool:
         return True
     under = land.unders(data)
     return any(key in land.chain(under, top) for top in named)
+
+
+def main_holder(data: dict, kept: dict | None) -> str | None:
+    """The job holding a test its repository's main fails, kept in the drive's mains: the job that first claimed it, a main fix's builder or the builder of the merge that broke it, while that job has neither failed nor stopped, so it owns the test until main passes it; None for a test nobody holds."""
+    if kept is None or not kept["job"] or data["jobs"][kept["job"]]["state"] in ENDED_JOB_STATES:
+        return None
+    return kept["job"]
+
+
+def claim_mains(data: dict, repo: str, job_id: str, failing: dict[str, dict], key: str | None, at: str) -> str:
+    """Claim for a job's main fix, by each test's name, every test repo's main fails now, by install.default_failures, that no other job holds, by main_holder, so the first job to claim a failing test owns it until main passes it, and key, its fix PR once the drive tracks it, becomes the owner the watch wakes once it merged and main still fails the test; the line refusing the fix when every test main fails is another job's, naming each holder and its PR, so no second builder fixes a test one already fixes, else ""."""
+    owned = data["mains"].setdefault(repo, {})
+    held = {test: holder for test in failing if (holder := main_holder(data, owned.get(test))) not in (None, job_id)}
+    if failing and len(held) == len(failing):
+        claims: dict[tuple[str, str | None, str], list[str]] = {}
+        for test, holder in held.items():
+            claims.setdefault((holder, owned[test]["owner"], owned[test]["since"]), []).append(test)
+        named = "; ".join(f"{', '.join(sorted(tests))}, claimed by {holder}{f' on {pr_url(owner)}' if owner else ''} since {since}" for (holder, owner, since), tests in claims.items())
+        return (
+            f"{repo}'s main fails only tests another job already owns: {named}. The first job to claim a failing test owns it until main passes it,"
+            " so build no second fix: return WAITING naming that job's fix, or send its holder what you found"
+        )
+    for test in failing.keys() - held.keys():
+        if main_holder(data, kept := owned.get(test)) != job_id:
+            owned[test] = failing[test] | {"since": at, "owner": key, "job": job_id, "woke": at, "waking": None}
+        elif key:
+            kept["owner"] = key
+    return ""
 
 
 def grading(key: str, pr: dict) -> bool:

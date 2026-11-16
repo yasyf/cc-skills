@@ -4239,7 +4239,8 @@ def job_held(args: argparse.Namespace) -> int:
         line = "\n".join([*(f"{key}: {', '.join(cards)}" for key, cards in held.items() if cards), *(f"{key}: its staging test {', '.join(runs)} has not passed" for key, runs in testing.items() if runs), *(f"{key}: {why}" for key, why in away.items())])
         return emit(args, line or f"no open card of his or staging test holds {', '.join(held)}", {"id": job_id, "prs": held, "staged": testing, "away": away})
     cards = land.ship_held(data, job_id, args.exempt)
-    return emit(args, "\n".join(cards) or f"{job_id}: no open card of his holds its PR", {"id": job_id, "cards": cards})
+    main = land.claim_main(name, job_id) if args.exempt == state.MAIN_FIX else ""
+    return emit(args, "\n".join([*cards, *filter(None, [main])]) or f"{job_id}: no open card of his holds its PR", {"id": job_id, "cards": cards, "main": main})
 
 
 def job_wake(args: argparse.Namespace) -> int:
@@ -4526,6 +4527,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         refuse_an_exempt_revert(known, key, incidents[0], read, f"Add it waiting on his tap with drive pr add {url} --job {job_id}. ")
     if exempt and exempt != state.FLAKE_FIX:
         refuse_an_unexempt(key, exempt, "added")
+    failing = install.default_failures(github.repo_of(key)) if exempt == state.MAIN_FIX else {}
     if not (exempt or port_of):
         exempt = path_class(known, key, added, read)
     wants_tap = state.waits_his_tap(known, key, added["order"])
@@ -4567,6 +4569,8 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
             raise DriveError(f"refused, {job['order']} is a repair he asked to run once: run it, and put up no PR for it")
         pr = registered(data["prs"].setdefault(key, state.new_pr(url, job_id, job["order"]) | {"wants_tap": wants_tap}), job["order"])
         state.take_pr(data, job_id, key)
+        if refused := state.claim_mains(data, github.repo_of(key), job_id, failing, key, state.stamp(state.now())):
+            raise DriveError(f"{key}: refused, nothing added: {refused}")
         if parts:
             refuse_a_part_its_job_lacks(data, key, parts, False, "added")
             pr["parts"] = list(dict.fromkeys(parts))
@@ -4681,6 +4685,7 @@ def pr_set(args: argparse.Namespace) -> int:
             refuse_an_exempt_revert(known, key, order, read)
     if args.exempt and args.exempt != state.FLAKE_FIX:
         refuse_an_unexempt(key, args.exempt, "set")
+    failing = install.default_failures(github.repo_of(key)) if args.exempt == state.MAIN_FIX else {}
     try:
         staged = staging_reach(name, known, [key] if after["wants_tap"] and before["state"] == "open" else [])
     except DriveError as error:
@@ -4688,6 +4693,8 @@ def pr_set(args: argparse.Namespace) -> int:
     serving = "".join(f"\nhis answer its design cites, kept: {answer}" for answer in (answered["cited"] if answered else []))
     with state.edit(name) as data:
         pr = find(data["prs"], key, "drive PR")
+        if refused := state.claim_mains(data, github.repo_of(key), pr["job"], failing, key, state.stamp(state.now())):
+            raise DriveError(f"{key}: refused, nothing set: {refused}")
         if args.serves:
             serving += f"\nserves {args.serves}, his words: {find(data['orders'], args.serves, 'order')['text']}"
         set_pr(pr, args, answered)
@@ -6999,7 +7006,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument(
         "--exempt",
-        help='the exempt class the PR goes up under, as the drive pr add in the same call registers it: none of his cards holds a "flake fix" or a "main fix"; the bash_guard hook on a Sprite lane passes it',
+        help='the exempt class the PR goes up under, as the drive pr add in the same call registers it: none of his cards holds a "flake fix" or a "main fix", and a "main fix" claims for the job each test main fails that no other job holds, refused naming the job owning them all; the bash_guard hook on a Sprite lane passes it',
     )
     verb.add_argument(
         "--release",

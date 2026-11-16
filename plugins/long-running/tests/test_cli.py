@@ -8465,14 +8465,23 @@ def test_a_main_fix_is_refused_while_no_workflow_fails_on_the_default_branch_and
     monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: the verbs page test", "body": "", "head": "abc", "diff": b""})
     monkeypatch.setattr(github, "default_branch", lambda repo: "dev")
     red: list[str] = []
+    test = "tests/test_cli.py::test_verbs"
     monkeypatch.setattr(install, "red_on_default", lambda repo: red)
+    monkeypatch.setattr(install, "default_failures", lambda repo: {test: {"run": red[0], "workflow": 1}})
     assert cli.main(["pr", "add", PR, "--job", "j1", "--exempt", "main fix", *LEAD]) == 2
     refused = "it is no \"main fix\": no workflow's newest run on Forge-AI/monorepo's dev failed, so it fixes no red default branch"
     assert f"Forge-AI/monorepo#42: refused, nothing added: {refused}" in capsys.readouterr().err
-    red.append("CI https://github.com/Forge-AI/monorepo/actions/runs/1")
+    red.append("https://github.com/Forge-AI/monorepo/actions/runs/1")
     assert run("pr", "add", PR, "--job", "j1", "--exempt", "main fix", *LEAD)[0] == 0
     pr = state.load("demo")["prs"]["Forge-AI/monorepo#42"]
     assert (pr["exempt"], pr["wants_tap"], state.exempted(pr), stage.carded(pr)) == ("main fix", True, None, True)
+    claimed = state.load("demo")["mains"]["Forge-AI/monorepo"][test]
+    assert (claimed["job"], claimed["owner"]) == ("j1", "Forge-AI/monorepo#42")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix main first")
+    with state.edit("demo") as data:
+        data["mains"]["Forge-AI/monorepo"][test].update(job="j2", owner=None)
+    assert cli.main(["pr", "set", PR, "--exempt", "main fix"]) == 2
+    assert f"Forge-AI/monorepo#42: refused, nothing set: Forge-AI/monorepo's main fails only tests another job already owns: {test}, claimed by j2 since {claimed['since']}." in capsys.readouterr().err
 
 
 def test_pr_tapped_refuses_a_pr_the_hold_label_holds_even_when_exempt(run: Run, with_pr: str) -> None:

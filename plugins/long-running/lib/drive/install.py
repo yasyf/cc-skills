@@ -869,16 +869,26 @@ def ci_verdict(repo: str, sha: str) -> list[tuple[str, bool]]:
     return pushed_ci(repo, sha) or [(f"no CI reported on {sha[:12]} or any commit after it on {github.default_branch(repo)}", False)]
 
 
-def red_on_default(repo: str) -> list[str]:
-    """Each workflow whose newest completed run on repo's default branch, among the branch's hundred newest and past those cancelled or skipped, failed, by its name and link: what a main fix fixes forward. A commit no workflow runs on, such as an autobump's [skip ci], keeps the verdict of the run before it."""
+def red_default_runs(repo: str) -> list[dict]:
+    """The newest completed run of each workflow on repo's default branch, among the branch's hundred newest and past those cancelled or skipped, that failed. A commit no workflow runs on, such as an autobump's [skip ci], keeps the verdict of the run before it."""
     branch = github.default_branch(repo)
-    jq = ".workflow_runs[] | {workflow_id, name, conclusion, html_url}"
+    jq = ".workflow_runs[] | {id, workflow_id, name, conclusion, html_url}"
     runs = github.read(f"{repo}'s completed runs on {branch}", ["gh", "api", f"repos/{repo}/actions/runs?branch={branch}&status=completed&per_page=100", "--jq", jq])
     newest: dict[int, dict] = {}
     for run in map(json.loads, runs.splitlines()):
         if run["conclusion"] not in ("cancelled", "skipped"):
             newest.setdefault(run["workflow_id"], run)
-    return [f"{run['name']} {run['html_url']}" for run in newest.values() if run["conclusion"].upper() not in github.PASSED]
+    return [run for run in newest.values() if run["conclusion"].upper() not in github.PASSED]
+
+
+def red_on_default(repo: str) -> list[str]:
+    """Each workflow whose newest completed run on repo's default branch failed, by red_default_runs, by its name and link: what a main fix fixes forward."""
+    return [f"{run['name']} {run['html_url']}" for run in red_default_runs(repo)]
+
+
+def default_failures(repo: str) -> dict[str, dict]:
+    """Each test the newest completed run of each workflow on repo's default branch failed, by red_default_runs, with that run's link and its workflow's id, as head_failures names a PR's: the tests a main fix claims by name, so one job alone fixes each."""
+    return {test: {"run": run["html_url"], "workflow": run["workflow_id"]} for run in red_default_runs(repo) for test in run_failures(repo, run["id"])}
 
 
 def head_failures(repo: str, head: str) -> dict[str, dict]:

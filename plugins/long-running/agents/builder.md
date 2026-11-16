@@ -367,7 +367,11 @@ and waits ids, record seqs), never a technical name.
      `ccx vcs ship` that opens it, as a flake fix is, so no card of his, one on your job's own work
      included, holds it: `ccx vcs ship ... && drive pr add "$(gh pr view --json url -q .url)" --job <your job id> --exempt "main fix"`.
      `drive pr add` refuses the class when no workflow's newest run on the default branch failed. It
-     serves your order and keeps the tap its PR would wait on.
+     serves your order and keeps the tap its PR would wait on. The first job to claim a failing test owns
+     it until main passes it: before you build one, `drive job held <your job id> --exempt "main fix"` claims each test
+     main fails that no other job holds, and that ship and `drive pr add` claim it too. When another job
+     already owns every test main fails, each of them refuses naming that job and its PR: build no second
+     fix, and return `WAITING` naming its fix.
    - A PR that makes a design decision he never answered returns `ASK` with it, not `READY`:
      `drive pr set --serves` needs `--design` naming his answer for each.
 

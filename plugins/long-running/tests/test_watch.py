@@ -7863,6 +7863,41 @@ def test_a_merge_owns_only_the_tests_its_own_run_failed_that_main_passed_before_
     assert watch.broken("yasyf/cc-skills", pr | {"checks": "pass"}) == {}
 
 
+def test_a_test_main_fails_has_one_fixer_the_first_job_to_claim_it_and_every_other_main_fix_or_merge_is_refused_naming_it(demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]]) -> None:
+    repo, run, test, at = "yasyf/cc-skills", "https://github.com/yasyf/cc-skills/actions/runs/9", "plugins/long-running/tests/test_watch.py::test_replayed_5076_a", state.stamp(T0)
+    fix, rival, merged = "yasyf/cc-skills#5715", "yasyf/cc-skills#5716", "yasyf/cc-skills#5684"
+    failing = {test: {"run": run, "workflow": 1}}
+    with state.edit(demo) as data:
+        data["orders"]["o3"] = order(jobs=["j3", "j4", "j5"])
+        for job_id in ("j3", "j4", "j5"):
+            data["jobs"][job_id] = job(order="o3", state="waiting")
+        data["prs"][fix] = state.new_pr(state.pr_url(fix), "j3", "o3") | {"exempt": state.MAIN_FIX}
+        data["prs"][rival] = state.new_pr(state.pr_url(rival), "j4", "o3") | {"exempt": state.MAIN_FIX}
+        data["prs"][merged] = state.new_pr(state.pr_url(merged), "j5", "o3") | {"state": "merged", "head": "bbbbbbb222", "merged_sha": "ccc333ddd444", "checks": "fail"}
+        assert state.claim_mains(data, repo, "j3", failing, None, at) == ""
+        assert state.claim_mains(data, repo, "j3", failing, fix, at) == ""
+        refused = state.claim_mains(data, repo, "j4", failing, rival, at)
+    assert refused == (
+        f"{repo}'s main fails only tests another job already owns: {test}, claimed by j3 on {state.pr_url(fix)} since {at}."
+        " The first job to claim a failing test owns it until main passes it, so build no second fix: return WAITING naming that job's fix, or send its holder what you found"
+    )
+    assert state.load(demo)["mains"][repo] == {test: {"run": run, "workflow": 1, "since": at, "owner": fix, "job": "j3", "woke": at, "waking": None}}
+    monkeypatch.setattr(receiver, "heard", lambda repo, kind: None)
+    monkeypatch.setattr(install, "head_failures", lambda repo, head: failing)
+    monkeypatch.setattr(install, "merged_at", lambda repo, sha: "2026-11-09T14:50:00Z")
+    monkeypatch.setattr(install, "main_failures", lambda repo, workflow, created: [] if created.startswith("<") else [test])
+    serve(monkeypatch, {})
+    watching = watcher(demo)
+    for minutes in (0, 31, 62):
+        watch.run_pass(watching, T0 + timedelta(minutes=minutes))
+    assert [wake for wake in woken if test in wake[1]] == []
+    assert state.load(demo)["mains"][repo][test]["owner"] == fix
+    with state.edit(demo) as data:
+        data["jobs"]["j3"]["state"] = "stopped"
+        assert state.claim_mains(data, repo, "j4", failing, rival, at) == ""
+    assert state.load(demo)["mains"][repo][test] == {"run": run, "workflow": 1, "since": at, "owner": rival, "job": "j4", "woke": at, "waking": None}
+
+
 def test_running_build_reads_the_newest_request_shape_and_model(tmp_path: Path) -> None:
     path = tmp_path / "session.jsonl"
     lines = [
