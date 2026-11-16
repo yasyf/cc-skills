@@ -9532,6 +9532,37 @@ def test_a_staging_slot_wait_holds_until_the_job_rides_or_holds_a_staging_cut(ru
     assert view.holds(state.load(demo), "staging-slot:j1", None) is False
 
 
+@pytest.mark.parametrize(
+    ("line", "free"),
+    [
+        (f"WAITING {install.PROOF_WAITS}: o1's proof.sh: the case needs his tap", "heard"),
+        ("WAITING his word: which bucket to keep", "heard"),
+        ("WAITING his-word on the retention pick", "heard"),
+        ("WAITING mac-box:any, every host busy", "handed"),
+        ("WAITING staging-slot:j1 for root's START", "seated"),
+        ("WAITING pid:4411@j1-mac, its screen recording", "exited"),
+    ],
+)
+def test_every_waiting_form_a_drive_verb_writes_is_one_drive_job_report_takes_and_the_watch_frees(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, line: str, free: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "prove the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "prove the fix", "--builds-nothing")
+    monkeypatch.setattr(providers.MacBoxProvider, "runs", lambda self, box, pid: free != "exited")
+    data = state.load(demo)
+    wait = next(wait for wait in state.named_waits(data, "o1", line) if wait.split(":")[0].split("@")[0] in ("his-word", "mac-box", "staging-slot", "pid"))
+    assert state.wakes(data, "j1", state.now(), line) is True
+    assert view.holds(data, wait, None) is True
+    with state.edit(demo) as data:
+        if free == "heard":
+            data["owner"]["heard"] = state.stamp(state.now() + timedelta(seconds=2))
+        elif free == "handed":
+            data["jobs"]["j1"]["waits"] = [wait]
+            state.mac_box_handed(data, "j1", "j1-mac")
+            wait = data["jobs"]["j1"]["waits"][0]
+        elif free == "seated":
+            data["slots"]["plat-usw2-staging"] = {"holder": {"job": "j9", "riders": [{"job": "j1"}]}, "queue": [], "hold": None}
+    assert view.holds(state.load(demo), wait, None) is False
+
+
 def test_a_waiting_on_processes_on_a_mac_box_holds_while_the_provider_reads_one_running(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     data = state.load(demo)
     assert state.named_waits(data, "o1", "WAITING pid:4411,4412@j7842-prod, its screen recordings") == ["pid:4411@j7842-prod", "pid:4412@j7842-prod"]

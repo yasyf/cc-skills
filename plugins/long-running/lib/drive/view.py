@@ -367,6 +367,8 @@ def holds(drive: dict, wait: str, found: dict | None) -> bool:
             return True
     if boxed := state.MAC_BOX_WAIT.fullmatch(wait):
         return not boxed["handed"]
+    if word := state.HIS_WORD_WAIT.fullmatch(wait):
+        return not (heard := drive["owner"]["heard"]) or state.parse_time(heard).timestamp() <= int(word["after"])
     if turn := state.SLOT_TURN_WAIT.fullmatch(wait):
         return not any(turn["job"] in state.slot_members(slot) for slot in drive["slots"].values())
     if drawn := drawn_on(drive, wait):
