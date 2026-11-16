@@ -3554,6 +3554,23 @@ def safeguard_report(data: dict, job_id: str, turn: dict) -> dict:
     }
 
 
+def budget_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Read every drive's projects' spend today again, by spend.refresh, and tell him once a day, in one report each watch on this Mac posts at most once for it, of each project that spent its daily budget, whose work waits for the next day unless a priority or incident order serves it."""
+    from drive import spend
+
+    tokens = spend.refresh(moment)["tokens"]
+    over = {}
+    with spend.ledger(moment) as held:
+        for mine in sorted({bucket.rpartition("/")[2] for bucket in tokens} - set(held["told"])):
+            if why := spend.over_project(mine, moment):
+                over[mine] = why
+                held["told"].append(mine)
+    if not over:
+        return []
+    reported(watcher, [{"kind": "report", "attr": {}, "topic": f"budget-{mine}-{moment.date().isoformat()}", "text": f"POST one line to him: {why}; its work waits for tomorrow unless a priority or incident order serves it, and caps.json sets the budget", "body": why + "\n"} for mine, why in over.items()])
+    return [f"BUDGET {why}" for why in over.values()]
+
+
 def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Age each thing the drive's chains of waits end on, a PR stack's card, a PR's release, a staging env or a job, and act once on each that stood unmoved past its deadline, however many jobs and PRs wait on it, by his words "the watch reports a stall for each job held by the same open Approve card, so three jobs waiting on one card would each send him a line" and his pick "an automated watchdog that spawns a small agent if it detects anything truly stick which can go read transcript etc": start one watchdog agent on it, at most two at a time and six an hour, oldest stall first, never on a chain ending at a step of his, his hold on every release read once a pass, nor on a staging env, or a release on it, behind another drive's staging claim until that claim ends, as stall.behind() reads the claims of every other drive on this Mac once a pass; once that agent answers, or ten minutes pass, say one STUCK line naming it, each job and PR waiting on it and what the agent found, or that alone; and, by his pick "One line to you, once per stall, after the coordinator had 30 minutes and nothing changed; never while you are away.", once that line stood 30 minutes with the thing unmoved and he is here, start a fresh watchdog agent, since records and PRs move while the thing's own words do not, as a merged replacement fix or a re-cut ready line, and once it answers, or ten minutes pass, write him one report of that answer the communicator's handler posts in that work's thread, his presence read by the clock right before that agent starts and again right before that report is written, never at the pass's start, which the stage can run twenty minutes after, so while he reads away the step goes back unclaimed and the first pass after he is heard takes it. Each stall is one row of the drive's stalls, aged under the drive's lock by every watch and acted on only by the watch hearing the job answering for the first job or PR waiting on it, each step claimed under the lock with the pid and start time of the watch taking it, as waiting_lines claims its lines, then taken outside the lock and settled under it, so a watch restart adopts its agent, two watches never take one step and nothing is said twice; a thing that moves starts a fresh one."""
     if watcher.cards is None:
@@ -4696,6 +4713,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
                     release_lanes,
                     agent_lines,
                     stall_lines,
+                    budget_lines,
                     carry_held,
                     compact_lines,
                     waiting_post_lines,
