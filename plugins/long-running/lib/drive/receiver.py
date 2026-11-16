@@ -7,7 +7,9 @@ import os
 import secrets
 import select
 import shlex
+import socket
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -113,7 +115,7 @@ def hook(repo: str) -> bool:
 
 
 def keep() -> None:
-    """Load the receiver's launch agent unless one is loaded: launchd starts it now, at each login and again within RESTART_SECONDS of any exit, on the newest install."""
+    """Load the receiver's launch agent unless one is loaded: launchd starts it now, at each login and again within RESTART_SECONDS of any exit, on the newest install, and each newer install takes its place on its socket, by main."""
     if launchd.kept(LABEL):
         return
     home().mkdir(parents=True, exist_ok=True)
@@ -291,23 +293,26 @@ def handler(key: bytes) -> type[BaseHTTPRequestHandler]:
     return Delivery
 
 
-def rewritten() -> bool:
-    """Whether the newest long-running installed holds a receiver.py other than this one, the one install the receiver restarts for, since each start reads every kept hook's newest delivery from GitHub."""
-    return bool((newer := upgraded()) and (newer.parents[1] / "lib" / "drive" / "receiver.py").read_bytes() != Path(__file__).read_bytes())
-
-
-def main() -> int:
-    """Take GitHub's and Buildkite's signed deliveries on loopback behind the Funnel paths, the process the receiver's launch agent runs. It listens before it opens the paths, asks GitHub what it missed and owes each drive a read of every Buildkite build it waits on, since Buildkite lists no deliveries, so a delivery landing meanwhile waits in the socket's queue, then serves until the newest long-running installed runs another receiver.py, as rewritten reads it, or the clock jumps past SLEPT_SECONDS, as after this Mac slept, and exits for launchd to start it again, which asks GitHub again."""
+def main(inherited: int | None) -> int:
+    """Take GitHub's and Buildkite's signed deliveries on loopback behind the Funnel paths, the process the receiver's launch agent runs. Started on its own, it listens before it opens the paths, asks GitHub what it missed and owes each drive a read of every Buildkite build it waits on, since Buildkite lists no deliveries, so a delivery landing meanwhile waits in the socket's queue. Once a newer long-running is installed it takes each delivery it accepted to its end and hands its listening socket to that install's drive, as the dashboard hands over its port, which serves on it at once and asks GitHub and Buildkite nothing, since the socket queued every delivery meanwhile, so the receiver runs each install's code and spends no GitHub read on it. It exits for launchd to start it again, which asks GitHub again, only once the clock jumps past SLEPT_SECONDS, as after this Mac slept."""
     os.environ.update(launchd.session_env())
-    server = ThreadingHTTPServer((dashboard.LOOPBACK, PORT), handler(secret().encode()))
-    server.daemon_threads = True
+    listening = socket.socket(fileno=inherited) if inherited is not None else socket.create_server((dashboard.LOOPBACK, PORT))
+    server = dashboard.Server(listening, handler(secret().encode()), None)
+    server.daemon_threads = False
     server.timeout = WAIT_SECONDS
-    funnel()
-    caught_up()
-    took_builds("missed", None)
+    if inherited is None:
+        funnel()
+        caught_up()
+        took_builds("missed", None)
     print(f"{moment()} receiving at {url()} and {url(BUILDKITE_PATH)} on long-running {state.VERSION}", flush=True)
     awake = time.time()
-    while not rewritten() and time.time() - awake < SLEPT_SECONDS:
+    while not (newer := upgraded()) and time.time() - awake < SLEPT_SECONDS:
         awake = time.time()
         server.handle_request()
-    return 0
+    if not newer:
+        return 0
+    handed = listening.dup()
+    server.server_close()
+    handed.set_inheritable(True)
+    print(f"{moment()} handing port {PORT} to {newer}, a newer long-running", flush=True)
+    os.execv(sys.executable, [sys.executable, "-I", str(newer), "receive", f"--listening={handed.fileno()}"])
