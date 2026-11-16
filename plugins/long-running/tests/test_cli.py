@@ -880,6 +880,26 @@ def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_kept_with_a_no
     assert "release:sand-next:Forge-AI/monorepo#7" in state.load("demo")["jobs"]["j1"]["waits"]
 
 
+def test_the_release_reach_sends_go_ci_a_prs_head_when_its_paths_change_the_cargo_lockfile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    clone, checkout = tmp_path / "clone", tmp_path / "drive-demo"
+    for root in (clone, checkout):
+        (root / "tools").mkdir(parents=True)
+    (clone / "tools" / "ci").write_text("")
+    request, answer = tmp_path / "request.json", tmp_path / "answer.json"
+    (checkout / "tools" / "ci").write_text(FAKE_SELECT.format(request=request, answer=answer))
+    (checkout / "tools" / "ci").chmod(0o755)
+    answer.write_text(json.dumps({"components": ["dashboard", "sandsql"], "touched": ["sandsql"], "dev": [], "releases": ["sandsql"]}))
+    changed = ["rust/Cargo.lock", "rust/crates/server/Cargo.toml"]
+    monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo")
+    monkeypatch.setattr(orca, "checkout", lambda name, cwd: checkout)
+    monkeypatch.setattr(github, "files", lambda key: changed)
+    monkeypatch.setattr(github, "paths", lambda keys: {key: ("0123456789abcdef0123456789abcdef01234567", changed) for key in keys})
+    reach = cli.release_reach("demo", {"roles": {"coordinator": {"cwd": str(clone)}}}, ["Forge-AI/monorepo#7"])
+    assert (reach["Forge-AI/monorepo#7"]["touched"], json.loads(request.read_text())) == (
+        ["sandsql"],
+        {"body": "", "paths": changed, "head": "0123456789abcdef0123456789abcdef01234567"},
+    )
+
 def test_order_set_due_says_it_stored_the_time_and_what_it_waits_on_or_why_it_stored_none(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
