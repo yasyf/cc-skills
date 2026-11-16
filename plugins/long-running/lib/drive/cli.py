@@ -5462,9 +5462,9 @@ def handler(args: argparse.Namespace) -> int:
         )
     if re.search(rf"^{re.escape(agents.HIS_WORDS)}:", args.brief, re.MULTILINE):
         watch.hear(name, state.now(), args.away)
-    briefed = answering(name, args) if args.answer else in_thread(name, args.brief)
+    briefs = briefing(name, args.brief, args.answer) is not None
     owed = bool((named := agents.RECORD.search(args.brief)) and agents.posting(name, agents.shown(named[1])))
-    handler_id, handed = agents.handle(name, args.brief, detached=True, briefed=briefed, owed=owed)
+    handler_id, handed = agents.handle(name, args.brief, detached=True, answer=args.answer, briefs=briefs, owed=owed)
     if handed:
         return emit(args, f"handed to {handler_id}", {"handler": handler_id, "handed": True})
     return emit(args, f"started {handler_id}", {"handler": handler_id})
@@ -5493,19 +5493,24 @@ def fde_scan(args: argparse.Namespace) -> int:
     return subprocess.run([str(checkout / GO_CI), "fde-scan", *args.arguments], cwd=checkout, stdin=subprocess.DEVNULL, check=False).returncode
 
 
-def answering(name: str, args: argparse.Namespace) -> Callable[[str], str]:
+def briefing(name: str, brief: str, answer: str | None) -> Callable[[str], str] | None:
+    """What writes a handler's brief from its id: answering's for his read-only question with an --answer title, else in_thread's; the handler's own start runs it, so the handler call returns before its writes and reads."""
+    return answering(name, brief, answer) if answer else in_thread(name, brief)
+
+
+def answering(name: str, brief: str, answer: str) -> Callable[[str], str]:
     """The brief of his read-only question's handler once its answer order, titled as --answer names and filed under no project or workstream, and the handler's reader job on it are added, naming both, the pairs in use, which the handler picks from when it files the order with drive order set, and every open order in his thread with its jobs, questions and PRs, read from the drive and its stored cards, so the handler reads no drive status."""
-    held = agents.holds(args.brief)
-    if not (held["link"] and re.search(rf"^{re.escape(agents.HIS_WORDS)}:", args.brief, re.MULTILINE)):
+    held = agents.holds(brief)
+    if not (held["link"] and re.search(rf"^{re.escape(agents.HIS_WORDS)}:", brief, re.MULTILINE)):
         raise DriveError("--answer: refused, no handler started: it adds his answer order from his message, so the brief carries his words and the Link of his message")
 
     def briefed(handler_id: str) -> str:
-        words = agents.his_words(args.brief)
-        order_id = added_order(parser().parse_args(["order", "add", words, "--from", held["link"], "--kind", "answer", "--complex", "--title", args.answer, "--drive", name]), unfiled=True)[0]
+        words = agents.his_words(brief)
+        order_id = added_order(parser().parse_args(["order", "add", words, "--from", held["link"], "--kind", "answer", "--complex", "--title", answer, "--drive", name]), unfiled=True)[0]
         part = state.load(name)["orders"][order_id]["title"]
-        job_id = added_job(parser().parse_args(["job", "add", "reader", "--order", order_id, "--part", part, "--goal", args.answer, "--agent", handler_id, "--drive", name]))[0]
+        job_id = added_job(parser().parse_args(["job", "add", "reader", "--order", order_id, "--part", part, "--goal", answer, "--agent", handler_id, "--drive", name]))[0]
         data = state.load(name)
-        return "\n".join([args.brief.strip(), f"{agents.ORDER}: {order_id}, job {job_id}", f"{agents.PAIRS}: {pairs_in_use(data)}", *thread_work(name, data, held["thread"], order_id)])
+        return "\n".join([brief.strip(), f"{agents.ORDER}: {order_id}, job {job_id}", f"{agents.PAIRS}: {pairs_in_use(data)}", *thread_work(name, data, held["thread"], order_id)])
 
     return briefed
 

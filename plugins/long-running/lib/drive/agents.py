@@ -554,9 +554,10 @@ def signalled(pid: int) -> bool:
     return True
 
 
-def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str], str] | None = None, owed: bool = False) -> tuple[str, bool]:
-    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time: a brief for another record or another message of his, on that message, in that thread or on its record's re chain, is handed to that handler, which takes it at its next step, and a copy, the same record or the same message of his, is handed to it with nothing added, since that handler already holds it; the id of the handler at work on the brief, and whether it was handed. A record whose brief, attrs and re chain name no thread and reach no message of his is in the thread its order's lines go in, as the thread attr the drive stamps on its own records names it, and one whose post goes elsewhere than that thread or the thread of the message of his its chain reaches, at the root of a channel outside his DM such as a staging claim or in another thread its thread attr names, holds that place alone, so it waits on no handler of his messages there. A handler whose turn is over holds nothing, however it ended: it leaves the drive, and each brief handed to it that it never took goes to the handler this brief reaches, but one for the record this brief names; one that never started leaves its own brief with them, by forget. briefed writes the brief a new handler starts on from its id, recording what it adds; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool and the watch's hand of each message of his cc-slack owes run it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch's other stages start it in the call, so a start that fails is tried again at their next read. Owed, as the handler tool's and the watch's read's start on a `POST` report is, a report the drive owes no post is refused, naming the post or done record that carries it or his catch-up holding it, and one whose last handler ended posting nothing, died or never started starts on a brief closing on the line that handler ended on, checked in the same save that starts it, a handler that died or never started keeping DIED as its line, and the brief briefed writes closes on that line too. A brief for a record a post carries goes to no handler."""
+def handle(name: str, brief: str, detached: bool = False, answer: str | None = None, briefs: bool = False, owed: bool = False) -> tuple[str, bool]:
+    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time: a brief for another record or another message of his, on that message, in that thread or on its record's re chain, is handed to that handler, which takes it at its next step, and a copy, the same record or the same message of his, is handed to it with nothing added, since that handler already holds it; the id of the handler at work on the brief, and whether it was handed. A record whose brief, attrs and re chain name no thread and reach no message of his is in the thread its order's lines go in, as the thread attr the drive stamps on its own records names it, and one whose post goes elsewhere than that thread or the thread of the message of his its chain reaches, at the root of a channel outside his DM such as a staging claim or in another thread its thread attr names, holds that place alone, so it waits on no handler of his messages there. A handler whose turn is over holds nothing, however it ended: it leaves the drive, and each brief handed to it that it never took goes to the handler this brief reaches, but one for the record this brief names; one that never started leaves its own brief with them, by forget. With briefs, the brief a new handler starts on is written from its id by cli.briefing, with answer its --answer title, in the process that starts it, recording what it adds, so the call returns before those writes and reads take the drive's lock; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool and the watch's hand of each message of his cc-slack owes run it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch's other stages start it in the call, so a start that fails is tried again at their next read. Owed, as the handler tool's and the watch's read's start on a `POST` report is, a report the drive owes no post is refused, naming the post or done record that carries it or his catch-up holding it, and one whose last handler ended posting nothing, died or never started starts on a brief closing on the line that handler ended on, checked in the same save that starts it, a handler that died or never started keeping DIED as its line, and the brief briefed writes closes on that line too. A brief for a record a post carries goes to no handler."""
     read = holds(brief)
+    asked = brief
     handler_id = uuid.uuid4().hex[:8]
     with state.edit(name) as data:
         if owed and not owing(data, read["record"]):
@@ -582,27 +583,29 @@ def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str
             data["handlers"][handler_id] = {"session": None, "started": state.stamp(), "brief": brief.strip(), "holds": held_now, "handed": left, "took": [], "posted": []}
     if held:
         return held, True
+    later = {"brief": asked, "answer": answer, "context": context} if briefs else None
     try:
-        prompt = f"{briefed(handler_id).strip()}{context}" if briefed else brief
-        state.after_save(name, lambda: started(name, handler_id, brief, prompt, detached))
+        state.after_save(name, lambda: started(name, handler_id, brief, brief, detached, later))
     except Exception as error:
         unstarted(name, handler_id)
         raise (state.DriveError(f"claude --bg started no handler: {error}") if isinstance(error, reads.ReadError) else error) from None
     return handler_id, False
 
 
-def started(name: str, handler_id: str, brief: str, prompt: str, detached: bool) -> list[str]:
-    """Start the handler's session on its prompt once the drive keeps its entry, its brief's scratch folder made first: in this call while this Mac admits a local Claude lane, by place.admission, or at once for a message of his, by his_message, or detached from the prompt kept for `drive handler-start`, which waits its turn."""
+def started(name: str, handler_id: str, brief: str, prompt: str, detached: bool, later: dict | None = None) -> list[str]:
+    """Start the handler's session on its prompt once the drive keeps its entry, its brief's scratch folder made first: in this call while this Mac admits a local Claude lane, by place.admission, or at once for a message of his, by his_message, or detached from the prompt kept for `drive handler-start`, which waits its turn, beside later, what that start writes its brief from, when the brief is written there."""
     from drive import place
 
     if folder := scratch(brief):
         folder.mkdir(parents=True, exist_ok=True)
-    if not detached and (his_message(holds(brief)) or not place.admission(state.load(name), None, "local", state.now())):
+    if not detached and later is None and (his_message(holds(brief)) or not place.admission(state.load(name), None, "local", state.now())):
         start_handler(name, handler_id, prompt)
         return []
     kept = brief_path(name, handler_id)
     kept.parent.mkdir(parents=True, exist_ok=True)
     kept.write_text(prompt)
+    if later is not None:
+        kept.with_suffix(".json").write_text(json.dumps(later))
     state.detach(name, ["handler-start", handler_id], "handlers.log")
     return []
 
@@ -649,15 +652,29 @@ def start_kept(name: str, handler: str) -> str:
     kept = brief_path(name, handler)
     began = time.time()
     try:
+        prompt = kept_prompt(name, handler)
+        briefed = time.time()
         with place.waited_turn(name, lambda: waits_turn(name, handler), his_message(holds(kept.read_text()))):
             admitted = time.time()
-            start_handler(name, handler, kept.read_text())
+            start_handler(name, handler, prompt)
     except Exception as error:
         unstarted(name, handler)
         line = f"BLOCKED handler {handler} did not start: {start_error(error)}; its brief is kept in {kept}: start it again with the handler tool"
         reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"{beside(state.saved(name))[0]}@{name}", "--id", f"handler-start-{handler}", "--text", line], Path.cwd(), reads.posting())
         return line
-    return f"{state.stamp()} started {handler}: began {began - kept.stat().st_mtime:.1f}s after its brief was kept, waited {admitted - began:.1f}s for its turn, its start took {time.time() - admitted:.1f}s"
+    return f"{state.stamp()} started {handler}: began {began - kept.stat().st_mtime:.1f}s after its brief was kept, wrote its brief in {briefed - began:.1f}s, waited {admitted - briefed:.1f}s for its turn, its start took {time.time() - admitted:.1f}s"
+
+
+def kept_prompt(name: str, handler: str) -> str:
+    """The prompt a kept handler starts on: its kept brief, or the brief cli.briefing writes from what handle kept beside it, closing on the context line handle added."""
+    from drive import cli
+
+    kept = brief_path(name, handler)
+    if not (later := kept.with_suffix(".json")).exists():
+        return kept.read_text()
+    held = json.loads(later.read_text())
+    briefed = cli.briefing(name, held["brief"], held["answer"])
+    return f"{briefed(handler).strip()}{held['context']}" if briefed else kept.read_text()
 
 
 def waits_turn(name: str, handler: str) -> None:
