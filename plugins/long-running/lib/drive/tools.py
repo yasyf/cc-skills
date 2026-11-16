@@ -16,7 +16,7 @@ OPS = {"order": ("add", "set", "posted", "told"), "job": ("add", "set", "brief")
 ONE_VERB = {"heard": ("heard",), "handler": ("handler",), "status": ("status",), "search_plan": ("plan", "search")}
 POST_SECONDS = 60
 POSTED_KEPT = 100
-UNHEARD = "Jev did not read whether his words pick or direct ({failure}), so they could end a card he only asked about; run this again"
+UNHEARD = "Opus did not read whether his words pick or direct ({failure}), so they could end a card he only asked about; run this again"
 UNSENT = (
     "no record went out, so while cci is down reach the session it was for with ListAgents, then SendMessage to"
     " `{drive}-coordinator`, `{drive}-communicator` or `{drive}-meta` carrying it, and post it once cci is back; a"
@@ -798,7 +798,7 @@ def unheard(data: dict, found: dict, made: dict, ruled: list[dict]) -> str | Non
 
 
 def asks_only(found: dict, made: dict, questions: list[tuple[str, dict]]) -> str | None:
-    """Why an answer or owner record of his words that would end a card's question answers nothing, the record tool's or the card command's for his words in its Other box: Jev reads them, beside the card's question and options, as only asking it questions, one proposing a way included, or remarking on it, so the card keeps asking him, its waits kept, and no session records them as his answer; settled.Unheard when Jev gives no reading, which each caller refuses, since a question ended on such words costs a redrawn card. None for words that pick an option or order the work, and for any record ending no question."""
+    """Why an answer or owner record of his words that would end a card's question answers nothing, the record tool's or the card command's for his words in its Other box: Opus reads them, beside the card's question and options, as only asking it questions, one proposing a way included, or remarking on it, so the card keeps asking him, its waits kept, and no session records them as his answer; settled.Unheard when Opus gives no reading, which each caller refuses, since a question ended on such words costs a redrawn card. None for words that pick an option or order the work, and for any record ending no question."""
     if made["kind"] not in ("answer", "owner") or not made.get("url") or not questions:
         return None
     _, question = questions[0]
@@ -806,7 +806,7 @@ def asks_only(found: dict, made: dict, questions: list[tuple[str, dict]]) -> str
     if not settled.only_asks(question["title"] or "", card["options"] if card else [], made["text"]):
         return None
     return (
-        "Jev reads his words as only asking the card questions, one proposing a way included, or remarking on it, so they answer"
+        "Opus reads his words as only asking the card questions, one proposing a way included, or remarking on it, so they answer"
         " nothing: answer them in the card's thread and send no record of them, and the card keeps asking him, its waits kept,"
         " a way they propose going to the job's session to redraw the card offering it, by his words 2a27048, \"Why does the card"
         ' say answered? I wanted you to answer my Qs so I could then make a choice"; words that pick an option or order the work'
@@ -815,7 +815,7 @@ def asks_only(found: dict, made: dict, questions: list[tuple[str, dict]]) -> str
 
 
 def superseded_by_answer(data: dict, made: dict, questions: list[tuple[str, dict]], found: dict) -> list[tuple[str, dict, dict]]:
-    """Each older open question of a job his answer ends a question of that it decides too, as Jev reads it, with the question his answer is on."""
+    """Each older open question of a job his answer ends a question of that it decides too, as Opus reads it, with the question his answer is on."""
     if made["kind"] != "answer":
         return []
     return [(job_id, older, question) for job_id, question in questions for older in superseded.decided_by(data, job_id, question, made["text"], found)]
@@ -903,7 +903,7 @@ def verbatim(made: dict, questions: list[tuple[str, dict]], found: dict) -> str:
 
 
 def his_cards(name: str) -> dict:
-    """His open cards as cc-slack lists them now, read before a record of his words goes out, so his words are checked against what each card shows and Jev reads his answer against the options of the questions it may decide."""
+    """His open cards as cc-slack lists them now, read before a record of his words goes out, so his words are checked against what each card shows and Opus reads his answer against the options of the questions it may decide."""
     view.refresh_cards(name)
     if (found := view.live_cards(name)) is None:
         raise DriveError(f"his cards could not be read ({view.stored_cards(name)[1]}), so a card these words close would stay up; nothing posted, run this again")

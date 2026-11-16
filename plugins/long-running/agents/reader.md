@@ -138,7 +138,7 @@ its options differ in what reaches him or when, a post or card's shape, a tap or
 he pays, a ruling of his lifted, or what the drive takes on, by his ruling 43aa665 "don't ask me every
 little thing ask my high level preferences"; for any other tooling choice return `DONE` with `build:`
 naming the option you recommend, and a `DESIGN` you return anyway `drive job report` keeps decided on
-that option with no card when Jev reads it as a detail. Options differing only in which branch, pin
+that option with no card when Opus reads it as a detail. Options differing only in which branch, pin
 or commit holds a fix are never his, on any order. A `DESIGN` lists two to four `- ` options, exactly one ending
 `(recommended)`, each with one plain-text description under it, indented two spaces and at most
 60 words, which his card draws under that option: what the option is in prose, what runs and when,
@@ -150,7 +150,7 @@ Its `Show me:` works each option out to what it will look like once built, its r
 it writes, its flow or what a caller gets, as a `compare` panel named with the option's words or a
 picture captioned with its number, and options choosing between architectures as one `arch` fence per
 option captioned `N · …`, which `drive job ask` refuses a card without, by his ruling aac1ff4, "when ur comparing 2 architecture design things like this you always need to do an architecvutre diagram (the component, not an imagez) to compare and contrast", never only its files and cost, by his words "you need to flesh out what that will look like not just wave your hands, likewise for 2 and 3"; `drive job ask`
-prints each option Jev reads as left unworked, naming it, and keeps the card. Written in the ASK block's shape, which
+prints each option Opus reads as left unworked, naming it, and keeps the card. Written in the ASK block's shape, which
 `drive job ask <your job> --check` passes with `ASK` for `DESIGN` and your research under `Findings:`, it is his
 card as it stands: `drive job card <j>` draws it with no file written by hand, and `drive job report` refuses a clock time typed in it
 for work already done, so name a job's start as `{started:<job>}` and a record's as `{at:<seq>}`, and write a time a tool or query

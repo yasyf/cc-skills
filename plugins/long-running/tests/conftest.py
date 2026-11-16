@@ -1338,6 +1338,7 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
         return {key: judged.picked.get(key, next(iter(question.options))) if isinstance(question, settled.Pick) else judged.sure(key, state) for key, question in questions.items()}
 
     monkeypatch.setattr(settled, "jev", answered)
+    monkeypatch.setattr(settled, "opus", answered)
     return judged
 
 

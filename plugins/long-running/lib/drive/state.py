@@ -319,12 +319,14 @@ class Rehearsed(BaseException):
 
 
 def reads_only(argv: list[str]) -> bool:
-    """Whether a command the drive starts only reads, which a dry run lets run: git but a push, lsof, ps, a headless Chrome drawing a picture or reading a page, a gh api call with no field or method, a GraphQL query sent as `gh api graphql -f query=query ...`, or a command READ_ONLY starts with, a gh one through ccx's GitHub gateway as itself."""
+    """Whether a command the drive starts only reads, which a dry run lets run: git but a push, lsof, ps, a headless Chrome drawing a picture or reading a page, a `claude -p` given no tools, as settled.opus reads his words, a gh api call with no field or method, a GraphQL query sent as `gh api graphql -f query=query ...`, or a command READ_ONLY starts with, a gh one through ccx's GitHub gateway as itself."""
     program, words = Path(argv[0]).name, argv[1:]
     if program == "ccx" and words[:2] == ["vcs", "gh"]:
         program, words = "gh", words[words.index("--") + 1 :]
     if program == "git":
         return "push" not in words
+    if program == "claude":
+        return words[:1] == ["-p"] and "--tools" in words and not words[words.index("--tools") + 1]
     if program == "gh" and words[:1] == ["api"]:
         return not GH_FIELDS & set(words) or len(words) == 4 and words[1:3] == ["graphql", "-f"] and words[3].startswith("query=query ")
     return program in ("lsof", "ps") or words[:1] == ["--headless=new"] or any(words[: len(form.split())] == form.split() for form in READ_ONLY.get(program, ()))
@@ -347,7 +349,7 @@ sys.addaudithook(outside)
 
 @contextmanager
 def remembered() -> Iterator[None]:
-    """Answer each command subprocess.run starts in the block that only reads, by reads_only, and each question settled.jev asks, as the first one with the same arguments was answered, raising what it raised then, until outside forgets them all at a command that does more; so a call checking its ops in a dry pass and then running them under the drive's lock reads and asks each thing once, such as the drive's checkout move, his cards, each PR's release reach and Jev's read of an order's words."""
+    """Answer each command subprocess.run starts in the block that only reads, by reads_only, and each question settled.jev asks, as the first one with the same arguments was answered, raising what it raised then, until outside forgets them all at a command that does more; so a call checking its ops in a dry pass and then running them under the drive's lock reads and asks each thing once, such as the drive's checkout move, his cards, each PR's release reach, Jev's read of an order's words and Opus's read of his answer ordering a release, whose `claude -p` reads only."""
     from drive import settled
 
     run, ask = subprocess.run, settled.jev
@@ -3622,6 +3624,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "worktree": None,
         "prs": [],
         "release_build": None,
+        "release_pass": None,
         "waits": [],
         "shipped": [],
         "waited": None,
@@ -4146,6 +4149,11 @@ def session_role(data: dict, session: str | None) -> str | None:
     if session_project(data, session):
         return "coordinator"
     return "communicator" if handler_id(data, session) else None
+
+
+def top_coordinator(data: dict, session: str | None) -> bool:
+    """Whether a session is the drive's top coordinator: one session_role reads as coordinator and session_project names no project for."""
+    return session_role(data, session) == "coordinator" and session_project(data, session) is None
 
 
 def held_sender(data: dict) -> str | None:

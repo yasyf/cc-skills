@@ -1360,7 +1360,7 @@ def test_drive_job_add_release_starts_it_on_his_answer_from_the_tops_checkout_an
     refusals = (
         (
             J2666_START.replace("5419ffd", "ac61348"),
-            f'refused: `--order ac61348` names his answer to "{PR_TAP["title"]}", "Approve at 4aca314", and Jev does not read it as approving this release. {brief.RELEASE_APPROVAL}',
+            f'refused: `--order ac61348` names his answer to "{PR_TAP["title"]}", "Approve at 4aca314", and Opus does not read it as approving this release. {brief.RELEASE_APPROVAL}',
         ),
         (J2666_START.removesuffix(" --order 5419ffd"), f"--release names no --order. {brief.RELEASE_APPROVAL}"),
         (
@@ -1578,14 +1578,23 @@ def test_a_release_starts_on_order_naming_an_incidents_answer_or_one_jev_reads_a
     assert len(jev.asked) == 1
     jev.picks("none")
     assert brief.approval_refusal(start.format("ac61348"), state.load("demo")) == (
-        'refused: `--order ac61348` names his answer to "Tap: #50203, canary diagnostics on the search", "Approve at 4aca314", and Jev'
+        'refused: `--order ac61348` names his answer to "Tap: #50203, canary diagnostics on the search", "Approve at 4aca314", and Opus'
         f" does not read it as approving this release. {brief.RELEASE_APPROVAL}"
     )
     jev.answer = None
     assert brief.approval_refusal(start.format("ac61348"), state.load("demo")).startswith(
-        "refused: Jev did not say whether his answer ac61348 approves this release (no jev decision within 20s)"
+        "refused: Opus did not settle whether his answer ac61348 approves this release (no jev decision within 20s)"
     )
     assert len(jev.asked) == 3
+    reading = 'his words "Approve at 4aca314" approve this release'
+    assert brief.approval_refusal(start.format("ac61348"), state.load("demo"), reading) is None
+    jev.answer = 0.5
+    assert brief.approval_refusal(start.format("ac61348"), state.load("demo")).startswith(
+        "refused: Opus did not settle whether his answer ac61348 approves this release (Opus is unsure whether his answer ac61348 approves this release)"
+    )
+    assert brief.approval_refusal(start.format("ac61348"), state.load("demo"), reading) is None
+    jev.picks("none")
+    assert brief.approval_refusal(start.format("ac61348"), state.load("demo"), reading).startswith("refused: `--order ac61348` names his answer")
 
 
 def test_the_release_gate_reads_a_start_against_the_drive_release_notes_in_its_range_at_its_default_branch_head_never_refusing_and_parses_a_manual_starts_stack_and_commit(
@@ -1759,7 +1768,7 @@ def test_while_he_holds_every_release_a_drive_runs_none_but_on_his_exception_rec
     assert len(jev.asked) == asked
     jev.picks("none")
     assert brief.approval_refusal(start.format("8b2e4f7"), data) == held(
-        start.format("8b2e4f7"), '`--order 8b2e4f7` names his answer to "Release the SandSQL fix to production?", and Jev does not read it as approving this release'
+        start.format("8b2e4f7"), '`--order 8b2e4f7` names his answer to "Release the SandSQL fix to production?", and Opus does not read it as approving this release'
     )
     by_hand = ("tools/ci release hotfix 55960 --only executor", "drive break-glass j1 --stack sandsql/plat-usw2-prod --reason stuck -- tools/ci release start sandsql")
     assert [landing_guard.deny_reason(bash(command) | top) for command in by_hand] == [
@@ -1767,7 +1776,7 @@ def test_while_he_holds_every_release_a_drive_runs_none_but_on_his_exception_rec
     ]
     jev.answer = None
     assert brief.approval_refusal(start.format("8b2e4f7"), data) == held(
-        start.format("8b2e4f7"), "Jev did not say whether his answer 8b2e4f7 approves it (no jev decision within 20s); run it again once Jev answers"
+        start.format("8b2e4f7"), "Opus did not settle whether his answer 8b2e4f7 approves it (no jev decision within 20s)"
     )
     reads = (
         "tools/ci release start sandsql --dry-run",
@@ -1960,7 +1969,7 @@ def test_while_he_holds_every_release_build_16916s_gate_stays_shut_since_no_answ
         "tools/ci bk rerun release 16916",
         f'tools/ci cluster-job --cluster plat-usw2-prod --cronjob journal-pass-dry-run --reason "{DRY_RUN_JOB["reason"]}"',
     )
-    unordered = "which Jev does not read as ordering it now"
+    unordered = "which Opus does not read as ordering it now"
     why = (
         f'his answer c4701c9 to "{PASS_TONIGHT["title"]}", "{PASS_TONIGHT["body"]}", {unordered};'
         f' his answer 34c9f21 to "{DRY_RUNS_HELD["title"]}", "{DRY_RUNS_HELD["body"]}", {unordered}'
@@ -1997,8 +2006,10 @@ def test_while_he_holds_every_release_build_16916s_gate_stays_shut_since_no_answ
         where=f"15c4de1, {HOLD_LINK}",
         cronjob="journal-pass-dry-run",
         cluster="plat-usw2-prod",
-        why="Jev did not say whether his answers since order it (no jev decision within 20s); run it again once Jev answers",
+        why="Opus did not settle whether his answers since order it (no jev decision within 20s)",
     )
+    read = "tools/ci cluster-job --cluster plat-usw2-prod --cronjob journal-pass-dry-run --reason 'c4701c9 reading: his words order the dry run tonight'"
+    assert landing_guard.deny_reason(bash(read) | top) is None
     jev.picks("c4701c9")
     assert [landing_guard.deny_reason(bash(command) | top) for command in starts] == [None] * len(starts)
 
@@ -2017,7 +2028,7 @@ def test_a_job_runs_the_release_its_brief_names_on_his_exception_while_he_holds_
     assert {asked["state"]["action"] for asked in jev.asked} == {f"start this release on {settled.PRODUCTION}: `{release}`"}
     jev.picks("none")
     assert landing_guard.deny_reason(bash(own[0]) | step) == brief.RELEASE_HELD.format(
-        said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=release, why='`--order 8b2e4f7` names his answer to "Release the SandSQL fix to production?", and Jev does not read it as approving this release'
+        said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=release, why='`--order 8b2e4f7` names his answer to "Release the SandSQL fix to production?", and Opus does not read it as approving this release'
     )
     stale = "tools/ci release start sandsql --order 5d0c4a1"
     briefed = stepped(tmp_path, f"Release: {stale}\nDrive: demo, order o1, job j1")
@@ -2025,6 +2036,28 @@ def test_a_job_runs_the_release_its_brief_names_on_his_exception_while_he_holds_
         said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=stale, why='`--order 5d0c4a1` names his answer to "Release the memory fix to production now?", recorded before the hold'
     )
     assert landing_guard.deny_reason(bash("tools/ci bk cancel release 15495") | briefed) == landing_guard.RELEASE_CANCEL
+
+
+def test_a_watchdogs_rerun_of_a_release_build_meets_his_hold_on_the_release_its_job_started_and_passes_on_the_pass_that_job_kept(
+    demo: str, run: Run, recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch, release_builds: None
+) -> None:
+    recorded.listed = [RELEASE_HOLD, SSQL_EXCEPTION]
+    recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
+    release = "tools/ci release start sandsql --order 8b2e4f7"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "release the fix")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] |= {"brief_flags": {"release": release}, "release_build": f"https://buildkite.com/forge/release/builds/{RELEASE_CUT_BUILD}"}
+    monkeypatch.setenv(state.DRIVE_ENV, demo)
+    rerun = bash(f"tools/ci bk rerun release {RELEASE_CUT_BUILD}") | {"session_id": "watchdog-session"}
+    jev.picks("none")
+    refused = landing_guard.deny_reason(rerun)
+    assert refused.startswith("refused: he holds every release") and f"`{release}` runs only on an answer of his" in refused
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["release_pass"] = {"release": release, "at": state.stamp(), "reading": None}
+    asked = len(jev.asked)
+    assert landing_guard.deny_reason(rerun) is None
+    assert len(jev.asked) == asked
 
 
 def test_a_codex_lane_runs_a_release_verb_only_on_the_exception_its_jobs_kept_brief_names_while_he_holds_every_release(
@@ -2128,6 +2161,10 @@ def test_drive_job_add_starts_no_release_his_hold_holds_and_starts_his_exception
         "j1",
         f"j1 started `{excepted}` as {BUILD} and left it running: its agent follows it with `ci release watch {BUILD}` and reads its approve hold",
     ]
+    kept = state.load(demo)["jobs"]["j1"]["release_pass"]
+    assert (kept["release"], kept["reading"]) == (excepted, None)
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "read it", "--reading", "his words order it"]) == 2
+    assert "--reading is the top coordinator's own reading of his words ordering the release --release starts, taken only from its session" in capsys.readouterr().err
 
 
 HANDOVER_PICK = {
@@ -2159,7 +2196,7 @@ def test_the_clock_release_starts_on_his_picks_of_how_when_and_with_what_it_ship
     assert [(asked["state"]["answer"], list(asked["questions"])) for asked in jev.asked] == [({"asked": pick["title"], "said": pick["body"]}, [f"orders.{pick['id'][:7]}", "more"]) for pick in picks]
     jev.picks("none")
     assert brief.approval_refusal(J2666_START.replace("5419ffd", "6881a3a"), state.load("demo")) == (
-        f'refused: `--order 6881a3a` names his answer to "{QUEUE_PICK["title"]}", "Enqueue it (Recommended)", and Jev does not read it'
+        f'refused: `--order 6881a3a` names his answer to "{QUEUE_PICK["title"]}", "Enqueue it (Recommended)", and Opus does not read it'
         f" as approving this release. {brief.RELEASE_APPROVAL}"
     )
 
@@ -2195,7 +2232,7 @@ def test_his_number_on_a_kept_card_orders_the_release_its_option_names_on_the_pl
     assert jev.asked == []
     jev.picks("none")
     assert brief.approval_refusal("tools/ci release start --order 3c0ffee", data) == (
-        f'refused: `--order 3c0ffee` names his answer to "{unread["title"]}", "{unread["body"]}", and Jev does not read it as approving this release. {brief.RELEASE_APPROVAL}'
+        f'refused: `--order 3c0ffee` names his answer to "{unread["title"]}", "{unread["body"]}", and Opus does not read it as approving this release. {brief.RELEASE_APPROVAL}'
     )
     [asked] = jev.asked
     assert (asked["state"]["action"], asked["state"]["answer"]) == (f"start this release on {settled.PRODUCTION}: `tools/ci release start --order 3c0ffee`", {"asked": unread["title"], "said": unread["body"]})
@@ -2249,7 +2286,7 @@ def test_his_number_on_a_kept_card_orders_the_release_its_option_names_in_prose_
         (SOAK.format(targets="cloudrunner-next", env="plat-usw2-staging,tnt-usw2-acme", order="0a09bcc"), SOAK_PICK),
     )
     assert [brief.approval_refusal(release, data) for release, _ in read] == [
-        f'refused: `--order {answer["id"][:7]}` names his answer to "{answer["title"]}", "{answer["body"]}", and Jev does not read it as approving this release. {brief.RELEASE_APPROVAL}'
+        f'refused: `--order {answer["id"][:7]}` names his answer to "{answer["title"]}", "{answer["body"]}", and Opus does not read it as approving this release. {brief.RELEASE_APPROVAL}'
         for _, answer in read
     ]
     staging = "plat-usw2-staging (stage staging), tnt-usw2-acme"
@@ -2310,7 +2347,7 @@ def test_his_all_to_a_question_listing_releases_orders_each_listed_release_in_co
         "tools/ci release start nosuch --from 216f90221a4708e2f694823ea207ae738992e829 --order 304ffb2",
         "tools/ci release hotfix 56539 --only api,rsw-cp --order 304ffb2",
     )
-    refused = f'refused: `--order 304ffb2` names his answer to "{brief.cut(LISTED_RELEASES["title"], 200)}", "{LISTED_RELEASES["body"]}", and Jev does not read it as approving this release. {brief.RELEASE_APPROVAL}'
+    refused = f'refused: `--order 304ffb2` names his answer to "{brief.cut(LISTED_RELEASES["title"], 200)}", "{LISTED_RELEASES["body"]}", and Opus does not read it as approving this release. {brief.RELEASE_APPROVAL}'
     assert [brief.approval_refusal(release, data) for release in read] == [refused] * len(read)
     assert len(jev.asked) == len(read)
     turned = LISTED_RELEASES | {"id": "304ffb3" + "0" * 33, "body": "All 3 of these are not approved yet"}
@@ -2388,7 +2425,7 @@ def test_a_release_on_staging_or_sandbox_alone_runs_under_his_hold_with_no_order
     assert jev.asked == []
     jev.picks("none")
     unapproved = f"{past[0]} --order 3bfcce8"
-    assert brief.approval_refusal(unapproved, data) == held(unapproved, f'`--order 3bfcce8` names his answer to "{SOAK_CASES["title"]}", and Jev does not read it as approving this release')
+    assert brief.approval_refusal(unapproved, data) == held(unapproved, f'`--order 3bfcce8` names his answer to "{SOAK_CASES["title"]}", and Opus does not read it as approving this release')
     assert [asked["state"]["action"] for asked in jev.asked] == [f"start this release on plat-usw2-prod (stage prod): `{unapproved}`"]
 
 
@@ -2432,7 +2469,7 @@ def test_jev_reads_a_stack_release_on_the_places_its_stacks_name_so_a_production
     production = f'{REHEARSALS[-1].replace("plat-usw2-sandbox", "plat-usw2-prod")} --order 077d93a'
     jev.picks("none")
     assert brief.approval_refusal(production, state.load(demo)) == held(
-        production, f'`--order 077d93a` names his answer to "{SANDBOX_TESTS["title"]}", and Jev does not read it as approving this release'
+        production, f'`--order 077d93a` names his answer to "{SANDBOX_TESTS["title"]}", and Opus does not read it as approving this release'
     )
     assert [asked["state"]["action"] for asked in jev.asked] == [f"start this release on plat-usw2-prod (stage prod): `{production}`"]
 

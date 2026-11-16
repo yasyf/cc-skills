@@ -1362,14 +1362,14 @@ def test_his_question_under_a_card_one_proposing_a_way_included_posts_nothing_an
     jev.asks |= {asked, proposing}
     facts = {"kind": "answer", "text": asked, "url": UNDER_CARD, "waits": "demo:j1-7", "attrs": {"maps": "none"}}
     for record in (facts, facts | {"text": proposing}, {"kind": "owner", "text": proposing, "url": UNDER_CARD, "thread_card": "demo:j1-7", "about": "his work"}):
-        with pytest.raises(DriveError, match="1: refused, nothing posted: Jev reads his words as only asking the card questions, one proposing a way included.*2a27048"):
+        with pytest.raises(DriveError, match="1: refused, nothing posted: Opus reads his words as only asking the card questions, one proposing a way included.*2a27048"):
             tools.run("record", demo, {"records": [record]})
     data = state.load(demo)
     assert (answered, posted, len(view.open_questions(data["jobs"]["j1"])), data["jobs"]["j2"]["waits"], data["jobs"]["j2"]["undelivered"]) == ([], [], 1, ["demo:j1-7"], [])
     assert jev.weighed == [asked, proposing, proposing]
     proposed = facts | {"text": "Ring, keeping one replica"}
     heard, jev.answer = jev.answer, None
-    with pytest.raises(DriveError, match=r"1: refused, nothing posted: Jev did not read whether his words pick or direct \(no jev decision within 20s\)"):
+    with pytest.raises(DriveError, match=r"1: refused, nothing posted: Opus did not read whether his words pick or direct \(no jev decision within 20s\)"):
         tools.run("record", demo, {"records": [proposed]})
     jev.answer = heard
     assert tools.run("record", demo, {"records": [proposed]}).splitlines()[:2] == ["1 answer 51", '1 j1\'s question "Which ring?" ended answered by 51']
@@ -1866,16 +1866,14 @@ def test_his_rulings_are_kept_as_drive_answers_listing_each_card_part_and_pr_the
     run("order", "add", "--title", "SandSQL supervisor", "--project", "Iris", "--workstream", "Durable agents", "move every helper under sandsql-proc", "--parts", *parts)
     run("job", "add", "builder", "--order", "o1", "--goal", "build it", *(flag for part in parts for flag in ("--part", part)))
     supervisor, electron = (f"https://github.com/Forge-AI/monorepo/pull/{number}" for number in (54101, 54102))
-    for url in (supervisor, electron):
-        run("pr", "add", url, "--job", "j1", *LEAD)
+    for url, served in ((supervisor, SANDSQL_PARTS), (electron, [ELECTRON])):
+        run("pr", "add", url, "--job", "j1", *LEAD, *(flag for part in served for flag in ("--part", part)))
     sibling = f"{CARD[:-2]}01"
     titles = {"demo:j1-684776": "Which socket formats does sandsql-proc own?", "demo:j1-684682": "Should Electron start sand iris serve through sandsql-proc?"}
     drawn = list(zip(titles.items(), (CARD, sibling), strict=True))
     with state.edit(demo) as data:
         data["jobs"]["j1"]["agent"] = "agent-1"
         state.start(data["jobs"]["j1"])
-        data["prs"]["Forge-AI/monorepo#54101"]["parts"] = list(SANDSQL_PARTS)
-        data["prs"]["Forge-AI/monorepo#54102"]["parts"] = [ELECTRON]
         for (waits, title), url in drawn:
             data["jobs"]["j1"]["questions"].append(state.new_question(None, title, state.stamp(), card=url) | {"waits": waits})
     found = {
@@ -1996,7 +1994,7 @@ def test_his_words_about_the_drive_list_none_of_a_product_orders_work_and_drive_
 ) -> None:
     run("order", "add", "--title", "SandSQL supervisor", "--project", "Iris", "--workstream", "Durable agents", "move every helper under sandsql-proc", "--parts", *SANDSQL_PARTS)
     run("job", "add", "builder", "--order", "o1", "--goal", "build it", *(flag for part in SANDSQL_PARTS for flag in ("--part", part)))
-    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/54101", "--job", "j1", *LEAD)
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/54101", "--job", "j1", *LEAD, *(flag for part in SANDSQL_PARTS for flag in ("--part", part)))
     found = owners_cards(demo, monkeypatch)
     posts = "Yup and didn't get any links for my approve"
     sibling_thread = "https://acme.slack.com/archives/D123/p1794200000000760?thread_ts=1794200000.000701"
@@ -2021,7 +2019,7 @@ def test_drive_answer_refuses_to_drop_a_merged_pr_or_supersede_a_part_and_droppi
 ) -> None:
     run("order", "add", "--title", "SandSQL supervisor", "--project", "Iris", "--workstream", "Durable agents", "move every helper under sandsql-proc", "--parts", *SANDSQL_PARTS)
     run("job", "add", "builder", "--order", "o1", "--goal", "build it", *(flag for part in SANDSQL_PARTS for flag in ("--part", part)))
-    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/54101", "--job", "j1", *LEAD)
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/54101", "--job", "j1", *LEAD, *(flag for part in SANDSQL_PARTS for flag in ("--part", part)))
     with state.edit(demo) as data:
         data["prs"]["Forge-AI/monorepo#54101"]["state"] = "merged"
     view.refresh_cards(demo)

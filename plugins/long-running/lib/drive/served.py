@@ -75,7 +75,7 @@ Leave out:
 
 The code at each change's head, the PRs it is stacked on included, is the tree its `###` line in <change> names, its repository's files at that head: read them there with the Read, Grep and Glob tools. Before you state an `after` that depends on code the diff does not show, or object, read that code at the head, and name in `change` the path:line at the head that shows the after, the path from the tree's root as its `diff --git a/` line would name it.
 
-An answer of his labelled with a directory, which <his_words> names with that directory only when a PR here changes a file under it, rules how all the code under that directory works, never only the lines the diff touches. For each, before you judge, find every place under that directory at the head that its words speak to with Grep in that directory of the tree, read each with Read, and judge the directory as it stands at the head against that answer: list in `against` each place there that still goes against it, whether or not the diff shows it, its `file` that path and its `change` naming the path:line at the head.
+An answer of his labelled with the repository's root, `.`, rules how code anywhere in it is written: judge it as any other answer, against the lines the diff changes, never the repository as it stands at the head. An answer of his labelled with a directory below the root, which <his_words> names with that directory only when a PR here changes a file under it, rules how all the code under that directory works, never only the lines the diff touches. For each, before you judge, find every place under that directory at the head that its words speak to with Grep in that directory of the tree, read each with Read, and judge the directory as it stands at the head against that answer: list in `against` each place there that still goes against it, whether or not the diff shows it, its `file` that path and its `change` naming the path:line at the head.
 
 An empty `against` says the change meets his words."""
 
@@ -97,7 +97,7 @@ class Against(DriveError):
 
 
 def check(name: str, unit: tuple[str, ...], bound: list[str]) -> dict[str, dict]:
-    """Judge the change of one stack's PRs together, the unit his card draws and his Approve lands, or of one PR in none, each read whole from GitHub at its head, title and diff and never the body, against the words of the orders they serve, for the parts they carry, and against each answer of his kept on them for the design they make and each bound names, read by answers with the options of each card of the drive's it answers, and his durable answers cc-notes ranks near that card's words, which the judge binds only where one speaks to what the change builds, a flake fix against his ruling FLAKE_RULING in place of any order, and each ruling write each PR owes, by owed, read beside his rulings WRITES_RULING and DEEPEST_RULING as his words, one its diff lacks refused with no judge run while it is open, and DEEPEST_RULING beside any AGENTS.md a diff writes, by placing(), and the code under the directory each of those rulings is labelled with, one a PR of the stack changes a file under, by coded(), read once for owed and the judge, which reads it whole at the head and judges it as it stands there, and return for each PR the head it checked beside the heads of the others, or the stamp its head already holds, for verdict to keep; every other PR their jobs carry, and each job they were handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses them, and a part a PR above another in the stack delivers is delivered by the change judged. The judge first lists each change the diffs make to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond and faulting each PR whose diff changes the file an objection names, every PR for one naming a file none of them changes or none, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines in every PR changing it are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
+    """Judge the change of one stack's PRs together, the unit his card draws and his Approve lands, or of one PR in none, each read whole from GitHub at its head, title and diff and never the body, against the words of the orders they serve, for the parts they carry, and against each answer of his kept on them for the design they make and each bound names, read by answers with the options of each card of the drive's it answers, and his durable answers cc-notes ranks near that card's words, which the judge binds only where one speaks to what the change builds, a flake fix against his ruling FLAKE_RULING in place of any order, and each ruling write each PR owes, by owed, read beside his rulings WRITES_RULING and DEEPEST_RULING as his words, one its diff lacks refused with no judge run while it is open, and DEEPEST_RULING beside any AGENTS.md a diff writes, by placing(), and the code under the directory each of those rulings is labelled with, one a PR of the stack changes a file under, by coded(), read once for owed and the judge, which reads a directory below the root whole at the head and judges it as it stands there, and the root's against the lines the diff changes, and return for each PR the head it checked beside the heads of the others, or the stamp its head already holds, for verdict to keep; every other PR their jobs carry, and each job they were handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses them, and a part a PR above another in the stack delivers is delivered by the change judged. The judge first lists each change the diffs make to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond and faulting each PR whose diff changes the file an objection names, every PR for one naming a file none of them changes or none, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines in every PR changing it are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
     data = state.load(name)
     prs = {key: data["prs"][key] for key in unit}
     if all(stands(data, key, unit) for key in unit):
@@ -298,7 +298,7 @@ def files(diff: bytes) -> list[tuple[str, str]]:
 
 
 def words(data: dict, prs: list[dict], orders: list[str], answered: list[str], near: list[str], others: list[str], owes: list[dict], ruled: list[tuple[str, str, str]]) -> str:
-    """Each order's words, oldest first, with the parts of it the change carries, those each of its PRs names, else every part of it that PR's job delivers, shared with the jobs' other PRs when they have any, and the order's other parts left to other changes, so a change is never judged on a part it does not carry; a carried part whose delivery record, as drive order posted keeps it, names a merged PR outside the jobs' PRs, such as a teammate's, is left to other changes with that PR named; an order the change carries no part of is read whole. Then the jobs' merged PRs, which already deliver their share, and their other open PRs, each judged on its own; then each answer of his binding the PRs or that they cite, as answers reads them, and apart from them each one cc-notes ranked near the words of a card they answer, which binds only where it speaks to what the change builds; then each ruling write the PRs owe, by owed, as his rulings WRITES_RULING and DEEPEST_RULING name it, so the judge reads that AGENTS.md hunk as his words; then each answer of his binding them labelled with a directory of code a PR here changes a file under, by coded(), whose directory the judge reads whole at the head and judges as it stands there against that answer, since his answer rules on all of that code and never only the lines the diff touches."""
+    """Each order's words, oldest first, with the parts of it the change carries, those each of its PRs names, else every part of it that PR's job delivers, shared with the jobs' other PRs when they have any, and the order's other parts left to other changes, so a change is never judged on a part it does not carry; a carried part whose delivery record, as drive order posted keeps it, names a merged PR outside the jobs' PRs, such as a teammate's, is left to other changes with that PR named; an order the change carries no part of is read whole. Then the jobs' merged PRs, which already deliver their share, and their other open PRs, each judged on its own; then each answer of his binding the PRs or that they cite, as answers reads them, and apart from them each one cc-notes ranked near the words of a card they answer, which binds only where it speaks to what the change builds; then each ruling write the PRs owe, by owed, as his rulings WRITES_RULING and DEEPEST_RULING name it, so the judge reads that AGENTS.md hunk as his words; then each answer of his binding them labelled with a directory of code a PR here changes a file under, by coded(), whose directory the judge reads whole at the head and judges as it stands there against that answer, since his answer rules on all of that code and never only the lines the diff touches, but one labelled with the repository's root, code:., which the judge reads against the lines the diff changes, never the whole repository at the head."""
     lines: list[str] = []
     named = any(pr["parts"] for pr in prs)
     ours = {state.pr_key(url) for pr in prs for url in data["jobs"][pr["job"]]["prs"]}
@@ -327,11 +327,13 @@ def words(data: dict, prs: list[dict], orders: list[str], answered: list[str], n
             " since it changes that code and that AGENTS.md holds them neither at the tip of its base branch nor at the head of an open PR numbered below it, so that write is his words: "
             + "; ".join(f'{each["id"]} on {each["dir"]}, "{each["words"]}"' for each in owes)
         )
-    if ruled:
+    if below := [(answer_id, directory) for answer_id, _, directory in ruled if directory != "."]:
         lines.append(
             "each of these answers of his rules how all the code under its directory works, so the directory is judged as it stands at the head against it, never only the lines the diff touches: "
-            + "; ".join(f"{answer_id} on {directory}" for answer_id, _, directory in ruled)
+            + "; ".join(f"{answer_id} on {directory}" for answer_id, directory in below)
         )
+    if rooted := [answer_id for answer_id, _, directory in ruled if directory == "."]:
+        lines.append(f"each of these answers of his is labelled with the repository's root, so it is judged against the lines the diff changes, never the repository as it stands at the head: {', '.join(rooted)}")
     return "\n".join(lines)
 
 
@@ -583,7 +585,7 @@ def judged(name: str, said: str, changes: dict[str, dict]) -> dict:
     with tempfile.TemporaryDirectory(prefix="drive-judge-") as root:
         trees = {key: tree(clone, key, read["head"], root) for key, read in changes.items()}
         prompt = f"<his_words>\n{said}\n</his_words>\n\n<change>\n{shown(changes, trees)}\n</change>"
-        return structured(name, RULES, prompt, VERDICT, JUDGE_SECONDS, f"judging {', '.join(changes)} against his words", root)
+        return structured(root, RULES, prompt, VERDICT, JUDGE_SECONDS, f"judging {', '.join(changes)} against his words", reads=True)
 
 
 def tree(clone: str, key: str, head: str, root: str) -> str:
@@ -598,15 +600,15 @@ def tree(clone: str, key: str, head: str, root: str) -> str:
     return str(path)
 
 
-def structured(name: str, rules: str, prompt: str, schema: dict, seconds: int, doing: str, trees: str | None = None) -> dict:
-    """What a Claude session given no tools, or only Read, Grep and Glob confined to trees, its cwd and only --add-dir under --restricted, answers the prompt with under the rules, in the schema's shape; refused, naming what it was doing, past the seconds or with no structured answer."""
+def structured(cwd: str | Path, rules: str, prompt: str, schema: dict, seconds: float, doing: str, reads: bool = False) -> dict:
+    """What a Claude session run in cwd, given no tools, or with reads only Read, Grep and Glob confined to cwd, its only --add-dir under --restricted, answers the prompt with under the rules, in the schema's shape; refused, naming what it was doing, past the seconds or with no structured answer."""
     argv = [
-        "claude", "-p", "--model", MODEL, "--effort", EFFORT, "--restricted", *(["--add-dir", trees] if trees else []), "--strict-mcp-config", "--tools", "Read,Grep,Glob" if trees else "", "--disable-slash-commands",
+        "claude", "-p", "--model", MODEL, "--effort", EFFORT, "--restricted", *(["--add-dir", str(cwd)] if reads else []), "--strict-mcp-config", "--tools", "Read,Grep,Glob" if reads else "", "--disable-slash-commands",
         "--no-session-persistence", "--system-prompt", rules, "--output-format", "json", "--json-schema", json.dumps(schema),
-        *(["--permission-mode", "dontAsk"] if trees else []),
+        *(["--permission-mode", "dontAsk"] if reads else []),
     ]
     try:
-        ran = subprocess.run(argv, input=prompt, cwd=trees or state.drive_dir(name), env=os.environ | {"DISABLE_AUTOUPDATER": "1"}, capture_output=True, text=True, timeout=seconds, check=False)
+        ran = subprocess.run(argv, input=prompt, cwd=cwd, env=os.environ | {"DISABLE_AUTOUPDATER": "1"}, capture_output=True, text=True, timeout=seconds, check=False)
     except subprocess.TimeoutExpired:
         raise DriveError(f"{doing} ran past {seconds} seconds; run this again") from None
     try:

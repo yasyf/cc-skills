@@ -81,11 +81,11 @@ stop doing the bare minimum", so no builder waits on a job holding its design.
    of findings, a high-level line or a vague stand-in leaves him asking what it is.
    - The Show me works each option out to what it will look like once built, such as its real calls
      in code, the rows it writes or its flow, never only its files and cost: "you need to flesh out what that will look like not just wave your hands, likewise for 2 and 3".
-     `drive job ask` prints each option Jev reads as left unworked, naming it. Beyond that it shows
+     `drive job ask` prints each option Opus reads as left unworked, naming it. Beyond that it shows
      only what the words cannot: "show a sinippet when it makews sense". It counts toward no word
      limit, so it is never cut; the visual rules are in [Messages](messages.md).
    - Nothing his words settle is asked. `drive job ask` settles on his answer to the same
-     question, or on a drive tooling order on Jev's reading that the fork is a detail, and Jev reads each card against his order, its thread and the recorded answers of
+     question, or on a drive tooling order on Opus's reading that the fork is a detail, and Opus reads each card against his order, its thread and the recorded answers of
      his `ccn answer match` ranks nearest to the block, so also read his answers on the area.
    - Meanwhile the recommended option's builder starts beside the cards and builds it on a pushed
      branch, because he wants work to go on while he decides. When his words on the order ask for
