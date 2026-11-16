@@ -14,8 +14,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import LEAD, REAL_DOWN_MAC_BOXES, REAL_SCRATCH
-from drive import card, cli, github, install, picture, reads, render, served, settled, stage, state
+from conftest import LEAD, REAL_DOWN_MAC_BOXES, REAL_SCRATCH, provide
+from drive import card, cli, github, install, picture, providers, reads, render, served, settled, stage, state
 from drive.state import DriveError
 
 REFERENCE = datetime(2026, 11, 9, 14, 0).astimezone()
@@ -91,7 +91,14 @@ def test_a_save_hands_a_finished_jobs_mac_boxes_to_a_process_of_its_own_that_tak
     (checkout / "tools" / "ci").write_text(f'#!/bin/sh\necho "$(pwd -P) $*" >> {tmp_path / "downs"}\n')
     (checkout / "tools" / "ci").chmod(0o755)
     (checkout / ".claude").mkdir()
-    (checkout / ".claude" / "long-running.toml").write_text('[mac_box]\ndown = "tools/ci mac-box down --holder {holder} {box}"\n')
+    (checkout / ".claude" / "long-running.toml").write_text('[providers]\nmac_box = "Boxes"\n')
+
+    class Boxes(providers.MacBoxProvider):
+        def down(self, box: str, holder: str) -> int:
+            self.run("tools/ci mac-box down --holder {holder} {box}", box=box, holder=holder)
+            return 0
+
+    provide(monkeypatch, checkout, mac_box=Boxes)
     state.create(state.new_drive("demo", "coordinator", None, str(checkout)))
     detached: list[tuple[str, list[str], str]] = []
     monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append((name, args, log)) or 0)

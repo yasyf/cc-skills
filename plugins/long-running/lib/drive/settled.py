@@ -2,7 +2,6 @@ import html
 import json
 import mmap
 import re
-import shlex
 import subprocess
 import sys
 import time
@@ -15,7 +14,7 @@ from itertools import chain, zip_longest
 from pathlib import Path
 from typing import NamedTuple
 
-from drive import github, limits, slack, state, view
+from drive import github, limits, providers, slack, state, view
 from drive.install import config_dir
 from drive.render import cut
 from drive.state import DriveError
@@ -49,7 +48,6 @@ TARGETS = re.compile(r"^targets:\n((?:[ -].*(?:\n|$))*)", re.MULTILINE)
 TARGET = re.compile(r"^  ([a-z0-9][a-z0-9-]*):\n((?:    .*(?:\n|$))*)", re.MULTILINE)
 INLINE_PARTS = re.compile(r"^    components: \[([^\]]*)\]", re.MULTILINE)
 SCOPE_WORDS = 'his words on Nov 15, 2026, "why are you leaving stuff out? you should make sure everything [...] is working and has not broken anything and then release it all"'
-RELEASE_COMMAND_SECONDS = 45
 LISTED_PARTS = re.compile(r"^    components:\n((?:    - .*(?:\n|$))+)", re.MULTILINE)
 OPUS_RULES = (
     "You answer a drive's questions about the JSON `state` it gives you, most of them about his words: the words of the one person whose"
@@ -1127,11 +1125,8 @@ def target_parts(cwd: str) -> dict[str, tuple[str, ...]]:
 
 
 def platform_targets(data: dict) -> list[str]:
-    """The targets a release of the whole platform ships, as the JSON list of names the `targets` command of the repository's [release] table prints, run in the drive's checkout; none when the repository names no such command."""
-    if not (command := state.repo_config(data).get("release", {}).get("targets")):
-        return []
-    cwd = data["roles"]["coordinator"]["cwd"]
-    return json.loads(subprocess.run(shlex.split(command), cwd=cwd, capture_output=True, text=True, check=True, timeout=RELEASE_COMMAND_SECONDS).stdout)
+    """The targets a release of the whole platform ships, as the targets of the repository's release provider name them; none without a release provider."""
+    return providers.of(data).release.targets()
 
 
 def unexcused(carried: set[str], whole: list[str], said: str, rulings: list[dict]) -> list[str]:

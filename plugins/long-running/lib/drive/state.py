@@ -23,7 +23,7 @@ from contextvars import ContextVar
 from datetime import date, datetime, timedelta
 from fnmatch import fnmatchcase
 from pathlib import Path
-from typing import IO, NamedTuple
+from typing import IO, Any, NamedTuple
 from zoneinfo import ZoneInfo
 
 from drive import github, picture, procs
@@ -4374,8 +4374,8 @@ def gave_box_back(then: str | None, now: str) -> bool:
 
 
 def down_mac_boxes(name: str, data: dict, finished: list[str]) -> None:
-    """Take down every Mac box each job a save just moved out of running or finished holds: `drive mac-boxes-down` on those jobs, a process of its own that outlives the save, its output appended to the drive's mac-boxes.log, so a box comes down with the job it is named after while the save neither waits on the drive's checkout nor fails with it, unless box_wanted keeps it for a job still to take its turn there. None for a scratch drive, a proof's or a test's, or a repository whose .claude/long-running.toml names no [mac_box] down command, which holds no Mac box."""
-    if not finished or scratch() or not mac_box_command(data, "down") or not (freed := [job_id for job_id in finished if not box_wanted(data, job_id)]):
+    """Take down every Mac box each job a save just moved out of running or finished holds: `drive mac-boxes-down` on those jobs, a process of its own that outlives the save, its output appended to the drive's mac-boxes.log, so a box comes down with the job it is named after while the save neither waits on the drive's checkout nor fails with it, unless box_wanted keeps it for a job still to take its turn there. None for a scratch drive, a proof's or a test's, or a repository whose .claude/long-running.toml names no mac_box provider under [providers], which holds no Mac box."""
+    if not finished or scratch() or not repo_config(data).get("providers", {}).get("mac_box") or not (freed := [job_id for job_id in finished if not box_wanted(data, job_id)]):
         return
     detach(name, ["mac-boxes-down", *freed], MAC_BOXES_LOG)
 
@@ -5263,11 +5263,6 @@ def drive_checkout(name: str, clone: str) -> Path:
             return Path(clone)
         DRIVE_CHECKOUTS[key] = found
     return DRIVE_CHECKOUTS[key]
-
-
-def mac_box_command(data: dict, verb: str) -> str | None:
-    """The shell command the [mac_box] table of the repository's .claude/long-running.toml names for verb: `down`, which takes down the box named `{box}`, a job's id, held by `{holder}`, `<drive>/<job>`, and `list`, which prints the name of each live box, one a line; None when it names none."""
-    return repo_config(data).get("mac_box", {}).get(verb)
 
 
 def repo_rules(data: dict) -> list[str]:
@@ -6844,7 +6839,7 @@ SLOT_GO_STEPS = (
 )
 
 
-def slot_claim(data: dict, env: str, job_id: str, minutes: int, prs: list[str], cases: str | None, moment: datetime, paths: list[str] | None = None, stacks: list[str] | None = None, starts: bool = False, release: dict | None = None) -> str:
+def slot_claim(data: dict, env: str, job_id: str, minutes: int, prs: list[str], cases: str | None, moment: datetime, paths: list[str] | None = None, stacks: list[str] | None = None, starts: bool = False, release: Any = None) -> str:
     """Give a staging env's slot to the job when no job holds it, its lease ending minutes past the staging-claim rule's CLAIM_WAIT, else queue the job, first in first out but for a job jumps_queue reads as serving a priority order or an open incident, which goes behind only the jobs that jump too, by his ruling that they jump the line as their builders jump the builder-slot line; paths, the files its PRs change, and stacks, the components they reach, let slot_turns pack it into another pass's cut, while a start, the top coordinator's drive job add --release, whose release names its own branch, holds a cut of its own and is started by the watch's turn; the line saying which, refused for a job already holding, riding or queued on it."""
     slot = data["slots"].setdefault(env, {"holder": None, "queue": []})
     if job_id in slot_members(slot) or any(each["job"] == job_id for each in slot["queue"]):
@@ -7026,21 +7021,20 @@ def slot_release(data: dict, env: str, job_id: str) -> str:
     raise DriveError(f"{job_id}: refused, it neither holds nor waits for the {env} slot")
 
 
-def holding(release: dict | None, data: dict, members: list[str], starter: str | None = None) -> str:
-    """What a staging pass adds to its GO or RIDE line so the repository's freeze names every job of its cut, by the `holder` and `join` commands the [release] table of its .claude/long-running.toml names, `{holder}` a job as <drive>/<job> and `{freeze}` the freeze's id: the starter runs its freeze and each staging command naming every job of the cut, and a pass riding it joins that freeze; nothing for a repository naming no `holder`."""
-    if not (flag := (release or {}).get("holder")):
+def holding(release: Any, data: dict, members: list[str], starter: str | None = None) -> str:
+    """What a staging pass adds to its GO or RIDE line so the repository's freeze names every job of its cut, by the holder and join of release, the repository's release provider, each holder a job as <drive>/<job>: the starter runs its freeze and each staging command naming every job of the cut, and a pass riding it joins that freeze; nothing without a release provider or for one naming no holder."""
+    drive = data["name"]
+    if release is None or not (own := release.holder(f"{drive}/{members[0]}")):
         return ""
-    named = " ".join(flag.format(holder=f"{data['name']}/{member}") for member in members)
+    named = " ".join(release.holder(f"{drive}/{member}") for member in members)
     if starter is None:
         return f" Run your freeze and every staging command of this cut with `{named}`."
-    drive = data["name"]
-    own = flag.format(holder=f"{drive}/{members[0]}")
-    join = (release or {}).get("join")
-    joined = f" Join {starter}'s freeze with `{join.format(freeze='<its freeze id>', holder=f'{drive}/{members[0]}')}` unless it names you, and run" if join else " Run"
+    join = release.join("<its freeze id>", f"{drive}/{members[0]}")
+    joined = f" Join {starter}'s freeze with `{join}` unless it names you, and run" if join else " Run"
     return f"{joined} each staging command with `{own}`."
 
 
-def slot_turns(data: dict, moment: datetime, release: dict | None = None) -> list[tuple[str, str, str, str]]:
+def slot_turns(data: dict, moment: datetime, release: Any = None) -> list[tuple[str, str, str, str]]:
     """End each staging slot's lease once every pass of its cut is done, stopped or gave the slot back, a pass that failed or returned BLOCKED keeping the lease while the cut's coordinator holds its next step, extend once by its minutes a lease whose end passed while a pass still runs, by his ruling that an overrunning lease extends once, and end it at its second end, then give each free slot to the first job in its queue that still runs or waits, dropping finished ones, packed with the later passes whose files never overlap, by packed, under one lease: the head starts the cut and each packed pass rides it; each (env, job, kind, line) of a slot that changed, kind freed, extended, go, its line the GO its job is resumed with, or start, for a start whose release the watch now starts."""
     moved = []
     for env, slot in data["slots"].items():

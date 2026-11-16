@@ -21,6 +21,7 @@ from unittest.mock import ANY
 
 import pytest
 from conftest import (
+    provide,
     BINDER_TERMINAL,
     DRIVE_TERMINAL,
     LEAD,
@@ -51,7 +52,7 @@ from conftest import (
     staged,
     unheld,
 )
-from drive import agents, artifacts, cli, github, install, orca, place, reads, render, state, superseded, talk, tools, view, watch
+from drive import agents, artifacts, cli, github, install, orca, place, providers, reads, render, state, superseded, talk, tools, view, watch
 
 pytestmark = pytest.mark.usefixtures("ccx_worktrees")
 
@@ -5702,7 +5703,12 @@ def test_the_watch_takes_down_each_live_mac_box_its_jobs_hold_unless_they_run_or
     run("job", "add", "builder", "--order", "o1", "--part", "still at work", "--goal", "still at work", "--remote")
     checkout = Path(state.load(remote)["roles"]["coordinator"]["cwd"])
     (checkout / ".claude").mkdir(parents=True, exist_ok=True)
-    (checkout / ".claude" / "long-running.toml").write_text(f'[mac_box]\nlist = "echo {remote}/j1 other/j1 None"\ndown = "true"\n')
+
+    class Boxes(providers.MacBoxProvider):
+        def live_boxes(self) -> list[str]:
+            return [f"{remote}/j1", "other/j1", "None"]
+
+    provide(monkeypatch, checkout, mac_box=Boxes)
     with state.edit(remote) as data:
         data["jobs"]["j1"]["state"] = "done"
         data["jobs"]["j2"]["state"] = "running"

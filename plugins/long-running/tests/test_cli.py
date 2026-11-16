@@ -18,7 +18,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import ACME_CUT, CARD_BODY, card_reads, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, Redraws, SessionLaunches, Thread, WatchProcess, Withdrawals
+from conftest import HomeRepo, SelectRelease, provide, ACME_CUT, CARD_BODY, card_reads, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, Redraws, SessionLaunches, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -31,6 +31,7 @@ from drive import (
     orca,
     picture,
     place,
+    providers,
     reads,
     refs,
     render,
@@ -917,7 +918,7 @@ def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_kept_with_a_no
     (clone / "tools" / "ci").write_text("")
     request, answer = tmp_path / "request.json", tmp_path / "answer.json"
     (checkout / "tools" / "ci").write_text(FAKE_SELECT.format(request=request, answer=answer))
-    monkeypatch.setattr(state, "repo_config", lambda data: {"release": {"components": "tools/ci release select --pr"}})
+    provide(monkeypatch, checkout, repo=HomeRepo, release=SelectRelease)
     (checkout / "tools" / "ci").chmod(0o755)
     answer.write_text(json.dumps({"components": ["executor", "cloudrunner-next", "sand-next", "k8s"], "touched": ["cloudrunner-next", "sand-next"], "dev": [], "releases": ["cloudrunner-next", "sand-next"], "staged": ["cloudrunner-next", "sand-next"]}))
     monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo" if cwd == str(clone) else pytest.fail(cwd))
@@ -925,7 +926,7 @@ def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_kept_with_a_no
     monkeypatch.setattr(github, "files", lambda key: ["go/sand/next/cmd/main.go"] if key == "Forge-AI/monorepo#7" else pytest.fail(key))
     executor, staged = "release:executor:Forge-AI/monorepo#7", "release:runner-worker:Forge-AI/monorepo#7@plat-usw2-staging"
     assert cli.main(["job", "set", "j1", "--waits", executor]) == 0
-    reach = "`tools/ci release select --pr` lists the paths Forge-AI/monorepo#7 changes reaching cloudrunner-next, sand-next"
+    reach = "the repository's release provider lists the paths Forge-AI/monorepo#7 changes reaching cloudrunner-next, sand-next"
     assert (
         f"note, kept: {executor}: executor's release never carries Forge-AI/monorepo#7, since {reach}; wait on the release of the one that runs the change"
     ) in capsys.readouterr().err
@@ -950,7 +951,7 @@ def test_the_release_reach_sends_go_ci_a_prs_head_when_its_paths_change_the_carg
     (clone / "tools" / "ci").write_text("")
     request, answer = tmp_path / "request.json", tmp_path / "answer.json"
     (checkout / "tools" / "ci").write_text(FAKE_SELECT.format(request=request, answer=answer))
-    monkeypatch.setattr(state, "repo_config", lambda data: {"release": {"components": "tools/ci release select --pr"}})
+    provide(monkeypatch, checkout, repo=HomeRepo, release=SelectRelease)
     (checkout / "tools" / "ci").chmod(0o755)
     answer.write_text(json.dumps({"components": ["dashboard", "sandsql"], "touched": ["sandsql"], "dev": [], "releases": ["sandsql"]}))
     changed = ["rust/Cargo.lock", "rust/crates/server/Cargo.toml"]
@@ -12308,7 +12309,14 @@ def test_a_new_waiting_replaces_a_jobs_staging_waits_and_a_withdrawn_cut_frees_a
 def test_a_slot_go_names_every_job_of_its_cut_as_a_freeze_holder_only_where_the_repository_names_the_holder_flag() -> None:
     moment = datetime(2026, 11, 16, 1, 0, tzinfo=UTC)
     data = {"name": "demo", "slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": [], "waits": [], "goal": "stage the cut"} for job_id in ("j0", "j1", "j2")}}
-    release = {"holder": "--holder {holder}", "join": "tools/ci release freeze join {freeze} --holder {holder}"}
+    class Holding(providers.ReleaseProvider):
+        def holder(self, holder: str) -> str:
+            return f"--holder {holder}"
+
+        def join(self, freeze: str, holder: str) -> str:
+            return f"tools/ci release freeze join {freeze} --holder {holder}"
+
+    release = Holding(Path(), Path(), {})
     assert state.slot_claim(data, "plat-usw2-staging", "j0", 20, [], None, moment, release=release).endswith("Run your freeze and every staging command of this cut with `--holder demo/j0`.")
     for job_id, path, stack in (("j1", "a", "api"), ("j2", "b", "rsw-cp")):
         state.slot_claim(data, "plat-usw2-staging", job_id, 15, [f"Forge-AI/monorepo#{job_id[1:]}"], None, moment, [path], [stack])
@@ -12331,7 +12339,11 @@ def test_a_status_of_one_job_prints_that_jobs_row_and_its_prs_not_its_whole_orde
 def test_the_jobs_page_names_the_hand_over_the_repository_settings_give(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(state, "resolve", lambda name=None: "d")
     monkeypatch.setattr(state, "load", lambda name: {"name": "d", "roles": {"coordinator": {"cwd": "/clone"}}, "subcoordinators": {}, "communicators": {}})
-    monkeypatch.setattr(state, "repo_config", lambda data: {"mac_box": {"hand_over": "tools/ci mac-box up {box} --holder {holder} --from {from}"}})
+    class Boxes(providers.MacBoxProvider):
+        def hand_over(self, box: str, holder: str, prior: str) -> str:
+            return f"tools/ci mac-box up {box} --holder {holder} --from {prior}"
+
+    provide(monkeypatch, Path(), mac_box=Boxes)
     assert cli.hand_over_filled("run <mac box hand over> first", None) == "run `tools/ci mac-box up <box> --holder <drive>/<new job> --from <drive>/<old job>` first"
-    monkeypatch.setattr(state, "repo_config", lambda data: {})
-    assert cli.hand_over_filled("run <mac box hand over> first", None) == "run the `[mac_box] hand_over` command of the repository's `.claude/long-running.toml` first"
+    provide(monkeypatch, Path())
+    assert cli.hand_over_filled("run <mac box hand over> first", None) == "run the hand-over command of the repository's Mac box provider first"

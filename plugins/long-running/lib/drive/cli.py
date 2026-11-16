@@ -19,7 +19,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import agents, artifacts, brief, children, codex, github, install, land, limits, orca, page_check, pages, picture, place, published, reads, receiver, refs, render, served, settled, slack, state, superseded, watch
+from drive import agents, artifacts, brief, children, codex, github, install, land, limits, orca, page_check, pages, picture, place, providers, published, reads, receiver, refs, render, served, settled, slack, state, superseded, watch
 from drive.shell import simple_commands
 from drive.state import DriveError
 
@@ -2495,11 +2495,11 @@ def release_holds(data: dict, job: dict, asked: limits.Question, text: str) -> l
 
 
 def release_scope(data: dict, asked: limits.Question, text: str, recorded: list[dict]) -> list[str]:
-    """Why an ASK naming a production release start in backticks may not draw: a start of the whole platform, the targets settled.platform_targets reads, leaving out a target, by settled.unexcused, that the card does not draw as `<target> fails: <the failing test>` and the ASK does not say is `<target> left out by his <id>: "<his words>"`, quoting his newest recorded answer on a release that the brief binds or the ASK cites, by his words settled.SCOPE_WORDS: a release ships everything his latest ruling on it does not exclude, read fresh from that ruling, never carried from an earlier plan or a reader's choice. A start carries each platform target it names as a target, and every one when it names the `whole` word of the repository's [release] table; brief.scope_refusal checks what the release carries once it runs."""
+    """Why an ASK naming a production release start in backticks may not draw: a start of the whole platform, the targets settled.platform_targets reads, leaving out a target, by settled.unexcused, that the card does not draw as `<target> fails: <the failing test>` and the ASK does not say is `<target> left out by his <id>: "<his words>"`, quoting his newest recorded answer on a release that the brief binds or the ASK cites, by his words settled.SCOPE_WORDS: a release ships everything his latest ruling on it does not exclude, read fresh from that ruling, never carried from an earlier plan or a reader's choice. A start carries each platform target it names as a target, and every one when it names the whole word of the repository's release provider; brief.scope_refusal checks what the release carries once it runs."""
     releases = [release for release in brief.card_releases(text) if brief.started(release) and not brief.rehearsal(release)]
     if not releases or not (whole := settled.platform_targets(data)):
         return []
-    every = state.repo_config(data).get("release", {}).get("whole")
+    every = providers.of(data).release.whole
     drawn = "\n".join([*asked.summary, *asked.show_me, *asked.options, *asked.hints.values()])
     cited = "\n".join(line for line in text.splitlines() if " left out by his " in line)
     latest = max((answer for answer in recorded if RELEASE_WORD.search(f"{answer['asked']}\n{answer['words']}")), key=lambda answer: answer["at"], default=None)
@@ -4616,7 +4616,7 @@ def slot_claim(args: argparse.Namespace) -> int:
     paths, stacks = watch.pass_reads(name, state.load(name), prs)
     def slot_claim_write(data: dict):
         find(data["jobs"], args.job, "job")
-        line = state.slot_claim(data, args.env, args.job, args.minutes, prs, args.cases, state.now(), paths, stacks, release=state.repo_config(data).get("release"))
+        line = state.slot_claim(data, args.env, args.job, args.minutes, prs, args.cases, state.now(), paths, stacks, release=providers.of(data).release)
         return line
 
     line = state.update(name, None, slot_claim_write)
@@ -4635,7 +4635,7 @@ def slot_hand(args: argparse.Namespace) -> int:
     def slot_hand_write(data: dict):
         entry, line = state.slot_hand(data, args.env, args.to, state.now())
         until = data["slots"][args.env]["holder"]["until"]
-        steps = state.SLOT_GO_STEPS.format(env=args.env, job=args.to) + state.holding(state.repo_config(data).get("release"), data, [args.to])
+        steps = state.SLOT_GO_STEPS.format(env=args.env, job=args.to) + state.holding(providers.of(data).release, data, [args.to])
         stopped = [member["job"] for member in before if data["jobs"][member["job"]]["state"] not in state.SLOT_LIVE_END]
         return entry, line, steps, stopped, until
 
@@ -5352,7 +5352,7 @@ def unreached(name: str, data: dict, waits: list[str]) -> None:
         if not (answer := answers.get(found["pr"])):
             continue
         key, service = found["pr"], found["service"]
-        reach = f"`tools/ci release select --pr` lists the paths {key} changes reaching {', '.join(answer['touched']) or 'no component'}"
+        reach = f"the repository's release provider lists the paths {key} changes reaching {', '.join(answer['touched']) or 'no component'}"
         if answer.get("tested"):
             said = f"{key} changes only tests or CI config, which no release ships, so its proof is its tests passing on dev at or after its merge"
         elif service not in answer["components"]:
@@ -5365,27 +5365,21 @@ def unreached(name: str, data: dict, waits: list[str]) -> None:
 
 
 def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
-    """The repository's own map of what each PR among keys reaches, the command the [release] table of its .claude/long-running.toml names as `components`, its `{pr}` the PR's number, run in the drive's checkout at the head of its default branch with the paths the PR changes on its stdin, and its head when they change rust/Cargo.lock, so the repository reads a lockfile line as reaching only the crates that link it; none for a repository naming no such command, or for a PR of another repository. Its reads run eight at a time."""
-    clone = data["roles"]["coordinator"]["cwd"]
-    if not (keys and (command := state.repo_config(data).get("release", {}).get("components"))):
+    """The repository's own map of what each PR among keys reaches, by the components of its release provider, given the PR's number, the paths it changes, and its head when they change rust/Cargo.lock, so the repository reads a lockfile line as reaching only the crates that link it, run in the drive's checkout moved to the head of its default branch; none for a repository whose providers name no repository, or for a PR of another repository. Its reads run eight at a time."""
+    found = providers.of(data)
+    if not keys or found.repo.name is None or not (ours := list(dict.fromkeys(key for key in keys if github.repo_of(key).casefold() == found.repo.name.casefold()))):
         return {}
-    repo = github.checkout_repo(clone).casefold()
-    if not (ours := list(dict.fromkeys(key for key in keys if github.repo_of(key).casefold() == repo))):
-        return {}
-    checkout = orca.checkout(name, clone)
+    orca.checkout(name, data["roles"]["coordinator"]["cwd"])
     with ThreadPoolExecutor(max_workers=8) as pool:
-        return dict(zip(ours, pool.map(lambda key: pr_reach(key, checkout, command), ours), strict=True))
+        return dict(zip(ours, pool.map(lambda key: pr_reach(key, found.release), ours), strict=True))
 
 
-def pr_reach(key: str, checkout: Path, command: str) -> dict:
+def pr_reach(key: str, release: providers.ReleaseProvider) -> dict:
     """What one PR reaches, by release_reach."""
     paths = github.files(key)
     if paths and all(served.TESTS.search(path) or CI_CONFIG.match(path) for path in paths):
         return {"components": [], "touched": [], "dev": [], "releases": [], "staged": [], "tested": True}
-    request = {"body": "", "paths": paths}
-    if CARGO_LOCK in paths:
-        request["head"] = github.paths([key])[key][0]
-    return json.loads(github.run(shlex.split(command.format(pr=key.split("#")[1])), cwd=str(checkout), stdin=json.dumps(request)))
+    return release.components(key.split("#")[1], paths, github.paths([key])[key][0] if CARGO_LOCK in paths else None)
 
 
 def staging_mac_box(name: str, data: dict, job: dict) -> str:
@@ -6147,12 +6141,16 @@ def say_record(args: argparse.Namespace) -> int:
 def mac_boxes_down(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     data = state.load(name)
-    checkout = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
-    command = state.mac_box_command(data, "down")
-    return max(
-        subprocess.run(command.replace("{box}", shlex.quote(job_id)).replace("{holder}", shlex.quote(f"{name}/{job_id}")), shell=True, cwd=checkout, stdin=subprocess.DEVNULL, check=False).returncode
-        for job_id in args.jobs
-    )
+    orca.checkout(name, data["roles"]["coordinator"]["cwd"])
+    boxes = providers.of(data).mac_box
+    codes = []
+    for job_id in args.jobs:
+        try:
+            codes.append(boxes.down(job_id, f"{name}/{job_id}"))
+        except providers.ProviderError as error:
+            print(f"{job_id}: {error}", file=sys.stderr)
+            codes.append(1)
+    return max(codes)
 
 
 def fde_scan(args: argparse.Namespace) -> int:
@@ -6488,13 +6486,13 @@ def manual(args: argparse.Namespace) -> int:
 
 
 def hand_over_filled(text: str, drive: str | None) -> str:
-    """The page with each `<mac box hand over>` filled with the [mac_box] hand_over command of the .claude/long-running.toml in the drive's checkout, its {box}, {holder} and {from} named as the box and the new and old jobs, so the page names the verb the repository's tool takes; the setting's name when no drive or no such setting is there to read."""
+    """The page with each `<mac box hand over>` filled with the hand_over command of the repository's Mac box provider, its box, holder and prior holder named as the box and the new and old jobs, so the page names the verb the repository's tool takes; generic words when no drive or no such command is there to read."""
     try:
         data = state.load(state.resolve(drive))
     except DriveError:
         data = None
-    command = state.mac_box_command(data, "hand_over") if data and state.bound_sessions(data) else None
-    shown = f"`{command.format_map({'box': '<box>', 'holder': '<drive>/<new job>', 'from': '<drive>/<old job>'})}`" if command else "the `[mac_box] hand_over` command of the repository's `.claude/long-running.toml`"
+    command = providers.of(data).mac_box.hand_over("<box>", "<drive>/<new job>", "<drive>/<old job>") if data and state.bound_sessions(data) else None
+    shown = f"`{command}`" if command else "the hand-over command of the repository's Mac box provider"
     return text.replace(MAC_BOX_HAND_OVER, shown)
 
 
@@ -8205,7 +8203,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--dry-run", action="store_true", help="print the answer it would post, posting nothing and adding no eyes")
     verb.set_defaults(run=answer_message)
     verb = verbs.add_parser(
-        "mac-boxes-down", parents=both, help="take down the Mac box each job holds with the [mac_box] down command of the drive checkout's .claude/long-running.toml, {box} the job's id and {holder} <drive>/<job>; a save that moves a job out of running or finishes it runs it detached, and the watch hourly for each job not running that the [mac_box] list command names as a holder"
+        "mac-boxes-down", parents=both, help="take down the Mac box each job holds by the down of the repository's Mac box provider, the box named as the job's id and its holder as <drive>/<job>; a save that moves a job out of running or finishes it runs it detached, and the watch hourly for each job not running that the provider's live boxes name as a holder"
     )
     verb.add_argument("jobs", nargs="+", help="the jobs whose Mac boxes come down")
     verb.set_defaults(run=mac_boxes_down)

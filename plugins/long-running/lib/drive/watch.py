@@ -26,7 +26,7 @@ from pathlib import Path
 from time import monotonic
 from typing import NamedTuple, Self
 
-from drive import agents, answer, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, page, place, procs, reads, receiver, refs, render, restack, served, settled, slack, stage, stall, state, superseded, superseded_procs, train, view
+from drive import agents, answer, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, page, place, procs, providers, reads, receiver, refs, render, restack, served, settled, slack, stage, stall, state, superseded, superseded_procs, train, view
 from drive.install import PROOF_FAILED, add_prover, config_dir, handed_on, open_cut, done_before_proofs, done_unproven, merged_done, merged_ready, merges_of, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, released_prs, reported_prs, watch_upgraded as upgraded, watch_proves, widen
 from drive.render import cut, when
 
@@ -133,7 +133,6 @@ ADOPT_AFTER = timedelta(hours=1)
 SPRITE_LIST = "sprite list"
 BOX_LIST = "the Mac box list"
 BOX_SWEEP = timedelta(hours=1)
-BOX_LIST_SECONDS = 120
 LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
 COMMUNICATOR_IDLE = timedelta(hours=2)
@@ -895,12 +894,11 @@ def release_heard(job: dict, read: dict, moment: datetime) -> dict:
 
 
 def release_told(watcher: Watcher, job_id: str, read: dict, moment: datetime) -> None:
-    """Post one handoff record telling how a job's release build reads to the job, held on it by state.hold_addressed for its worker as any held text, and to the coordinator sessions acting on it and holding its order, keyed by the build and its state so a repost returns the stored record, and keep its seq as the job's release_heard told. The repository's release tool, by brief.release_record, names the release and the build it runs as: a build other than the one the job keeps, such as the release build a launch build triggered and passed on, becomes the job's release build, and its wait on the old one a wait on it, in place of the post, which the next pass reads; a status command the repository names that reads nothing is a failed read, never a post, so a launch build is never told as the release."""
+    """Post one handoff record telling how a job's release build reads to the job, held on it by state.hold_addressed for its worker as any held text, and to the coordinator sessions acting on it and holding its order, keyed by the build and its state so a repost returns the stored record, and keep its seq as the job's release_heard told. The repository's release tool, by brief.release_record, names the release and the build it runs as: a build other than the one the job keeps, such as the release build a launch build triggered and passed on, becomes the job's release build, and its wait on the old one a wait on it, in place of the post, which the next pass reads; a status the release provider reads nothing of is a failed read, never a post, so a launch build is never told as the release."""
     data = state.load(watcher.name)
     link = data["jobs"][job_id]["release_build"]
-    if (record := brief.release_record(link, data)) is None and state.repo_config(data).get("release", {}).get("status"):
-        raise reads.ReadError(f"the repository's [release] status command read nothing of {link}")
-    record = record or {}
+    if (record := brief.release_record(link, data)) is None:
+        raise reads.ReadError(f"the repository's release provider read nothing of {link}")
     if (moved := record.get("build")) and moved != link:
         def release_told_write2(kept: dict):
             moving = kept["jobs"][job_id]
@@ -1058,7 +1056,7 @@ def release_card(data: dict, entry: dict) -> dict:
 
 
 def release_words(data: dict, job_id: str, link: str, read: dict, record: dict, moment: datetime) -> tuple[str, str]:
-    """A release record's text and body: the job, its order, the release's name, its build and how it reads, the first failure the repository's release tool names, its step, its own cause line and its job's link, else the first step Buildkite read as not passing, or the approve step it stopped at and for how long, then the repository's [release] show command with the release filled; its body each failure on a line of its own and Buildkite's read."""
+    """A release record's text and body: the job, its order, the release's name, its build and how it reads, the first failure the repository's release tool names, its step, its own cause line and its job's link, else the first step Buildkite read as not passing, or the approve step it stopped at and for how long; its body each failure on a line of its own and Buildkite's read."""
     job = data["jobs"][job_id]
     failures = record.get("failures") or [{"step": label.strip('"')} for label in unpassed_steps(read)]
     if read["state"] == "BLOCKED":
@@ -1068,8 +1066,7 @@ def release_words(data: dict, job_id: str, link: str, read: dict, record: dict, 
     else:
         how = f"{read['state'].lower()} at {failure_said(failures[0])}"
     release = record.get("name")
-    show = state.repo_config(data).get("release", {}).get("show")
-    text = f"RELEASE {job_id} {job['order']}: release {f'{release} ' if release else ''}{link} {how}" + (f"; `{show.replace('{release}', shlex.quote(release or link))}` shows it" if show else "")
+    text = f"RELEASE {job_id} {job['order']}: release {f'{release} ' if release else ''}{link} {how}"
     body = "\n".join([*(failure_said(failure) for failure in failures if read["state"] != "PASSED"), build_said(link, read) or f"{link} reads {read['state']}"])
     return text, body
 
@@ -4577,19 +4574,19 @@ def rest_sessions(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def finished_boxes(watcher: Watcher, moment: datetime) -> list[str]:
-    """Take down, by `drive mac-boxes-down` in a process of its own, each live Mac box held by a job of this drive the watch hears that is not running, waiting ones included, read as the <drive>/<job> holders the repository's [mac_box] list command prints, once every BOX_SWEEP, so a box whose save never gave it back, or whose down refused, comes down after, except one state.box_wanted keeps; the lines a failed list makes."""
+    """Take down, by `drive mac-boxes-down` in a process of its own, each live Mac box held by a job of this drive the watch hears that is not running, waiting ones included, read as the <drive>/<job> holders the live boxes of the repository's Mac box provider name, once every BOX_SWEEP, so a box whose save never gave it back, or whose down refused, comes down after, except one state.box_wanted keeps; the lines a failed list makes."""
     data = state.load(watcher.name)
-    if watcher.boxes_at is not None and moment - watcher.boxes_at < BOX_SWEEP or not (command := state.mac_box_command(data, "list")):
+    if watcher.boxes_at is not None and moment - watcher.boxes_at < BOX_SWEEP:
         return []
     watcher.boxes_at = moment
     try:
-        done = subprocess.run(command, shell=True, cwd=data["roles"]["coordinator"]["cwd"], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=BOX_LIST_SECONDS, check=False)
-    except subprocess.TimeoutExpired:
-        return read_failed(watcher, BOX_LIST, orca.OrcaError(f"{command} ran past {BOX_LIST_SECONDS} s"), moment)
-    if done.returncode:
-        return read_failed(watcher, BOX_LIST, orca.OrcaError(f"{command} exited {done.returncode}: {(done.stderr.strip().splitlines() or ['no output'])[-1]}"), moment)
+        boxes = providers.of(data).mac_box.live_boxes()
+    except providers.ProviderError as error:
+        return read_failed(watcher, BOX_LIST, error, moment)
+    if boxes is None:
+        return []
     watcher.failures.pop(BOX_LIST, None)
-    holders = {job_id for drive, _, job_id in (holder.partition("/") for holder in done.stdout.split()) if drive == watcher.name}
+    holders = {job_id for drive, _, job_id in (holder.partition("/") for holder in boxes) if drive == watcher.name}
     held = [
         job_id
         for job_id in sorted(holders)
@@ -4805,6 +4802,7 @@ def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
     if watcher.project or not (slots := state.load(watcher.name)["slots"]):
         return []
     known = state.load(watcher.name)
+    release = providers.of(known).release
     unread = {each["job"]: pass_reads(watcher.name, known, each["prs"]) for each in [each for slot in slots.values() for each in slot["queue"] if (each["paths"] is None or each["stacks"] is None) and each["prs"]][:READS_PER_PASS]}
     def slot_lines_write(data: dict):
         for slot in data["slots"].values():
@@ -4814,7 +4812,7 @@ def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     each["paths"] = each["paths"] if paths is None else paths
                     each["stacks"] = each["stacks"] if stacks is None else stacks
         waiters = state.queue_waiters(data, approved_only=any(slot.get("hold") for slot in data["slots"].values()))
-        return waiters, state.slot_turns(data, moment, state.repo_config(data).get("release"))
+        return waiters, state.slot_turns(data, moment, release)
 
     waiters, moved = state.update(watcher.name, None, slot_lines_write)
     lines = list(waiters)

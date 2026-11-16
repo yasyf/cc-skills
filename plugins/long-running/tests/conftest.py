@@ -28,6 +28,7 @@ from drive import (
     page,
     picture,
     place,
+    providers,
     public_check,
     receiver,
     restack,
@@ -581,6 +582,28 @@ def provers(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     started: list[str] = []
     monkeypatch.setattr(watch, "prove", lambda name, job_id: started.append(job_id) or os.getpid())
     return started
+
+
+@pytest.fixture(autouse=True)
+def base_providers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every drive's providers the base classes, which do nothing, unless a test names its own by provide()."""
+    monkeypatch.setattr(providers, "of", lambda data: providers.Providers(None))
+
+
+def provide(monkeypatch: pytest.MonkeyPatch, checkout: Path, **roles: type[providers.Provider]) -> None:
+    """Give every drive the providers roles names, each running its commands in checkout, the base class for each role left out."""
+    built = {role: made(checkout, checkout, {}) for role, made in roles.items()}
+    monkeypatch.setattr(providers, "of", lambda data: providers.Providers(None, {}, **built))
+
+
+class HomeRepo(providers.RepoProvider):
+    name = "Forge-AI/monorepo"
+
+
+class SelectRelease(providers.ReleaseProvider):
+    def components(self, pr: str, paths: list[str], head: str | None) -> dict:
+        request = {"body": "", "paths": paths} | ({"head": head} if head else {})
+        return self.json("tools/ci release select --pr {pr}", stdin=json.dumps(request), pr=pr)
 
 
 @pytest.fixture(autouse=True)

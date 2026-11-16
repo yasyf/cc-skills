@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-from drive import github, limits, reads, settled, state
+from drive import github, limits, providers, reads, settled, state
 from drive.render import cut
 from drive.shell import simple_commands
 
@@ -321,11 +321,11 @@ def followed(words: list[str], verb: str) -> str | None:
 
 
 def release_record(release: str, data: dict) -> dict | None:
-    """What the repository's release tool keeps of a release, by the `status` command of its [release] table with `{release}` filled, run by the shell in the drive's checkout: a JSON object naming the release's `name`, `build`, the `order` approving it, its `commit`, the targets it `carries`, those it picked and each one the tool pulled in, and each of its `failures` as the `step` that failed, the tool's `said` cause line and the `job` link, which watch.release_told reads; None when the repository names no such command or the command reads none."""
-    if not (command := state.repo_config(data).get("release", {}).get("status")):
+    """What the repository's release tool keeps of a release, by the status of its release provider: a JSON object naming the release's `name`, `build`, the `order` approving it, its `commit`, the targets it `carries`, those it picked and each one the tool pulled in, and each of its `failures` as the `step` that failed, the tool's `said` cause line and the `job` link, which watch.release_told reads; None when the repository has no release provider or its status reads none or fails."""
+    try:
+        return providers.of(data).release.status(release)
+    except providers.ProviderError:
         return None
-    done = subprocess.run(command.replace("{release}", shlex.quote(release)), shell=True, cwd=data["roles"]["coordinator"]["cwd"], capture_output=True, text=True, timeout=settled.RELEASE_COMMAND_SECONDS)
-    return json.loads(done.stdout) if done.returncode == 0 and done.stdout.strip() else None
 
 
 def recorded_job(record: dict, data: dict) -> dict | None:
@@ -617,18 +617,8 @@ def contained(cwd: str, named: str, sha: str, commit: str) -> tuple[bool | None,
 
 
 def freezes(name: str, data: dict) -> list[dict]:
-    """Each release freeze standing now, as the `freezes` command of the [release] table of the repository's .claude/long-running.toml reads its release ledger as JSON in the drive's checkout at the head of its default branch, its ledger row under freeze and its line under text; none when the repository names no such command."""
-    from drive import orca
-
-    if not (command := freezes_command(data)):
-        return []
-    checkout = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
-    return json.loads(reads.run(["/bin/sh", "-c", command], checkout))
-
-
-def freezes_command(data: dict) -> str | None:
-    """The command the repository names to read its release freezes as JSON, from the `freezes` key of its .claude/long-running.toml's [release] table."""
-    return state.repo_config(data).get("release", {}).get("freezes")
+    """Each release freeze standing now, as the freezes of the repository's release provider read its release ledger, its ledger row under freeze and its line under text; none without a release provider."""
+    return providers.of(data).release.freezes()
 
 
 def standing(name: str, data: dict) -> list[tuple[str | None, str]]:
@@ -640,7 +630,7 @@ def standing(name: str, data: dict) -> list[tuple[str | None, str]]:
     try:
         return [*((each["freeze"]["id"], each["text"]) for each in freezes(name, data)), *held]
     except (reads.ReadError, state.DriveError) as error:
-        return [(None, f"the release ledger could not be read ({error}), so read `{freezes_command(data)}` before saying a release is frozen or may start"), *held]
+        return [(None, f"the release ledger could not be read ({error}), so read the repository's release freezes before saying a release is frozen or may start"), *held]
 
 
 def releases(name: str, data: dict) -> str:

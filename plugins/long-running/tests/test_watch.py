@@ -17,7 +17,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import DRIVE_TERMINAL, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged
+from conftest import HomeRepo, provide, DRIVE_TERMINAL, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged
 from drive import agents, card, cli, codex, dashboard, github, install, land, launchd, limits, orca, place, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, train, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -4858,7 +4858,6 @@ def test_a_release_job_follows_the_build_its_launch_triggered_and_it_and_the_coo
     failure = {"step": DEPLOY_STEP, "said": CAUSE, "job": f"{TRIGGERED_BUILD}#01a1"}
     records = {LAUNCH_BUILD: {"name": "auric-aristides", "build": TRIGGERED_BUILD}, TRIGGERED_BUILD: {"name": "auric-aristides", "build": TRIGGERED_BUILD, "failures": [failure]}}
     monkeypatch.setattr(watch.brief, "release_record", lambda release, data: records[release])
-    monkeypatch.setattr(state, "repo_config", lambda data: {"release": {"status": "ci release status {release} --json", "show": "ci release status {release}"}})
     with state.edit(demo) as data:
         data["orders"]["o1"]["jobs"].append("j2")
         data["jobs"]["j2"] = state.new_job("o1", "builder", "follow the release", [], state.stamp(T0)) | {"brief_flags": RELEASED, "release_build": LAUNCH_BUILD, "waits": [LAUNCH_BUILD]}
@@ -4875,7 +4874,7 @@ def test_a_release_job_follows_the_build_its_launch_triggered_and_it_and_the_coo
     for minute in (3, 4):
         assert watch.build_lines(watching, T0 + timedelta(minutes=minute)) == []
         assert watch.release_end_lines(watching, T0 + timedelta(minutes=minute)) == []
-    text = f'RELEASE j2 o1: release auric-aristides {TRIGGERED_BUILD} failed at "{DEPLOY_STEP}": {CAUSE} {TRIGGERED_BUILD}#01a1; `ci release status auric-aristides` shows it'
+    text = f'RELEASE j2 o1: release auric-aristides {TRIGGERED_BUILD} failed at "{DEPLOY_STEP}": {CAUSE} {TRIGGERED_BUILD}#01a1'
     [(argv, body)] = posts
     assert [argv[at + 1] for at, arg in enumerate(argv) if arg == "--to"] == ["j2@demo", "root@demo"]
     assert (argv[argv.index("--kind") + 1], argv[argv.index("--id") + 1], argv[-1]) == ("handoff", f"release-{TRIGGERED_BUILD}-FAILED", text)
@@ -9095,7 +9094,7 @@ def test_a_merged_pr_changing_only_tests_gets_a_prover_waiting_on_no_release_tha
 ) -> None:
     serve(monkeypatch, {})
     (tmp_path / ".claude").mkdir()
-    (tmp_path / state.REPO_RULES).write_text('[release]\ncomponents = "tools/ci release select --pr {pr}"\n')
+    provide(monkeypatch, tmp_path, repo=HomeRepo)
     with state.edit(demo) as data:
         data["roles"]["coordinator"]["cwd"] = str(tmp_path)
     monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo")
