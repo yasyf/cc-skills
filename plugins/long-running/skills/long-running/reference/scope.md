@@ -33,7 +33,7 @@ route is known before it is built.
   plumbing, or a rewrite of this skill, by [Tooling](../SKILL.md#tooling). It is the meta session's,
   under its own order ([meta.md](meta.md)), and does not `--serves` a feature order, so a feature's
   thread keeps one subject. Its PR's His words list says none. A `yasyf/*` tooling PR lands with no
-  tap. A `<guarded org>/*` one lands under an exempt class, or serves its own order with
+  tap. One of the guarded owner lands under an exempt class, or serves its own order with
   `drive pr set <url> --tap --serves <its Drive tooling order> --design none` and gets a PR card at
   his DM root whose top line quotes the order's "Drive tooling: …" words; his Approve lands it.
 - **Neither**: a PR someone other than him opened is the drive's only when his words name it by #N
@@ -86,7 +86,7 @@ Four limits hold whatever else is true. Name the one that stops you in your retu
 4. Before changing what forward-deployed engineers' or customers' code can observe, run the FDE
    impact scan and put what it finds in the PR body, because their callers break silently.
 
-Two mechanisms also put work in front of him. A `<guarded org>/*` PR outside an exempt class lands
+Two mechanisms also put work in front of him. A PR of the guarded owner outside an exempt class lands
 on his Approve tap, by [landing.md](landing.md). A post in his own name to another person waits for
 his word; his order to post, a tap included, is that word for the post it names. For a post nobody
 ordered, the card asks whether to send it. The fix-live note owed a bug's reporter and the answer to

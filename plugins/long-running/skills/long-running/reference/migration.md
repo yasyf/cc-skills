@@ -157,7 +157,7 @@ His rulings already live in cc-notes answers.
    migration order. Run `drive job add builder --order <o> --goal "<PR title>" --repo <owner/name>
    --branch <branch>`, then `drive job report <j> -` with the line `WAITING <url>` on stdin, which
    sets it waiting, then `drive pr add <url> --job <j>`, which records it waiting on his tap. Add
-   `--port-of <N>`, `--exempt <class>` or, outside `<guarded org>`, `--no-tap --why "<reason>"` when
+   `--port-of <N>`, `--exempt <class>` or, outside the guarded owner, `--no-tap --why "<reason>"` when
    it lands without one.
 5. Carry a tap he gave when the old drive's `lr board rows` show it in force, so he is not asked
    twice: `drive pr set <url> --tapped Approve --tap-source <the permalink of his message or card>`,

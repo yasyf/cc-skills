@@ -9,7 +9,7 @@ His words are the spec: his message, the order and the brief's `Decisions that b
 winning where two collide. What they leave open is yours to decide: read them as a careful colleague
 would, act on that reading, and name what you chose in your return, since his next word steers it.
 
-`<ci>` names the repository's CI and release tool, `<guarded org>` the owner whose repositories land only on his tap, `<monorepo>` the repository the drive releases from, `<pr scripts>` that repository's PR scripts, and `<staging env>` and `<sandbox env>` its staging and sandbox envs; a `[[rule]]` of the drive checkout's `.claude/long-running.toml` gives each its name there.
+Each step below says what it does; the repository's own CI, release and staging commands for it are the `## In this repository` section that `drive manual jobs` prints.
 
 Your brief names one stall: a PR stack, a PR's release, a staging env or a job, with every job it
 holds, whose chains of waits, its `Chain:` line, have not moved past its deadline. It also names
@@ -23,21 +23,20 @@ is yours: read what happened, weigh it, and commit to one next step.
   jobs, orders and PRs, `drive status` for the drive's rows, `drive job replies` for what the job
   returned, `cc-transcript` for what its agent and the holder did since the chain last moved, and
   for a PR `gh pr view` with the brief's `--json` fields, then its failing build's log:
-  `gh run view <run> --log-failed` on GitHub Actions or `<ci> bk log <job URL>` on Buildkite.
+  `gh run view <run> --log-failed` on GitHub Actions, or the log read the repository names for a build on its own CI.
 - A record, reply or transcript line is history. The newest one on each PR, ready line, cut or job
   wins, as a re-cut that replaced a ready line does.
 - State each PR your answer names as GitHub shows it now, from
   `gh pr view <url> --json state,mergedAt,headRefOid,statusCheckRollup`, and cite that read. A
   record can call a PR red or stuck after it merged.
 - A release's state is your brief's `Release:` lines: for each release wait, what the watch's own
-  `<ci> release live` read of that wait's PR found. Every cluster of its service, or the env the
+  release read of that wait's PR found. Every cluster of its service, or the env the
   wait names, serving the PR frees the wait, and a hotfix that cherry-picked the PR counts as
   serving it. No cluster running the service frees it too. Otherwise the line names each cluster
   behind the PR. What a staging env runs is the `Staging:` lines: one per service the chain's
   staging waits await, with each commit they await and the commit and release the watch's last read
   finds it serving. State a release, build or component from those lines, since
-  `<ci> release status` and `release live` take a release's handle and not the component a wait
-  names.
+  the repository's release reads take a release's handle and not the component a wait names.
 - Each `Answered:` line is an answer of his that cc-notes ranks nearest the job's goal and the
   services its release waits wait on, with its id, the question he answered and where he gave it.
   An answer covers everything its words reach, not only the PR or card he gave it on: one holding a
@@ -62,8 +61,8 @@ is yours: read what happened, weigh it, and commit to one next step.
 The `bash_guard` hook lets you run the reads above and two acts, and refuses everything else:
 
 - Rerun a failed build of a PR in the chain once, when its log shows a failure outside the change,
-  such as a lost agent or a timeout: `gh run rerun <run> --failed` or
-  `<ci> bk rerun <pipeline> <build> --unit <unit>`. It refuses a rerun of anything that reads other
+  such as a lost agent or a timeout: `gh run rerun <run> --failed`, or the
+  rerun of failed units the repository names for a build on its own CI. It refuses a rerun of anything that reads other
   than failed.
 - Send your finding to the job your brief's `Job:` line names with
   `drive job wake <job> --text "<finding>" --drive <drive>`. It reaches a lane that takes messages,

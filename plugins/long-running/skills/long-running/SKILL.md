@@ -30,7 +30,7 @@ Every session and job of a drive is a frontier model, trusted to use its judgmen
 - **Other sessions are not yours.** Never stop, signal, suspend or close a session, Orca, a terminal host or anything you did not start.
 - **Scan FDE impact first.** Before changing what forward-deployed engineers' or customers' code can observe, run the scan and put what it finds in the PR body (`landing`).
 
-Two more things are his because the machine works that way: a `<guarded org>` PR outside an exempt class lands on his Approve tap (`landing`), and a post in his own name to another person waits for his word.
+Two more things are his because the machine works that way: a PR of the guarded owner outside an exempt class lands on his Approve tap (`landing`), and a post in his own name to another person waits for his word.
 
 ## Questions for him
 

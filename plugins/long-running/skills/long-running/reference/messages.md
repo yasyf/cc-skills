@@ -278,7 +278,7 @@ When it is answered, replaced or redone:
 **A PR card.**
 
 - Nobody writes it. `drive pr add` draws it when it registers a PR waiting on his tap, and the watch
-  draws it for a PR that enters `uncarded`. A `<guarded org>` PR outside an exempt class lands on
+  draws it for a PR that enters `uncarded`. A PR of the guarded owner outside an exempt class lands on
   his Approve tap, by [Scope](scope.md). A port and every other class that lands with no tap get no
   card: he reads "port of #N landed" in the order's thread.
 - PRs group by `state.card_unit`: one card per stack his Approve lands, and for PRs in no stack,
@@ -382,7 +382,7 @@ lists.
   posts. A job returning a finding, a PR going up, checks settling, a card opening or closing and a
   job at work are progress: the dashboard shows them, the records keep them, and no line goes in
   his thread.
-- When he asks to be kept updated on a `<ci>` build, the session holding the order runs
+- When he asks to be kept updated on a CI or release build, the session holding the order runs
   `drive order set <o> --follow <build link> <his ask> [--part "<part>"]` once the build exists.
   The watch then keeps one status message in his thread current with the running step, and at the
   build's end posts the end line itself, citing the record of the build's end, which delivers the
