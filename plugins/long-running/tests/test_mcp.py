@@ -216,7 +216,7 @@ def test_a_call_takes_the_ticket_cc_slacks_hook_kept_for_its_tool_use_once(tmp_p
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
     kept = mcp.tickets_dir() / "toolu_1.json"
     kept.parent.mkdir(parents=True)
-    kept.write_text(json.dumps({"ticket_id": "abc123", "ticket_tree": "root"}))
+    kept.write_text(json.dumps({"ticket_id": "abc123", "ticket_tree": "root", "session": "s-1"}))
     params = {"name": "say", "arguments": {"text": "hi"}, "_meta": {mcp.TOOL_USE_META: "toolu_1"}}
     assert mcp.ticketed(params) == {"text": "hi", "ticket_id": "abc123", "ticket_tree": "root"}
     assert not kept.exists()

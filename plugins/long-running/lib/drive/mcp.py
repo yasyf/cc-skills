@@ -328,7 +328,7 @@ def ticketed(params: dict) -> dict:
     use = (params.get("_meta") or {}).get(TOOL_USE_META) or ""
     if not use or "/" in use or not (kept := tickets_dir() / f"{use}.json").is_file():
         return arguments
-    fields = json.loads(kept.read_text())
+    fields = {name: value for name, value in json.loads(kept.read_text()).items() if name.startswith("ticket_")}
     kept.unlink(missing_ok=True)
     return arguments if "ticket_id" in arguments else arguments | fields
 
