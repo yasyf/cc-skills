@@ -750,22 +750,22 @@ def pointed(lines: list[str]) -> str:
     return f"Texts for your job reached your cci address while you worked, as your starter's SendMessage would hand them: {' | '.join(lines)}"
 
 
-def hold_rules(name: str, session: str) -> str | None:
-    """Keep on the session's seat the digest of its role's rules in this install, returning that role when the seat held other rules or none, so the session is due them whole; None when it held these or the session holds no seat, as a handler's does."""
+def hold_rules(name: str, session: str) -> list[str]:
+    """Keep on the session's seat a digest of each line of its block its role's rules draw in this install, returning each line the seat did not hold, so the session is due those alone; none when it held them all or the session holds no seat."""
     if not due_rules(state.saved(name), session):
-        return None
+        return []
     with state.edit(name) as data:
-        if role := due_rules(data, session):
-            state.seat(data, session)["rules"] = render.rules_digest(data, role)
-    return role
+        if due := due_rules(data, session):
+            state.seat(data, session)["rules"] = render.rules_digests(data, state.session_role(data, session), state.session_seat(data, session))
+    return due
 
 
-def due_rules(data: dict, session: str) -> str | None:
-    """The role whose rules in this install the session's seat does not hold, or None."""
-    held = state.seat(data, session)
-    if held is None or held.get("rules") == render.rules_digest(data, role := state.session_role(data, session)):
-        return None
-    return role
+def due_rules(data: dict, session: str) -> list[str]:
+    """Each line of the session's block in this install whose digest its seat does not hold: every line for a seat that keeps none, or keeps the one digest of the whole block an older install kept."""
+    if (held := state.seat(data, session)) is None:
+        return []
+    kept = set(held["rules"]) if isinstance(held.get("rules"), list) else set()
+    return [line for line in render.rule_units(data, state.session_role(data, session), state.session_seat(data, session)) if render.rule_digest(line) not in kept]
 
 
 def limit_hit(payload: dict) -> dict | None:

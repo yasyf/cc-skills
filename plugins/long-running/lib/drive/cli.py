@@ -178,7 +178,7 @@ def start(args: argparse.Namespace) -> int:
         raise DriveError("--project binds a sub-coordinator or a seat's communicator; the meta session holds no project")
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     fresh = state.new_drive(args.name, args.role, session, str(kept))
-    fresh["roles"][args.role]["rules"] = render.rules_digest(fresh, args.role)
+    fresh["roles"][args.role]["rules"] = render.rules_digests(fresh, args.role, args.project)
     with state.edit_or_create(args.name, fresh) as data:
         if args.project and args.role == "communicator":
             bind_communicator(data, args.project, fresh["roles"][args.role])

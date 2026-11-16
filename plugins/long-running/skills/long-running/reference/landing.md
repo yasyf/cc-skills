@@ -296,7 +296,8 @@ test, such as a lint step, is the PR's own.
   worktree, gets `/exit` instead, so cci resumes it in the checkout; with no tmux session of cci's
   the reload opens the `orca terminal create` line of [Start or resume](start.md). `drive reload`
   does the same with no install. A reload draws no role block, so the `role_rules` check hands a
-  session its rules whole at its next tool call when the installed digest differs.
+  session, at its next tool call, only the lines of its block whose installed digest differs: the
+  whole block goes in once a session and after each compaction.
 - Each drive's dashboard hands itself to a newer long-running the moment an install replaces
   `installed_plugins.json`: the new install's drive takes the same listening sockets, and each
   watch ends before its next pass and its launch agent starts it on the new install.

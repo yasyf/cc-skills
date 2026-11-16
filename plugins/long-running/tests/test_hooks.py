@@ -152,7 +152,7 @@ def rules_at_next_call(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFi
     return json.loads(said)["hookSpecificOutput"]["additionalContext"] if said else None
 
 
-def test_a_session_gets_its_roles_rules_whole_once_at_its_next_call_after_an_install_changes_them(
+def test_a_session_gets_only_the_rule_an_install_changed_once_at_its_next_call(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
@@ -161,9 +161,7 @@ def test_a_session_gets_its_roles_rules_whole_once_at_its_next_call_after_an_ins
     changed = (*render.RULES["communicator"][:3], "Pass answer alone.", *render.RULES["communicator"][4:])
     monkeypatch.setitem(render.RULES, "communicator", changed)
     context = rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"})
-    assert context.startswith(f"Your communicator rules or held channels changed since this session's block drew them: long-running {state.VERSION}'s replace them whole")
-    assert context.endswith("\n".join(render.rules(state.load("demo"), "communicator")))
-    assert "\n4. Pass answer alone.\n" in context
+    assert context.splitlines() == [f"Your communicator rules or held channels changed since this session's block drew them: long-running {state.VERSION}'s changed lines follow, and win where any older text disagrees.", "4. Pass answer alone."]
     assert rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"}) is None
 
 
@@ -188,7 +186,7 @@ def test_a_communicator_holds_each_channel_drive_channels_made_from_its_next_cal
     assert rules_at_next_call(monkeypatch, capsys, {"session_id": "iris-1"}).splitlines()[1] == "Hold no Slack channel: the top coordinator holds the drive's."
 
 
-def test_a_session_gets_its_rules_whole_once_at_its_next_call_after_its_repositorys_rules_change(
+def test_a_session_gets_its_repositorys_new_rules_once_at_its_next_call(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 import shlex
 import sys
 import traceback
@@ -210,6 +211,7 @@ JOB = {
 REPROS_SHOWN = 5
 FILED = "The projects and workstreams in use, which a new order reuses where it fits, one home a subject, since drive order add and set refuse a name other orders file only as the other of the two: drive order unfiled lists each pair."
 WHOLE = sys.maxsize
+RULE_NUMBER = re.compile(r"^\d+\. ")
 REPO_RULES_HEADING = f"The rules of the repository this drive works in, which its {REPO_RULES} holds at its default branch's head, and every session and job of every drive working in it follows:"
 UNLISTED_TOOL_LINE = (
     "A drive tool these rules name that your session does not list, such as job, is one an install added"
@@ -655,9 +657,19 @@ def repo_block(drive: dict) -> list[str]:
     return [REPO_RULES_HEADING, *(f"- {rule}" for rule in repo)] if repo else []
 
 
-def rules_digest(drive: dict, role: str) -> str:
-    """What a seat keeps of the rules its session holds, so a check before each call can tell when an install or a change to the repository's rules changed them."""
-    return hashlib.sha256("\n".join(rules(drive, role)).encode()).hexdigest()
+def rule_units(drive: dict, role: str, project: str | None = None) -> list[str]:
+    """Each line of a session's block that a check before each call shows again once it changes: its hold line, then each of its rules."""
+    return [hold_line(drive, role, project), *rules(drive, role)]
+
+
+def rule_digest(line: str) -> str:
+    """What a seat keeps of one line of its rules, read without its number, so a rule added above it leaves it held."""
+    return hashlib.sha256(RULE_NUMBER.sub("", line, count=1).encode()).hexdigest()[:16]
+
+
+def rules_digests(drive: dict, role: str, project: str | None = None) -> list[str]:
+    """What a seat keeps of the lines its session holds, one digest each, so a check before each call shows only the lines an install or a change to the repository's rules changed, so the whole block goes in once a session and after each compaction and an install adds only what it changed."""
+    return [rule_digest(line) for line in rule_units(drive, role, project)]
 
 
 def compact_instructions(drive: dict, role: str) -> str:

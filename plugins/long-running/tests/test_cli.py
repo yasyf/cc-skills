@@ -156,7 +156,7 @@ def test_start_creates_the_drive_and_prints_the_roles_context(run: Run, tmp_path
             "session": os.environ["CLAUDE_CODE_SESSION_ID"],
             "cwd": str(tmp_path),
             "started": data["roles"]["communicator"]["started"],
-            "rules": render.rules_digest(data, "communicator"),
+            "rules": render.rules_digests(data, "communicator"),
         }
     }
     assert data["slack"] == {"watch": [], "swept": None, "waiting": {}, "digest": None, "channels": {}}
