@@ -5066,12 +5066,12 @@ def test_a_built_job_whose_watch_died_after_claiming_its_card_and_before_posting
     def post(name: str, said: dict) -> dict:
         posts.append(said)
         if len(posts) == 1:
-            raise OSError("the watch was killed")
+            raise SystemExit("the watch was killed")
         return {"permalink": POSTED}
 
     monkeypatch.setattr(talk, "posted", post)
     gone = {"pid": 999999999, "started": "Mon Nov  9 08:00:00 2026"}
-    with monkeypatch.context() as dying, pytest.raises(OSError):
+    with monkeypatch.context() as dying, pytest.raises(SystemExit):
         dying.setattr(watch.os, "getpid", lambda: gone["pid"])
         dying.setattr(watch, "started", lambda pid: gone["started"])
         watch.run_pass(watcher(demo), T0)
@@ -11714,3 +11714,20 @@ def test_the_relay_reads_post_reports_at_its_first_pass_then_only_once_cci_watch
     assert not watch.posts_due(demo)
     heard.at = watch.monotonic() - watch.POSTS_IDLE
     assert watch.posts_due(demo)
+
+
+def test_a_stage_that_raises_is_logged_and_skipped_and_its_third_failure_in_a_row_reaches_the_meta_session_once(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    posts: list[tuple[str, str, list[str]]] = []
+    monkeypatch.setattr(watch, "posted_record", lambda name, lane, kind, lines, checkout: posts.append((lane, kind, lines)))
+    watching = watcher(demo)
+
+    def broken(watching: watch.Watcher, moment: datetime) -> list[str]:
+        raise KeyError("Forge-AI/monorepo#55820")
+
+    stage = functools.partial(broken, watching, T0)
+    said = [watch.contained(watching, stage, T0 + timedelta(minutes=minute)) for minute in range(4)]
+    assert (said, [(lane, kind) for lane, kind, _ in posts]) == ([[], [], [], []], [("meta", "incident")])
+    assert posts[0][2][0].startswith("WATCH stage broken failed 3 times in a row: ")
+    assert capsys.readouterr().out.count("stage broken of the drive raised KeyError") == 4
+    assert watch.contained(watching, functools.partial(lambda watching, moment: ["FREE j1"], watching, T0), T0) == ["FREE j1"]
+    assert watching.failures["stage broken"] == 4

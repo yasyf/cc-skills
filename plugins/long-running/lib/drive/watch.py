@@ -15,6 +15,7 @@ import signal
 import subprocess
 import sys
 import threading
+import traceback
 import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -2162,7 +2163,7 @@ def landing_pass(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
         later = owed_reads(watcher, moment)
     for stage in later:
         beat(f"landing {stage.func.__name__}", True)
-        yield stage() or []
+        yield contained(watcher, stage, moment)
 
 
 def owed_reads(watcher: Watcher, moment: datetime) -> list[functools.partial]:
@@ -5098,11 +5099,11 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
     beat("drained", True)
     yield drained(watcher.relayed)
     beat("event_lines", True)
-    yield event_lines(watcher)
+    yield contained(watcher, functools.partial(event_lines, watcher), moment)
     beat("orphan_lines", True)
-    yield orphan_lines(watcher, moment, NotStarted if watcher.read_at is None else (NotStarted, type(None)))
+    yield contained(watcher, functools.partial(orphan_lines, watcher, moment, NotStarted if watcher.read_at is None else (NotStarted, type(None))), moment)
     beat("first_starts", True)
-    yield first_starts(watcher, moment)
+    yield contained(watcher, functools.partial(first_starts, watcher, moment), moment)
     later: list[functools.partial] = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -5170,9 +5171,27 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
             watcher.resume = stage.func.__name__
             return
         beat(stage.func.__name__, True)
-        yield stage() or []
+        yield contained(watcher, stage, moment)
     if resume or monotonic() - began >= SLOW_STAGE.total_seconds():
         print(f"{state.stamp()} pass of {watcher.project or 'the drive'} reached its last stage, {names[-1]}, in {monotonic() - began:.0f}s{f', resumed at {resume}' if resume else ''}", flush=True)
+
+
+def contained(watcher: Watcher, stage: functools.partial, moment: datetime) -> list[str]:
+    """A stage's lines, or, when it raises, none: one traceback line in the watch's log each pass it raises, so every later stage of the pass still runs, and one incident record to the meta session once it raises FAILURES_BEFORE_SAYING passes in a row, at most every FAILURE_EVERY."""
+    source = f"stage {stage.func.__name__}"
+    try:
+        lines = stage() or []
+    except Exception as error:
+        where = traceback.extract_tb(error.__traceback__)[-1]
+        print(f"{state.stamp()} {source} of {watcher.project or 'the drive'} raised {type(error).__name__}: {error} at {Path(where.filename).name}:{where.lineno}", flush=True)
+        if said := failed(watcher, source, source, error, moment):
+            try:
+                posted_record(watcher.name, "meta", "incident", said, Path(state.load(watcher.name)["roles"]["coordinator"]["cwd"]))
+            except reads.ReadError as refusal:
+                print(f"{state.stamp()} {source}'s incident record to the meta session failed: {refusal}", flush=True)
+        return []
+    watcher.failures.pop(source, None)
+    return lines
 
 
 def superseded_lines(watcher: Watcher, moment: datetime) -> list[str]:
