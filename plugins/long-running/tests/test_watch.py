@@ -12321,3 +12321,12 @@ def test_a_part_its_orders_session_delivers_every_thirty_minutes_is_no_orphan_wh
     order["last_line"] = state.stamp(moment - timedelta(minutes=41))
     assert watch.reported_gap(order, 30, moment) == f"its line to him every 30 minutes is overdue: the order's last went out at {order['last_line']}; its session posts it now"
     assert watch.reported_gap({"last_line": None}, 30, moment).startswith("its line to him every 30 minutes is overdue: the order's last went out never")
+
+
+def test_a_relay_stage_that_raises_is_contained_so_post_lines_after_it_still_runs(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    for quiet in ("clocks_drawn", "codex_takes", "limit_lines", "applet_lines", "check_disks", "slot_lines"):
+        monkeypatch.setattr(watch, quiet, lambda *args: [])
+    monkeypatch.setattr(watch, "work_lines", lambda watcher, moment: 1 / 0)
+    monkeypatch.setattr(watch, "post_lines", lambda watcher, moment: ["POST started"])
+    monkeypatch.setattr(watch, "failed", lambda *args: None)
+    assert watch.relay_pass(watcher(demo), T0) == ["POST started"]

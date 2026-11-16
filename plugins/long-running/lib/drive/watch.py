@@ -2581,10 +2581,13 @@ def respond_pass(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """Take each ended codex-ask run, by codex_takes, start the disk check once DISKS_EVERY is due, by check_disks, hand on each staging slot whose lease ended or whose turn came, by slot_lines, tell him once of each Claude usage limit this Mac hit, by limit_lines, then start the handler on each POST report that needs one, by post_lines, so none of these clocks waits on a main pass that runs minutes; the lanes' reads are respond_pass's."""
-    clocks_drawn(watcher)
-    codex_takes(watcher)
-    return limit_lines(watcher, moment) + applet_lines(watcher, moment) + check_disks(watcher, moment) + slot_lines(watcher, moment) + work_lines(watcher, moment) + post_lines(watcher, moment)
+    """Run each relay stage by contained, so one that raises, as work_lines did on every pass from 05:27 to 06:02, is logged and counted and never skips post_lines after it: take each ended codex-ask run, by codex_takes, start the disk check once DISKS_EVERY is due, by check_disks, hand on each staging slot whose lease ended or whose turn came, by slot_lines, tell him once of each Claude usage limit this Mac hit, by limit_lines, then start the handler on each POST report that needs one, by post_lines, so none of these clocks waits on a main pass that runs minutes; the lanes' reads are respond_pass's."""
+    stages = [
+        functools.partial(clocks_drawn, watcher),
+        functools.partial(codex_takes, watcher),
+        *(functools.partial(stage, watcher, moment) for stage in (limit_lines, applet_lines, check_disks, slot_lines, work_lines, post_lines)),
+    ]
+    return [line for stage in stages for line in contained(watcher, stage, moment)]
 
 
 CLOCKS_DRAWN: dict[str, int] = {}
