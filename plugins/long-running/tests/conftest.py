@@ -615,6 +615,16 @@ def claim_of(record: dict) -> dict:
     return {field: value for field, value in record.items() if field not in ("token", "members", "starter", "child", "launched_at")}
 
 
+GONE_PID = 999_999_999
+
+
+def lander_exited(name: str, *keys: str) -> None:
+    """End the try a lander holds on each of keys as its `drive pr land` exiting does: adopted by a child that no longer runs, so state.holder reads no one holding it and the next lander may take its PRs."""
+    with edit(name) as data:
+        for key in keys:
+            data["prs"][key]["lander"] |= {"state": "adopted", "child": state.born(GONE_PID)}
+
+
 def adopted_as(name: str, args: list[str], pid: int) -> int:
     """Adopt, as the child the launch args start would on its first step, the reservation they name by --reserved, wherever the drive holds it, naming pid as that child, so a test reads the child's liveness by pid as a real launch's; pid."""
     if "--reserved" not in args:

@@ -45,6 +45,7 @@ from conftest import (
     drawn_card,
     edit,
     git_in,
+    lander_exited,
     own_time,
     provide,
     said_lines,
@@ -7457,12 +7458,28 @@ def test_his_approve_starts_one_lander_once_its_pr_is_green_and_conflict_free_an
     assert started == [0, 0, 1, 1]
     with edit(demo) as data:
         data["prs"][KEY]["lander"]["outcome"] = "not landed: stack-enqueue --watch exited 1: checks failed"
+    lander_exited(demo, KEY)
     watch.run_pass(watching, T0 + timedelta(minutes=5))
     assert len(landers) == 1
     reads[KEY] = read(headRefOid="ccccccc333", checks=GREEN, reviewDecision="APPROVED")
     watch.run_pass(watching, T0 + timedelta(minutes=6))
     assert landers == [(KEY,), (KEY,)]
     assert state.load(demo)["prs"][KEY]["lander"]["head"] == "ccccccc333"
+
+
+def test_a_halted_landers_child_still_dequeuing_after_its_hold_was_recorded_keeps_its_prs_from_the_next_lander_until_it_ends(demo: str) -> None:
+    cleanup = subprocess.Popen(["sleep", "600"], start_new_session=True)
+    try:
+        with edit(demo) as data:
+            first = land.mark(data, (KEY,))
+            data["prs"][KEY]["lander"] |= {"child": state.born(cleanup.pid), "state": "adopted", "outcome": f"{land.HELD}: {KEY}: his Hold"}
+        with edit(demo) as data:
+            assert land.mark(data, (KEY,)) is None
+    finally:
+        cleanup.terminate()
+        cleanup.wait()
+    with edit(demo) as data:
+        assert land.mark(data, (KEY,)).token != first.token
 
 
 ONE_CARD, TWO_CARDS = [[KEY, OTHER]], [[KEY], [OTHER]]
@@ -8408,6 +8425,7 @@ def test_a_landing_whose_stack_enqueue_failed_on_its_own_is_said_once_to_the_met
     )
     assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
     assert land.run(demo, [KEY]) == failed
+    lander_exited(demo, KEY)
     enqueue_exiting(tmp_path, demo, 0)
     assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
     assert land.run(demo, [KEY]) == land.QUEUED
@@ -8437,9 +8455,11 @@ def test_a_landing_whose_check_failed_on_one_network_blip_tries_again_with_no_wo
     assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
     assert land.run(demo, [KEY]) == failed
     assert watch.event_lines(watching) == [f"{watch.LANDER}{failed}"]
+    lander_exited(demo, KEY)
     assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
     assert land.run(demo, [KEY]) == failed
     assert watch.event_lines(watching) == []
+    lander_exited(demo, KEY)
     enqueue_exiting(tmp_path, demo, 0)
     assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
     assert land.run(demo, [KEY]) == land.QUEUED
@@ -8463,6 +8483,7 @@ def test_replayed_56720_a_landing_whose_stack_enqueue_exited_before_it_printed_a
     assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
     again = land.run(demo, [KEY])
     assert again != failed
+    lander_exited(demo, KEY)
     enqueue_exiting(tmp_path, demo, 0)
     assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
     assert land.run(demo, [KEY]) == land.QUEUED
