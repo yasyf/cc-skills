@@ -6093,20 +6093,25 @@ def approve(name: str, answer_id: str, asked: dict[str, dict], named: list[str])
         closed = settled.approved(option, answer_id, kept["link"])
         key = question["waits"] or view.message_key(question["card"])
         ended_on(name, closed, key, question["card"], f'"{render.cut(closed["words"], 300)}" linked to {kept["link"]}')
-        with state.edit(name) as data:
+        def decided(data: dict) -> None:
             if key in asked and key not in named:
                 data["answers"][answer_id]["cards"].setdefault(key, {"mark": "settled", "job": job_id, "card": question["card"]})
             if data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES:
                 data["answers"][answer_id]["jobs"].setdefault(job_id, None)
+
+        state.update(name, None, decided)
         shown = f"its card {question['card']} now shows it" if question["card"] else "no card draws for it"
         done.append(f'{key}: decided on "{render.cut(option, 200)}" under his approval {answer_id[:7]}, {shown}; {builds_on(state.load(name), job_id)}')
-    with state.edit(name) as data:
+    def approved(data: dict) -> list[str]:
         tapped = [key for key, pr in data["prs"].items() if state.approval_covers(approves, key, pr["order"]) and state.asks_tap(data, pr) and not state.against(pr)]
         for key in tapped:
             pr = data["prs"][key]
             pr.update(tap=state.new_tap("Approve", pr["head"], kept["link"], card=[key], approval=answer_id), fundamental=None, updated=state.stamp())
         for key in [key for key, entry in asked.items() if key not in named and not data["answers"][answer_id]["cards"].get(key) and state.approval_covers(approves, key, entry["order"])]:
             data["answers"][answer_id]["cards"][key] = {"mark": "stands"}
+        return tapped
+
+    tapped = state.update(name, None, approved)
     for key in tapped:
         done.append(f"{key}: his Approve taken from his approval {answer_id[:7]} at {kept['link']}, so no card asks his tap")
     return done
