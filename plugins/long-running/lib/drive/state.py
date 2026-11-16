@@ -5556,15 +5556,15 @@ def settle(name: str, reservation: Reservation, pid: int) -> None:
     write(name, named, patient=True)
 
 
-def cancel(name: str, reservation: Reservation) -> bool:
-    """Cancel the reservation where no child adopted it, as a launch that raised does, since a child it may have started must not work, or a halt for a launch not yet adopted, in a patient write: each member still holding its token reserved reads cancelled, which a late child's adopt refuses and holder reads as free, a member another write took or removed left as that write left it; whether a child adopted it instead, a child then working that only a signal to that child, never to its starter, stops."""
+def cancel(name: str, reservation: Reservation) -> list[int | None] | None:
+    """Cancel the reservation where no child adopted it, as a launch that raised does, since a child it may have started must not work, or a halt for a launch not yet adopted, in a patient write: each member still holding its token reserved reads cancelled, which a late child's adopt refuses and holder reads as free, a member another write took or removed left as that write left it; the child that adopted it instead, by born, read in that same write, a child then working that only a signal to that child, never to its starter or to whatever holds the member later, stops, and only while lives reads it as that very process; None when none adopted it."""
 
-    def ended(data: dict) -> bool:
+    def ended(data: dict) -> list[int | None] | None:
         records = reserved(data, reservation.members, reservation.token)
         for record in records:
             if record["state"] == "reserved":
                 record["state"] = "cancelled"
-        return any(record["state"] == "adopted" for record in records)
+        return next((record["child"] for record in records if record["state"] == "adopted"), None)
 
     return write(name, ended, patient=True)
 

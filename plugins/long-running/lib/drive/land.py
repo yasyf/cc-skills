@@ -429,7 +429,7 @@ def answer_picks(name: str, keys: list[str]) -> list[str]:
 
 
 def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
-    """Stop each landing of a merge-queue unit with a PR among keys that stopping() stops, or that unattended() holds while he is not present, read before the write since it reads GitHub, so a unit queued before he went quiet leaves the queue: a lander still running on it by cancelling the reservation its unit's PRs hold, so a lander started on it that has not adopted it yet ends without working, and else by ending the process group of the child that adopted it, never its starter, which dequeues what it queued, its stop reserved on each PR of its unit before the signal and the hold recorded there once it went, so a halt that dies between them leaves the lander running for the next halt to stop, by halting(), and a unit the merge queue holds after its lander ended by unqueue(), a process of its own that adopts the dequeue reserved on each PR of the unit, takes it out of the queue and records it; each PR reads that hold until he answers, waiting until the wait ends or away until his next word, and lands then; the PRs stopped."""
+    """Stop each landing of a merge-queue unit with a PR among keys that stopping() stops, or that unattended() holds while he is not present, read before the write since it reads GitHub, so a unit queued before he went quiet leaves the queue: a lander still running on it by cancelling the reservation its unit's PRs hold, so a lander started on it that has not adopted it yet ends without working, and else by ending the process group of the child that cancel read as having adopted that very reservation, while that process, by its pid and start, still runs, never its starter nor whatever holds the PRs since, which dequeues what it queued, its stop reserved on each PR of its unit before the signal and the hold recorded there once it went, so a halt that dies between them leaves the lander running for the next halt to stop, by halting(), and a unit the merge queue holds after its lander ended by unqueue(), a process of its own that adopts the dequeue reserved on each PR of the unit, takes it out of the queue and records it; each PR reads that hold until he answers, waiting until the wait ends or away until his next word, and lands then; the PRs stopped."""
     data = state.load(name)
     away = {key: f"{AWAY}: {why}" for key in keys if landing(pr := data["prs"][key]) and not dequeuing(pr) and not halting(pr) and not stopping(data, key, cards) and (why := unattended(data, key, state.now()))}
     if not held_landings(data, keys, cards, away):
@@ -469,8 +469,8 @@ def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
     unlaunched = {unit: dequeuer for unit, (dequeuer, _) in dequeues.items()}
     try:
         for unit, (reservation, _, _) in kills.items():
-            if state.cancel(name, reservation) and (child := state.holder(state.load(name)["prs"][unit[0]]["lander"])) is not None:
-                os.killpg(child, signal.SIGTERM)
+            if (child := state.cancel(name, reservation)) and state.lives(child):
+                os.killpg(child[0], signal.SIGTERM)
             signalled.add(unit)
         for unit, (dequeuer, why) in dequeues.items():
             pid = unqueue(name, list(unit), why, dequeuer.token)
