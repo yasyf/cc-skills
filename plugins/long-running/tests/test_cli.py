@@ -6590,8 +6590,9 @@ def test_order_set_drops_a_change_its_designs_newest_list_left_out_off_every_job
     run("order", "set", "o1", "--add-part", "the follow-up")
     run("job", "add", "builder", "--order", "o1", "--part", "the follow-up", "--goal", "build the follow-up")
     code, out = run("order", "set", "o1", "--drop-part", "the follow-up")
-    assert (code, out.splitlines()[-1]) == (0, "j6 stopped, left with no part: end its agent, or its lane with drive job end j6")
-    assert (state.load("demo")["jobs"]["j6"]["state"], state.load("demo")["jobs"]["j6"]["parts"]) == ("stopped", [])
+    assert (code, out.splitlines()[-1]) == (0, "j6 is left with no part: it heard why and runs on to its own return, since a drop stops no job")
+    j6 = state.load("demo")["jobs"]["j6"]
+    assert (j6["state"] != "stopped", j6["parts"], j6["undelivered"][-1]["words"].startswith('The part you work on, "the follow-up", left o1: drive order set o1 --drop-part took it off.')) == (True, [], True)
 
 
 def test_order_add_and_set_refuse_a_part_named_in_words_a_designs_change_line_could_not_hold(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:

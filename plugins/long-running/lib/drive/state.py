@@ -2319,22 +2319,26 @@ def deliver(data: dict, job_id: str, order_id: str, parts: list[str]) -> None:
     job["parts"] = list(dict.fromkeys([*job["parts"], *parts]))
 
 
-def drop_part(data: dict, order_id: str, part: str, why: str) -> tuple[list[str], dict[str, list[str]]]:
-    """Take a part off its order, every job delivering it and every PR naming it, stopping each live job it leaves with no part, said so with why, by stop_job, which drops each text it held: the one way a part leaves an open order, whether his answer, drive order set --drop-part or its design's newest DESIGN drops it. The jobs it took the part off, and the live ones of them it stopped, each with the words of each text it dropped."""
+PART_DROPPED = 'The part you work on, "{part}", left {order}: {why}. No part of yours is left: return what you have, DONE with what it delivered or WAITING naming what still needs doing, since the drive stops no job for a dropped part'
+
+
+def drop_part(data: dict, order_id: str, part: str, why: str) -> tuple[list[str], list[str]]:
+    """Take a part off its order, every job delivering it and every PR naming it, telling each live job it leaves with no part why, by PART_DROPPED, and stopping none, so a job such as a release whose part a drop took runs on to its own return, by his rethink step 5: the one way a part leaves an open order, whether his answer, drive order set --drop-part or its design's newest DESIGN drops it. The jobs it took the part off, and the live ones of them it told."""
     del data["orders"][order_id]["parts"][part]
     data["orders"][order_id]["updated"] = stamp()
-    trimmed, stopped = [], {}
+    trimmed, told = [], []
     for job_id, job in data["jobs"].items():
         if part not in job_parts(job, order_id):
             continue
         take_part_off(job, order_id, part)
         trimmed.append(job_id)
         if job["state"] not in FINISHED_JOB_STATES and not job["parts"] and not job["carries"]:
-            stopped[job_id] = stop_job(job, why)
+            hold_text(job, PART_DROPPED.format(part=part, order=order_id, why=why), WATCH_SENDER)
+            told.append(job_id)
     for pr in data["prs"].values():
         if pr["order"] == order_id and part in pr["parts"]:
             pr["parts"].remove(part)
-    return trimmed, stopped
+    return trimmed, told
 
 
 def take_part_off(job: dict, order_id: str, part: str) -> None:
@@ -3260,16 +3264,16 @@ def wait_on_staging(data: dict, key: str) -> tuple[str, str]:
 
 
 def unreach(data: dict, key: str) -> list[str]:
-    """Take a PR the retired release reach put on its staging test off it, as watch.reach_lines does for each that changes nothing dangerous: unmarked reached, its ungranted exception cleared, and its `staging test of #N before it lands` part off each order, by drop_part, with its wait on any staging part naming it, a shared one included, whose test a dangerous partner still owes, whichever job took the test up, since a change that plans like dev passes untested, by his answer bb9cf91, and his ruling 0048b14 that a started staging test is finished binds a high-risk change, so his Approve on it stands; each job drop_part stopped."""
+    """Take a PR the retired release reach put on its staging test off it, as watch.reach_lines does for each that changes nothing dangerous: unmarked reached, its ungranted exception cleared, and its `staging test of #N before it lands` part off each order, by drop_part, with its wait on any staging part naming it, a shared one included, whose test a dangerous partner still owes, whichever job took the test up, since a change that plans like dev passes untested, by his answer bb9cf91, and his ruling 0048b14 that a started staging test is finished binds a high-risk change, so his Approve on it stands; each live job drop_part told its part left, which it stops none of."""
     pr, part, number = data["prs"][key], STAGING_TEST.format(number=key.rpartition("#")[2]), f"#{key.rpartition('#')[2]}"
     pr["reached"] = False
     if pr["exception"] and not pr["exception"]["granted"]:
         pr["exception"] = None
-    stopped = []
+    told = []
     for order_id in [order_id for order_id, order in data["orders"].items() if part in order["parts"]]:
-        stopped += drop_part(data, order_id, part, UNDANGEROUS_MERGES.format(key=key))[1]
+        told += drop_part(data, order_id, part, UNDANGEROUS_MERGES.format(key=key))[1]
     pr["waits"] = [wait for wait in pr["waits"] if not ((found := part_wait(data, wait)) and (named := STAGING_PARTS.fullmatch(found[1])) and number in re.findall(r"#\d+", named["numbers"])) and wait.rpartition(":")[2] != part]
-    return stopped
+    return told
 
 
 def releasing(data: dict, order_id: str) -> bool:

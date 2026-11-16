@@ -924,7 +924,7 @@ def quoted_parts(parts: Iterable[str]) -> str:
 
 
 def change_parts(name: str, data: dict, order_id: str, added: list[str], dropped: list[str]) -> list[str]:
-    """Add and take off an order's parts one name a flag, so no call retypes a part it leaves alone, and each part it keeps keeps its posted mark, design and the jobs naming it, a dropped one leaving every job and PR too, by state.drop_part: an add is refused for a name the order holds, a drop for a name it does not hold, for its every part, which a close takes off, and for a change a design listed that no builder delivered, which only his answer drops, unless its design's newest DESIGN no longer lists it and no work on it began, by state.unlisted_changes. A line for each live job a drop left with no part, which it stopped, naming each text the stop dropped."""
+    """Add and take off an order's parts one name a flag, so no call retypes a part it leaves alone, and each part it keeps keeps its posted mark, design and the jobs naming it, a dropped one leaving every job and PR too, by state.drop_part: an add is refused for a name the order holds, a drop for a name it does not hold, for its every part, which a close takes off, and for a change a design listed that no builder delivered, which only his answer drops, unless its design's newest DESIGN no longer lists it and no work on it began, by state.unlisted_changes. A line for each live job a drop left with no part, which heard why and runs on to its own return."""
     parts = data["orders"][order_id]["parts"]
     if held := [part for part in added if part in parts]:
         raise DriveError(f"{order_id}: refused, its parts stay as they are: it holds {quoted_parts(held)} already, so --add-part adds none; name it as it stands with --part")
@@ -944,8 +944,8 @@ def change_parts(name: str, data: dict, order_id: str, added: list[str], dropped
         )
     state.split_research(data, order_id, added, dropped)
     parts |= {part: state.new_part() for part in added}
-    stopped = {job_id: held for part in dropped for job_id, held in state.drop_part(data, order_id, part, f"drive order set {order_id} --drop-part took off every part it delivered")[1].items()}
-    return [superseded.stopped_line(f"{job_id} stopped, left with no part: end its agent, or its lane with drive job end {job_id}", held) for job_id, held in stopped.items()]
+    told = [job_id for part in dropped for job_id in state.drop_part(data, order_id, part, f"drive order set {order_id} --drop-part took it off")[1]]
+    return [f"{job_id} is left with no part: it heard why and runs on to its own return, since a drop stops no job" for job_id in told]
 
 
 def repeated_lines(data: dict, order_id: str, parts: list[str]) -> list[str]:

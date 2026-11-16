@@ -6039,7 +6039,7 @@ def test_an_end_the_watch_ran_says_its_refusal_in_the_watchs_line_and_one_run_by
     ]
 
 
-def test_his_answer_dropping_every_part_a_job_delivered_stops_it_and_drops_the_text_it_held_naming_it(run: Run, remote: str) -> None:
+def test_his_answer_dropping_every_part_a_job_delivered_tells_it_why_and_stops_nothing_so_it_runs_to_its_own_return(run: Run, remote: str) -> None:
     run("order", "set", "o1", "--add-part", "the analytics server")
     with edit(remote) as data:
         job = data["jobs"]["j1"]
@@ -6049,10 +6049,10 @@ def test_his_answer_dropping_every_part_a_job_delivered_stops_it_and_drops_the_t
         lines = superseded.drop(data, "5565a57", "o1", part)
     assert lines == [
         f"o1:{part} dropped from o1 and j0, j1",
-        f'j1 stopped, left with no part: end its agent, or its lane with drive job end j1; the text it held, which no worker of a stopped job carries, dropped: "{render.cut(J92_HELD, 160)}"',
+        "j1 is left with no part: it heard why and runs on to its own return, since a drop stops no job",
     ]
     job = state.load(remote)["jobs"]["j1"]
-    assert (job["state"], job["said"], job["undelivered"]) == ("stopped", "his answer 5565a57 dropped every part it delivered", [])
+    assert (job["state"], [held["words"] for held in job["undelivered"]]) == ("waiting", [J92_HELD, state.PART_DROPPED.format(part=part, order="o1", why="his answer 5565a57 dropped it")])
 
 
 def test_no_agent_binds_a_job_whose_launch_holds_its_lock_with_no_dispatch_recorded_yet_and_one_binds_once_that_launch_ends(

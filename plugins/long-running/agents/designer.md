@@ -239,8 +239,8 @@ branch. Those words are the change's identity, so when you file the design again
 
 - each change you listed before keeps its words, and what is new goes on `Design:`; a design of one
   change is your own part;
-- leaving out an undelivered change drops it from the order and stops its builders, while no agent
-  or lane took one and no open PR carries it;
+- leaving out an undelivered change drops it from the order, and its builders hear why and run on
+  to their own return, while no agent or lane took one and no open PR carries it;
 - the report is refused, keeping nothing, when it adds a change while leaving out one an agent
   took or a PR carries, since that would start a second builder for one change. To drop such a
   change, return `BLOCKED` naming the job that carries it, which its own session stops.

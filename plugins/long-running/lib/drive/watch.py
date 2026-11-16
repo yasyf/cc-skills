@@ -526,8 +526,8 @@ def reach_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
     data, lifted = state.write(watcher.name, reach_lines_write, budget=state.WATCH_WRITE_SECONDS)
     lines = []
-    for key, stopped in lifted.items():
-        ended = f", and {', '.join(stopped)} stopped" if stopped else ""
+    for key, told in lifted.items():
+        ended = f", and {', '.join(told)} heard its part left" if told else ""
         shown = ", ".join(read[key][:REACH_SHOWN]) + (f" and {len(read[key]) - REACH_SHOWN} more" if len(read[key]) > REACH_SHOWN else "")
         lines.append(f"PR {key}: {state.UNDANGEROUS_MERGES.format(key=key)}; its files: {shown}{ended} {ids(data['prs'][key])}")
     return lines
