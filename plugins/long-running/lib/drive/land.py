@@ -55,13 +55,7 @@ DEQUEUED_LINE = re.compile(r"^#\d+ DEQUEUED ", re.MULTILINE)
 BLOCKED_LINE = re.compile(r"^#(?P<number>\d+) BLOCKED (?P<head>\w+) (?P<gaps>.+)$", re.MULTILINE)
 OLDER_HEAD = re.compile(r"awaiting approval on head from \S+ \(approved [^,]+, (?:on an older head|dismissed by a push)\)")
 REVERT = re.compile(r"^Reverts?\s|⏪|\bThis reverts\b", re.MULTILINE)
-DANGEROUS = re.compile(
-    r"migrations?/|backfill|bucketdelete/|sandsql|sanddb|^go/sand/(?:next/)?internal/(?:builtin|irisbuiltins|parser|checker|compiler|vm\w*|runtime-api)/"
-    r"|^api/src/modules/runtimeApi/|^common/src/iris/appShell/",
-    re.IGNORECASE,
-)
 STORED_DATA = re.compile(r"(?:^|/)migrations?/|(?:^|/)[^/]*schema[^/]*$|\.(?:sql|proto)$", re.IGNORECASE)
-CI_FILES = re.compile(r"^(?:\.github|\.buildkite|(?:go|infra)/ci)/|^tools/ci(?:-ts)?(?:/|$)")
 BRANCH_HISTORY = 50
 BRANCH_SECONDS = 20
 TESTED = re.compile(r"HEAD is now at \w+ Merge [0-9a-f]{40} into (?P<base>[0-9a-f]{40})")
@@ -119,14 +113,14 @@ def stored(paths: list[str]) -> list[str]:
     return [path for path in paths if STORED_DATA.search(path) and not served.TESTS.search(path)]
 
 
-def dangerous(paths: list[str]) -> list[str]:
-    """The paths outside test and fixture code that the root AGENTS.md of Forge-AI/monorepo calls dangerous, able to break FDE or customer runs or lose their data: a database migration, a backfill, a delete of user data, SandSQL, a Sand builtin, the parser, checker, compiler or VM, runtime-api, or the app API in common/src/iris/appShell."""
-    return [path for path in paths if DANGEROUS.search(path) and not served.TESTS.search(path)]
+def dangerous(data: dict, paths: list[str]) -> list[str]:
+    """The paths outside test and fixture code that the repository's provider calls dangerous, able to break FDE or customer runs or lose their data."""
+    return [path for path in providers.of(data).repo.dangerous_paths(paths) if not served.TESTS.search(path)]
 
 
 def danger(data: dict, key: str) -> str:
     """What makes a Forge-AI PR dangerous, so it lands or releases only while he is present: each path dangerous() names, as GitHub lists its files now, else an order's `staging test of #N before it lands` part for it, delivered or not, which a builder's STAGING line gives only a change it read as dangerous, an infra or blue-green one included whatever its paths; "" for neither."""
-    if found := dangerous(github.files(key)):
+    if found := dangerous(data, github.files(key)):
         return f"it changes {', '.join(found[:3])}{', …' if len(found) > 3 else ''}"
     part = state.STAGING_TEST.format(number=key.partition("#")[2])
     if not state.home_repo(data, github.repo_of(key)) or not (order_id := next((order_id for order_id, order in data["orders"].items() if part in order["parts"]), None)):
@@ -144,12 +138,13 @@ def unattended(data: dict, key: str, moment: datetime) -> str | None:
     )
 
 
-def not_ci(paths: list[str]) -> list[str]:
-    """The paths outside CI configuration and CI tooling, those CI_FILES does not match, which no ci-only PR changes."""
-    return [path for path in paths if not CI_FILES.search(path)]
+def not_ci(data: dict, paths: list[str]) -> list[str]:
+    """The paths outside CI configuration and CI tooling, as the repository's provider reads them, which no ci-only PR changes."""
+    repo = providers.of(data).repo
+    return [path for path in paths if not repo.ci_config(path) and not repo.checkout_tools(path)]
 
 
-def outside(exempt: str, key: str, read: dict) -> str:
+def outside(data: dict, exempt: str, key: str, read: dict) -> str:
     """Why a PR, by its changed files, title and body as served.change read them, or for a main fix by its repository's default branch's CI, is not in the exempt class, the one check of an exempt class: the lander's before it lands, `drive pr add`'s and `drive pr set`'s before they keep the class, and a flake fix's tap; "" when it is."""
     paths = [path for path, _ in served.files(read["diff"])]
     match exempt:
@@ -163,7 +158,7 @@ def outside(exempt: str, key: str, read: dict) -> str:
             found = [path for path in paths if not served.TESTS.search(path)]
             return f"it changes {', '.join(found)}, outside test and fixture code" if found else ""
         case state.CI_ONLY:
-            found = not_ci(paths)
+            found = not_ci(data, paths)
             return f"it changes {', '.join(found)}, outside CI configuration and CI tooling" if found else ""
         case "incident fix":
             return "its title or body says it reverts a change, which lands only on his tap" if REVERT.search(f"{read['title']}\n{read['body']}") else ""
@@ -174,7 +169,7 @@ def unexempt(data: dict, key: str) -> str | None:
     pr = data["prs"][key]
     if approved(pr):
         return None
-    if not (why := outside(pr["exempt"], key, served.change(key))):
+    if not (why := outside(data, pr["exempt"], key, served.change(key))):
         return None
     if pr["exempt"] == state.FLAKE_FIX:
         return f'{key} is a "{pr["exempt"]}", which lands with no tap only in test or fixture code, and {why}; it lands on his Approve once drive pr set {state.pr_url(key)} --tap puts it on his card'
