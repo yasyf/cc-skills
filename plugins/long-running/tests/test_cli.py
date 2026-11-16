@@ -6864,7 +6864,7 @@ def test_a_tester_a_builders_staging_line_adds_is_briefed_on_its_builders_mac_st
     part, at = state.STAGING_TEST.format(number=42), render.when(data["prs"][with_pr]["tap"]["at"])
     assert f'{tester_id} builder on {json.dumps(part)}: the watch starts its agent on its brief {tester["brief"]}, so start no agent for it; drive job resume reaches it' in out
     written = Path(tester["brief"]).read_text()
-    assert (f"\nMac: {mac}\n" in written, "drive slot claim" in written, tester["brief_flags"]["mac"]) == (True, False, mac)
+    assert (f"\nMac: {mac}\n" in written, "`drive slot claim plat-usw2-staging --job" in written, tester["brief_flags"]["mac"]) == (True, True, mac)
     assert f"; he tapped Approve on {with_pr} at {at}, head 3fd9f47986fa{cli.STAGING_APPROVED}\n" in written
 
 

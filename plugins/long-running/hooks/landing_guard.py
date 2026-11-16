@@ -340,8 +340,13 @@ def queue_landings(cwd: str) -> tuple[Landing, ...]:
 
 
 def names_pr(words: list[str]) -> bool:
-    """Whether a command names a PR by number or URL, as every merge-queue landing does, so a command naming none loads no providers."""
+    """Whether a command names a PR by number or URL, as a merge-queue landing may."""
     return any(PR_REF.fullmatch(word) or state.PR_URL.search(word) for word in words[1:])
+
+
+def queue_judged(words: list[str], shell: Shell) -> bool:
+    """Whether a command is matched against the merge queue's landings, which loading the providers costs: one naming a PR by number or URL, and every command of a drive session, an agent it started, a codex job or a Sprite lane, which cut_reason loads the same providers for, so a queue landing naming its PR by branch is judged as it was before the queue moved to the repository provider; a command of any other session naming no PR loads none."""
+    return names_pr(words) or bool(shell.job or shell.driving or os.environ.get(state.REMOTE_LANE_ENV) or codex_job() or os.environ.get(state.DRIVE_ENV) or state.session_drives(shell.session))
 
 
 def landing_of(words: list[str], landings: tuple[Landing, ...]) -> tuple[Landing, list[str], dict[str, list[str]]] | None:
@@ -682,7 +687,7 @@ def run_through(nodes: list, shell: Shell) -> Generator[tuple[list[str], list[st
 
 
 def script_reason(script: str, shell: Shell) -> str | None:
-    reasons = (landing_reason(*found, run_in) if (found := landing_of(words, LANDINGS) or (names_pr(words) and landing_of(words, queue_landings(run_in.cwd)))) else cut_reason(words, run_in) or job_reason(words, run_in) for _, words, run_in in commands(script, shell))
+    reasons = (landing_reason(*found, run_in) if (found := landing_of(words, LANDINGS) or (queue_judged(words, run_in) and landing_of(words, queue_landings(run_in.cwd)))) else cut_reason(words, run_in) or job_reason(words, run_in) for _, words, run_in in commands(script, shell))
     return next(filter(None, reasons), None)
 
 

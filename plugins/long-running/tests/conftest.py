@@ -649,6 +649,12 @@ class HomeBuild(providers.BuildProvider):
     def read(self, build: re.Match) -> dict:
         return json.loads(github.run(["bk", "build", "view", build["number"], "-p", build["pipeline"], "-o", "json"]) or "{}")
 
+    def builds(self, links: list[str], fields: str) -> dict[str, dict | None]:
+        slugs = [f"{found['pipeline']}/{found['number']}" for found in map(self.build_url.fullmatch, links)]
+        query = "{ " + " ".join(f"b{at}: build(slug: {json.dumps(slug)}) {{ {fields} }}" for at, slug in enumerate(slugs)) + " }"
+        read = json.loads(reads.run([str(self.checkout / "tools" / "ci"), "bk", "graphql", query], self.checkout))
+        return {link: read[f"b{at}"] for at, link in enumerate(links)}
+
     def log_tip(self, job_url: str) -> str:
         return f"`tools/ci bk log '{job_url}'`"
 

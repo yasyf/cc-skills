@@ -19,7 +19,7 @@ import quiet_turn
 import role_rules
 import scratch_folder
 import session_start
-from conftest import QUEUE_REASON, EnvsRelease, provide, ACME_CUT, ANSWERED_CUT, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess, own_time
+from conftest import QUEUE_REASON, EnvsRelease, HomeRepo, provide, ACME_CUT, ANSWERED_CUT, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess, own_time
 from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, slack, state, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -1357,6 +1357,7 @@ def test_723003_a_release_keeps_its_build_whatever_fails_after_its_start_and_the
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the clock")
     run("job", "add", "builder", "--order", "o1", "--goal", "build the clock")
     started = released(demo, f"""case "$1" in bk) cat "$(dirname "$0")/../bk"; exit;; esac\necho '{STARTED}'""")
+    provide(monkeypatch, started.parent, repo=HomeRepo)
     recorded.shown = {CLOCK_PICK["id"][:7]: CLOCK_PICK}
     jev.picks("5419ffd")
     add = ["job", "add", "builder", "--order", "o1", "--goal", "release the merged clock", "--release", J2666_START]
@@ -2904,6 +2905,15 @@ def test_guard_judges_a_shared_pr_by_the_entry_updated_last_not_the_drive_starte
     assert landing_guard.deny_reason(bash("stack-enqueue 42")) is None
     updated_at("copy", drive_pr, "2026-11-11T00:43:00-08:00")
     assert landing_guard.deny_reason(bash("stack-enqueue 42")).startswith(f"{drive_pr}: no tap from him yet")
+
+
+def test_guard_judges_a_merge_queue_landing_naming_its_pr_by_branch_as_it_judges_one_naming_its_number(
+    home_repo: None,
+    drive_pr: str, monkeypatch: pytest.MonkeyPatch, no_calls: list[list[str]]
+) -> None:
+    viewed = landing_guard.run
+    monkeypatch.setattr(landing_guard, "run", lambda args, cwd: state.pr_url(drive_pr) if args[:3] == ["gh", "pr", "view"] else viewed(args, cwd))
+    assert landing_guard.deny_reason(bash("stack-enqueue fix-the-clock")).startswith(f"{drive_pr}: no tap from him yet")
 
 
 def test_guard_judges_a_shared_pr_by_the_sessions_own_drive_first(

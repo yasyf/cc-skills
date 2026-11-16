@@ -100,6 +100,8 @@ def test_a_save_hands_a_stopped_jobs_mac_boxes_to_a_process_of_its_own_that_retu
 
     provide(monkeypatch, checkout, mac_box=Boxes)
     state.create(state.new_drive("demo", "coordinator", None, str(checkout)))
+    with state.edit("demo") as data:
+        data["jobs"] |= {job_id: state.new_job("o1", "builder", "build it", [], state.stamp()) | {"state": "stopped"} for job_id in ("j1", "j2")}
     detached: list[tuple[str, list[str], str]] = []
     monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append((name, args, log)) or 0)
     REAL_DOWN_MAC_BOXES("demo", state.load("demo"), ["j1", "j2"])

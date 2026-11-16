@@ -382,7 +382,11 @@ def test_a_head_read_under_an_older_classifier_is_read_again_once_the_classifier
 def test_a_pr_whose_head_changes_a_path_the_repository_providers_dangerous_paths_names_is_staged_with_no_dangerous_table_as_57530_and_57528_were_not(
     home_repo: None, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(providers.RepoProvider, "dangerous_paths", lambda self, paths: [path for path in paths if "/builtins/" in path])
+    class BuiltinsRepo(HomeRepo):
+        def dangerous_paths(self, paths: list[str]) -> list[str]:
+            return [path for path in paths if "/builtins/" in path]
+
+    provide(monkeypatch, Path(), repo=BuiltinsRepo)
     changed = {KEY: ("aaaaaaa111", ["go/sand/next/internal/vm/builtins/browserpkg/extract.go", "go/sand/next/internal/iris/run_pages.go"])}
     monkeypatch.setattr(github, "paths", lambda keys: {key: changed[key] for key in keys if key in changed})
     [line] = watch.dangerous_lines(watcher(demo), T0)
