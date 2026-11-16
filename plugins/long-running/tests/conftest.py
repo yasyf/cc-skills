@@ -411,6 +411,12 @@ def seats_end_in_memory(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]
 
 
 @pytest.fixture(autouse=True)
+def live_read_at_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test's release live read runs in its own call, never in the watch process's shared background copy."""
+    monkeypatch.setattr(watch, "LIVE_SHARED", False)
+
+
+@pytest.fixture(autouse=True)
 def hands_off_at_once(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every watch ends for a newer install at its first pass boundary, never waiting out HAND_OFF_EVERY, outside the test of that wait."""
     monkeypatch.setattr(watch, "HAND_OFF_EVERY", timedelta(0))

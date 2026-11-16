@@ -5156,7 +5156,7 @@ def unreached(name: str, data: dict, waits: list[str]) -> None:
 
 
 def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
-    """The repository's own map of what each PR among keys reaches, the command the [release] table of its .claude/long-running.toml names as `components`, its `{pr}` the PR's number, run in the drive's checkout at the head of its default branch with the paths the PR changes on its stdin, and its head when they change rust/Cargo.lock, so the repository reads a lockfile line as reaching only the crates that link it; none for a repository naming no such command, or for a PR of another repository."""
+    """The repository's own map of what each PR among keys reaches, the command the [release] table of its .claude/long-running.toml names as `components`, its `{pr}` the PR's number, run in the drive's checkout at the head of its default branch with the paths the PR changes on its stdin, and its head when they change rust/Cargo.lock, so the repository reads a lockfile line as reaching only the crates that link it; none for a repository naming no such command, or for a PR of another repository. Its reads run eight at a time."""
     clone = data["roles"]["coordinator"]["cwd"]
     if not (keys and (command := state.repo_config(data).get("release", {}).get("components"))):
         return {}
@@ -5164,17 +5164,19 @@ def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
     if not (ours := list(dict.fromkeys(key for key in keys if github.repo_of(key).casefold() == repo))):
         return {}
     checkout = orca.checkout(name, clone)
-    reach = {}
-    for key in ours:
-        paths = github.files(key)
-        if paths and all(served.TESTS.search(path) or CI_CONFIG.match(path) for path in paths):
-            reach[key] = {"components": [], "touched": [], "dev": [], "releases": [], "staged": [], "tested": True}
-            continue
-        request = {"body": "", "paths": paths}
-        if CARGO_LOCK in paths:
-            request["head"] = github.paths([key])[key][0]
-        reach[key] = json.loads(github.run(shlex.split(command.format(pr=key.split("#")[1])), cwd=str(checkout), stdin=json.dumps(request)))
-    return reach
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        return dict(zip(ours, pool.map(lambda key: pr_reach(key, checkout, command), ours), strict=True))
+
+
+def pr_reach(key: str, checkout: Path, command: str) -> dict:
+    """What one PR reaches, by release_reach."""
+    paths = github.files(key)
+    if paths and all(served.TESTS.search(path) or CI_CONFIG.match(path) for path in paths):
+        return {"components": [], "touched": [], "dev": [], "releases": [], "staged": [], "tested": True}
+    request = {"body": "", "paths": paths}
+    if CARGO_LOCK in paths:
+        request["head"] = github.paths([key])[key][0]
+    return json.loads(github.run(shlex.split(command.format(pr=key.split("#")[1])), cwd=str(checkout), stdin=json.dumps(request)))
 
 
 def staging_mac_box(name: str, data: dict, job: dict) -> str:

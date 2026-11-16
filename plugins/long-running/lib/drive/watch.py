@@ -1031,12 +1031,40 @@ def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def live_rows(watcher: Watcher, data: dict) -> tuple[Path, list[dict]]:
-    """The drive's checkout, as orca.checkout moves it, and the rows of one `tools/ci release live --json` run there, a commit each cluster of every service serves, keeping them on the watcher as live for staging_line, and as staged the targets state.STAGING_ENV runs for add_prover."""
+    """The drive's checkout, as orca.checkout moves it, and the rows of one `tools/ci release live --json` run there, a commit each cluster of every service serves, keeping them on the watcher as live for staging_line, and as staged the targets state.STAGING_ENV runs for add_prover. The rows are this process's one copy of that read, by live_copy, which every project's watcher shares."""
     checkout = orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"], wait=0)
-    live = json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "live", "--json"], checkout))
+    live = live_copy(watcher.name, checkout)
     watcher.live = live
     watcher.staged = {row["target"] for row in live if row["env"] == state.STAGING_ENV}
     return checkout, live
+
+
+LIVE_SHARED = True
+LIVE_COPIES: dict[str, tuple[float, list[dict] | reads.ReadError]] = {}
+LIVE_READING: dict[str, threading.Thread] = {}
+
+
+def live_copy(name: str, checkout: Path) -> list[dict]:
+    """The rows of the drive's newest `tools/ci release live --json` read, which takes over a minute: a thread renews them once they are LIVE_EVERY old, so no pass of any project waits on the read, a failed or first read raising as a failed read does; with LIVE_SHARED off, as tests run, each call reads it at once."""
+    if not LIVE_SHARED:
+        return json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "live", "--json"], checkout))
+    at, rows = LIVE_COPIES.get(name, (None, None))
+    if (at is None or monotonic() - at >= LIVE_EVERY.total_seconds()) and not ((reading := LIVE_READING.get(name)) and reading.is_alive()):
+        LIVE_READING[name] = threading.Thread(target=live_renewed, args=(name, checkout), name=f"release-live-{name}", daemon=True)
+        LIVE_READING[name].start()
+    if rows is None:
+        raise reads.ReadError("tools/ci release live: its first read runs in the background, so the watch reads its rows next pass")
+    if isinstance(rows, reads.ReadError):
+        raise rows
+    return rows
+
+
+def live_renewed(name: str, checkout: Path) -> None:
+    try:
+        rows: list[dict] | reads.ReadError = json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "live", "--json"], checkout))
+    except reads.ReadError as error:
+        rows = error
+    LIVE_COPIES[name] = (monotonic(), rows)
 
 
 def incident_fixes(watcher: Watcher, data: dict) -> dict[str, list[str]]:
