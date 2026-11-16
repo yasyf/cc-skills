@@ -11,7 +11,7 @@ His words are the spec: his message, the order and the brief's `Decisions that b
 winning where two collide. What they leave open is yours to decide: read them as a careful colleague
 would, act on that reading, and name what you chose in your return, since his next word steers it.
 
-`<ci>` names the repository's CI and release tool, `<guarded org>` the owner whose repositories land only on his tap, `<monorepo>` the repository the drive releases from, `<pr scripts>` that repository's PR scripts, and `<staging env>` and `<sandbox env>` its staging and sandbox envs; a `[[rule]]` of the drive checkout's `.claude/long-running.toml` gives each its name there.
+Each step below says what it does; the repository's own commands for it are the `## In this repository` sections that `drive manual jobs` and `drive manual communicator` print.
 
 You answer the one question your brief asks, with evidence, and say what is unproven. The answer
 is yours: you choose what to read and how, and where the finding leaves a choice an engineer can
@@ -67,14 +67,13 @@ journals, is read or written as a service account, on a pass box or in the team'
 not on this Mac, a Sprite or under `drive break-glass`, because customer data does not belong on
 this machine. The `bash_guard` hook refuses such a read and prints its route:
 
-- on a pass box of the team's env with `<ci> pass-box run`, where the repository grants that box
-  the step, which `kubectl auth can-i` on the box confirms;
+- on a machine of the team's env that the repository grants the step;
 - under the read grant the brief's `Repo rules` line names for a team's runs;
-- as a Job with `<ci> cluster-job`, for a pass no box is granted.
+- as a job in the team's own cluster, for a pass no machine is granted.
 
 When none of these reaches it, a sessions or blobs read or a grant that refuses included, return
-`BLOCKED` naming the prefix and team. Which service account reads it is his to grant; a person's
-grant such as `<ci> pass-box-creds` is not a route.
+`BLOCKED` naming the prefix and team. Which service account reads it is his to grant; a grant of a
+person's own credentials is not a route.
 
 ## What you leave behind
 

@@ -4,7 +4,7 @@ Status: built. Testers and after-merge passes claim the slot themselves, and the
 
 ## The problem
 
-One staging env, `plat-usw2-staging`, serves every staging pass the drive runs. Today each pass asks for its window with an `ask` on topic `staging-slots` to `root@<drive>`. The top coordinator then does every step by hand:
+One staging env, which the repository's staging provider names, serves every staging pass the drive runs. Today each pass asks for its window with an `ask` on topic `staging-slots` to `root@<drive>`. The top coordinator then does every step by hand:
 
 1. Read the open asks.
 2. Pack the testers' asks into cuts.
@@ -25,10 +25,10 @@ State, one row per env under the drive's `slots` collection:
 
 ```json
 {
-  "env": "plat-usw2-staging",
-  "holder": {"job": "j7033", "prs": ["Forge-AI/monorepo#57094"], "until": "2026-11-15T22:40:00-08:00", "since": "2026-11-15T22:05:00-08:00", "claim": null},
+  "env": "staging",
+  "holder": {"job": "j7033", "prs": ["acme/app#57094"], "until": "2026-11-15T22:40:00-08:00", "since": "2026-11-15T22:05:00-08:00", "claim": null},
   "queue": [
-    {"job": "j7101", "prs": ["Forge-AI/monorepo#57120"], "minutes": 25, "cases": "smoke, failover", "asked": "726411", "at": "2026-11-15T22:07:12-08:00"}
+    {"job": "j7101", "prs": ["acme/app#57120"], "minutes": 25, "cases": "smoke, failover", "asked": "726411", "at": "2026-11-15T22:07:12-08:00"}
   ]
 }
 ```
@@ -50,7 +50,7 @@ Each pass, for each slot:
 2. **End a lease.** The holder's job finished, stopped or failed, or its extended `until` passed. The watch releases the slot, says one `SLOT` evidence line, and wakes nobody.
 3. **Hand the slot on.** When a slot is free and its queue is not empty, the head job takes it, and the watch resumes it with `GO` and its steps:
    - post the staging claim as a `POST` report to `communicator@<drive>`, at the root of the channel the repository's `staging-claim` rule names, with `until` set to the lease's end;
-   - a tester whose PR has not merged starts its own cut, `tools/ci release start <targets> --from <branch> --emergency --env plat-usw2-staging --order 23eefb9`, and returns `WAITING staging:<target>/plat-usw2-staging@<head>`;
+   - a tester whose PR has not merged starts its own cut of its branch onto the staging env with the repository's release start verb, and returns `WAITING staging:<target>/<env>@<head>`;
    - it runs its cases once staging serves its commit, which is past the claim's 5 minutes;
    - a reply in the claim's thread goes to root as today's `DUE … with replies` line, which does wake root.
 
@@ -60,7 +60,7 @@ Every staging start holds the slot, the top coordinator's included. `drive job a
 
 ## Packing
 
-When a slot frees, the head of its queue takes it together with up to five later passes whose PRs change none of the cut's files and restart none of its stacks, read from `tools/ci release select --pr`, since passes restarting one stack take turns, as AGENTS.md packs dangerous changes into one staging cut. The head's `GO` names the packed PRs and starts one cut carrying them all; each packed pass's `RIDE` line says to start no cut. One lease, its longest pass's minutes, covers the cut, and it frees once every pass in it finished or gave the slot back. Only the head may run `ci release start` on that env.
+When a slot frees, the head of its queue takes it together with up to five later passes whose PRs change none of the cut's files and restart none of its stacks, as the repository's release provider reads them, since passes restarting one stack take turns, as the repository packs dangerous changes into one staging cut. The head's `GO` names the packed PRs and starts one cut carrying them all; each packed pass's `RIDE` line says to start no cut. One lease, its longest pass's minutes, covers the cut, and it frees once every pass in it finished or gave the slot back. Only the head may start a release on that env.
 
 ## Riders of another job's cut
 
@@ -80,7 +80,7 @@ Nothing in the sequence. The lease keeps one cut at a time, so root no longer pa
 
 | Time | Event | Watch action |
 | --- | --- | --- |
-| 22:05 | j7033 runs `drive slot claim plat-usw2-staging --job j7033 --minutes 30` | Slot free: j7033 holds it until 22:40, posts its claim and starts its cut. |
+| 22:05 | j7033 runs `drive slot claim staging --job j7033 --minutes 30` | Slot free: j7033 holds it until 22:40, posts its claim and starts its cut. |
 | 22:07 | j7101 claims for 25 minutes | j7101 queued first behind j7033 (ends 22:40). |
 | 22:09 | j7150, an incident's tester, claims for 10 minutes | j7150 queued first, ahead of j7101. |
 | 22:40 | j7033 still runs | Lease extended once, to 23:10. |
