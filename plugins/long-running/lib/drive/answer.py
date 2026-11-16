@@ -136,7 +136,7 @@ def holder_session(data: dict) -> str:
 
 
 def claim_path(name: str, ts: str) -> Path:
-    return state.drive_dir(name) / "answers" / f"{ts}.json"
+    return state.drive_dir(name) / "answered" / f"{ts}.json"
 
 
 def claimed(path: Path) -> dict:
