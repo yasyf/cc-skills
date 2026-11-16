@@ -204,7 +204,7 @@ def test_a_call_with_three_refused_ops_prints_all_three(demo: str) -> None:
     assert state.load(demo)["orders"]["o1"]["note"] is None
 
 
-def test_a_refusal_while_a_job_call_runs_writes_nothing_and_a_passing_call_saves_the_drive_once(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_refusal_while_a_job_call_runs_writes_nothing_and_a_passing_call_saves_the_drive_once(home_repo: None, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     order = {"words": "Fix the card", "title": "Fix the card", "project": "The drive", "workstream": "Drive tooling", "kind": "answer"}
     lands = {"kind": "reader", "order": "o1", "goal": "read", "lands": ["https://github.com/a/b/pull/1"]}
     with pytest.raises(DriveError) as refused:
@@ -223,6 +223,7 @@ def test_a_refusal_while_a_job_call_runs_writes_nothing_and_a_passing_call_saves
 
 
 def test_a_pr_call_saves_the_drive_once_runs_each_read_its_check_ran_once_and_prints_what_it_kept_as_that_save_lands(
+    home_repo: None,
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
@@ -2163,7 +2164,7 @@ def test_drive_answer_marks_each_part_it_lists_after_their_builder_returned_done
     assert f"{keys[0]}: marked stands already; {keys[2]}: marked dropped already" in capsys.readouterr().err
 
 
-def test_a_brief_carries_his_order_and_each_rulings_words_without_the_drives_notes(demo: str, run: Callable[..., tuple[int, str]], recorded: Answers) -> None:
+def test_a_brief_carries_his_order_and_each_rulings_words_without_the_drives_notes(home_repo: None, demo: str, run: Callable[..., tuple[int, str]], recorded: Answers) -> None:
     recorded.shown["73060f0"] = ANSWER
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "do a pass on the tools", "--from", f"slack:D123/{THREAD}")
     run("job", "add", "reader", "--order", "o1", "--goal", "read it")

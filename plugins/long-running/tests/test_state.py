@@ -2295,7 +2295,7 @@ PR: https://github.com/Forge-AI/monorepo/pull/56775 (head 2c18705b7744b2df71a0f2
 """
 
 
-def test_a_done_testing_two_prs_in_turn_keeps_each_prs_own_cases_build_and_soak_commit_on_its_part_as_j164s_did_not(state_root: Path) -> None:
+def test_a_done_testing_two_prs_in_turn_keeps_each_prs_own_cases_build_and_soak_commit_on_its_part_as_j164s_did_not(home_repo: None, state_root: Path) -> None:
     data = staging_drive("j1")
     parts = {number: state.STAGING_TEST.format(number=number) for number in ("56799", "56775")}
     heads = {"56799": "c5dca80ed9be032855993e8dd9b000c2e4ef8665", "56775": "2c18705b7744b2df71a0f2103b86e3b8a2f17d83"}
@@ -2349,7 +2349,7 @@ def test_a_done_testing_prs_of_two_orders_keeps_on_each_part_the_cases_whose_cas
     )
 
 
-def test_a_drive_saved_before_after_merge_passes_were_kept_reads_each_merged_prs_from_its_provers_returns_dated_by_the_return_as_56539s_was_not(state_root: Path) -> None:
+def test_a_drive_saved_before_after_merge_passes_were_kept_reads_each_merged_prs_from_its_provers_returns_dated_by_the_return_as_56539s_was_not(home_repo: None, state_root: Path) -> None:
     data = staging_drive()
     del data["staging_cases_reread"]
     created = "2026-11-14T10:00:00-08:00"

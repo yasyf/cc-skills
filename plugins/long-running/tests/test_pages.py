@@ -548,7 +548,7 @@ def test_a_page_frame_session_opens_on_the_one_frame_of_its_slug_through_a_provi
         page_check.frame('top', 'run-lane')
 
 
-def test_page_make_keeps_an_applet_titled_by_its_order_that_a_second_make_widens(run: Run, ordered: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_page_make_keeps_an_applet_titled_by_its_order_that_a_second_make_widens(home_repo: None, run: Run, ordered: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(dashboard, "link", lambda name: "http://127.0.0.1:1/")
     run("order", "add", "--title", "Run page follow-up", "--project", "Iris", "--workstream", "Run page", "then the follow-up")
     code, said = run("page", "make", "--order", "o1", "--goal", "what is left before the run page ships", "--project", "Iris")

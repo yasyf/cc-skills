@@ -254,6 +254,7 @@ REAL_SESSION_ENV = launchd.session_env
 
 
 def test_the_watch_reads_the_changed_files_of_each_head_no_read_saw_once_and_stages_each_pr_whose_head_changes_a_dangerous_class(
+    home_repo: None,
     demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     (tmp_path / ".claude").mkdir()
@@ -300,7 +301,7 @@ def test_the_watch_reads_the_reach_once_and_takes_each_pr_an_older_reach_staged_
     assert (watch.reach_lines(watcher(demo), T0), asked) == ([], [[KEY, OTHER]])
 
 
-def test_a_green_approved_pr_only_its_staging_test_holds_from_a_production_release_lands_now_unless_it_is_dangerous(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_green_approved_pr_only_its_staging_test_holds_from_a_production_release_lands_now_unless_it_is_dangerous(home_repo: None, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     held, kept = state.STAGING_TEST.format(number=42), state.STAGING_TEST.format(number=43)
     with state.edit(demo) as data:
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "ccccccc333"}
@@ -1990,6 +1991,7 @@ def test_a_watch_that_finds_a_newer_install_between_two_stages_of_a_pass_runs_th
 
 
 def test_jobs_this_macs_load_holds_back_are_queued_with_a_place_and_a_job_needing_no_mac_launches_on_a_sprite_or_queues_for_one(
+    home_repo: None,
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "four builds")
@@ -4590,7 +4592,7 @@ def test_a_builders_done_while_its_own_pr_is_open_waits_on_that_pr_its_change_un
     )
 
 
-def test_a_done_tester_whose_staging_test_ran_no_full_pass_leaves_its_part_waiting_on_a_rerun_naming_each_case_that_did_not_pass(demo: str) -> None:
+def test_a_done_tester_whose_staging_test_ran_no_full_pass_leaves_its_part_waiting_on_a_rerun_naming_each_case_that_did_not_pass(home_repo: None, demo: str) -> None:
     staging = "staging test of #43 before it lands"
     failed = "DONE #43 failed a case on cut 1"
     with state.edit(demo) as data:
@@ -4604,7 +4606,7 @@ def test_a_done_tester_whose_staging_test_ran_no_full_pass_leaves_its_part_waiti
     )
 
 
-def test_a_staging_parts_gap_names_only_its_testers_never_a_job_running_its_release_nor_one_whose_done_only_followed_it_even_held_for_its_own_prs_merge_while_a_tester_ran_its_cases(demo: str) -> None:
+def test_a_staging_parts_gap_names_only_its_testers_never_a_job_running_its_release_nor_one_whose_done_only_followed_it_even_held_for_its_own_prs_merge_while_a_tester_ran_its_cases(home_repo: None, demo: str) -> None:
     staging = "staging test of #43 before it lands"
     followed = "DONE APPLIED: radiant-tudor serves sandsql on plat-usw2-staging at 2c18705b7744"
     with state.edit(demo) as data:
@@ -4827,6 +4829,7 @@ def live_reads(monkeypatch: pytest.MonkeyPatch, serving: list[dict] | None = Non
 
 
 def test_a_release_wait_frees_once_every_cluster_of_its_service_serves_its_pr_never_on_staging_alone_while_an_env_wait_frees_once_its_env_does(
+    home_repo: None,
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
@@ -4853,6 +4856,7 @@ def test_a_release_wait_frees_once_every_cluster_of_its_service_serves_its_pr_ne
 
 
 def test_a_release_wait_frees_once_every_cluster_running_its_service_production_or_not_serves_its_pr_and_at_once_while_no_cluster_or_env_runs_it(
+    home_repo: None,
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
@@ -4924,7 +4928,7 @@ def test_a_staging_wait_on_a_merge_commit_frees_once_its_env_serves_a_later_buil
     ]
 
 
-def test_a_release_wait_on_a_pr_outside_the_monorepo_is_never_read_and_frees_at_its_merge_naming_why(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_release_wait_on_a_pr_outside_the_monorepo_is_never_read_and_frees_at_its_merge_naming_why(home_repo: None, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     calls = live_reads(monkeypatch)
     waited = "yasyf/cc-slack#355"
@@ -4971,6 +4975,7 @@ CAUSE = "The service's deploy: too few of its pods became ready before it timed 
 
 
 def test_a_release_job_follows_the_build_its_launch_triggered_and_it_and_the_coordinator_are_told_once_in_one_record_when_that_build_fails(
+    home_repo: None,
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     answers = {"forge/release/17468": {**BUILD_RUNNING, "state": "PASSED"}, "forge/release/17469": BUILD_RUNNING}
@@ -5406,7 +5411,7 @@ def test_a_failed_redraw_of_his_stale_pr_card_is_tried_again_on_the_next_pass_an
     assert said[2] == [f"WATCH redraw of his card on {KEY} failed 3 times in a row: cc-slack exited 1"]
 
 
-def test_a_prs_release_wait_whose_release_is_already_out_is_stored_and_freed_on_the_next_read(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_prs_release_wait_whose_release_is_already_out_is_stored_and_freed_on_the_next_read(home_repo: None, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     shipped = "Forge-AI/monorepo#43"
     with state.edit(demo) as data:
         data["prs"][shipped] = state.new_pr(state.pr_url(shipped), "j1", "o1") | {"state": "merged", "merged_sha": "abc123"}
@@ -7549,7 +7554,7 @@ def test_the_watch_stops_a_lander_when_a_card_opens_on_the_work_of_a_job_holding
     assert landers == [(KEY,)]
 
 
-def test_a_lander_the_watch_stops_dequeues_each_pr_it_queued_and_removes_its_worktree(demo: str, tmp_path: Path) -> None:
+def test_a_lander_the_watch_stops_dequeues_each_pr_it_queued_and_removes_its_worktree(home_repo: None, demo: str, tmp_path: Path) -> None:
     approve(demo, KEY)
     calls = tmp_path / "calls"
     on_main(tmp_path, demo, f'#!/bin/sh\necho "$*" >> {calls}\n[ "$1" = --watch ] && kill -TERM $PPID && sleep 5\nexit 0\n')
@@ -7584,7 +7589,7 @@ def test_his_hold_on_a_pr_trunk_queued_after_its_lander_ended_reads_held_and_the
     assert state.load(demo)["prs"][KEY]["lander"]["dequeue"]["pid"] == os.getpid()
 
 
-def test_a_staging_test_started_on_a_pr_trunk_queued_after_its_lander_ended_reads_waiting_and_the_watch_starts_one_dequeue_of_it(demo: str, landers: list[tuple[str, ...]]) -> None:
+def test_a_staging_test_started_on_a_pr_trunk_queued_after_its_lander_ended_reads_waiting_and_the_watch_starts_one_dequeue_of_it(home_repo: None, demo: str, landers: list[tuple[str, ...]]) -> None:
     approve(demo, KEY)
     queued(demo)
     part = state.STAGING_TEST.format(number=42)
@@ -7599,6 +7604,7 @@ def test_a_staging_test_started_on_a_pr_trunk_queued_after_its_lander_ended_read
 
 
 def test_a_dangerous_pr_trunk_queued_before_he_went_quiet_leaves_the_queue_while_he_is_away_and_lands_again_at_his_next_word(
+    home_repo: None,
     demo: str, tmp_path: Path, landers: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     on_main(tmp_path, demo, '#!/bin/sh\necho "#42 DEQUEUED aaaaaaa"\n')
@@ -7625,7 +7631,7 @@ def test_a_dangerous_pr_trunk_queued_before_he_went_quiet_leaves_the_queue_while
     assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
 
 
-def test_a_dequeue_takes_the_unit_out_of_trunks_queue_from_main_records_why_and_it_lands_again_on_his_approve(demo: str, tmp_path: Path, landers: list[tuple[str, ...]]) -> None:
+def test_a_dequeue_takes_the_unit_out_of_trunks_queue_from_main_records_why_and_it_lands_again_on_his_approve(home_repo: None, demo: str, tmp_path: Path, landers: list[tuple[str, ...]]) -> None:
     calls = tmp_path / "calls"
     on_main(tmp_path, demo, f'#!/bin/sh\necho "$*" >> {calls}\necho "#42 DEQUEUED aaaaaaa"\n')
     queued(demo)
@@ -7641,6 +7647,7 @@ def test_a_dequeue_takes_the_unit_out_of_trunks_queue_from_main_records_why_and_
 
 
 def test_a_dequeue_stack_enqueue_fails_on_its_own_keeps_the_pr_queued_says_so_as_the_landers_failure_and_the_next_pass_dequeues_again(
+    home_repo: None,
     demo: str, tmp_path: Path, landers: list[tuple[str, ...]]
 ) -> None:
     on_main(tmp_path, demo, '#!/bin/sh\necho "trunk is down"\nexit 5\n')
@@ -7656,6 +7663,7 @@ def test_a_dequeue_stack_enqueue_fails_on_its_own_keeps_the_pr_queued_says_so_as
 
 
 def test_a_dequeue_trunk_answers_not_queued_for_as_56900s_after_its_tests_passed_took_nothing_out_says_so_and_the_next_pass_dequeues_again(
+    home_repo: None,
     demo: str, tmp_path: Path, landers: list[tuple[str, ...]]
 ) -> None:
     on_main(tmp_path, demo, '#!/bin/sh\necho "#42 NOT_QUEUED"\nexit 2\n')
@@ -7793,6 +7801,7 @@ def test_his_approve_under_a_pr_the_hold_label_holds_queues_it_with_the_prs_unde
 
 
 def test_his_approve_on_a_branch_of_a_stack_tree_beside_an_unapproved_one_queues_that_branch_with_its_root_as_its_tap_line_and_dry_run_say(
+    home_repo: None,
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     fourth, fifth = "Forge-AI/monorepo#45", "Forge-AI/monorepo#46"
@@ -7881,6 +7890,7 @@ def enqueue_exiting(tmp_path: Path, name: str, code: int) -> str:
 
 
 def test_a_lander_lands_no_approved_pr_whose_paths_at_its_head_reach_a_component_and_puts_it_on_its_staging_test_which_reads_red_owed_by_its_builder_until_a_tester_runs(
+    home_repo: None,
     demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     approve(demo, KEY)
@@ -7901,6 +7911,7 @@ def test_a_lander_lands_no_approved_pr_whose_paths_at_its_head_reach_a_component
 
 
 def test_a_lander_holds_an_approved_pr_reaching_only_platy_on_his_exception_with_no_staging_part_and_lands_it_once_his_answer_gives_it(
+    home_repo: None,
     demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     approve(demo, KEY)
@@ -7926,6 +7937,7 @@ def dropped_by_answer(demo: str, part: str) -> None:
 
 
 def test_drive_order_set_refuses_to_drop_an_open_prs_staging_test_and_only_his_answer_lets_it_merge_first_at_every_head(
+    home_repo: None,
     demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     approve(demo, KEY)
@@ -7951,7 +7963,7 @@ def test_drive_order_set_refuses_to_drop_an_open_prs_staging_test_and_only_his_a
     assert view.staging(data, KEY) == "Not on staging before it merges: his answer took its staging test off its order, so it is tested on staging after its merge"
 
 
-def test_a_builders_staging_line_naming_cases_puts_its_pr_on_its_staging_test_and_wait_in_the_same_save_even_after_his_answer_freed_it_as_56896_needed(demo: str) -> None:
+def test_a_builders_staging_line_naming_cases_puts_its_pr_on_its_staging_test_and_wait_in_the_same_save_even_after_his_answer_freed_it_as_56896_needed(home_repo: None, demo: str) -> None:
     part = state.STAGING_TEST.format(number=42)
     with state.edit(demo) as data:
         data["orders"]["o1"]["parts"][part] = state.new_part()
@@ -7963,7 +7975,7 @@ def test_a_builders_staging_line_naming_cases_puts_its_pr_on_its_staging_test_an
     assert (data["prs"][KEY]["waits"], data["prs"][KEY]["unstaged"], data["jobs"][tester]["parts"], data["jobs"][tester]["goal"]) == ([f"o1:{part}"], None, [part], "replay the writer log on a replica and read through it")
 
 
-def test_a_load_puts_back_on_its_staging_test_each_open_pr_an_older_drop_part_let_merge_first_and_leaves_his_answers_lift(demo: str) -> None:
+def test_a_load_puts_back_on_its_staging_test_each_open_pr_an_older_drop_part_let_merge_first_and_leaves_his_answers_lift(home_repo: None, demo: str) -> None:
     with state.edit(demo) as data:
         data["prs"][KEY] |= {"paths_at": "abc", "unstaged": {"why": "drive order set --drop-part took its staging test off its order", "head": "abc", "merges_first": True}}
         data["prs"]["Forge-AI/monorepo#43"] = data["prs"][KEY] | {"unstaged": {"why": "his answer took its staging test off its order", "head": "abc", "merges_first": True}}
@@ -7975,6 +7987,7 @@ def test_a_load_puts_back_on_its_staging_test_each_open_pr_an_older_drop_part_le
 
 @pytest.mark.parametrize("code", [0, 3])
 def test_a_landers_outcome_is_said_on_its_prs_line_waking_no_one_and_a_failure_reads_unlanded_which_wakes_the_session_holding_its_order(
+    home_repo: None,
     demo: str, tmp_path: Path, code: int
 ) -> None:
     waiting_job(demo)
@@ -7993,6 +8006,7 @@ def test_a_landers_outcome_is_said_on_its_prs_line_waking_no_one_and_a_failure_r
 
 
 def test_a_lander_runs_stack_enqueue_as_the_default_branchs_head_holds_it_from_a_worktree_it_removes_never_from_the_coordinators_checkout(
+    home_repo: None,
     demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     approve(demo, KEY)
@@ -8012,6 +8026,7 @@ def test_a_lander_runs_stack_enqueue_as_the_default_branchs_head_holds_it_from_a
 
 
 def test_a_landing_runs_stack_enqueue_trusting_the_mise_configs_of_the_worktree_it_made_so_a_mise_shim_starting_its_interpreter_never_refuses_them(
+    home_repo: None,
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.delenv(land.MISE_TRUST, raising=False)
@@ -8024,6 +8039,7 @@ def test_a_landing_runs_stack_enqueue_trusting_the_mise_configs_of_the_worktree_
 
 
 def test_a_landing_checks_out_from_this_macs_clone_with_no_blob_filter_so_a_blob_origin_withholds_from_a_fetch_by_id_never_stops_it_and_a_failed_fetch_lands_again_at_the_next_pass(
+    home_repo: None,
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     waiting_job(demo)
@@ -8066,6 +8082,7 @@ def test_a_landing_checks_out_from_this_macs_clone_with_no_blob_filter_so_a_blob
 
 @pytest.mark.parametrize("mode", ["--check", "--watch"])
 def test_a_landing_whose_stack_enqueue_failed_on_its_own_is_said_once_to_the_meta_session_as_the_landers_defect_and_tried_again_with_no_new_tap_until_it_queues(
+    home_repo: None,
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], mode: str
 ) -> None:
     waiting_job(demo)
@@ -8095,6 +8112,7 @@ def test_a_landing_whose_stack_enqueue_failed_on_its_own_is_said_once_to_the_met
 
 @pytest.mark.parametrize("mode", ["--check", "--watch"])
 def test_replayed_56720_a_landing_whose_stack_enqueue_exited_before_it_printed_an_answer_is_the_landers_own_failure_said_once_a_head_to_the_meta_session_and_tried_again_until_it_queues(
+    home_repo: None,
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], mode: str
 ) -> None:
     waiting_job(demo)
@@ -8120,6 +8138,7 @@ def test_replayed_56720_a_landing_whose_stack_enqueue_exited_before_it_printed_a
 
 
 def test_replayed_55635_a_landing_whose_diff_read_timed_out_reads_ready_naming_that_try_and_the_next_pass_lands_it_with_no_new_tap_or_defect(
+    home_repo: None,
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     waiting_job(demo)
@@ -8149,6 +8168,7 @@ def test_replayed_55635_a_landing_whose_diff_read_timed_out_reads_ready_naming_t
 
 
 def test_a_lander_that_outlived_an_install_reopens_on_the_newest_drive_which_records_its_outcome_and_logs_it_under_its_pr(
+    home_repo: None,
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     waiting_job(demo)
@@ -8211,6 +8231,7 @@ def gh_recording(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def test_a_lander_whose_only_gap_is_an_approval_on_an_older_head_asks_forge_pr_reviewer_once_a_head_and_watches(
+    home_repo: None,
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     approve(demo, KEY)
@@ -8223,6 +8244,7 @@ def test_a_lander_whose_only_gap_is_an_approval_on_an_older_head_asks_forge_pr_r
 
 
 def test_an_install_that_lands_while_the_lander_checks_a_pr_ends_no_landing_and_the_newest_install_records_its_outcome_and_the_head_it_asked_reviewed(
+    home_repo: None,
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     approve(demo, KEY)
@@ -8264,6 +8286,7 @@ def test_a_head_grading_an_hour_gets_one_review_ask_from_the_watch_which_records
 
 
 def test_a_lander_whose_only_gaps_are_waits_to_retarget_once_the_pr_under_them_lands_asks_no_review_and_watches(
+    home_repo: None,
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     approve(demo, KEY)
@@ -8277,6 +8300,7 @@ def test_a_lander_whose_only_gaps_are_waits_to_retarget_once_the_pr_under_them_l
 
 
 def test_a_lander_whose_check_reads_github_still_computing_mergeability_waits_it_out_in_watch_and_queues(
+    home_repo: None,
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     approve(demo, KEY)
@@ -8286,6 +8310,7 @@ def test_a_lander_whose_check_reads_github_still_computing_mergeability_waits_it
 
 
 def test_a_lander_whose_watch_stops_on_a_fix_says_its_blocked_line_having_asked_a_review_of_the_head_approved_only_on_an_older_one(
+    home_repo: None,
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     approve(demo, KEY)
@@ -8297,6 +8322,7 @@ def test_a_lander_whose_watch_stops_on_a_fix_says_its_blocked_line_having_asked_
 
 
 def test_a_lander_queues_nothing_while_a_pr_below_it_in_its_native_stack_lacks_his_approve_and_tries_again_once_he_approves_it(
+    home_repo: None,
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     stacked(demo)
@@ -8331,7 +8357,7 @@ def test_a_lander_queues_nothing_while_a_pr_below_it_in_its_native_stack_lacks_h
 
 
 @pytest.mark.parametrize("verdict", ["unchecked", "objected"])
-def test_his_approve_lands_a_green_pr_whatever_the_check_against_his_words_says(demo: str, tmp_path: Path, landers: list[tuple[str, ...]], verdict: str) -> None:
+def test_his_approve_lands_a_green_pr_whatever_the_check_against_his_words_says(home_repo: None, demo: str, tmp_path: Path, landers: list[tuple[str, ...]], verdict: str) -> None:
     waiting_job(demo)
     approve(demo, KEY)
     enqueue_exiting(tmp_path, demo, 0)
@@ -8403,6 +8429,7 @@ def test_a_lander_merges_a_pr_he_approved_in_another_repository_with_gh_pr_merge
 
 
 def test_an_exempt_monorepo_pr_is_queued_once_green_with_no_tap_unless_its_files_put_it_outside_its_class(
+    home_repo: None,
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     with state.edit(demo) as data:
@@ -8572,6 +8599,7 @@ def test_a_forge_ai_pr_he_approved_changing_sandsql_waits_for_his_next_word_whil
     ids=["its staging test part holds its tester's proof", "its tester's proof delivered his question part"],
 )
 def test_replayed_717646_an_approved_dangerous_pr_whose_last_wait_ended_on_a_delivered_part_while_its_tester_returned_waiting_lands_only_at_his_next_word(
+    home_repo: None,
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, part: str, posted: str, said: str
 ) -> None:
     monkeypatch.setattr(github, "files", {KEY: ["go/sand/internal/sandsql/write.go"]}.__getitem__)
@@ -8595,7 +8623,7 @@ def test_replayed_717646_an_approved_dangerous_pr_whose_last_wait_ended_on_a_del
     assert land.run(demo, [KEY]) == land.QUEUED
 
 
-def test_a_pr_he_approved_before_he_went_quiet_whose_builder_staged_it_waits_for_his_next_word_once_its_staging_test_passes_whatever_its_paths(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_pr_he_approved_before_he_went_quiet_whose_builder_staged_it_waits_for_his_next_word_once_its_staging_test_passes_whatever_its_paths(home_repo: None, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(github, "files", {EJECTED: ["infra/rows/router/router.ts"]}.__getitem__)
     part = state.STAGING_TEST.format(number=55582)
     with state.edit(demo) as data:
@@ -9394,6 +9422,7 @@ def unstarted_prover(keys: list[str], parts: list[str], waits: list[str], handof
 
 
 def test_an_old_merge_whose_unstarted_prover_holds_one_of_its_parts_widens_that_prover_to_the_others_and_a_second_pass_adds_no_job(
+    home_repo: None,
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
@@ -9418,6 +9447,7 @@ def test_an_old_merge_whose_unstarted_prover_holds_one_of_its_parts_widens_that_
 
 
 def test_a_merge_sharing_a_pr_with_an_unstarted_prover_widens_it_to_its_parts_and_other_prs_adding_no_release_wait(
+    home_repo: None,
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
@@ -9452,6 +9482,7 @@ def test_a_merge_sharing_a_pr_with_an_unstarted_prover_widens_it_to_its_parts_an
 
 @pytest.mark.parametrize("marked", [True, False])
 def test_a_second_unstarted_prover_of_a_pr_marked_or_not_folds_into_the_first_which_takes_its_parts_prs_and_handoff_and_a_second_pass_changes_nothing(
+    home_repo: None,
     demo: str, monkeypatch: pytest.MonkeyPatch, marked: bool
 ) -> None:
     serve(monkeypatch, {})
@@ -10377,6 +10408,7 @@ def o852(demo: str) -> None:
 
 
 def test_an_incident_with_no_monitor_held_by_its_open_fix_pr_closes_with_no_datadog_read_once_its_merged_fix_pr_runs_on_each_production_stack(
+    home_repo: None,
     demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]], tmp_path: Path
 ) -> None:
     served = {OTHER: read()}
@@ -10416,6 +10448,7 @@ def test_an_incident_with_no_monitor_held_by_its_open_fix_pr_closes_with_no_data
 
 
 def test_o761s_incident_on_a_surface_he_uses_holds_its_live_line_with_one_prove_line_until_a_builders_done_keeps_a_recording_from_there(
+    home_repo: None,
     demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]], tmp_path: Path
 ) -> None:
     serve(monkeypatch, {})
@@ -10479,7 +10512,7 @@ def test_an_incident_opened_while_he_is_away_carrying_a_record_of_real_users_fai
     assert state.load(demo)["orders"]["o1"]["paged"] == state.stamp(away)
 
 
-def test_an_incident_whose_drive_checkout_cannot_move_to_the_default_branch_head_closes_nothing_and_says_so_from_the_third_failed_read(demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_an_incident_whose_drive_checkout_cannot_move_to_the_default_branch_head_closes_nothing_and_says_so_from_the_third_failed_read(home_repo: None, demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     serve(monkeypatch, {})
     calls = incident_reads(monkeypatch, {}, {"42": True}, tmp_path)
 
@@ -10715,6 +10748,7 @@ def test_the_watchs_own_post_runs_the_say_hooks_checks_as_the_communicators_own_
 
 @pytest.mark.parametrize("count", [1, 100])
 def test_the_watch_reads_where_every_open_incidents_merged_fix_prs_run_in_one_release_live_read_and_their_monitors_in_one_search(
+    home_repo: None,
     demo: str, monkeypatch: pytest.MonkeyPatch, count: int, tmp_path: Path
 ) -> None:
     serve(monkeypatch, {})
@@ -11508,6 +11542,7 @@ def test_at_most_two_watchdog_agents_run_at_once_oldest_stall_first(demo: str, w
 
 
 def test_a_job_on_a_release_his_hold_on_every_release_holds_keeps_no_stall_and_once_he_lifts_it_its_watchdog_reads_the_watchs_release_read_and_his_cards_naming_its_service(
+    home_repo: None,
     demo: str, monkeypatch: pytest.MonkeyPatch, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]], recorded: Answers
 ) -> None:
     wait = f"release:sand-next:{KEY}"

@@ -392,7 +392,7 @@ def targets(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return asked
 
 
-def test_a_drive_session_reruns_what_it_judges_a_rerun_remedies_reading_nothing_and_only_a_flake_requeue_is_refused(demo: str, targets: list[str]) -> None:
+def test_a_drive_session_reruns_what_it_judges_a_rerun_remedies_reading_nothing_and_only_a_flake_requeue_is_refused(home_repo: None, demo: str, targets: list[str]) -> None:
     passed = (
         "tools/ci bk rerun test 131031 --unit go-sand --count 3",
         "cd /work && tools/ci bk rerun --unit sand --unit=go-sand --count 3 test dev",

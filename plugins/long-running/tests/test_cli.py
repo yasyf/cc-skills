@@ -431,7 +431,7 @@ def test_the_meta_session_holds_every_tooling_order_but_no_product_order(
     assert run("job", "add", "reader", "--order", "o1", "--goal", "research: a verb for owners")[0] == 0
 
 
-def test_a_drive_saved_with_one_driver_reads_as_its_coordinator(run: Run, demo: str) -> None:
+def test_a_drive_saved_with_one_driver_reads_as_its_coordinator(home_repo: None, run: Run, demo: str) -> None:
     with state.locked("demo"):
         saved = state.stored("demo")
         saved["driver"] = saved.pop("roles")["coordinator"]
@@ -5364,6 +5364,7 @@ def test_a_reader_carrying_another_orders_part_is_that_parts_reader_so_its_build
 
 
 def test_a_build_orders_designer_and_builder_are_added_waiting_on_its_reader_still_at_work(
+    home_repo: None,
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run(
@@ -5391,6 +5392,7 @@ def test_a_build_orders_designer_and_builder_are_added_waiting_on_its_reader_sti
 
 
 def test_a_readers_builder_builds_its_parts_and_each_later_readers_done_rebriefs_it_on_the_newest_research_until_an_agent_takes_it(
+    home_repo: None,
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy", "the proof")
@@ -5884,6 +5886,7 @@ def test_a_design_that_kept_a_question_is_kept_with_no_fork_line_and_its_builder
 
 
 def test_a_builders_ready_naming_no_reuse_of_what_its_research_found_is_kept_with_a_note(
+    home_repo: None,
     run: Run, meta: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
@@ -6671,6 +6674,7 @@ def reaching(monkeypatch: pytest.MonkeyPatch, *reached: str) -> None:
 
 
 def test_a_builders_pushed_naming_a_monorepo_pr_on_its_staging_test_gives_its_one_tester_the_cases_briefed_on_this_mac_and_no_none_line_stands_for_it(
+    home_repo: None,
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it")
@@ -6751,6 +6755,7 @@ def test_pr_add_and_pr_set_put_a_flake_fix_whose_paths_reach_a_component_on_its_
     ],
 )
 def test_a_staging_line_puts_its_pr_on_the_staging_test_another_order_holds_or_on_the_tester_it_or_a_pr_under_it_waits_on_adding_no_second_tester(
+    home_repo: None,
     run: Run, with_pr: str, held: str, tester_wait: str | None, home: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     part, under = state.STAGING_TEST.format(number=42), f"{state.MONOREPO}#43"
@@ -6779,6 +6784,7 @@ def test_a_staging_line_reading_none_for_its_pr_adds_no_part_wait_or_tester(run:
 
 
 def test_a_tester_a_builders_staging_line_adds_is_briefed_on_its_builders_mac_step_and_his_tap_and_told_the_prompt_it_starts_on(
+    home_repo: None,
     run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     mac = "an Apple Silicon Mac with the plat-staging AWS profile, since the case is a Mac caller's dialer"
@@ -6797,6 +6803,7 @@ def test_a_tester_a_builders_staging_line_adds_is_briefed_on_its_builders_mac_st
 
 
 def test_a_staging_testers_brief_runs_a_dashboard_prs_cases_on_a_mac_box_at_the_live_sand_next_commit_and_at_its_own_head_when_it_changes_iris_desktop_or_sand_next_too(
+    home_repo: None,
     run: Run, with_pr: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     live = "6c751b8b101597fbef4464a3cc7dee314ef778a1"
@@ -6834,6 +6841,7 @@ def test_a_staging_testers_brief_runs_a_dashboard_prs_cases_on_a_mac_box_at_the_
 
 
 def test_pr_set_staging_stages_a_monorepo_pr_in_one_save_as_its_builders_staging_line_does_and_a_wait_on_its_unlisted_staging_part_names_it(
+    home_repo: None,
     run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     part, cases = state.STAGING_TEST.format(number=42), "run the migration twice and roll it back on plat-usw2-staging"
@@ -6867,6 +6875,7 @@ def dangerous_repo(tmp_path: Path, on_github: dict, changed: list[str]) -> None:
 
 
 def test_pr_add_stages_a_monorepo_pr_whose_head_changes_a_dangerous_class_of_file_with_a_tester_naming_each_class_and_its_files_and_none_that_changes_only_tests_docs_and_skipped_paths(
+    home_repo: None,
     run: Run, demo: str, on_github: dict, tmp_path: Path
 ) -> None:
     changed = ["api/migrations/1700_add_runs.sql", "go/sand/internal/checker/check.go", "go/sand/internal/checker/check_test.go", "go/sand/internal/sandsqltest/fake.go", "docs/runs.md", "api/src/run.ts"]
@@ -6886,6 +6895,7 @@ def test_pr_add_stages_a_monorepo_pr_whose_head_changes_a_dangerous_class_of_fil
 
 
 def test_a_builders_staging_line_reaches_the_tester_its_prs_changed_files_gave_it_and_its_none_lifts_a_test_no_job_took_up_but_keeps_one_a_job_took_up(
+    home_repo: None,
     run: Run, demo: str, on_github: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     dangerous_repo(tmp_path, on_github, ["api/migrations/1700_add_runs.sql"])
@@ -6919,6 +6929,7 @@ def test_a_builders_staging_line_reaches_the_tester_its_prs_changed_files_gave_i
 
 
 def test_a_builders_42_none_lifts_a_test_no_job_took_up_and_one_that_ended_with_no_pass(
+    home_repo: None,
     run: Run, demo: str, on_github: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     dangerous_repo(tmp_path, on_github, ["api/migrations/1700_add_runs.sql"])
@@ -6940,6 +6951,7 @@ def test_a_builders_42_none_lifts_a_test_no_job_took_up_and_one_that_ended_with_
 
 
 def test_a_pr_a_dangerous_class_and_the_release_reach_both_stage_keeps_its_dangerous_tester_hears_its_cases_and_no_none_line_lifts_it(
+    home_repo: None,
     run: Run, demo: str, on_github: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     dangerous_repo(tmp_path, on_github, ["api/migrations/1700_add_runs.sql"])
@@ -9491,6 +9503,7 @@ def test_an_order_lists_its_parts_and_each_job_names_the_ones_it_delivers(run: R
 
 
 def test_a_change_job_added_on_a_part_another_unfinished_one_carries_folds_into_it_is_refused_while_it_runs_and_replaces_it_once_it_returned(
+    home_repo: None,
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     url, key = "https://github.com/acme/app/pull/55", "acme/app#55"
@@ -9643,6 +9656,7 @@ def test_a_change_job_added_on_one_part_of_a_returned_job_takes_that_part_and_it
 
 
 def test_a_change_job_on_a_branch_another_unfinished_one_works_in_its_repo_on_any_order_folds_into_it_is_refused_while_it_runs_and_replaces_it_once_it_returned(
+    home_repo: None,
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     url, key = "https://github.com/acme/app/pull/55", "acme/app#55"
@@ -10863,7 +10877,7 @@ def flags(parser: argparse.ArgumentParser) -> set[str]:
     return {flag for action in parser._actions for flag in action.option_strings} - UNLISTED
 
 
-def test_the_verbs_page_names_every_verb_and_flag_exactly_as_the_parser_takes_them(run: Run) -> None:
+def test_the_verbs_page_names_every_verb_and_flag_exactly_as_the_parser_takes_them(home_repo: None, run: Run) -> None:
     leaves, rows = dict(leaf_parsers(cli.parser())), {}
     for line in (cli.PAGES / "verbs.md").read_text().splitlines():
         if line.startswith("| `drive "):

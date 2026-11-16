@@ -981,6 +981,7 @@ def test_a_tooling_builders_brief_whose_goal_names_a_step_after_the_install_star
 
 
 def test_a_build_orders_codex_lane_is_added_at_once_and_started_only_on_its_readers_research_and_its_immediate_fix_at_once(
+    home_repo: None,
     meta: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy", "immediate fix")
@@ -1350,6 +1351,7 @@ def test_drive_job_add_release_starts_it_on_his_answer_in_a_process_of_its_own_t
 
 
 def test_723003_a_release_keeps_its_build_whatever_fails_after_its_start_and_the_same_release_never_starts_while_a_job_holds_it_unbuilt_or_its_build_runs(
+    home_repo: None,
     demo: str, run: Run, no_calls: list[list[str]], recorded: Answers, jev: Jev, release_starts: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the clock")
@@ -2772,7 +2774,7 @@ def test_guard_allows_malformed_input(
         "ci trunk submit '#42'",
     ],
 )
-def test_guard_sees_a_landing_however_it_is_phrased(drive_pr: str, no_calls: list[list[str]], command: str) -> None:
+def test_guard_sees_a_landing_however_it_is_phrased(home_repo: None, drive_pr: str, no_calls: list[list[str]], command: str) -> None:
     assert landing_guard.deny_reason(bash(command)).startswith(f"{drive_pr}: no tap from him yet")
 
 
@@ -2806,7 +2808,7 @@ def stack(drive_pr: str, run: Run) -> None:
         "ci trunk submit 41 '#42' 43 --priority high",
     ],
 )
-def test_guard_checks_every_pr_a_queue_submit_names(stack: None, no_calls: list[list[str]], command: str) -> None:
+def test_guard_checks_every_pr_a_queue_submit_names(home_repo: None, stack: None, no_calls: list[list[str]], command: str) -> None:
     assert landing_guard.deny_reason(bash(command)).startswith("Forge-AI/monorepo#43: no tap from him yet")
 
 
@@ -2878,6 +2880,7 @@ def copy_of_demo(run: Run, name: str) -> None:
 
 
 def test_guard_judges_a_shared_pr_by_the_entry_updated_last_not_the_drive_started_last(
+    home_repo: None,
     drive_pr: str, run: Run, no_calls: list[list[str]]
 ) -> None:
     approve(drive_pr)
@@ -2892,6 +2895,7 @@ def test_guard_judges_a_shared_pr_by_the_entry_updated_last_not_the_drive_starte
 
 
 def test_guard_judges_a_shared_pr_by_the_sessions_own_drive_first(
+    home_repo: None,
     drive_pr: str, run: Run, no_calls: list[list[str]]
 ) -> None:
     copy_of_demo(run, "copy")
@@ -2913,6 +2917,7 @@ def test_guard_judges_a_shared_pr_by_the_sessions_own_drive_first(
     ],
 )
 def test_guard_holds_a_merge_through_the_api_to_his_tap_and_the_incident_exemption(
+    home_repo: None,
     drive_pr: str, no_calls: list[list[str]], command: str
 ) -> None:
     assert landing_guard.deny_reason(bash(command)).startswith(f"{drive_pr}: no tap from him yet")

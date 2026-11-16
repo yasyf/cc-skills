@@ -646,6 +646,12 @@ class HomeBuild(providers.BuildProvider):
 HOME: dict[str, type[providers.Provider]] = {"repo": GuardedRepo, "staging": HomeStaging, "mac_box": HomeMacBox, "build": HomeBuild}
 
 
+@pytest.fixture
+def home_repo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The drive's repository the HomeRepo fake, whose PRs are its own and land through its merge queue, over the HOME fakes."""
+    provide(monkeypatch, tmp_path, repo=HomeRepo)
+
+
 class SelectRelease(providers.ReleaseProvider):
     def components(self, pr: str, paths: list[str], head: str | None) -> dict:
         request = {"body": "", "paths": paths} | ({"head": head} if head else {})

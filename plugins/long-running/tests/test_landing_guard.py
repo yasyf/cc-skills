@@ -98,7 +98,7 @@ def answer() -> None:
         data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "Ship it", None, at=state.stamp())
 
 
-def test_landing_while_his_card_holding_it_is_open_is_refused_naming_the_card_to_wait_on(drive_pr: str, no_calls: None) -> None:
+def test_landing_while_his_card_holding_it_is_open_is_refused_naming_the_card_to_wait_on(home_repo: None, drive_pr: str, no_calls: None) -> None:
     approve(drive_pr)
     ask("ship the fix, on #42")
     reason = landing_guard.deny_reason(bash("stack-enqueue 42"))
@@ -149,6 +149,7 @@ def sprite(run: Run, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
 
 
 def test_a_sprite_lanes_landing_asks_the_coordinators_mac_and_is_refused_while_his_card_on_it_is_open(
+    home_repo: None,
     drive_pr: str, sprite: list[list[str]], run: Run, no_calls: None
 ) -> None:
     approve(drive_pr)
@@ -167,6 +168,7 @@ def test_a_sprite_lanes_landing_asks_the_coordinators_mac_and_is_refused_while_h
 
 @pytest.mark.parametrize("lane", [False, True])
 def test_a_pr_whose_staging_test_started_on_any_order_is_enqueued_by_no_session_lane_or_lander_until_that_test_passes(
+    home_repo: None,
     drive_pr: str, no_calls: None, lane: bool, request: pytest.FixtureRequest
 ) -> None:
     approve(drive_pr)
@@ -192,7 +194,7 @@ def test_a_pr_whose_staging_test_started_on_any_order_is_enqueued_by_no_session_
     assert (landing_guard.deny_reason(enqueue), land.held_landings(data, [drive_pr], view.NO_CARDS, {}), stage.waiting(data, drive_pr, view.NO_CARDS)) == (None, {}, None)
 
 
-def test_a_sprite_lanes_landing_is_refused_while_the_coordinators_mac_does_not_answer(drive_pr: str, monkeypatch: pytest.MonkeyPatch, no_calls: None) -> None:
+def test_a_sprite_lanes_landing_is_refused_while_the_coordinators_mac_does_not_answer(home_repo: None, drive_pr: str, monkeypatch: pytest.MonkeyPatch, no_calls: None) -> None:
     approve(drive_pr)
     monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
     answer = {"code": 1, "out": "", "err": "drive: orca orchestration ask exited 1: no run"}
@@ -232,6 +234,7 @@ def test_a_sprite_lanes_release_verb_asks_the_coordinators_mac_whether_his_hold_
 
 
 def test_a_release_resume_waits_for_his_next_word_once_he_last_wrote_15_minutes_ago_while_a_rollback_a_harmless_hotfix_on_any_order_and_a_staging_or_sandbox_start_run(
+    home_repo: None,
     run: Run, demo: str, sprite: list[list[str]], recorded: Answers, no_calls: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the fix")
@@ -328,7 +331,7 @@ def test_a_sprite_lanes_release_verb_is_refused_while_the_coordinators_mac_does_
         "gh api -X PUT repos/Forge-AI/monorepo/pulls/42/merge -f merge_method=squash",
     ],
 )
-def test_a_tapped_monorepo_pr_landed_around_the_queue_is_refused_naming_stack_enqueue(drive_pr: str, no_calls: None, command: str) -> None:
+def test_a_tapped_monorepo_pr_landed_around_the_queue_is_refused_naming_stack_enqueue(home_repo: None, drive_pr: str, no_calls: None, command: str) -> None:
     approve(drive_pr)
     reason = landing_guard.deny_reason(bash(command))
     assert reason == QUEUE_REASON.format(key=drive_pr)
@@ -421,6 +424,7 @@ def stored_stack(drive_pr: str, run: Run) -> list[str]:
 
 
 def test_enqueueing_a_pr_of_a_stored_stack_needs_every_pr_his_card_drew_and_those_under_it_named_so_a_held_pr_above_on_its_own_card_holds_none_of_them(
+    home_repo: None,
     stored_stack: list[str], no_calls: None
 ) -> None:
     with state.edit("demo") as data:
@@ -450,7 +454,7 @@ def test_enqueueing_one_sibling_pr_of_his_order_card_alone_passes_since_stack_en
     assert landing_guard.deny_reason(bash("stack-enqueue 41")) is None
 
 
-def test_his_typed_approval_recorded_with_its_source_lets_the_pr_land(drive_pr: str, run: Run, no_calls: None) -> None:
+def test_his_typed_approval_recorded_with_its_source_lets_the_pr_land(home_repo: None, drive_pr: str, run: Run, no_calls: None) -> None:
     assert landing_guard.deny_reason(bash("stack-enqueue 42")).startswith(f"{drive_pr}: no tap from him yet")
     run("pr", "set", PR, "--tapped", "Approve", "--tap-source", "slack:https://acme.slack.com/archives/D123/p1794200000000100")
     assert landing_guard.deny_reason(bash("stack-enqueue 42")) is None
@@ -618,7 +622,7 @@ def test_a_report_posted_with_cci_post_in_bash_gets_the_checks_the_cci_post_tool
 
 
 @pytest.mark.parametrize("command", [".agents/skills/submit-pr/scripts/stack-enqueue 42", "gh pr merge 42 -R Forge-AI/monorepo --squash"])
-def test_a_drive_session_lands_no_pr_someone_else_opened_that_no_order_of_his_names(drive_pr: str, on_github: dict, no_calls: None, command: str) -> None:
+def test_a_drive_session_lands_no_pr_someone_else_opened_that_no_order_of_his_names(home_repo: None, drive_pr: str, on_github: dict, no_calls: None, command: str) -> None:
     approve(drive_pr)
     on_github["author"] = {"login": "rowan", "is_bot": False}
     assert landing_guard.deny_reason(bash(command)) == f"Refused on purpose: {state.foreign(drive_pr, 'rowan', [])}. Land, enqueue, label and rebase nothing of it"

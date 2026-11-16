@@ -1531,7 +1531,7 @@ def test_a_priority_is_a_lens_across_projects_counting_its_open_orders_and_its_s
     assert {entry["id"]: entry["priorities"] for group in model["status"] for entry in group["features"]}["o3"] == ["o1"]
 
 
-def test_staging_lookups_share_one_order_partition_per_projection() -> None:
+def test_staging_lookups_share_one_order_partition_per_projection(home_repo: None) -> None:
     class Orders(dict):
         scans = 0
 

@@ -299,6 +299,7 @@ def test_a_builder_on_staging_test_parts_alone_builds_nothing_unmarked_so_it_sta
 
 
 def test_a_monorepo_builder_over_this_macs_load_limit_starts_here_only_when_its_brief_names_a_step_only_this_mac_runs(
+    home_repo: None,
     demo: str, run: Run, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(place, "busy", lambda: 0.63)
