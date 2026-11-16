@@ -9487,6 +9487,25 @@ def test_a_second_unstarted_prover_of_a_pr_marked_or_not_folds_into_the_first_wh
     assert state.load(demo)["jobs"]["j2"]["waits"] == [f"release:api:{KEY}"]
 
 
+def test_a_prover_is_freed_only_once_a_production_target_that_ships_its_prs_paths_serves_its_merge_never_another_target_carrying_the_commit_as_j7876_was(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    key = "Forge-AI/monorepo#57077"
+    with state.edit(demo) as data:
+        data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged", "merged_sha": "aaa111"}
+        data["jobs"]["j9"] = state.new_job("o1", "builder", f"prove {key} live", [], state.stamp()) | {"waits": [state.CUT_WAIT]}
+    monkeypatch.setattr(orca, "checkout", lambda name, cwd, wait=0: tmp_path)
+    monkeypatch.setattr(github, "carrier", lambda checkout: lambda commit, sha, repo: commit == "408ec512")
+    monkeypatch.setattr(watch, "drive_cuts", lambda data, checkout: {})
+    monkeypatch.setattr(watch.settled, "prod", lambda env, checkout: True)
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"], "staged": ["api"]}})
+    watching = watcher(demo)
+    watching.live = [{"target": "platy", "env": "core-usw2-auto", "commit": "408ec512"}, {"target": "api", "env": "plat-usw2-prod", "commit": "c7063939"}]
+    assert watch.cut_binds(watching, state.load(demo), ["j9"]) == {}
+    watching.live[1]["commit"] = "408ec512"
+    assert watch.cut_binds(watching, state.load(demo), ["j9"]) == {"j9": None}
+
+
 @pytest.mark.parametrize("out", [False, True])
 def test_a_merged_product_job_waiting_on_its_own_release_takes_done_at_its_merge_with_no_free_and_its_prover_waits_on_the_next_release_cut(
     demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], out: bool

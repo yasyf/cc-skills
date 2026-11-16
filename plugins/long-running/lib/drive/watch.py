@@ -5558,21 +5558,28 @@ def cut_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def cut_binds(watcher: Watcher, data: dict, waiting: list[str]) -> dict[str, str | None]:
-    """What each prover waiting on the next cut binds to: the drive's production cut whose start carries one of its merges, by drive_cuts, else None once a production cluster the watch's last release live read shows serves a commit carrying one; a prover neither holds is left out."""
+    """What each prover waiting on the next cut binds to: the drive's production cut whose start carries one of its merges, by drive_cuts, else None once, for each of its merges, a production cluster of a target that ships that PR's paths, by cli.release_reach as release select reads them, serves a commit carrying it in the watch's last release live read, so a target that carries the commit but runs none of the PR's code never counts it live; a prover neither holds is left out."""
+    from drive import cli
+
     checkout = str(orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"], wait=0))
     carries = github.carrier(checkout)
     cuts = drive_cuts(data, checkout)
-    serving = list(dict.fromkeys(row["commit"] for row in watcher.live or [] if settled.prod(row["env"], checkout)))
+    serving = [row for row in watcher.live or [] if settled.prod(row["env"], checkout)]
+    proven = {job_id: {key: data["prs"][key]["merged_sha"] for key in proves(data, job_id) if data["prs"][key]["merged_sha"]} for job_id in waiting}
+    reach = cli.release_reach(watcher.name, data, list(dict.fromkeys(key for merges in proven.values() for key in merges)))
     binds: dict[str, str | None] = {}
-    for job_id in waiting:
-        merges = {key: data["prs"][key]["merged_sha"] for key in proves(data, job_id) if data["prs"][key]["merged_sha"]}
+    for job_id, merges in proven.items():
 
         def held(commit: str, merges: dict[str, str] = merges) -> bool:
             return any(carries(commit, sha, github.split(data["prs"][key]["into"] or key)[2]) for key, sha in merges.items())
 
+        def served(key: str, sha: str) -> bool:
+            ships = reach[key]["releases"] if key in reach else None
+            return any(carries(row["commit"], sha, github.split(data["prs"][key]["into"] or key)[2]) for row in serving if ships is None or row["target"] in ships)
+
         if cut := next((cut_id for cut_id, start in cuts.items() if start(merges, held)), None):
             binds[job_id] = cut
-        elif any(map(held, serving)):
+        elif merges and all(served(key, sha) for key, sha in merges.items()):
             binds[job_id] = None
     return binds
 
