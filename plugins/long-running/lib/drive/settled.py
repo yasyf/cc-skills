@@ -1395,8 +1395,8 @@ def pacific(moment: datetime) -> str:
 
 
 def only_asks(title: str, options: list[str], words: str) -> bool:
-    """Whether his words under a card only ask it questions, one proposing a way included, or remark on it, as Opus reads them beside its question and options at YES or more, so they answer nothing; Unheard when Opus gave no answer."""
-    return reading(opus({"card": {"question": title, "options": options}, "his_words": words[:BODY_CHARS]}, {"answers_nothing": ANSWERS_NOTHING})["answers_nothing"]) is True
+    """Whether his words under a card only ask it questions, one proposing a way included, or remark on it, as Jev reads them beside its question and options at YES or more, so they answer nothing, with no `claude` process, so the card command needs none on its PATH; Unheard when Jev gave no answer."""
+    return reading(jev({"card": {"question": title, "options": options}, "his_words": words[:BODY_CHARS]}, {"answers_nothing": ANSWERS_NOTHING})["answers_nothing"]) is True
 
 
 def answered_card(data: dict, answer: dict) -> limits.Question | None:

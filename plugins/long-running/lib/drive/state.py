@@ -5423,6 +5423,17 @@ def resolve(name: str | None = None) -> str:
     raise DriveError(f"several drives, pass --drive: {', '.join(available)}")
 
 
+HEARD = "heard.jsonl"
+
+
+def keep_heard(name: str, event: dict) -> None:
+    """Keep one message or Other-box answer of his verbatim in the drive's heard.jsonl, fsynced, before any model reads it, so nothing he sends is lost to a crash after it."""
+    with (drive_dir(name) / HEARD).open("a") as kept:
+        kept.write(json.dumps({"at": stamp(), "event": event}, ensure_ascii=False) + "\n")
+        kept.flush()
+        os.fsync(kept.fileno())
+
+
 def append_event(name: str, kind: str, **fields: object) -> dict:
     return append_line(events_path(name), kind, **fields)
 

@@ -905,13 +905,16 @@ def answer_question(name: str, ask: dict) -> dict:
     item |= {"attrs": {"maps": "none"}} if ask.get("other") else {}
     item |= {"id": f"tap:{ask['waits']}:{ask['action_ts']}{':undone' if undone else ''}"} if ask.get("action_ts") else {}
     if ask.get("other") and not undone:
+        state.keep_heard(name, {"type": "card.other", "waits": ask["waits"], "url": ask["url"], "text": ask["label"], "action_ts": ask.get("action_ts")})
         opened = [(job_id, question) for job_id, question in view.drawn_on(data, ask["waits"], ask["url"]) if view.tappable(question, ask.get("action_ts"))]
         try:
             asks = tools.asks_only(view.stored_cards(name)[0], item, opened)
         except settled.Unheard as failure:
             raise state.DriveError(tools.UNHEARD.format(failure=failure)) from failure
         if asks:
-            return {"ok": False, "asks": True, "why": asks}
+            thread = view.card_thread(ask["url"])
+            state.detach(name, ["route", f"Message (his words): {ask['label']}\nLink: {ask['url']}\nThread: {state.slack_message(ask['url'])[0]} {thread}\nDrive: {name}\nScratch: {state.drive_dir(name) / 'scratch' / f'other-{thread}'}\nContext: his words in the Other box of the question card {ask['waits']}, which they answer nothing on"], "routes-run.log")
+            return {"ok": False, "asks": True, "routed": True, "why": asks}
     closed = state.new_close("answered", said, ask["url"], at=state.tap_time(item.get("id")), tap=ask.get("action_ts"))
     if undone and (drawn := view.drawn_on(data, ask["waits"], ask["url"])):
         if not (taken := answered_at(data, drawn, ask["url"])):

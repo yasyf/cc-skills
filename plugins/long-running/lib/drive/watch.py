@@ -1862,17 +1862,11 @@ def hearer(name: str, lines: int) -> int:
     return stream.wait()
 
 
-HEARD = "heard.jsonl"
-
-
 def heard_message(name: str, event: dict) -> None:
     """Keep one message cc-slack delivered to the communicator verbatim, then route it: his, in his DM or an operator channel, through `drive route` detached; anyone else's to the communicator as a cci note, which it reads as channel content."""
     if not event.get("type", "").startswith("slack.message"):
         return
-    with (state.drive_dir(name) / HEARD).open("a") as kept:
-        kept.write(json.dumps({"at": state.stamp(), "event": event}, ensure_ascii=False) + "\n")
-        kept.flush()
-        os.fsync(kept.fileno())
+    state.keep_heard(name, event)
     if event.get("kind") == "dm" or event.get("operator"):
         state.detach(name, ["route", heard_brief(name, event)], "routes-run.log")
         return
