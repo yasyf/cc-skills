@@ -7426,6 +7426,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "after_merge": None,
         "reached": False,
         "reviewed": [],
+        "rulings_held": [],
         "updated": stamp(),
     }
 

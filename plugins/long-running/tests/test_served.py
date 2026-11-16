@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 from conftest import LEAD, Answers, Judge, edit, git_in
-from drive import cli, github, land, limits, refs, served, settled, slack, stage, state
+from drive import cli, github, land, limits, refs, served, settled, slack, stage, state, tools
 from drive.state import DriveError
 
 KEY = "Forge-AI/monorepo#42"
@@ -133,7 +133,7 @@ GUIDE_AT = re.compile(r'(g\d+_\d+): object\(expression: "refs/heads/([^:"]+):([^
 OWED = f'by his answers {served.WRITES_RULING} and {served.DEEPEST_RULING}, this change owes each of these rulings of his written, his words verbatim, into the AGENTS.md of the directory it rules on'
 
 
-def test_a_ruling_on_code_is_owed_once_by_a_change_to_that_code_its_missing_write_refused_unjudged_and_its_write_judged_as_his_words(
+def test_a_ruling_on_code_is_owed_once_by_a_change_to_that_code_its_missing_write_refused_unjudged_once_then_warned_and_its_write_judged_as_his_words(
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, judge: Judge, recorded: Answers
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "key the cache on the run")
@@ -142,7 +142,8 @@ def test_a_ruling_on_code_is_owed_once_by_a_change_to_that_code_its_missing_writ
     with edit(demo) as data:
         data["jobs"]["j1"]["brief_flags"] = {"ruling": ["c0de123"]}
     recorded.shown |= {"c0de123": CACHE_RULING, served.WRITES_RULING: WHERE_WRITTEN, served.DEEPEST_RULING: WHERE_DEEP}
-    home, based, asked = ["Forge-AI/monorepo"], {}, []
+    home, based, asked, warned = ["Forge-AI/monorepo"], {}, [], []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: warned.extend(posts) or ["9"])
     monkeypatch.setattr(github, "checkout_repo", lambda cwd: home[0])
     monkeypatch.setattr(github, "graphql", lambda text, what, max_age="0s": asked.append(GUIDE_AT.findall(text)) or {"data": {"repository": {alias: {"text": based[path]} if path in based else None for alias, _, path in asked[-1]}}})
     code = added("go/sand/cache/key.go", b"func key() string { return run.ID }")
@@ -172,7 +173,10 @@ def test_a_ruling_on_code_is_owed_once_by_a_change_to_that_code_its_missing_writ
     assert f'{OWED}, since it changes that code and that AGENTS.md holds them neither at the tip of its base branch nor at the head of an open PR numbered below it, so that write is his words: c0de123 on go/sand/cache, "Key the cache on the run id"' in said
     assert served.WRITES_WORDS in said
     based["AGENTS.md"] = "# Agents\n\n> Ruled Nov 11: key the cache on\n> the run id.\n"
-    assert judged_at(3, code).startswith(served.NOT_READY)
+    assert warned == []
+    assert judged_at(3, code).startswith(served.CHECKED)
+    assert [(post["kind"], post["to"], post["id"]) for post in warned] == [("defect", [f"meta@{demo}"], f"rulings-held-{KEY}:c0de123")]
+    assert "landing goes ahead, held once already on his words missing from an AGENTS.md" in warned[0]["text"]
     based["go/sand/cache/AGENTS.md"] = based.pop("AGENTS.md")
     assert judged_at(4, code).startswith(served.CHECKED) and OWED not in judge.asked[-1][0]
     reads = len(asked)
@@ -181,6 +185,13 @@ def test_a_ruling_on_code_is_owed_once_by_a_change_to_that_code_its_missing_writ
     del based["go/sand/cache/AGENTS.md"]
     assert judged_at(6, code).startswith(served.CHECKED) and OWED not in judge.asked[-1][0]
     assert len(asked) == reads
+
+
+def test_a_ruling_quoted_across_a_wrap_with_curly_quotes_and_quote_marks_matches_his_straight_quoted_words() -> None:
+    lines = ["- Ruled Nov 13, 2026: \u201cWe need to even more", "  enforce in our home agents.md, there\u2019s any chance of it touching prod. We", "> have caused too many outages\u201d, and"]
+    assert served.held("We need to even more enforce in our home agents.md, there's any chance of it touching prod. We have caused too many outages", lines)
+    assert served.held("\u201cWe have caused too many outages\u201d", ['"We have caused', 'too many outages"'])
+    assert not served.held("We have caused too few outages", lines)
 
 
 def test_a_pr_writing_any_agents_md_owed_or_ordered_has_the_judge_read_his_ruling_that_a_rule_of_his_goes_as_deep_as_makes_sense_and_one_writing_none_never(

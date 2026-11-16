@@ -87,8 +87,8 @@ An empty `against` says the change meets his words."""
 class Against(DriveError):
     """A change judged to go against his words, a change to what already exists that they do not need included, which the builders of the PRs it faults, keys, fix unless he approved the PR, as against a read or judge that failed, which runs again; named holds each of his words it goes against or beyond and what in the change does, before and after, and the line carries whole each answer of his the PR cites for its design and each other answer the check read that named names by the id or link its line opens with, so the builder reconciles the objection with them and its own read of the code rather than with a reading relayed beside the line; every other answer it read is one its job's brief already carries, or one cc-notes ranked near the words of a card it cites that no objection rests on, so the line stays one a relay carries whole."""
 
-    def __init__(self, keys: list[str], named: str, cited: list[str], others: list[str]):
-        self.keys, self.named = keys, named
+    def __init__(self, keys: list[str], named: str, cited: list[str], others: list[str], rulings: dict[str, list[str]] | None = None):
+        self.keys, self.named, self.rulings = keys, named, rulings or {}
         held = list(dict.fromkeys([*cited, *(line for line in others if line.partition(", ")[0] in named)]))
         read = f" His answers its design cites, and each other one an objection names, each whole: {'; '.join(held)}." if held else ""
         super().__init__(
@@ -115,7 +115,7 @@ class Uncited(DriveError):
 
 
 def check(name: str, unit: tuple[str, ...], bound: list[str]) -> dict[str, dict]:
-    """Judge the change of one stack's PRs together, the unit his card draws and his Approve lands, or of one PR in none, each read whole from GitHub at its head, title and diff and never the body, against the words of the orders they serve, for the parts they carry, and against each answer of his kept on them for the design they make and each bound names, read by answers with the options of each card of the drive's it answers, and his durable answers cc-notes ranks near that card's words, which the judge binds only where one speaks to what the change builds, a flake fix against his ruling FLAKE_RULING in place of any order, and each ruling write each PR owes, by owed, read beside his rulings WRITES_RULING and DEEPEST_RULING as his words, one its diff lacks refused with no judge run while it is open, and DEEPEST_RULING beside any AGENTS.md a diff writes, by placing(), and each ruling labelled with a directory of code a PR of the stack changes a file under, by coded(), read once for owed and the judge, which judges it against the lines the diff changes, never the code as it stands at the head, and return for each PR the head it checked beside the heads of the others, or the stamp its head already holds, for verdict to keep; every other PR their jobs carry, and each job they were handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses them, and a part a PR above another in the stack delivers is delivered by the change judged. The judge first lists each change the diffs make to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond and faulting each PR whose diff changes the file an objection names, every PR for one naming no file against an order's words, and dropping one naming a file none of them changes, or naming no file against an answer's words, since code the diff does not change is out of scope, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines in every PR changing it are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
+    """Judge the change of one stack's PRs together, the unit his card draws and his Approve lands, or of one PR in none, each read whole from GitHub at its head, title and diff and never the body, against the words of the orders they serve, for the parts they carry, and against each answer of his kept on them for the design they make and each bound names, read by answers with the options of each card of the drive's it answers, and his durable answers cc-notes ranks near that card's words, which the judge binds only where one speaks to what the change builds, a flake fix against his ruling FLAKE_RULING in place of any order, and each ruling write each PR owes, by owed, read beside his rulings WRITES_RULING and DEEPEST_RULING as his words, one its diff lacks refused with no judge run while it is open the first time it lacks it and only warned to the meta session after, by his 10:22 rule, its words matched with spacing, line wraps and curly quotes aside, and DEEPEST_RULING beside any AGENTS.md a diff writes, by placing(), and each ruling labelled with a directory of code a PR of the stack changes a file under, by coded(), read once for owed and the judge, which judges it against the lines the diff changes, never the code as it stands at the head, and return for each PR the head it checked beside the heads of the others, or the stamp its head already holds, for verdict to keep; every other PR their jobs carry, and each job they were handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses them, and a part a PR above another in the stack delivers is delivered by the change judged. The judge first lists each change the diffs make to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond and faulting each PR whose diff changes the file an objection names, every PR for one naming no file against an order's words, and dropping one naming a file none of them changes, or naming no file against an answer's words, since code the diff does not change is out of scope, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines in every PR changing it are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
     data = state.load(name)
     prs = {key: data["prs"][key] for key in unit}
     if all(stands(data, key, unit) for key in unit):
@@ -139,7 +139,10 @@ def check(name: str, unit: tuple[str, ...], bound: list[str]) -> dict[str, dict]
     named_answers = {line.partition(", ")[0] for line in answered}
     near = [line for line in dict.fromkeys([*(line for each in cites for line in each["near"]), *binding["near"]]) if line.partition(", ")[0] not in named_answers]
     if lacking := {key: text for key in unit if prs[key]["state"] == "open" and (text := unwritten(key, owes[key]))}:
-        raise Against(list(lacking), "; ".join(lacking.values()), cited, [*binding["cited"], *near])
+        missing = {key: [each["id"] for each in owes[key] if not each["written"]] for key in lacking}
+        if any(set(ids) - set(prs[key]["rulings_held"]) for key, ids in missing.items()):
+            raise Against(list(lacking), "; ".join(lacking.values()), cited, [*binding["cited"], *near], missing)
+        warned_once(name, missing, "; ".join(lacking.values()))
     carried = (state.pr_key(url) for job in data["jobs"].values() if any(pr["url"] in job["prs"] for pr in prs.values()) for url in job["prs"])
     others = [other for other in dict.fromkeys(carried) if other in data["prs"] and other not in prs and data["prs"][other]["state"] != "closed"]
     found = judged(name, words(data, list(prs.values()), orders, answered, near, others, [each for key in unit for each in owes[key]], ruled), reads)
@@ -170,13 +173,13 @@ def verdict(name: str, key: str) -> str:
     data = state.load(name)
     unit = land.landing_stacks(data).get(key, (key,))
     prs = {member: data["prs"][member] for member in unit}
-    heads, at, named, faulted, checked, uncited, until = {member: pr["head"] for member, pr in prs.items()}, state.stamp(), "", [], {}, [], None
+    heads, at, named, faulted, checked, uncited, until, rulings = {member: pr["head"] for member, pr in prs.items()}, state.stamp(), "", [], {}, [], None, {}
     orders, answers = {member: state.served_orders(data, pr) for member, pr in prs.items()}, {member: binds(name, data, pr) for member, pr in prs.items()}
     bound = list(dict.fromkeys(answer for job in dict.fromkeys(pr["job"] for pr in prs.values()) for answer in brief.bound(name, data, data["jobs"][job])))
     try:
         checked = check(name, unit, bound)
     except Against as error:
-        outcomes, named, faulted = dict.fromkeys(unit, f"{NOT_READY}: {error}"), error.named, error.keys
+        outcomes, named, faulted, rulings = dict.fromkeys(unit, f"{NOT_READY}: {error}"), error.named, error.keys, error.rulings
     except Uncited as error:
         outcomes, named, faulted, uncited = dict.fromkeys(unit, f"{NOT_READY}: {error}"), str(error) if error.keys else "", error.keys, [list(each) for each in error.names]
     except DriveError as error:
@@ -191,7 +194,7 @@ def verdict(name: str, key: str) -> str:
         key,
         {
             "heads": heads, "at": at, "orders": orders, "answers": answers, "outcomes": outcomes, "against": named, "faulted": faulted, "checked": checked, "pid": os.getpid(), "uncited": uncited,
-            "until": until,
+            "until": until, "rulings_held": rulings,
         },
     )
 
@@ -223,6 +226,7 @@ def kept_outcome(name: str, key: str, result: dict, outcome: str) -> str:
                 "head": result["heads"][member], "pid": result["pid"], "at": result["at"], "orders": result["orders"][member], "answers": result["answers"][member], "outcome": said, "against": result["against"],
                 "faulted": result.get("faulted", []), "uncited": result.get("uncited", []), "until": result.get("until"),
             }
+            pr["rulings_held"] = list(dict.fromkeys([*pr["rulings_held"], *result.get("rulings_held", {}).get(member, [])]))
             if result["against"] and pr["state"] == "open" and (pr["tap"] or {}).get("approval"):
                 pr["tap"] = None
         return fresh
@@ -513,9 +517,12 @@ def holds(texts: dict[str, str], ruling: str, directory: str) -> bool:
     return held(ruling, texts[guide(directory)].splitlines())
 
 
+QUOTES = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"'})
+
+
 def held(ruling: str, lines: list[str]) -> bool:
-    """Whether these lines of an AGENTS.md hold his words, case, spacing, line breaks and a quote's > marks aside."""
-    return " ".join(ruling.split()).casefold() in " ".join(" ".join(line.strip().lstrip(">").strip() for line in lines).split()).casefold()
+    """Whether these lines of an AGENTS.md hold his words, case, spacing, line breaks, curly or straight quotes and a quote's > marks aside."""
+    return " ".join(ruling.translate(QUOTES).split()).casefold() in " ".join(" ".join(line.strip().lstrip(">").strip() for line in lines).translate(QUOTES).split()).casefold()
 
 
 def guides(key: str, branches: list[str], paths: set[str]) -> list[dict[str, str]]:
@@ -528,6 +535,13 @@ def guides(key: str, branches: list[str], paths: set[str]) -> list[dict[str, str
     except github.GithubError as error:
         raise DriveError(f"{key}: {error}") from None
     return [{path: found[f"g{b}_{n}"]["text"] if found[f"g{b}_{n}"] else "" for n, path in enumerate(named)} for b in range(len(branches))]
+
+
+def warned_once(name: str, missing: dict[str, list[str]], said: str) -> None:
+    """Tell the meta session once that a landing its check held once on his words missing from an AGENTS.md goes ahead, by his 10:22 rule that a missing quote blocks once and then warns, since the check can miss words the file holds."""
+    from drive import tools
+
+    tools.sent(name, "watch", [{"kind": "defect", "to": [f"meta@{name}"], "text": f"landing goes ahead, held once already on his words missing from an AGENTS.md; check the file holds them: {said}", "id": "rulings-held-" + "-".join(f"{key}:{','.join(sorted(ids))}" for key, ids in sorted(missing.items()))}])
 
 
 def unwritten(key: str, owes: list[dict]) -> str:
