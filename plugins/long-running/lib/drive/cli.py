@@ -4173,7 +4173,8 @@ def started_here(name: str, job_id: str, kept: Path, text: str, cwd: Path) -> di
 
 
 def here_fields(receipt: dict) -> dict:
-    return {"where": "local", "route": None, "bg": receipt["bg"]} if receipt.get("bg") else {}
+    """The job row fields a lane started on this Mac as its own `claude --bg` session sets: its bg entry and that entry's agent as the job's, its launch over, so state.own_session names the session from the start and drive job resume reaches it by `claude --bg --resume` whether or not a hook of it ever binds the job."""
+    return {"where": "local", "route": None, "bg": receipt["bg"], "agent": receipt["bg"]["agent"], "launching": None} if receipt.get("bg") else {}
 
 
 def as_worker(started: dict) -> str:
