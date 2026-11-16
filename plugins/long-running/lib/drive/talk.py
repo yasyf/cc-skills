@@ -133,7 +133,7 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
             if place:
                 at = state.stamp(slack.sent_at(slack.posted(link, "")))
                 for each in state.open_orders(data).values():
-                    if state.promise_thread(data, each) == place:
+                    if (promised := state.promise_thread(data, each)) == place or promised and promised[0] == place[0] != slack.dm():
                         each["last_line"] = max(each["last_line"] or at, at, key=state.parse_time)
 
         state.update(name, None, spoken_write)

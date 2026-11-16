@@ -570,10 +570,6 @@ def held_path(name: str, project: str | None = None) -> Path:
     return drive_dir(name) / f"watch{watch_suffix(project)}.held"
 
 
-def overdue_path(name: str, caller: str) -> Path:
-    return drive_dir(name) / "overdue" / caller
-
-
 def reads_path(name: str, project: str | None = None) -> Path:
     return drive_dir(name) / f"watch{watch_suffix(project)}.reads"
 
@@ -5925,14 +5921,6 @@ def absence(data: dict, moment: datetime) -> str | None:
     return f"he last wrote or tapped {int(quiet.total_seconds() // 60)} minutes ago"
 
 
-def present(data: dict, since: datetime, moment: datetime) -> timedelta:
-    """How long he read present from since to moment: all of it but what his last absence the owner row keeps covers, from the moment he read away until he was heard back."""
-    if not (absence := data["owner"]["absence"]):
-        return moment - since
-    gone = min(moment, parse_time(absence["until"])) - max(since, parse_time(absence["from"]))
-    return moment - since - max(gone, timedelta())
-
-
 def timed(data: dict, job: dict, moment: datetime) -> bool:
     """Whether a time is set to come for the job: its own clock from drive job set --due."""
     return bool(job["due"]) and parse_time(job["due"]) > moment
@@ -5979,27 +5967,6 @@ def clocks(data: dict) -> list[dict]:
 def at_work(job: dict) -> bool:
     """Whether a job runs with a live worker: running, and no watch read since its last live one found its agent or lane gone."""
     return job["state"] == "running" and not job.get("lost_since")
-
-
-def held_clocks(name: str, session: str) -> dict:
-    """The owner row and the clocks row's orders a session holds, both read in one transaction with no lock; none from a drive no install writing the row saved since."""
-    saved = stored(name, (CLOCKS, "owner"))
-    return saved | {CLOCKS: [entry for entry in saved.get(CLOCKS, []) if session in entry["sessions"]]}
-
-
-def show_overdue(name: str, caller: str, shown: list[list]) -> bool:
-    """Whether the overdue block render.overdue drew shows other orders or steps than the calling session's last one, keeping what this one shows when it does, in a file of the caller's own, written lock-free under a name of this process's own, since parallel calls draw at once; a caller holding no order keeps none, so its next order shows."""
-    path = overdue_path(name, caller)
-    if not shown:
-        path.unlink(missing_ok=True)
-        return False
-    if path.exists() and json.loads(path.read_text()) == shown:
-        return False
-    path.parent.mkdir(exist_ok=True)
-    tmp = path.with_name(f"{caller}.{os.getpid()}")
-    tmp.write_text(json.dumps(shown))
-    os.replace(tmp, path)
-    return True
 
 
 def open_incidents(data: dict, order_ids: list[str]) -> list[str]:

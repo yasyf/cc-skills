@@ -4,11 +4,11 @@ import shlex
 import sys
 import traceback
 from collections.abc import Callable, Iterable
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 from drive import slack
-from drive.state import CLOCKS, DRIVE_TOOLING, communicator_lane, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owner_away, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, present, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
+from drive.state import DRIVE_TOOLING, communicator_lane, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -208,10 +208,6 @@ JOB = {
     "meta": f"you hold drive tooling, {DRIVE_TOOLING}",
 }
 REPROS_SHOWN = 5
-OVERDUE_HEADING = "Orders he asked a line every so many minutes on, most overdue first; due is that many minutes after the thread's last line:"
-OVERDUE_TITLE_CHARS = 60
-OVERDUE_SHOWN = 5
-OVERDUE_STEP = timedelta(minutes=15)
 FILED = "The projects and workstreams in use, which a new order reuses where it fits, one home a subject, since drive order add and set refuse a name other orders file only as the other of the two: drive order unfiled lists each pair."
 WHOLE = sys.maxsize
 REPO_RULES_HEADING = f"The rules of the repository this drive works in, which its {REPO_RULES} holds at its default branch's head, and every session and job of every drive working in it follows:"
@@ -304,27 +300,6 @@ def unread(words: list[str], failed: str | None = None) -> str:
 
 def clock(moment: datetime, seconds: bool = False) -> str:
     return moment.strftime("%-I:%M:%S %p" if seconds else "%-I:%M %p")
-
-
-def overdue(drive: dict, moment: datetime) -> tuple[list[list], list[str]]:
-    """The block of the orders of the clocks row state.held_clocks kept, those a drive session holds, most overdue first, beside what it shows for state.show_overdue to draw it by: the five most overdue and how many more, each with the minutes since its thread's last line to him, its due, and the minutes past it he read present, an incident's every minute, since the watch owes its line while he is away too, one he is away from now saying its line is owed at his return; what it shows is each of those five beside its step, none before its due, one more once past due and at each fifteen minutes past it, and while he is away none for a line that shows no minutes, so a block repeats only when the five or a step change."""
-    if not (held := drive[CLOCKS]):
-        return [], []
-    away = owner_away(drive, moment)
-    late = {entry["order"]: max(timedelta(), moment - parse_time(entry["due"]) if entry["incident"] else present(drive, parse_time(entry["due"]), moment)) for entry in held}
-    lines, shown = [OVERDUE_HEADING], []
-    for entry in sorted(held, key=lambda entry: (-late[entry["order"]], parse_time(entry["due"])))[:OVERDUE_SHOWN]:
-        quiet = int((moment - parse_time(entry["since"])).total_seconds() // 60)
-        if away and not entry["incident"]:
-            standing, step = "; he is away, so no nudge goes out until he is back", None
-        else:
-            standing = f", {int(late[entry['order']].total_seconds() // 60)} min past due" if late[entry["order"]] else ", not past due"
-            step = 1 + late[entry["order"]] // OVERDUE_STEP if late[entry["order"]] else 0
-        lines.append(f"- {entry['order']} {cut(entry['title'], OVERDUE_TITLE_CHARS)}: {quiet} min since its thread's last line to him, due {when(entry['due'])}{standing}")
-        shown.append([entry["order"], step])
-    if len(held) > OVERDUE_SHOWN:
-        lines.append(f"- and {len(held) - OVERDUE_SHOWN} more")
-    return shown, lines
 
 
 def when(iso: str, seconds: bool = False) -> str:
