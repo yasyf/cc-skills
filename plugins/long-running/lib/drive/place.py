@@ -119,8 +119,17 @@ def positions(data: dict) -> dict[str, str]:
     return {job_id: f"{number} of {len(line)} in line" for number, job_id in enumerate(line, 1)}
 
 
+def limit_spent(moment: datetime) -> str | None:
+    """Why no Claude lane starts on this Mac until a usage limit resets: a session here stopped on Claude Code's notice that the account's limit is spent, which every Claude session on this Mac shares, while a Sprite lane runs on its own key."""
+    if not (held := state.usage_limit(moment)):
+        return None
+    return f"Claude Code's {held['limit']} limit on this Mac is spent until {when(held['until'])}, by a session's stop at {when(held['at'])} on \"{held['notice']}\""
+
+
 def crowded(data: dict, job_id: str | None, moment: datetime) -> str | None:
-    """Why the builder job takes no slot on this Mac now, None when it may: the cap's builders hold every slot but its own, or builders wait their turn ahead of a job that holds none, since the watch's FREE line gives each open slot to the earliest due. A builder on an open incident's order, on an open priority order, by state.first_in_line, or on an immediate fix part starts at once past both, counting against the cap for later builders once it runs, by his pick "Start at once past the cap" and his words on a priority order, "they aren't slowed down at any cost by anything", and one that builds nothing starts at once past both, holding no slot."""
+    """Why the builder job takes no slot on this Mac now, None when it may: Claude Code's usage limit here is spent, by limit_spent, whatever the job, the cap's builders hold every slot but its own, or builders wait their turn ahead of a job that holds none, since the watch's FREE line gives each open slot to the earliest due. A builder on an open incident's order, on an open priority order, by state.first_in_line, or on an immediate fix part starts at once past both, counting against the cap for later builders once it runs, by his pick "Start at once past the cap" and his words on a priority order, "they aren't slowed down at any cost by anything", and one that builds nothing starts at once past both, holding no slot."""
+    if spent := limit_spent(moment):
+        return spent
     job = data["jobs"].get(job_id)
     if job and (state.builds_nothing(job) or state.first_in_line(data, job) or state.open_incidents(data, orders := [job["order"], *job["carries"]]) or any(state.IMMEDIATE_FIX in state.job_parts(job, order_id) for order_id in orders)):
         return None
@@ -177,8 +186,8 @@ def moves_here(job: dict) -> bool:
 
 
 def turns(data: dict, moment: datetime) -> tuple[list[str], int]:
-    """The builder jobs whose turn comes now, and how many builders hold a slot on this Mac: each priority order's builder in line at once, as crowded starts one past the cap, then the earliest due, one for each slot no builder holds."""
-    if not (line := waiting_builders(data)):
+    """The builder jobs whose turn comes now, and how many builders hold a slot on this Mac: none while Claude Code's usage limit here is spent, by limit_spent, else each priority order's builder in line at once, as crowded starts one past the cap, then the earliest due, one for each slot no builder holds."""
+    if limit_spent(moment) or not (line := waiting_builders(data)):
         return [], 0
     held = len(local_builders(data, moment))
     first = [job_id for job_id in line if state.first_in_line(data, data["jobs"][job_id])]
