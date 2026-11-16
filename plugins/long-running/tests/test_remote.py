@@ -4703,22 +4703,26 @@ def test_a_pr_wake_for_a_builder_agent_hands_the_line_and_its_resume_to_the_coor
     [record] = posted
     assert (record["to"], record["text"]) == (
         [f"platform@{demo}"],
-        f"STAGE {line}; for j1, with this line alone: drive job resume j1 with this line verbatim",
+        f"STAGE {line}; for j1, with this line alone: drive job resume j1 with no text, which sends it every text it holds, this line included",
     )
     with state.edit(demo) as data:
+        data["jobs"]["j1"]["undelivered"] = []
         top = data["jobs"]["j1"]["session"] = data["roles"]["coordinator"]["session"]
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", top)
     posted.clear()
     assert run("pr", "wake", url, "--text", line) == (0, f"{key}: sent to root@{demo} for j1")
     assert [record["text"] for record in posted] == [
-        f"STAGE {line}; for j1, with this line alone: drive job resume j1 with this line verbatim"
+        f"STAGE {line}; for j1, with this line alone: drive job resume j1 with no text, which sends it every text it holds, this line included"
     ]
     with state.edit(demo) as data:
+        data["jobs"]["j1"]["undelivered"] = []
         data["jobs"]["j1"]["session"] = "ended-session"
     monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
     posted.clear()
     assert run("pr", "wake", url, "--text", line) == (0, f"{key}: sent to platform@{demo} for j1")
-    assert [record["text"] for record in posted] == [f"STAGE {line}; for j1, with this line alone: drive job resume j1 with this line verbatim"]
+    assert [record["text"] for record in posted] == [f"STAGE {line}; for j1, with this line alone: drive job resume j1 with no text, which sends it every text it holds, this line included"]
+    assert run("pr", "wake", url, "--text", "PR #7: checks failed") == (0, f"{key}: held on j1 beside the STAGE line its holder was already asked to resume it with")
+    assert len(posted) == 1
 
 
 def test_a_pr_wake_for_a_builder_the_top_coordinator_started_that_returned_on_a_platform_order_hands_the_job_add_step_to_the_platform_session(
@@ -4790,9 +4794,9 @@ def test_a_pr_wake_for_a_builder_waiting_its_turn_for_a_slot_here_asks_no_resume
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend(posts) or ["9"])
     line = f"{key} red since 2026-11-15T16:06:32-08:00, owed by its builder: it conflicts with its base dev [o1 j1]"
     for _ in range(2):
-        assert run("pr", "wake", url, "--text", line) == (0, f"{key}: sent to root@{demo} for j1")
+        assert run("pr", "wake", url, "--text", line) == (0, f"{key}: held on j1, which waits its turn for a builder slot on this Mac, for the worker the watch starts as its turn comes")
     in_line = "nothing to run: j1 waits its turn for a builder slot on this Mac, 1 of 1 in line, and the worker the watch starts as its turn comes carries this line"
-    assert [record["text"] for record in posted] == 2 * [f"STAGE {line}; for j1, with this line alone: {in_line}"]
+    assert posted == []
     data = state.load(demo)
     assert [held["words"] for held in data["jobs"]["j1"]["undelivered"]] == [f"STAGE {line}"]
     assert superseded.delivery(data, "j1", data["jobs"]["j1"], "his answer") == ("root", in_line.replace("this line", "his words"))

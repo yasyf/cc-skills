@@ -5125,7 +5125,7 @@ def pr_wake(args: argparse.Namespace) -> int:
 
 @orca.rides_restarts()
 def wake_pr(args: argparse.Namespace) -> int:
-    """Send a PR's stage line, or the text given, to the builder answering for it, or to the job given, as a PR waiting on that job's work owes it: to a lane Orca holds as a message to its Dispatch, which neither answers its question nor touches its job's ask or state; to a fresh worker on its job when that lane finished or died, as drive job resume relaunches one, and for a lane on a Sprite whose declared_step reads a step only this Mac runs, to a fresh worker on this Mac whatever its Sprite worker is doing; to an adopted PR's job, by state.adopted_pr_job, a drive job launch it detaches with the PR, its head and the line as the brief's handoff, so the event starts its first builder with no hand step; and to any other builder as a handoff record naming superseded.delivery's step that reaches the builder, to the session that step names as the one that may take it: the session holding its order for a fresh builder, the coordinator session that started its agent on this Mac for a SendMessage, else the session state.job_lane names, the line held first on a builder waiting its turn for a slot on this Mac, by superseded.in_line, whose step is then nothing to run, since the worker the watch starts as its turn comes carries it. A PR whose own job is stopped, as his superseding answer stops one, or whose job stopped while the wake waited on its lock, goes the same way to the session holding that job, by state.holding_job_lane, which closes the PR or moves it, so no wake starts work he called off. A lane's send or relaunch runs under the job's own lock, as drive job resume's does, so a second wake arriving while the first starts the job's next worker waits for it and sends that worker its line."""
+    """Send a PR's stage line, or the text given, to the builder answering for it, or to the job given, as a PR waiting on that job's work owes it: to a lane Orca holds as a message to its Dispatch, which neither answers its question nor touches its job's ask or state; to a fresh worker on its job when that lane finished or died, as drive job resume relaunches one, and for a lane on a Sprite whose declared_step reads a step only this Mac runs, to a fresh worker on this Mac whatever its Sprite worker is doing; to an adopted PR's job, by state.adopted_pr_job, a drive job launch it detaches with the PR, its head and the line as the brief's handoff, so the event starts its first builder with no hand step; and to any other builder as a handoff record naming superseded.delivery's step that reaches the builder, to the session that step names as the one that may take it: the session holding its order for a fresh builder, the coordinator session that started its agent on this Mac for a SendMessage, else the session state.job_lane names, the line only held, with no record, on a builder waiting its turn for a slot on this Mac, by superseded.in_line, since the worker the watch starts as its turn comes carries it, and held on a job a resume reaches, whose holder gets one record asking drive job resume with no text, later lines held beside it with no record of their own until that resume sends them all. A PR whose own job is stopped, as his superseding answer stops one, or whose job stopped while the wake waited on its lock, goes the same way to the session holding that job, by state.holding_job_lane, which closes the PR or moves it, so no wake starts work he called off. A lane's send or relaunch runs under the job's own lock, as drive job resume's does, so a second wake arriving while the first starts the job's next worker waits for it and sends that worker its line."""
     from drive import stage, tools, view
 
     name = state.resolve(args.drive)
@@ -5158,12 +5158,24 @@ def wake_pr(args: argparse.Namespace) -> int:
         state.detach(name, ["job", "launch", job_id, "--handoff", f"{pr['url']} at {pr['head']}: {text}"], watch.RELAUNCHES_LOG)
         return emit(args, f"{key}: ran drive job launch {job_id} with this line as its handoff, its output in the drive's {watch.RELAUNCHES_LOG}", {"key": key, "job": job_id, "how": "launch"})
     if job_id:
-        if superseded.in_line(data, job_id, job):
+        queued = superseded.in_line(data, job_id, job)
+        fresh = superseded.fresh_builder(data, job_id, job, text, "this line")
+        resumed = not fresh and not queued and bool(job.get("agent") or job.get("dispatch"))
+        owed: list[bool] = []
+        if queued or resumed:
             def staged(held: dict) -> None:
+                owed.append(any(kept["words"].startswith("STAGE ") for kept in held["jobs"][job_id]["undelivered"]))
                 state.hold_text(held["jobs"][job_id], f"STAGE {text}", state.held_sender(held))
 
             state.update(name, None, staged)
-        lane, step = superseded.delivery(data, job_id, job, text, "this line")
+        if queued and not fresh:
+            return emit(args, f"{key}: held on {job_id}, which waits its turn for a builder slot on this Mac, for the worker the watch starts as its turn comes", {"key": key, "job": job_id, "how": "held"})
+        if resumed and owed[0]:
+            return emit(args, f"{key}: held on {job_id} beside the STAGE line its holder was already asked to resume it with", {"key": key, "job": job_id, "how": "held"})
+        if resumed:
+            lane, step = state.job_lane(data, job), f"drive job resume {job_id} with no text, which sends it every text it holds, this line included"
+        else:
+            lane, step = superseded.delivery(data, job_id, job, text, "this line")
         said = f"STAGE {text}; for {job_id}, with this line alone: {step}"
     else:
         lane = state.holding_job_lane(data, job)
