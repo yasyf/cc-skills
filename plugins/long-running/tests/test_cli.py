@@ -7414,6 +7414,29 @@ def test_a_report_takes_a_waiting_or_built_job_and_a_stopped_ones_is_kept_ahead_
     assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
 
 
+def test_drive_work_back_ends_the_workers_claim_keeps_why_on_the_item_and_refuses_a_worker_holding_no_claim(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it", "--parts", "the store", "the queue")
+    run("job", "add", "builder", "--order", "o1", "--part", "the store", "--goal", "ship")
+    run("job", "add", "builder", "--order", "o1", "--part", "the queue", "--goal", "work the queue")
+    state.write(demo, lambda data: data["jobs"]["j1"].update(claim={"worker": "j2", "attempt": 1, "at": state.stamp()}, waits=["j2"]))
+    with pytest.raises(state.DriveError, match="j3 holds no claim on it"):
+        work.back(demo, "j3", "j1", "another stack")
+    assert work.back(demo, "j2", "j1", "another stack") == "j1 goes back to the queue from j2: another stack; another worker takes it"
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["claim"], job["waits"], job["work_back"]["worker"], job["work_back"]["why"]) == (None, [], "j2", "another stack")
+
+
+def test_an_items_done_goes_to_its_holder_only_once_its_order_holds_no_other_unfinished_job_and_a_build_tells_every_line(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it", "--parts", "the store", "the queue")
+    run("job", "add", "builder", "--order", "o1", "--part", "the store", "--goal", "ship")
+    run("job", "add", "builder", "--order", "o1", "--part", "the queue", "--goal", "work the queue")
+    data = state.load(demo)
+    prove, build = work.KIND[work.PROVE], work.KIND[work.BUILD]
+    assert (work.told(data, prove, "j1", "DONE proven"), work.told(data, prove, "j1", "WAITING j9"), work.told(data, prove, "j1", "BLOCKED no box"), work.told(data, build, "j1", "PUSHED x")) == (False, False, True, True)
+    data["jobs"]["j2"]["state"] = "done"
+    assert work.told(data, prove, "j1", "DONE proven") is True
+
+
 def test_drive_work_done_refuses_a_waiting_the_watch_cannot_free_as_drive_job_report_does_and_the_item_stays_claimed(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it", "--parts", "the store", "the queue")
     run("job", "add", "builder", "--order", "o1", "--part", "the store", "--goal", "ship")

@@ -12,7 +12,7 @@ PROVE = "prove"
 BUILD = "build"
 RESEARCH = "research"
 DESIGN = "design"
-TOLD = ("ASK", "BLOCKED", "DONE")
+TOLD = ("ASK", "BLOCKED")
 WORKER = "worker"
 WORKER_ITEMS = 18
 WORKERS_PER_PASS = 4
@@ -266,8 +266,8 @@ class Kind:
             return "HOLD", [], f"HOLD {why}"
         if why := self.why_not(data, moment):
             return "NONE", [], f"NONE {why}"
-        if not (line := self.pool(data, where)):
-            return "NONE", [], f"NONE every ready {self.name} item runs {'on this Mac' if where == 'remote' else 'on a Sprite'}, so a worker there takes it: end"
+        if not (line := [job_id for job_id in self.pool(data, where) if (data["jobs"][job_id].get("work_back") or {}).get("worker") != worker_id]):
+            return "NONE", [], f"NONE no ready {self.name} item runs {'on this Mac' if where == 'local' else 'on a Sprite'} but those you gave back, so another worker takes the rest: end"
         group, go = self.group_of(data, worker_id, line, moment)
         claim(data, worker_id, group, moment, go)
         return "GO", group, go
@@ -278,6 +278,9 @@ class Kind:
 
     def done(self, data: dict, job_id: str, line: str) -> None:
         """What a reported item gives back beside its claim."""
+
+    def back(self, data: dict, job_id: str) -> None:
+        """What an item a worker gave back gives back beside its claim: nothing for a kind holding nothing for it."""
 
     def wanted(self, data: dict, where: str, moment: datetime) -> bool:
         """Whether the queue wants another worker of this kind running where: the kind holds fewer live workers than its most, none of its workers there failed to start in the last STALL_AFTER, so a failing start is tried again at that pace, and items placed there wait to run again, or wait unclaimed while a new group may start, by why_not; a worker that finished its group pulls again on its own, so a ready item no worker holds needs a new one."""
@@ -299,7 +302,7 @@ class StageTest(Kind):
     goal = "pull and run stage-test items on {env}, one cut a group"
     loop = (
         "You are {worker}, the drive's stage-test worker for {env}: you run groups of staging tests, each group on one cut, report every test as its own item, then pull the next group, holding the {env} slot only while a group of yours runs."
-        " 1) Run `drive work pull --worker {worker}`: it prints your group, each item's job id, its brief, the PRs it tests and, for an item that ran before, the `drive job report <item>` that prints its last return, then the GO steps of the cut they share; on `NONE` or `HOLD` go to 5."
+        " 1) Run `drive work pull --worker {worker}`: it prints your group, each item's job id, its brief, the PRs it tests and, for an item that ran before, the `drive job report <item>` that prints its last return, then the GO steps of the cut they share; on `NONE` or `HOLD` go to 5. Give back an item that does not fit the group, naming why, with `drive work back {worker} <item> \"<why>\"`, and another worker takes it."
         " 2) Read every item's brief and last return whole. Their cases all run on the one cut the GO line names: post one staging claim naming every PR, start one release carrying every item's PR head, and take one Mac box for the whole group when a brief asks for one."
         " 3) Once staging serves the cut, run each item's cases as its brief says, and as each finishes pipe its whole return, in the shape its brief asks, CASE lines and all, into `drive work done {worker} <item> -` from a quoted heredoc; an item whose case waits on something returns `WAITING <what>` the same way and keeps its place in the cut for a later worker."
         " 4) Go to 1."
@@ -385,6 +388,11 @@ class StageTest(Kind):
         if line.startswith("DONE") and slot["holder"] and job_id in state.slot_members(slot):
             state.slot_release(data, env(data), job_id)
 
+    def back(self, data: dict, job_id: str) -> None:
+        """Give a test a worker handed back its place in the queue's cut, so the next cut packs it afresh."""
+        if (slot := self.slot(data))["holder"] and job_id in state.slot_members(slot):
+            state.slot_release(data, env(data), job_id)
+
 
 class Prove(Kind):
     """Live proofs of merged PRs: a builder whose goal reads `prove <PRs> live`, each run by its brief's handoff, the install or release cut it waits on, its proof file and drive job prove, which takes its DONE; a worker runs a group of them one after another, so a merge's proof holds no agent of its own."""
@@ -394,7 +402,7 @@ class Prove(Kind):
     goal = "pull and prove merged PRs live, one item at a time"
     loop = (
         "You are {worker}, the drive's prove worker: you prove merged PRs live, a group at a time, each item its own job, then pull the next group."
-        " 1) Run `drive work pull --worker {worker}`: it prints your group, each item's job id, its brief and, for an item that ran before, the `drive job report <item>` that prints its last return; on `NONE` or `HOLD` go to 4."
+        " 1) Run `drive work pull --worker {worker}`: it prints your group, each item's job id, its brief and, for an item that ran before, the `drive job report <item>` that prints its last return; on `NONE` or `HOLD` go to 4. Give back an item that does not fit the group, naming why, with `drive work back {worker} <item> \"<why>\"`, and another worker takes it."
         " 2) For each item, read its brief and last return whole and do what its handoff says: install by the INSTALL: line it names, or run its after-merge staging pass, then write its proof file from the PROVE: lines it names, keep it with `drive job set <item> --repro <file>` and run `drive job prove <item>`, whose exit 0 takes the item's DONE. An item whose proof cannot pass yet returns `WAITING <what>` or `BLOCKED <why>` by piping its whole return into `drive work done {worker} <item> -` from a quoted heredoc."
         " 3) Go to 1."
         " 4) Return. Never report an item another worker holds."
@@ -414,7 +422,7 @@ class Build(Kind):
     goal = "pull and build changes, a group on one stack at a time"
     loop = (
         "You are {worker}, the drive's build worker: you build a group of changes on one stack, each its own job, then pull the next group."
-        " 1) Run `drive work pull --worker {worker}`: it prints your group, each item's job id and brief; on `NONE` or `HOLD` go to 4."
+        " 1) Run `drive work pull --worker {worker}`: it prints your group, each item's job id and brief; on `NONE` or `HOLD` go to 4. Give back an item that does not fit the group, naming why, with `drive work back {worker} <item> \"<why>\"`, and another worker takes it."
         " 2) For each item, read its brief whole and build it as a builder builds its own job, the item's id standing for your job wherever agents/builder.md names it, such as `drive pr add <url> --job <item>`, in the order the pull lists them, each on the branch its brief names or stacked on the one before it, and when it is pushed or blocked pipe its whole return, in the shape agents/builder.md gives a builder's, into `drive work done {worker} <item> -` from a quoted heredoc."
         " 3) Go to 1."
         " 4) Return. Never push a branch another worker builds, and never report an item another worker holds."
@@ -459,7 +467,7 @@ class Research(Kind):
     goal = "pull and answer research items, a group of one order's reads at a time"
     loop = (
         "You are {worker}, the drive's research worker: you answer a group of one order's reads, each its own job, then pull the next group."
-        " 1) Run `drive work pull --worker {worker}`: it prints your group, each item's job id, its brief and, for an item that ran before, the `drive job report <item>` that prints its last return; on `NONE` or `HOLD` go to 4."
+        " 1) Run `drive work pull --worker {worker}`: it prints your group, each item's job id, its brief and, for an item that ran before, the `drive job report <item>` that prints its last return; on `NONE` or `HOLD` go to 4. Give back an item that does not fit the group, naming why, with `drive work back {worker} <item> \"<why>\"`, and another worker takes it."
         " 2) For each item, read its brief and last return whole and answer it as a reader answers its own job, the item's id standing for your job wherever agents/reader.md names it, then pipe its whole return, in the shape agents/reader.md gives a reader's, into `drive work done {worker} <item> -` from a quoted heredoc."
         " 3) Go to 1."
         " 4) Return. Never report an item another worker holds."
@@ -485,7 +493,7 @@ class Design(Kind):
     goal = "pull and flesh out designs, one at a time"
     loop = (
         "You are {worker}, the drive's design worker: you flesh out one design at a time, each its own job, then pull the next."
-        " 1) Run `drive work pull --worker {worker}`: it prints your item, its job id, its brief and, for an item that ran before, the `drive job report <item>` that prints its last return; on `NONE` or `HOLD` go to 4."
+        " 1) Run `drive work pull --worker {worker}`: it prints your item, its job id, its brief and, for an item that ran before, the `drive job report <item>` that prints its last return; on `NONE` or `HOLD` go to 4. Give back an item that does not fit the group, naming why, with `drive work back {worker} <item> \"<why>\"`, and another worker takes it."
         " 2) Read its brief and last return whole and design it as a designer designs its own job, the item's id standing for your job wherever agents/designer.md names it, then pipe its whole return, in the shape agents/designer.md gives a designer's, into `drive work done {worker} <item> -` from a quoted heredoc."
         " 3) Go to 1."
         " 4) Return. Never report an item another worker holds."
@@ -550,15 +558,39 @@ def pulled(name: str, worker_id: str) -> str:
     return state.write(name, pull_write)
 
 
+def told(data: dict, kind: Kind, job_id: str, line: str) -> bool:
+    """Whether an item's return goes to the session holding its order as a JOB line: every line of a kind whose told is None, a build's, read's or design's, whose holder acts on each as on its own job's; otherwise an ASK or BLOCKED, which someone must act on, and a DONE that leaves its order no other unfinished job, the done order its holder proves and tells him of, every other DONE staying on the item."""
+    if kind.told is None or line.startswith(kind.told):
+        return True
+    job = data["jobs"][job_id]
+    return line.startswith("DONE") and not any(
+        other_id != job_id and not worker(other := data["jobs"][other_id]) and other["state"] not in state.FINISHED_JOB_STATES for other_id in data["orders"][job["order"]]["jobs"]
+    )
+
+
+def back(name: str, worker_id: str, job_id: str, why: str) -> str:
+    """drive work back: give an item the worker judged does not fit its group back to the queue, refused only unless its claim is the worker's: its claim and its wait on the worker end, the why stays on the item as work_back, its kind gives back what it held for it, such as its place in a cut, and the worker that gave it back never pulls it again, so another worker takes it; the line saying so."""
+    moment = state.now()
+
+    def back_write(data: dict) -> str:
+        if not (job := data["jobs"].get(job_id)) or claimed_by(data, job) != worker_id:
+            raise state.DriveError(f"{job_id}: refused, {worker_id} holds no claim on it: drive work pull --worker {worker_id} names what it holds")
+        job.update(claim=None, waits=[wait for wait in job["waits"] if wait != worker_id], work_back={"worker": worker_id, "why": why, "at": state.stamp(moment)}, updated=state.stamp(moment))
+        KIND[data["jobs"][worker_id].get("work_kind", STAGE_TEST)].back(data, job_id)
+        return f"{job_id} goes back to the queue from {worker_id}: {why}; another worker takes it"
+
+    return state.write(name, back_write)
+
+
 def done(name: str, worker_id: str, job_id: str, whole: str) -> tuple[str, dict]:
-    """drive work done: take an item's whole return as drive job report takes it, refused unless its claim is the worker's, then end the claim and the item's wait on its worker, and give back what its kind holds for it; a refused return leaves the claim with the worker, to fix and send again. Its line stays on the item, and only one someone must act on, ASK, BLOCKED or DONE, goes to the session holding its order as a JOB line, so the queue's workers add no cci record for a WAITING, READY or PUSHED, but a kind whose told is None, a build, whose every line reaches its holder as a builder's does."""
+    """drive work done: take an item's whole return as drive job report takes it, refused unless its claim is the worker's, then end the claim and the item's wait on its worker, and give back what its kind holds for it; a refused return leaves the claim with the worker, to fix and send again. Its line stays on the item, and only one someone must act on, by told, goes to the session holding its order as a JOB line, so the queue's workers add no cci record for a line that only reports, which stays on the item for drive work show --order to read."""
     from drive import cli
 
     data = state.load(name)
     if not (job := data["jobs"].get(job_id)) or claimed_by(data, job) != worker_id:
         raise state.DriveError(f"{job_id}: refused, {worker_id} holds no claim on it: drive work pull --worker {worker_id} names what it holds")
     kind = KIND[data["jobs"][worker_id].get("work_kind", STAGE_TEST)]
-    said, payload = cli.take_report(name, job_id, whole, tell=kind.told is None or whole.strip().startswith(kind.told))
+    said, payload = cli.take_report(name, job_id, whole, tell=told(data, kind, job_id, whole.strip()))
 
     def done_write(data: dict) -> None:
         data["jobs"][job_id].update(claim=None, waits=[wait for wait in data["jobs"][job_id]["waits"] if wait != worker_id])

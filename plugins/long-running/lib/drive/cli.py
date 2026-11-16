@@ -5228,6 +5228,12 @@ def work_pull(args: argparse.Namespace) -> int:
     return emit(args, line, {"worker": args.worker, "line": line})
 
 
+def work_back(args: argparse.Namespace) -> int:
+    """Give an item the worker judged does not fit its group back to the queue, with why."""
+    line = work.back(state.resolve(args.drive), args.worker, args.item, args.why)
+    return emit(args, line, {"worker": args.worker, "item": args.item, "why": args.why})
+
+
 def work_done(args: argparse.Namespace) -> int:
     """Take one item's whole return from stdin, as drive job report takes a job's, for the worker holding its claim."""
     whole = sys.stdin.read()
@@ -5251,9 +5257,13 @@ def work_start(args: argparse.Namespace) -> int:
 
 
 def work_show(args: argparse.Namespace) -> int:
-    """The queue on this drive: for each kind it runs, its live workers, its ready items in order and why no new group starts."""
+    """The queue on this drive: for each kind it runs, its live workers, its ready items in order and why no new group starts; with --order, each job of that order a worker of the queue ever pulled, its state and the line it last returned, which stays on the item rather than going out as a record."""
     data = state.load(state.resolve(args.drive))
     moment = state.now()
+    if args.order:
+        items = {job_id: {"state": job["state"], "said": job["said"], "back": job.get("work_back")} for job_id in find(data["orders"], args.order, "order")["jobs"] if "claim" in (job := data["jobs"][job_id]) and not work.worker(job)}
+        shown = [f"{job_id} {held['state']}: {held['said'] or 'no line yet'}{f' (given back by {back['worker']}: {back['why']})' if (back := held['back']) else ''}" for job_id, held in items.items()]
+        return emit(args, "\n".join(shown) or f"no worker of the queue has pulled a job of {args.order}", items)
     kinds = {name: {"workers": work.live_workers(data, name), "ready": kind.line(data), "why": kind.why_not(data, moment)} for name, kind in work.KIND.items()}
     shown = [f"{name}: workers {', '.join(held['workers']) or 'none'}; ready {', '.join(held['ready']) or 'none'}; {held['why'] or 'the watch starts a worker for each ready group the caps admit'}" for name, held in kinds.items()]
     return emit(args, "\n".join(shown), kinds)
@@ -8312,10 +8322,16 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("item", help="the item's job id")
     verb.add_argument("stdin", choices=["-"], help="read the return from stdin")
     verb.set_defaults(run=work_done)
+    verb = queue.add_parser("back", parents=both, help="give an item that does not fit the worker's group back to the queue, with why")
+    verb.add_argument("worker", help="the worker's job id")
+    verb.add_argument("item", help="the item's job id")
+    verb.add_argument("why", help="why it does not fit")
+    verb.set_defaults(run=work_back)
     verb = queue.add_parser("start", parents=both, help="start a worker's agent on this Mac")
     verb.add_argument("worker", help="the worker's job id")
     verb.set_defaults(run=work_start)
-    verb = queue.add_parser("show", parents=both, help="the queue's kinds, worker and ready items")
+    verb = queue.add_parser("show", parents=both, help="the queue's kinds, worker and ready items, or with --order each item of that order and its last line")
+    verb.add_argument("--order", help="list this order's items and the line each last returned")
     verb.set_defaults(run=work_show)
 
     job = verbs.add_parser("job", help="background agents").add_subparsers(dest="action", required=True)

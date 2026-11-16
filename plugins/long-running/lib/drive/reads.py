@@ -47,6 +47,7 @@ LANE_VERBS = (
     ("pr", "set"),
     ("work", "pull"),
     ("work", "done"),
+    ("work", "back"),
     ("plan", "search"),
     ("datadog",),
     ("fde-scan",),
@@ -55,7 +56,7 @@ LANE_VERBS = (
     ("status",),
     ("wait",),
 )
-LANE_WRITES = (("job", "ask"), ("job", "set"), ("pr", "add"), ("pr", "set"), ("work", "pull"), ("work", "done"))
+LANE_WRITES = (("job", "ask"), ("job", "set"), ("pr", "add"), ("pr", "set"), ("work", "pull"), ("work", "done"), ("work", "back"))
 LANE_FLAGS = {("job", "set"): "repro", ("pr", "set"): "flaky"}
 LANE_CARDS = (("job", "ask"), ("job", "report"))
 NO_SPRITE_GRANT = 'his pick "No Sprite lane runs break-glass: a step needing a grant moves to a lane on this Mac"'

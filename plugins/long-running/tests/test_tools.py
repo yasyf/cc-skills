@@ -437,7 +437,7 @@ def test_a_grant_whose_record_for_root_cci_refuses_runs_no_command(
     [
         (
             ["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "count"],
-            "drive order add: refused, nothing ran: a lane runs only these verbs: job report, job ask, job set, job replies, job held, pr add, pr set, work pull, work done, plan search, datadog, fde-scan, manual, page-owner, status, wait",
+            "drive order add: refused, nothing ran: a lane runs only these verbs: job report, job ask, job set, job replies, job held, pr add, pr set, work pull, work done, work back, plan search, datadog, fde-scan, manual, page-owner, status, wait",
         ),
         (
             ["job", "report", "j8", "-"],
