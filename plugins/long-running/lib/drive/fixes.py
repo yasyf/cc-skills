@@ -10,6 +10,8 @@ ZONE = re.compile(r" ?\(?\b(?:UTC|GMT|PST|PDT|PT)\b\)?")
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z*_<`\"(])")
 TIMES = {"machine-time", "zone-label"}
 MOST_SENTENCES = 3
+BARE_LINK = re.compile(r"(?<![<|\w])<?(https?://[^\s<>|]+?)>?(?=[).,;:!?]*(?:\s|$))")
+UNFURLED = ("sentry.io", "datadoghq.com")
 
 
 def kinds(findings: list[str]) -> dict[str, list[str]]:
@@ -51,11 +53,30 @@ def label(url: str) -> str:
 
 def wrapped(text: str, url: str) -> str:
     """The text with each bare use of url linked on words saying what it opens: a bare url, `<url>` or `<url|url>`, leaving one already on words."""
-    url = url.strip("<>").split("|")[0]
+    url = url.strip("<>(").split("|")[0].rstrip(").,;:!?")
     linked = f"<{url}|{label(url)}>"
-    text = re.sub(rf"(?<![\w<|>*])((?:[A-Za-z][\w'-]* ){{0,2}}[A-Za-z][\w'-]*) \((?:<{re.escape(url)}(?:\|{re.escape(url)})?>|{re.escape(url)})\)", lambda found: f"<{url}|{found[1]}>", text)
+    text = re.sub(rf"(?<![\w<|>*])((?:[A-Za-z][\w'-]* ){{0,2}}[A-Za-z][\w'-]*) \((?:<{re.escape(url)}(?:\|{re.escape(url)})?>|{re.escape(url)})\)", lambda found: on_words(found, url, linked), text)
     text = re.sub(rf"<{re.escape(url)}(?:\|{re.escape(url)})?>", linked, text)
     return re.sub(rf"(?<![<|]){re.escape(url)}(?![|>])", linked, text)
+
+
+def on_words(found: re.Match[str], url: str, linked: str) -> str:
+    """A parenthesized link moved onto the words before it, unless those words finish a time or number, as "9:00 AM tomorrow (url)", where it stays in its parentheses on its own words."""
+    before = found.string[: found.start()].split()
+    if (before and any(character.isdigit() for character in before[-1])) or re.search(r"\b(?:AM|PM)\b", found[1]):
+        return f"{found[1]} ({linked})"
+    return f"<{url}|{found[1]}>"
+
+
+def bare_links(text: str) -> list[str]:
+    """Each link in the text that sits on no words, bare or as `<url>`, an alert's own Sentry or Datadog link alone on its line excepted, which Slack unfurls."""
+    found = []
+    for line in text.splitlines():
+        for match in BARE_LINK.finditer(line):
+            if line.strip().strip("<>") == match[1] and urlparse(match[1]).netloc.endswith(UNFURLED):
+                continue
+            found.append(match[1])
+    return list(dict.fromkeys(found))
 
 
 def split(paragraph: str) -> str:
