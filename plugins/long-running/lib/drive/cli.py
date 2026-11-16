@@ -3897,6 +3897,8 @@ def transcript_line(job_id: str, job: dict) -> str | None:
 def job_launch(args: argparse.Namespace) -> int:
     """Start a job's next worker by the one relaunch launch and resume share, with no message: its first Orca lane, on a Sprite or with --local on this Mac, where a brief declaring a step only this Mac runs on its Mac: or Release: line starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; the next lane of a job whose worker ended or returned its line, with --local moved from its Sprite to this Mac; a lane taking over from an agent on this Mac that stopped or whose session ended; or the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps; never a finished pass of a standing part, which unrun refuses, nor a stopped job, which unstopped refuses. Given drive job brief's flags, it first writes the job's brief from them by write_brief, so briefing and starting a job is one command and a flag argparse or write_brief refuses starts nothing; refused beside a brief file, which is the brief whole."""
     name = state.resolve(args.drive)
+    if args.reserved:
+        state.adopt_reserved(name, state.stop_member(args.id, state.load(name)["jobs"][args.id], args.reserved), args.reserved)
     if named := {flag: value for flag in state.BRIEF_FLAGS if (value := getattr(args, flag, None)) not in (None, [])}:
         unstopped(args.id, unrun(state.load(name), args.id))
         if args.brief:
@@ -8408,6 +8410,7 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="start it on this Mac as its own claude --bg session, as drive job start starts one, never as an Orca worker; for a job on a Sprite whose lane ended or whose Sprite Orca cannot reach, its next worker starts here with no wake of that Sprite, a resume holding the job's lock standing down for it, after a save of what that Sprite holds on no remote; when the save fails the Sprite is kept, and the handoff names what each lane of the job saved on GitHub",
     )
+    verb.add_argument("--reserved", metavar="TOKEN", help="the token of the launch the watch reserved on the job's safeguard stop for this run, adopted before anything else; the run ends doing nothing once that reservation is gone, cancelled, lapsed or another run's")
     verb.set_defaults(run=job_launch)
     verb = job.add_parser(
         "start",

@@ -1810,7 +1810,7 @@ def safeguards_posts(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
 def safeguard_starts(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
     """Each drive verb the watch starts, as a process that still runs."""
     started: list[list[str]] = []
-    monkeypatch.setattr(watch, "start_verb", lambda watcher, job_id, args, moment: started.append(args) or os.getpid())
+    monkeypatch.setattr(watch, "start_verb", lambda watcher, job_id, args, moment: started.append(unreserved(args)) or os.getpid())
     return started
 
 

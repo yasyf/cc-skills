@@ -18,6 +18,7 @@ import sys
 import threading
 import traceback
 import time
+import uuid
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -4386,9 +4387,10 @@ def safeguard_lines(watcher: Watcher, refusals: dict[str, tuple[str, dict, str |
                 continue
             stops = job.setdefault("safeguarded", [])
             if not stops or (stops[-1]["worker"], stops[-1]["turn"]) != (worker, turn["timestamp"]):
-                stops.append({"worker": worker, "turn": turn["timestamp"], "terminal": terminal, "at": state.stamp(moment), "tries": 0, "pid": None})
+                stops.append({"id": uuid.uuid4().hex, "worker": worker, "turn": turn["timestamp"], "terminal": terminal, "at": state.stamp(moment), "tries": 0, "launch": None})
             stop = stops[-1]
-            if stop["pid"] and state.alive(stop["pid"]):
+            # TODO: delete the pid read once no drive keeps a safeguard stop an install before reservations wrote
+            if land.runs(stop.get("launch") or {}) or stop.get("pid") and state.alive(stop["pid"]):
                 continue
             if len(stops) > SAFEGUARD_RESTARTS or stop["tries"] >= RELAUNCH_TRIES:
                 said = f"{SAFEGUARDED} {times(len(stops))}, {restarts(job)}; his card asks whether to restart it once more"
@@ -4403,7 +4405,7 @@ def safeguard_lines(watcher: Watcher, refusals: dict[str, tuple[str, dict, str |
                 continue
             if stop["tries"] and moment - state.parse_time(stop["at"]) < RELAUNCH_RETRY:
                 continue
-            plans[job_id] = safeguard_claim(job_id, job, stop, moment)
+            plans[job_id] = safeguard_claim(data, job_id, stop, moment)
             steps.append((job_id, None))
         return steps, plans
 
@@ -4412,8 +4414,9 @@ def safeguard_lines(watcher: Watcher, refusals: dict[str, tuple[str, dict, str |
     return [line if line is not None else restarted[job_id] for job_id, line in steps]
 
 
-def safeguard_claim(job_id: str, job: dict, stop: dict, moment: datetime) -> dict:
-    """Count the next try of a restart of a job a model's safeguards stopped, in the write the caller commits, and claim a launch's stop with this process's pid, so no other pass starts a second launch before safeguard_restart gives the stop that launch's pid; what that restart needs. The first stop on the job's safeguarded list clears the job's model, and the second sets SAFEGUARD_MODEL, which every later worker of the job starts on."""
+def safeguard_claim(data: dict, job_id: str, stop: dict, moment: datetime) -> dict:
+    """Count the next try of a restart of a job a model's safeguards stopped, in the write the caller commits, and reserve a launch on its stop, named by its id, which an older stop gets here, so no other pass starts a second launch before the drive job launch safeguard_restart starts adopts it; what that restart needs. The first stop on the job's safeguarded list clears the job's model, and the second sets SAFEGUARD_MODEL, which every later worker of the job starts on."""
+    job = data["jobs"][job_id]
     count = len(job["safeguarded"])
     job["model"] = SAFEGUARD_MODEL if count == SAFEGUARD_RESTARTS else None
     stop.update(tries=stop["tries"] + 1, at=state.stamp(moment))
@@ -4426,26 +4429,18 @@ def safeguard_claim(job_id: str, job: dict, stop: dict, moment: datetime) -> dic
         "terminal": stop["terminal"],
         "session": session,
         "cwd": job["bg"]["cwd"] if session else None,
-        "at": stop["at"],
-        "before": stop["pid"],
+        "launch": None,
     }
     if not remote:
-        stop["pid"] = os.getpid()
+        stop.setdefault("id", uuid.uuid4().hex)
+        plan["launch"] = state.reserve(data, (("jobs", job_id, "safeguarded", state.item("id", stop["id"]), "launch"),))
     return plan
 
 
 def safeguard_restart(watcher: Watcher, plans: dict[str, dict], moment: datetime) -> dict[str, str]:
-    """Start the next worker of each job safeguard_claim counted a try on, in a fresh Claude session, once that write committed, then keep the pid of each launch on its stop in place of its claim, or put back what the claim replaced when none started, only where the claim still stands; each job's LANE line. A job's agent on this Mac gets `drive job launch <j> --local` by start_verb, whose takeover from an agent that stopped hands the job to a fresh `claude --bg` session on this Mac, where the watch reads its next stop, on a handoff carrying the brief and what the stopped agent left, the stopped agent's own idle session stopped first so it holds no memory, its transcript kept for that handoff; a lane on this Mac that runs as an Orca worker has the terminal its stop was read in closed instead, by orca.close_pane, so the next read finds its worker exited and death_lines' drive job resume starts its next worker in a fresh Claude session there."""
+    """Start the next worker of each job safeguard_claim counted a try on, in a fresh Claude session, once that write committed, then settle each launch on the reservation its stop holds, which the launch adopts, or cancel the reservation of one that never started; each job's LANE line. A job's agent on this Mac gets `drive job launch <j> --local` by start_verb, whose takeover from an agent that stopped hands the job to a fresh `claude --bg` session on this Mac, where the watch reads its next stop, on a handoff carrying the brief and what the stopped agent left, the stopped agent's own idle session stopped first so it holds no memory, its transcript kept for that handoff; a lane on this Mac that runs as an Orca worker has the terminal its stop was read in closed instead, by orca.close_pane, so the next read finds its worker exited and death_lines' drive job resume starts its next worker in a fresh Claude session there."""
     told: dict[str, str] = {}
-    spawned: dict[str, int] = {}
-    claimed = [job_id for job_id, plan in plans.items() if not plan["remote"]]
-
-    def own(data: dict) -> None:
-        for job_id in claimed:
-            for stop in data["jobs"][job_id]["safeguarded"]:
-                if (stop["pid"], stop["at"]) == (os.getpid(), plans[job_id]["at"]):
-                    stop["pid"] = spawned.get(job_id, plans[job_id]["before"])
-
+    unlaunched = {job_id: plan["launch"] for job_id, plan in plans.items() if plan["launch"]}
     try:
         for job_id, plan in plans.items():
             opening, on = plan["opening"], plan["on"]
@@ -4459,11 +4454,13 @@ def safeguard_restart(watcher: Watcher, plans: dict[str, dict], moment: datetime
                 continue
             if plan["session"]:
                 agents.end_bg(plan["session"], Path(plan["cwd"]), removed=False)
-            spawned[job_id] = start_verb(watcher, job_id, ["job", "launch", job_id, "--local"], moment)
+            pid = start_verb(watcher, job_id, ["job", "launch", job_id, "--local", "--reserved", plan["launch"].token], moment)
+            del unlaunched[job_id]
+            state.settle(watcher.name, plan["launch"], pid)
             told[job_id] = f"{opening} The watch ran drive job launch {job_id} --local, which starts it again in a fresh Claude session{on} on this Mac with a handoff, its output in the drive's {RELAUNCHES_LOG}"
     finally:
-        if claimed:
-            state.write(watcher.name, own, patient=True)
+        for launch in unlaunched.values():
+            state.cancel(watcher.name, launch)
     return told
 
 
@@ -4533,9 +4530,9 @@ def safeguard_restarted(watcher: Watcher, job_id: str, file: Path, moment: datet
         job["safeguard_card"] = None
         if taken := [other_id for part in job["parts"] for other_id, other in state.part_jobs(data, job["order"], part) if other_id != job_id and other["state"] not in state.FINISHED_JOB_STATES]:
             return f"LANE {job_id} {job['order']}: his Restart tap on its safeguards card starts nothing, since {', '.join(dict.fromkeys(taken))} took its parts since it stopped", None
-        stop = job["safeguarded"][-1] | {"tries": 0, "pid": None}
+        stop = job["safeguarded"][-1] | {"tries": 0, "launch": None}
         job.update(state="running", said=f"restarted on his tap, {SAFEGUARDED} {times(len(job['safeguarded']))}", safeguarded=[stop], updated=state.stamp(moment))
-        return "", safeguard_claim(job_id, job, stop, moment)
+        return "", safeguard_claim(data, job_id, stop, moment)
 
     said, plan = state.write(watcher.name, restart_claimed, budget=state.WATCH_WRITE_SECONDS)
     if plan is None:

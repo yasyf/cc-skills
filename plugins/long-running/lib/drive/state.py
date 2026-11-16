@@ -4172,6 +4172,12 @@ def death_member(job_id: str, job: dict, field: str, token: str | None) -> tuple
     return ("jobs", job_id, field) if death is None else death_row(job_id, death, field)
 
 
+def stop_member(job_id: str, job: dict, token: str | None) -> tuple[str, ...]:
+    """The reservation member a drive job launch --local the watch started on a safeguard stop adopts: the stop of the job whose launch holds the token, by its id, or the job's own launch field when none holds it, whose adopt then fails."""
+    stop = next((stop for stop in job.get("safeguarded", []) if isinstance(held := stop.get("launch"), dict) and held.get("token") == token), None)
+    return ("jobs", job_id, "launch") if stop is None else ("jobs", job_id, "safeguarded", item("id", stop["id"]), "launch")
+
+
 def seat_order(data: dict, seat: str | None) -> dict | None:
     """The order a priority seat holds, its newest when several have held it; None for a project or a seat no order holds."""
     return next((order for order in reversed(data["orders"].values()) if seat and order["priority"] == seat), None)

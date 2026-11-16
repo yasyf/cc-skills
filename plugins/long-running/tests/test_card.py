@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import Cci, Chrome, Images, Jev, Judge, Redraws, card_node, card_reads, changed_reads
+from conftest import Cci, Chrome, Images, Jev, Judge, Redraws, card_node, card_reads, changed_reads, unreserved
 from drive import agents, card, cli, github, land, limits, picture, render, settled, stage, stall, state, superseded, view, watch
 from drive.github import GithubError
 
@@ -947,7 +947,7 @@ def test_his_restart_tap_on_a_safeguards_card_runs_the_stopped_job_again_in_a_fr
     view.refresh_cards(drive)
     monkeypatch.setattr(subprocess, "run", Cci().run)
     started: list[list[str]] = []
-    monkeypatch.setattr(watch, "start_verb", lambda watcher, job_id, args, moment: started.append(args) or os.getpid())
+    monkeypatch.setattr(watch, "start_verb", lambda watcher, job_id, args, moment: started.append(unreserved(args)) or os.getpid())
     watching, moment = watch.Watcher(drive, offset=state.events_end(drive)), state.now()
     tap = {"waits": f"{drive}:j3-661440", "url": NEWER_CARD, "source": "slack"}
     assert ask({"answer": tap | {"label": "Leave it stopped", "action_ts": "1794200001.000100"}})["ok"]
