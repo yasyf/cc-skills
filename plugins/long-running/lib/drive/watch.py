@@ -918,14 +918,14 @@ def exited_text(name: str, job_id: str, exited: list[str]) -> str:
 
 
 def build_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read from Buildkite, for waits_lines, status_lines, release_end_lines and release_card_lines, each build a wait the watch follows names, a part of an order it hears follows, a job it hears keeps as the release it started and still waits on, by awaits_release, or one of his release approve cards still asks about: once as it is first held, then again only once a delivery of Buildkite's to the receiver's /buildkite route names it, or on every pass while Buildkite never delivered to the receiver, by receiver.buildkite_silent. One read_builds call reads them all, run in the drive's checkout as orca.checkout moves it to its default branch's head, and each answer is kept on the watcher as builds while the build is held, None for a build Buildkite answers none for; a read that fails is said as a failed read is and owed again next pass."""
+    """Read from the CI, by the repository's build provider, for waits_lines, status_lines, release_end_lines and release_card_lines, each build a wait the watch follows names, a part of an order it hears follows, a job it hears keeps as the release it started and still waits on, by awaits_release, or one of his release approve cards still asks about: once as it is first held, then again only once a delivery of the CI's to the receiver's build route names it, or on every pass while the CI never delivered to the receiver, by receiver.buildkite_silent. One read_builds call reads them all, run in the drive's checkout as orca.checkout moves it to its default branch's head, and each answer is kept on the watcher as builds while the build is held, None for a build the CI answers none for; a read that fails is said as a failed read is and owed again next pass."""
     data = state.load(watcher.name)
     releases = {job["release_build"] for job in data["jobs"].values() if awaits_release(job) and heard_job(watcher, data, job)}
     releases |= {entry["build"] for job in data["jobs"].values() if heard_job(watcher, data, job) for entry in job["release_cards"].values() if entry["result"] is None}
-    held = sorted({wait for wait in followed(watcher, data) if github.BUILD.fullmatch(wait)} | state.followed_builds(heard_orders(watcher, data)) | releases)
+    held = sorted({wait for wait in followed(watcher, data) if providers.of(data).build.fullmatch(wait)} | state.followed_builds(heard_orders(watcher, data)) | releases)
     watcher.builds = {link: read for link, read in watcher.builds.items() if link in held}
     watcher.builds_heard &= set(held)
-    silent = receiver.buildkite_silent()
+    silent = receiver.builds_silent()
     if not (due := [link for link in held if silent or link not in watcher.builds or link in watcher.builds_heard]):
         return []
     try:
@@ -1065,7 +1065,7 @@ def release_card_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for job_id, job in data["jobs"].items():
             if job["state"] in state.FINISHED_JOB_STATES or not heard_job(watcher, data, job):
                 continue
-            for link in release_approve_builds(job):
+            for link in release_approve_builds(data, job):
                 for step in blocked_steps(watcher.builds.get(link) or NO_BLOCKS):
                     if f"{link} {step}" in carded:
                         continue
@@ -1090,9 +1090,9 @@ def release_card_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return lines
 
 
-def release_approve_builds(job: dict) -> list[str]:
+def release_approve_builds(data: dict, job: dict) -> list[str]:
     """Each Buildkite build a job holds that can stop at an approve step for him: the release build it keeps while it still waits on it, by awaits_release, and each build its waits name."""
-    return list(dict.fromkeys([*([job["release_build"]] if awaits_release(job) else []), *(wait for wait in job["waits"] if github.BUILD.fullmatch(wait))]))
+    return list(dict.fromkeys([*([job["release_build"]] if awaits_release(job) else []), *(wait for wait in job["waits"] if providers.of(data).build.fullmatch(wait))]))
 
 
 def release_card_kept(name: str, job_id: str, link: str, step: str, moment: datetime) -> None:
@@ -1891,7 +1891,7 @@ def out_because(watcher: Watcher, data: dict, wait: str) -> str | None:
         return f"the release live read finds {service} on {', '.join(serves)} serving {key}" if all(clusters[each] for each in serves) else None
     if (found := state.STAGING_WAIT.fullmatch(wait)) and (watcher.serving or {}).get(wait, {}).get(found["env"]):
         return f"the release live read finds {found['env']}'s {found['target']} serving {found['commit'][:12]} or a build carrying it"
-    if github.BUILD.fullmatch(wait) and wait in watcher.builds:
+    if providers.of(data).build.fullmatch(wait) and wait in watcher.builds:
         return build_said(wait, watcher.builds[wait])
     if state.untracked_wait(data, wait) and (landed := watcher.untracked.get(wait)) and landed not in github.UNLANDED:
         return f"{wait} {'merged' if landed == 'merged' else 'closed unmerged'}"
@@ -4694,7 +4694,7 @@ def watchdog_brief(watcher: Watcher, data: dict, thing: str, found: dict, held: 
             *(f"- {line}" for line in reading),
             *(f"Release: {release_line(watcher, data, link)}" for link in found["chain"] if state.RELEASE_WAIT.fullmatch(link)),
             *(f"Staging: {staging_line(watcher, target, env, commits)}" for (target, env), commits in awaited.items()),
-            *(f"Build: {build_line(watcher, link)}" for link in found["chain"] if github.BUILD.fullmatch(link)),
+            *(f"Build: {build_line(watcher, link)}" for link in found["chain"] if providers.of(data).build.fullmatch(link)),
             *(f"Card: {card}" for card in stall_cards(data, found["chain"], watcher.cards)),
             *(f"Answered: {answer}" for answer in stall_answers(data, job, found["chain"])),
         ]

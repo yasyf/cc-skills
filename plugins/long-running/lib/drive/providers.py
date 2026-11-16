@@ -244,6 +244,18 @@ class BuildProvider(Provider):
     receiver_path: str | None = None
     graders: str = "CI"
 
+    def match(self, text: str) -> re.Match | None:
+        """The build link text starts with, by build_url; None for any other text, or for every text when the repository names no build links."""
+        return self.build_url.match(text) if self.build_url else None
+
+    def fullmatch(self, text: str) -> re.Match | None:
+        """The build link text is whole, by build_url; None for any other text, or for every text when the repository names no build links."""
+        return self.build_url.fullmatch(text) if self.build_url else None
+
+    def finditer(self, text: str) -> list[re.Match]:
+        """Each build link text holds, by build_url; none when the repository names no build links."""
+        return list(self.build_url.finditer(text)) if self.build_url else []
+
     def builds(self, links: list[str], fields: str) -> dict[str, dict | None]:
         """Each build by its link, as one read of the repository's CI answers its GraphQL fields, None for a build it answers none for."""
         return {}
