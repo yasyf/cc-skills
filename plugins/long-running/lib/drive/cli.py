@@ -3654,13 +3654,13 @@ def held_to_starter(args: argparse.Namespace, name: str, job: dict, lane: str) -
     sent = []
     for kept in job["undelivered"]:
         if any(left["request"] == kept["request"] for left in state.load(name)["jobs"][args.id]["undelivered"]):
-            sent.append(starter_post(name, args.id, job, lane, kept["words"], kept["at"]))
+            sent.append(starter_post(name, args.id, job, lane, kept["words"], kept["at"], kept["request"]))
             job = {**job, "ask": None}
     return emit(args, "\n".join(line for _, line in sent), {"id": args.id, "how": f"handoff to {lane}", "seqs": [seq for seq, _ in sent]})
 
 
-def starter_post(name: str, job_id: str, job: dict, lane: str, text: str, at: str) -> tuple[str, str]:
-    """Post a text to an agent on this Mac that a session of the drive started and still holds, once superseded.fresh_builder sends no PR event to a builder that returned: whole, at once, from the resuming session's lane as one handoff record to the agent's own cci address, peer:<session>/<agent>, kept by sent_kept dated `at`, when it was held, so each answer of his it carries reads sent and each text the job holds that it carries leaves the job, then one line under 120 characters to the starter's lane naming the SendMessage that points the agent at that record, since only the starter's SendMessage reaches the agent and a starter that may not read cci, such as the communicator, relays that line as it stands; a starter resuming its own agent gets the line as the verb's output. The record's seq and the line the verb prints."""
+def starter_post(name: str, job_id: str, job: dict, lane: str, text: str, at: str, held: str | None = None) -> tuple[str, str]:
+    """Post a text to an agent on this Mac that a session of the drive started and still holds, once superseded.fresh_builder sends no PR event to a builder that returned: whole, at once, from the resuming session's lane as one handoff record to the agent's own cci address, peer:<session>/<agent>, kept by sent_kept dated `at`, when it was held, so each answer of his it carries reads sent and the text the job holds under the request id held leaves the job, then one line under 120 characters to the starter's lane naming the SendMessage that points the agent at that record, since only the starter's SendMessage reaches the agent and a starter that may not read cci, such as the communicator, relays that line as it stands; a starter resuming its own agent gets the line as the verb's output. The record's seq and the line the verb prints."""
     from drive import tools
 
     data = state.load(name)
@@ -3670,7 +3670,7 @@ def starter_post(name: str, job_id: str, job: dict, lane: str, text: str, at: st
     attrs = {"order": job["order"], "job": job_id}
     record = {"kind": "handoff", "to": [state.agent_address(job)], "attr": attrs, "text": text}
     [seq] = tools.sent(name, sender, [limits.shortened(record) or record])
-    sent_kept(name, job_id, {"words": text, "request": seq, "at": at, "ask": job.get("ask")})
+    sent_kept(name, job_id, {"words": text, "request": seq, "held": held, "at": at, "ask": job.get("ask")})
     if session := state.own_session(job):
         return seq, own_post(name, job_id, session, seq)
     line = f'{job_id}: SendMessage {job["agent"]} "{superseded.POINTER.format(seq)}"'
@@ -3797,7 +3797,7 @@ def sent_kept(name: str, job_id: str, sent: dict) -> dict:
             fresh.update(ask=None, state=state.run_state(fresh))
         fresh.update(
             updated=state.stamp(),
-            undelivered=[left for left in fresh["undelivered"] if left["request"] != sent["request"]],
+            undelivered=[left for left in fresh["undelivered"] if left["request"] not in (sent["request"], sent.get("held"))],
         )
         if sent.get("queued") and sent["queued"] == fresh["dispatch"] and all(queued["words"] != sent["words"] for queued in fresh["queued"]):
             fresh["queued"].append({"words": sent["words"], "sender": sent["sender"], "at": fresh["updated"]})

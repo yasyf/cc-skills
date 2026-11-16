@@ -212,6 +212,7 @@ STAGING_LINE = re.compile(r"^[*_`]*STAGING[*_`]*:?[*_`]*[ \t]+(?P<staging>\S.*?)
 STAGED = re.compile(r"#(?P<number>\d+)[ \t]+(?P<cases>\S.*)")
 UNSTAGED = re.compile(rf"{NO_FIX}:[ \t]*\S")
 DANGEROUS_SHOWN = 5
+STAGING_CASE = "The staging test of {key} also runs: {goal}. Add these cases to the test you run now, without starting it over, and report them with the rest"
 DANGEROUS_GOAL = (
     "test {key} on staging before it lands, since its head changes {changes}, each a dangerous change by AGENTS.md as the repository's {rules} lists its paths:"
     " run the cases its builder's `STAGING: #{number}` line names, which reach you as it returns them, beside those its body and these files call for"
@@ -2818,12 +2819,12 @@ def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
 
 
 def stage_pr(data: dict, key: str, goal: str, session: str | None) -> str | None:
-    """Put a Forge-AI/monorepo PR the drive tracks on its staging test, by wait_on_staging, and give the part a tester when no job tests it, by part_tester, a builder building nothing on this Mac in the session given, its goal the one given, as install.add_prover adds a prover; else hold that goal on that tester, unless it is that job's goal, so its next worker hears it, or, when that job is a tester mark_dangerous gave it that finished before its builder named these cases, give the part a tester of these; the tester added, or None."""
+    """Put a Forge-AI/monorepo PR the drive tracks on its staging test, by wait_on_staging, and give the part a tester when no job tests it, by part_tester, a builder building nothing on this Mac in the session given, its goal the one given, as install.add_prover adds a prover; else hold that goal on that tester as a STAGING_CASE, unless it is that job's goal, which the watch's next pass posts to its running agent, by watch.case_lines, or sends a Sprite worker that takes messages, so the tester adds the case to the test it runs, and which else its next worker hears; or, when that job is a tester mark_dangerous gave it that finished before its builder named these cases, give the part a tester of these; the tester added, or None."""
     order_id, part = wait_on_staging(data, key)
     testing = data["jobs"][tester] if (tester := part_tester(data, order_id, part)) else None
     if testing and not (testing["state"] == "done" and testing["goal"] != goal and testing["goal"].startswith(DANGEROUS_GOAL.partition("{changes}")[0].format(key=key))):
         if testing["goal"] != goal:
-            hold_text(testing, f"The staging test of {key} also runs: {goal}", None)
+            hold_text(testing, STAGING_CASE.format(key=key, goal=goal), None)
         return None
     tester_id = next_id(data["jobs"], "j")
     data["jobs"][tester_id] = new_job(order_id, "builder", goal, [part], stamp()) | {"session": session}

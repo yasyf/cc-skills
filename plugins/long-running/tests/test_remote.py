@@ -1486,7 +1486,29 @@ def test_a_resume_with_no_text_from_another_session_posts_the_held_text_to_the_a
     assert state.load(demo)["jobs"]["j1"]["undelivered"] == []
 
 
-STOPPED_TEXT = "API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup). This sometimes happens with safe, normal conversations."
+def test_the_watch_posts_a_staging_case_to_the_running_tester_its_session_started_at_once_rather_than_holding_it_for_its_next_worker(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = state.STAGING_CASE.format(key="Forge-AI/monorepo#42", goal="a run that resumes after the runner restarts")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test it on staging")
+    run("job", "add", "builder", "--order", "o1", "--goal", "test #42 on staging")
+    held = {"seq": None, "words": case, "at": state.stamp(T0), "said": None, "request": "req-case", "sender": None}
+    other = {"seq": None, "words": "From the coordinator: PR #7 merged", "at": state.stamp(T0), "said": None, "request": "req-other", "sender": "coordinator"}
+    with state.edit(demo) as data:
+        top = data["roles"]["coordinator"]["session"]
+        data["jobs"]["j1"].update(agent="a4e953525ff2a4e17", session=top, where="local", state="waiting", waits=["staging:api/plat-usw2-staging@abc"], undelivered=[held, other])
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    posted = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend((lane, post) for post in posts) or ["720380"])
+    assert watch.case_lines(watch.Watcher(demo, offset=state.events_end(demo)), T0) == []
+    pointer = 'j1: SendMessage a4e953525ff2a4e17 "Read cci record 720380 whole and act on it"'
+    assert [(lane, post["to"], post["text"]) for lane, post in posted] == [("j1", [f"peer:{top}/a4e953525ff2a4e17"], case), ("j1", [f"root@{demo}"], pointer)]
+    assert [kept["request"] for kept in state.load(demo)["jobs"]["j1"]["undelivered"]] == ["req-other"]
+    assert watch.case_lines(watch.Watcher(demo, offset=state.events_end(demo)), T0) == []
+    assert len(posted) == 2
+
+
+STOPPED_TEXT ="API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup). This sometimes happens with safe, normal conversations."
 STOPPED = {
     "type": "assistant",
     "timestamp": "2026-11-12T20:44:05.907Z",
