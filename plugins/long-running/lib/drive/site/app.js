@@ -181,6 +181,7 @@ const bare = (title) => named(String(title ?? '').replace(/^[\w./-]+:\s*\p{Exten
 const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
 function counted(n, one, many) { return sharedRenderers.counted(n, one, many); }
 const fileKey = (name) => name ?? NONE;
+const sameChannel = (key) => (key === 'The drive' ? 'Drive tooling' : key);
 const fileName = (key) => (key === NONE ? UNFILED : key);
 const byName = ([a], [b]) => (a === NONE) - (b === NONE) || a.localeCompare(b);
 const zoomHref = (screen, ...keys) => [`#/${screen}`, ...keys.map(encodeURIComponent)].join('/');
@@ -456,7 +457,7 @@ function filterOf(id) {
 
 function shownQueue(filter, project = route().query.get('project'), stream = route().query.get('stream')) {
   const [, , keep] = QUEUE_FILTERS.find(([id]) => id === filter);
-  const inScope = (item) => (project === null || fileKey(item.project) === project) && (stream === null || fileKey(item.workstream) === stream);
+  const inScope = (item) => (project === null || sameChannel(fileKey(item.project)) === sameChannel(project)) && (stream === null || fileKey(item.workstream) === stream);
   return model.queue.filter((item) => keep(item) && inScope(item) && !(answers.has(answerKey(item)) && !answers.get(answerKey(item)).error));
 }
 
