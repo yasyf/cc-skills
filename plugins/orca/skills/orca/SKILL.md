@@ -279,7 +279,12 @@ a repository's own, such as `Concise`, whose reminder rides along on about
 half of a lane's model calls. A Sprite Claude lane gets the same `env` as one of
 prepare's `--env` flags per variable, and the same `settings` with the
 `deniedTools` as `permissions.deny` in prepare's one `--settings`, which needs
-cc-remote 0.27.41 or later. Change
+cc-remote 0.27.41 or later. That one `--settings` also carries
+`spriteSettings`, whose hooks hold the Sprite active through the Sprites Tasks
+API: each session start, prompt and tool call renews a one-hour `claude-lane`
+task, and each stop leaves it 30 minutes. Without that hold a Sprite pauses
+about 30 seconds after its last open connection closes, and a cold pause ends
+every process on it, the worker mid-tool-call included. Change
 what a lane runs without in `lane.json`, never in a launch command: the
 long-running drive reads that file too for each session it starts. Interactive
 sessions and `claude plugin update` still update the plugin cache. Set
