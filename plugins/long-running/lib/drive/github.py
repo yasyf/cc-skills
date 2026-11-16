@@ -59,7 +59,7 @@ SIGNATURE = "updatedAt headRefOid mergeable signatureChecks: commits(last: 1) { 
 READ = f"{FIELDS} {UNDER} {STACK} {SIGNATURE}"
 DELETED_AUTHOR = "ghost"
 BOT_PREFIX = "app/"
-PICK = re.compile(r" \(#(\d+)\)$")
+SOURCE_PR = re.compile(r"#(\d+)\b")
 DIFF = ["--no-renames", "--no-ext-diff", "--no-color", "--no-textconv", "-U0", "--src-prefix=a/", "--dst-prefix=b/"]
 UNSHIPPED = re.compile(r"(?:^|/)(?:AGENTS\.md|CLAUDE\.md|[^/]*_test\.go)$|(?:^|/)(?:tests|testdata)/")
 EMBEDS = "//go:embed[[:space:]]|include_(str|bytes)!|(from|import|require|glob)[[:space:]]*\\(?[[:space:]]*['\"`][^'\"`]*(\\.md|\\*)"
@@ -788,25 +788,33 @@ def fetched(clone: str, branch: str) -> str:
 
 
 def carrier(clone: str) -> Callable[[str, str, int], bool]:
-    """Whether a build carries a squash merge of PR number, read from the clone's own history at its HEAD, its default branch's head, by the release tool's rule: the build sits at or after the merge on the first-parent line, or it is a hotfix whose fork from that line sits at or after it or whose own commits hold one whose subject ends `(#<number>)`, the subject a cherry-pick of it carries. A merge commit may be abbreviated, matched to the line's commit it starts. One rev-list orders the line; each build off it costs one merge-base and one log, a build the clone lacks fetched by its sha, by fetch_commit."""
+    """Whether a build carries a squash merge of PR number, read from the clone's own history at its HEAD, its default branch's head, by the release tool's rule: the build sits at or after the merge on the first-parent line, or it is a hotfix whose fork from that line sits at or after it or whose own commits copy the PR: one names it as its source, `#<number>` in its message as a hotfix records it, or carries its change, a commit whose `git patch-id --stable` matches the merge's. A merge commit may be abbreviated, matched to the line's commit it starts. One rev-list orders the line; each build off it costs one merge-base and one log, a build the clone lacks fetched by its sha, by fetch_commit."""
     git = ["git", "-C", clone]
     order = {sha: at for at, sha in enumerate(reversed(run([*git, "rev-list", "--first-parent", "HEAD"]).split()))}
 
     @functools.cache
-    def held(build: str) -> tuple[int, set[str]]:
+    def held(build: str) -> tuple[int, set[str], set[str]]:
         if build in order:
-            return order[build], set()
+            return order[build], set(), set()
         fetch_commit(clone, build)
         fork = run([*git, "merge-base", build, "HEAD"]).strip()
-        return order[fork], {found[1] for subject in run([*git, "log", "--format=%s", build, "--not", "HEAD"]).splitlines() if (found := PICK.search(subject))}
+        picks = {number for message in run([*git, "log", "--format=%B%x00", build, "--not", "HEAD"]).split("\0") for number in SOURCE_PR.findall(message)}
+        return order[fork], picks, patch_ids(run([*git, "log", "-p", "--no-merges", build, "--not", "HEAD"]))
 
     @functools.cache
     def whole(merge: str) -> str:
         return merge if merge in order else next((sha for sha in order if sha.startswith(merge)), merge)
 
+    @functools.cache
+    def patch_of(merge: str) -> set[str]:
+        return patch_ids(run([*git, "show", whole(merge)]))
+
+    def patch_ids(diff: str) -> set[str]:
+        return {line.split()[0] for line in run(["git", "-C", clone, "patch-id", "--stable"], stdin=diff).splitlines() if line.strip()}
+
     def carries(build: str, merge: str, number: int) -> bool:
-        at, picks = held(build)
-        return order.get(whole(merge), at + 1) <= at or str(number) in picks
+        at, picks, patches = held(build)
+        return order.get(whole(merge), at + 1) <= at or str(number) in picks or bool(patch_of(merge) & patches)
 
     return carries
 
