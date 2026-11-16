@@ -97,6 +97,19 @@ def test_a_hook_kept_from_before_it_sent_every_event_is_hooked_again(state_root:
     assert REAL_UNHOOKED({REPO, "yasyf/cc-skills", "yasyf/cc-slack"}) == [REPO, "yasyf/cc-slack"]
 
 
+def test_a_thread_making_the_secret_while_another_thread_of_its_process_makes_it_reads_the_one_secret_and_leaves_no_file_behind(home: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    link, made_meanwhile = os.link, []
+
+    def another_thread_made_it_first(made: str, path: Path) -> None:
+        monkeypatch.setattr(receiver.os, "link", link)
+        made_meanwhile.append(receiver.secret())
+        link(made, path)
+
+    monkeypatch.setattr(receiver.os, "link", another_thread_made_it_first)
+    assert receiver.secret() == made_meanwhile[0]
+    assert [path.name for path in receiver.home().iterdir()] == ["secret"]
+
+
 def test_a_newer_install_takes_the_receivers_socket_once_it_took_each_delivery_it_accepted_and_asks_github_nothing(
     state_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
