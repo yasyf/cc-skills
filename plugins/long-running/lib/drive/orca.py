@@ -1,5 +1,4 @@
 import contextlib
-import fcntl
 import hashlib
 import io
 import json
@@ -307,22 +306,18 @@ def kept_terminal(drive: str, key: str, title: str) -> str:
     """The agentless Orca terminal the drive keeps under key: the one kept while Orca still holds its shell connected, whether or not a pane shows it, since a terminal the drive creates headless reads orphaned from its first show, else, once Orca shows that shell disconnected or names its handle stale, one opened in the coordinator's checkout, titled after the drive and title, with no drive lock held, so an Orca that answers nothing holds no other verb of the drive, and kept unless another process kept a fresh one meanwhile; any other refusal of the kept one's show, a timeout or RUNTIME_DOWN or terminal_surface_ownership_unavailable, which says nothing of that pane, raised as it came, since opening a fresh shell on each such refusal filled Orca's 256-terminal cap with idle drive shells on Nov 15 and stopped every Sprite launch."""
     if alive := live_kept(drive, key):
         return alive
-    with open(state.drive_dir(drive) / f".{key}-opener.lock", "a") as opener:
-        fcntl.flock(opener, fcntl.LOCK_EX)
-        if alive := live_kept(drive, key):
-            return alive
-        loaded = state.load(drive)
-        kept = loaded[key]
-        opened = request("terminal", "create", "--worktree", f"path:{loaded['roles']['coordinator']['cwd']}", "--title", f"{drive}-{title}")["terminal"]["handle"]
+    loaded = state.load(drive)
+    kept = loaded[key]
+    opened = request("terminal", "create", "--worktree", f"path:{loaded['roles']['coordinator']['cwd']}", "--title", f"{drive}-{title}")["terminal"]["handle"]
 
-        def keep(data: dict) -> str:
-            if data[key] == kept:
-                data[key] = opened
-            return data[key]
+    def keep(data: dict) -> str:
+        if data[key] == kept:
+            data[key] = opened
+        return data[key]
 
-        if (won := state.update(drive, None, keep)) != opened:
-            close_pane(opened)
-        return won
+    if (won := state.update(drive, None, keep)) != opened:
+        close_pane(opened)
+    return won
 
 
 def live_kept(drive: str, key: str) -> str | None:
