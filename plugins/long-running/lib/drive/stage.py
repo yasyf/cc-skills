@@ -476,14 +476,16 @@ def waking(since: str | None, moment: datetime) -> bool:
 
 
 def mark_woken(name: str, marks: list[str], at: str) -> None:
-    """Write, once a drive pr wake delivered its line, each mark the watch asked for it, dated at, the moment of the pass that asked: `stage:<PR>`, the PR's stage woken then; `objected:<PR>@<head>`, its check's objection told at that head; `main:<repo>@<test>`, the owner of a test its merge broke on main woken then."""
+    """Write, once a drive pr wake delivered its line, each mark the watch asked for it, dated at, the moment of the pass that asked: `stage:<PR>@<head>`, the PR's stage at that head woken then; `objected:<PR>@<head>`, its check's objection told at that head; `main:<repo>@<test>`, the owner of a test its merge broke on main woken then; none once a push moved the PR off the head a mark names, by left_head, since drive pr wake sent nothing then."""
     def mark_woken_write(data: dict):
+        if left_head(data, marks):
+            return
         for mark in marks:
             kind, _, what = mark.partition(":")
-            if kind == "stage" and (kept := data["prs"][what]["stage"]):
+            key, _, head = what.rpartition("@")
+            if kind == "stage" and (kept := data["prs"][key]["stage"]):
                 kept.update(woke=at, waking=None)
             elif kind == "objected":
-                key, _, head = what.rpartition("@")
                 data["prs"][key].update(objected=head, objecting=None)
             elif kind == "main":
                 repo, _, test = what.partition("@")
@@ -491,3 +493,13 @@ def mark_woken(name: str, marks: list[str], at: str) -> None:
                     kept.update(woke=at, waking=None)
 
     state.update(name, None, mark_woken_write)
+
+
+def left_head(data: dict, marks: list[str]) -> str | None:
+    """The head a wake's `stage:` or `objected:` mark was built at once its PR no longer holds it, so drive pr wake sends nothing a push made stale while it waited on its slot or its job's lock, the watch's next pass reading the PR's stage at its new head; None while every such mark names the PR's head."""
+    for mark in marks:
+        kind, _, what = mark.partition(":")
+        key, _, head = what.rpartition("@")
+        if kind in ("stage", "objected") and data["prs"][key]["head"] != head:
+            return head
+    return None

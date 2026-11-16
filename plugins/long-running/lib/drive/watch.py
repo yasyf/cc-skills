@@ -204,6 +204,7 @@ class Watcher:
     passed_version: int | None = None
     passed_at: float = 0.0
     receiver_took: set[str] | None = None
+    floor: datetime | None = None
 
     @property
     def lane(self) -> str:
@@ -319,7 +320,9 @@ def reran(data: dict, reads: dict[str, dict]) -> list[str]:
 
 
 def github_lines(watcher: Watcher, moment: datetime, polled: bool = False) -> list[str]:
-    """Read from GitHub each heard unmerged PR the watch owes a read, and say what changed on each. It reads whole every one at a watch's start that no watch before it handed its owed reads to from the same GitHub query, by state.take_held_reads, so a field a new install reads fills on every row, then each a delivery named, each open one on a repository GitHub tells the receiver nothing of, by receiver.silent, and every open one while the receiver's last check found it neither taking deliveries nor answering, on each READ_EVERY pass, polled, a green, approved one only each SETTLED_READ_EVERY, ahead of that pass's stage_lines, since no delivery ever says it changed, each never asked for, each any waiting builder's PUSHED names unread since its take, whichever watch hears that builder, each folded into another open PR's branch, beside the PR it folded into, every pass until that PR lands or closes, and again each whose read GitHub refused, a read of an open PR whose GitHub Actions run failed only at its checkout rerunning that run and reading it queued, by reran(), a read of an open yasyf/* PR failing a check carrying the watch's verdict on whether its own change fails it, by judged(), and refused when GitHub would not give that verdict. Of each open PR a push to its base named, and each whose mergeability GitHub had not worked out yet, since no delivery says when it has, it reads only the state, head and mergeability, by github.mergeability, saying a conflict that read starts, and reads whole in the same call each that read finds moved or ended. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it. In the same call it reads each PR the drive does not track that carries a stopped builder's parts or that a live job keeps or waits on, by state.carrier_keys, once until GitHub answers for it and again each time a delivery names it, keeping only GitHub's state of it on the watcher for job_gap and out_because, and saying nothing of it. A read saves its PR's row only when it moved, stamping updated, or when a waiting builder's PUSHED names it unread, stamping its required read, so a read that finds nothing new writes nothing. What it still owes is kept on the watcher only once the reads are saved, so a pass that ends before then hands the next watch the reads it owed. Once they are saved it redraws in place, by redraw_lines, his card on each PR it read that the read left drawn stale, so a read that turns a PR green takes "CI passes" off his card in the same pass, never at the next pass's redraw_lines minutes later."""
+    """Read from GitHub each heard unmerged PR the watch owes a read, and say what changed on each, reading none while the reset ccx's rate-limit floor refused its last read until has not come, by floored, which says that refusal once. It reads whole every one at a watch's start that no watch before it handed its owed reads to from the same GitHub query, by state.take_held_reads, so a field a new install reads fills on every row, then each a delivery named, each open one on a repository GitHub tells the receiver nothing of, by receiver.silent, and every open one while the receiver's last check found it neither taking deliveries nor answering, on each READ_EVERY pass, polled, a green, approved one only each SETTLED_READ_EVERY, ahead of that pass's stage_lines, since no delivery ever says it changed, each never asked for, each any waiting builder's PUSHED names unread since its take, whichever watch hears that builder, each folded into another open PR's branch, beside the PR it folded into, every pass until that PR lands or closes, and again each whose read GitHub refused, a read of an open PR whose GitHub Actions run failed only at its checkout rerunning that run and reading it queued, by reran(), a read of an open yasyf/* PR failing a check carrying the watch's verdict on whether its own change fails it, by judged(), and refused when GitHub would not give that verdict. Of each open PR a push to its base named, and each whose mergeability GitHub had not worked out yet, since no delivery says when it has, it reads only the state, head and mergeability, by github.mergeability, saying a conflict that read starts, and reads whole in the same call each that read finds moved or ended. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it. In the same call it reads each PR the drive does not track that carries a stopped builder's parts or that a live job keeps or waits on, by state.carrier_keys, once until GitHub answers for it and again each time a delivery names it, keeping only GitHub's state of it on the watcher for job_gap and out_because, and saying nothing of it. A read saves its PR's row only when it moved, stamping updated, or when a waiting builder's PUSHED names it unread, stamping its required read, so a read that finds nothing new writes nothing. What it still owes is kept on the watcher only once the reads are saved, so a pass that ends before then hands the next watch the reads it owed. Once they are saved it redraws in place, by redraw_lines, his card on each PR it read that the read left drawn stale, so a read that turns a PR green takes "CI passes" off his card in the same pass, never at the next pass's redraw_lines minutes later."""
+    if watcher.floor and moment < watcher.floor:
+        return []
     data = state.load(watcher.name)
     pushed = {key for job_id, job in data["jobs"].items() if awaits_checks(job) for key in state.unread_since_take(data, job_id)}
     heard = [key for key in state.unmerged_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])]
@@ -357,6 +360,8 @@ def github_lines(watcher: Watcher, moment: datetime, polled: bool = False) -> li
     stale = watcher.stale - set(reads) | unread
     failure = "; ".join(str(error) for error in (unmerged, refused) if error)
     lines = [*reruns, *(read_failed(watcher, "github", github.GithubError(failure), moment) if failure else [])]
+    if resets := github.FLOOR.findall("\n".join([failure, *reruns])):
+        lines = floored(watcher, lines, datetime.fromisoformat(resets[-1]), next(text for text in [failure, *reruns] if github.FLOOR.search(text)))
     if not failure:
         watcher.failures.pop("github", None)
     foreign, redraws = {}, []
@@ -402,6 +407,15 @@ def github_lines(watcher: Watcher, moment: datetime, polled: bool = False) -> li
     if ejected := [key for key in reads if data["prs"][key]["ejected"] and data["prs"][key]["lander"]["outcome"] == land.QUEUED]:
         lines += refused_lines(watcher, ejected, moment)
     return lines + dropped_lines(watcher, foreign, moment)
+
+
+def floored(watcher: Watcher, lines: list[str], reset: datetime, refusal: str) -> list[str]:
+    """The lines of a GitHub read ccx's rate-limit floor refused until reset: each refusal's WATCH line folded into one saying when the watch reads again, said once a reset, since every read before it is refused alike and github_lines reads none until then, the reads it owes kept for that read."""
+    said = [line for line in lines if not line.startswith("WATCH ")]
+    if watcher.floor != reset:
+        said.append(f"WATCH ccx's GitHub rate-limit floor refused the watch's GitHub reads, so it reads none until {reset.isoformat()}, then each it owes: {refusal.removeprefix('WATCH ')}")
+    watcher.floor = reset
+    return said
 
 
 def dangerous_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -2142,7 +2156,7 @@ def landing_loop(name: str, project: str | None, lines: int) -> int:
 def landing_watcher(name: str, project: str | None) -> Watcher:
     """The landing loop's watcher of the drive, or of a project, taking the reads the landing loop before it held for it, with the events and deliveries offsets it had read to, else owing a read of every PR from each file's end."""
     held = state.take_held_reads(name, project)
-    owes = {"owed": set(held["owed"]), "merging": set(held["merging"]), "stale": set(held["stale"]), "untracked": held["untracked"]} if held else {}
+    owes = {"owed": set(held["owed"]), "merging": set(held["merging"]), "stale": set(held["stale"]), "untracked": held["untracked"], "floor": held.get("floor") and datetime.fromisoformat(held["floor"])} if held else {}
     offset = held.get("offset", state.watch_cursor(name, project)) if held else state.events_end(name)
     delivered = held.get("delivered", 0) if held else receiver.deliveries_end()
     return Watcher(name, offset=offset, project=project, delivered=delivered, cards=view.live_cards(name), made=state.take_held_lines(name, project), **owes)
@@ -5477,11 +5491,11 @@ def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str
         return said
     job_id = now.owner if now.owner in data["jobs"] else None
     if now.name in ("rework", "red") or not entered and (job_id or now.name == "author"):
-        stage.wake(watcher.name, key, line, job_id, marks=[f"stage:{key}"], at=state.stamp(moment))
+        stage.wake(watcher.name, key, line, job_id, marks=[f"stage:{key}@{pr['head']}"], at=state.stamp(moment))
     elif now.name == "grading" and not entered:
         repo, number = key.split("#")
         if pr["review_asked"] == pr["head"]:
-            stage.wake(watcher.name, key, line, marks=[f"stage:{key}"], at=state.stamp(moment))
+            stage.wake(watcher.name, key, line, marks=[f"stage:{key}@{pr['head']}"], at=state.stamp(moment))
         elif refused := land.ask_review(repo, number, pr["head"]):
             said.append(f"STAGE {refused} {ids(pr)}")
         else:
@@ -5943,5 +5957,5 @@ def hold(watcher: Watcher) -> None:
     """Move each line the watch or its landing loop made and has not posted, routed or not, to the process after it, which hands them on before its first pass, and, once it read GitHub, the reads it still owes with the events and deliveries offsets it read to, so the landing loop after it reads those and the PRs the deliveries past that offset name, never every PR again unless it reads GitHub by another query."""
     state.hold_lines(watcher.name, watcher.project, [LINE_BREAKS.sub(" ", line) for line in [*watcher.made, *drained(watcher.relayed), *(line for lines in watcher.unsent.values() for line in lines)]])
     if watcher.owed is not None:
-        state.hold_reads(watcher.name, watcher.project, {"owed": sorted(watcher.owed), "merging": sorted(watcher.merging), "stale": sorted(watcher.stale), "untracked": watcher.untracked, "offset": watcher.offset, "delivered": watcher.delivered})
+        state.hold_reads(watcher.name, watcher.project, {"owed": sorted(watcher.owed), "merging": sorted(watcher.merging), "stale": sorted(watcher.stale), "untracked": watcher.untracked, "offset": watcher.offset, "delivered": watcher.delivered, "floor": watcher.floor and watcher.floor.isoformat()})
     watcher.made, watcher.unsent = [], {}

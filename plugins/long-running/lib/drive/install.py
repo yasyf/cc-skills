@@ -1502,7 +1502,7 @@ def proof_run(name: str, repro: str, path: str, timeout: int) -> subprocess.Comp
 
 
 def proof_kept(name: str, job_id: str, line: str, output: str, versions: str, code: int | str, found: dict | None) -> str:
-    """Keep what a proof came to on its job, its output in reports/<j>.proof.txt, and say it on the job's merged PRs' lines, by proved_prs, a repair's or one naming no merged PR on its own, nothing after another proof took the job's result first; a run waited on his next word, a WAIT line ending a nonzero exit with no FAIL line, takes no result, so the job stays waiting on its READY or PUSHED, a repair taking the WAITING that quotes it, and marks its proof waiting, which the watch runs again once he is heard after the run started; a failed run the watch did not start, as found holds the fields prove changed before it ran, a session's such as the job's own agent's, takes no result either, the job put back on the state, said line and proof mark it found, so a save never reads it failed and takes down the Mac box its lane still works on."""
+    """Keep what a proof came to on its job, its output in reports/<j>.proof.txt, and say it on the job's merged PRs' lines, by proved_prs, a repair's or one naming no merged PR on its own, nothing after another proof took the job's result first; a run waited on his next word, a WAIT line ending a nonzero exit with no FAIL line, takes no result and is said on those lines only when its WAIT line differs from the one the output it overwrites ended on, so a rerun after his word or an install that waits on the same word says nothing again, so the job stays waiting on its READY or PUSHED, a repair taking the WAITING that quotes it, and marks its proof waiting, which the watch runs again once he is heard after the run started; a failed run the watch did not start, as found holds the fields prove changed before it ran, a session's such as the job's own agent's, takes no result either, the job put back on the state, said line and proof mark it found, so a save never reads it failed and takes down the Mac box its lane still works on."""
     from drive import brief
 
     kept = state.proof_path(name, job_id)
@@ -1515,8 +1515,11 @@ def proof_kept(name: str, job_id: str, line: str, output: str, versions: str, co
         keys = proved_prs(data, job_id)
         proven = f"{PROVEN} on {versions}: {job['repro']} exits 0, its output {kept}"
         kept.parent.mkdir(exist_ok=True)
+        before = quoted(kept.read_text()) if kept.exists() else None
         kept.write_text(output)
+        repeated = False
         if wait := waited(code, output):
+            repeated = wait == before
             if own_proof(data, job_id) and job["said"] != (said := f"WAITING {PROOF_WAITS}: {wait}"):
                 state.keep_report(name, job_id, said, f"{said}\nCHECK: {kept}\n")
                 state.take_result(data, job_id, said)
@@ -1538,7 +1541,8 @@ def proof_kept(name: str, job_id: str, line: str, output: str, versions: str, co
                 change = f"{proven}; {job['order']} closed done on it with no close report, since a session opened that drive tooling order, so no line reaches him and the dashboard shows it live"
             elif closes:
                 change = f"{proven}; its close report of {job['order']} waits on the order for the watch, which posts it to the communicator on its next read and again each read until cci takes it"
-    said_on_prs(name, data, job_id, keys, change)
+    if not repeated:
+        said_on_prs(name, data, job_id, keys, change)
     return f"{job_id}: {change}"
 
 

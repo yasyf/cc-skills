@@ -2972,7 +2972,7 @@ def mark_dangerous(data: dict, key: str, head: str, paths: list[str]) -> str | N
 
 
 def wait_on_staging(data: dict, key: str) -> tuple[str, str]:
-    """Put the open Forge-AI/monorepo PR at key on its staging test and that test's wait, ending any lift unstage kept, so it lands only once that test passes and never gets a second one: its undelivered staging part on any open order, a combined `staging test of #A with #B before they land` included, its own waits first, else its order's `staging test of #N before it lands` part, which, while no unended job carries it, deliver files on the unfinished tester staging_tester names for a wait of the PR or of an open PR under it in land.chain, the PR's own first, so a stack shares its tester; what stage_pr and reach_staging both do; the order and part."""
+    """Put the open PR at key on its staging test and that test's wait, ending any lift unstage kept, so it lands only once that test passes and never gets a second one: its undelivered staging part on any open order, a combined `staging test of #A with #B before they land` included, its own waits first, else its order's `staging test of #N before it lands` part, the wait kept only while view.holds reads it holding, so a test that passed leaves no wait for the watch's next pass to free and say FREE of again, which, while no unended job carries it, deliver files on the unfinished tester staging_tester names for a wait of the PR or of an open PR under it in land.chain, the PR's own first, so a stack shares its tester; what stage_pr and reach_staging both do; the order and part."""
     from drive import land, view
 
     pr, number = data["prs"][key], f"#{key.rpartition('#')[2]}"
@@ -2984,7 +2984,8 @@ def wait_on_staging(data: dict, key: str) -> tuple[str, str]:
         (pr["order"], STAGING_TEST.format(number=number[1:])),
     )
     data["orders"][order_id]["parts"].setdefault(part, new_part())
-    pr["waits"] = view.stored_waits(data, [*pr["waits"], f"{order_id}:{part}"])
+    if view.holds(data, wait := f"{order_id}:{part}", None):
+        pr["waits"] = view.stored_waits(data, [*pr["waits"], wait])
     if any(job["state"] not in ENDED_JOB_STATES for _, job in part_jobs(data, order_id, part)):
         return order_id, part
     stack = reversed(land.chain(land.unders(data), key))
