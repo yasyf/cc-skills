@@ -116,9 +116,40 @@ Where it goes:
 The mechanics of a drive post:
 - only links the report prints; a release as {release:<its release name or build number>}, never its CI build link; keep each {record:…|…}, {pr:…}, {card:…} and {order:…} reference exactly as written, a card he must answer as {card:<waits id>} so it draws under the post;
 - times as the report writes them in Pacific; a correction says what was wrong and what is right, never "correction" alone;
+- earlier reports listed for the same place go in this one post, in the order sent, a later report replacing what it restates or corrects; a passed due is never promised;
 - each visual is {"kind": "chart" | "compare" | "mermaid" | "dot", "source": "<its source>", "caption": "<what it shows>"}, one a post; blocks are Block Kit, with text kept as the notification line.
 Shape of a reply: {"text": "<the lead>", "place": "root", "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "*<the lead>*"}}, {"type": "section", "fields": [{"type": "mrkdwn", "text": "*<item>*\\n<its state>"}]}]}
 """
+
+
+def unposted_before(known: dict, seq: str, channel: str | None, thread: str | None) -> list[tuple[str, str]]:
+    """Each report the drive took to post before this one, to the same channel and thread, that has no post yet, oldest first, with its words, so its writer folds them into one post in the order sent, a later report replacing what it restates or corrects, by meta's fix of 736144, where a correction posted before the report it corrected."""
+    held = []
+    for earlier in sorted((each for each in (known["posts"].get("claimed") or {}) if int(each) < int(seq) and known["carried"].get(each) == agents.DRIVE_CLAIM), key=int):
+        read = agents.answered(earlier)
+        if (read["attrs"].get("thread") or read["thread"]) == thread and read["attrs"].get("channel", channel) == channel:
+            held.append((earlier, report_words(read["report"]).removeprefix("POST").strip()))
+    return held
+
+
+def carried_earlier(name: str, seq: str, earlier: list[str]) -> None:
+    """Mark each earlier report the post folded in as posted where it went."""
+    if not earlier or not (link := str(state.load(name, ("carried",))["carried"].get(seq) or "")).startswith("https://"):
+        return
+
+    def carried_earlier_write(data: dict) -> None:
+        for held in earlier:
+            data["carried"][held] = link
+            data["posts"].get("claimed", {}).pop(held, None)
+
+    state.write(name, carried_earlier_write, patient=True)
+
+
+def told_stale(name: str, seq: str, writer: str, due: str) -> None:
+    """Tell a report's writer its post went out past the due it typed, with that due left off, so it owes a fresh one if a next step is still owed."""
+    from drive import tools
+
+    tools.sent(name, "watch", [{"kind": "note", "to": [f"{writer}@{name}"], "re": [seq], "text": f"report {seq} posted after its due {due} passed, so its post left that due out: send a fresh due if a next step is still owed"}])
 
 
 def report_line(name: str, seq: str) -> str:
@@ -137,7 +168,23 @@ def report_line(name: str, seq: str) -> str:
     if channel and channel not in slack.homes(known):
         raise DriveError(f"its post goes in {channel}, outside the drive's channels, where cc-slack posts only on the ticket a session's permission hook names")
     corrected = known["carried"].get(str(report.get("re") or "")) or "" if report["kind"] == "correction" else edited(channel, attrs.get("edit"), thread)
-    facts = "\n".join(filter(None, [f"Report {seq}, a {report['kind']}:", words, f"Attrs: {json.dumps(attrs)}", f"Thread: {thread}" if thread else "No thread: it goes at the channel's root.", f"Channel: {channel}" if channel else "", f"The post it corrects: {corrected}" if corrected else ""]))
+    earlier = unposted_before(known, seq, channel, thread)
+    stale = attrs.get("due") and state.parse_time(attrs["due"]) < state.now() and attrs["due"]
+    facts = "\n".join(
+        filter(
+            None,
+            [
+                f"Report {seq}, a {report['kind']}:",
+                words,
+                f"Attrs: {json.dumps(attrs)}",
+                f"Thread: {thread}" if thread else "No thread: it goes at the channel's root.",
+                f"Channel: {channel}" if channel else "",
+                f"The post it corrects: {corrected}" if corrected else "",
+                f"Its typed due, {stale}, passed before it could post: post its substance and leave out every promise tied to that time." if stale else "",
+                *(["Earlier reports for this same place, sent before it and not yet posted, oldest first:", *(f"- Report {held}: {said}" for held, said in earlier)] if earlier else []),
+            ],
+        )
+    )
     said, _ = answer.ask(facts, "Write his post for this report as one JSON object.", REPORT_RULES, "ask")
     try:
         made = json.loads(said[said.index("{") : said.rindex("}") + 1])
@@ -162,8 +209,11 @@ def report_line(name: str, seq: str) -> str:
     place = {"channel_id": channel} if channel else {}
     if (made.get("place") == "thread" or incident) and (under :=(channel, thread) if thread else corrected and state.link_thread(corrected)):
         place = {"thread_ts": under[1]} | ({"channel_id": under[0]} if under[0] else {})
-    owes = {key: attrs[key] for key in ("due", "owes", "outcome") if attrs.get(key)}
+    owes = {key: attrs[key] for key in (("outcome",) if stale else ("due", "owes", "outcome")) if attrs.get(key)}
     line = spoken(name, shown | {"record": seq} | place | owes, known, recorded_first=bool(state.closed_orders(attrs)))
+    carried_earlier(name, seq, [held for held, _ in earlier])
+    if stale:
+        told_stale(name, seq, report["lane"], stale)
     return line + "".join(closed(name, order_id, seq) for order_id in state.closed_orders(attrs) if state.load(name)["orders"][order_id]["state"] not in state.CLOSED_ORDER_STATES)
 
 
@@ -651,6 +701,8 @@ def posted(name: str, post: dict, order: str | None = None, receipt: dict | None
     text = post.get("text") or ""
     blocks = json.loads(post["blocks"]) if isinstance(post.get("blocks"), str) else post.get("blocks")
     found = refs.resolved(name, "\n".join([text, *block_words(blocks)]))
+    if not post.get("edit") and (seq := post.get("record")) and (link := str(state.load(name, ("carried",))["carried"].get(seq) or "")).startswith("https://"):
+        raise DriveError(f"report {seq} went out meanwhile at {link}, so it posts nothing again")
     check(name, post)
     visuals, words, lifted = shown(name, post)
     card = post.get("card")

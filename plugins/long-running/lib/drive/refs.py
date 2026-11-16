@@ -1,6 +1,5 @@
 import json
 import re
-import time
 from pathlib import Path
 
 from drive import dashboard, limits, picture, providers, reads, render, settled, state, view
@@ -95,8 +94,8 @@ def resolved(name: str, text: str) -> dict[str, dict]:
     return found
 
 
-RELEASE_POST_TRIES = 3
-RELEASE_POST_WAIT = 5
+RELEASE_POSTS_FILE = "release-posts.json"
+LOOKED: dict[tuple[str, str], str | None] = {}
 PR_MENTION = re.compile(
     r"<(?P<linked>https://github\.com/[\w.-]+/[\w.-]+/pull/\d+)[^|>]*\|(?P<words>[^>]+)>"
     r"|<?(?P<bare>https://github\.com/[\w.-]+/[\w.-]+/pull/\d+)[^\s<>|)]*>?"
@@ -275,14 +274,16 @@ def order(name: str, data: dict, order_id: str) -> dict:
 
 
 def release(data: dict, key: str) -> dict:
-    """A release under its name, linked to the Slack post his repository's release provider names as its own, by its post method, never its build page, and its words unlinked with a warning when none is up yet, since a gate blocks at most once, by his words "still using bk links instead of slack links for releases"; the post lands within seconds of a start, so a release with none yet is looked up again RELEASE_POST_TRIES times, RELEASE_POST_WAIT apart, before the post is refused."""
-    provider = providers.of(data).release
-    for attempt in range(RELEASE_POST_TRIES):
-        if url := provider.post(key):
-            return {"kind": "release", "title": key, "url": url, "board": url}
-        if attempt + 1 < RELEASE_POST_TRIES:
-            time.sleep(RELEASE_POST_WAIT)
-    return {"kind": "release", "title": key, "url": None, "board": None, "warning": f"{{release:{key}}} went out as its words, unlinked: the repository's release provider found no release post by that name or build number after {RELEASE_POST_TRIES} looks {RELEASE_POST_WAIT}s apart; edit the post to link it once its post is up"}
+    """A release under its name, linked to the Slack post his repository's release provider names as its own, by its post method, never its build page, by his words "still using bk links instead of slack links for releases"; a post once found is kept in RELEASE_POSTS_FILE and a lookup is made once a process, since a provider's lookup reads Slack thread by thread and ran 15 to 25 minutes a report when every reference of every post looked again, by meta's read of 736144; none found yet goes out as its words unlinked with a warning, since a gate blocks at most once."""
+    path = state.drive_dir(data["name"]) / RELEASE_POSTS_FILE
+    kept = json.loads(path.read_text()) if path.exists() else {}
+    if (url := kept.get(key)) is None and (url := LOOKED.get((str(path), key), "")) == "":
+        LOOKED[(str(path), key)] = url = providers.of(data).release.post(key)
+        if url:
+            path.write_text(json.dumps(kept | {key: url}))
+    if url:
+        return {"kind": "release", "title": key, "url": url, "board": url}
+    return {"kind": "release", "title": key, "url": None, "board": None, "warning": f"{{release:{key}}} went out as its words, unlinked: the repository's release provider found no release post by that name or build number; edit the post to link it once its post is up"}
 
 
 def record(name: str, seq: str, label: str) -> dict:

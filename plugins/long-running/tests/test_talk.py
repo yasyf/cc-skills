@@ -609,6 +609,45 @@ def test_a_report_post_edit_named_by_its_edit_attr_posts_as_that_report_so_no_ha
     agents.unposted(demo, state.now())
 
 
+def test_a_report_folds_in_the_unposted_reports_sent_before_it_to_its_thread_and_drops_a_passed_due_telling_its_writer(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    from drive import answer
+
+    thread = "1794830198.687629"
+    reports = {
+        "735764": {"attrs": {"channel": "C1", "thread": thread}, "report": {"kind": "report", "lane": "priority-o1339", "text": "POST staging's writer stopped four times", "seq": "735764"}, "thread": None},
+        "735790": {"attrs": {"channel": "C1", "thread": "1794800000.000001"}, "report": {"kind": "report", "lane": "root", "text": "POST another thread", "seq": "735790"}, "thread": None},
+        "735816": {"attrs": {"channel": "C1", "thread": thread, "due": "2020-01-01T00:00:00-08:00", "owes": "the next leg"}, "report": {"kind": "correction", "lane": "priority-o1339", "re": "735764", "text": "POST four stops, not three", "seq": "735816"}, "thread": None},
+    }
+    with edit(demo) as data:
+        data["carried"] |= dict.fromkeys(reports, agents.DRIVE_CLAIM)
+        data["posts"]["claimed"] = dict.fromkeys(reports, state.stamp())
+    monkeypatch.setattr(agents, "answered", lambda seq: reports[seq])
+    asked: list[str] = []
+    monkeypatch.setattr(answer, "ask", lambda facts, prompt, rules, tag: asked.append(facts) or (json.dumps({"text": "Staging's writer stopped four times.", "place": "thread"}), None))
+    monkeypatch.setattr(slack, "homes", lambda data: {"C1"})
+    monkeypatch.setattr(slack, "post_findings", lambda text, draws_card, asked="": [])
+    link = f"https://acme.slack.com/archives/C1/p1794858000000100?thread_ts={thread}&cid=C1"
+    spoken: list[dict] = []
+
+    def posting(name: str, post: dict, known: dict, recorded_first: bool = False) -> str:
+        spoken.append(post)
+        with edit(name) as data:
+            data["carried"][post["record"]] = link
+        return f"POSTED {link}"
+
+    sent: list[list[dict]] = []
+    monkeypatch.setattr(talk, "spoken", posting)
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append(records) or ["1"])
+    talk.report_line(demo, "735816")
+    assert "- Report 735764: staging's writer stopped four times" in asked[0] and "735790" not in asked[0]
+    assert "passed before it could post" in asked[0]
+    assert "due" not in spoken[0] and "owes" not in spoken[0]
+    data = state.load(demo)
+    assert data["carried"]["735764"] == link and "735764" not in data["posts"]["claimed"]
+    assert data["carried"]["735790"] == agents.DRIVE_CLAIM
+    assert [(record["to"], record["re"]) for records in sent for record in records] == [([f"priority-o1339@{demo}"], ["735816"])]
+
+
 def test_a_correction_of_a_posted_report_rewords_that_post_itself_rather_than_bouncing_to_a_writer_that_cannot_post(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     from drive import answer
 
@@ -682,24 +721,28 @@ def test_a_report_sent_back_to_its_writer_counts_as_handled_so_no_has_no_post_de
     assert [record["kind"] for records in sent for record in records] == ["refused"]
 
 
-def test_a_release_reference_links_its_slack_post_looked_up_again_until_it_exists_and_goes_out_unlinked_with_a_warning_when_it_never_does(communicator: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_release_reference_looks_its_post_up_once_a_process_keeps_a_found_post_and_goes_out_unlinked_with_a_warning_while_none_is_up(communicator: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
     post = "https://acme.slack.com/archives/C9/p1794851300000100"
     looks: list[str] = []
+    up: dict[str, str] = {}
 
-    def posted_after_one_look(release: str) -> str | None:
+    def looked(release: str) -> str | None:
         looks.append(release)
-        return post if len(looks) > 1 and release == "18219" else None
+        return up.get(release)
 
-    monkeypatch.setattr(providers, "of", lambda data: SimpleNamespace(release=SimpleNamespace(post=posted_after_one_look), transformed=lambda text: text))
-    monkeypatch.setattr(refs.time, "sleep", lambda seconds: None)
-    talk.say(communicator, {"text": "Release 9 is on staging: {release:18219|release 9}."})
-    assert posts[-1][-1] == f"Release 9 is on staging: <{post}|release 9>."
-    assert looks == ["18219", "18219"]
-    looks.clear()
+    monkeypatch.setattr(providers, "of", lambda data: SimpleNamespace(release=SimpleNamespace(post=looked), transformed=lambda text: text))
     said = talk.say(communicator, {"text": "Release 10 is building: {release:18220|release 10}."})
     assert posts[-1][-1] == "Release 10 is building: release 10."
     assert "WARNING {release:18220} went out as its words, unlinked" in said
-    assert looks == ["18220"] * refs.RELEASE_POST_TRIES
+    talk.say(communicator, {"text": "Still building: {release:18220|release 10}."})
+    assert looks == ["18220"]
+    up["18220"] = post
+    monkeypatch.setattr(refs, "LOOKED", {})
+    talk.say(communicator, {"text": "Release 10 is on staging: {release:18220|release 10}."})
+    monkeypatch.setattr(refs, "LOOKED", {})
+    talk.say(communicator, {"text": "Release 10 is live: {release:18220|release 10}."})
+    assert posts[-1][-1] == f"Release 10 is live: <{post}|release 10>."
+    assert looks == ["18220", "18220"]
 
 
 def test_a_report_post_may_link_what_the_reports_references_draw_but_no_other_link(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1934,7 +1977,6 @@ def test_a_release_reference_links_the_post_its_release_provider_names_and_one_i
     found = refs.resolved(demo, "{release:wavy-mckay} is live, as is {release:17672|the infra release}.")
     assert found["{release:wavy-mckay}"] == {"kind": "release", "title": "wavy-mckay", "url": announced, "board": announced}
     assert found["{release:17672|the infra release}"]["url"] == announced
-    monkeypatch.setattr(refs.time, "sleep", lambda seconds: None)
     assert "unlinked" in refs.resolved(demo, "{release:nope} is live.")["{release:nope}"]["warning"]
 
 
