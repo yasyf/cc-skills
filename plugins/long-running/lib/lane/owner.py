@@ -13,6 +13,7 @@ from lane import store
 BRIEF = Path(__file__).with_name("owner.md")
 SHADOW = Path(__file__).with_name("shadow.md")
 BIN = Path(__file__).resolve().parents[2] / "bin" / "lane"
+ENDED = ("stopped", "done", "failed")
 SHADOW_DENY = [
     "Bash(git push:*)",
     "Bash(git commit:*)",
@@ -66,11 +67,15 @@ def process_started(pid: int) -> str | None:
 def lease(owner: dict, moment: datetime, grace_seconds: int) -> str:
     """'held' while the owner's process runs and works, 'starting' inside the launch grace, else 'lapsed' with no wait: the harness process holds the lease, never the model."""
     started = store.parse(owner["started"])
+    starting = "starting" if (moment - started).total_seconds() < grace_seconds else "lapsed"
     if not owner.get("session"):
-        return "starting" if (moment - started).total_seconds() < grace_seconds else "lapsed"
+        return starting
+    job = record(config_dir() / "jobs" / owner["job"] / "state.json")
+    if job is None or job.get("state") in ENDED:
+        return "lapsed"
     pid = owner.get("pid")
     if pid is None:
-        return "starting" if (moment - started).total_seconds() < grace_seconds else "lapsed"
+        return starting
     kept = record(config_dir() / "sessions" / f"{pid}.json")
     if not kept or kept.get("sessionId") != owner["session"]:
         return "lapsed"
@@ -82,8 +87,7 @@ def lease(owner: dict, moment: datetime, grace_seconds: int) -> str:
         return "lapsed"
     if kept.get("status") != "idle":
         return "held"
-    job = record(config_dir() / "jobs" / owner["job"] / "state.json") if owner.get("job") else None
-    flight = (job or {}).get("inFlight") or {}
+    flight = job.get("inFlight") or {}
     return "held" if flight.get("tasks") or flight.get("queued") else "lapsed"
 
 
