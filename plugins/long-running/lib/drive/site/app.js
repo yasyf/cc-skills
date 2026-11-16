@@ -452,6 +452,13 @@ function fact(html, tip = '', tone = '') {
   return sharedRenderers.fact(html, tip, tone);
 }
 
+function cardTop(orders, at, total, where) {
+  const task = orders.map(featureOf).find(Boolean);
+  const order = task ? `<a class="card-for" href="#/feature/${esc(task.id)}">For ${esc(bare(task.title))}</a>` : '';
+  return `${order}${where ? `<span class="counter card-place"><span>${at + 1} of ${total} ${esc(where)}</span></span>` : counter(at, total)}`;
+}
+
+
 function counter(at, total) {
   return `<div class="counter"><span>${at + 1} of ${total}</span><button data-move="-1" aria-label="Previous"${at === 0 ? ' disabled' : ''}>‹</button><button data-move="1" aria-label="Next"${at === total - 1 ? ' disabled' : ''}>›</button></div>`;
 }
@@ -633,10 +640,10 @@ function decisionChapters(item, key, story, state, cause) {
   return `${nav}<section class="ch-body ch-${parts[at][0]}">${parts[at][2]}</section>`;
 }
 
-function decisionCard(item, at, total, embedded = false) {
+function decisionCard(item, at, total, embedded = '') {
   const key = item.answer;
   const story = item.told?.story;
-  if (!story) return `<div class="queue-layout story-layout"><article class="focus-card decision-story" aria-labelledby="item-title" tabindex="-1"><div class="card-content"><div class="card-top"><span class="type-label">Decision</span>${embedded ? '' : counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(decisionPlain(item.card.title))}</h2>${item.told ? `${untold(item.told)}${choices(item, true)}` : notRead(slice(`/api/card?${new URLSearchParams({ answer: key })}`))}</div></article>${decisionRail(item)}</div>`;
+  if (!story) return `<div class="queue-layout story-layout"><article class="focus-card decision-story" aria-labelledby="item-title" tabindex="-1"><div class="card-content"><div class="card-top"><span class="type-label">Decision</span>${cardTop(item.tasks, at, total, embedded)}</div><h2 class="card-title" id="item-title">${esc(decisionPlain(item.card.title))}</h2>${item.told ? `${untold(item.told)}${choices(item, true)}` : notRead(slice(`/api/card?${new URLSearchParams({ answer: key })}`))}</div></article>${decisionRail(item)}</div>`;
   if (!decisionStates.has(key)) decisionStates.set(key, { selected: Math.max(0, item.card.options.indexOf(item.card.recommended)), step: 0, compare: false, chapter: 0 });
   const state = decisionStates.get(key);
   const showing = picked?.card === key ? picked.index : state.selected;
@@ -652,7 +659,7 @@ function decisionCard(item, at, total, embedded = false) {
   const action = given?.done ? `<p class="answered">✓ ${esc(given.label)}</p>` : `<div class="story-action"><button class="btn" data-story-review="${esc(key)}"${given && !given.error ? ' disabled' : ''}>Review this choice <kbd>↵</kbd></button><small>Choose first. Review before sending.</small>${given?.error ? `<p role="alert">${esc(given.error)}</p>` : ''}</div>`;
   const lab = `<div class="story-lab">${options}${action}${outcome}<button class="linkish" data-story-compare="${esc(key)}" aria-expanded="${state.compare}">${state.compare ? 'Close comparison' : 'Compare every path'}</button>${state.compare ? table([['Path', 'What changes', ...story.options[0].metrics.map((metric) => metric.label)], ...story.options.map((choice) => [choice.title, choice.consequence, ...choice.metrics.map((metric) => metric.value)])]) : ''}</div>`;
   const interview = `<div class="story-interview"><div class="story-steps" aria-label="Step ${state.step + 1} of 2"><span class="on">1 · Your priority</span><span class="${state.step ? 'on' : ''}">2 · Your path</span></div>${state.step ? `<button class="linkish" data-story-back="${esc(key)}">← Change my priority</button>${outcome}${action}` : `<h3>${esc(story.ask)}</h3><div class="story-options">${story.options.map((choice, i) => `<button class="story-option" data-story-priority="${i}" data-story-card="${esc(key)}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.priority)}</strong><small>${esc(choice.title)}</small></span><span aria-hidden="true">→</span></button>`).join('')}</div>`}</div>`;
-  return `<div class="queue-layout story-layout"><article class="focus-card decision-story ${story.format}" aria-labelledby="item-title" tabindex="-1" data-story="${esc(key)}" data-format="${story.format}"><div class="card-content"><div class="card-top"><span class="type-label">${{ cockpit: 'Decision', lab: 'Decision: compare the paths', interview: 'Decision: what matters most' }[story.format]}</span>${embedded ? '' : counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(story.headline)}</h2>${story.needs_him || story.waits ? `<p class="card-glance">${story.needs_him ? `<b>${esc(NEEDS_LABEL.get(story.needs_him))}</b>` : ''}${story.needs_him && story.waits ? ' · ' : ''}${story.waits ? esc(story.waits) : ''}</p>` : ''}${decisionChapters(item, key, story, state, cause)}${restored.has(key) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : ''}<h3 class="eyebrow ch-call">Your call</h3>${story.format === 'lab' ? lab : story.format === 'interview' ? interview : `<div class="story-cockpit">${options}<div>${outcome}${action}</div></div>`}</div></article>${decisionRail(item)}</div>`;
+  return `<div class="queue-layout story-layout"><article class="focus-card decision-story ${story.format}" aria-labelledby="item-title" tabindex="-1" data-story="${esc(key)}" data-format="${story.format}"><div class="card-content"><div class="card-top"><span class="type-label">${{ cockpit: 'Decision', lab: 'Decision: compare the paths', interview: 'Decision: what matters most' }[story.format]}</span>${cardTop(item.tasks, at, total, embedded)}</div><h2 class="card-title" id="item-title">${esc(story.headline)}</h2>${story.needs_him || story.waits ? `<p class="card-glance">${story.needs_him ? `<b>${esc(NEEDS_LABEL.get(story.needs_him))}</b>` : ''}${story.needs_him && story.waits ? ' · ' : ''}${story.waits ? esc(story.waits) : ''}</p>` : ''}${decisionChapters(item, key, story, state, cause)}${restored.has(key) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : ''}<h3 class="eyebrow ch-call">Your call</h3>${story.format === 'lab' ? lab : story.format === 'interview' ? interview : `<div class="story-cockpit">${options}<div>${outcome}${action}</div></div>`}</div></article>${decisionRail(item)}</div>`;
 }
 
 function reviewDecision(key) {
@@ -846,7 +853,7 @@ function prRail(item, key, rows, row, pr, head, read, inline) {
   </aside>`;
 }
 
-function prCard(item, at, total, embedded = false) {
+function prCard(item, at, total, embedded = '') {
   const key = noticeKey(item);
   const rows = (item.card?.prs ?? [{ url: item.url, title: item.title }]).map((row, i) => ({ ...prReads.get(prKey(row.url))?.pr?.row, ...item.prs?.[i], ...row }));
   const chosen = chosenRow(item);
@@ -869,7 +876,7 @@ function prCard(item, at, total, embedded = false) {
   return `<div class="pr-layout" data-read="${esc(pr)}" data-head="${esc(head)}">
     <article class="focus-card pr-card" aria-labelledby="item-title" tabindex="-1">
       <div class="card-content">
-        <div class="card-top"><span class="type-label">Pull request <a href="${esc(row.url)}" target="_blank" rel="noopener" data-github data-tip="Open it on GitHub"${embedded ? '' : ' data-key="o"'}>${esc(pr)}</a></span>${embedded ? '' : counter(at, total)}</div>
+        <div class="card-top"><span class="type-label">Pull request <a href="${esc(row.url)}" target="_blank" rel="noopener" data-github data-tip="Open it on GitHub"${embedded ? '' : ' data-key="o"'}>${esc(pr)}</a></span>${cardTop(entry ? [entry.feature] : [], at, total, embedded)}</div>
         <h2 class="card-title" id="item-title">${esc(title)}</h2>
         ${cardGlance(entry, row)}
         ${walk}
@@ -1168,7 +1175,7 @@ function embeddedCards(page, block, items) {
   const step = (delta, label, glyph) => `<button data-ap-card="${esc(key)}" data-item="${esc(noticeKey(items[at + delta] ?? item))}" aria-label="${label}"${items[at + delta] ? '' : ' disabled'}>${glyph}</button>`;
   const head = `<div class="ap-cards-head"><div class="counter"><span>${at + 1} of ${items.length}</span>${step(-1, 'Previous', '‹')}${step(1, 'Next', '›')}</div><a class="linkish" href="${esc(queueHref('all', item, scopeQuery(null, null, null, page.slug)))}">Open ${items.length === 1 ? 'it' : `these ${items.length}`} in the queue ›</a></div>`;
   const list = items.length > 1 ? `<details class="ap-card-list"><summary>Every one, most urgent first</summary><ol class="queue-list">${items.map((each, i) => queueRow(each, i === at, false, `button type="button" class="qrow-main" data-ap-card="${esc(key)}" data-item="${esc(noticeKey(each))}"`, 'button')).join('')}</ol></details>` : '';
-  return `<div class="ap-cards">${head}${list}${{ question: decisionCard, tap: prCard }[item.kind](opened(item), at, items.length, true)}</div>`;
+  return `<div class="ap-cards">${head}${list}${{ question: decisionCard, tap: prCard }[item.kind](opened(item), at, items.length, 'on this page')}</div>`;
 }
 
 function appletBlock(page, shown, block) {
@@ -1761,13 +1768,14 @@ function openPR(key) {
 function drawDrawer() {
   const entry = model.review.find((each) => each.key === reviewing);
   const [repo, number] = reviewing.split('#');
+  const siblings = entry ? model.review.filter((each) => each.feature === entry.feature) : [];
   const item = entry && {
     kind: 'tap', url: entry.url, title: entry.title, since: entry.since, answer: entry.answer, thread: entry.thread, card: null,
     untapped: entry.group === 'decided' ? `You tapped ${entry.tap}. ${entry.approve_plain}` : entry.group === 'you' ? null : `It does not wait on your tap yet: ${prWord(entry).word.toLowerCase()}.`,
     prs: [{ state: 'open', checks: entry.checks, review: entry.review }],
   };
   const html = `<div class="dr-bar"><b>${esc(reviewing)}</b><span class="acts"><a class="ext" href="https://github.com/${esc(repo)}/pull/${esc(number)}" target="_blank" rel="noopener">GitHub ↗</a><button class="linkish" data-close>Close</button></span></div>
-    ${item ? prCard(item, 0, 1, true) : `<p class="meta dr-gone">${esc(reviewing)} is no longer an open PR of this drive.</p>`}`;
+    ${item ? prCard(item, siblings.indexOf(entry), siblings.length, 'for its request') : `<p class="meta dr-gone">${esc(reviewing)} is no longer an open PR of this drive.</p>`}`;
   morphChildren($('#drawer'), Object.assign(document.createElement('div'), { innerHTML: html }));
 }
 

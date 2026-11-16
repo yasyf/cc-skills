@@ -1971,7 +1971,7 @@ const drawer = document.querySelector('#drawer');
 const card = drawer.querySelector('.pr-card');
 const opened = {
   open: drawer.open, hash: location.hash, parts: [...card.children].map((part) => part.className), rail: Boolean(drawer.querySelector('.pr-rail')),
-  title: card.querySelector('.card-title').textContent, counter: Boolean(card.querySelector('.counter')), actions: card.querySelector('.pr-actions').textContent.trim(),
+  title: card.querySelector('.card-title').textContent, place: card.querySelector('.card-place').textContent, actions: card.querySelector('.pr-actions').textContent.trim(),
   focus: document.activeElement.matches('#drawer [data-prtab][aria-selected="true"]'),
 };
 drawer.querySelector('[data-prtab="change"]').click();
@@ -1985,7 +1985,7 @@ done({ opened, changed, closed: !drawer.open, back: document.activeElement === o
     assert seen == {
         "opened": {
             "open": True, "hash": "#/feature/o1", "parts": ["card-content", "pr-tabs", "pr-pane show", "pr-pane change", "pr-pane context", "pr-actions"], "rail": True,
-            "title": "Time out the lock", "counter": False, "actions": "ApproveHold", "focus": True,
+            "title": "Time out the lock", "place": "1 of 1 for its request", "actions": "ApproveHold", "focus": True,
         },
         "changed": {"embed": "?embed=1", "visible": "visible", "overlays": 0, "files": ["lib/lock.py", "lib/queue.py"]},
         "closed": True,

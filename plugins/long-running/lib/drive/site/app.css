@@ -148,7 +148,10 @@ button.al.warn::before { background: #c98a4b; }
 .focus-card.done a { color: var(--accent); }
 .bigcheck { color: var(--accent); font-size: 45px; line-height: 1; }
 .card-content { padding: 27px 32px 24px; }
-.card-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 23px; }
+.card-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; margin-bottom: 23px; }
+.card-top .card-for { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+.card-top .card-for:hover { color: var(--accent); }
+.card-place { white-space: nowrap; }
 .type-label { display: flex; align-items: center; gap: 8px; color: var(--accent); font: var(--caps); letter-spacing: 1.2px; text-transform: uppercase; }
 .type-label::before { content: "◇"; font-size: 19px; line-height: 1; }
 .type-label a { color: var(--muted); font-size: 11px; font-weight: 550; letter-spacing: 0; text-transform: none; }
