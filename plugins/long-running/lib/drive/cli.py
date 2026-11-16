@@ -1081,6 +1081,8 @@ def order_set(args: argparse.Namespace) -> int:
         "watch": watched,
     }
     becoming = order | {field: value for field, value in changes.items() if value is not None} | {field: (getattr(args, field) or "").strip() or None for field in FILING if getattr(args, field) is not None}
+    if args.unjoin and becoming["note"] == data["orders"][order["joins"]]["note"]:
+        becoming["note"] = None
     record = incident_record(name, args.id, becoming) if args.incident and not order["incident"] else None
     moment = state.now()
 
