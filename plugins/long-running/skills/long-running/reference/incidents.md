@@ -340,7 +340,7 @@ it, ai-oncall style". In the pass that pages, the drive:
 
 "Make everything less chatty" holds everywhere but here. A paged incident's thread hears each step
 as it happens, so he never has to ask whether anyone is on it. Write it the way ai-oncall writes an
-incident (`.agents/skills/incident/references/outage-comms.md` in the monorepo):
+incident:
 
 - The top post is the headline: status and what broke in at most eight words, then who is affected
   and the next step. Evidence, PR lists and links go in the thread right after it.
