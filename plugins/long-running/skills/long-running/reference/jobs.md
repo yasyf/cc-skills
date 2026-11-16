@@ -62,7 +62,8 @@ Contents:
   cap and the line, and holds a slot against later builders once it runs. A priority order's
   builder also starts here past the load gate, and one already waiting its turn takes it on the
   watch's next pass, ahead of every other job in line; his words: "they aren't slowed down at any
-  cost by anything". The mark also starts a coordinator session for that order alone, the
+  cost by anything". A drive verb or drive MCP call naming that order, one of its jobs or a PR one
+  carries takes the drive's lock ahead of every other writer waiting for it. The mark also starts a coordinator session for that order alone, the
   sub-coordinator for `Priority <o>`, so no other order's events queue ahead of its own; his words:
   "when something gets marked as priority it gets its own dedicated coordinator spun uo for it".
   A builder added with `drive job add builder --order <o> --goal "<goal>" --builds-nothing`, one whose whole work holds no

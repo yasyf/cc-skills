@@ -5345,7 +5345,7 @@ def test_end_waits_on_a_relaunch_of_its_job_and_refuses_the_job_that_relaunch_se
     relauncher.start()
     held.wait(5)
     taken = state.taken
-    monkeypatch.setattr(state, "taken", lambda handle, seconds: asked.set() or taken(handle, seconds))
+    monkeypatch.setattr(state, "taken", lambda handle, seconds, line=None: asked.set() or taken(handle, seconds, line))
     monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: pytest.fail("an end that waited on a relaunch saves nothing"))
     monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: pytest.fail("an end that waited on a relaunch reclaims nothing"))
     assert cli.main(["job", "end", "j1"]) == 2

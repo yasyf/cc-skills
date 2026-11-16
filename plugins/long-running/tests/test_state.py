@@ -232,6 +232,31 @@ def test_a_write_waiting_past_the_drive_lock_wait_changes_nothing_and_names_the_
     assert state.load("demo")["terminal"] == "term-1"
 
 
+def test_a_priority_orders_verb_takes_the_drive_lock_ahead_of_a_writer_that_waited_for_it_first(state_root: Path) -> None:
+    make("demo")
+    with state.edit("demo") as data:
+        for order_id, priority in (("o1", None), ("o2", "Priority o2")):
+            data["orders"][order_id] = state.new_order(f"order {order_id}", "slack", None, {}, state.stamp()) | {"priority": priority}
+        data["jobs"] |= {"j1": state.new_job("o1", "builder", "build o1", [], state.stamp()), "j2": state.new_job("o2", "builder", "build o2", [], state.stamp())}
+    took: list[str] = []
+
+    def report(job_id: str) -> None:
+        with state.naming({"ops": [{"report": {"id": job_id}}]}), state.edit("demo") as data:
+            took.append(job_id)
+            data["terminal"] = job_id
+
+    with ThreadPoolExecutor(2) as pool, open(state.drive_dir("demo") / ".lock", "a") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        waited = pool.submit(report, "j1")
+        time.sleep(0.3)
+        first = pool.submit(report, "j2")
+        time.sleep(0.3)
+        fcntl.flock(held, fcntl.LOCK_UN)
+        waited.result()
+        first.result()
+    assert (took, state.load("demo")["terminal"]) == (["j2", "j1"], "j1")
+
+
 def test_a_batch_holds_no_lock_while_its_writes_run_and_its_one_save_keeps_what_another_write_changed_meanwhile(state_root: Path) -> None:
     make("demo")
     created = state.stamp()

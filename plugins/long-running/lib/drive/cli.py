@@ -5899,7 +5899,8 @@ def run_tool(tool: str, given: dict) -> str:
 
     try:
         arguments = tools.parsed_arguments(given, mcp.tool_named(tool)["inputSchema"]["properties"])
-        return tools.run(tool, state.resolve(arguments.pop("drive", None)), arguments)
+        with state.naming(arguments):
+            return tools.run(tool, state.resolve(arguments.pop("drive", None)), arguments)
     except reads.ReadError as error:
         raise DriveError(str(error)) from None
 
@@ -7560,7 +7561,8 @@ def main(argv: list[str] | None = None) -> int:
                     args.ids = [own]
             if "TMUX" in os.environ and (attached := orca.own_terminal()):
                 os.environ["ORCA_TERMINAL_HANDLE"] = attached
-            return args.run(args)
+            with state.naming(vars(args)):
+                return args.run(args)
     except VERB_ERRORS as error:
         return refused(args, error, detached, own)
 
