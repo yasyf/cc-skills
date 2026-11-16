@@ -176,7 +176,9 @@ def relay(text: str, under: str) -> dict:
 
 
 def pr_read(name: str, key: str) -> dict | None:
-    """The PR as its Slack card reads it, with its Show me section cut by the parser that card uses and the row his card would draw for it, with what it lands once or what holds it, by card.standing; None for a PR GitHub refuses that was never read."""
+    """The PR as its Slack card reads it, with its Show me section cut by the parser that card uses and the row his card would draw for it, with what it lands once or what holds it, by card.standing; None for a PR GitHub refuses that was never read. On a live lane drive, the PR as GitHub reads it with its Show me section, and no row, which the old drive's state drew."""
+    if lane_store.live(name):
+        return (pr := card.read(key)) and pr | {"show_me": sections(body_of(pr)).get("show me", "")}
     data = state.load(name)
     entry = data["prs"][key]
     if not (pr := card.read(key, entry)):
