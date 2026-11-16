@@ -25,7 +25,9 @@
     "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL": "1"
   },
   "spriteEnv": {
-    "CARGO_BUILD_JOBS": "4"
+    "CARGO_BUILD_JOBS": "4",
+    "GOCACHE": "/var/tmp/build/go",
+    "CARGO_TARGET_DIR": "/var/tmp/build/cargo"
   },
   "settings": {
     "spinnerTipsEnabled": false,
