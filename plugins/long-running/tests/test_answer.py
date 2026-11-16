@@ -13,19 +13,19 @@ def test_escalate_posts_nothing():
     assert answer.reply_of(f"{answer.ESCALATE} he gives an order", ROWS) == (None, "he gives an order")
 
 
-def test_link_the_rows_do_not_print_escalates():
+def test_a_link_the_rows_do_not_print_posts_with_a_warning():
     text, why = answer.reply_of(f"{answer.ANSWER}\nSee <https://github.com/Forge-AI/monorepo/pull/99999|the fix>.", ROWS)
-    assert text is None and "99999" in why
+    assert text and "warning" in why and "99999" in why
 
 
-def test_number_the_rows_do_not_print_escalates():
+def test_a_number_the_rows_do_not_print_posts_with_a_warning():
     text, why = answer.reply_of(f"{answer.ANSWER}\nBuild 17999 is red.", ROWS)
-    assert text is None and "17999" in why
+    assert text and "warning" in why and "17999" in why
 
 
-def test_long_answer_escalates():
+def test_a_long_answer_posts_with_a_warning():
     text, why = answer.reply_of(f"{answer.ANSWER}\n" + "word " * 90, ROWS)
-    assert text is None and "words" in why
+    assert text and "warning" in why and "words" in why
 
 
 def test_a_claimed_message_is_answered_once(monkeypatch, tmp_path):
@@ -38,17 +38,17 @@ def test_a_claimed_message_is_answered_once(monkeypatch, tmp_path):
     assert len(runs) == 1
 
 
-def test_a_link_with_no_words_naming_it_is_refused():
+def test_a_link_with_no_words_naming_it_posts_with_a_warning():
     text, why = answer.reply_of(f"{answer.ANSWER}\nMerged: <https://github.com/Forge-AI/monorepo/pull/57072|#57072>.", ROWS)
-    assert text is None and "no words" in why
+    assert text and "no words" in why
 
 
-def test_a_bare_link_is_refused():
+def test_a_bare_link_posts_with_a_warning():
     text, why = answer.reply_of(f"{answer.ANSWER}\nMerged: https://github.com/Forge-AI/monorepo/pull/57072", ROWS)
-    assert text is None and "bare" in why
+    assert text and "bare" in why
 
 
-def test_drive_ids_and_drive_words_are_refused():
+def test_drive_ids_and_drive_words_post_with_a_warning():
     assert "j6639" in answer.reply_of(f"{answer.ANSWER}\nThe memory test j6639 fails one case.", ROWS + " j6639")[1]
     assert "handoff" in answer.reply_of(f"{answer.ANSWER}\nThe memory test waits on a handoff.", ROWS)[1]
 

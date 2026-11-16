@@ -111,7 +111,7 @@ def ask(rows: str, words: str, system: str = SYSTEM, tag: str = "his-message") -
 
 
 def unbacked(text: str, rows: str) -> str | None:
-    """Why a post is not posted: a link or number the rows do not print, a link with no words naming it, a drive id, record seq or drive word such as handler or handoff he cannot read, or more than WORDS words."""
+    """What an answer breaks of SYSTEM's rules, which its post carries as a warning in the answers log and never refuses, by his words "get rid of hard-coded stuff, give it the rules, and let it make the call": a link or number the rows do not print, a link with no words naming it, a drive id, record seq or drive word such as handler or handoff he cannot read, or more than WORDS words."""
     if bare := URL.findall(SLACK_LINK.sub("", text)):
         return f"it links {bare[0]} bare, with no words saying what it shows"
     if unnamed := [url for url, label in SLACK_LINK.findall(text) if len(LABEL_WORD.findall(label)) < 2]:
@@ -130,19 +130,14 @@ def unbacked(text: str, rows: str) -> str | None:
     return None
 
 
-def again(words: str, said: str, why: str) -> str:
-    """The words for a second call after the check refused the first reply, naming why, so a fixable slip such as a link's missing words costs one more call, never an escalation."""
-    return f"{words}\n\nYour last reply was:\n{said}\n\nIt was refused: {why}. Reply again in the same shape, fixing that."
-
-
 def reply_of(said: str, rows: str) -> tuple[str | None, str]:
-    """The answer to post and why, or None and why the message goes to the communicator instead."""
+    """The answer to post and why, each rule of SYSTEM it breaks named as a warning, or None and why the message goes to the communicator instead, as the model chose."""
     head, _, rest = said.partition("\n")
     if head.strip().rstrip(":") != ANSWER:
         return None, said.removeprefix(ESCALATE).strip() or "the model escalated it"
     text = rest.strip()
-    if refused := unbacked(text, rows):
-        return None, refused
+    if broken := unbacked(text, rows):
+        return text, f"answered from the drive's rows; warning: {broken}"
     return text, "answered from the drive's rows"
 
 
@@ -191,9 +186,6 @@ def found_answer(name: str, link: str, words: str, channel: str, thread: str, dr
     rows = thread_rows(data, channel, thread)
     said, spent = ask(rows, words)
     text, why = reply_of(said, rows)
-    if not text and said.startswith(ANSWER):
-        said, spent = ask(rows, again(words, said, why))
-        text, why = reply_of(said, rows)
     found = {"answered": None, "why": why, "said": said, "rows_bytes": len(rows), **spent}
     if text and not dry_run:
         reply = talk.posted(name, {"text": text, "thread_ts": thread, "asked": link, "answering": holder_session(data)})
