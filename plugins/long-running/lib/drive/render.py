@@ -485,12 +485,12 @@ FEED_SUBSCRIPTION = "cc-slack subscribe --kind alerts,releases,posts --channel <
 
 def held_channels(drive: dict, role: str, project: str | None = None) -> list[str]:
     """The channels a session holds: a seat's communicator its seat's channel alone, the drive's communicator his DM and each channel of the drive no seat's communicator holds, by his words "every project has a communicator to pair with its coordinator and messages in that channel should go to it"."""
-    made = drive["slack"]["channels"]
+    made = drive.get("slack", {}).get("channels", {})
     if role == "communicator" and project:
         return [f"#{made[project]['name']} {made[project]['id']}"] if project in made else []
     if role == "communicator":
         return [f"his DM {slack.dm()}", *(f"#{channel['name']} {channel['id']}" for seat, channel in made.items() if seat not in drive["communicators"])]
-    return drive["slack"].get("watch", []) if role == "coordinator" else []
+    return drive.get("slack", {}).get("watch", []) if role == "coordinator" else []
 
 
 def hold_line(drive: dict, role: str, project: str | None = None) -> str:
