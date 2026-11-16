@@ -3900,9 +3900,11 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None, resume: bool
             raise DriveError(f"{args.id} already started as dispatch {job['dispatch']}, whose worker takes messages: drive job resume {args.id} <the event> sends it one")
         if text is not None and not job.get("agent") and args.id in (places := place.positions(data)):
             sender = state.held_sender(data)
-            with state.edit(name) as data:
+            def held_first(data: dict) -> None:
                 state.hold_text(data["jobs"][args.id], text, sender)
                 state.told(data["jobs"][args.id], [text])
+
+            state.update(name, None, held_first)
             line = (
                 f"{args.id}: held for its first worker under {state.since_heading(sender)}, since none has started: it waits its turn for a builder slot on this Mac,"
                 f" {places[args.id]}, and the watch starts that worker as its turn comes, its brief carrying each text the job holds, and says when it goes"
