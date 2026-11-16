@@ -3114,3 +3114,15 @@ def test_a_reporters_fix_live_note_is_owed_only_once_the_part_carrying_the_repor
     data["jobs"]["j1"].update(state="done", said="DONE j1 live: /repro/j1.py exits 0")
     data["orders"]["o1"]["parts"][reported].update(posted="j1 live: /repro/j1.py exits 0", posted_by="j1")
     assert (other, state.reported_parts(data["orders"]["o1"], data["orders"]["o1"]["reporters"][0]), state.may_tell(data, data["orders"]["o1"])) == (False, [reported], True)
+||||||| parent of 4b2651abd3 (long-running: a job not running keeps its Mac box only under a live slot hold for it, and the pool hands no box to a job already holding one)
+
+def test_a_job_not_running_keeps_its_mac_box_only_under_a_live_slot_hold_for_it(state_root: Path) -> None:
+    make("demo")
+    with edit("demo") as data:
+        data["orders"]["o1"] = state.new_order("test on a Mac", "terminal", None, {}, state.stamp())
+        data["jobs"] |= {job_id: state.new_job("o1", "builder", f"pass naming {other} and box {other}-mac", [], state.stamp()) | {"state": "waiting"} for job_id, other in (("j1", "j2"), ("j2", "j1"), ("j3", "j1"))}
+        state.slot_hold(data, "dashboard/plat-usw2-staging", "j1", state.now() + timedelta(hours=1), "cut 5 runs on j1's box", state.now())
+        state.slot_hold(data, "api/plat-usw2-staging", "j3", state.now() + timedelta(hours=1), "cut 6", state.now())
+        data["slots"]["api/plat-usw2-staging"]["hold"]["until"] = state.stamp(state.now() - timedelta(minutes=1))
+    data = state.load("demo")
+    assert [job_id for job_id in ("j1", "j2", "j3") if state.box_wanted(data, job_id)] == ["j1"]

@@ -6718,7 +6718,7 @@ def mac_boxes_reap(args: argparse.Namespace) -> int:
     data = state.load(name)
     orca.checkout(name, data["roles"]["coordinator"]["cwd"])
     boxes = providers.of(data).mac_box
-    boxes.reap([box for box in boxes.warm_boxes() if state.box_wanted(data, box)])
+    boxes.reap([])
     return 0
 
 
@@ -6729,17 +6729,21 @@ def mac_boxes_hand(args: argparse.Namespace) -> int:
     orca.checkout(name, data["roles"]["coordinator"]["cwd"])
     boxes = providers.of(data).mac_box
     family = state.priority_family(data)
+    holders = set(boxes.live_boxes() or [])
     for job_id in args.jobs:
         try:
-            boxes.take(f"{job_id}-mac", f"{name}/{job_id}")
+            if f"{name}/{job_id}" not in holders:
+                boxes.take(f"{job_id}-mac", f"{name}/{job_id}")
         except providers.ProviderError as error:
             if data["jobs"][job_id]["order"] in family and mac_box_yielded(name, data, boxes, family):
                 boxes.take(f"{job_id}-mac", f"{name}/{job_id}")
             else:
                 print(f"{job_id}: {error}", file=sys.stderr)
                 return 1
+
         def handed(data: dict, job: str = job_id) -> tuple[list[str], dict]:
-            return state.mac_box_handed(data, job, f"{job}-mac"), data
+            waited = {found["box"] for wait in data["jobs"][job]["waits"] if (found := state.MAC_BOX_WAIT.fullmatch(wait)) and not found["handed"]}
+            return [ended for box in waited for ended in state.mac_box_handed(data, job, f"{job}-mac" if box == "any" else box)], data
 
         ended, data = state.write(name, handed, patient=True)
         state.append_event(name, "mac_box_handed", job=job_id, box=f"{job_id}-mac", host=None, ended=ended)

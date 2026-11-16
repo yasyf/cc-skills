@@ -4641,10 +4641,10 @@ def mac_queue(data: dict) -> list[str]:
 
 
 
-def box_wanted(data: dict, box: str) -> bool:
-    """Whether another unfinished job names the Mac box anywhere on its row, its handoff and the texts it was given or holds included, as a job lent the box does while its case runs there, waiting or not, so that box stays up for it."""
-    pattern = re.compile(rf"\b{re.escape(box)}\b")
-    return any(pattern.search(json.dumps(job)) for job_id, job in data["jobs"].items() if job_id != box and job["state"] not in FINISHED_JOB_STATES)
+def box_wanted(data: dict, job_id: str) -> bool:
+    """Whether a job not running keeps its Mac box: a staging slot hold names it until a time not yet passed, as `drive slot hold --for <job> --until` sets for a cut it waits to run on that box. Every other waiting, paused or finished job gives its box back, by his ruling that a waiting job gives its box back; a box lent to another job stays with that job by the provider's own loan."""
+    moment = now()
+    return any((hold := slot.get("hold")) and hold["for"] == job_id and parse_time(hold["until"]) > moment for slot in data["slots"].values())
 
 
 def placed(before: dict[str, tuple[int, str | None]], order: list[str]) -> dict[str, int]:
