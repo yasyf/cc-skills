@@ -131,7 +131,11 @@ def test_a_ready_record_naming_a_pr_is_refused_since_drive_pr_add_and_the_watch_
         post(kind="ready", text="#4244 is ready", attrs={"order": "o1"}),
         post(kind="ready", text=f"Drive tooling: {TAPPED} reads taps", to=META),
     ):
-        assert refusal(record_lines.decision(ready)) == record_lines.READY_GONE
+        said = refusal(record_lines.decision(ready))
+        assert said.startswith("refused once: no ready record draws his card") and "send it as a handoff to " in said and "send none" not in said
+        assert (record_lines.decision(ready) or {}).get("permissionDecision") != "deny", ready
+    start = post(kind="ready", text="release start for #4244 on plat-usw2-sandbox", to=["root"], topic="production-release", attrs={"case": "SANDBOX-FORWARD-RECUT", "env": "plat-usw2-sandbox", "job": "j1", "order": "o1"})
+    assert "send it as a handoff to root if it carries work for that session, such as a release start" in refusal(record_lines.decision(start))
     for ready in (
         post(kind="ready", text="Drive tooling: the watch reads taps", to=META),
     ):

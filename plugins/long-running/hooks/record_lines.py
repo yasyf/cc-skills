@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, limits, settled, state, superseded
+from drive import agents, gate, limits, settled, state, superseded
 from drive.reports import CALL_FIELDS, addressed, attrs, chatter, hand_ask, kind, listed, posted, relayed_time, report_refusals, report_warnings, stray_parts, unprevented
 
 SILENT_LANES = {"long-running:reader", "long-running:designer"}
@@ -15,18 +15,22 @@ TO_OWNER = (
 )
 READY_GONE = (
     "refused: no ready record draws his card: drive pr add draws it when the PR is registered, and the watch draws it on"
-    " a PR still uncarded and redraws it in place as its stage moves; send none, and `drive status <pr>` names its stage"
+    " a PR still uncarded and redraws it in place as its stage moves, so send it as a handoff to {lane} if it carries"
+    " work for that session, such as a release start, and `drive status <pr>` names its stage"
 )
 LIMIT_ATTR = "max_words"
 CLOSE = "mcp__plugin_cc-inbox_cci__close"
 
 
-def unready(record: dict) -> str | None:
-    """Why a ready record goes nowhere: one naming a PR, whose card drive pr add draws and the watch redraws as the PR's stage moves, so no record draws it; a ready record naming no PR is news between sessions and goes."""
+def unready(drive: dict, session: str | None, record: dict) -> str | None:
+    """Why a ready record goes nowhere: one naming a PR, whose card drive pr add draws and the watch redraws as the PR's stage moves, so no record draws it, naming the handoff it goes as instead, such as a release start to root; through gate.gate, so it refuses once and a repeat goes; a ready record naming no PR is news between sessions and goes."""
     if kind(record) != "ready":
         return None
     words = record_words(record)
-    return READY_GONE if record.get("pr") or state.PR_URL.search(words) or limits.PR_NUMBER.search(words) else None
+    if not (record.get("pr") or state.PR_URL.search(words) or limits.PR_NUMBER.search(words)):
+        return None
+    lane = next(iter(listed(record.get("to"))), "root")
+    return gate.gate(drive["name"], f"ready {lane} {record.get('topic') or ''}", [READY_GONE.format(lane=lane).removeprefix("refused: ")], session)
 
 
 def trimmed(record: dict) -> dict:
@@ -67,7 +71,7 @@ def refusals(payload: dict, names: list[str], drives: dict[str, dict], records: 
         yield superseded.unclosed_refusal(names, kind(record), attrs(record), record.get("topic"), listed(record.get("re")), record.get("url"))
         yield state.unabout(kind(record), attrs(record))
         yield agents.Unjudged(unordered) if (unordered := state.unrecorded(state.session_role(drive, payload.get("session_id")), kind(record), attrs(record))) else None
-        yield unready(record)
+        yield unready(drive, payload.get("session_id"), record)
         yield from report_refusals(payload, drive, records, index)
         yield relayed_time(record, drive)
 

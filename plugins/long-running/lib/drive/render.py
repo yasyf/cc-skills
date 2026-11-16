@@ -227,7 +227,7 @@ COORDINATOR_RULES = (
     ),
     (
         "Tell him a state you checked this turn, or say it is unverified: read a job's transcript before you call it"
-        " stuck or done. Read his message in Slack when you need his exact words."
+        " stuck or done. Read his message in Slack when you need his exact words. A release start you hand on goes to root as a handoff record, never a ready record."
     ),
 )
 META_RULES = (
