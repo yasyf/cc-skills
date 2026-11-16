@@ -21,6 +21,8 @@ LINK = re.compile(r"^Link:\s*(\S+)", re.MULTILINE)
 THREAD = re.compile(r"^Thread:[ \t]*(?:\S+[ \t]+)?(\d+\.\d+)", re.MULTILINE)
 RE_HOPS = 8
 SETTLE_WINDOW = timedelta(seconds=30)
+DRIVE_CLAIM = "the drive"
+UNPOSTED_AFTER = timedelta(minutes=15)
 LANE_WATCH = "watch"
 AMENDING = ("correction", "withdraw")
 AMENDMENT_BYTES = 1 << 20
@@ -430,7 +432,7 @@ def start_posts(name: str, moment: datetime) -> None:
         if answered(seq)["attrs"].get("watch") == "true":
             carried[seq] = "the communicator, by the note on its watched thread"
             continue
-        carried[seq] = "the drive"
+        carried[seq] = DRIVE_CLAIM
         try:
             state.detach(name, ["report-post", seq], "posts.log")
         except OSError as error:
@@ -438,11 +440,34 @@ def start_posts(name: str, moment: datetime) -> None:
     def marked(data: dict) -> None:
         for seq, why in carried.items():
             data["carried"].setdefault(seq, why)
+        claimed = data["posts"].setdefault("claimed", {})
+        claimed |= {seq: state.stamp(moment) for seq, why in carried.items() if why == DRIVE_CLAIM}
         data["posts"]["mark"] = min(young) - 1 if young else newest
 
     state.write(name, marked)
+    unposted(name, moment)
     if errors:
         raise state.DriveError("; ".join(errors))
+
+
+def unposted(name: str, moment: datetime) -> None:
+    """Tell the meta session, once, of each POST report the drive took to post that still has no permalink in carried UNPOSTED_AFTER after it took it, so a post path that goes silent shows within one cycle, as report-post skipping every report for two hours on the drive's own claim mark did not."""
+    from drive import tools
+
+    data = state.load(name, ("posts", "carried"))
+    claimed = data["posts"].get("claimed") or {}
+    posted = [seq for seq in claimed if str(data["carried"].get(seq, "")).startswith("https://")]
+    late = [seq for seq, at in claimed.items() if seq not in posted and moment - state.parse_time(at) > UNPOSTED_AFTER]
+    if not posted and not late:
+        return
+    if late:
+        tools.sent(name, "watch", [{"kind": "defect", "to": [f"meta@{name}"], "text": f"POST reports {', '.join(late)} have no post: the drive took each to post over {int(UNPOSTED_AFTER.total_seconds() // 60)} minutes ago and carried holds no permalink for it; read posts.log for each and post it with drive report-post <seq>"}])
+
+    def unposted_write(data: dict) -> None:
+        for seq in [*posted, *late]:
+            data["posts"]["claimed"].pop(seq, None)
+
+    state.write(name, unposted_write)
 
 
 def trunk_failures(keys: list[str], since: str) -> list[dict]:

@@ -521,6 +521,31 @@ def test_a_say_an_old_mcp_server_hands_no_ticket_takes_the_sessions_ticket_the_h
     assert talk.with_ticket({"text": "hi", "ticket_id": "given"}) == {"text": "hi", "ticket_id": "given"}
 
 
+def test_a_report_the_drive_only_took_to_post_counts_as_unposted_and_one_with_a_permalink_as_posted(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {}, "thread": None})
+    monkeypatch.setattr(talk, "report_line", lambda name, seq: "POSTED https://acme.slack.com/archives/C1/p1")
+    with state.edit(demo) as data:
+        data["carried"]["700"] = agents.DRIVE_CLAIM
+    assert talk.report_post(demo, "700") == "report 700 posted by the drive: POSTED https://acme.slack.com/archives/C1/p1"
+    with state.edit(demo) as data:
+        data["carried"]["700"] = "https://acme.slack.com/archives/C1/p2"
+    assert talk.report_post(demo, "700") == "report 700 already posted at https://acme.slack.com/archives/C1/p2: nothing posted again"
+
+
+def test_a_post_report_the_drive_took_and_never_posted_is_flagged_to_meta_once_after_fifteen_minutes(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    sent: list[list[dict]] = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append(records) or ["1"])
+    took = state.now() - agents.UNPOSTED_AFTER - timedelta(minutes=1)
+    with state.edit(demo) as data:
+        data["carried"] |= {"700": agents.DRIVE_CLAIM, "701": "https://acme.slack.com/archives/C1/p1"}
+        data["posts"]["claimed"] = {"700": state.stamp(took), "701": state.stamp(took)}
+    agents.unposted(demo, state.now())
+    assert [record["text"].split(":")[0] for records in sent for record in records] == ["POST reports 700 have no post"]
+    assert state.load(demo, ("posts",))["posts"]["claimed"] == {}
+    agents.unposted(demo, state.now())
+    assert len(sent) == 1
+
+
 def test_say_posts_the_words_its_hook_judged_and_checks_none_of_them_again(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:
     checked.findings = ["1:5 drive-term 'fence': say what happens to the reader's work instead"]
     with state.edit(demo) as data:
