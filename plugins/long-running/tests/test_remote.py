@@ -34,6 +34,7 @@ from conftest import (
     SILENT_SPRITE,
     UNLISTED,
     REAL_MARK_READ,
+    REAL_UNREAD_RUNS,
     REAL_SPRITES,
     REAL_SPRITE_API,
     REAL_SPRITE_CONFIG,
@@ -6077,11 +6078,15 @@ def test_lane_mail_becomes_job_events_and_records_the_question_and_marks_its_run
     assert (job["ask"], job["state"], job["said"]) == ("msg_question", "waiting", job["report"].splitlines()[0])
     assert job["report"].endswith("is red on it")
     assert marked_read == [RUN]
+    monkeypatch.setattr(orca, "unread_runs", lambda: ["run_idle"])
+    watch.run_pass(watching, T0 + watch.DRAIN_EVERY)
+    assert marked_read[-1] == "run_idle"
 
 
 def test_drain_read_marks_every_run_with_unread_mail_and_counts_the_gone_and_the_refused(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     unread = [{"to": f"run:{run_id}", "handled": False} for run_id in ("run_a", "run_b", "run_a", "run_gone", "run_bad")]
     shown = [*unread, {"to": "run:run_read", "handled": True}, {"to": "dispatch:ctx_1", "handled": False}]
+    monkeypatch.setattr(orca, "unread_runs", REAL_UNREAD_RUNS)
     monkeypatch.setattr(orca, "request", lambda *args, **kwargs: {"messages": shown} if args[:2] == ("orchestration", "inbox") and "--full" not in args else pytest.fail(f"no other call: {args}"))
     counts = {"run_a": 3, "run_b": 1, "run_gone": None}
 

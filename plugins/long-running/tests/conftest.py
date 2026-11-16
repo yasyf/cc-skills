@@ -77,6 +77,7 @@ REAL_SESSION_OF = orca.session_of
 REAL_SESSION_TERMINALS = orca.session_terminals
 REAL_SPRITES = orca.sprites
 REAL_MARK_READ = orca.mark_read
+REAL_UNREAD_RUNS = orca.unread_runs
 SILENT_SPRITE = "ssh exited 255: Connection timed out during banner exchange"
 REAL_KEEP_TRANSCRIPTS = orca.keep_transcripts
 REAL_SPRITE_API = orca.sprite_api
@@ -466,6 +467,7 @@ def marked_read(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Each Run whose lane mail the watch marked read, in turn; a test of the mark itself calls REAL_MARK_READ."""
     marked: list[str] = []
     monkeypatch.setattr(orca, "mark_read", lambda drive, run: marked.append(run))
+    monkeypatch.setattr(orca, "unread_runs", list)
     return marked
 
 
