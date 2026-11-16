@@ -135,7 +135,7 @@ SAY = {
         " names or the order his message it holds started, never another order of that thread, any other post with no record on the open answer order whose message its asked names,"
         " which it closes, and an edit, a card, a PR card, his catch-up, an answer in a teammate's watched thread and a post with neither on none; a post on an order from a session that may not record it there, any but the communicator's and a handler's the"
         " drive binds to it, posts nothing and says why, naming a handler's session the drive binds to nothing unbound; it is recorded wherever it goes, a thread the order holds not yet becoming one of its threads, and a clock time"
-        " its words promise his next line by, such as \"Next line by 9:45\" or \"Next line by 10:00 AM tomorrow\", becomes the order's due, from which the watch starts a handler on the line it owes until one is posted, but on an incident, whose"
+        " its words name after \"by\" or \"before\", such as \"Next line by 9:45\" or \"its count comes by 2:58 PM\", becomes a line the order owes in this post's own thread, kept only by a drive post there, the watch starting a handler on it five minutes before the time while he is here, but on an incident, whose"
         " next line the watch owes five quiet minutes after this one once it has news. A refusal posts nothing and names its fix: a reference that names nothing,"
         " an order or job id such as j1700, or a post over its length, or out of turn in the thread"
         " a bug report or question came from, that Jev does not lift: make the fix and call again."

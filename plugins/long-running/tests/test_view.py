@@ -19,18 +19,14 @@ def at(minutes: int) -> str:
     return state.stamp(T0 + timedelta(minutes=minutes))
 
 
-def order(text: str, jobs: list[str], **overrides: object) -> dict:
+def order(text: str, jobs: list[str], due: str | None = None, **overrides: object) -> dict:
     base = {
         "text": text,
         "from": "terminal",
         "thread": ["D123", "1794200000.000100"],
         "threads": [],
         "state": "working",
-        "due": None,
-        "due_said": None,
-        "next_due": None,
-        "next_set": None,
-        "kept": None,
+        "promises": [{"thread": ["D123", "1794200000.000100"], "due": due, "promised": None, "kept": None, "due_said": None, "next_due": None, "next_set": None}] if due else [],
         "withdrawn": None,
         "jobs": jobs,
         "incident": False,

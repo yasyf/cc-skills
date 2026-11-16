@@ -110,33 +110,39 @@ def say(name: str, post: dict) -> str:
 
 
 def promising(data: dict, link: str) -> dict | None:
-    """The open order owing him a line by a time the post an edit at link rewords started, read before the edit goes out, since Slack then holds only its new words: the order whose promised time is that post's own, found with no Slack call, and whether the post's words promise a time, read from Slack only once such an order is found, since a post that kept one time and started the next the drive held waiting promises it with no time in its words."""
+    """The open order owing him a line by a time the post an edit at link rewords started, and the thread it is owed in, read before the edit goes out, since Slack then holds only its new words: the promise in that post's channel whose promised time is that post's own, found with no Slack call, and whether the post's words promise a time, read from Slack only once such a promise is found, since a post that kept one time and started the next the drive held waiting promises it with no time in its words."""
     if not (message := state.slack_message(link)):
         return None
     at = slack.sent_at({"ts": message[1]})
-    owing = (order_id for order_id, order in data["orders"].items() if order["state"] not in state.CLOSED_ORDER_STATES and state.owed(order) and state.parse_time(order["promised"]) == at)
-    if not (order_id := next(owing, None)):
+    owing = (
+        (order_id, held["thread"])
+        for order_id, order in data["orders"].items()
+        if order["state"] not in state.CLOSED_ORDER_STATES
+        for held in state.owing(order)
+        if held["thread"] and held["thread"][0] == message[0] and state.parse_time(held["promised"]) == at
+    )
+    if not (found := next(owing, None)):
         return None
-    return {"order": order_id, "at": at.isoformat(), "timed": cli.promised_due(slack.message(link).get("text") or "", at) is not None}
+    return {"order": found[0], "thread": found[1], "at": at.isoformat(), "timed": cli.promised_due(slack.message(link).get("text") or "", at) is not None}
 
 
 def repromised(name: str, promise: dict, text: str) -> str:
-    """Keep the time an order owes him in step with the edited post that promised it, under the drive's lock: the time its new words promise, owed from the post as its old words' time was, or, when its old words promised a time and its new words name none, no time owed, the drive's own next time that waited on it promised in its place; nothing once a later post kept the time or replaced it while the edit went out. The part of the EDITED line saying so."""
+    """Keep the time an order owes him in the edited post's thread in step with the post that promised it, under the drive's lock: the time its new words promise, owed from the post as its old words' time was, or, when its old words promised a time and its new words name none, no time owed there, the drive's own next time that waited on it promised in its place; nothing once a later post kept the time or replaced it while the edit went out. The part of the EDITED line saying so."""
     at = state.parse_time(promise["at"])
     due = cli.promised_due(text, at)
     if not due and not promise["timed"]:
         return ""
     with state.edit(name) as data:
         order = data["orders"][promise["order"]]
-        if not state.owed(order) or state.parse_time(order["promised"]) != at:
+        if not (held := state.promised_in(order, promise["thread"])) or held["kept"] or state.parse_time(held["promised"]) != at:
             return ""
         if due:
-            state.remind(order, state.stamp(due), at)
-            return f"; its new words promise him {promise['order']}'s next line by {render.when(order['due'])}, now owed"
-        dropped, waiting = order["due"], order["next_due"]
-        order.update(due=None, promised=None, kept=None, due_said=None)
+            state.remind(order, promise["thread"], state.stamp(due), at)
+            return f"; its new words promise him {promise['order']}'s next line by {render.when(state.stamp(due))}, now owed"
+        dropped, waiting = held["due"], held["next_due"]
+        order["promises"].remove(held)
         if waiting:
-            state.promise(order, waiting, state.parse_time(order["next_set"]))
+            state.promise(order, promise["thread"], waiting, state.parse_time(held["next_set"]))
     restarted = f", and the drive's own time {render.when(waiting)} is owed from its next line" if waiting else ""
     return f"; its new words promise no time, so {promise['order']} no longer owes him a line by {render.when(dropped)}{restarted}"
 
@@ -280,7 +286,7 @@ def held_away(name: str, data: dict, post: dict, report: dict, order_id: str | N
 
 def time_to_come(text: str, at: datetime) -> bool:
     """Whether a line names a clock time still to come, such as a freeze ending at 5:00 PM, by the drive's own reader of typed times, a promise of the next line aside, so it reaches him before that time rather than in his catch-up."""
-    promised = [found.span() for found in cli.PROMISED_TIME.finditer(text)]
+    promised = [found.span() for found in cli.PROMISED_TIME.finditer(text) if found["next"]]
     return any(limits.typed_moment(text, found, at) > at for found in limits.CLOCK_TIME.finditer(text) if not any(start <= found.start() < end for start, end in promised))
 
 

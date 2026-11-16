@@ -1029,7 +1029,7 @@ def feature(drive: dict, order_id: str, order: dict, moment: datetime, found: di
         "now": latest_line(order, jobs),
         "project": order["project"],
         "workstream": order["workstream"],
-        "due": order.get("due"),
+        "due": state.owed_at(order) if state.owed(order) else None,
         "late": is_late(order, moment),
         "proof": order.get("proof"),
         "updated": order["updated"],

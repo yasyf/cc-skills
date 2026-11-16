@@ -173,28 +173,14 @@ def order_threads(data: dict, order_id: str, order: dict) -> list[tuple[str, str
     return list(dict.fromkeys([*own, *kept]))
 
 
-def order_posts(data: dict, order_id: str, order: dict) -> tuple[list[datetime], str | None]:
-    """When the drive posted a line to him in an order's threads, its own, its incident's and each of their cards' past the card itself, oldest first among each thread's messages since its promised time, and why a thread could not be read; a thread talk.to_him reads as one another channel's members read, such as a staging claim's, holds no line to him, so it is not read."""
-    from drive import talk
-
-    if not (threads := [where for where in order_threads(data, order_id, order) if talk.to_him(data, *where)]):
-        return [], "it has no thread to read; give it one with drive order set --thread"
-    cards = {(channel, ts) for other in state.feature_orders(data, order_id) for channel, ts, _, kind in data["orders"][other]["threads"] if kind != "posted"}
-    since = str(int(state.parse_time(order["promised"]).timestamp()))
-    posts: list[datetime] = []
-    unread = None
-    for where in threads:
-        try:
-            messages = thread("--channel", where[0], "--thread", where[1], "--since-ts", since, "--limit", str(WHOLE_THREAD))
-        except SlackError as error:
-            unread = unread or f"its thread {where[1]} could not be read: {error}"
-            continue
-        posts += [
-            sent_at(message)
-            for message in messages
-            if message.get("from_claude") and not (where in cards and message["ts"] == where[1])
-        ]
-    return sorted(posts), unread
+def thread_posts(held: dict) -> tuple[list[datetime], str | None]:
+    """When the drive posted in the thread a promise of a line to him names, oldest first among that thread's messages since its promised time, the message the thread hangs from aside, such as a card, and why the thread could not be read: only a drive post in the thread whose line promised the time keeps it, by his order "a line promised him by a time goes out late with nothing chasing it"."""
+    channel, ts = held["thread"]
+    try:
+        messages = thread("--channel", channel, "--thread", ts, "--since-ts", str(int(state.parse_time(held["promised"]).timestamp())), "--limit", str(WHOLE_THREAD))
+    except SlackError as error:
+        return [], f"its thread {ts} could not be read: {error}"
+    return sorted(sent_at(message) for message in messages if message.get("from_claude") and message["ts"] != ts), None
 
 
 def sent_at(message: dict) -> datetime:

@@ -20,11 +20,7 @@ def order(
         "from": "terminal",
         "thread": None,
         "state": order_state,
-        "due": due,
-        "due_said": None,
-        "promised": None,
-        "next_due": None,
-        "kept": None,
+        "promises": [{"thread": None, "due": due, "promised": None, "kept": None, "due_said": None, "next_due": None, "next_set": None}] if due else [],
         "withdrawn": None,
         "jobs": jobs or [],
         "parts": {},
@@ -337,7 +333,7 @@ def test_status_text_names_the_thread_each_orders_lines_go_in() -> None:
     drive = sample()
     drive["orders"]["o1"]["thread"] = ["D123", "1794307360.614569"]
     lines = render.status_text(drive, {}).splitlines()
-    due = render.when(drive["orders"]["o1"]["due"])
+    due = render.when(drive["orders"]["o1"]["promises"][0]["due"])
     assert next(line for line in lines if line.startswith("- o1 ")).startswith(
         f"- o1 working due {due}, its lines go in D123 thread 1794307360.614569: "
     )

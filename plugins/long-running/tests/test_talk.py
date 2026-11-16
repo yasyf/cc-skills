@@ -937,19 +937,21 @@ def test_a_report_naming_an_incidents_fix_and_cause_delivers_the_cause_its_stopp
         ("The fix is due by 9:50, and the next line by 9:40.", "Nov 11 21:40"),
         ("The last failure was at 9:22:53 PM, and both jobs started at 9:27.", None),
         ("Its folder was empty by 7:30.", None),
-        ("You get it before 12:15 a.m.", None),
+        ("You get it before 12:15 a.m.", "Nov 12 00:15"),
+        ("Its count of cards comes by 9:58 PM.", "Nov 11 21:58"),
+        ("The fix lands before 10:30, and the next line by 10:00.", "Nov 11 22:00"),
         ("Next line by 9:45 AM.", None),
         ("Next line by 10:00 AM tomorrow.", "Nov 12 10:00"),
         ("Next line by 9:00 PT tomorrow", "Nov 12 09:00"),
         ("Next update at 8:00 on Nov 13", "Nov 13 08:00"),
     ],
 )
-def test_a_post_promises_the_clock_time_after_next_line_read_as_the_time_of_day_nearest_it_when_that_is_ahead(text: str, due: str | None) -> None:
+def test_a_post_promises_the_earliest_clock_time_after_by_or_before_in_any_words_read_as_the_time_of_day_nearest_it_when_that_is_ahead(text: str, due: str | None) -> None:
     found = cli.promised_due(text, datetime(2026, 11, 11, 21, 29, 43, 954739).astimezone())
     assert (found and f"{found:%b %d %H:%M}") == due
 
 
-def test_a_post_promising_the_next_line_by_2_32_owes_2_32_not_the_2_37_it_says_a_fix_is_due_by() -> None:
+def test_a_post_promising_a_fix_by_2_37_and_the_next_line_by_2_32_owes_the_earlier_2_32() -> None:
     found = cli.promised_due("The fix is due by 2:37, and you get the next line by 2:32.", datetime(2026, 11, 12, 2, 23, 28, 890659).astimezone())
     assert (found and f"{found:%b %d %H:%M}") == "Nov 12 02:32"
 
@@ -964,7 +966,8 @@ def test_a_time_a_post_promises_becomes_its_orders_due_once_slack_has_the_post_a
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
-        data["orders"]["o1"].update(due=state.stamp(at.replace(minute=32, second=0, microsecond=0)), promised=state.stamp(at.replace(minute=27, second=0, microsecond=0)))
+        order = data["orders"]["o1"]
+        state.new_promise(order, state.promise_thread(order), state.stamp(at.replace(minute=32, second=0, microsecond=0)), state.stamp(at.replace(minute=27, second=0, microsecond=0)))
     text = "Turns have run without failing since 9:22 PM. Next line by 9:45."
     line = slack_thread.post(at, from_claude=True, text=text)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": line, "thread_ts": thread})
@@ -977,14 +980,16 @@ def test_a_time_a_post_promises_becomes_its_orders_due_once_slack_has_the_post_a
     assert talk.say(demo, {"text": text, "thread_ts": thread, "record": "698123"}) == (
         f"POSTED {line}; o1 progress line, no part delivered: {line}, its words promise him the next line by {render.when(due)}, now owed"
     )
-    told = state.load(demo)["orders"]["o1"]
-    assert (told["due"], told["promised"], told["kept"], state.owed(told)) == (due, slack.sent_at(slack_thread.messages[-1]).isoformat(), None, True)
+    order = state.load(demo)["orders"]["o1"]
+    [told] = order["promises"]
+    assert (told["due"], told["promised"], told["kept"], state.owed(order)) == (due, slack.sent_at(slack_thread.messages[-1]).isoformat(), None, True)
     later = slack_thread.post(at + timedelta(minutes=10), from_claude=True, text="The fix is in review. Next line by 10:00.")
     assert run("order", "posted", "o1", later) == (0, f"o1 progress line, no part delivered: {later}, its words promise him the next line by {render.when(state.stamp(at.replace(hour=22, minute=0, second=0, microsecond=0)))}, now owed")
     last = slack_thread.post(at + timedelta(minutes=20), from_claude=True, text="The fix merged.")
     run("order", "posted", "o1", last)
-    kept = state.load(demo)["orders"]["o1"]
-    assert (kept["kept"], state.owed(kept)) == (slack.sent_at(slack_thread.messages[-1]).isoformat(), False)
+    order = state.load(demo)["orders"]["o1"]
+    [kept] = order["promises"]
+    assert (kept["kept"], state.owed(order)) == (slack.sent_at(slack_thread.messages[-1]).isoformat(), False)
 
 
 @pytest.mark.parametrize("waits", [False, True])
@@ -1017,19 +1022,20 @@ def test_an_edit_moving_the_time_a_post_promised_moves_its_orders_due_and_one_dr
         f"EDITED {line}; its new words promise him o1's next line by {render.when(moved)}, now owed"
     )
     assert [where[1] for where in slack_thread.reads[reads:] if where[0] == "--url"] == [line]
-    told = state.load(demo)["orders"]["o1"]
-    assert (told["due"], told["promised"], state.owed(told)) == (moved, promised, True)
+    order = state.load(demo)["orders"]["o1"]
+    [told] = order["promises"]
+    assert (told["due"], told["promised"], state.owed(order)) == (moved, promised, True)
     waiting = state.stamp(at.replace(hour=23, minute=0, second=0, microsecond=0))
     set_at = state.stamp(at + timedelta(minutes=5))
     if waits:
         with state.edit(demo) as data:
-            state.promise(data["orders"]["o1"], waiting, state.parse_time(set_at))
+            state.promise(data["orders"]["o1"], told["thread"], waiting, state.parse_time(set_at))
     restarted = f", and the drive's own time {render.when(waiting)} is owed from its next line" if waits else ""
     assert talk.say(demo, {"edit": line, "text": "Turns have run without failing since 9:22 PM."}) == (
         f"EDITED {line}; its new words promise no time, so o1 no longer owes him a line by {render.when(moved)}{restarted}"
     )
     dropped = state.load(demo)["orders"]["o1"]
-    assert (dropped["due"], dropped["promised"], dropped["next_due"], state.owed(dropped)) == ((waiting, set_at, waiting, True) if waits else (None, None, None, False))
+    assert ([(held["due"], held["promised"], held["next_due"]) for held in dropped["promises"]], state.owed(dropped)) == ([(waiting, set_at, waiting)] if waits else [], waits)
     assert (" due " in render.order_line(state.load(demo), "o1", dropped)) == waits
     reads = len(slack_thread.reads)
     assert talk.say(demo, {"edit": line, "text": "Turns still run without failing."}) == f"EDITED {line}"
@@ -1050,7 +1056,7 @@ def test_a_post_on_an_incident_records_its_line_and_keeps_no_time_its_words_prom
     code, said = run("order", "posted", "o1", line)
     assert (code, said.startswith(f"o1 progress line, no part delivered: {line}"), "promise" in said) == (0, True, False)
     told = state.load(demo)["orders"]["o1"]
-    assert (told["due"], told["last_line"]) == (None, state.stamp(slack.sent_at(slack_thread.messages[-1])))
+    assert (told["promises"], told["last_line"]) == ([], state.stamp(slack.sent_at(slack_thread.messages[-1])))
 
 
 def test_a_say_of_a_record_retried_after_cc_slack_posted_and_failed_hands_cc_slack_the_records_key_again_and_keeps_the_one_post_slack_holds(
@@ -1707,7 +1713,7 @@ def test_a_report_say_posts_at_the_root_of_another_channel_joins_its_thread_as_m
         f"POSTED {reply}; o1 progress line, no part delivered: {reply}, in a thread of another channel its members read, {away}"
     )
     after = state.load(demo)["orders"]["o1"]
-    assert [after[field] for field in ("last_line", "due", "threads")] == [before["orders"]["o1"][field] for field in ("last_line", "due", "threads")]
+    assert [after[field] for field in ("last_line", "promises", "threads")] == [before["orders"]["o1"][field] for field in ("last_line", "promises", "threads")]
 
 
 def test_a_line_at_his_dm_root_on_an_order_whose_own_thread_holds_no_line_to_him_is_the_thread_its_next_lines_go_in(
