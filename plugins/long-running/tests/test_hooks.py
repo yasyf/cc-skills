@@ -1561,6 +1561,42 @@ def test_717905_a_manual_release_starts_with_no_json_and_its_job_keeps_the_deplo
     assert state.load(demo)["jobs"]["j2"]["release_build"] == MANUAL_BUILD
 
 
+PREBUILD = "https://buildkite.com/forge/prebuild/builds/19600"
+PREBUILT = json.dumps({"branch": "releases/prebuild-20261116T080000Z", "commit": "a6f826f", "build": {"number": 19600, "url": PREBUILD}})
+STAGED_START = "tools/ci release start platform --from a6f826f --emergency --env plat-usw2-staging,plat-usw2-sandbox"
+
+
+def test_a_start_on_staging_kicks_off_the_prebuild_of_its_commit_and_keeps_its_build_on_the_job_while_a_production_start_kicks_off_none_and_a_failed_kick_off_keeps_the_release(
+    demo: str, run: Run, no_calls: list[list[str]], recorded: Answers, jev: Jev, release_starts: list[list[str]]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the clock")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the clock")
+    started = released(demo, f"""case "$2" in prebuild) echo '{PREBUILT}'; exit;; esac\necho '{STARTED}'""")
+    checkout = started.parent
+    (checkout / ".claude").mkdir(exist_ok=True)
+    (checkout / ".claude" / "long-running.toml").write_text('[release]\nprebuild = "tools/ci release prebuild {commit} --json"\n')
+    (checkout / "infra" / "envs").mkdir(parents=True)
+    for env, marked in (("plat-usw2-staging", "staging"), ("plat-usw2-sandbox", "sandbox"), ("plat-usw2-prod", "prod\nprod: true")):
+        (checkout / "infra" / "envs" / f"{env}.yaml").write_text(f"id: {env}\nstage: {marked}\n")
+    recorded.shown = {CLOCK_PICK["id"][:7]: CLOCK_PICK}
+    jev.picks("5419ffd")
+    add = ["job", "add", "builder", "--order", "o1", "--goal", "release the merged clock", "--release"]
+    assert run(*add, J2666_START)[0] == 0
+    code, out = run("job", "release", "j2")
+    assert (code, started.read_text(), state.load(demo)["jobs"]["j2"]["prebuild_build"]) == (0, "release start platform runtime-api-next restate --order 5419ffd --json\n", None)
+    started.unlink()
+    assert run(*add, STAGED_START)[0] == 0
+    code, out = run("job", "release", "j3")
+    assert (code, started.read_text().splitlines()) == (0, [f"{STAGED_START.removeprefix('tools/ci ')} --json", "release prebuild a6f826f --json"])
+    assert out.splitlines()[1] == f"j3 kicked off {PREBUILD}, which builds every image and app a release at a6f826f adopts, so the production start at a6f826f reuses them"
+    assert (state.load(demo)["jobs"]["j3"]["release_build"], state.load(demo)["jobs"]["j3"]["prebuild_build"]) == (BUILD, PREBUILD)
+    released(demo, f"""case "$2" in prebuild) echo 'buildkite: 503' >&2; exit 1;; esac\necho '{STARTED}'""")
+    assert run(*add, STAGED_START.replace("a6f826f", "b79714b"))[0] == 0
+    code, out = run("job", "release", "j4")
+    assert (code, out.splitlines()[1]) == (0, "j4's prebuild at a6f826f did not start, so a release at a6f826f builds what it would have: sh -c tools/ci release prebuild a6f826f --json exited 1: buildkite: 503")
+    assert (state.load(demo)["jobs"]["j4"]["release_build"], state.load(demo)["jobs"]["j4"]["prebuild_build"], (state.drive_dir(demo) / "jobs" / "j4.brief.md").exists()) == (BUILD, None, True)
+
+
 def test_the_top_starts_and_hears_the_release_job_on_a_sub_coordinators_order_and_the_sub_coordinator_none_of_it(
     demo: str, run: Run, no_calls: list[list[str]], recorded: Answers, jev: Jev, release_starts: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

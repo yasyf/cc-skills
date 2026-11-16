@@ -1761,7 +1761,7 @@ def started_release(name: str, job_id: str, command: str) -> list[str]:
 
 
 def job_release(args: argparse.Namespace) -> int:
-    """Start the release a job's --release names, in the process drive job add starts for it, by release_start, once more RELEASE_RETRY_SECONDS on when the first start failed on a GitHub 5xx, by GITHUB_5XX; `ci release` names the build it started, by release_answer, which the job keeps as its release_build in a save holding nothing else, so a later step that fails leaves it kept, before the designs it carries and each failed job it replaces end and its brief is written; a start naming none leaves the job with no build, its wait on this process ending on what it said, which the watch's FREE line names, and tells the coordinator and the session holding its order at once, by release_start_failed."""
+    """Start the release a job's --release names, in the process drive job add starts for it, by release_start, once more RELEASE_RETRY_SECONDS on when the first start failed on a GitHub 5xx, by GITHUB_5XX; `ci release` names the build it started, by release_answer, which the job keeps as its release_build in a save holding nothing else, so a later step that fails leaves it kept, before the designs it carries and each failed job it replaces end and its brief is written, and then kicks off the prebuild of a staging or sandbox start's commit, by prebuild; a start naming none leaves the job with no build, its wait on this process ending on what it said, which the watch's FREE line names, and tells the coordinator and the session holding its order at once, by release_start_failed."""
     name = state.resolve(args.drive)
     command = state.load(name)["jobs"][args.id]["brief_flags"]["release"]
     [words] = simple_commands(command)
@@ -1792,7 +1792,8 @@ def job_release(args: argparse.Namespace) -> int:
 
     replaced = state.update(name, None, job_release_write2)
     line, _ = write_brief(name, args.id, {})
-    print("\n".join([*replaced, f"{args.id} started `{command}` as {build} and left it running: its agent follows it with `{answer['follow']}` and reads its approve hold", line]))
+    kicked = prebuild(name, args.id, command, answer.get("commit"))
+    print("\n".join([*replaced, f"{args.id} started `{command}` as {build} and left it running: its agent follows it with `{answer['follow']}` and reads its approve hold", *kicked, line]))
     return 0
 
 
@@ -1826,6 +1827,26 @@ def release_start_failed(name: str, job_id: str, command: str, failure: str) -> 
     text = f"RELEASE {job_id} {job['order']}: `{command}` did not start: {failure}; {job_id} did not start, and drive job release {job_id} starts it again"
     argv = ["cci", "post", "--drive", name, "--lane", watch.LANE, "--kind", "handoff", *(arg for lane in to for arg in ("--to", f"{lane}@{name}")), "--topic", f"release-{job_id}"]
     reads.run([*argv, "--text", reads.withheld(text)], Path.cwd(), reads.posting())
+
+
+def prebuild(name: str, job_id: str, command: str, commit: str | None) -> list[str]:
+    """Kick off the builds a later release at a staging or sandbox start's commit adopts, by the `prebuild` command of the repository's [release] table with `{commit}` filled, run by the shell in the drive's checkout and printing the build it started as a JSON object's `build.url`, which the job keeps as its prebuild_build, so the production start at that commit signs, notarizes and bakes nothing its staging start already had built; none for a start reaching a production place, by settled.off_production, a start naming no commit, as a `--manual` one names none, or a repository naming no such command, and a kick-off that fails leaves the release as it started, saying why."""
+    data = state.load(name)
+    if not (commit and (kickoff := state.repo_config(data).get("release", {}).get("prebuild"))):
+        return []
+    checkout = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
+    if not all(settled.off_production(settled.shipped(flags), str(checkout)) for flags in brief.started(command)):
+        return []
+    try:
+        url = json.loads(reads.run(["/bin/sh", "-c", kickoff.replace("{commit}", shlex.quote(commit))], checkout))["build"]["url"]
+    except reads.ReadError as error:
+        return [f"{job_id}'s prebuild at {commit} did not start, so a release at {commit} builds what it would have: {error}"]
+
+    def prebuild_write(data: dict):
+        data["jobs"][job_id]["prebuild_build"] = url
+
+    state.update(name, None, prebuild_write)
+    return [f"{job_id} kicked off {url}, which builds every image and app a release at {commit} adopts, so the production start at {commit} reuses them"]
 
 
 def release_running(name: str, command: str) -> str | None:
