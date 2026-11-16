@@ -437,7 +437,7 @@ def staging(drive: dict, key: str) -> str:
 def staging_row(drive: dict, key: str) -> tuple[str, ...]:
     """What a PR's cards say of its staging tests, in parts, each its tester's or builder's own words Pasted, which his card draws only as card.plain_row lets it: its test before it lands, by before_merge, and the after-merge staging pass its prover ran, by state.keep_after_merge, with that pass's result, its time, its proof and each case it did not exercise with why, or each CASE line that did not pass, alone when no test before it lands was set or run."""
     repo, _, number = key.rpartition("#")
-    if repo.lower() != state.MONOREPO.lower():
+    if not (name := providers.of(drive).repo.name) or repo.casefold() != name.casefold():
         return (f"Not on staging: {repo} has no staging env",)
     part = state.STAGING_TEST.format(number=number)
     held = state.orders_holding(drive, part)
@@ -495,9 +495,9 @@ def tested(passed: dict, where: str) -> tuple[str, ...]:
 
 def waited_run(drive: dict, key: str) -> dict | None:
     """The staging run of the newest DONE a builder or codex job of the PR's order waiting on the PR returned last, by state.orders_jobs, read from its report, which names the PR and runs a case of it, each of its CASE lines the PR's that state.pr_run gives it among the PRs the job waits on, shaped as a staging test part holds its run, by state.keep_pass: its cases, and on a full pass, by state.passing, its first CHECK: proof and when the job returned it; None when no such DONE ran one, as when each of its cases reads not exercised."""
-    number = key.rpartition("#")[2]
+    repo, _, number = key.rpartition("#")
     dones = [
-        (reply, {wait.rpartition("#")[2] for wait in job["waits"] if wait.rpartition("#")[0].casefold() == state.MONOREPO.casefold()})
+        (reply, {wait.rpartition("#")[2] for wait in job["waits"] if wait.rpartition("#")[0].casefold() == repo.casefold()})
         for job_id, job in state.orders_jobs(drive, [drive["prs"][key]["order"]]).items()
         if job["state"] == "done" and job["kind"] in state.CHANGE_KINDS and key in job["waits"]
         for reply in state.returns(drive["name"], job_id)[:1]
@@ -1059,7 +1059,7 @@ def wait_entry(drive: dict, wait: str, found: dict) -> dict:
     if release := state.RELEASE_WAIT.fullmatch(wait):
         return {"title": f"the release of {release['service']} carrying {release['pr']}" + (f" on {release['env']}" if release["env"] else ""), "url": state.pr_url(release["pr"])}
     if staging := state.STAGING_WAIT.fullmatch(wait):
-        return {"title": f"{staging['env']} running {staging['target']} at {staging['commit'][:12]} or a build carrying it", "url": f"https://github.com/{state.MONOREPO}/commit/{staging['commit']}"}
+        return {"title": f"{staging['env']} running {staging['target']} at {staging['commit'][:12]} or a build carrying it", "url": f"https://github.com/{providers.of(drive).repo.name}/commit/{staging['commit']}"}
     if part := state.part_wait(drive, wait):
         return {"title": f'{part[0]} delivering "{cut(part[1], TITLE_CHARS)}"', "url": None}
     if build := providers.of(drive).build.fullmatch(wait):
