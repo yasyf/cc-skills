@@ -18,7 +18,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import EnvsRelease, HomeBuild, HomeRepo, MonorepoRepo, SelectRelease, monorepo, provide, ACME_CUT, CARD_BODY, card_reads, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SEEDED_READER, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, Redraws, SessionLaunches, Thread, WatchProcess, Withdrawals, own_time
+from conftest import EnvsRelease, HomeBuild, HomeRepo, MonorepoPaths, MonorepoRepo, SelectRelease, monorepo, provide, ACME_CUT, CARD_BODY, card_reads, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, Redraws, SessionLaunches, Thread, WatchProcess, Withdrawals, own_time, SEEDED_READER
 from drive import (
     agents,
     brief,
@@ -8039,7 +8039,7 @@ def test_an_exempt_class_its_files_are_outside_is_refused_by_the_landers_class_c
 def test_a_pr_he_opened_changing_only_ci_files_registers_ci_only_from_its_paths_and_draws_no_card_while_any_other_file_someone_elses_pr_or_a_tracked_pr_keeps_his_tap(
     run: Run, demo: str, on_github: dict, draws: Draws, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    provide(monkeypatch, Path(), repo=MonorepoRepo)
+    provide(monkeypatch, Path(), repo=MonorepoPaths)
     run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it and https://github.com/Forge-AI/monorepo/pull/45")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     ci = ["go/ci/image.go", "infra/ci/src/pipelines/test/images.ts", ".buildkite/pipeline.yml", "tools/ci"]
