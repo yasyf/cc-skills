@@ -6473,7 +6473,7 @@ def session_drives(session: str) -> list[str]:
 
 def records_drives(session: str) -> list[str]:
     """The records-only drives this session registered, which bind no session, so no role's hooks, reloads or watch reach it, and its drive verbs still find the drive."""
-    return [name for name in names() if (saved(name).get("records_only") or {}).get("session") == session]
+    return [name for name in names() if (stored(name, ("records_only",)).get("records_only") or {}).get("session") == session]
 
 
 def lane_carried(order: dict, part: str) -> bool:
