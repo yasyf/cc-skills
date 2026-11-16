@@ -573,6 +573,20 @@ def subcoordinator_line(project: str, held: dict, seen: dict[str, str]) -> str:
     return f"sub-coordinator {project}: lane {project_lane(project)}, session {held['session']}, {seen[f'sub-coordinator {project}']}; {watching}"
 
 
+def live_block(drive: dict, order_id: str, order: dict) -> list[str]:
+    """An order as a handler's brief draws it: its line, its orphans, and each unfinished job with its last said line, its questions and its PRs, never its parts line or a finished job, which drive status draws."""
+    lines = [f"- {order_line(drive, order_id, order, WHOLE, promise_thread(order))}", *orphans(drive, order_id, WHOLE)]
+    for job_id in order["jobs"]:
+        if (job := drive["jobs"][job_id])["state"] in FINISHED_JOB_STATES:
+            continue
+        lines.append(f"  - {job_line(drive, job_id, job, WHOLE)}")
+        if job["said"]:
+            lines.append(f"    said: {cut(job['said'], WHOLE)}")
+        lines.extend(f"    - {question_line(question)}" for question in job["questions"])
+        lines.extend(f"    - {line}" for line in job_pr_lines(drive, job_id, job))
+    return lines
+
+
 def order_block(drive: dict, order_id: str, order: dict) -> list[str]:
     lines = [f"- {order_line(drive, order_id, order, WHOLE, promise_thread(order))}", f"  parts: {'; '.join(part_line(drive, order_id, part) for part in order['parts'])}"]
     lines.extend(orphans(drive, order_id, WHOLE))

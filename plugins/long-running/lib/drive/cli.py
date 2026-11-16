@@ -5925,10 +5925,20 @@ def in_thread(name: str, brief: str) -> Callable[[str], str] | None:
 
 
 def thread_work(name: str, data: dict, thread: str | None, but: str | None = None) -> list[str]:
-    """A handler brief's In his thread block: each open order but the one named that has a thread at ts thread, with its jobs, questions and PRs as drive status draws them, the cards of those alone read by with_cards, else none."""
-    if ids := thread_orders(data, thread, but):
-        with_cards(name, data, only(data, ids))
-    work = [line for order_id in ids for line in render.order_block(data, order_id, data["orders"][order_id])]
+    """A handler brief's In his thread block: each open order but the one named that has a thread at ts thread, else none. With no order named, an order whose own thread is at ts thread is drawn by render.live_block, its unfinished jobs each with its last said line, its questions and PRs, the cards of those alone read by with_cards; every other order is one line naming the drive status that draws it whole, so a brief never carries whole orders a thread only touches, which grew handler briefs to 162 KB and their starts to 90 s."""
+    ids = thread_orders(data, thread, but)
+    asked = [] if but else [order_id for order_id in ids if (own := state.own_thread(data["orders"][order_id])) and own[1] == thread]
+    if asked:
+        with_cards(name, data, only(data, asked))
+    work = [
+        line
+        for order_id in ids
+        for line in (
+            render.live_block(data, order_id, data["orders"][order_id])
+            if order_id in asked
+            else [f"- {render.order_line(data, order_id, data['orders'][order_id])}; whole: drive status {order_id}"]
+        )
+    ]
     return [f"{agents.IN_THREAD}:{'' if work else ' none'}", *work]
 
 

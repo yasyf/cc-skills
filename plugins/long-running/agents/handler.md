@@ -58,8 +58,10 @@ Context: <at most three lines the message needs, such as the earlier answer he r
 ```
 
 To a brief naming a `Thread:` `drive handler` adds `In his thread:`, every open order with a thread
-there, with its jobs, their questions and PRs as `drive status` prints them, or `none`: the work your
-lines in that thread are about. For a read-only question it adds two lines more: `Order: <o>, job
+there, or `none`: the work your lines in that thread are about. The order whose own thread it is comes
+with its unfinished jobs, each job's last said line, questions and PRs. Every other order, one the
+thread only touches through a card or a post, is one line ending in the `drive status <o>` that draws
+it whole. For a read-only question it adds two lines more: `Order: <o>, job
 <j>`, his answer order, filed under no project or workstream, and your reader job on it, and `Pairs in
 use:`, each project and workstream pair the drive's orders are filed under.
 

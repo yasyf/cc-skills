@@ -11,7 +11,7 @@ import handed_records
 import one_line_result
 import pytest
 from conftest import HELD_RELEASES, LANE_SPEC, REAL_PLUGIN_SERVERS, UNFROZEN, Answers, Thread
-from drive import agents, install, orca, place, procs, reads, slack, state, talk, tools, watch
+from drive import agents, install, orca, place, procs, reads, render, slack, state, talk, tools, watch
 
 Run = Callable[..., tuple[int, str]]
 HIS_BRIEF = "Message (his words): why is this card asking again?\nThread: D123 1794380463.481959\nDrive: demo\nScratch: {scratch}\nDeliverable: his answer, in his thread"
@@ -277,6 +277,24 @@ def test_a_handler_on_his_message_in_a_works_thread_starts_on_the_open_orders_of
     [argv] = started
     assert argv[-1].startswith(f"{brief}\n{agents.IN_THREAD}:\n- o1 ")
     assert "  - j1 " in argv[-1] and "o2" not in argv[-1] and agents.beyond_brief(argv[-1]) is None
+
+
+def test_a_handlers_brief_draws_its_threads_own_order_with_its_live_jobs_alone_and_an_order_the_thread_only_touches_as_one_line(
+    communicator: str, run: Run, tmp_path: Path, started: list[list[str]]
+) -> None:
+    run("order", "add", "--title", "Copy fix", "--project", "The drive", "--workstream", "Copies", "fix the copy", "--from", f"https://acme.slack.com/archives/D123/p{THREAD.replace('.', '')}")
+    run("job", "add", "reader", "--order", "o1", "--goal", "trace the copy")
+    run("job", "add", "reader", "--order", "o1", "--goal", "trace the old copy")
+    run("order", "add", "--title", "Run page", "--project", "The drive", "--workstream", "Runs", "show a run's history", "--from", "https://acme.slack.com/archives/D123/p1794100000000100")
+    run("job", "add", "reader", "--order", "o2", "--goal", "read the run page")
+    with state.edit("demo") as data:
+        data["jobs"]["j2"].update(state="stopped", said="stopped: superseded by j1")
+        data["orders"]["o2"]["threads"].append(["D123", THREAD, state.stamp(), "members"])
+    tools.run("handler", "demo", {"brief": QUESTION_BRIEF.format(scratch=tmp_path / "h1")})
+    [argv] = started
+    work = argv[-1].partition(f"{agents.IN_THREAD}:\n")[2]
+    assert ("  - j1 " in work, "j2" in work, "j3" in work) == (True, False, False)
+    assert [line for line in work.splitlines() if line.startswith("- o2 ")] == [f"- {render.order_line(state.load('demo'), 'o2', state.load('demo')['orders']['o2'])}; whole: drive status o2"]
 
 
 @pytest.mark.parametrize("asked",[QUESTION_LINK, "1794200100.000100", " did the copy  fix ship? "])
