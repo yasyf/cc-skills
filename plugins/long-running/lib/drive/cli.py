@@ -2696,7 +2696,7 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
         doubled = [] if folded_into else [twin for twin in twins if twin["card"] and twin["waits"] != question["waits"]]
         dropped = [*twins, *(other for other in redrawn if id(other) in own), *stale]
         replaced = [other for other in dropped if not any(other is twin for twin in doubled)]
-        kept = Path(next((other["file"] for other in sorted(replaced, key=lambda other: other is not held) if other["hash"]), fresh))
+        kept = fresh if name in state.BATCHED else Path(next((other["file"] for other in sorted(replaced, key=lambda other: other is not held) if other["hash"]), fresh))
         question.update(file=str(kept), hash=state.ask_hash(text))
         for other in [] if folded_into else [other for other in redrawn if not any(other is gone for gone in dropped)]:
             other["replaced"] = str(kept)
