@@ -23,6 +23,11 @@ def heartbeat(drive: str, moment: datetime, errors: list[str]) -> None:
     fresh.replace(path)
 
 
+def supervised(drive: str, moment: datetime, shape: dict) -> bool:
+    beat = store.drive_dir(drive) / "supervisor.json"
+    return beat.is_file() and (moment - store.parse(json.loads(beat.read_text())["at"])).total_seconds() <= 3 * shape["pass_seconds"] + 60
+
+
 def fired(drive: str, lane: dict, prs: dict, moment: datetime) -> str | None:
     """Why a waiting lane's wait fired, or None: his unanswered ask first, then the outside facts it names, then its time bound."""
     wait = lane["wait"]
@@ -47,9 +52,11 @@ def backoff(lane: dict, moment: datetime, shape: dict) -> timedelta | None:
 
 
 def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True) -> dict:
-    """One pass; what it started and why, and each read that failed, which never gates a time wake or a lease."""
+    """One pass; what it started and why, and each read that failed, which never gates a time wake or a lease. A verb's own pass (read_outside false) starts owners only while the drive's supervisor runs, so a drive being staged takes his words and starts nothing until its supervisor's first pass."""
     shape = store.config(drive)
     moment = store.now()
+    if not read_outside and not supervised(drive, moment, shape):
+        return {"started": [], "errors": ["no supervisor runs on this drive: its first pass starts the owner"]}
     errors: list[str] = []
     snapshot = store.load_all(drive)
     chosen = {lane_id: lane for lane_id, lane in snapshot.items() if only is None or lane_id in only}

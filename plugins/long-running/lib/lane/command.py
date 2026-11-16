@@ -6,8 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-from lane import queue, store, supervisor, verbs
-from lane import voice
+from lane import queue, store, supervisor, verbs, voice
 
 STOP_BLOCKS = 3
 
@@ -105,7 +104,9 @@ def main(argv: list[str] | None = None) -> int:
     handing.add_argument("--lane")
     handing.add_argument("--file")
     handing.add_argument("--clear", action="store_true")
-    verbs_parser.add_parser("adopt", help="write lane files of the first shape, such as the rebuild's, into the drive in the agreed shape").add_argument("paths", nargs="+")
+    adopting = verbs_parser.add_parser("adopt", help="write lane files of the first shape, such as the rebuild's, into the drive in the agreed shape")
+    adopting.add_argument("paths", nargs="+")
+    adopting.add_argument("--rulings-only", action="store_true", help="replace only each lane's rulings and the shared ones, keeping the rest of each lane")
     placing = verbs_parser.add_parser("worktree", help="set the checkout a lane's owner starts in")
     placing.add_argument("lane")
     placing.add_argument("path")
@@ -189,7 +190,7 @@ def run(args: argparse.Namespace) -> int:
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             verbs.ruling(drive, args.lane, args.words, args.link, args.binds)
         case "adopt":
-            print("\n".join(verbs.adopt(args.drive, args.paths)))
+            print("\n".join(verbs.adopt(args.drive, args.paths, args.rulings_only)))
         case "handover":
             drive, lane_id = where(args)
             if args.clear == bool(args.file):

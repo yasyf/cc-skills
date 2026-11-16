@@ -39,6 +39,7 @@ def world(monkeypatch: pytest.MonkeyPatch) -> dict:
     folder = store.drive_dir(DRIVE)
     folder.mkdir(parents=True)
     (folder / "config.json").write_text(json.dumps({"active": 3, "slots": 2, "posting": False}))
+    supervisor.heartbeat(DRIVE, store.now(), [])
     return seen
 
 
@@ -443,3 +444,32 @@ def test_a_handover_note_reaches_the_owner_brief_and_is_no_ask(world: dict) -> N
     lane = store.load(DRIVE, "a")
     assert "old job j1 runs on branch b" in owners.brief(DRIVE, lane, "woken")
     assert len(lane["asks"]) == 1
+
+
+def test_a_verb_on_a_drive_no_supervisor_runs_takes_his_words_and_starts_nothing(world: dict) -> None:
+    opened("a")
+    ended("a", ["his_reply"])
+    (store.drive_dir(DRIVE) / "supervisor.json").unlink()
+    world["launched"].clear()
+    assert verbs.message(DRIVE, "a", "status?", ts="500.0") == 1
+    assert (store.load(DRIVE, "a")["state"], world["launched"]) == (store.WAITING, [])
+
+
+def test_a_ruling_or_ask_missing_what_the_brief_prints_is_refused(world: dict, tmp_path: Path) -> None:
+    opened("a")
+    with pytest.raises(store.Refused, match="a ruling 0 with no at"):
+        store.update(DRIVE, "a", lambda lane: lane.__setitem__("rulings", [{"words": "ship it", "binds": "release"}]))
+    shared = tmp_path / store.RULINGS
+    shared.write_text(json.dumps({"shared": [{"words": "12 lanes", "at": store.stamp()}]}))
+    with pytest.raises(store.Refused, match="no binds"):
+        verbs.adopt(DRIVE, [str(shared)])
+
+
+def test_adopt_rulings_only_keeps_the_rest_of_the_lane(world: dict, tmp_path: Path) -> None:
+    opened("a")
+    verbs.set_worktree(DRIVE, "a", "/kept")
+    source = tmp_path / "a.json"
+    source.write_text(json.dumps({**store.load(DRIVE, "a"), "worktree": None, "rulings": [{"words": "ship it", "at": store.stamp(), "binds": "release"}]}))
+    verbs.adopt(DRIVE, [str(source)], rulings_only=True)
+    lane = store.load(DRIVE, "a")
+    assert (lane["worktree"], lane["rulings"][0]["words"], lane["state"]) == ("/kept", "ship it", store.RUNNING)

@@ -114,8 +114,22 @@ def unreplied(lane: dict) -> list[dict]:
     return [ask for ask in lane.get("asks", []) if not ask.get("replied")]
 
 
+RULING_FIELDS = ("words", "at", "binds")
+ASK_FIELDS = ("words", "at")
+
+
+def unshaped(rows: list[dict], fields: tuple[str, ...], what: str) -> str | None:
+    """Why a list of his asks or rulings would not reach an owner whole: a row lacking one of the fields its brief prints."""
+    for index, row in enumerate(rows):
+        if missing := [field for field in fields if not row.get(field)]:
+            return f"{what} {index} with no {', '.join(missing)}: {str(row.get('words') or row)[:80]!r}"
+    return None
+
+
 def invalid(lane: dict) -> str | None:
-    """Why a lane breaks the invariant, or None: running holds an owner and nothing else; waiting holds a wait on at least one outside fact of the closed list and a time bound; parked holds his words; neither of the two holds an owner."""
+    """Why a lane breaks the invariant, or None: running holds an owner and nothing else; waiting holds a wait on at least one outside fact of the closed list and a time bound; parked holds his words; neither of the two holds an owner; and each ask and ruling carries what an owner's brief prints."""
+    if why := unshaped(lane.get("asks", []), ASK_FIELDS, "an ask") or unshaped(lane.get("rulings", []), RULING_FIELDS, "a ruling"):
+        return f"holding {why}"
     match lane.get("state"):
         case "running":
             if not (lane.get("owner") or {}).get("token"):

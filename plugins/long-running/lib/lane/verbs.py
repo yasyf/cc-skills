@@ -303,19 +303,26 @@ def adopted(lane: dict) -> tuple[dict, list[str]]:
     return lane, [f"{row['at']} {row['text']}" for row in logs if isinstance(row, dict)]
 
 
-def adopt(drive: str, paths: list[str]) -> list[str]:
-    """Write lane files of the first shape into the drive in the agreed shape, each checked by the writer, with the drive's shared rulings beside them; a line per lane, naming each with no worktree, whose owner cannot start until `lane worktree` sets one."""
+def adopt(drive: str, paths: list[str], rulings_only: bool = False) -> list[str]:
+    """Write lane files of the first shape into the drive in the agreed shape, each checked by the writer, with the drive's shared rulings beside them, refused whole when a ruling lacks words, at or binds; with rulings_only, replace only each lane's rulings and the shared ones, keeping every other field of a lane already adopted. A line per lane, naming each with no worktree, whose owner cannot start until `lane worktree` sets one."""
     from pathlib import Path
 
     said = []
     for given in paths:
         source = Path(given)
         if source.name == store.RULINGS:
+            kept = json.loads(source.read_text())
+            if why := store.unshaped(kept["shared"] if isinstance(kept, dict) else kept, store.RULING_FIELDS, "a shared ruling"):
+                raise store.Refused(f"{source} holds {why}")
             with store.locked(drive):
                 (store.drive_dir(drive) / store.RULINGS).write_text(source.read_text())
             said.append(f"shared rulings: {len(store.shared_rulings(drive))}")
             continue
         lane, lines = adopted(json.loads(source.read_text()))
+        if rulings_only:
+            store.update(drive, lane["id"], lambda kept, rulings=lane["rulings"]: kept.__setitem__("rulings", rulings))
+            said.append(f"{lane['id']}: rulings replaced, {len(lane['rulings'])}")
+            continue
 
         def placing(lanes: dict[str, dict], lane: dict = lane, lines: list[str] = lines) -> None:
             lanes[lane["id"]] = lane
