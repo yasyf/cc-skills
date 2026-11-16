@@ -4115,7 +4115,7 @@ def test_a_running_local_job_whose_agent_ended_on_its_kept_return_is_never_set_b
     assert (state.load(demo)["jobs"]["j1"]["state"], len(state.replies(demo, "j1"))) == ("running", 1)
 
 
-def talking(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries: list[dict], quiet: timedelta, heard: timedelta) -> None:
+def talking(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries: list[dict], quiet: timedelta, owed: bool = False) -> None:
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
     path = tmp_path / "config" / "projects" / "-work" / "talker.jsonl"
     path.parent.mkdir(parents=True)
@@ -4124,7 +4124,7 @@ def talking(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries:
     os.utime(path, (stamp, stamp))
     with state.edit(demo) as data:
         data["roles"]["communicator"] = {"session": "talker", "cwd": "/work", "started": state.stamp(T0)}
-        data["owner"] = {"heard": state.stamp(state.now() - heard), "away": state.stamp(state.now() - heard + state.AWAY_AFTER)}
+        data["owed_replies"] = {"1794000000.000001": {"handed": False, "lined": None}} if owed else {}
 
 
 def answered(tokens: int) -> dict:
@@ -4133,41 +4133,41 @@ def answered(tokens: int) -> dict:
 
 
 SUMMARY = {"type": "user", "isCompactSummary": True, "message": {"content": "summary"}}
+IDLE = "at 130000 tokens of context, idle with no message of his owed"
 
 
 @pytest.mark.parametrize(
-    ("entries", "quiet", "heard", "why"),
+    ("entries", "quiet", "owed", "why"),
     [
-        ([answered(130_000)], timedelta(minutes=12), timedelta(minutes=20), "at 130000 tokens of context, quiet 10 minutes"),
-        ([answered(130_000)], timedelta(minutes=12), timedelta(minutes=3), None),
-        ([answered(130_000)], timedelta(minutes=4), timedelta(minutes=20), None),
-        ([answered(60_000)], timedelta(minutes=12), timedelta(minutes=20), None),
-        ([answered(130_000), SUMMARY], timedelta(minutes=12), timedelta(minutes=20), None),
-        ([CALLING], timedelta(minutes=12), timedelta(minutes=20), None),
+        ([answered(130_000)], timedelta(minutes=2), False, IDLE),
+        ([answered(130_000)], timedelta(minutes=2), True, None),
+        ([answered(130_000)], timedelta(seconds=20), False, None),
+        ([answered(60_000)], timedelta(minutes=2), False, None),
+        ([answered(130_000), SUMMARY], timedelta(minutes=2), False, None),
+        ([CALLING], timedelta(minutes=2), False, None),
     ],
 )
-def test_the_communicator_compacts_only_past_the_mark_when_it_and_he_are_quiet(
-    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries: list[dict], quiet: timedelta, heard: timedelta, why: str | None
+def test_the_communicator_compacts_past_the_mark_once_idle_a_minute_with_no_message_of_his_owed(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries: list[dict], quiet: timedelta, owed: bool, why: str | None
 ) -> None:
-    talking(demo, tmp_path, monkeypatch, entries, quiet, heard)
-    assert watch.compact_due(state.load(demo), state.now()) == why
+    talking(demo, tmp_path, monkeypatch, entries, quiet, owed)
+    data = state.load(demo)
+    assert watch.compact_due(data, data["roles"]["communicator"], state.now()) == why
 
 
-def test_a_quiet_communicator_past_the_mark_gets_compact_typed_into_the_terminal_it_runs_in(
+def test_an_idle_communicator_past_the_mark_gets_compact_typed_into_the_terminal_it_runs_in(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runs_in: dict[str, list[dict]]
 ) -> None:
-    talking(demo, tmp_path, monkeypatch, [answered(130_000)], timedelta(minutes=12), timedelta(minutes=20))
+    talking(demo, tmp_path, monkeypatch, [answered(130_000)], timedelta(minutes=2))
     sent: list[tuple[str, ...]] = []
     runs_in["talker"] = [{"handle": "term-7", "orphaned": False}]
     monkeypatch.setattr(watch.orca, "request", lambda *args: sent.append(args) or {})
-    assert watch.compact_lines(watcher(demo), state.now()) == [
-        "WATCH compacted the communicator at 130000 tokens of context, quiet 10 minutes"
-    ]
+    assert watch.compact_lines(watcher(demo), state.now()) == [f"WATCH compacted the communicator {IDLE}"]
     assert sent == [("terminal", "send", "--terminal", "term-7", "--text", "/compact", "--enter")]
 
 
 def test_a_communicator_no_orca_terminal_runs_is_never_compacted(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    talking(demo, tmp_path, monkeypatch, [answered(130_000)], timedelta(minutes=12), timedelta(minutes=20))
+    talking(demo, tmp_path, monkeypatch, [answered(130_000)], timedelta(minutes=2))
     sent: list[tuple[str, ...]] = []
     monkeypatch.setattr(watch.orca, "request", lambda *args: sent.append(args) or {})
     assert watch.compact_lines(watcher(demo), state.now()) == []

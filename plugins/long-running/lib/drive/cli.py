@@ -312,7 +312,7 @@ def bind_subcoordinator(data: dict, project: str, held: dict) -> None:
 
 
 def bind_communicator(data: dict, project: str, held: dict) -> None:
-    """Bind this session as the communicator for a project or priority seat, holding that seat's channel alone, paired with its sub-coordinator, by his words "every project has a communicator to pair with its coordinator and messages in that channel should go to it", replacing any session bound for it before; the drive's communicator gets its held channels again at its next call, so it lets that channel go. Refused for a seat whose channel the drive has not made and for a session holding another seat or role."""
+    """Bind this session as the communicator for a project or priority seat, holding that seat's channel alone, paired with its sub-coordinator, by his words "every project has a communicator to pair with its coordinator and messages in that channel should go to it", replacing any session bound for it before; the drive's communicator gets its new hold line at its next call, so it lets that channel go. Refused for a seat whose channel the drive has not made and for a session holding another seat or role."""
     if project not in data["slack"]["channels"]:
         raise DriveError(f"--project {project}: the drive keeps no channel for it, so its communicator would hold none; the channels it keeps: {', '.join(seat for seat in data['slack']['channels'] if seat) or 'none'}")
     session = held["session"]
@@ -321,8 +321,6 @@ def bind_communicator(data: dict, project: str, held: dict) -> None:
     if (other := state.session_seat(data, session)) not in (None, project) or state.session_project(data, session):
         raise DriveError(f"--project {project}: session {session} already holds the seat {other} of drive {data['name']}; bind {project}'s communicator from another session")
     data["communicators"][project] = held
-    if root := data["roles"].get("communicator"):
-        root.pop("rules", None)
 
 
 def lane_clash(data: dict, project: str, first: bool) -> str | None:

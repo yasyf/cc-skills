@@ -173,7 +173,7 @@ The [messages](messages.md) page holds how `say`, the cards and the references b
 - One hard limit: a team's data is not read or written on this Mac or under `drive break-glass`, because customer data stays inside the team's own environment. That covers database rows, bucket objects, stored blobs, and run and session journals. Such a read runs as a service account, on a pass box of the team's env with `<ci> pass-box run` where the repository grants that box the step. When no route exists, he picks the service account: name the prefix and the team in your answer.
 - A question card's waits id is on its `asks him:` line in `drive status <the job or order>`. A PR card's is on its line in `cc-slack drive-cards --drive <drive>`, and `--closed` lists closed cards. A card closed on words that answered nothing reopens with `cc-slack card-reopen --card <the card's permalink> --reply <his message's permalink>`.
 - Leave other sessions, processes, builds and releases as they are, since another session owns each. The one exception is the coordinator restart a `DOWN` line orders.
-- The drive's watch compacts you. It types `/compact` into your Orca terminal once your context passes 120,000 tokens and both you and he have been quiet for 10 minutes.
+- The drive's watch compacts you. It types `/compact` into your Orca terminal once your context passes 120,000 tokens, your last turn ended a minute ago, and no message of his waits for an answer.
 
 ## Drive tooling
 

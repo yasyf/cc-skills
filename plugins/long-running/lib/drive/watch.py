@@ -155,7 +155,7 @@ REWAKE = timedelta(seconds=orca.QUIET_SECONDS)
 RECLAIM = timedelta(seconds=orca.RECLAIM_SECONDS)
 TAIL_BYTES = 65536
 COMPACT_PAST_TOKENS = 120_000
-COMPACT_WHEN_QUIET = timedelta(minutes=10)
+COMPACT_WHEN_QUIET = timedelta(minutes=1)
 NOT_SLUG = re.compile(r"[^A-Za-z0-9]")
 NAMED_JOB = re.compile(r"^[A-Z]+ (?:[^\s#:]+ )??(?P<job>j\d+)\b")
 BUILD_FIELDS = (
@@ -3294,37 +3294,41 @@ def context_tokens(entry: dict) -> int:
     return sum(usage.get(key, 0) for key in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
 
 
-def compact_due(data: dict, moment: datetime) -> str | None:
-    """Why the communicator should compact now: past the mark, and both it and he quiet, so no message lands mid-compaction."""
-    if not (held := data["roles"].get("communicator")):
-        return None
+def compact_due(data: dict, held: dict, moment: datetime) -> str | None:
+    """Why a communicator should compact now: past the mark, its last turn ended a minute ago with nothing after it, and no message of his owed an answer, so no answer of his waits on the compaction; a record a minute reaching it never holds the compaction off, as ten quiet minutes did."""
     path = session_transcript(held)
     if not path.exists() or moment - datetime.fromtimestamp(path.stat().st_mtime).astimezone() < COMPACT_WHEN_QUIET:
         return None
-    heard = (data.get("owner") or {}).get("heard")
-    if heard and moment - state.parse_time(heard) < COMPACT_WHEN_QUIET:
+    if data["owed_replies"]:
         return None
     turn = last_turn(path)
     if not turn or not agents.ended(turn):
         return None
     tokens = context_tokens(turn)
-    return f"at {tokens} tokens of context, quiet 10 minutes" if tokens >= COMPACT_PAST_TOKENS else None
+    return f"at {tokens} tokens of context, idle with no message of his owed" if tokens >= COMPACT_PAST_TOKENS else None
 
 
 def compact_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Type /compact into the first Orca terminal the communicator runs in at a quiet moment, never at its context limit mid-conversation, and into none while no terminal shows it; the drive's own watch alone does."""
-    data = state.load(watcher.name)
-    if watcher.project or not (why := compact_due(data, moment)):
+    """Type /compact into the first Orca terminal each communicator runs in, the drive's and each seat's, at an idle moment, never at its context limit mid-conversation, and into none while no terminal shows it; the drive's own watch alone does."""
+    if watcher.project:
         return []
-    try:
-        session = data["roles"]["communicator"]["session"]
-        if not (terminals := orca.session_terminals([session])[session]):
-            return []
-        orca.request("terminal", "send", "--terminal", terminals[0]["handle"], "--text", "/compact", "--enter")
-    except orca.OrcaError as error:
-        return read_failed(watcher, "communicator compaction", error, moment)
-    watcher.failures.pop("communicator compaction", None)
-    return [f"WATCH compacted the communicator {why}"]
+    data = state.load(watcher.name)
+    held = {"the communicator": data["roles"]["communicator"]} if "communicator" in data["roles"] else {}
+    held |= {f"the communicator for {seat}": seated for seat, seated in data["communicators"].items()}
+    lines = []
+    for who, seated in held.items():
+        if not (why := compact_due(data, seated, moment)):
+            continue
+        try:
+            if not (terminals := orca.session_terminals([seated["session"]])[seated["session"]]):
+                continue
+            orca.request("terminal", "send", "--terminal", terminals[0]["handle"], "--text", "/compact", "--enter")
+        except orca.OrcaError as error:
+            lines += read_failed(watcher, f"{who} compaction", error, moment)
+            continue
+        watcher.failures.pop(f"{who} compaction", None)
+        lines.append(f"WATCH compacted {who} {why}")
+    return lines
 
 
 def coordinator(data: dict, project: str | None) -> dict:
