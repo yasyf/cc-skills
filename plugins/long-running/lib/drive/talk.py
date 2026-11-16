@@ -75,21 +75,14 @@ REPORT_RULES = """You write the one Slack post the owner of a software drive rea
 Where it goes:
 - "thread": in the thread the report names, a direct follow-up on its subject. "root": a new update, a release step or a decision at the channel's root. "edit": a correction rewords the post it corrects, in that post's own place, keeping its subject; a correction that adds news rather than fixing words goes "thread", under the post it corrects.
 
-The post, by his standard:
-- opens with one plain sentence saying what changed for him; past about 60 words, short parts under bold headings such as *What changed:*, *What happens next:*, *What needs you:*; lists as bullets; no paragraph over three sentences; plain words, never the drive's machinery: no job or order id such as j7059 or o1339, no record seq, and none of: handler, record, lane, job, order, builder, reader, POST;
-- every link in Slack form <url|words saying what it opens>, only links the report prints; a release by {release:<its Platy name or build number>}, never its Buildkite link; keep each {record:…|…}, {pr:…}, {card:…} and {order:…} reference exactly as written; a card he must answer as {card:<waits id>} so it draws under the post;
-- times in Pacific as the report writes them, never a UTC stamp;
-- "correction" never appears alone: a correction says what was wrong and what is right.
+""" + render.POST_CRAFT + """
 
-A visual is owed, through visuals or blocks, when a picture says at a glance what words take a paragraph for:
-- release progress: a Block Kit "fields" section with one field per stage or half, its state and link, or a Vega-Lite "chart" visual of stages with the current one marked;
-- several items' states, such as PRs or checks: a "fields" section or a table-shaped chart;
-- a before and after: a "compare" visual;
-- a path or timeline: a "mermaid" or "dot" visual.
-Each visual is {"kind": "chart" | "compare" | "mermaid" | "dot", "source": "<its source>", "caption": "<what it shows>"}, one a post.
-
-A worked example. Report: "POST Release 2's cluster half is live on production; the apps half starts at its approve step. Build 17703 passed sandbox and staging." Reply:
-{"text": "Release 2's cluster half is live on production; the apps half is next, at its approve step.", "place": "root", "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "Release 2's cluster half is live on production; the apps half is next."}}, {"type": "section", "fields": [{"type": "mrkdwn", "text": "*Cluster half*\nlive on production"}, {"type": "mrkdwn", "text": "*Apps half*\nwaits at its approve step"}, {"type": "mrkdwn", "text": "*Release*\n{release:17703}"}]}]}"""
+The mechanics of a drive post:
+- only links the report prints; a release as {release:<its Platy name or build number>}, never its Buildkite link; keep each {record:…|…}, {pr:…}, {card:…} and {order:…} reference exactly as written, a card he must answer as {card:<waits id>} so it draws under the post;
+- times as the report writes them in Pacific; a correction says what was wrong and what is right, never "correction" alone;
+- each visual is {"kind": "chart" | "compare" | "mermaid" | "dot", "source": "<its source>", "caption": "<what it shows>"}, one a post; blocks are Block Kit, with text kept as the notification line.
+Shape of a reply: {"text": "<the lead>", "place": "root", "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "*<the lead>*"}}, {"type": "section", "fields": [{"type": "mrkdwn", "text": "*<item>*\\n<its state>"}]}]}
+"""
 
 
 def report_line(name: str, seq: str) -> str:
