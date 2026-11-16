@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, github, install, land, limits, orca, providers, reports, state
+from drive import agents, github, install, land, orca, providers, reports, state
 from drive.orca import OrcaError
 from drive.shell import KEYWORDS, Case, Function, Loop, expanded, grouped, literal, runnable, simple_commands, spread
 
@@ -679,17 +679,17 @@ def team_data(command: str, cwd: str, drives: list[str]) -> agents.Unjudged | No
             try:
                 data = data_guard(cwd, drives)
             except providers.ProviderError as error:
-                return agents.Unjudged(f"refused: this may reach a team's data where the job runs, and {limits.TEAM_DATA_RULE}; the providers that say whose data it is failed to load, so it is refused as one that does: {error}")
+                return agents.Unjudged(f"refused: this may reach a team's data where the job runs, and {providers.DataProvider.rule}; the providers that say whose data it is failed to load, so it is refused as one that does: {error}")
         for location in locations:
             if data.team_area and data.team_area.search(location):
-                return agents.Unjudged(data.refusal("team", location=location, rule=limits.TEAM_DATA_RULE))
+                return agents.Unjudged(data.refusal("team", location=location, rule=data.rule))
             listed = data.buckets()
             if listed is None and location.split("/")[0] not in data.outputs():
-                return agents.Unjudged(data.refusal("unlisted", location=location, folder=cwd, rule=limits.TEAM_DATA_RULE))
+                return agents.Unjudged(data.refusal("unlisted", location=location, folder=cwd, rule=data.rule))
             if any(f"{location.rstrip('/')}/".startswith(entry) or entry.startswith(f"{location.rstrip('/')}/") for entry in listed or ()):
-                return agents.Unjudged(data.refusal("team", location=location, rule=limits.TEAM_DATA_RULE))
+                return agents.Unjudged(data.refusal("team", location=location, rule=data.rule))
         if reach := namespace_reach(words, data.namespaces):
-            return agents.Unjudged(data.refusal("namespace", step=reach[0], where=reach[1], rule=limits.TEAM_DATA_RULE))
+            return agents.Unjudged(data.refusal("namespace", step=reach[0], where=reach[1], rule=data.rule))
     return None
 
 

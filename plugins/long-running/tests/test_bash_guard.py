@@ -10,7 +10,7 @@ from pathlib import Path
 import bash_guard
 import pytest
 from conftest import HOME, SESSION, commit_files, git_in
-from drive import agents, github, install, land, limits, orca, providers, reports, settled, state
+from drive import agents, github, install, land, orca, providers, reports, settled, state
 from drive.orca import OrcaError
 
 Run = Callable[..., tuple[int, str]]
@@ -44,6 +44,8 @@ BOX_ROUTE = (
     " print counts and summaries and copy no team data back; docs/pass-boxes.md in Forge-AI/monorepo has each step. A pass"
     f" no box is granted {CLUSTER_JOB}, and any other read or write {UNMADE}."
 )
+TEAM_DATA_QUOTE = "4, it is never ok to write from local or not use a service agent or any things like this"
+IRIS_BLOBS_QUOTE = "it shouldnt be reading iris blobs at all locally only with a service account on a pass box"
 TEAM_DATA = (
     "refused: this reads or writes `{location}` where the job runs, and {rule}. " + BOX_ROUTE + " {route}"
     + " It holds a team's data, as its key is under `iris/teams/` or Forge-AI/monorepo's `release/team-buckets.generated.json`"
@@ -78,6 +80,11 @@ NO_ROUTE = (
 class TeamData(providers.DataProvider):
     team_area = re.compile(r"iris/teams/([^/\s]+)/([^/\s]+)")
     namespaces = frozenset({"sandsql", "sandsql-system", "sandsql-inbox"})
+    rule = (
+        "a drive job reads or writes a team's data only as a service account, on a pass box or in the team's own cluster,"
+        f' never on this Mac, a Sprite or under `drive break-glass`, by his words "{TEAM_DATA_QUOTE}" and'
+        f' "{IRIS_BLOBS_QUOTE}"'
+    )
 
     @functools.cache
     def buckets(self) -> set[str] | None:
@@ -675,7 +682,7 @@ def test_a_bucket_call_is_judged_by_the_team_bucket_list_of_its_sessions_folder_
     computed = 'B=$(jq -r .bucket tools/artifacts.json); aws s3 ls "s3://$B/cache-seeds/"'
     assert bash_guard.deny_reason(bash(computed, **builder)).startswith("refused: this reads or writes `$B/cache-seeds/` where the job runs")
     assert bash_guard.deny_reason(bash(computed, cwd=monorepo, **builder)) is None
-    assert f'"{limits.IRIS_BLOBS_QUOTE}"' in bash_guard.deny_reason(bash("aws s3 ls s3://artifacts-prod/iris/teams/t/sessions/", **builder))
+    assert f'"{IRIS_BLOBS_QUOTE}"' in bash_guard.deny_reason(bash("aws s3 ls s3://artifacts-prod/iris/teams/t/sessions/", **builder))
 
 
 def test_the_buckets_the_monorepo_names_as_build_and_release_output_pass_while_the_team_bucket_list_is_missing(demo: str, tmp_path: Path) -> None:
@@ -765,14 +772,14 @@ def test_a_drive_job_writes_or_deletes_no_teams_data_where_it_runs_and_reaches_n
         reason = bash_guard.deny_reason(bash(command, **reader))
         assert isinstance(reason, agents.Unjudged), command
         assert reason.startswith("refused: this reads or writes `"), command
-        assert f'"{limits.TEAM_DATA_QUOTE}"' in reason and f'"{limits.IRIS_BLOBS_QUOTE}"' in reason, command
+        assert f'"{TEAM_DATA_QUOTE}"' in reason and f'"{IRIS_BLOBS_QUOTE}"' in reason, command
         assert "`AWS_PROFILE=<env profile> tools/ci pass-box run --purpose <job> <script>`" in reason, command
         assert "`tools/ci cluster-job --cluster <release env> --cronjob <name>" in reason, command
     for command, (step, namespace) in SANDSQL_STEPS.items():
         reason = bash_guard.deny_reason(bash(command, **reader))
         assert isinstance(reason, agents.Unjudged), command
         assert reason.startswith(f"refused: `{step}` in the `{namespace}` namespace opens a team's SandSQL databases where the job runs"), command
-        assert f'"{limits.TEAM_DATA_QUOTE}"' in reason, command
+        assert f'"{TEAM_DATA_QUOTE}"' in reason, command
         assert "`PASS_BOX_OPERATOR_RULES` in `infra/rows/sandsql/workload.ts`" in reason, command
         assert "`AWS_PROFILE=<env profile> tools/ci pass-box run --purpose <job> <script>`" in reason, command
         assert "`tools/ci cluster-job --cluster <release env> --cronjob <name>" in reason, command

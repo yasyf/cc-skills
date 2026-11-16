@@ -863,7 +863,7 @@ def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
     if runs and (route := limits.proposed(FROM_THIS_MAC, limits.SAID.sub(lambda said: limits.MASK * len(said[0]), runs[1]))):
         return (
             f'{job_id}\'s Runs as line writes a team\'s data under "{route[0]}", which runs on this Mac, and'
-            f" {limits.TEAM_DATA_RULE}: a pass or hand repair {limits.CLUSTER_JOB}, and a write no CronJob makes {limits.UNMADE};"
+            f" {providers.of(data).data.rule}: a pass or hand repair {limits.CLUSTER_JOB}, and a write no CronJob makes {limits.UNMADE};"
             f' write the line again with `drive job brief {job_id} --runs-as "<service account, how it starts>"`'
         )
     if not tooling and (asked := limits.sign_in_problems([(f"its {found[1]} line", found[2]) for found in PLANNED.finditer(brief)])):
