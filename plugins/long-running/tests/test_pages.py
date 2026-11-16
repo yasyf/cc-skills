@@ -1,6 +1,8 @@
 import http.client
+import io
 import json
 import os
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -513,3 +515,33 @@ await until(() => seen?.edges.length);
 done(seen);
 """, board(status=[{"state": "running", "features": features}], review=prs, queue=[QUESTION], edges=edges, pages=pages.shown(state.load(ordered), pages.listed(ordered))))
     assert seen == {"type": "seen", "features": ["o1", "o2"], "edges": [{"from": "o2", "to": "o1", "kind": "waits"}], "prs": ["a/b#7"], "questions": ["Raise the limit?"]}
+
+
+def test_a_page_frame_session_opens_on_the_one_frame_of_its_slug_through_a_provider_handing_over_its_socket(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+    def browser(session: str, *args: str, what: str, env: dict[str, str]) -> dict:
+        calls.append((session, args, env))
+        return {'cdpUrl': 'ws://127.0.0.1:9333/devtools/browser/b1'} if args == ('get', 'cdp-url') else {}
+    listing = [
+        {'type': 'page', 'url': 'http://127.0.0.1:41330/#/pages/run-lane', 'webSocketDebuggerUrl': 'ws://127.0.0.1:9333/devtools/page/top'},
+        {'type': 'iframe', 'url': 'http://127.0.0.1:41330/pages/other/', 'webSocketDebuggerUrl': 'ws://127.0.0.1:9333/devtools/page/other'},
+        {'type': 'iframe', 'url': 'http://127.0.0.1:41330/pages/run-lane/', 'webSocketDebuggerUrl': 'ws://127.0.0.1:9333/devtools/page/lane'},
+    ]
+    opened = []
+    def urlopen(url: str, timeout: int) -> io.BytesIO:
+        opened.append(url)
+        return io.BytesIO(json.dumps(listing).encode())
+    monkeypatch.setattr(page_check, 'browser', browser)
+    monkeypatch.setattr(page_check, 'urlopen', urlopen)
+    assert page_check.frame('top', 'run-lane') == 'top-frame'
+    assert opened == ['http://127.0.0.1:9333/json/list']
+    assert [(session, args) for session, args, _ in calls] == [('top', ('get', 'cdp-url')), ('top-frame', ('close',)), ('top-frame', ('-p', 'pageframe', 'get', 'url'))]
+    [provider] = json.loads(calls[-1][2]['AGENT_BROWSER_PLUGINS'])
+    assert (provider['name'], provider['capabilities']) == ('pageframe', ['browser.provider'])
+    def answer(request: dict) -> dict:
+        return json.loads(subprocess.run([provider['command'], *provider['args']], input=json.dumps(request), capture_output=True, text=True, check=True).stdout)
+    assert answer({'type': 'browser.launch'})['browser'] == {'cdpUrl': 'ws://127.0.0.1:9333/devtools/page/lane', 'directPage': True}
+    assert answer({'type': 'browser.close'}) == {'protocol': 'agent-browser.plugin.v1', 'success': True}
+    listing.append(dict(listing[-1], webSocketDebuggerUrl='ws://127.0.0.1:9333/devtools/page/lane2'))
+    with pytest.raises(state.DriveError, match='shows 2 page frames at /pages/run-lane/'):
+        page_check.frame('top', 'run-lane')
