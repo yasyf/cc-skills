@@ -403,6 +403,14 @@ RESTACK = restack.restack
 
 
 @pytest.fixture(autouse=True)
+def seats_end_in_memory(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    """No test ends a real cci alias, Claude session or tmux session when the watch retires a priority seat; each end is kept for a test to read."""
+    ended: list[tuple[str, str]] = []
+    monkeypatch.setattr(watch, "seat_ended", lambda alias, session: ended.append((alias, session)))
+    return ended
+
+
+@pytest.fixture(autouse=True)
 def hands_off_at_once(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every watch ends for a newer install at its first pass boundary, never waiting out HAND_OFF_EVERY, outside the test of that wait."""
     monkeypatch.setattr(watch, "HAND_OFF_EVERY", timedelta(0))

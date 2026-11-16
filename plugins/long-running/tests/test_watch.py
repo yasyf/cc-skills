@@ -11594,3 +11594,19 @@ def test_a_relaunch_that_ended_with_no_next_worker_is_tried_again_after_five_min
     assert watch.relaunchable(ran, moment + timedelta(minutes=5)) is True
     assert watch.relaunchable(ran | {"relaunch": {"pid": 1, "at": state.stamp(moment)}}, moment + timedelta(minutes=5)) is False
     assert watch.relaunchable(ran | {"relaunch": {"pid": 2, "at": state.stamp(moment), "tries": 3}}, moment + timedelta(hours=1)) is False
+
+
+def test_the_drives_watch_retires_a_priority_seat_no_open_order_holds_and_keeps_one_an_open_order_holds(
+    demo: str, monkeypatch: pytest.MonkeyPatch, seats_end_in_memory: list[tuple[str, str]]
+) -> None:
+    monkeypatch.setattr(launchd, "launchctl", lambda *args: None)
+    with state.edit(demo) as data:
+        data["subcoordinators"]["Priority o1"] = {"session": "seat-session-1", "cwd": "/tmp", "from": 0}
+        data["subcoordinators"]["Priority o2"] = {"session": "seat-session-2", "cwd": "/tmp", "from": 0}
+        data["launched"]["sub-coordinator Priority o1"] = "term_1"
+        data["orders"]["o1"]["priority"] = None
+        data["orders"]["o2"] = data["orders"]["o1"] | {"priority": "Priority o2", "state": "open"}
+    said = watch.retired_seats(watcher(demo), T0)
+    data = state.load(demo)
+    assert (len(said), sorted(data["subcoordinators"]), "sub-coordinator Priority o1" in data["launched"]) == (1, ["Priority o2"], False)
+    assert seats_end_in_memory == [(state.alias(demo, "coordinator", "Priority o1"), "seat-session-1")]

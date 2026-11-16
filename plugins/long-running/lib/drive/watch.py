@@ -4944,7 +4944,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
         functools.partial(train_lines, watcher, moment),
         functools.partial(event_lines, watcher),
         *(owed_reads(watcher, moment) if lands else []),
-        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, clock_lines, case_lines, undelivered_lines, close_answered, close_joined_repeats, tell_lines, standing_lines, orphan_lines)),
+        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, clock_lines, case_lines, undelivered_lines, close_answered, close_joined_repeats, tell_lines, standing_lines, retired_seats, orphan_lines)),
     ]
     names = [stage.func.__name__ for stage in later]
     resume, watcher.resume = watcher.resume, None
@@ -5474,6 +5474,36 @@ def ensure(name: str) -> str:
         return f"the watch runs under {agent}, and posts its lines to the coordinator and each project's to its sub-coordinator over cci; arm no Monitor for it"
     launchd.keep(label(name), ["watch", "--loop", "--drive", name], state.watch_log_path(name), {"CLAUDE_LONG_RUNNING_LANE": LANE, state.DRIVE_ENV: name}, state.drive_dir(name))
     return f"started the watch under {agent}; it posts its lines to the coordinator and each project's to its sub-coordinator over cci, so arm no Monitor for it"
+
+
+def retired_seats(watcher: Watcher, moment: datetime) -> list[str]:
+    """Retire, from the drive's own watch, each priority order's seat that no open order holds any longer, its order closed or unmarked, by retire_seat, so a finished seat's session stops resuming into a start that refuses it."""
+    if watcher.project or state.scratch():
+        return []
+    data = state.load(watcher.name)
+    held = {order["priority"] for order in state.open_orders(data).values() if order["priority"]}
+    return [retire_seat(watcher, seat) for seat in data["subcoordinators"] if seat.startswith(state.priority_seat("")) and seat not in held]
+
+
+def retire_seat(watcher: Watcher, seat: str) -> str:
+    """Take a priority seat down: its watch's launch agent and pid file, by retire, its cci alias, by `cci session rm`, which keeps its session alive no more and drops its channel subscription, its session, by `claude stop`, which keeps its conversation, or its tmux session once that refuses, since cci runs the seat there, and its binding and launched terminal on the drive, so no restart starts it again; the line saying so."""
+    name = watcher.name
+    session = state.load(name)["subcoordinators"][seat]["session"]
+    alias = state.alias(name, "coordinator", seat)
+    retire(name, seat)
+    seat_ended(alias, session)
+    with state.edit(name) as data:
+        data["subcoordinators"].pop(seat)
+        data["launched"].pop(f"sub-coordinator {seat}", None)
+    watcher.others.pop(seat, None)
+    return f"retired the seat {seat}: no open order holds it, so its alias {alias} is removed from cci, its session {session} stopped with its conversation kept, and its binding dropped"
+
+
+def seat_ended(alias: str, session: str) -> None:
+    """End a retired seat's session: its cci alias, then the session itself, by `claude stop`, else its tmux session."""
+    subprocess.run(["cci", "session", "rm", alias], capture_output=True, text=True, check=False)
+    if subprocess.run(["claude", "stop", session], capture_output=True, text=True, check=False).returncode:
+        subprocess.run(["tmux", "kill-session", "-t", alias], capture_output=True, text=True, check=False)
 
 
 def retire(name: str, project: str) -> None:
