@@ -1657,7 +1657,7 @@ def test_the_release_gate_reads_a_start_against_the_drive_release_notes_in_its_r
         f"the drive's release notes were not read against `{start}` (Jev gave no reading: no jev decision within 20s): read each note"
         " `ccn note list --label drive:demo --label release-order` and `--label release` list before you offer or start one"
     ]
-    assert brief.started("tools/ci release start --manual --stack runtime-api-next/plat-usw2-prod --commit 55b9c39c --rollback") == [
+    assert brief.started("tools/ci release start --manual --stack runtime-api-next/plat-usw2-prod --commit 55b9c39c --rollback", {}) == [
         {"manual": ("true",), "stack": ("runtime-api-next/plat-usw2-prod",), "commit": ("55b9c39c",), "rollback": ("true",)}
     ]
 
@@ -2446,7 +2446,7 @@ def test_a_release_on_staging_or_sandbox_alone_runs_under_his_hold_with_no_order
     data = state.load(demo)
     hold = settled.hold(data["roles"]["coordinator"]["cwd"])
     releases = [gated for release in REHEARSALS for gated in (release, f"{release} --order 3bfcce8")]
-    assert [(brief.release_refusal(release), brief.approval_refusal(release, data), brief.hold_refusal(release, data, hold)) for release in releases] == [(None, None, None)] * len(releases)
+    assert [(brief.release_refusal(release, data), brief.approval_refusal(release, data), brief.hold_refusal(release, data, hold)) for release in releases] == [(None, None, None)] * len(releases)
     assert jev.asked == []
     first = REHEARSALS[0]
     past = [
@@ -2454,12 +2454,12 @@ def test_a_release_on_staging_or_sandbox_alone_runs_under_his_hold_with_no_order
         first.replace(" --env plat-usw2-staging", ""),
         REHEARSALS[-1].replace("sandsql/plat-usw2-sandbox", "sandsql/plat-usw2-sandbox,sandsql/plat-usw2-prod"),
     ]
-    assert [brief.release_refusal(release) for release in past] == [f"--release names no --order. {brief.RELEASE_APPROVAL}"] * len(past)
-    assert [brief.release_refusal(release, "his words order it") for release in past] == [None] * len(past)
+    assert [brief.release_refusal(release, data) for release in past] == [f"--release names no --order. {brief.RELEASE_APPROVAL}"] * len(past)
+    assert [brief.release_refusal(release, data, "his words order it") for release in past] == [None] * len(past)
     assert [brief.hold_refusal(release, data, hold) for release in past] == [held(release, "it names no `--order`, and neither does a `Release:` line of its job's brief") for release in past]
     assert [brief.approval_refusal(release, data, "his words order it") for release in past] == [held(release, "it names no `--order`, and neither does a `Release:` line of its job's brief") for release in past]
     tested = f"{first} --for-production"
-    assert (brief.release_refusal(tested), brief.hold_refusal(tested, data, hold)) == (
+    assert (brief.release_refusal(tested, data), brief.hold_refusal(tested, data, hold)) == (
         f"--release names no --order. {brief.RELEASE_APPROVAL}",
         held(tested, "it names no `--order`, and neither does a `Release:` line of its job's brief"),
     )
@@ -2567,7 +2567,7 @@ def test_a_staging_release_for_production_starts_on_his_pick_of_the_production_r
     )
     assert brief.approval_refusal(wider, data) == held(wider, f'`--order f0ca001` names his answer to "{WHERE_PICK["title"]}", and {tested}')
     assert jev.asked == []
-    assert brief.tested_release("cd /work && tools/ci release start platform --env=plat-gbl-staging,plat-usw2-staging --for-production --from afb881f92076") == "tools/ci release start platform --from afb881f92076"
+    assert brief.tested_release("cd /work && tools/ci release start platform --env=plat-gbl-staging,plat-usw2-staging --for-production --from afb881f92076", {}) == "tools/ci release start platform --from afb881f92076"
 
 
 @pytest.mark.usefixtures("envs_release")
@@ -2606,9 +2606,9 @@ def test_a_stack_names_its_project_as_a_target_and_its_env_as_a_place_beside_env
 ) -> None:
     answered_cut(run, demo, [CUT_PICK])
     cwd = state.load(demo)["roles"]["coordinator"]["cwd"]
-    [option] = map(settled.shipped, brief.started("tools/ci release start sandsql --commit 3ebaa825dbd7 --manual --emergency --env plat-usw2-staging"))
+    [option] = brief.started("tools/ci release start sandsql --commit 3ebaa825dbd7 --manual --emergency --env plat-usw2-staging", {})
     manual = "tools/ci release start --stack sandsql/plat-usw2-staging --commit 3ebaa825dbd7 --manual --emergency"
-    assert settled.shipped(brief.started(f"{manual} --env plat-usw2-sandbox")[0]) == {
+    assert brief.started(f"{manual} --env plat-usw2-sandbox", {})[0] == {
         "targets": ("sandsql",),
         "env": ("plat-usw2-sandbox", "plat-usw2-staging"),
         "from": ("3ebaa825dbd7",),
@@ -2616,7 +2616,7 @@ def test_a_stack_names_its_project_as_a_target_and_its_env_as_a_place_beside_env
         "emergency": ("true",),
     }
     assert {
-        release: settled.placed(settled.shipped(brief.started(release)[0]), option, "", cwd)
+        release: settled.placed(brief.started(release, {})[0], option, "", cwd)
         for release in (manual, manual.replace("sandsql/", "restate/"), manual.replace("sandsql/plat-usw2-staging", "sandsql/plat-usw2-staging,sandsql/plat-gbl-staging"))
     } == {
         manual: None,
