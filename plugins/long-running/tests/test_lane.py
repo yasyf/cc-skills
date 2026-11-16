@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from lane import facts, queue, rank, store, supervisor, verbs
 from lane import owner as owners
+from lane import rows as lane_rows
 from lane import say as saying
 
 DRIVE = "lanes-test"
@@ -34,6 +35,8 @@ def world(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(owners, "lease", lambda owner, moment, grace: seen["leases"].get(owner.get("session"), "held"))
     monkeypatch.setattr(facts, "read_prs", lambda keys, commits=facts.COMMITS_READ: {key: seen["prs"][key] for key in keys if key in seen["prs"]})
     monkeypatch.setattr(facts, "his_messages", lambda lane: seen["messages"].pop(lane["id"], []))
+    monkeypatch.setattr(facts, "his_login", lambda drive: "him")
+    monkeypatch.setattr(lane_rows, "ours", lambda: "lanes-bot")
     monkeypatch.setattr(rank, "judge", lambda text, told: dict(seen["scores"]))
     monkeypatch.setattr(supervisor.lane_land, "spawn", lambda drive: None)
     folder = store.drive_dir(DRIVE)
