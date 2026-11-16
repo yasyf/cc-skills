@@ -1632,11 +1632,6 @@ FACT = Noul(
     "Does `post.sentences.{index}` state a fact about code, a number or a state of work, which stands only on a read, beyond what `claims` say, such as an only, every or never no claim says?",
     no="It tells the handler's own act, when its next line is due, his words quoted back, the title a PR or card link draws, or a time `post.stamps` lists; or each fact in it is one `claims` say, such as a lead line summing up the claims under it.",
 )
-CARD = Noul(
-    "He asked `card.asked` under the card for `card.title`, and `post.written` answers him. Does answering him take what `card.title` names, its mechanism or a coined name for it, while `post.written` leaves a term of it with no clause saying what it is and why the change needs it?",
-    yes="His question turns on what the card's change does, and the post leaves a term of the title, such as a mark, queue, lease or gate it names, unexplained.",
-    no="The post says in a clause what each term of the title is and why the change needs it, his question does not turn on what the change does, such as when it ships or whether it merged, or the title holds only words anyone reads.",
-)
 SCOPE = Noul(
     "`post.written` goes in a thread of his DM about one piece of his work. Does it tell him of the whole drive's work, such as how many question cards, Approve cards or taps are open across his DM, his whole queue, or other projects' work?",
     yes="It counts, lists or ranks what waits on him across the drive, his DM or the dashboard's queue, such as 143 question cards open in his DM or the queue's first four cards.",
@@ -1712,11 +1707,6 @@ def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
             held.append(f'"{sentence}" states a fact no claim holds whole: pass that sentence, or each part of it, as claims beside the read behind each')
         elif fact is None:
             unsure.append(f'sentence "{sentence}"')
-    if card := output.get("thread_card"):
-        if (unexplained := reading(read["card"])) is True:
-            held.append(f'it leaves a term of the card "{card["title"]}", which his question turns on, unexplained: say in a clause what each term of it your answer needs is and why the change needs it')
-        elif unexplained is None:
-            unsure.append(f'the terms of the card "{card["title"]}" his question is under')
     if (scope := output.get("thread_scope")) and reading(read.get("wider")) is not True:
         if scope["strays"]:
             unsure.append(f"whether {', '.join(scope['strays'])}, which the thread's work as the drive draws it does not hold, belongs in this thread")
@@ -1756,7 +1746,6 @@ def asked(output: dict) -> tuple[dict, list[tuple[str, tuple[dict, dict[str, Nou
             (f'sentence "{sentence}"', ({"post": {"sentences": {str(index): sentence}} | stamps, "claims": {f"c{number}": {"claim": claim["claim"]} for number, claim in enumerate(post.get("claims") or [], 1)}}, {f"s{index}.fact": asking(FACT, index=index)}))
             for index, sentence in uncovered(output)
         ),
-        *((f'the card "{card["title"]}" his question is under', (base | {"card": {"asked": card["asked"], "title": card["title"]}}, {"card": CARD})) for card in [output.get("thread_card")] if card),
         *([("his words in the thread it goes in", scoped)] if scoped and size(*scoped) <= REQUEST_CHARS else []),
     ]
     rest = [

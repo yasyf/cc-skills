@@ -135,21 +135,6 @@ def test_a_claim_saying_only_every_no_or_never_of_a_set_is_asked_whether_its_rea
     assert list(jev.asked[-1]["questions"]) == ["c1.backed"]
 
 
-def test_an_answer_under_a_card_is_asked_whether_it_leaves_a_term_of_the_cards_first_line_unexplained_and_holds_at_yes(jev: Jev) -> None:
-    card = {"title": "Mac chats' rows in the API catch up from a saved mark", "asked": "Why does the API need to know any of this?"}
-    output = handled(CLAIM["claim"]) | {"thread_card": card}
-    jev.picks("backed", 0.9)
-    assert settled.post_verdict(output) == PASSES
-    assert (jev.asked[-1]["state"]["card"], jev.asked[-1]["questions"]["card"]) == (card, settled.CARD)
-    jev.breaks("card", "", 0.9)
-    assert settled.post_verdict(output) == {
-        "verdict": "hold",
-        "note": f'Jev held back this post: it leaves a term of the card "{card["title"]}", which his question turns on, unexplained: say in a clause what each term of it your answer needs is and why the change needs it. So fix each, then call say again.',
-    }
-    settled.post_verdict(handled(CLAIM["claim"]))
-    assert "card" not in jev.asked[-1]["questions"]
-
-
 def test_a_post_in_a_thread_of_his_dm_holding_orders_holds_when_jev_reads_it_telling_of_the_whole_drives_work_unless_his_words_there_name_more(jev: Jev) -> None:
     scope = {"asked": "what else is waiting on me for this work", "strays": []}
     output = {"post": {"text": "Nothing else of the copy fix waits on you."}, "his_words": [], "thread_scope": scope}
@@ -284,13 +269,6 @@ def test_a_read_and_a_card_too_long_for_one_request_together_reach_jev_whole_in_
     assert settled.post_verdict(output) == PASSES
     [request] = jev.asked
     assert request["state"]["reads"]["read:1"]["result"] == lines(250)
-    card = {"title": "Mac chats' rows in the API catch up from a saved mark", "asked": "Why does the API need to know any of this?"}
-    filled = handled(CLAIM["claim"], [READ | {"quote": f"{CALL_READ}\n{lines(330)}"}]) | {"thread_card": card}
-    assert settled.unfit(filled)[1] == []
-    jev.asked.clear()
-    assert settled.post_verdict(filled) == PASSES
-    assert sorted(list(request["questions"]) for request in jev.asked) == [["c1.backed"], ["card"]]
-    assert all(settled.size(request["state"], request["questions"]) <= settled.REQUEST_CHARS for request in jev.asked)
 
 
 def test_a_claim_naming_a_drive_pr_stands_on_the_drives_line_for_it_when_its_own_read_says_less_and_keeps_the_read_it_names(jev: Jev) -> None:

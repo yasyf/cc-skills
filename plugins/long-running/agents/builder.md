@@ -500,7 +500,7 @@ event needs. The first five events then return as step 7 says.
   by his pick "Land whole stacks and read the gate: no schema change merges without its writer; a
   stack's bottom waits for its top".
 - Your brief's `Release freezes:` line holds each release freeze and his hold on every release as they
-  stood when it was written. Before you say a release may start, read `<ci> release freezes` and
+  stood when it was written. Before you say a release may start, read the freezes command of the repository's `[release]` table, when it names one, and
   name each freeze and hold that stands by its id: `say` and `record` refuse words that leave one
   out. Words saying a freeze or hold ended, such as a staging test's closing line on its own, start
   nothing and need no id.

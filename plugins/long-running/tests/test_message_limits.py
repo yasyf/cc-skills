@@ -1081,23 +1081,6 @@ def test_a_claim_naming_a_drive_pr_hands_jev_the_drives_line_for_it_once_beside_
     assert [(read["id"], read["quote"], read["claims"]) for read in many] == [("stage:1", one[0]["quote"], list(range(1, 102)))]
 
 
-def test_a_handlers_answer_under_a_card_hands_jev_the_cards_first_line_beside_his_question_though_the_communicators_ack_came_between(
-    talker: str, transcript: Path, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    tool(lane_of(transcript), *SHADOW)
-    asked = "Why does the API need to know any of this?"
-    title = "Mac chats' rows in the API catch up from a saved mark"
-    ack = {"ts": "1794300002.000100", "from_bot": True, "text": "You're asking why the API needs to know any of this."}
-    claims = [{"claim": "Each table has a `<table>__history` shadow table", "read": "lower.rs:355-365"}]
-    handed = []
-    for root in ({"ts": "1794300000.000100", "from_bot": True, "text": f"{title}\n• the PR it lands"}, {"ts": "1794300000.000100", "user": "U1", "text": "look into the saved mark"}):
-        slack_thread.messages[:] = [root, {"ts": "1794300001.000100", "user": "U1", "text": asked}, ack]
-        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text=HISTORY_POST, thread_ts="1.2", asked=[asked], claims=claims) | {"tool_name": message_limits.SAY})))
-        message_limits.main()
-        handed.append(json.loads(capsys.readouterr().out).get("thread_card"))
-    assert handed == [{"title": title, "asked": asked}, None]
-
-
 def test_a_handlers_post_in_a_thread_of_his_dm_holding_an_order_hands_jev_his_words_there_and_one_at_his_dm_root_none(
     run: Run, talker: str, transcript: Path, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

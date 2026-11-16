@@ -66,7 +66,7 @@ it whole. For a read-only question it adds two lines more: `Order: <o>, job
 use:`, each project and workstream pair the drive's orders are filed under.
 
 Every handler's prompt closes on `Release freezes:`, each release freeze and his hold on every release
-as they stood when you started. Before saying a release may start, read `<ci> release freezes`
+as they stood when you started. Before saying a release may start, read the freezes command of the repository's `[release]` table, when it names one,
 again and name each freeze and hold that stands by its id: `say` refuses words that leave one out.
 Words saying a freeze or hold ended, such as a staging test's closing line on its own, start nothing
 and need no id.

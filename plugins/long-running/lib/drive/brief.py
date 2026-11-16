@@ -606,11 +606,18 @@ def contained(cwd: str, named: str, sha: str, commit: str) -> tuple[bool | None,
 
 
 def freezes(name: str, data: dict) -> list[dict]:
-    """Each release freeze standing now, as `tools/ci release freezes --json` reads the release ledger from the drive's checkout at the head of its default branch: its ledger row under freeze and its line under text."""
+    """Each release freeze standing now, as the `freezes` command of the [release] table of the repository's .claude/long-running.toml reads its release ledger as JSON in the drive's checkout at the head of its default branch, its ledger row under freeze and its line under text; none when the repository names no such command."""
     from drive import orca
 
+    if not (command := freezes_command(data)):
+        return []
     checkout = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
-    return json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "freezes", "--json"], checkout))
+    return json.loads(reads.run(["/bin/sh", "-c", command], checkout))
+
+
+def freezes_command(data: dict) -> str | None:
+    """The command the repository names to read its release freezes as JSON, from the `freezes` key of its .claude/long-running.toml's [release] table."""
+    return state.repo_config(data).get("release", {}).get("freezes")
 
 
 def standing(name: str, data: dict) -> list[tuple[str | None, str]]:
@@ -622,7 +629,7 @@ def standing(name: str, data: dict) -> list[tuple[str | None, str]]:
     try:
         return [*((each["freeze"]["id"], each["text"]) for each in freezes(name, data)), *held]
     except (reads.ReadError, state.DriveError) as error:
-        return [(None, f"the release ledger could not be read ({error}), so read `tools/ci release freezes` before saying a release is frozen or may start"), *held]
+        return [(None, f"the release ledger could not be read ({error}), so read `{freezes_command(data)}` before saying a release is frozen or may start"), *held]
 
 
 def releases(name: str, data: dict) -> str:

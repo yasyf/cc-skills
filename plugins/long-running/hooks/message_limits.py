@@ -373,19 +373,6 @@ def thread_messages(payload: dict, dm: str) -> list[dict]:
     return []
 
 
-def thread_card(payload: dict) -> dict | None:
-    """The card or post of the bot's that his DM thread the post goes to is under, by its first line, its headline or question, beside each message of his the post answers, as `asked_words` reads them, so a question of his a communicator's ack already followed still counts; none for a post at his DM root, outside his DM, under a message of his, or answering no message of his."""
-    try:
-        dm = slack.dm()
-        messages = thread_messages(payload, dm)
-        linked = linked_words(payload["tool_input"].get("asked"), dm)
-    except slack.SlackError:
-        return None
-    if not messages or not messages[0].get("from_bot") or not (asked := asked_words(payload["tool_input"], messages, linked)):
-        return None
-    return {"title": messages[0]["text"].partition("\n")[0], "asked": "\n".join(dict.fromkeys(word.strip() for word in asked))}
-
-
 def work_thread(payload: dict) -> tuple[dict, list[str]] | None:
     """The drive and the open orders of the thread of his DM a say post with words goes in; none at his DM root, outside his DM or in a thread holding no open order."""
     tool_input = payload["tool_input"]
@@ -1164,13 +1151,12 @@ def hook_output(payload: dict) -> dict:
         sent = sent | ({"claims": [claim | {"read": ids.get(claim["read"].strip(), claim["read"])} for claim in sent["claims"]]} if sent.get("claims") else {})
         heard = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": reason}} if isinstance(reason, Warned) else {}
         reason = "" if heard else reason
-        card = thread_card(payload | {"tool_input": sent}) if reads else None
         work = None if isinstance(reason, agents.Unjudged) else work_thread(payload | {"tool_input": sent})
         judged = {}
         if (reason or reads or work) and not isinstance(reason, agents.Unjudged):
             words = his_words(payload)
             asked = "\n".join(dict.fromkeys(word["quote"].strip() for word in words if word["id"].startswith("slack:")))
-            judged = {"his_words": words, "reads": reads, "post": sent} | ({"thread_card": card} if card else {}) | ({"thread_scope": {"asked": asked, "strays": cli.thread_strays(*work, payload["tool_input"]["text"], asked)}} if work else {})
+            judged = {"his_words": words, "reads": reads, "post": sent} | ({"thread_scope": {"asked": asked, "strays": cli.thread_strays(*work, payload["tool_input"]["text"], asked)}} if work else {})
         if judged and (unfit := settled.unfit(judged))[1]:
             reason, heard, judged = unroomed(*unfit), {}, {}
     except Exception as error:
