@@ -38,7 +38,7 @@ REQUEST_CHARS = 10_000
 DECIDE_SECONDS = 20
 REFUSAL_SECONDS = 3
 REPEATS_ASKED = 30
-ALONE = r" (?:only|just) (?:the )?{component} | {component} (?:(?:stack|component|service) )?(?:alone|only) "
+ALONE = r" (?:ships?|shipping|deploys?|deploying) (?:only|just) (?:the )?{component} | {component} (?:(?:stack|component|service) )?(?:alone|only) "
 NUMBERED = re.compile(r"(?<!\S)(\d+)\)\s+")
 EVERY = re.compile(r"\s*all\b(?:\s+(\d+)\b)?", re.IGNORECASE)
 UNAPPROVED = re.compile(r" (?:not|t|never|no|nor)(?: \w+){0,2} approv| (?:unapprov|reject|refus|den(?:y|ied)|hold|wait|except|exclud|apart from|other than|besides|without|but not)")
@@ -1053,11 +1053,11 @@ def picked_option(asked: limits.Question, said: str) -> tuple[int, str] | None:
 
 
 def narrowed(release: dict, option: dict, words: str) -> dict:
-    """A release as the card option's release it narrows: its `--only` left out when the option's release names none and the card's summary, option or description says each component that `--only` names ships alone, as "The hotfix ships the api alone" or "only the api" does, since go/ci then ships those components of what the option's release ships and nothing past them; else the release as it is."""
+    """A release as the card option's release it narrows: its `--only` left out when the option's release names none and the card's summary, option or description says each component that `--only` names ships alone, as "The hotfix ships the api alone" or "it ships only the api" does, and "changes only the api" or a clause holding a negation, as "it does not ship the api alone", does not, since go/ci then ships those components of what the option's release ships and nothing past them; else the release as it is."""
     if "only" in option or "only" not in release:
         return release
-    said = f" {plain(words)} "
-    if all(re.search(ALONE.format(component=re.escape(plain(component))), said) for component in release["only"]):
+    said = [f" {plain(clause)} " for clause in limits.CLAUSE_END.split(words) if not limits.NEGATION.search(clause)]
+    if all(any(re.search(ALONE.format(component=re.escape(plain(component))), clause) for clause in said) for component in release["only"]):
         return {name: values for name, values in release.items() if name != "only"}
     return release
 
