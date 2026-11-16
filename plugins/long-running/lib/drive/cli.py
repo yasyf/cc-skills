@@ -6262,8 +6262,10 @@ def watch_events(args: argparse.Namespace) -> int:
 
 
 def card_command(args: argparse.Namespace) -> int:
-    from drive import card
+    """Answer cc-slack's card_command with launchd.agent_path behind its daemon's PATH, which lacks the folders the drive's launch agents run with, such as the `~/.local/bin` holding `claude`, so each program a card answer starts resolves as it does in the watch."""
+    from drive import card, launchd
 
+    os.environ["PATH"] = os.pathsep.join([os.environ.get("PATH", ""), launchd.agent_path()])
     return card.main(sys.stdin, sys.stdout)
 
 

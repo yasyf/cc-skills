@@ -932,6 +932,32 @@ def test_his_tap_ends_its_question_before_cci_takes_its_answer_record_so_a_refus
     assert [event["kind"] for event in events(drive)] == ["answered"]
 
 
+def test_his_tap_failing_again_on_cc_slacks_retry_tells_the_meta_session_by_a_defect_keyed_by_the_tap_and_a_recorded_run_starts_the_count_over(
+    drive: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cci = Cci()
+    monkeypatch.setattr(subprocess, "run", cci.run)
+    tap = {"waits": f"{drive}:j3-661440", "label": "Ring", "url": NEWER_CARD, "action_ts": "1794200001.000100", "source": "slack"}
+
+    def unfound(name: str, ask: dict) -> dict:
+        raise FileNotFoundError(2, "No such file or directory", "claude")
+
+    def failed_runs(count: int) -> list[tuple[str, list[str], str]]:
+        monkeypatch.setattr(card, "answer_question", unfound)
+        for _ in range(count):
+            with pytest.raises(FileNotFoundError):
+                card.question_answered(tap)
+        return [(record["kind"], record["to"], record["id"]) for batch in cci.posted for record in batch]
+
+    defect = ("defect", [f"meta@{drive}"], f"unrecorded:{drive}:j3-661440:1794200001.000100")
+    assert failed_runs(1) == []
+    assert failed_runs(1) == [defect]
+    assert "FileNotFoundError at card.py" in cci.posted[0][0]["text"] and "'claude'" in cci.posted[0][0]["text"]
+    monkeypatch.setattr(card, "answer_question", lambda name, ask: {"ok": True, "seq": "51"})
+    assert card.question_answered(tap) == {"ok": True, "seq": "51"}
+    assert failed_runs(1) == [defect]
+
+
 def test_his_words_in_a_cards_other_box_that_only_ask_about_it_end_nothing_and_record_nothing_until_words_of_his_pick(
     drive: str, monkeypatch: pytest.MonkeyPatch, jev: Jev
 ) -> None:

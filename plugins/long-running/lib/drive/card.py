@@ -11,7 +11,7 @@ from typing import TextIO
 from drive import github, limits, picture, state
 from drive.github import GithubError, run
 from drive.pr_graph import chains
-from drive.render import cut, when
+from drive.render import cut, raised, when
 
 FIELDS = (
     "title body author { __typename login } state isDraft headRefOid baseRefName headRefName reviewDecision labels(first: 100) { nodes { name } } url additions deletions changedFiles"
@@ -28,6 +28,8 @@ UNREOPENED = (
     "his Undo on {card} reopens nothing: no question drawn on that card ended answered on his tap there or his words at or"
     " under it, so no answer of his stands there to take back; nothing recorded"
 )
+UNRECORDED_TAPS = "unrecorded-taps"
+UNRECORDED = "drive card: his answer {label!r} on {url} ({waits}) is still not recorded after cc-slack ran the card command again: {failure}; cc-slack runs it again every two minutes until it records"
 WORDS = "Words"
 TITLE_CHARS = 140
 FIELD_CHARS = 400
@@ -890,12 +892,33 @@ def taken_back(name: str, members: list[str], ask: dict) -> list[str]:
 
 
 def question_answered(ask: dict) -> dict:
-    """End the question his tap on a drive's question card answers, by a button, its number typed in its thread or his words in its Other box, in the tap's first write, dated by his tap as its record id carries it however late the drive takes the tap, with each older open question of its job his answer decides, as Jev reads it, superseded, so nothing refused after it leaves his answered card holding the builders waiting on it; then post it as the one answer record the coordinator gets for it, its topic `card:<thread_ts>`, idempotent by his Slack action, so cc-slack runs this again until the record stores and shows the tap recorded only then, and stamp the record's seq on each question the tap ended; each other card drawn for an ended question follows, and cc-slack closes the tapped card itself. A tap on Already answered answers it with the words of each recorded answer of his the card drew under that option, so its job builds them. His answer, unless it is the Already answered tap, whose words cc-notes holds already, is recorded in cc-notes as `drive answer` records one, the card's question as its title and his words as its body, once, its id kept on each question it ended and on the answer record, so `settled.matched` ranks it beside every answer he gave and a card asking it again in other words is told. Recording it supersedes each answer of the drive's still standing under that question, so his changed pick leaves one, and each answer of his the card asked him to lift that Jev reads his answer replacing, by settled.lift. An Undo reopens each question his answer on the card ended, by answered_at, his tap there or his words at or under it, which cc-slack redraws, records the card's question answered UNDONE, which supersedes the answer it takes back, takes back each supersede that answer wrote on an answer the card asked him to lift, by settled.unlift, and takes the answer that ended it off every job holding it, by its record's seq, since the card may have let go of the jobs that waited on it; an Undo reopening none is refused and records nothing. Held verbatim on every job it frees that was made by his tap until the watch carries it there; History keeps it, or its undo, as his decision, once: a run again after one the card command's two minutes cut short finds his answer recorded by its record and adds nothing. His words in its Other box that only ask the card questions or remark on it, as tools.under_card reads them, end nothing and record nothing: `ok` false and `asks` true, so cc-slack draws the card's options again and hands his words to the session it reached to answer in the card's thread, and Jev giving no reading refuses the tap, so cc-slack runs this again. A waits id naming no drive is not the drive's to record: `ok` false, so cc-slack hands the tap to the session it reached."""
+    """End the question his tap on a drive's question card answers, by a button, its number typed in its thread or his words in its Other box, in the tap's first write, dated by his tap as its record id carries it however late the drive takes the tap, with each older open question of its job his answer decides, as Jev reads it, superseded, so nothing refused after it leaves his answered card holding the builders waiting on it; then post it as the one answer record the coordinator gets for it, its topic `card:<thread_ts>`, idempotent by his Slack action, so cc-slack runs this again until the record stores and shows the tap recorded only then, and stamp the record's seq on each question the tap ended; each other card drawn for an ended question follows, and cc-slack closes the tapped card itself. A tap on Already answered answers it with the words of each recorded answer of his the card drew under that option, so its job builds them. His answer, unless it is the Already answered tap, whose words cc-notes holds already, is recorded in cc-notes as `drive answer` records one, the card's question as its title and his words as its body, once, its id kept on each question it ended and on the answer record, so `settled.matched` ranks it beside every answer he gave and a card asking it again in other words is told. Recording it supersedes each answer of the drive's still standing under that question, so his changed pick leaves one, and each answer of his the card asked him to lift that Jev reads his answer replacing, by settled.lift. An Undo reopens each question his answer on the card ended, by answered_at, his tap there or his words at or under it, which cc-slack redraws, records the card's question answered UNDONE, which supersedes the answer it takes back, takes back each supersede that answer wrote on an answer the card asked him to lift, by settled.unlift, and takes the answer that ended it off every job holding it, by its record's seq, since the card may have let go of the jobs that waited on it; an Undo reopening none is refused and records nothing. Held verbatim on every job it frees that was made by his tap until the watch carries it there; History keeps it, or its undo, as his decision, once: a run again after one the card command's two minutes cut short finds his answer recorded by its record and adds nothing. His words in its Other box that only ask the card questions or remark on it, as tools.under_card reads them, end nothing and record nothing: `ok` false and `asks` true, so cc-slack draws the card's options again and hands his words to the session it reached to answer in the card's thread, and Jev giving no reading refuses the tap, so cc-slack runs this again. A waits id naming no drive is not the drive's to record: `ok` false, so cc-slack hands the tap to the session it reached. A tap that raises on a run after one that raised, cc-slack's retry, tells the meta session by unrecorded, the failed run kept as a file under UNRECORDED_TAPS until a run records it."""
     name, _, _ = ask["waits"].partition(":")
     if name not in state.names():
         return {"ok": False, "why": f"{ask['waits']} is no drive's question card, so his tap on it stays with the session it reached"}
     hear_tap(name)
-    return answer_question(name, ask)
+    tried = state.drive_dir(name) / UNRECORDED_TAPS / f"{ask['waits']}:{ask.get('action_ts')}{':undone' if ask.get('undone') else ''}"
+    try:
+        answer = answer_question(name, ask)
+    except Exception as failure:
+        if tried.exists():
+            unrecorded(name, ask, tried.name, failure)
+        tried.parent.mkdir(parents=True, exist_ok=True)
+        tried.touch()
+        raise
+    tried.unlink(missing_ok=True)
+    return answer
+
+
+def unrecorded(name: str, ask: dict, tap: str, failure: Exception) -> None:
+    """Tell the meta session, as a defect, that his tap failed again on cc-slack's retry, once per tap by its record id, since cc-slack only logs each failure and retries every two minutes."""
+    from drive import tools
+
+    text = UNRECORDED.format(label=ask["label"], url=ask["url"], waits=ask["waits"], failure=raised(failure))
+    try:
+        tools.sent(name, "communicator", [{"kind": "defect", "to": [f"meta@{name}"], "text": text, "id": f"unrecorded:{tap}"}])
+    except state.DriveError as error:
+        print(f"drive card: the meta session was not told: {error}", file=sys.stderr)
 
 
 def answer_question(name: str, ask: dict) -> dict:
