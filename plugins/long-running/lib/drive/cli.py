@@ -7126,6 +7126,7 @@ def order_summary(name: str, order_id: str) -> str:
     tables = state.stored(name, ("prs", "slots"))
     prs = {key: pr for key, pr in tables["prs"].items() if pr["order"] == order_id or pr["job"] in jobs}
     lines = [f"{order_id} {order['state']}: {render.cut(order.get('title') or order['text'], 140)}"]
+    lines += [f'ask {ask_id}: "{render.cut(ask["words"], 160)}" on {", ".join(ask["parts"]) or "no part"}' for ask_id, ask in (order.get("asks") or {}).items()]
     for shown in ("merged", "closed"):
         if keys := [key for key, pr in prs.items() if pr["state"] == shown]:
             lines.append(f"{shown} {len(keys)}: {', '.join('#' + key.split('#')[1] for key in keys)}")

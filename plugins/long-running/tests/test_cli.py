@@ -9278,9 +9278,11 @@ def test_status_of_an_order_sums_it_from_the_saved_rows_with_no_github_or_slack_
         data["prs"]["Forge-AI/monorepo#41"] = data["prs"][with_pr] | {"state": "merged", "url": PR[:-2] + "41"}
         data["jobs"]["j3"].update(state="waiting", said="WAITING staging:sandsql/plat-usw2-staging@abc")
     code, out = run("status", "o1")
+    (asked,) = [f'ask {ask_id}: "{ask["words"]}" on {", ".join(ask["parts"])}' for ask_id, ask in state.load("demo")["orders"]["o1"]["asks"].items()]
     assert code == 0
     assert out.splitlines() == [
         "o1 open: land it",
+        asked,
         "merged 1: #41",
         "open card 1: #42: green, waits on his Approve",
         'not written: "write the docs": j2 builder waiting',
