@@ -186,6 +186,7 @@ def read(**overrides: object) -> dict:
         "under": None,
         "base_ahead": None,
         "base_pr": None,
+        "signature": "kept",
     }
     return {**base, **overrides}
 
@@ -773,6 +774,8 @@ def pull_node(head: str) -> dict:
         "commits": {"nodes": []},
         "stack": None,
         "baseRef": None,
+        "updatedAt": "2026-11-16T10:00:00Z",
+        "signatureChecks": {"nodes": []},
     }
 
 
@@ -12019,3 +12022,15 @@ def test_each_new_alert_in_a_staging_envs_channel_goes_once_to_each_job_testing_
     assert sent[0][sent[0].index("--text") + 1].startswith("ALERT in plat-usw2-staging, which you are testing on: Sentry: [api] TypeError: boom https://acme.slack.com/archives/C0ALERTS/p1800000200000000")
     assert state.load(demo)["slack"]["env_alerts"]["plat-usw2-staging"]["seen"] == "1800000200.000000"
     assert watch.env_alert_lines(watcher, T0 + watch.ENV_ALERT_EVERY) == [] and len(sent) == 2
+
+
+def test_a_restarted_watch_reads_whole_only_the_prs_whose_github_signature_moved_since_its_kept_read(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = serve(monkeypatch, {KEY: read(signature="first")})
+    watch.github_lines(watcher(demo), T0)
+    assert calls == [[KEY]]
+    monkeypatch.setattr(github, "signatures", lambda keys: ({key: "first" for key in keys}, None))
+    assert watch.github_lines(watcher(demo), T0 + timedelta(minutes=1)) == []
+    assert calls == [[KEY]]
+    monkeypatch.setattr(github, "signatures", lambda keys: ({key: "moved" for key in keys}, None))
+    watch.github_lines(watcher(demo), T0 + timedelta(minutes=2))
+    assert calls == [[KEY], [KEY]]
