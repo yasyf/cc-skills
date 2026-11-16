@@ -52,7 +52,7 @@ def test_a_job_call_whose_inline_order_add_first_prints_jevs_join_note_adds_its_
     tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL}, "goal": "research: the install lock"}}]})
     jev.picks("o1", 0.5)
     said = tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL_AGAIN}, "goal": "research: the install stall"}}]})
-    assert said.splitlines()[0] == "1 order add: drive order add: Jev is unsure whether these words are on the feature of o1; name it with --joins o1 when they are; o2"
+    assert said.splitlines()[0] == "1 order add: drive order add: Jev is unsure whether these words repeat o1; name it with --joins o1 when they do; o2"
     data = state.load(meta)
     assert (data["jobs"]["j3"]["order"], data["orders"]["o2"]["jobs"][0]) == ("o2", "j3")
 

@@ -977,7 +977,7 @@ def test_a_tooling_order_jev_reads_as_repeating_an_open_one_joins_it_and_rides_o
     jev.picks("o1")
     assert run(*filed, LOCK_STALL_AGAIN) == (0, "o2\njoins o1: no record; carried by j1, j2, each holding these words for its worker, so no job starts on it")
     [asked] = [request for request in jev.asked if any(key.startswith("repeats.") for key in request["questions"])]
-    assert (asked["state"], list(asked["questions"])) == ({"order": LOCK_STALL_AGAIN, "open": {"o1": f"Install lock stall — {LOCK_STALL}"}}, ["repeats.o1"])
+    assert (asked["state"], asked["questions"]) == ({"order": LOCK_STALL_AGAIN, "open": {"o1": f"Install lock stall — {LOCK_STALL}"}}, {"repeats.o1": settled.asking(settled.REPEATS, slot="o1")})
     data = state.load("demo")
     again = data["orders"]["o2"]
     carried = {"o2": ["Install lock stall"]}
@@ -994,24 +994,33 @@ def test_a_tooling_order_jev_reads_as_repeating_an_open_one_joins_it_and_rides_o
     assert state.load("demo")["orders"]["o3"]["joins"] is None
 
 
-def test_his_words_jev_reads_as_on_an_open_feature_join_it_under_its_coordinator_and_every_job_on_it_binds_its_rulings(run: Run, demo: str, jev: Jev) -> None:
+def test_his_words_jev_reads_as_on_an_open_feature_stay_alone_naming_it_and_join_only_by_joins_under_its_coordinator_binding_its_rulings(
+    run: Run, demo: str, jev: Jev, capsys: pytest.CaptureFixture[str]
+) -> None:
     run("order", "add", "--title", "Stuck jobs", "--project", "The drive", "--workstream", "Releases", "watch for stuck jobs")
     run("job", "add", "builder", "--order", "o1", "--goal", "build the watchdog")
     run("job", "brief", "j1", "--serves", "his order", "--ruling", "5abdd1a")
     jev.picks("o1")
-    lanes = "and watch for stuck lanes the same way"
-    assert run("order", "add", "--title", "Stuck lanes", "--project", "Iris", "--workstream", "Agents", lanes) == (
-        0,
-        "o2\njoins o1: no record; carried by j1, each holding these words for its worker, so no job starts on it",
-    )
+    release = "cut a release of the whole platform"
+    assert cli.main(["order", "add", "--title", "Platform release", "--project", "Platform", "--workstream", "Releases", release]) == 0
+    added = capsys.readouterr()
+    assert added.out.strip() == "o2"
+    assert "drive order add: Jev reads these words as on the feature of o1, which an order of his joins only by --joins o1; name it when they are" in added.err
     [asked] = [request for request in jev.asked if any(key.startswith("repeats.") for key in request["questions"])]
-    assert list(asked["questions"]) == ["repeats.o1"]
+    assert asked["questions"] == {"repeats.o1": settled.asking(settled.FEATURE, slot="o1")}
     data = state.load("demo")
-    assert (data["orders"]["o2"]["joins"], data["orders"]["o2"]["project"], data["orders"]["o2"]["workstream"], state.feature_orders(data, "o2")) == (
-        "o1", "The drive", "Releases", ["o1", "o2"]
+    assert (data["orders"]["o2"]["joins"], data["orders"]["o2"]["workstream"], state.feature_orders(data, "o2"), data["jobs"]["j1"]["carries"]) == (None, "Releases", ["o2"], {})
+    lanes = "and watch for stuck lanes the same way"
+    assert run("order", "add", "--title", "Stuck lanes", "--project", "Iris", "--workstream", "Agents", lanes, "--joins", "o1") == (
+        0,
+        "o3\njoins o1: no record; carried by j1, each holding these words for its worker, so no job starts on it",
     )
-    assert [held["words"] for held in data["jobs"]["j1"]["undelivered"]] == [f'His words, kept as o2 on the feature of o1 this job carries: "{lanes}"']
-    reader = run("job", "add", "reader", "--order", "o2", "--goal", "research: stuck lanes")[1].splitlines()[0]
+    data = state.load("demo")
+    assert (data["orders"]["o3"]["joins"], data["orders"]["o3"]["project"], data["orders"]["o3"]["workstream"], state.feature_orders(data, "o3")) == (
+        "o1", "The drive", "Releases", ["o1", "o3"]
+    )
+    assert [held["words"] for held in data["jobs"]["j1"]["undelivered"]] == [f'His words, kept as o3 on the feature of o1 this job carries: "{lanes}"']
+    reader = run("job", "add", "reader", "--order", "o3", "--goal", "research: stuck lanes")[1].splitlines()[0]
     assert run("job", "brief", reader, "--serves", "his order")[0] == 0
     assert state.load("demo")["jobs"][reader]["brief_flags"]["ruling"] == ["5abdd1a"]
 
@@ -1025,9 +1034,8 @@ def test_order_set_unjoin_takes_his_order_off_the_feature_it_joined_so_it_files_
     card = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794646350582239"
     with state.edit("demo") as data:
         data["jobs"][tester]["questions"].append(state.new_question(None, "Which slot?", state.stamp(), card=card))
-    jev.picks("o1")
     release = "find a safe sha that has all the stuff tested in staging, then cut a release of whole platform"
-    assert run("order", "add", "--title", "Whole-platform release", "--project", "Platform", "--workstream", "Releases", release)[1].splitlines()[0] == "o2"
+    assert run("order", "add", "--title", "Whole-platform release", "--project", "Platform", "--workstream", "Releases", release, "--joins", "o1")[1].splitlines()[0] == "o2"
     joined = state.load("demo")
     carriers = joined["orders"]["o2"]["jobs"]
     assert tester in carriers and [joined["jobs"][job_id]["carries"] for job_id in carriers] == [{"o2": ["Whole-platform release"]}] * len(carriers)
