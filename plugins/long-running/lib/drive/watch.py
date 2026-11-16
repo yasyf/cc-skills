@@ -5207,7 +5207,7 @@ def landing_stages(watcher: Watcher, moment: datetime) -> list[functools.partial
 
 
 def restack_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Restack each heard stack a merge or rewrite below left carrying stale commits, by restack.restack, with no model session, so only a real conflict reaches a builder, through its stage; a git or GitHub step that fails is retried and said as any read is. The stacks it already read stay kept in the drive's folder, so a watch an install or crash restarted reads again only a stack that moved since."
+    """Restack each heard stack a merge or rewrite below left carrying stale commits, by restack.restack, with no model session, so only a real conflict reaches a builder, through its stage; a git or GitHub step that fails is retried and said as any read is. The stacks it already read stay kept in the drive's folder, so a watch an install or crash restarted reads again only a stack that moved since."""
     data = state.load(watcher.name)
     kept = state.drive_dir(watcher.name) / f"restacked-{state.project_lane(watcher.project or '') or 'drive'}.json"
     if not watcher.restacked and kept.is_file():
