@@ -9973,18 +9973,32 @@ def test_a_yasyf_merge_whose_base_moved_merges_again_on_the_new_base_and_never_u
     assert runs == [["gh", "pr", "merge", "7", "-R", "yasyf/cc-skills", "--squash", "--admin"]] * 3
 
 
-@pytest.mark.parametrize(("refusal", "mergeable"), [(DIRTY, "MERGEABLE"), (MERGE_CONFLICTS, "CONFLICTING"), (MERGE_CONFLICTS, "UNKNOWN")])
-def test_a_yasyf_merge_gh_refuses_for_a_conflict_in_code_reads_red_and_wakes_its_builder_with_no_stage_line_whatever_github_last_read_of_its_mergeability(
+@pytest.mark.parametrize(("refusal", "mergeable"), [(DIRTY, "CONFLICTING"), (MERGE_CONFLICTS, "CONFLICTING"), (MERGE_CONFLICTS, "UNKNOWN")])
+def test_a_yasyf_merge_gh_refuses_for_a_conflict_in_code_reads_red_and_wakes_its_builder_with_no_stage_line_while_github_reads_it_conflicting_or_works_it_out(
     demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]], refusal: str, mergeable: str
 ) -> None:
     outcome = f"not landed: gh pr merge --squash --admin refused it: {refusal}; tool.py conflict past a clause-by-clause merge, so its builder rebases it"
     waiting_job(demo)
-    tried(demo, outcome)
+    tried(demo, "")
+    land.record(demo, [YASYF], outcome, [], {})
     serve(monkeypatch, {YASYF: read(mergeable=mergeable)})
     lines = watch.run_pass(watcher(demo), T0)
     assert [line for line in lines if line.startswith("STAGE")] == []
     assert woken == [(YASYF, f"{YASYF} red since {state.stamp(T0)}, owed by its builder: it conflicts with its base main [o1 j1]")]
     assert landers == []
+
+
+def test_a_yasyf_merge_gh_refused_for_a_conflict_lands_again_once_github_reads_that_head_mergeable_never_telling_its_builder_to_restack(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]]
+) -> None:
+    waiting_job(demo)
+    tried(demo, "")
+    pushed(demo, YASYF)
+    land.record(demo, [YASYF], f"not landed: gh pr merge --squash --admin refused it: {DIRTY}; the-watch already sits on main at ccc333ddd444, so a rebase changes nothing", [], {})
+    assert stage.red(state.load(demo), YASYF) == "it conflicts with its base main"
+    serve(monkeypatch, {YASYF: read(mergeable="MERGEABLE", checks=GREEN)})
+    watch.run_pass(watcher(demo), T0)
+    assert (woken, landers, stage.red(state.load(demo), YASYF)) == ([], [(YASYF,)], "")
 
 
 @pytest.mark.parametrize("said", [POLICY, f"ccx: GitHub secondary rate limit: holding every request on the app token until 12:05 PM\n{POLICY}"])
@@ -10107,8 +10121,7 @@ def test_a_yasyf_merge_github_refuses_on_a_conflict_in_code_is_not_landed_and_re
     outcome = land.merged(demo, YASYF, "squash", ["--admin"])
     assert outcome == f"not landed: gh pr merge --squash --admin refused it: {DIRTY}; tool.py conflict past a clause-by-clause merge, so its builder rebases it"
     assert git_in(origin, "rev-parse", "change") == head
-    with state.edit(demo) as data:
-        data["prs"][YASYF]["lander"]["outcome"] = outcome
+    land.record(demo, [YASYF], outcome, [], {})
     now = stage.of(state.load(demo), YASYF, NO_CARDS)
     assert (now.name, now.owner) == ("red", stage.BUILDER)
 
@@ -10183,7 +10196,7 @@ def test_a_reported_yasyf_pr_whose_head_moved_past_its_landers_merges_at_the_nex
     serve(monkeypatch, reads)
     watching = watcher(demo)
     started = []
-    for minute, (head, mergeable) in enumerate([("aaaaaaa111", "MERGEABLE"), ("bbbbbbb222", "CONFLICTING"), ("bbbbbbb222", "MERGEABLE"), ("bbbbbbb222", "MERGEABLE")]):
+    for minute, (head, mergeable) in enumerate([("aaaaaaa111", "CONFLICTING"), ("bbbbbbb222", "CONFLICTING"), ("bbbbbbb222", "MERGEABLE"), ("bbbbbbb222", "MERGEABLE")]):
         reads[YASYF] = read(headRefOid=head, mergeable=mergeable, checks=GREEN)
         watch.run_pass(watching, T0 + timedelta(minutes=minute))
         started.append(len(landers))

@@ -508,8 +508,9 @@ each card, and wakes no one until he answers them.
 A merge GitHub refused for a conflict, `Pull Request has merge conflicts` or `the merge
 commit cannot be cleanly created`, and a try that queued the PR or Trunk ejected once GitHub reads it conflicting,
 are never `landing` or `unlanded`: the PR reads `red`, owed by its builder, "it
-conflicts with its base <branch>", whatever the watch last read of its mergeability, so `drive pr wake` sends its
-builder the line at once and every 30 minutes, and no session starts one; its rebased head lands on its own.
+conflicts with its base <branch>", until GitHub's next read of that head, after its base moves or its head is read
+again, finds it mergeable, so `drive pr wake` sends its builder the line at once and every 30 minutes, and no session
+starts one; its rebased head lands on its own, and a head GitHub reads mergeable again after the refusal lands again.
 A PR in a native GitHub stack reads "it conflicts with <trunk>, the trunk of its native stack: restack the
 whole stack onto <trunk> with ccx vcs stack rebase" instead, since GitHub test-merges each member onto the
 stack's trunk with every PR below it, never onto its base branch, the stacked parent.

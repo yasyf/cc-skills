@@ -294,7 +294,7 @@ def waited_on(data: dict, wait: str) -> str:
 
 
 def red(data: dict, key: str) -> str:
-    """What its builder must fix at its head: a base that is no branch its repository lands PRs on, by github.landing_base, that no open PR heads, by github.parent, and that no job whose work is still to come built before opening its PR there, by state.built_base, as a PR whose parent closed or merged without GitHub moving it leaves it, which the lander refuses to merge, so its builder opens that base's PR, naming the job that built it, by state.base_builders, while the base holds commits the default branch lacks, by github.ahead, since a restack onto the default branch would drop them, and restacks it onto that default branch once it holds none, failing checks, those of a yasyf/* PR its builder reported only once the watch's read of its head or its lander's try there found one failing on its own change, by land.own_red(), while one failing only tests the default branch fails too merges, a conflict GitHub reads or refused the lander's merge for, named as conflicts_with() names it, with the restack that clears one in a native GitHub stack, a draft, changes a reviewer asked for, or, in a repository whose rules require an approving review before merging, a forge-pr-reviewer that finished on a green head and approved nothing, which holds it until each finding is fixed or its risk accepted."""
+    """What its builder must fix at its head: a base that is no branch its repository lands PRs on, by github.landing_base, that no open PR heads, by github.parent, and that no job whose work is still to come built before opening its PR there, by state.built_base, as a PR whose parent closed or merged without GitHub moving it leaves it, which the lander refuses to merge, so its builder opens that base's PR, naming the job that built it, by state.base_builders, while the base holds commits the default branch lacks, by github.ahead, since a restack onto the default branch would drop them, and restacks it onto that default branch once it holds none, failing checks, those of a yasyf/* PR its builder reported only once the watch's read of its head or its lander's try there found one failing on its own change, by land.own_red(), while one failing only tests the default branch fails too merges, a conflict GitHub reads or refused the lander's merge for until GitHub reads its head mergeable again, named as conflicts_with() names it, with the restack that clears one in a native GitHub stack, a draft, changes a reviewer asked for, or, in a repository whose rules require an approving review before merging, a forge-pr-reviewer that finished on a green head and approved nothing, which holds it until each finding is fixed or its risk accepted."""
     pr = data["prs"][key]
     head = pr["head"][:7]
     if pr["default"] and not pr["landing_base"] and not pr["under"] and not state.built_base(data, pr):
@@ -306,7 +306,7 @@ def red(data: dict, key: str) -> str:
         return own
     if pr["checks"] == "fail" and not state.ships_untapped(data, key):
         return f"its checks fail at {head}: {', '.join(pr['failed_checks']) or 'see its checks'}"
-    if pr["conflict"] or land.conflicted(pr):
+    if pr["conflict"]:
         restack = f": restack the whole stack onto {pr['trunk']} with ccx vcs stack rebase" if pr["trunk"] else ""
         return f"it conflicts with {conflicts_with(pr)}{restack}"
     if pr["draft"]:
