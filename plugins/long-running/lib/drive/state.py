@@ -5148,19 +5148,25 @@ def after_save(name: str, effect: Callable[[], list[str]]) -> list[str]:
     return effect()
 
 
-@contextmanager
-def edit_or_create(name: str, fresh: dict) -> Iterator[dict]:
-    """Like edit, but start from fresh when the drive does not exist yet; the lock covers the check too."""
-    with writing(name):
-        data = load(name) if exists(name) else fresh
-        before = holding_lanes(data)
-        yield data
-        save(name, data)
-        tell_moved(name, data, before)
+def update_or_create[T](name: str, fresh: dict, change: Callable[[dict], T]) -> T:
+    """Apply change to the drive as update does with no rows named, or, while the drive does not exist yet, to fresh, saved as the drive's first database, built beside it and linked into place, so a drive another start made first meanwhile is never written over and change runs on that drive instead; neither holds the drive's lock."""
+    if exists(name):
+        return update(name, None, change)
+    done = change(fresh)
+    drive_dir(name).mkdir(parents=True, exist_ok=True)
+    made = built(name, fresh)
+    try:
+        os.link(made, database_path(name))
+    except FileExistsError:
+        return update(name, None, change)
+    finally:
+        made.unlink()
+    pointed(name, fresh)
+    return done
 
 
 def create(data: dict) -> None:
-    """Save a drive built whole in code, as a proof or a test builds one, marked as needing no label_approvals pass, since its coordinator's cwd may be no checkout at all and every tap `drive answer` records for it is labelled already; `drive start` makes its drives through edit_or_create, then migrates each, which labels the older taps of the checkout it starts in."""
+    """Save a drive built whole in code, as a proof or a test builds one, marked as needing no label_approvals pass, since its coordinator's cwd may be no checkout at all and every tap `drive answer` records for it is labelled already; `drive start` makes its drives through update_or_create, then migrates each, which labels the older taps of the checkout it starts in."""
     with writing(data["name"]):
         save(data["name"], data)
         (drive_dir(data["name"]) / APPROVALS_LABELLED).touch()

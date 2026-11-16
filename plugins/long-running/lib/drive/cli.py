@@ -178,7 +178,8 @@ def start(args: argparse.Namespace) -> int:
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     fresh = state.new_drive(args.name, args.role, session, str(kept))
     fresh["roles"][args.role]["rules"] = render.rules_digests(fresh, args.role, args.project)
-    with state.edit_or_create(args.name, fresh) as data:
+
+    def started(data: dict) -> dict:
         if args.project and args.role == "communicator":
             bind_communicator(data, args.project, fresh["roles"][args.role])
         elif args.project:
@@ -192,6 +193,9 @@ def start(args: argparse.Namespace) -> int:
             data["roles"][args.role] = fresh["roles"][args.role]
         watched_channels = data["slack"].setdefault("watch", [])
         watched_channels.extend(channel for channel in dict.fromkeys(args.watch) if channel not in watched_channels)
+        return data
+
+    data = state.update_or_create(args.name, fresh, started)
     state.migrate(args.name)
     held = fresh["roles"][args.role]
     registered = "" if state.scratch() else f"{agents.register(args.name, args.role, args.project, held['cwd'], held['session'])}\n"
