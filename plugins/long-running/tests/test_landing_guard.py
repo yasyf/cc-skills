@@ -7,7 +7,7 @@ from pathlib import Path
 
 import landing_guard
 import pytest
-from conftest import QUEUE_REASON, LEAD, SESSION, Answers, HomeRelease
+from conftest import QUEUE_REASON, LEAD, SESSION, Answers, HomeRelease, monorepo
 from drive import agents, brief, github, land, render, settled, shell, stage, state, view
 
 Run = Callable[..., tuple[int, str]]
@@ -237,6 +237,7 @@ def test_a_release_resume_waits_for_his_next_word_once_he_last_wrote_15_minutes_
     home_repo: None,
     run: Run, demo: str, sprite: list[list[str]], recorded: Answers, no_calls: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monorepo(monkeypatch, Path(state.load(demo)["roles"]["coordinator"]["cwd"]))
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "release the fix")
     with state.edit(demo) as data:
