@@ -296,6 +296,7 @@ LOADED_VERSION: ContextVar[int | None] = ContextVar("loaded_version", default=No
 LOADED_REV: ContextVar[int | None] = ContextVar("loaded_rev", default=None)
 ATTEMPT: ContextVar["Attempt | None"] = ContextVar("attempt", default=None)
 BATCHING: ContextVar[str | None] = ContextVar("batching", default=None)
+COMMITTED: ContextVar[int | None] = ContextVar("committed", default=None)
 EDITING: ContextVar[str | None] = ContextVar("editing", default=None)
 TAKEN_IDS: ContextVar[list[tuple[str, str, int]] | None] = ContextVar("taken_ids", default=None)
 PTHREADS = ctypes.CDLL(None, use_errno=True)
@@ -5253,7 +5254,7 @@ def write[T](name: str, change: Callable[[dict], T], *, budget: float | None = N
             was = marshal.loads(base)
             written = tuple(sorted(written_rows(was, mine)))
             try:
-                post = rows_saved(name, {row: row_of(was, row) if raw is None else raw_row(raw, row) for row in written}, was, mine, written, since, frozenset(reads), waits)[1] if written or attempt.effects else []
+                rev, post = rows_saved(name, {row: row_of(was, row) if raw is None else raw_row(raw, row) for row in written}, was, mine, written, since, frozenset(reads), waits) if written or attempt.effects else (None, [])
             except Raced as raced:
                 why = f"another write changed {'.'.join(raced.args[0])} each time it ran"
                 released(taken)
@@ -5264,7 +5265,7 @@ def write[T](name: str, change: Callable[[dict], T], *, budget: float | None = N
                 why = "another write held the drive's lock or database each time it ran"
                 released(taken)
                 continue
-        ran([*([functools.partial(kept_runs, name, tried + 1, time.monotonic() - waits.asked, why)] if tried >= UPDATE_TRIES else []), *post, *attempt.effects], [])
+        ran([*([functools.partial(kept_runs, name, tried + 1, time.monotonic() - waits.asked, why)] if tried >= UPDATE_TRIES else []), *post, *attempt.effects], [], rev)
         return done
     with open(drive_dir(name) / "locks.log", "a") as log:
         log.write(f"{stamp()} pid {os.getpid()} refused after {seconds:g}s, since {why}: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
@@ -5283,8 +5284,8 @@ def update[T](name: str, rows: tuple[Row, ...] | None, change: Callable[[dict], 
     return write(name, change)
 
 
-def committed(name: str, base: bytes, mine: dict) -> list[Callable[[], list[str]]]:
-    """Save a write's changes, mine, made on the drive as base held it, holding no lock while it merges: a drive an older install kept in drive.json moved into its database first, under the drive's lock, by moved; mine laid over a copy of the drive as it stands now, by merged, which raises Raced at the first field both changed differently, saved as the records that merge changed by rows_saved, which keeps them only while no other write committed one of them, the drive's bindings, or the order of a job the save finishes since that load, and merged again over the drive as it then stands each time another write did, up to UPDATE_TRIES times; what that commit leaves to do outside the drive, by rows_saved, none when the merge changed nothing."""
+def committed(name: str, base: bytes, mine: dict) -> tuple[int | None, list[Callable[[], list[str]]]]:
+    """Save a write's changes, mine, made on the drive as base held it, holding no lock while it merges: a drive an older install kept in drive.json moved into its database first, under the drive's lock, by moved; mine laid over a copy of the drive as it stands now, by merged, which raises Raced at the first field both changed differently, saved as the records that merge changed by rows_saved, which keeps them only while no other write committed one of them, the drive's bindings, or the order of a job the save finishes since that load, and merged again over the drive as it then stands each time another write did, up to UPDATE_TRIES times; the revision that commit left and what it leaves to do outside the drive, by rows_saved, neither when the merge changed nothing."""
     if not database_path(name).exists():
         with locked(name):
             moved(name)
@@ -5294,9 +5295,9 @@ def committed(name: str, base: bytes, mine: dict) -> list[Callable[[], list[str]
         since = LOADED_REV.get()
         saved = marshal.loads(marshal.dumps(merged(was, mine, now)))
         if not (written := tuple(sorted(written_rows(now, saved)))):
-            return []
+            return None, []
         try:
-            return rows_saved(name, {row: row_of(now, row) for row in written}, now, saved, written, since, frozenset(("", field) for field in BINDINGS))[1]
+            return rows_saved(name, {row: row_of(now, row) for row in written}, now, saved, written, since, frozenset(("", field) for field in BINDINGS))
         except Raced:
             continue
     raise Raced(("drive",))
@@ -5331,26 +5332,30 @@ def batch(name: str, dry: bool = False) -> Iterator[list[str]]:
     if dry:
         return
     try:
-        post = committed(name, base, mine)
+        rev, post = committed(name, base, mine)
     except Raced as raced:
         released(taken)
         raise DriveError(
             f"refused, nothing kept: another write changed {'.'.join(raced.args[0])} differently while this call ran, so send it again"
             + (f" once you have checked what it started as it ran: {', '.join(dict.fromkeys(WENT))}" if WENT else "")
         ) from None
-    ran([*post, *effects], lines)
+    ran([*post, *effects], lines, rev)
 
 
-def ran(effects: list[Callable[[], list[str]]], lines: list[str]) -> None:
-    """Run each effect a committed write or batch left, in the order it left them, adding the lines each prints to lines, every one running even when one before it raised, an OSError of a file write as much as a DriveError, since the drive keeps the commit whatever they do, so none runs the change again or says nothing was kept; the failures raised together as one DriveError once all ran, after the lines of the rest, each one not a DriveError named as an effect of a write the drive kept. An interrupt, no Exception, ends the run at once."""
+def ran(effects: list[Callable[[], list[str]]], lines: list[str], rev: int | None = None) -> None:
+    """Run each effect a committed write or batch left, in the order it left them, adding the lines each prints to lines, every one running even when one before it raised, an OSError of a file write as much as a DriveError, since the drive keeps the commit whatever they do, so none runs the change again or says nothing was kept; the failures raised together as one DriveError once all ran, after the lines of the rest, each one not a DriveError named as an effect of a write the drive kept. An interrupt, no Exception, ends the run at once. Each runs under rev, the drive's revision its commit left, which publish orders files by."""
     failed: list[str] = []
-    for effect in effects:
-        try:
-            lines += effect()
-        except DriveError as error:
-            failed.append(str(error))
-        except Exception as error:
-            failed.append(f"kept, but what it did after failed: {type(error).__name__}: {error}")
+    token = COMMITTED.set(rev)
+    try:
+        for effect in effects:
+            try:
+                lines += effect()
+            except DriveError as error:
+                failed.append(str(error))
+            except Exception as error:
+                failed.append(f"kept, but what it did after failed: {type(error).__name__}: {error}")
+    finally:
+        COMMITTED.reset(token)
     if failed:
         raise DriveError("\n".join([*lines, *failed]))
 
@@ -5385,16 +5390,25 @@ def after(effect: Callable[[], list[str]]) -> list[str]:
     return effect()
 
 
-def publish(path: Path, text: str, current: Callable[[dict], bool]) -> list[str]:
-    """Write text to path, a file in a drive's folder that one of its records names, such as an ask or a proof, only while current holds of the drive as committed now, read under a lock of that file alone, so whatever order the effects of two writes naming it run in across processes, the file ends as the write committed last wants it; whole, by a sibling file moved into place, so no reader reads it half written. An effect, run by after once the write naming it commits, the lines it prints, none: inside a write's change of its drive it raises, since its load there would read every row and its file would land before the commit. A file a check inside a change must read is written before the write instead, under a name the record keeps and nothing writes again."""
+def publish(path: Path, text: str | bytes, current: Callable[[dict], bool], mode: int | None = None) -> list[str]:
+    """Write text to path, a file in a drive's folder that one of its records names, such as an ask, a brief or a reproduction file, with mode when named, under a lock of that file alone and only while it is still the committed owner's: current holds of the drive as committed now, and no write committed after the one whose effect this is published it already, by the revision ran runs that effect under, which a sidecar beside the file keeps, so whatever order the effects of two writes naming it run in across processes, the file ends as the write committed last wants it; whole, by a sibling file moved into place, so no reader reads it half written. An effect, run by after once the write naming it commits, the lines it prints, none: inside a write's change of its drive it raises, since its load there would read every row and its file would land before the commit. A file a check inside a change must read is written before the write instead, under a name the record keeps and nothing writes again."""
     name = path.resolve().relative_to(root().resolve()).parts[0]
     if (attempt := ATTEMPT.get()) is not None and attempt.name == name:
         raise DriveError(f"{path} was published inside a write of {name}, before its commit: publish it by after")
+    rev, mark = COMMITTED.get(), path.with_name(f".{path.name}.rev")
     with flocked(path.with_name(f".{path.name}.lock")):
-        if current(load(name)):
-            fresh = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        if rev is not None and mark.exists() and int(mark.read_text()) > rev or not current(load(name)):
+            return []
+        fresh = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        if isinstance(text, bytes):
+            fresh.write_bytes(text)
+        else:
             fresh.write_text(text)
-            fresh.replace(path)
+        if mode is not None:
+            fresh.chmod(mode)
+        fresh.replace(path)
+        if rev is not None:
+            mark.write_text(f"{rev}\n")
     return []
 
 

@@ -2714,11 +2714,11 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
         for each in data["jobs"].values():
             each["questions"] = [other for other in each["questions"] if not any(other is gone for gone in replaced)]
         job["questions"].append(question)
-        def written() -> list[str]:
+        hashed = question["hash"]
+        if name in state.BATCHED:
             kept.write_text(text)
-            return []
-
-        written() if name in state.BATCHED else state.after_save(name, written)
+        else:
+            state.after_save(name, lambda: state.publish(kept, text, lambda data: any(other["file"] == str(kept) and other["hash"] == hashed for each in data["jobs"].values() for other in each["questions"])))
         return kept, question
 
     kept, question = state.update(name, None, ask_kept)
@@ -3557,9 +3557,14 @@ def keep_repro(name: str, job_id: str, kind: str, source: str) -> str:
 
     def copied() -> list[str]:
         kept.parent.mkdir(exist_ok=True)
-        if not kept.exists() or not kept.samefile(path):
-            shutil.copy(path, kept)
-        state.pin_interpreter(kept)
+        if kept.exists() and kept.samefile(path):
+            state.pin_interpreter(kept)
+            return []
+        staged = kept.with_name(f".{kept.name}.{os.getpid()}.pin")
+        shutil.copy(path, staged)
+        state.pin_interpreter(staged)
+        state.publish(kept, staged.read_bytes(), lambda data: any(str(kept) in (job.get("repro"), *(job.get("repros") or {}).values()) for job in data["jobs"].values()), staged.stat().st_mode & 0o7777)
+        staged.unlink()
         return []
 
     state.after_save(name, copied)
@@ -3743,8 +3748,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
     def kept() -> list[str]:
         scratch.mkdir(parents=True, exist_ok=True)
         written.parent.mkdir(exist_ok=True)
-        written.write_text(text)
-        return []
+        return state.publish(written, text, lambda data: (job := data["jobs"].get(job_id)) is not None and (job.get("brief"), job.get("brief_flags")) == (str(written), flags))
 
     def briefed(data: dict) -> bool | None:
         if data["jobs"][job_id].get("brief_flags") != over:
