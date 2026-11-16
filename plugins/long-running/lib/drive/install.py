@@ -1548,17 +1548,17 @@ def reload_session(drive: str, seat: str, terminals: list[dict], force: bool) ->
     with open(path, "a") as handle:
         if not state.taken(handle, 0):
             return f"{who}: pending, as the process holding its reload lock ({state.holders(path)}) types {orca.RELOAD} into {terminal} once its turn ends"
-    pid = state.detach(drive, ["reload", "--seat", seat, *(["--force"] if force else [])], RELOADS_LOG)
+    pid = state.detach(drive, ["reload", "--seat", seat, "--terminal", terminal, *(["--force"] if force else [])], RELOADS_LOG)
     return f"{who}: pid {pid} types {orca.RELOAD} into {terminal} once its turn ends, said in {state.drive_dir(drive) / RELOADS_LOG}"
 
 
-def reload_seat(drive: str, seat: str, force: bool) -> None:
+def reload_seat(drive: str, seat: str, force: bool, terminal: str | None) -> None:
     """`drive reload --seat`: reload the seat's session onto the newest plugin install as the one process typing into its terminal, then again for each install that landed before that reload showed, printing a line for each, unforced only once its hour since the last reload is up, by reload_held, marking the install held for the watch until then; nothing once another process holds the terminal's reload lock, which does the same, or once a reload fails, which the next install tries again. What is left to load is read again each time the lock is let go, so an install that found it held while this process found nothing left is still reloaded."""
     while force or reloaded_onto(drive, seat) < newest_update()[0]:
         if not force and reload_held(drive, seat):
             hold_reload(drive, seat)
             return
-        if not (said := held_reload(drive, seat, force)):
+        if not (said := held_reload(drive, seat, force, terminal)):
             return
         line, reloaded = said
         print(f"{state.stamp()} {drive} {seat}: {line}", flush=True)
@@ -1567,18 +1567,20 @@ def reload_seat(drive: str, seat: str, force: bool) -> None:
         force = False
 
 
-def held_reload(drive: str, seat: str, force: bool) -> tuple[str, bool] | None:
+def held_reload(drive: str, seat: str, force: bool, given: str | None) -> tuple[str, bool] | None:
     """Under the reload lock of the first Orca terminal the seat's session runs in, as one read of Orca and the process tree finds it, reload its session onto the newest plugin install, unless it already reloaded onto it and not forced; what it did and whether the session is reloaded, or None when another process holds the lock."""
     from drive import orca
 
     held = state.bound_sessions(state.saved(drive))[seat]
-    try:
-        terminals = orca.session_terminals([held["session"]])[held["session"]]
-    except orca.OrcaError as error:
-        return f"not reloaded, since Orca could not show the terminals it runs in ({error})", False
-    if not terminals:
-        return "in no Orca terminal, so nothing was typed", False
-    terminal = terminals[0]["handle"]
+    terminal = given
+    if not terminal:
+        try:
+            terminals = orca.session_terminals([held["session"]])[held["session"]]
+        except orca.OrcaError as error:
+            return f"not reloaded, since Orca could not show the terminals it runs in ({error})", False
+        if not terminals:
+            return "in no Orca terminal, so nothing was typed", False
+        terminal = terminals[0]["handle"]
     path = reload_lock(terminal)
     with open(path, "a") as handle:
         if not state.taken(handle, 0):
@@ -1774,10 +1776,10 @@ def reload_sessions(drives: list[str], force: bool) -> list[str]:
     return [reload_session(name, seat, found[held["session"]], force) for name, seat, held in seats]
 
 
-def reload_main(drive: str | None, seat: str | None, force: bool) -> int:
+def reload_main(drive: str | None, seat: str | None, force: bool, terminal: str | None = None) -> int:
     """`drive reload`: with --seat, the one process typing that seat's reload into its terminal; otherwise every session of the drive, or of every drive on this Mac, handed to that process now whatever installs reloaded it before."""
     if seat:
-        reload_seat(drive, seat, force)
+        reload_seat(drive, seat, force, terminal)
         return 0
     for line in reload_sessions([drive] if drive else state.names(), True):
         print(line)

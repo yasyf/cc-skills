@@ -880,7 +880,7 @@ def test_an_install_hands_each_drive_session_to_one_process_that_types_reload_pl
         f"demo communicator: {handed('demo', 'term_comm')}",
         f"demo coordinator: {handed('demo', 'term_coord')}",
     ]
-    assert git.detached == [["reload", "--seat", "communicator", "--drive", "demo"], ["reload", "--seat", "coordinator", "--drive", "demo"]]
+    assert git.detached == [["reload", "--seat", "communicator", "--terminal", "term_comm", "--drive", "demo"], ["reload", "--seat", "coordinator", "--terminal", "term_coord", "--drive", "demo"]]
     assert held(git, capsys) == [
         "demo communicator: reloaded onto long-running@skills 1.0.3 in term_comm",
         "demo coordinator: reloaded onto long-running@skills 1.0.3 in term_coord",
@@ -1158,7 +1158,7 @@ def test_drive_reload_types_reload_plugins_into_every_drive_session_an_install_a
     git = fake(["unused"], set())
     assert cli.main(["reload"]) == 0
     assert capsys.readouterr().out.splitlines() == [f"demo communicator: {handed('demo', 'term_comm')}", f"demo coordinator: {handed('demo', 'term_coord')}"]
-    assert git.detached == [["reload", "--seat", "communicator", "--force", "--drive", "demo"], ["reload", "--seat", "coordinator", "--force", "--drive", "demo"]]
+    assert git.detached == [["reload", "--seat", "communicator", "--terminal", "term_comm", "--force", "--drive", "demo"], ["reload", "--seat", "coordinator", "--terminal", "term_coord", "--force", "--drive", "demo"]]
     assert held(git, capsys) == [
         "demo communicator: reloaded onto long-running@skills 1.0.2 in term_comm",
         "demo coordinator: reloaded onto long-running@skills 1.0.2 in term_coord",
