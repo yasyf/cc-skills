@@ -4,6 +4,7 @@ Records carry work between the drive's sessions. Three things check a record the
 
 ## Which tool sends a record
 
+- A record goes to several lanes only for an incident or blocker naming each lane's step.
 - The drive's `record` tool sends a session's own `owner`, `answer`, `handoff` or `defect`. It picks the lane and addresses the session the record goes to.
 - Every other record, and any other from an agent, goes through cci's `post` tool. Sessions and agents post, read and close records with the cci MCP tools (`post`, `read`, `close`) while their cci server is connected, and `landing_guard` refuses `cci post` in Bash meanwhile. `cci post` in Bash is for a session whose cci server is gone.
 - The communicator sends every record with the `record` tool and makes no other cci call but `cci drive use`.
