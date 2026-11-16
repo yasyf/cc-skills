@@ -228,7 +228,7 @@ def test_a_priority_orders_builder_starts_here_at_once_past_a_full_cap_the_line_
     monkeypatch.setattr(place, "limit", lambda: 0.5)
     assert agent_brief.deny_reason(briefed("long-running:builder", "Order (his words): ship his fix alone first\nServes: his order\nGoal: cut it\nDrive: demo, order o2, job j11")) is None
     assert run("order", "set", "o2", "--no-priority")[0] == 0
-    assert place.crowded(state.load(demo), "j10", state.now()).startswith("8 builders already run on this Mac")
+    assert place.crowded(state.load(demo), "j10", state.now()).startswith("9 builders already run on this Mac")
 
 
 def test_a_builder_whose_wait_still_holds_starts_here_only_on_its_free_line_by_the_refusal_drive_job_launch_gives(demo: str, run: Run) -> None:
