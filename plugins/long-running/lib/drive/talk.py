@@ -343,7 +343,7 @@ def waiting_posts(name: str, data: dict, found: dict, moment: datetime) -> dict[
         own = words[held[""]["id"]]
         words[held[""]["id"]] = "\n".join([*index, *([] if own == NO_CARDS else ["", own])])
     if held and slack.dm() in data["slack"]["waiting"]:
-        words[slack.dm()] = NO_CARDS
+        words.setdefault(slack.dm(), NO_CARDS)
     return words
 
 

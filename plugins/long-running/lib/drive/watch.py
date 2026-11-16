@@ -1363,7 +1363,7 @@ def closed(watcher: Watcher, head: str, links: list[str], fix: str, moment: date
             data["orders"][order_id]["recovered"] = state.stamp(moment)
 
     state.update(watcher.name, None, recovered_write)
-    closes = "".join(talk.closed(watcher.name, order_id, seq, said.split()[1], live["text"]) for order_id in group) if said else ""
+    closes = "".join(talk.closed(watcher.name, order_id, seq) for order_id in group) if said else ""
     moved = f"; its live jobs, open PRs and parts left moved to the plain order {follow}" if follow else ""
     return [*lines, f"RECOVERED {head}: {f'{read_ok} and ' if links else ''}{fix}, so the watch posted its Live line{closes}{moved}"]
 
