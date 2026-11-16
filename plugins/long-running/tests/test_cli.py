@@ -18,7 +18,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import HomeBuild, HomeRepo, SelectRelease, provide, ACME_CUT, CARD_BODY, card_reads, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SEEDED_READER, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, Redraws, SessionLaunches, Thread, WatchProcess, Withdrawals, own_time
+from conftest import EnvsRelease, HomeBuild, HomeRepo, MonorepoRepo, SelectRelease, monorepo, provide, ACME_CUT, CARD_BODY, card_reads, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SEEDED_READER, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, Redraws, SessionLaunches, Thread, WatchProcess, Withdrawals, own_time
 from drive import (
     agents,
     brief,
@@ -921,7 +921,7 @@ def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_kept_with_a_no
     (clone / "tools" / "ci").write_text("")
     request, answer = tmp_path / "request.json", tmp_path / "answer.json"
     (checkout / "tools" / "ci").write_text(FAKE_SELECT.format(request=request, answer=answer))
-    provide(monkeypatch, checkout, repo=HomeRepo, release=SelectRelease)
+    provide(monkeypatch, checkout, repo=MonorepoRepo, release=SelectRelease)
     (checkout / "tools" / "ci").chmod(0o755)
     answer.write_text(json.dumps({"components": ["executor", "cloudrunner-next", "sand-next", "k8s"], "touched": ["cloudrunner-next", "sand-next"], "dev": [], "releases": ["cloudrunner-next", "sand-next"], "staged": ["cloudrunner-next", "sand-next"]}))
     monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo" if cwd == str(clone) else pytest.fail(cwd))
@@ -1403,6 +1403,7 @@ def test_incident_freeze_freezes_the_service_for_twelve_hours_from_the_drives_ch
     monkeypatch.setattr(cli.reads, "run", recorded(calls))
     checkout = tmp_path / "drive-demo"
     monkeypatch.setattr(orca, "checkout", lambda name, cwd, wait=0: checkout if cwd == str(tmp_path) else pytest.fail(cwd))
+    provide(monkeypatch, checkout, release=EnvsRelease)
     run("incident", "open", "SandSQL release 60 failed on plat", "--release", *FILED)
     code, said = run("incident", "freeze", "o1", "sandsql")
     freeze = calls[-1]
@@ -4120,6 +4121,7 @@ def test_job_ask_prints_each_release_note_in_its_range_jev_reads_as_speaking_to_
     ])
 
 
+@pytest.mark.usefixtures("envs_release")
 def test_job_ask_draws_a_cited_answer_whose_order_the_recommended_option_starts_by_the_release_gates_own_reading_as_his_cards_already_answered_tap(
     run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], recorded: Answers
 ) -> None:
@@ -6681,6 +6683,7 @@ def test_a_builders_pushed_naming_a_monorepo_pr_on_its_staging_test_gives_its_on
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     key, part, cases = "Forge-AI/monorepo#42", state.STAGING_TEST.format(number=42), "run the migration twice and roll it back on plat-usw2-staging"
     reaching(monkeypatch, key)
+    monorepo(monkeypatch, Path())
     for url in (PR, STACKED):
         assert run("pr", "add", url, "--job", "j1", *LEAD)[0] == 0
     on_part = f"{key} waits on its staging test before it lands, since its paths reach a component staging runs, so no `STAGING: none` line stands for it"
@@ -6704,7 +6707,7 @@ def test_a_builders_pushed_naming_a_monorepo_pr_on_its_staging_test_gives_its_on
     assert [event["line"] for event, _ in state.read_events("demo") if event["kind"] == state.RETURNED and tester_id in event["line"]] == [f'{tester_id} builder on "{part}": the watch starts its agent on its brief {tester["brief"]}, so start no agent for it; drive job resume reaches it']
     assert run("job", "brief", tester_id)[0] == 0
     written = Path(state.load("demo")["jobs"][tester_id]["brief"]).read_text()
-    assert (f"Staging: {cli.STAGING_MAC.format(drive='demo')}" in written, "\nMac:" in written, "`drive slot claim plat-usw2-staging --job" in written, "staging-slots" in written) == (True, False, True, False)
+    assert (f"Staging: {cli.STAGING_MAC.format(env='plat-usw2-staging')}" in written, "\nMac:" in written, "`drive slot claim plat-usw2-staging --job" in written, "staging-slots" in written) == (True, False, True, False)
     assert place.mac_step(written) is None
     assert ('"incident": "true"' in written, "Researched:" in written) == (True, False)
 
@@ -6798,7 +6801,7 @@ def test_a_tester_a_builders_staging_line_adds_is_briefed_on_its_builders_mac_st
     part, at = state.STAGING_TEST.format(number=42), render.when(data["prs"][with_pr]["tap"]["at"])
     assert f'{tester_id} builder on {json.dumps(part)}: the watch starts its agent on its brief {tester["brief"]}, so start no agent for it; drive job resume reaches it' in out
     written = Path(tester["brief"]).read_text()
-    assert (f"\nMac: {mac}\n" in written, cli.STAGING_MAC in written, tester["brief_flags"]["mac"]) == (True, False, mac)
+    assert (f"\nMac: {mac}\n" in written, "drive slot claim" in written, tester["brief_flags"]["mac"]) == (True, False, mac)
     assert f"; he tapped Approve on {with_pr} at {at}, head 3fd9f47986fa{cli.STAGING_APPROVED}\n" in written
 
 
@@ -6828,6 +6831,7 @@ def test_a_staging_testers_brief_runs_a_dashboard_prs_cases_on_a_mac_box_at_the_
 
     monkeypatch.setattr(github, "run", answered)
     monkeypatch.setattr(orca, "checkout", lambda name, cwd, wait=0: tmp_path)
+    monorepo(monkeypatch, tmp_path)
     for touched, boxed, own in ((["api"], False, False), (["dashboard"], True, False), (["dashboard", "sand-next"], True, True), (["dashboard", "iris-desktop"], True, True)):
         monkeypatch.setattr(cli, "release_reach", lambda name, data, keys, touched=touched: {key: {"touched": touched} for key in keys})
         assert run("job", "brief", tester_id)[0] == 0
@@ -8033,8 +8037,9 @@ def test_an_exempt_class_its_files_are_outside_is_refused_by_the_landers_class_c
 
 
 def test_a_pr_he_opened_changing_only_ci_files_registers_ci_only_from_its_paths_and_draws_no_card_while_any_other_file_someone_elses_pr_or_a_tracked_pr_keeps_his_tap(
-    run: Run, demo: str, on_github: dict, draws: Draws
+    run: Run, demo: str, on_github: dict, draws: Draws, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    provide(monkeypatch, Path(), repo=MonorepoRepo)
     run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it and https://github.com/Forge-AI/monorepo/pull/45")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     ci = ["go/ci/image.go", "infra/ci/src/pipelines/test/images.ts", ".buildkite/pipeline.yml", "tools/ci"]
@@ -8711,7 +8716,8 @@ def test_job_brief_drops_each_flag_given_an_empty_value_and_names_it_so_a_done_m
     assert (said.splitlines()[0].endswith("; dropped from its earlier brief: --mac"), place.mac_step(written.read_text())) == (True, None)
 
 
-def test_declared_step_reads_the_mac_step_a_jobs_next_brief_renders_from_its_flags_never_the_brief_a_resume_left_it_on(run: Run, demo: str, tmp_path: Path) -> None:
+def test_declared_step_reads_the_mac_step_a_jobs_next_brief_renders_from_its_flags_never_the_brief_a_resume_left_it_on(run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monorepo(monkeypatch, tmp_path)
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "watch for stuck jobs")
     run("job", "add", "builder", "--order", "o1", "--goal", "build the watchdog", "--remote")
     step = "tools/ci mac-box prove --commit f3163cd03c48"

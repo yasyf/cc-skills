@@ -1500,6 +1500,7 @@ PREBUILT = json.dumps({"branch": "releases/prebuild-20261116T080000Z", "commit":
 STAGED_START = "tools/ci release start platform --from a6f826f --emergency --env plat-usw2-staging,plat-usw2-sandbox"
 
 
+@pytest.mark.usefixtures("envs_release")
 def test_a_start_on_staging_kicks_off_the_prebuild_of_its_commit_and_keeps_its_build_on_the_job_while_a_production_start_kicks_off_none_and_a_failed_kick_off_keeps_the_release(
     demo: str, run: Run, no_calls: list[list[str]], recorded: Answers, jev: Jev, release_starts: list[list[str]]
 ) -> None:
@@ -2238,6 +2239,7 @@ def test_the_clock_release_starts_on_his_picks_of_how_when_and_with_what_it_ship
     )
 
 
+@pytest.mark.usefixtures("envs_release")
 def test_his_number_on_a_kept_card_orders_the_release_its_option_names_on_the_places_his_words_past_it_name_and_no_other_release_with_no_jev_read(
     demo: str, run: Run, recorded: Answers, jev: Jev
 ) -> None:
@@ -2306,6 +2308,7 @@ SOAK_PICK = {
 SOAK = "tools/ci release start {targets} --from 216f90221a4708e2f694823ea207ae738992e829 --emergency --env {env} --order {order}"
 
 
+@pytest.mark.usefixtures("envs_release")
 def test_his_number_on_a_kept_card_orders_the_release_its_option_names_in_prose_with_no_jev_read_and_jev_reads_any_release_past_its_words(
     demo: str, run: Run, recorded: Answers, jev: Jev
 ) -> None:
@@ -2360,6 +2363,7 @@ targets:
 """
 
 
+@pytest.mark.usefixtures("envs_release")
 def test_his_all_to_a_question_listing_releases_orders_each_listed_release_in_code_and_jev_reads_one_mixing_them(demo: str, run: Run, recorded: Answers, jev: Jev) -> None:
     answered_cut(run, demo, [CUT_PICK])
     data = state.load(demo)
@@ -2430,6 +2434,7 @@ REHEARSALS = (
 )
 
 
+@pytest.mark.usefixtures("envs_release")
 def test_a_release_on_staging_or_sandbox_alone_runs_under_his_hold_with_no_order_and_no_jev_read_and_one_reaching_past_them_waits_on_his_word(
     demo: str, run: Run, recorded: Answers, jev: Jev
 ) -> None:
@@ -2499,6 +2504,7 @@ SANDBOX_TESTS = {
 }
 
 
+@pytest.mark.usefixtures("envs_release")
 def test_jev_reads_a_stack_release_on_the_places_its_stacks_name_so_a_production_stack_reads_as_production(demo: str, run: Run, recorded: Answers, jev: Jev) -> None:
     answered_cut(run, demo, [STANDING_SOAK], STANDING_SOAK_CARD)
     with state.edit(demo) as data:
@@ -2542,6 +2548,7 @@ WHERE_PICK = {
 }
 
 
+@pytest.mark.usefixtures("envs_release")
 def test_a_staging_release_for_production_starts_on_his_pick_of_the_production_release_it_tests_wherever_that_goes_and_never_one_shipping_more_with_no_jev_read(
     demo: str, run: Run, recorded: Answers, jev: Jev
 ) -> None:
@@ -2563,6 +2570,7 @@ def test_a_staging_release_for_production_starts_on_his_pick_of_the_production_r
     assert brief.tested_release("cd /work && tools/ci release start platform --env=plat-gbl-staging,plat-usw2-staging --for-production --from afb881f92076") == "tools/ci release start platform --from afb881f92076"
 
 
+@pytest.mark.usefixtures("envs_release")
 def test_his_standing_yes_to_soak_and_his_words_to_test_on_staging_order_no_staging_release_for_production_and_jev_reads_his_other_words_against_the_production_release_it_tests(
     demo: str, run: Run, recorded: Answers, jev: Jev
 ) -> None:
@@ -2617,6 +2625,7 @@ def test_a_stack_names_its_project_as_a_target_and_its_env_as_a_place_beside_env
     }
 
 
+@pytest.mark.usefixtures("envs_release")
 def test_his_words_past_the_number_order_only_the_places_they_name(demo: str, run: Run, recorded: Answers) -> None:
     answered_cut(run, demo, [CUT_PICK])
     recorded.shown = {"5d17d9c": CUT_PICK}
