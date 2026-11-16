@@ -11219,6 +11219,7 @@ def test_an_incident_closes_once_its_monitor_reads_ok_and_its_merged_fix_pr_runs
         data["orders"]["o2"] = order(text="also the migration check should not stop a sand that can read", jobs=[], incident=True, joins="o1", parts={"the migration check": state.new_part()})
     watching = watcher(demo)
     lines = [line for line in watch.run_pass(watching, T0) if line.startswith("RECOVERED")]
+    watch.quiet_lines(watching, T0)
     data = state.load(demo)
     searches = [argv for argv in calls if argv[0] == "pup"]
     assert [argv[argv.index("--query") + 1] for argv in searches] == ["id:(315028134)"] * (live and part == "fix")
@@ -11256,9 +11257,11 @@ def test_an_incident_closes_once_its_monitor_reads_ok_and_its_merged_fix_pr_runs
     assert view.incidents(data) == []
     monkeypatch.setattr(watch.agents, "handle", lambda name, brief, **_: ("h1", False))
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=1)) if line.startswith("RECOVERED")]
+    watch.quiet_lines(watching, T0 + timedelta(minutes=1))
     assert ready_records[1:] == []
     reads[OTHER] = read(headRefOid="bbbbbbb222", checks=GREEN)
     watch.run_pass(watching, T0 + state.QUIET_THREAD)
+    watch.quiet_lines(watching, T0 + state.QUIET_THREAD)
     assert ([argv[1:3] if argv[0] != "pup" else ["pup"] for argv in calls], [records[0]["attr"] for records in ready_records[1:]]) == (
         [["release", "live"], ["pup"]],
         [{"order": "o3", "progress": "true", "quiet": "true", "thread": "1794200000.000100"}],
