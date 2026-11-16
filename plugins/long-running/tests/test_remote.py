@@ -1420,11 +1420,16 @@ def test_a_resume_from_another_session_posts_the_text_to_the_session_that_starte
     pointer = 'j1: owed, send it now: SendMessage a0b74915bac29cf3e "Read cci record 7 whole and act on it"'
     assert run("job", "resume", "j1", text) == (
         0,
-        f"j1: posted to agent a0b74915bac29cf3e's cci address as handoff record 7, and to platform@{demo}, whose SendMessage alone reaches it: {pointer}",
+        f"j1: posted to agent a0b74915bac29cf3e's cci address and to platform@{demo} as handoff record 7, its sendmessage attr naming the agent whose SendMessage alone reaches it: {pointer}",
     )
-    [(lane, record), (told, line)] = posted
-    assert (lane, record["kind"], record["to"], record["attr"], record["body"]) == ("j1", "handoff", ["peer:platform-1/a0b74915bac29cf3e"], {"order": "o1", "job": "j1"}, text)
-    assert (told, line, len(line["text"]) < 120) == ("j1", {"kind": "handoff", "to": [f"platform@{demo}"], "attr": {"order": "o1", "job": "j1"}, "text": pointer}, True)
+    [(lane, record)] = posted
+    assert (lane, record["kind"], record["to"], record["attr"], record["body"]) == (
+        "j1",
+        "handoff",
+        ["peer:platform-1/a0b74915bac29cf3e", f"platform@{demo}"],
+        {"order": "o1", "job": "j1", "sendmessage": "a0b74915bac29cf3e"},
+        text,
+    )
     assert (state.drive_dir(demo) / "jobs" / "j1.sent-7.md").read_text() == text
     job = state.load(demo)["jobs"]["j1"]
     assert (job["agent"], job["session"], job["undelivered"], job.get("handoff")) == ("a0b74915bac29cf3e", "platform-1", [], None)
@@ -1435,7 +1440,7 @@ def test_a_resume_from_another_session_posts_the_text_to_the_session_that_starte
     )
 
 
-def test_a_resume_of_an_agent_the_communicator_started_posts_his_words_whole_to_that_agent_and_the_communicator_only_the_sendmessage_pointing_there(
+def test_a_resume_of_an_agent_the_communicator_started_posts_his_words_whole_in_one_record_to_that_agent_and_the_communicator(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     words = "Ring: ship the lighter card"
@@ -1453,9 +1458,9 @@ def test_a_resume_of_an_agent_the_communicator_started_posts_his_words_whole_to_
     pointer = 'j1: owed, send it now: SendMessage a3c1d2e4f5a6b7c8d "Read cci record 8 whole and act on it"'
     assert run("job", "resume", "j1", words) == (
         0,
-        f"j1: posted to agent a3c1d2e4f5a6b7c8d's cci address as handoff record 8, and to communicator@{demo}, whose SendMessage alone reaches it: {pointer}",
+        f"j1: posted to agent a3c1d2e4f5a6b7c8d's cci address and to communicator@{demo} as handoff record 8, its sendmessage attr naming the agent whose SendMessage alone reaches it: {pointer}",
     )
-    assert [(lane, post["to"], post["text"]) for lane, post in posted] == [("root", ["peer:talker/a3c1d2e4f5a6b7c8d"], words), ("root", [f"communicator@{demo}"], pointer)]
+    assert [(lane, post["to"], post["text"]) for lane, post in posted] == [("root", ["peer:talker/a3c1d2e4f5a6b7c8d", f"communicator@{demo}"], words)]
     assert state.load(demo)["jobs"]["j1"]["undelivered"] == []
     with state.edit(demo) as data:
         data["jobs"]["j1"]["state"] = "built"
@@ -1517,9 +1522,9 @@ def test_a_resume_with_no_text_from_another_session_posts_the_held_text_to_the_a
     pointer = 'j1: owed, send it now: SendMessage a3c1d2e4f5a6b7c8d "Read cci record 8 whole and act on it"'
     assert run("job", "resume", "j1") == (
         0,
-        f"j1: posted to agent a3c1d2e4f5a6b7c8d's cci address as handoff record 8, and to communicator@{demo}, whose SendMessage alone reaches it: {pointer}",
+        f"j1: posted to agent a3c1d2e4f5a6b7c8d's cci address and to communicator@{demo} as handoff record 8, its sendmessage attr naming the agent whose SendMessage alone reaches it: {pointer}",
     )
-    assert [(lane, post["to"], post["text"]) for lane, post in posted] == [("root", ["peer:talker/a3c1d2e4f5a6b7c8d"], words), ("root", [f"communicator@{demo}"], pointer)]
+    assert [(lane, post["to"], post["text"]) for lane, post in posted] == [("root", ["peer:talker/a3c1d2e4f5a6b7c8d", f"communicator@{demo}"], words)]
     assert state.load(demo)["jobs"]["j1"]["undelivered"] == []
 
 
