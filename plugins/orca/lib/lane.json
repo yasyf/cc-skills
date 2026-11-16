@@ -37,7 +37,9 @@
       "type": "command",
       "command": "exit 0"
     },
-    "terminalProgressBarEnabled": false
+    "terminalProgressBarEnabled": false,
+    "bashOutputMaxChars": 6000,
+    "outputStyle": "default"
   },
   "deniedTools": [
     "AskUserQuestion",
