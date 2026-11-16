@@ -825,7 +825,7 @@ def replay(name: str) -> list[str]:
 def has_close_reports(name: str) -> bool:
     """Whether an open order holds a close report, read through its pending index without loading the drive."""
     with closing(connect(database_path(name).resolve(strict=True))) as db:
-        return db.execute("SELECT 1 FROM rows WHERE collection = 'orders' AND json_type(body, '$.close_report') = 'object' AND json_extract(body, '$.state') NOT IN ('done', 'dropped') LIMIT 1").fetchone() is not None
+        return db.execute("SELECT 1 FROM rows WHERE collection = 'orders' AND json_type(body, '$.close_report') = 'object' AND json_extract(body, '$.state') NOT IN ('done', 'dropped') ORDER BY place LIMIT 1").fetchone() is not None
 
 
 def owed(name: str, job_id: str) -> list[dict]:
