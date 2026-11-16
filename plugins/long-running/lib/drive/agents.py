@@ -456,8 +456,11 @@ def start_posts(name: str, moment: datetime) -> None:
     since = seeded(name) if data["posts"]["mark"] is None else data["posts"]["mark"]
     read, newest = posts(name, since)
     if not read:
-        with state.edit(name) as data:
+        def start_posts_write(data: dict):
             data["posts"]["mark"] = newest
+            return data
+
+        data = state.update(name, None, start_posts_write)
         return
     data = state.load(name)
     owed = {reply["ts"] for reply in slack.owed(beside(data)[1]["session"])}
@@ -681,11 +684,13 @@ def release_quiet(name: str) -> None:
     stale = [key for key, kept in data["routes"].items() if not fresh(kept) or kept["handler"] in quiet or kept["handler"] not in data["handlers"]]
     if not stale and not quiet:
         return
-    with state.edit(name) as data:
+    def release_quiet_write(data: dict):
         for key in stale:
             data["routes"].pop(key, None)
         for handler_id in quiet & set(data["handlers"]):
             data["handlers"][handler_id]["topics"] = []
+
+    state.update(name, None, release_quiet_write)
 
 
 def new_handler(brief: str | None, held: dict | None, handed: list[str]) -> dict:
@@ -739,8 +744,10 @@ def wake(name: str, handler: str, prompt: str) -> None:
     subprocess.run(["claude", "stop", own], cwd=kept["cwd"], capture_output=True, check=False)
     resumed = launched(backgrounded(["claude", "--bg", "--resume", session, prompt], Path(kept["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"}))
     if resumed != session:
-        with state.edit(name) as data:
+        def wake_write(data: dict):
             data["handlers"][handler]["session"] = resumed
+
+        state.update(name, None, wake_write)
         subprocess.Popen(["claude", "rm", own], cwd=kept["cwd"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
@@ -754,8 +761,10 @@ def warm(name: str) -> str | None:
     if len(pool(data)) >= pool_size() or not place.admission(data, None, "handlers", state.now()):
         return None
     handler_id = uuid.uuid4().hex[:8]
-    with state.edit(name) as data:
+    def warm_write(data: dict):
         data["handlers"][handler_id] = new_handler(None, None, [])
+
+    state.update(name, None, warm_write)
     kept = brief_path(name, handler_id)
     kept.parent.mkdir(parents=True, exist_ok=True)
     kept.write_text(WARM.format(drive=name))
@@ -1007,8 +1016,10 @@ def resume_job(name: str, job_id: str, bg: dict, text: str) -> None:
         subprocess.run(["claude", "stop", found[0]], cwd=bg["cwd"], capture_output=True, check=False)
     resumed = launched(reads.run(["claude", "--bg", "--resume", bg["session"], text], Path(bg["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"}))
     if resumed != bg["session"]:
-        with state.edit(name) as data:
+        def resume_job_write(data: dict):
             data["jobs"][job_id]["bg"]["session"] = resumed
+
+        state.update(name, None, resume_job_write)
         if found:
             subprocess.Popen(["claude", "rm", found[0]], cwd=bg["cwd"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
@@ -1037,9 +1048,12 @@ def take_pointed(name: str, job_id: str) -> list[str]:
     """Take the pointer lines a job's own session has not been handed yet, each naming a cci record a resume posted to its address while its turn ran, for its next step or its stop to hand it."""
     if not (state.saved_row(name, "jobs", job_id).get("bg") or {}).get("pointed"):
         return []
-    with state.edit(name) as data:
+    def take_pointed_write(data: dict):
         bg = data["jobs"][job_id]["bg"]
         pointed, bg["pointed"] = bg["pointed"], []
+        return pointed
+
+    pointed = state.update(name, None, take_pointed_write)
     return pointed
 
 
@@ -1350,8 +1364,10 @@ def resume(payload: dict) -> str | None:
         return None
     since = datetime.now(UTC)
     if "handler_session" in handler:
-        with state.edit(names[0]) as data:
+        def resume_write(data: dict):
             data["handlers"][handler["agent_id"]]["resumes"] = state.stamp(since + timedelta(minutes=OUTAGE_WAITS[tries]))
+
+        state.update(names[0], None, resume_write)
     time.sleep(OUTAGE_WAITS[tries] * 60)
     if any(state.parse_time(row["timestamp"]) > since for row in tail(transcript) if row["type"] in ("user", "assistant")):
         return None
@@ -1369,9 +1385,11 @@ def restart_handler(name: str, payload: dict) -> None:
     kept = brief_path(name, payload["agent_id"])
     kept.parent.mkdir(parents=True, exist_ok=True)
     kept.write_text(opening(Path(payload["agent_transcript_path"])))
-    with state.edit(name) as data:
+    def restart_handler_write(data: dict):
         entry = data["handlers"][payload["agent_id"]]
         entry.update(session=None, started=state.stamp(), handed=[*entry["took"], *entry["handed"]], took=[])
+
+    state.update(name, None, restart_handler_write)
     state.detach(name, ["handler-start", payload["agent_id"]], "handlers.log")
     remove_session(name, payload)
 
@@ -1476,7 +1494,7 @@ def hold(payload: dict) -> None:
     returned = known["jobs"][job_id]["state"] != "running" and bool(known["jobs"][job_id]["returned"])
     if returned and not (resumed := woken(payload, known["jobs"][job_id])):
         return
-    with state.edit(names[0]) as data:
+    def hold_write(data: dict):
         if free(names[0], data, job_id, payload["agent_id"]):
             job = data["jobs"][job_id]
             job.update(agent=payload["agent_id"], where="local", session=payload["session_id"], undelivered=[], launching=None)
@@ -1484,3 +1502,5 @@ def hold(payload: dict) -> None:
                 job["resumed"] = state.stamp(resumed.astimezone())
             state.start(job)
             superseded.hear(data, job_id, prompt, state.parse_time(opening_row(transcript_of(payload))["timestamp"]))
+
+    state.update(names[0], None, hold_write)

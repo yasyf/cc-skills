@@ -1169,9 +1169,11 @@ def followed(drive: str, job_id: str, job: dict, shown: dict) -> dict:
         if not reached:
             continue
         lane = {"dispatch": task["dispatchId"], **run_of(opened)}
-        with state.edit(drive) as data:
+        def followed_write(data: dict):
             if data["jobs"][job_id].get("dispatch") == job["dispatch"]:
                 data["jobs"][job_id].update(lane)
+
+        state.update(drive, None, followed_write)
         job.update(lane)
         return opened
     return shown

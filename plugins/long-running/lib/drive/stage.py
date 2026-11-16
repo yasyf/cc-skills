@@ -477,7 +477,7 @@ def waking(since: str | None, moment: datetime) -> bool:
 
 def mark_woken(name: str, marks: list[str], at: str) -> None:
     """Write, once a drive pr wake delivered its line, each mark the watch asked for it, dated at, the moment of the pass that asked: `stage:<PR>`, the PR's stage woken then; `objected:<PR>@<head>`, its check's objection told at that head; `main:<repo>@<test>`, the owner of a test its merge broke on main woken then."""
-    with state.edit(name) as data:
+    def mark_woken_write(data: dict):
         for mark in marks:
             kind, _, what = mark.partition(":")
             if kind == "stage" and (kept := data["prs"][what]["stage"]):
@@ -489,3 +489,5 @@ def mark_woken(name: str, marks: list[str], at: str) -> None:
                 repo, _, test = what.partition("@")
                 if kept := data["mains"].get(repo, {}).get(test):
                     kept.update(woke=at, waking=None)
+
+    state.update(name, None, mark_woken_write)

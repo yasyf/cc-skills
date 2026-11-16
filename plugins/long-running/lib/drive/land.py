@@ -399,11 +399,13 @@ def answer_picks(name: str, keys: list[str]) -> list[str]:
             failed.append(f'his Approve on {taps[0][0]} picking "{pick["option"]}" on {pick["url"]}: {error}')
     if not seqs:
         return failed
-    with state.edit(name) as data:
+    def answer_picks_write(data: dict):
         for wait, seq in seqs.items():
             for key, tap in owed[wait]:
                 if (now := data["prs"][key]["tap"]) and now["at"] == tap["at"]:
                     now["picks"][wait]["seq"] = seq
+
+    state.update(name, None, answer_picks_write)
     superseded.follow(name, [(job_id, question) for job_id, question in view.drawn_on(state.load(name), *seqs) if (question["closed"] or {}).get("seq") in seqs.values()])
     return failed
 
@@ -778,9 +780,12 @@ def merged(name: str, key: str, method: str, flags: list[str], past: str = "") -
     except github.GithubError as error:
         return f"{OWN_FAILURE} read {key} back from GitHub after {' '.join(MERGE)} said it merged, so nothing was installed: {cut(str(error), SAID_CHARS)}; the next watch pass reads it"
     landed = github.landing(reads[key])
-    with state.edit(name) as data:
+    def merged_write(data: dict):
         data["prs"][key].update(landed, updated=state.stamp())
         urgent = hotfix(data, data["prs"][key])
+        return urgent
+
+    urgent = state.update(name, None, merged_write)
     if landed["state"] != "merged":
         return f"not landed: GitHub reads it {landed['state']} after {' '.join(MERGE)} said it merged, so nothing was installed"
     sha = landed["merged_sha"]

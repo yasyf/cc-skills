@@ -189,9 +189,11 @@ def request_key(name: str, known: dict, post: dict, report: dict) -> str | None:
 
 def awaiting(name: str, job_id: str, link: str) -> str:
     """Keep the job waiting on the reply to the question a post at link asked a teammate for it, which the watch reads each minute until the first message after it from anyone but the drive and a bot frees the job."""
-    with state.edit(name) as data:
+    def awaiting_write(data: dict):
         job = data["jobs"][job_id]
         job["waits"] = list(dict.fromkeys([*job["waits"], f"reply:{link}"]))
+
+    state.update(name, None, awaiting_write)
     return f"{job_id} waits on the reply to it"
 
 
@@ -573,8 +575,10 @@ def posted(name: str, post: dict, order: str | None = None, receipt: dict | None
     for place in [place for place in rest if place[0] in operators]:
         linked(name, data, reply, place, stack, refs.slack(words, found, place[1]), label, kept, post.get("request_key"))
     if stack:
-        with state.edit(name) as data:
+        def posted_write(data: dict):
             state.join_pr_cards(data, stack, [reply.get("card_permalink")], state.stamp())
+
+        state.update(name, None, posted_write)
     for place in [place for place in rest if place[0] not in operators]:
         reply |= {"permalink": carried(name, reply, place, post, refs.slack(words, found, place[1]), label, kept, stack)}
     return reply
@@ -600,9 +604,11 @@ def answered_ts(data: dict, post: dict) -> list[str]:
 
 def keep_line(name: str, thread: str, link: str, sent: str) -> None:
     """Keep a post in a thread as the line that thread holds about each card of his its words link, on each question drawn on that card, by the thread, an edit's words in its post's place: `drive job set --told` reads the line it names."""
-    with state.edit(name) as data:
+    def keep_line_write(data: dict):
         for _, question in view.drawn_on(data, *view.SLACK_TS.findall(sent)):
             question["told"][thread] = {"link": link, "words": sent}
+
+    state.update(name, None, keep_line_write)
 
 
 def channel_for(name: str, data: dict, project: str | None) -> str:

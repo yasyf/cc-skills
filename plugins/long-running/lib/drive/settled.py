@@ -573,10 +573,12 @@ def note_cards(name: str) -> None:
         if (closed := question["closed"]) and closed["how"] == "answered" and closed["words"] and not (closed["answer"] or closed["ruling"] or closed["noted"]) and (question["card"] or question["waits"] or closed["seq"])
         and closed["words"] != "\n".join(dict.fromkeys(answer["words"] for answer in question["recorded"]))
     ]
-    with state.edit(name) as data:
+    def note_cards_write(data: dict):
         for job_id, question, answer_id in noted:
             state.question_in(data["jobs"][job_id], question)["closed"]["noted"] = answer_id
         data[state.CARDS_NOTED] = True
+
+    state.update(name, None, note_cards_write)
 
 
 def supersede(pick: str, answer_id: str, cwd: str) -> None:

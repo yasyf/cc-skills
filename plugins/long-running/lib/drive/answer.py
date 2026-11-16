@@ -157,9 +157,11 @@ def drop_handed(name: str, link: str) -> None:
     from drive import agents
 
     ts = state.slack_message(link)[1]
-    with state.edit(name) as data:
+    def drop_handed_write(data: dict):
         for entry in data["handlers"].values():
             entry["handed"] = [brief for brief in entry["handed"] if not (agents.HIS_WORDS in brief and (found := agents.LINK.search(brief)) and (named := state.slack_message(found[1])) and named[1] == ts)]
+
+    state.update(name, None, drop_handed_write)
 
 
 def claim_path(name: str, ts: str) -> Path:

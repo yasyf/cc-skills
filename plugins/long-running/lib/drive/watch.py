@@ -408,8 +408,11 @@ def dangerous_lines(watcher: Watcher, moment: datetime) -> list[str]:
     except github.GithubError as error:
         return read_failed(watcher, "changed files", error, moment)
     watcher.failures.pop("changed files", None)
-    with state.edit(watcher.name) as data:
+    def dangerous_lines_write(data: dict):
         added = {key: tester for key, (head, paths) in read.items() if key in data["prs"] and (tester := state.mark_dangerous(data, key, head, paths))}
+        return added, data
+
+    added, data = state.update(watcher.name, None, dangerous_lines_write)
     return [f"PR {key}: {line} {ids(data['prs'][key])}" for key, tester in added.items() for line in render.builder_lines(watcher.name, data, [tester])]
 
 
@@ -426,9 +429,12 @@ def reach_lines(watcher: Watcher, moment: datetime) -> list[str]:
     except (state.DriveError, github.GithubError) as error:
         return read_failed(watcher, "release reach", error, moment)
     watcher.failures.pop("release reach", None)
-    with state.edit(watcher.name) as data:
+    def reach_lines_write(data: dict):
         lifted = {key: state.unreach(data, key) for key in keys if key in reach and not reach[key]["releases"] and data["prs"][key]["reached"]}
         data["reaches_narrowed"] = True
+        return data, lifted
+
+    data, lifted = state.update(watcher.name, None, reach_lines_write)
     lines = []
     for key, stopped in lifted.items():
         ended = f", and {', '.join(stopped)} stopped" if stopped else ""
@@ -609,9 +615,11 @@ def dropped_lines(watcher: Watcher, foreign: dict[str, tuple[str, str, str]], mo
         gone.append(key)
         lines += [f"DROPPED {key}: {why}", *(f"CARD {link} withdrawn: {key} is dropped" for link in withdrawn)]
     if gone:
-        with state.edit(watcher.name) as data:
+        def dropped_lines_write(data: dict):
             for key in gone:
                 state.drop_pr(data, key)
+
+        state.update(watcher.name, None, dropped_lines_write)
     return lines
 
 
@@ -787,8 +795,10 @@ def release_end_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         heard = release_heard(job, read, moment)
         if heard != job["release_heard"]:
-            with state.edit(watcher.name) as kept:
+            def release_end_lines_write(kept: dict):
                 kept["jobs"][job_id]["release_heard"] = heard
+
+            state.update(watcher.name, None, release_end_lines_write)
         if heard["told"] or not (read["state"] in FOLLOW_ENDS or read["state"] == "BLOCKED" and moment - state.parse_time(heard["since"]) >= RELEASE_BLOCKED_AFTER):
             continue
         source = f"release {job['release_build']}"
@@ -815,8 +825,10 @@ def release_told(watcher: Watcher, job_id: str, read: dict, moment: datetime) ->
     job, link = data["jobs"][job_id], data["jobs"][job_id]["release_build"]
     record = brief.release_record(link, data) or {}
     if (moved := record.get("build")) and moved != link:
-        with state.edit(watcher.name) as kept:
+        def release_told_write2(kept: dict):
             kept["jobs"][job_id].update(release_build=moved, release_heard=None)
+
+        state.update(watcher.name, None, release_told_write2)
         print(f"{state.stamp(moment)} {job_id}'s release build {link} reads {read['state']} and started {moved}, which {job_id} follows now", flush=True)
         return
     text, body = release_words(data, job_id, link, read, record, moment)
@@ -824,9 +836,11 @@ def release_told(watcher: Watcher, job_id: str, read: dict, moment: datetime) ->
     argv = ["cci", "post", "--drive", watcher.name, "--lane", LANE, "--kind", "handoff", *(arg for lane in to for arg in ("--to", f"{lane}@{watcher.name}")), "--topic", f"release-{job_id}"]
     argv += ["--id", f"release-{link}-{read['state']}", "--json", "--path", "-", "--text", reads.withheld(text)]
     seq = str(json.loads(reads.run(argv, Path(data["roles"]["coordinator"]["cwd"]), reads.posting(), stdin=reads.withheld(body)))["seq"])
-    with state.edit(watcher.name) as kept:
+    def release_told_write(kept: dict):
         kept["jobs"][job_id]["release_heard"]["told"] = seq
         state.hold_addressed(kept, {"kind": "handoff", "text": text, "body": body, "to": [f"{lane}@{watcher.name}" for lane in to]}, LANE, seq, None)
+
+    state.update(watcher.name, None, release_told_write)
 
 
 def release_words(data: dict, job_id: str, link: str, read: dict, record: dict, moment: datetime) -> tuple[str, str]:
@@ -897,11 +911,15 @@ def status(watcher: Watcher, order_id: str, order: dict, part: str, follow: dict
     if follow["message"] and words != follow["words"]:
         talk.posted(watcher.name, {"edit": message, "text": words})
     kept = {"message": message, "words": words}
-    with state.edit(watcher.name) as data:
+    def status_write(data: dict):
         data["orders"][order_id]["parts"][part]["follow"].update(kept)
+
+    state.update(watcher.name, None, status_write)
     if read["state"] in FOLLOW_ENDS:
-        with state.edit(watcher.name) as data:
+        def status_write2(data: dict):
             data["orders"][order_id]["parts"][part]["follow"]["ended"] = state.stamp(moment)
+
+        state.update(watcher.name, None, status_write2)
         end_line(watcher, order_id, order, part, follow | kept, read)
 
 
@@ -1110,8 +1128,10 @@ def owner_page_lines(watcher: Watcher, moment: datetime) -> list[str]:
         except (state.DriveError, reads.ReadError) as error:
             return lines + failed(watcher, "owner page", "page of his Datadog On-Call user", error, moment)
         watcher.failures.pop("owner page", None)
-        with state.edit(watcher.name) as edited:
+        def owner_page_lines_write(edited: dict):
             edited["orders"][key]["paged"] = state.stamp(moment)
+
+        state.update(watcher.name, None, owner_page_lines_write)
         lines.append(f"WATCH paged him for incident {key} while he is away: {paged}")
     return lines
 
@@ -1166,8 +1186,10 @@ def proved_lines(watcher: Watcher, moment: datetime) -> list[str]:
             lines += failed(watcher, f"proved close {order_id}", f"close of {order_id} on its live line", state.DriveError(outcome), moment)
             continue
         watcher.failures.pop(f"proved close {order_id}", None)
-        with state.edit(watcher.name) as edited:
+        def proved_lines_write(edited: dict):
             edited["orders"][order_id]["close_report"] = None
+
+        state.update(watcher.name, None, proved_lines_write)
     return lines
 
 
@@ -1177,12 +1199,14 @@ def reported(watcher: Watcher, records: list[dict]) -> list[str]:
 
     seqs = tools.sent(watcher.name, LANE, [record | {"to": [f"communicator@{watcher.name}"]} for record in records])
     if closes := [(record, order_id, seq) for record, seq in zip(records, seqs, strict=True) for order_id in state.closed_orders(record.get("attr") or {})]:
-        with state.edit(watcher.name) as data:
+        def reported_write(data: dict):
             for record, order_id, seq in closes:
                 order = data["orders"][order_id]
                 order["closed_on"] = order["closed_on"] or seq
                 if order["close_report"] and order["close_report"]["id"] == record.get("id"):
                     order["close_report"] = order["close_report"] | {"seq": seq} if state.watch_posts_itself(order) else None
+
+        state.update(watcher.name, None, reported_write)
     return seqs
 
 
@@ -2366,8 +2390,10 @@ def digest_lines(watcher: Watcher, moment: datetime) -> list[str]:
         except (slack.SlackError, state.DriveError) as error:
             return failed(watcher, "digest", "post of the daily digest of his old questions", error, moment)
         watcher.failures.pop("digest", None)
-    with state.edit(watcher.name) as saved:
+    def digest_lines_write(saved: dict):
         saved["slack"]["digest"] = folded
+
+    state.update(watcher.name, None, digest_lines_write)
     return [f"DIGEST {day}: {len(old)} of his question cards asked more than a day ago, linked in {folded['message']}"] if old else []
 
 
@@ -2389,8 +2415,10 @@ def waiting_post_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 continue
             watcher.failures.pop(f"waiting post {channel}", None)
             kept = {"message": reply["permalink"], "words": words, "pinned": bool(kept and kept["pinned"])}
-            with state.edit(watcher.name) as saved:
+            def waiting_post_lines_write2(saved: dict):
                 saved["slack"]["waiting"][channel] = kept
+
+            state.update(watcher.name, None, waiting_post_lines_write2)
         if not kept or kept["pinned"]:
             continue
         try:
@@ -2399,8 +2427,10 @@ def waiting_post_lines(watcher: Watcher, moment: datetime) -> list[str]:
             lines += failed(watcher, f"waiting pin {channel}", f"pin of the post of what waits on him in {channel}", error, moment)
             continue
         watcher.failures.pop(f"waiting pin {channel}", None)
-        with state.edit(watcher.name) as saved:
+        def waiting_post_lines_write(saved: dict):
             saved["slack"]["waiting"][channel]["pinned"] = True
+
+        state.update(watcher.name, None, waiting_post_lines_write)
     return lines
 
 
@@ -2418,13 +2448,17 @@ def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
     except page.PageError as error:
         if stale:
             return []
-        with state.edit(watcher.name) as data:
+        def page_lines_write2(data: dict):
             data["slack"]["page_stale"] = state.stamp(moment)
+
+        state.update(watcher.name, None, page_lines_write2)
         return [f"WATCH status page stale since {when(state.stamp(moment))}: {error}"]
     watcher.page_shape = shape
     if stale:
-        with state.edit(watcher.name) as data:
+        def page_lines_write(data: dict):
             data["slack"].pop("page_stale")
+
+        state.update(watcher.name, None, page_lines_write)
     if drawn.new_tab:
         return [f"WATCH status page redrawn on a new tab: {drawn.url}"]
     if stale:
@@ -2615,8 +2649,10 @@ def withdrawn_lines(watcher: Watcher, moment: datetime) -> list[str]:
         return failed(watcher, "withdrawn handoffs", "read of the handoffs the communicator withdrew", error, moment)
     watcher.failures.pop("withdrawn handoffs", None)
     if withdrawn:
-        with state.edit(watcher.name) as data:
+        def withdrawn_lines_write(data: dict):
             state.answer_handoffs(data, [(seq, "withdraw", {}) for seq in withdrawn])
+
+        state.update(watcher.name, None, withdrawn_lines_write)
     return []
 
 
@@ -2635,8 +2671,10 @@ def watched_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         watcher.failures.pop(source, None)
         if seq:
-            with state.edit(watcher.name) as data:
+            def watched_lines_write(data: dict):
                 data["orders"][order_id]["watch"]["record"] = None
+
+            state.update(watcher.name, None, watched_lines_write)
     return lines
 
 
@@ -2663,8 +2701,10 @@ def watched_report(watcher: Watcher, order_id: str, order: dict) -> str | None:
             "body": "\n".join(facts) + "\n",
         }
         [seq] = reported(watcher, [record])
-    with state.edit(watcher.name) as data:
+    def watched_report_write(data: dict):
         data["orders"][order_id]["watch"].update(seen=max((message["ts"] for message in messages), key=float), record=seq)
+
+    state.update(watcher.name, None, watched_report_write)
     return seq
 
 
@@ -2682,8 +2722,11 @@ def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
         return failed(watcher, "owed replies", "read of the replies cc-slack owes him", error, moment)
     watcher.failures.pop("owed replies", None)
     if (marks := {reply["ts"]: data["owed_replies"].get(reply["ts"], {"handed": False, "lined": None}) for reply in replies}) != data["owed_replies"]:
-        with state.edit(watcher.name) as data:
+        def owed_lines_write(data: dict):
             data["owed_replies"] = marks
+            return data
+
+        data = state.update(watcher.name, None, owed_lines_write)
     lines = []
     for reply in replies:
         channel, ts, thread = state.slack_message(reply["permalink"])
@@ -2696,8 +2739,10 @@ def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
         source = f"owed {ts}"
         try:
             if not mark["handed"] and not agents.handle(watcher.name, owed_brief(watcher.name, reply, channel, thread), detached=True)[1]:
-                with state.edit(watcher.name) as saved:
+                def owed_lines_write2(saved: dict):
                     saved["owed_replies"][ts]["handed"] = True
+
+                state.update(watcher.name, None, owed_lines_write2)
         except (reads.ReadError, state.DriveError) as error:
             lines += failed(watcher, source, f"answer of his message {reply['permalink']}, owed {minutes(owed_for)} minutes", error, moment)
             continue
@@ -2751,21 +2796,25 @@ def close_answered(watcher: Watcher, moment: datetime) -> None:
     data = state.load(watcher.name)
     if not any(state.answered(data, order_id) for order_id in heard_orders(watcher, data)):
         return
-    with state.edit(watcher.name) as data:
+    def close_answered_write(data: dict):
         for order_id in heard_orders(watcher, data):
             if state.answered(data, order_id):
                 data["orders"][order_id].update(state="done", updated=state.stamp(moment))
+
+    state.update(watcher.name, None, close_answered_write)
 
 
 def close_joined_repeats(watcher: Watcher, moment: datetime) -> None:
     """From the drive's own watch, close each open drive tooling order a session opened that Jev joined to an order now closed, with no unfinished job of its own, as that order closed, done with its proof or dropped, so a repeat folded into a fixed defect never stays open after the fix, as 76 did on Nov 15."""
     if watcher.project or not state.repeats_of_closed(state.load(watcher.name)):
         return
-    with state.edit(watcher.name) as data:
+    def close_joined_repeats_write(data: dict):
         for order_id in state.repeats_of_closed(data):
             order = data["orders"][order_id]
             head = data["orders"][order["joins"]]
             order.update(state=head["state"], proof=head["proof"] if head["state"] == "done" else None, note=f"closed with {order['joins']}, the order it repeats", updated=state.stamp(moment))
+
+    state.update(watcher.name, None, close_joined_repeats_write)
 
 
 def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -2911,10 +2960,13 @@ def hear_sent(name: str, job_ids: set[str]) -> dict:
         sent[job_id] = [(said, state.parse_time(row["timestamp"])) for row in agents.recent_rows(path, min(given)) if (said := settled.prompt_words(row, agents.MESSAGE_ORIGIN)) is not None]
     if not any(sent.values()):
         return data
-    with state.edit(name) as data:
+    def hear_sent_write(data: dict):
         for job_id, messages in sent.items():
             for said, written in messages:
                 superseded.hear(data, job_id, said, written)
+        return data
+
+    data = state.update(name, None, hear_sent_write)
     return data
 
 
@@ -3654,8 +3706,10 @@ def wake_lines(watcher: Watcher, idle: dict[str, tuple[dict, dict]], moment: dat
             continue
         watcher.failures.pop(source, None)
         if woken:
-            with state.edit(watcher.name) as data:
+            def wake_lines_write(data: dict):
                 data["jobs"][job_id]["turn_open"] = True
+
+            state.update(watcher.name, None, wake_lines_write)
     return lines
 
 
@@ -4019,11 +4073,13 @@ def adopt_sprites(watcher: Watcher, moment: datetime) -> list[str]:
     }
     if not found:
         return []
-    with state.edit(watcher.name) as data:
+    def adopt_sprites_write(data: dict):
         for job_id, workspace in found:
             job = data["jobs"][job_id]
             if job.get("workspace") != workspace and not state.death_on(job, workspace):
                 job.setdefault("deaths", []).append({"dispatch": None, "workspace": workspace, "why": ADOPTED, "at": state.stamp(moment)})
+
+    state.update(watcher.name, None, adopt_sprites_write)
     return []
 
 
@@ -4132,8 +4188,10 @@ def relaunch(watcher: Watcher, job_id: str, moment: datetime) -> int:
 
 def wake(watcher: Watcher, job_id: str, moment: datetime) -> int:
     """Run `drive job resume` with UNREACHED by start_verb on a running job whose lane Orca could not reach, at the first read that fails and again each REWAKE while Orca still cannot, its dispatch and the moment kept on its row's woken, so a watch an install restarted keeps that pace rather than counting reads again: its lane_end wakes that lane's Sprite, then sends the text to a worker that takes messages again, restarts the lane on that Sprite with the text in its handoff when its worker finished, or on a fresh one once that Sprite answers no ssh and no transcript there was written in orca.QUIET_SECONDS, and else restarts nothing, for the next wake to read again."""
-    with state.edit(watcher.name) as data:
+    def wake_write(data: dict):
         data["jobs"][job_id]["woken"] = {"dispatch": data["jobs"][job_id]["dispatch"], "at": state.stamp(moment)}
+
+    state.update(watcher.name, None, wake_write)
     return start_verb(watcher, job_id, ["job", "resume", job_id, state.UNREACHED], moment)
 
 
@@ -4199,7 +4257,7 @@ def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
         return []
     known = state.load(watcher.name)
     unread = {each["job"]: pass_reads(watcher.name, known, each["prs"]) for slot in slots.values() for each in slot["queue"] if (each["paths"] is None or each["stacks"] is None) and each["prs"]}
-    with state.edit(watcher.name) as data:
+    def slot_lines_write(data: dict):
         for slot in data["slots"].values():
             for each in slot["queue"]:
                 if each["job"] in unread:
@@ -4207,6 +4265,9 @@ def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     each["paths"] = each["paths"] if paths is None else paths
                     each["stacks"] = each["stacks"] if stacks is None else stacks
         moved = state.slot_turns(data, moment)
+        return moved
+
+    moved = state.update(watcher.name, None, slot_lines_write)
     lines = []
     for env, job_id, kind, line in moved:
         if kind == "go":
@@ -4860,22 +4921,28 @@ def orphan_lines(watcher: Watcher, moment: datetime, said: type | tuple[type, ..
 
 def hear(name: str, moment: datetime, away: bool = False) -> dict:
     """Record him heard at moment, by his words or his tap on a card, the owner row keeping the moment he reads away from, moment itself with away, else an hour later; when he was away, keep that absence on the owner row, from when he went away, the moment he read away from and moment, which state.present reads; no order's news is marked told, since only its own thread's line tells it, by his words c91b1a9 "stop telling me about the whole drive I never asked for that"."""
-    with state.edit(name) as data:
+    def hear_write(data: dict):
         back = state.owner_away(data, moment)
         owner = data["owner"]
         since = owner["heard"]
         absence = {"since": since, "from": owner["away"], "until": state.stamp(moment)} if back and since else owner["absence"]
         data["owner"] = {"heard": state.stamp(moment), "away": state.stamp(moment if away else moment + state.AWAY_AFTER), "absence": absence}
+        return back, since
+
+    back, since = state.update(name, None, hear_write)
     return {"away": away, "back": back, "since": since}
 
 
 def unhear(name: str, last: datetime, why: str) -> dict:
     """Take back what the drive heard of him after last, his last word or tap, such as a job's tap kept as his: the owner row reads him heard at last and away an hour after it, its absence kept, and the moment taken back is kept with why in the drive's events; refused when the drive heard nothing of him after last."""
-    with state.edit(name) as data:
+    def unhear_write(data: dict):
         taken = data["owner"]["heard"]
         if not taken or last >= state.parse_time(taken):
             raise state.DriveError(f"refused, nothing changed: the drive last heard him at {taken}, so it heard nothing after {state.stamp(last)} to take back")
         data["owner"] |= {"heard": state.stamp(last), "away": state.stamp(last + state.AWAY_AFTER)}
+        return taken
+
+    taken = state.update(name, None, unhear_write)
     state.append_event(name, "unheard", heard=state.stamp(last), taken=taken, why=why)
     return {"heard": state.stamp(last), "taken": taken}
 
@@ -5217,9 +5284,11 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if bare := [key for key in dict.fromkeys([*keys, *fresh]) if state.asks_tap(drew, drew["prs"][key]) and not view.tap_card(drew, drew["prs"][key], found)]:
                 raise state.DriveError(f"{went}, which offers him no Approve at the head of {', '.join(bare)}")
         except (slack.SlackError, state.DriveError) as error:
-            with state.edit(watcher.name) as data:
+            def stage_lines_write(data: dict):
                 for key in keys:
                     data["prs"][key]["stage"] = None
+
+            state.update(watcher.name, None, stage_lines_write)
             if said := failed(watcher, "card draw", f"draw of his card on {', '.join(keys)}", error, moment):
                 lines += sent(watcher, "meta", said, moment)
             continue
@@ -5273,8 +5342,10 @@ def unscheduled_questions(watcher: Watcher, moment: datetime) -> list[str]:
             said += failed(watcher, "question withdraw", f"withdrawal of {job_id}'s card {card}, waiting on work he has not scheduled", error, moment)
             continue
         watcher.failures.pop("question withdraw", None)
-        with state.edit(watcher.name) as edited:
+        def unscheduled_questions_write(edited: dict):
             state.question_in(edited["jobs"][job_id], question)["card"] = None
+
+        state.update(watcher.name, None, unscheduled_questions_write)
         withdrawn.append(f"CARD {card} withdrawn: {job_id} waits on {', '.join(steps)}, work he has not scheduled, and the card asks him again under {question['waits']} once he schedules it")
     if withdrawn:
         view.refresh_cards(watcher.name)
@@ -5321,8 +5392,11 @@ def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str
         except slack.SlackError as error:
             said += failed(watcher, "rework withdraw", f"withdrawal of his card on {key}, {'reworked to his words' if pr['rework'] else 'waiting on work he has not scheduled'}", error, moment)
             if not pr["rework"]:
-                with state.edit(watcher.name) as data:
+                def acted_write2(data: dict):
                     data["prs"][key]["stage"] = None
+                    return data
+
+                data = state.update(watcher.name, None, acted_write2)
     if now.name == "behind":
         return said
     job_id = now.owner if now.owner in data["jobs"] else None
@@ -5335,13 +5409,18 @@ def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str
         elif refused := land.ask_review(repo, number, pr["head"]):
             said.append(f"STAGE {refused} {ids(pr)}")
         else:
-            with state.edit(watcher.name) as data:
+            def acted_write3(data: dict):
                 data["prs"][key]["review_asked"] = pr["head"]
+                return data
+
+            data = state.update(watcher.name, None, acted_write3)
     elif now.name == "unlanded" or not entered:
         said.append(f"STAGE {line}")
-        with state.edit(watcher.name) as data:
+        def acted_write(data: dict):
             if kept := data["prs"][key]["stage"]:
                 kept["said"] = state.stamp(moment)
+
+        state.update(watcher.name, None, acted_write)
     return said
 
 
@@ -5598,9 +5677,11 @@ def retire_seat(name: str, seat: str) -> str:
     alias = state.alias(name, "coordinator", seat)
     retire(name, seat)
     seat_ended(alias, session)
-    with state.edit(name) as data:
+    def retire_seat_write(data: dict):
         data["subcoordinators"].pop(seat)
         data["launched"].pop(f"sub-coordinator {seat}", None)
+
+    state.update(name, None, retire_seat_write)
     return f"retired the seat {seat}: no open order holds it, so its alias {alias} is removed from cci, its session {session} stopped with its conversation kept, and its binding dropped"
 
 

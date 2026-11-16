@@ -190,9 +190,11 @@ def route(name: str, brief: str, answer: str | None = None, away: bool = False) 
     except Exception as error:
         went = on_it(name, link, words, thread or ts) | {"fell": f"the {chosen} route raised: {cut(str(error), 300)}"}
     found = {"link": link, "thread": thread or ts, "words": cut(words, 500), "at": state.stamp(), "route": chosen, "why": why, "away": away, "jev_ms": round(jev_seconds * 1000), "ms": round((time.monotonic() - began) * 1000)} | went
-    with state.edit(name) as data:
+    def route_write(data: dict):
         data["routed"][ts] = found
         data["routed"] = {key: kept for key, kept in data["routed"].items() if state.now() - state.parse_time(kept["at"]) <= KEPT}
+
+    state.update(name, None, route_write)
     with (state.drive_dir(name) / LOG).open("a") as out:
         out.write(json.dumps({"ts": ts} | found) + "\n")
     return found

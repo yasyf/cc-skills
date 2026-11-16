@@ -661,9 +661,12 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
         raise DriveError("\n".join([*said, f"{error}; {UNSENT.format(drive=name)}"])) from None
     went = [f"{index} {item['kind']} {seq}" for index, (item, seq) in enumerate(zip(posts, seqs, strict=True), start=1)]
     print("\n".join(went), file=sys.stderr, flush=True)
-    with state.edit(name) as kept:
+    def record_write(kept: dict):
         kept["posted"] = dict([*kept["posted"].items(), (batch, {"seqs": seqs, "at": state.stamp()})][-POSTED_KEPT:])
         hearing = [state.hold_addressed(kept, made, lane, seq, role) for made, seq in zip(posts, seqs, strict=True)]
+        return hearing
+
+    hearing = state.update(name, None, record_write)
     said += went
     said += [f"{index} held on {', '.join(jobs)} for its running worker or codex run, as drive job resume holds a text" for index, jobs in enumerate(hearing, start=1) if jobs]
     ended = stamped(name, posts, seqs)
@@ -857,11 +860,13 @@ def handed(name: str, lane: str, posts: list[dict], seqs: list[str]) -> None:
     answers = [(state.bare_seq(answered), made["kind"], made.get("attr") or {}) for made in posts for answered in made.get("re") or []]
     if not (handoffs or answers):
         return
-    with state.edit(name) as data:
+    def handed_write(data: dict):
         for made, seq in handoffs:
             if order_id := state.served_order(data, attrs := made.get("attr") or {}):
                 data["orders"][order_id]["handoffs"].append({"seq": seq, "text": made["text"], "at": state.stamp(), "jobs": list(filter(None, [state.named_job(data, attrs)]))})
         state.answer_handoffs(data, answers)
+
+    state.update(name, None, handed_write)
 
 
 def ended_by(closed: dict, made: dict, seq: str | None = None) -> bool:
@@ -874,7 +879,7 @@ def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list
     answers = [(made, seq, questions) for made, seq, questions in zip(posts, seqs, closes, strict=True) if made["kind"] == "answer"]
     if not answers:
         return
-    with state.edit(name) as data:
+    def keep_undelivered_write(data: dict):
         for made, seq, questions in answers:
             attrs = made.get("attr") or {}
             asking = list(dict.fromkeys(filter(None, [state.named_job(data, attrs), *(job_id for job_id, _ in questions)])))
@@ -885,6 +890,8 @@ def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list
                     superseded.unhold(data["jobs"][job_id], attrs["undone"])
                 else:
                     state.hold_text(data["jobs"][job_id], verbatim(made, questions, found), state.HIM, seq=seq)
+
+    state.update(name, None, keep_undelivered_write)
 
 
 def hearers(data: dict, asking: list[str], cards: set[str], since: str | None) -> list[str]:

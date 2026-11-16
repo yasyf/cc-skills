@@ -176,6 +176,8 @@ def draw(name: str, markdown: str) -> Drawn:
         refused = REFUSAL.search(str(error))
         raise PageError(f"Slack refused the redraw ({refused[1]})" if refused else str(error)) from None
     if drawn["canvas_id"] != canvas:
-        with state.edit(name) as data:
+        def draw_write(data: dict):
             data["slack"]["page"] = drawn["canvas_id"]
+
+        state.update(name, None, draw_write)
     return Drawn(drawn["url"], bool(canvas) and drawn["canvas_id"] != canvas)
