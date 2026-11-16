@@ -10981,6 +10981,17 @@ def test_o852_the_deleted_latch_closed_with_its_fix_not_live_is_back_on_the_stri
 CLOSE_REPORT = {"id": "install-proved-j1", "kind": "report", "to": ["posts@demo"], "topic": "install-proved-o1", "attr": {"close": "o1"}, "text": "POST Fix: the watch is live in long-running 1.0.3", "body": "Fixed: Fix: the watch\n"}
 
 
+@pytest.mark.parametrize("order_state", ["working", "done", "dropped"])
+def test_empty_close_report_stage_does_not_load_the_drive(demo: str, monkeypatch: pytest.MonkeyPatch, order_state: str) -> None:
+    serve(monkeypatch, {})
+    with edit(demo) as data:
+        for order in data["orders"].values():
+            order.update(state=order_state, close_report=None if order_state == "working" else CLOSE_REPORT)
+    watching = watcher(demo)
+    monkeypatch.setattr(state, "load", lambda *args, **kwargs: pytest.fail("an empty close-report stage must not load the drive"))
+    assert watch.close_report_lines(watching, T0) == []
+
+
 def test_a_close_report_drive_install_kept_posts_from_the_watch_once_cci_takes_it_and_survives_a_refusal_to_the_next_watch(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     from drive import tools
 

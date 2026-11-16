@@ -1589,6 +1589,8 @@ def owner_page_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Post in one cci batch each close report drive job prove, or the watch's DONE at a merge, keeps on an open order it finished, for the watch to post in the order's thread, or at his DM root for an order of his with none, and close it, by proved_lines, or, for an order whose reporters get its line in their own threads, for the report-post this read starts on it; each stays on its order until cci takes it, so a post that fails goes again next read, said from its third failure in a row, and a watch on a newer install posts it as well. One an older install kept on a drive tooling order a session opened, which posts him no line, goes nowhere: that order closes done on the proof it holds, as install.finish now closes one. A report the watch posts itself, by state.watch_posts_itself, stays on its order with its seq once cci takes it, by reported, for proved_lines to post."""
+    if not state.has_close_reports(watcher.name):
+        return []
     data = state.load(watcher.name)
     closing = {order_id: order for order_id, order in heard_orders(watcher, data).items() if order["close_report"]}
     if unasked := [order_id for order_id, order in closing.items() if state.unasked_tooling(order)]:
