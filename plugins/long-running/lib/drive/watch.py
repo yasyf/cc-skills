@@ -42,6 +42,7 @@ PASS_FOR = timedelta(minutes=5)
 HAND_OFF_EVERY = timedelta(minutes=10)
 STALL_FOR = timedelta(minutes=2)
 SLOW_STAGE = timedelta(minutes=1)
+LOGGED_STAGE = timedelta(seconds=10)
 BEAT_SECONDS = 15
 BEAT_FILE = "watchd.beat"
 EVERY_PROJECT_ENV = "LONG_RUNNING_WATCH_EVERY_PROJECT"
@@ -5777,8 +5778,8 @@ PULSE = Pulse()
 
 
 def beat(step: str, staged: bool = False) -> None:
-    """Mark the watch as beginning step, logging the step before it when that one was a stage that ran past SLOW_STAGE, so the log names each slow stage by its time."""
-    if PULSE.staged and (took := monotonic() - PULSE.since) >= SLOW_STAGE.total_seconds():
+    """Mark the watch as beginning step, logging the step before it when that one was a stage that ran past LOGGED_STAGE, so the log names each slow stage by its time."""
+    if PULSE.staged and (took := monotonic() - PULSE.since) >= LOGGED_STAGE.total_seconds():
         print(f"{state.stamp()} stage {PULSE.step} took {took:.0f}s", flush=True)
     PULSE.step, PULSE.since, PULSE.staged = step, monotonic(), staged
 
