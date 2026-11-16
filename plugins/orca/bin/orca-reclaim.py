@@ -669,7 +669,8 @@ class CcRemote:
         head, branch = headers["branch.oid"], headers["branch.head"]
         try:
             on_trunk = on_github_trunk(head, hub["slug"])
-            own = tuple((name, tip) for name, tip, root in (ref.split(":") for ref in off_origin.split()) if not root or github_compare(root, hub["slug"]))
+            compare = functools.cache(lambda root: github_compare(root, hub["slug"]))
+            own = tuple((name, tip) for name, tip, root in (ref.split(":") for ref in off_origin.split()) if not root or compare(root))
         except GitHubRefusal as refused:
             return str(refused)
         return Checkout(
