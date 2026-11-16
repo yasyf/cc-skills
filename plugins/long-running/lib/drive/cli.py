@@ -5810,9 +5810,9 @@ def handler(args: argparse.Namespace) -> int:
             f" `{render.cut(extra, 44)}` is more: a rule in a brief overrides its agent definition, so drop the line"
         )
     if re.search(rf"^{re.escape(agents.HIS_WORDS)}:", args.brief, re.MULTILINE):
-        if agents.LINK.search(args.brief):
+        if (linked := agents.LINK.search(args.brief)) and state.slack_message(linked[1]):
             found = route.route(name, args.brief, args.answer, args.away)
-            return emit(args, routed_line(found) if "handler" not in found else f"{'handed to' if found['handed'] else 'started'} {found['handler']}", found)
+            return emit(args, routed_line(found) if "handler" not in found else f"{'handed to' if found['handed'] or found.get('again') else 'started'} {found['handler']}", found)
         watch.hear(name, state.now(), args.away)
     briefs = briefing(name, args.brief, args.answer) is not None
     owed = bool((named := agents.RECORD.search(args.brief)) and agents.posting(name, agents.shown(named[1])))

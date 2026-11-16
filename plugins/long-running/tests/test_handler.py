@@ -325,6 +325,7 @@ def test_a_handlers_own_session_reads_as_an_agent_of_the_communicators(
         "ended": None,
         "given": None,
         "topics": [],
+        "items": 0,
     }
     assert state.session_drives("h-session") == ["demo"]
     assert state.session_role(data, "h-session") == "communicator"
@@ -380,7 +381,7 @@ def test_on_a_drive_with_no_communicator_drive_handler_starts_the_handler_beside
     monkeypatch.setattr(one_line_result, "block_reason", lambda payload: None)
     assert stop(monkeypatch, capsys, "h-session", transcript, LINE) == ""
     rested = state.load("demo")["handlers"][handler]
-    assert ran[-1][0] == ["cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "root@demo", "--id", f"handler-{handler}-{rested['given']}", "--text", LINE]
+    assert ran[-1][0] == ["cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "root@demo", "--id", f"handler-{handler}", "--text", LINE]
     assert (rested["busy"], rested["brief"], rested["holds"]) == (False, None, None)
 
 
@@ -419,12 +420,12 @@ def test_a_handler_ending_hands_its_line_to_the_communicator_and_removes_its_ses
     assert run("job", "report", "j1", "-")[0] == 0
     assert stop(monkeypatch, capsys, "h-session", transcript, LINE) == ""
     assert started[-1] == [
-        "cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--id", f"handler-{handler}-{state.load('demo')['handlers'][handler]['given']}", "--text", LINE,
+        "cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--id", f"handler-{handler}", "--text", LINE,
     ]
     assert removed == []
     assert slack_calls[-1] == ("unfollow", "--channel", "D123", "--session", "h-session", "--cwd", str(tmp_path))
     data = state.load("demo")
-    assert data["handlers"] == {}
+    assert resting(data) == [handler]
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["transcript"]) == ("done", str(transcript))
     assert state.own_transcript(data, data["jobs"]["j1"]) == str(transcript)
 
@@ -446,8 +447,8 @@ def test_a_handler_whose_session_still_runs_a_background_task_or_wakeup_may_not_
         assert "`TaskStop`" in reason and "`CronDelete`" in reason
     assert (len(started), removed, list(state.load("demo")["handlers"])) == (1, [], [handler])
     assert stop(monkeypatch, capsys, "h-session", transcript, LINE, stop_hook_active=True, background_tasks=[], session_crons=[]) == ""
-    assert started[-1][-1] == LINE and removed == [[*agents.REMOVE, BACKGROUND_JOB]]
-    assert state.load("demo")["handlers"] == {}
+    assert started[-1][-1] == LINE and removed == []
+    assert resting(state.load("demo")) == [handler]
 
 
 def test_a_handlers_done_record_carries_its_facts_then_each_post_once_as_say_returned_it_whatever_the_handler_retyped(
@@ -549,7 +550,7 @@ def test_a_record_for_a_busy_handlers_thread_reaches_that_handler_at_its_next_st
     assert stop(monkeypatch, capsys, "h-session", transcript, LINE) == ""
     [post] = [argv for argv in started if argv[:2] == ["cci", "post"]]
     assert post[-1] == LINE
-    assert handler not in state.load("demo")["handlers"]
+    assert resting(state.load("demo")) == [handler]
 
     restarted = tools.run("handler", "demo", {"brief": message}).removeprefix("started ")
     with state.edit("demo") as data:
@@ -694,7 +695,7 @@ def test_a_post_reports_handler_that_ends_posting_nothing_leaves_it_owed_for_a_f
     monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or (json.dumps({"seq": 719200}) if argv[:2] == ["cci", "post"] else ""))
     assert stop(monkeypatch, capsys, "again-session", tmp_path / "again.jsonl", "DEFECT say: drive: nothing posted again", brief=entry["brief"]) == ""
     assert started[-1] == [
-        "cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--to", "root@demo", "--id", f"handler-{again}-{entry['given']}",
+        "cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--to", "root@demo", "--id", f"handler-{again}-1",
         "--text", "UNPOSTED 719148; DEFECT say: drive: nothing posted again", "--or-heir", "--json",
     ]
     data = state.load("demo")
@@ -1096,7 +1097,7 @@ def test_a_handler_whose_four_resumes_an_api_error_ended_too_starts_again_as_its
     assert stop(monkeypatch, capsys, "h-answered", transcript, posts[-1], brief) == ""
     [done] = [argv for argv in started if "done" in argv]
     assert done[-3:] == [f"handler-{handler}", "--text", "; ".join(posts)]
-    assert handler not in state.load("demo")["handlers"]
+    assert resting(state.load("demo")) == [handler]
 
 
 def test_a_handler_an_api_error_ended_past_its_four_resumes_is_handed_again_each_brief_it_took_and_no_copy_takes_what_it_holds_meanwhile(
@@ -1191,7 +1192,7 @@ def test_a_handler_a_models_safeguards_stopped_is_never_resumed_and_posts_one_do
     assert [argv for argv in started if "done" in argv] == [
         ["cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--id", f"handler-{handler}", "--text", NOTICE]
     ]
-    assert (handler in state.load("demo")["handlers"], removed, len([argv for argv in started if argv[:2] == ["claude", "--bg"]])) == (False, [[*agents.REMOVE, BACKGROUND_JOB]], 1)
+    assert (resting(state.load("demo")), removed, len([argv for argv in started if argv[:2] == ["claude", "--bg"]])) == ([handler], [], 1)
 
 
 def test_an_orca_lane_a_models_safeguards_stopped_is_never_resumed(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
@@ -1217,7 +1218,7 @@ def test_a_handler_whose_stop_check_raises_posts_its_done_before_the_error_goes_
     with pytest.raises(state.DriveError, match="record 684115 could not be read"):
         stop(monkeypatch, capsys, "h-session", transcript, LINE)
     assert started[-1] == ["cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--id", f"handler-{handler}", "--text", LINE]
-    assert removed == [[*agents.REMOVE, BACKGROUND_JOB]]
+    assert removed == []
 
 
 def test_a_handler_of_his_message_starts_at_once_on_a_loaded_mac_and_one_on_a_record_waits_its_turn(

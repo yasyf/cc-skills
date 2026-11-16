@@ -723,7 +723,7 @@ def release_quiet(name: str) -> None:
 
 def new_handler(brief: str | None, held: dict | None, handed: list[str]) -> dict:
     """A pool handler's entry before its launch names its session: busy on its first brief, or on its warm start with none."""
-    return {"session": None, "started": state.stamp(), "brief": brief, "holds": held, "handed": handed, "took": [], "posted": [], "pool": True, "busy": True, "ended": None, "given": state.stamp(), "topics": []}
+    return {"session": None, "started": state.stamp(), "brief": brief, "holds": held, "handed": handed, "took": [], "posted": [], "pool": True, "busy": True, "ended": None, "given": state.stamp(), "topics": [], "items": 0}
 
 
 def resting(entry: dict) -> bool:
@@ -1251,7 +1251,7 @@ def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | N
                     if job_id:
                         data["jobs"][job_id]["agent"] = f"{payload['agent_id']}@{ended_handler['given']}"
                     ended_handler = dict(ended_handler)
-                    data["handlers"][payload["agent_id"]] |= {"session": payload["handler_session"], "busy": False, "brief": None, "holds": None, "took": [], "posted": [], "ended": state.stamp()}
+                    data["handlers"][payload["agent_id"]] |= {"session": payload["handler_session"], "busy": False, "brief": None, "holds": None, "took": [], "posted": [], "ended": state.stamp(), "items": ended_handler["items"] + 1}
                 else:
                     data["handlers"].pop(payload["agent_id"])
             return ended_handler, briefs, given_up
@@ -1290,7 +1290,7 @@ def post_done(name: str, payload: dict, ended_handler: dict, given_up: dict[str,
         line = f"UNPOSTED {' '.join(given_up)}; {line}"
     if took := [f"{found[2]}.{found[3]}" for brief in ended_handler["took"] if HIS_WORDS in brief and (linked := LINK.search(brief)) and (found := state.CARD_LINK.search(linked[1]))]:
         line = f"TOOK {' '.join(took)}; {line}"
-    done = done_record(name, Path(payload["cwd"]), f"handler-{payload['agent_id']}-{ended_handler['given']}", line, list((given_up or {}).values())) if ended_handler["brief"] or not ended_handler["pool"] else ""
+    done = done_record(name, Path(payload["cwd"]), f"handler-{payload['agent_id']}" + (f"-{ended_handler['items']}" if ended_handler["items"] else ""), line, list((given_up or {}).values())) if ended_handler["brief"] or not ended_handler["pool"] else ""
     if ended_handler["pool"]:
         slack.cc_slack("unfollow", "--channel", slack.dm(), "--session", payload["handler_session"], "--cwd", payload["cwd"])
     else:

@@ -31,6 +31,7 @@ from drive import (
     public_check,
     receiver,
     restack,
+    route,
     served,
     settled,
     slack,
@@ -695,6 +696,8 @@ def unanswered(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(answer, "answer", lambda name, link, words, dry_run=False: {"answered": None, "why": "escalated in tests"})
     monkeypatch.setattr(answer, "claim_path", lambda name, ts: Path(__file__))
     monkeypatch.setattr(answer, "scripted", lambda record: False)
+    monkeypatch.setattr(route, "owed_ts", lambda data: set())
+    monkeypatch.setattr(route, "on_it", lambda name, link, words, thread: {"on_it": "escalated in tests"})
     monkeypatch.setattr(watch, "asked_lines", lambda order: True)
 
 

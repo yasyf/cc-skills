@@ -109,15 +109,20 @@ def picked(data: dict, words: str, rows: str) -> tuple[str, str, bool, float]:
     return route, f"Jev picked {route}: {cut(options[route], 160)}", settled.reading(float(read["away"])) is True, time.monotonic() - began
 
 
-def followed(data: dict, ts: str, thread: str, words: str) -> tuple[str, str, bool, float] | None:
-    """The route of his message just before this one in the same thread, while that one still waits on a real reply, cc-slack owing it, and Jev reads this one as its follow-up, with why, so it goes where the first went and one reply covers both; None otherwise."""
+def owed_ts(data: dict) -> set[str]:
+    """The ts of each message of his cc-slack still owes an answer."""
     from drive import slack
 
+    return {reply["ts"] for reply in slack.owed(agents.beside(data)[1]["session"])}
+
+
+def followed(data: dict, ts: str, thread: str, words: str) -> tuple[str, str, bool, float] | None:
+    """The route of his message just before this one in the same thread, while that one still waits on a real reply, cc-slack owing it, and Jev reads this one as its follow-up, with why, so it goes where the first went and one reply covers both; None otherwise."""
     earlier = [(kept["at"], key, kept) for key, kept in data["routed"].items() if key != ts and kept.get("route") and kept.get("thread") == thread and state.now() - state.parse_time(kept["at"]) <= FOLLOW_WINDOW]
     if not earlier:
         return None
     _, key, kept = max(earlier)
-    if key not in {reply["ts"] for reply in slack.owed(agents.beside(data)[1]["session"])}:
+    if key not in owed_ts(data):
         return None
     began = time.monotonic()
     try:

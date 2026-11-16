@@ -337,7 +337,8 @@ BACKUP = "drive.json.before-sqlite"
 MOVED = "moved_to"
 MOVED_SAVER = "999999.0.0"
 SCHEMA = "1"
-COLLECTIONS = ("orders", "jobs", "prs", "answers", "handlers", "stalls", "routed", "routes")
+COLLECTIONS = ("orders", "jobs", "prs", "answers", "handlers", "stalls")
+FIELDS_ONCE_COLLECTIONS = ("routed", "routes")
 CLOCKS = "clocks"
 BINDINGS = ("driver", "roles", "subcoordinators", "handlers")
 TABLES = """
@@ -1070,6 +1071,7 @@ def bound(data: dict) -> dict:
         handler.setdefault("ended", None)
         handler.setdefault("given", handler["started"])
         handler.setdefault("topics", [])
+        handler.setdefault("items", 0)
     for held in [*data["roles"].values(), *data["subcoordinators"].values()]:
         held.pop("terminal", None)
     return data
@@ -4245,7 +4247,8 @@ def rewrite(db: sqlite3.Connection, data: dict, copy: Copy | None) -> tuple[list
             kept.setdefault(collection, {})[key] = (place, body)
     parse = marshal.loads if current else json.loads
     stored = (lambda body: body and json.dumps(marshal.loads(body))) if current else (lambda body: body)
-    top = {field: None if field in COLLECTIONS else json.dumps(value) for field, value in data.items()}
+    foreign = {collection for collection in kept if collection and collection not in COLLECTIONS and collection not in FIELDS_ONCE_COLLECTIONS}
+    top = {field: None if field in COLLECTIONS or field in foreign else json.dumps(value) for field, value in data.items()}
     changed = {"": {field: body for field, body in top.items() if (was := kept.get("", {}).get(field)) is None or stored(was[1]) != body}}
     for collection in COLLECTIONS:
         held, changed[collection] = kept.get(collection, {}), {}
@@ -4260,8 +4263,9 @@ def rewrite(db: sqlite3.Connection, data: dict, copy: Copy | None) -> tuple[list
     for job_id in drop_ended_texts(data, ended):
         changed["jobs"][job_id] = json.dumps(data["jobs"][job_id])
     wrote: dict[str, dict[str, tuple[int, str | None] | None]] = {}
-    for collection in {*kept, *changed}:
-        before, keys = kept.get(collection, {}), list(top if collection == "" else data.get(collection, {}))
+    for collection in {*kept, *changed} - foreign:
+        before, keys = kept.get(collection, {}), [] if collection in FIELDS_ONCE_COLLECTIONS else list(top if collection == "" else data.get(collection, {}))
+        changed.setdefault(collection, {})
         places = placed(before, keys)
         rows: dict[str, tuple[int, str | None] | None] = {key: None for key in before if key not in places}
         for key in keys:
