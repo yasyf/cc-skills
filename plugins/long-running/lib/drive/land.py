@@ -185,7 +185,7 @@ def unexempt(data: dict, key: str) -> str | None:
 
 def running(pr: dict) -> bool:
     lander = pr["lander"]
-    return bool(lander) and lander["outcome"] is None and state.alive((lander.get("claim") or lander)["pid"])
+    return bool(lander) and lander["outcome"] is None and state.alive(lander["pid"])
 
 
 def reported(key: str, pr: dict) -> bool:
@@ -356,39 +356,14 @@ def units(data: dict, keys: list[str], cards: dict) -> list[tuple[str, ...]]:
 
 
 def start(name: str, keys: list[str], cards: dict | None) -> list[tuple[str, ...]]:
-    """Answer each card his Approve on a PR among keys picks an option on, by answer_picks, then start a lander on each unit among keys that is ready, one his Approve or exempt classes clear or a yasyf/* PR its builder reported, marking its PRs with a claim naming this process, which running() reads as a lander and halt never stops, so no second lander starts on their heads, then with each lander's pid once it starts, or back as they were when none started; the units started. With his cards unread, none, since a card of his may hold one. A pick that failed to answer holds its PR as its open card does, and raises once the rest started, naming why."""
+    """Answer each card his Approve on a PR among keys picks an option on, by answer_picks, then start a lander on each unit among keys that is ready, one his Approve or exempt classes clear or a yasyf/* PR its builder reported, marking its PRs under the drive's lock so no second lander starts on their heads; the units started. With his cards unread, none, since a card of his may hold one. A pick that failed to answer holds its PR as its open card does, and raises once the rest started, naming why."""
     failed = answer_picks(name, keys)
     started: list[tuple[str, ...]] = []
     if cards is not None and units(state.load(name), keys, cards):
-        claim = {"pid": os.getpid(), "at": state.stamp()}
-
-        def claim_units(data: dict) -> tuple[list[tuple[str, ...]], dict[str, tuple[dict | None, bool]]]:
+        with state.edit(name) as data:
             started = units(data, keys, cards)
-            replaced = {key: (data["prs"][key]["lander"], data["prs"][key]["ejected"]) for members in started for key in members}
             for members in started:
-                mark(data, members, claim)
-            return started, replaced
-
-        started, replaced = state.update(name, None, claim_units)
-        spawned: dict[tuple[str, ...], int] = {}
-
-        def own(data: dict) -> None:
-            for members in started:
-                for key in members:
-                    pr = data["prs"][key]
-                    if (pr["lander"] or {}).get("claim") != claim:
-                        continue
-                    if members in spawned:
-                        pr["lander"] = {field: value for field, value in pr["lander"].items() if field != "claim"} | {"pid": spawned[members]}
-                    else:
-                        pr["lander"], pr["ejected"] = replaced[key]
-
-        try:
-            for members in started:
-                spawned[members] = spawn(name, members)
-        finally:
-            if started:
-                state.update(name, tuple(("prs", key, field) for members in started for key in members for field in ("lander", "ejected")), own)
+                mark(data, members, spawn(name, members))
     if failed:
         raise state.DriveError("; ".join(failed))
     return started
@@ -488,11 +463,11 @@ def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
 
 
 def held_landings(data: dict, keys: list[str], cards: dict | None, away: dict[str, str]) -> dict[tuple[int, str], str]:
-    """Each landing of a Forge-AI/monorepo unit with a PR among keys that stopping() stops, or that away holds by the outcome it names for that PR, a lander running on it or Trunk's merge queue holding what its lander queued, by that lander's pid and start, with the outcome saying why; none a dequeuer already takes out of the queue, nor one a halt still stops, by halting(), nor one start() still claims, whose lander has not started or said anything yet, which a later pass stops."""
+    """Each landing of a Forge-AI/monorepo unit with a PR among keys that stopping() stops, or that away holds by the outcome it names for that PR, a lander running on it or Trunk's merge queue holding what its lander queued, by that lander's pid and start, with the outcome saying why; none a dequeuer already takes out of the queue, nor one a halt still stops, by halting()."""
     return {
         (pr["lander"]["pid"], pr["lander"]["at"]): outcome
         for key in keys
-        if landing(pr := data["prs"][key]) and not dequeuing(pr) and not halting(pr) and not (pr["lander"].get("claim") and pr["lander"]["outcome"] is None) and (outcome := stopping(data, key, cards) or away.get(key, ""))
+        if landing(pr := data["prs"][key]) and not dequeuing(pr) and not halting(pr) and (outcome := stopping(data, key, cards) or away.get(key, ""))
     }
 
 
@@ -637,13 +612,13 @@ def branch_checks(repo: str, base: str) -> dict[tuple[str, str], dict]:
     return found
 
 
-def mark(data: dict, keys: tuple[str, ...], claim: dict) -> None:
-    """Mark the PRs a lander starts on at the head and base it tries, under start()'s claim until the lander's pid replaces it, each keeping what the try before it on the same head came to, so record() says an outcome the same head already said only once, and none ejected, since an ejection is Trunk's label set after the try began."""
+def mark(data: dict, keys: tuple[str, ...], pid: int) -> None:
+    """Mark the PRs a lander starts on at the head and base it tries, each keeping what the try before it on the same head came to, so record() says an outcome the same head already said only once, and none ejected, since an ejection is Trunk's label set after the try began."""
     at = state.stamp()
     for key in keys:
         pr = data["prs"][key]
         before = pr["lander"] or {}
-        pr["lander"] = {"head": pr["head"], "base": pr["base"], "pid": None, "claim": claim, "at": at, "outcome": None, "was": before.get("outcome") if before.get("head") == pr["head"] else None}
+        pr["lander"] = {"head": pr["head"], "base": pr["base"], "pid": pid, "at": at, "outcome": None, "was": before.get("outcome") if before.get("head") == pr["head"] else None}
         pr["ejected"] = False
 
 
