@@ -4278,14 +4278,17 @@ def fresh_start(bg: dict, kept: list[dict]) -> str | None:
 
 
 FINISHED_SAID = re.compile(r"(DONE|BUILT|BLOCKED|WAITING)\b")
+RETURN_SAID = re.compile(rf"({'|'.join([*state.RESULT_STATES, 'BUILT'])})\b")
 
 
 def finished(job: dict, kept: list[dict], bg: dict) -> str | None:
-    """Why a job's gone `claude --bg` session is left alone, neither resumed nor started fresh: a session that finished is not dead, so only a job still owing work with held texts wakes. It finished when the job's newest kept report came after its session's last tool call, or the job reads DONE, BUILT, BLOCKED or WAITING with nothing held for it."""
+    """Why a job's gone `claude --bg` session is left alone, neither resumed nor started fresh: a session that finished is not dead, so only a job still owing work with held texts wakes. It finished when the job's newest kept report came after its session's last tool call, or its last turn ended on a text opening with a result word, as a return the drive already kept is, or the job reads DONE, BUILT, BLOCKED or WAITING with nothing held for it."""
     path = watch.session_transcript(bg)
     called = watch.last_tool_call(path) if path.exists() else None
     if kept and called and state.parse_time(kept[0]["created_at"]) > called:
         return f"kept its report at {kept[0]['created_at']} after its last tool call at {state.stamp(called.astimezone())}, so it ended its turn on that report"
+    if path.exists() and (last := watch.last_turn(path, ("assistant",))) and (said := RETURN_SAID.match(watch.said_last(last))):
+        return f"ended its turn at {state.stamp(state.parse_time(last['timestamp']).astimezone())} on its return {said[0]}, after its last tool call"
     if (said := FINISHED_SAID.match(job["said"] or "")) and not job["undelivered"]:
         return f"reads {said[1]} with nothing held for it"
     return None

@@ -164,3 +164,22 @@ def test_a_session_that_kept_a_report_after_its_resume_ended_normally_however_so
     waiting = {"created_at": state.stamp(resumed + timedelta(seconds=26) if reported else resumed - timedelta(minutes=40)), "body": "WAITING #57170 to merge"}
     expected = None if reported else f"died again within 10 minutes of its resume at {bg['resumed']}"
     assert cli.fresh_start(bg, [waiting]) == expected
+
+
+def test_a_session_resumed_that_ended_on_the_same_waiting_the_drive_already_kept_finished_as_j7705s_86e88fb6_did_26_seconds_after_its_resume(
+    ended_session: tuple[Path, dict],
+) -> None:
+    from drive import cli
+
+    transcript, bg = ended_session
+    waiting = "WAITING staging-slot:j7705 staging:runtime-api-next/plat-usw2-staging@cab20dc8ff"
+    final = f'{{"type": "assistant", "timestamp": "2026-11-16T15:05:16.627Z", "message": {{"content": [{{"type": "text", "text": "{waiting}"}}]}}}}\n'
+    transcript.write_text(tool_call("2026-11-16T15:05:06.632Z") + final)
+    kept = [{"created_at": "2026-11-16T06:53:31-08:00", "body": waiting}]
+    held = [{"words": "a pointer to record 734096", "request": "734120"}]
+    ended = state.stamp(state.parse_time("2026-11-16T15:05:16.627Z").astimezone())
+    assert cli.finished({"said": "running", "undelivered": held}, kept, bg | {"resumed": "2026-11-16T07:04:50-08:00"}) == (
+        f"ended its turn at {ended} on its return WAITING, after its last tool call"
+    )
+    transcript.write_text(final + tool_call("2026-11-16T15:05:20Z"))
+    assert cli.finished({"said": "running", "undelivered": held}, kept, bg) is None
