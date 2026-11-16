@@ -2000,7 +2000,7 @@ def test_his_rulings_are_kept_as_drive_answers_listing_each_card_part_and_pr_the
     watching = watch.Watcher(demo, offset=state.events_end(demo))
     watching.cards = found
     assert [line.split('": ', 1)[1] for line in watch.answer_lines(watching, state.now() + timedelta(minutes=11))] == [
-        f"1 card, 4 parts and 2 PRs with no mark, standing, settled, dropped, superseded or reopened by it; j1 not sent his words; drive answer {ruling} lists them"
+        f"1 card, 4 parts and 2 PRs with no mark, standing, settled, dropped, superseded or reopened by it; drive answer {ruling} lists them"
         for ruling in ("8427b3c", "cabb099")
     ]
     dropped = ["demo:j1-684682", f"o1:{ELECTRON}", f"o1:{MONTY}", "Forge-AI/monorepo#54102"]

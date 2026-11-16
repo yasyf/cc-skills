@@ -1289,7 +1289,7 @@ def test_every_line_naming_a_job_or_an_order_goes_to_the_session_holding_it_with
     assert watch.line_lane(line, state.load(demo)) == holder
 
 
-def test_a_line_about_a_sub_coordinators_job_goes_to_it_from_any_watch_unless_another_coordinators_agent_runs_the_job(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_job_unsent_his_answer_holds_his_words_for_its_next_worker_from_any_watch_with_no_line(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     sub_coordinated(demo)
     with state.edit(demo) as data:
         data["jobs"]["j2"] = job(agent="a-2", where="local", session="session-under-test")
@@ -1299,14 +1299,13 @@ def test_a_line_about_a_sub_coordinators_job_goes_to_it_from_any_watch_unless_an
     sent = posts(monkeypatch)
     watching = watcher(demo)
     watching.cards = NO_CARDS
-    lines = watch.answer_lines(watching, T0 + timedelta(minutes=10))
-    assert lines == [
-        'ANSWER a1 j1 "one new tool": j1 not sent his words; drive answer a1 lists them',
-        'ANSWER a1 j2 "one new tool": j2 not sent his words; drive answer a1 lists them',
-    ]
+    assert watch.answer_lines(watching, T0 + timedelta(minutes=10)) == []
+    data = state.load(demo)
+    assert data["answers"]["a1"]["jobs"] == {"j1": {"mark": "sent"}, "j2": {"mark": "sent"}}
+    assert [[held["words"] for held in data["jobs"][job_id]["undelivered"]] for job_id in ("j1", "j2")] == [['His answer a1, verbatim: "one new tool"']] * 2
     prover = "JOB j1 o1 added, proves Forge-AI/monorepo#42: the watch starts its agent"
-    assert watch.handed(watching, [prover, *lines], T0) == [lines[1]]
-    assert posted(sent) == [("handoff", f"iris@{demo}", prover), ("handoff", f"iris@{demo}", lines[0])]
+    assert watch.handed(watching, [prover], T0) == []
+    assert posted(sent) == [("handoff", f"iris@{demo}", prover)]
 
 
 def test_a_handoff_the_meta_session_did_not_get_goes_again_and_says_so_from_the_third_failure(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -10102,7 +10101,7 @@ def test_a_line_holding_a_credential_posts_once_with_it_withheld_rather_than_bei
     assert posted(sent) == [("evidence", f"root@{demo}", "EVENT j1's proof was killed running env ANTHROPIC_API_KEY=<an sk- API key withheld> probe --live")]
 
 
-def test_an_answer_leaving_a_card_unmarked_or_a_job_unsent_his_words_says_so_every_ten_minutes_until_each_is_marked(
+def test_an_answer_leaving_a_card_unmarked_says_so_every_ten_minutes_until_it_is_marked_and_a_job_unsent_his_words_holds_them_with_no_line(
     demo: str, monkeypatch: pytest.MonkeyPatch, send_message: Callable[..., None]
 ) -> None:
     serve(monkeypatch, {})
@@ -10124,10 +10123,9 @@ def test_an_answer_leaving_a_card_unmarked_or_a_job_unsent_his_words_says_so_eve
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(agent="a1", where="local", session="session-under-test")
         data["answers"]["a1"]["jobs"]["j1"] = None
-    assert said(50) == ['ANSWER a1 j1 "one new tool": j1 not sent his words; drive answer a1 lists them']
-    send_message(demo, "j1", "He wants one new tool")
-    assert said(70) == []
+    assert said(50) == []
     assert state.load(demo)["answers"]["a1"]["jobs"] == {"j1": {"mark": "sent"}}
+    assert [held["words"] for held in state.load(demo)["jobs"]["j1"]["undelivered"]] == ['His answer a1, verbatim: "one new tool"']
 
 
 O852_MONITOR = "https://app.datadoghq.com/monitors/341360574"

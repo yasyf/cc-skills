@@ -2981,7 +2981,7 @@ def noted_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each answer of his that leaves a card still asking him, an order or part it lists of an order still open or a PR not yet live with no mark, standing, settled, dropped, superseded or reopened by it, or a live job it touches not yet sent his words, as hear_sent reads each SendMessage, again every ten minutes until each has one: one line for each session owing a step on it, the session state.holding_lane names for the order of each card, order, part and PR, root's for a card no order holds, and the one state.job_lane names for each job, its header naming one of them so line_lane hands it to that session; never one cc-notes marks superseded, by superseded.standing, which is read again only as often."""
+    """Each answer of his that leaves a card still asking him, an order or part it lists of an order still open or a PR not yet live with no mark, standing, settled, dropped, superseded or reopened by it, again every ten minutes until each has one: one line for each session owing a step on it, the session state.holding_lane names for the order of each card, order, part and PR, root's for a card no order holds, its header naming one of them so line_lane hands it to that session; a live job it touches not yet sent his words, as hear_sent reads each SendMessage, takes them held as a text its next resume, launch or GO carries, marked sent, with no line, so no session forwards them; never one cc-notes marks superseded, by superseded.standing, which is read again only as often."""
     if watcher.cards is None or watcher.project:
         return []
     data = state.load(watcher.name)
@@ -3001,24 +3001,23 @@ def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
     except state.DriveError as error:
         return failed(watcher, "cc-notes supersedes", "read of which answers of his cc-notes marks superseded", error, moment)
     watcher.failures.pop("cc-notes supersedes", None)
+    if any(jobs for _, jobs in owed.values()):
+        with state.edit(watcher.name) as data:
+            for answer_id, (_, jobs) in owed.items():
+                kept = data["answers"][answer_id]
+                for job_id in jobs:
+                    state.hold_text(data["jobs"][job_id], f'His answer {answer_id}, verbatim: "{kept["words"]}"', state.WATCH_SENDER)
+                    kept["jobs"][job_id] = {"mark": "sent"}
     lines = []
-    for answer_id, (keys, jobs) in owed.items():
-        owners: dict[str, tuple[str | None, list[str], list[str]]] = {}
+    for answer_id, (keys, _) in owed.items():
+        owners: dict[str, tuple[str | None, list[str]]] = {}
         for key in keys:
             order_id = asked[answer_id][key]["order"]
-            owners.setdefault(state.holding_lane(data, data["orders"][order_id]) if order_id else "root", (order_id, [], []))[1].append(key)
-        for job_id in jobs:
-            owners.setdefault(state.job_lane(data, data["jobs"][job_id]), (job_id, [], []))[2].append(job_id)
+            owners.setdefault(state.holding_lane(data, data["orders"][order_id]) if order_id else "root", (order_id, []))[1].append(key)
         lines += [
             f"ANSWER {answer_id}{f' {named}' if named else ''} \"{cut(data['answers'][answer_id]['words'], 80)}\": "
-            + "; ".join(
-                [
-                    *([f"{superseded.counted(owned, asked[answer_id])} with no mark, standing, settled, dropped, superseded or reopened by it"] if owned else []),
-                    *([f"{', '.join(unheard)} not sent his words"] if unheard else []),
-                ]
-            )
-            + f"; drive answer {answer_id} lists them"
-            for named, owned, unheard in owners.values()
+            f"{superseded.counted(owned, asked[answer_id])} with no mark, standing, settled, dropped, superseded or reopened by it; drive answer {answer_id} lists them"
+            for named, owned in owners.values()
         ]
     return lines
 
