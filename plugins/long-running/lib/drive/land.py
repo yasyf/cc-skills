@@ -53,6 +53,7 @@ RUNNING = "not landed: its checks still run"
 RETRIED = (NEWER_INSTALL, OWN_FAILURE, HELD, WAITED, AWAY, UNREAD, RUNNING)
 OWN_RED = "not landed: its own change fails"
 REVIEW_ASK = "@forge-pr-reviewer review"
+DEQUEUED_LINE = re.compile(r"^#\d+ DEQUEUED ", re.MULTILINE)
 BLOCKED_LINE = re.compile(r"^#(?P<number>\d+) BLOCKED (?P<head>\w+) (?P<gaps>.+)$", re.MULTILINE)
 OLDER_HEAD = re.compile(r"awaiting approval on head from \S+ \(approved [^,]+, (?:on an older head|dismissed by a push)\)")
 REVERT = re.compile(r"^Reverts?\s|⏪|\bThis reverts\b", re.MULTILINE)
@@ -459,7 +460,7 @@ def unqueue(name: str, keys: list[str], why: str) -> int:
 
 
 def dequeue(name: str, keys: list[str], why: str) -> str:
-    """Take a unit Trunk's merge queue holds out of it with stack-enqueue --dequeue on each PR, its top first, the entry Trunk queued the unit by, from a fresh() worktree of its repository's default branch as a landing runs it, then record why and what stack-enqueue said as its outcome, so each PR reads that hold and lands again once he approves it; on a failure of its own, no worktree or stack-enqueue failing itself, Trunk still holds the unit, so undequeued() says so and the watch's next pass dequeues it again."""
+    """Take a unit Trunk's merge queue holds out of it with stack-enqueue --dequeue on each PR, its top first, the entry Trunk queued the unit by, from a fresh() worktree of its repository's default branch as a landing runs it, then record why and what stack-enqueue said as its outcome, so each PR reads that hold and lands again once he approves it; on a failure of its own, no worktree, stack-enqueue failing itself, or no PR of the unit answering DEQUEUED, as #56900's NOT_QUEUED once Trunk had passed its tests, the dequeue took nothing out, so undequeued() says so and the watch's next pass dequeues it again while Trunk still holds it."""
     repo = github.repo_of(keys[0])
     try:
         with fresh(name, Path(state.load(name)["roles"]["coordinator"]["cwd"]), repo, github.default_branch(repo)) as (checkout, _):
@@ -468,7 +469,7 @@ def dequeue(name: str, keys: list[str], why: str) -> str:
         return undequeued(name, keys, cut(str(error), SAID_CHARS))
     output = "".join(each.stdout + each.stderr for each in done)
     print(output, flush=True)
-    if any(each.returncode == ENQUEUE_FAILED for each in done):
+    if any(each.returncode == ENQUEUE_FAILED for each in done) or not DEQUEUED_LINE.search(output):
         return undequeued(name, keys, f"{said(output)}; its whole output is in {state.drive_dir(name) / LOG}")
     return record(name, keys, f"{why}; stack-enqueue --dequeue said {said(output)}", [], {})
 

@@ -145,6 +145,7 @@ NO_TAP_OWNER = HIS_LOGIN
 BOT_SUFFIX = "[bot]"
 FOREIGN_RULING = '5815316 on a teammate\'s PRs: "Don\'t touch old tree or his PRs"'
 TOOLING_RULING = 'de88d49: "Block in a fucking tooling question for core work is not fucnigbbacceotbale"'
+TESTED_FIRST_RULING = 'a9c9edc, "remember everything has to be tested on sandbox first/ staging in detail before merging"'
 MONOREPO = "Forge-AI/monorepo"
 ROLES = ("communicator", "coordinator", "meta")
 REPO_RULES = ".claude/long-running.toml"
@@ -891,6 +892,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "messages_kept_once": True,
         "reader_prs_handed": True,
         "stale_queued_dropped": True,
+        "untested_restaged": True,
         "staging_approves_restored": True,
         "proofs_rehomed": True,
         "unowed_fails_undone": True,
@@ -1338,7 +1340,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             kept.setdefault("waking", None)
             kept.setdefault("job", kept["owner"] and data["prs"][kept["owner"]]["job"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_cases_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("stopped_handed_off")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped")) and bool(data.get("staging_approves_restored")) and bool(data.get("proofs_rehomed")) and bool(data.get("unowed_fails_undone")) and bool(data.get("carried_proofs_delivered")) and bool(data.get("old_dones_kept")) and bool(data.get("change_waits_stacked")) and bool(data.get("cut_provers_marked"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_cases_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("stopped_handed_off")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped")) and bool(data.get("staging_approves_restored")) and bool(data.get("proofs_rehomed")) and bool(data.get("unowed_fails_undone")) and bool(data.get("carried_proofs_delivered")) and bool(data.get("old_dones_kept")) and bool(data.get("change_waits_stacked")) and bool(data.get("cut_provers_marked")) and bool(data.get("untested_restaged"))
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev", "delivered_by_prs", "delivered_restored", "proofs_posted", "proofs_proven", "tap_cards_kept"):
         data.pop(flag, None)
     data["slack"].pop("channel", None)
@@ -1425,6 +1427,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         hand_reader_prs(data)
     if not data.get("stale_queued_dropped"):
         drop_stale_queued(data)
+    if not data.get("untested_restaged"):
+        restage_untested(data)
     if not data.get("staging_approves_restored"):
         restore_staging_approves(name, data)
     if not data.get("proofs_rehomed"):
@@ -1558,6 +1562,18 @@ def drop_stale_queued(data: dict) -> None:
     for job in data["jobs"].values():
         job["queued"] = []
     data["stale_queued_dropped"] = True
+
+
+def restage_untested(data: dict) -> None:
+    """Hold each open PR an older install would land untested, by his words a9c9edc: one whose staging test an older install's drive order set --drop-part let it merge before, as only his answer may now, gets its lift and the head whose files were read cleared, so the lander's release reach and the watch's read of its changed files stage it again before it can merge, by reach_staging and mark_dangerous; and one whose kept pass left cases not exercised loses each Approve older than that pass, by take_unexercised_approves; marked so this runs once."""
+    for pr in data["prs"].values():
+        if pr["state"] == "open" and pr["unstaged"] and pr["unstaged"]["why"] == "drive order set --drop-part took its staging test off its order":
+            pr.update(unstaged=None, paths_at=None)
+    for order_id, order in data["orders"].items():
+        for part, held in order["parts"].items():
+            if STAGING_PART.fullmatch(part) and held["posted"] and held["passed_at"]:
+                take_unexercised_approves(data, order_id, part, held["passed_at"])
+    data["untested_restaged"] = True
 
 
 def restore_staging_approves(name: str, data: dict) -> None:
@@ -2856,7 +2872,7 @@ def renamed_change(name: str, data: dict, order_id: str, named: list[str], desig
 
 
 def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
-    """Stage each PR the drive tracks that a builder's READY or PUSHED names on a `STAGING: #N <cases>` line, by stage_pr, lifting by unstage one reading `#N none: <why>`, those cases its tester's goal, or held on the unended tester already on it, so a tester the drive gave a PR from its changed files hears them, and lift by unstage each Forge-AI/monorepo PR its first line names that no such line stages once a `STAGING: none: <why>` line says AGENTS.md's dangerous rule misses it, either line leaving alone a PR drive order set --drop-part or his answer let merge before its staging test, by merges_first_lift, since a builder's word never undoes his answer 2eb7e76; the testers added."""
+    """Stage each PR the drive tracks that a builder's READY or PUSHED names on a `STAGING: #N <cases>` line, by stage_pr, lifting by unstage one reading `#N none: <why>`, those cases its tester's goal, or held on the unended tester already on it, so a tester the drive gave a PR from its changed files hears them, and lift by unstage each Forge-AI/monorepo PR its first line names that no such line stages once a `STAGING: none: <why>` line says AGENTS.md's dangerous rule misses it, at every head and whatever tap he gave: a `#N <cases>` line stages a PR his answer let merge before its staging test too, since a builder asking for the test only holds the PR to his words a9c9edc, while neither none line touches such a PR, by merges_first_lift, since a builder's word never undoes his answer 2eb7e76; the testers added."""
     job = data["jobs"][job_id]
     if not REPORTED_LINE.match(report.lstrip()):
         return []
@@ -2867,10 +2883,9 @@ def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
         if not (found := STAGED.fullmatch(staging)) or not (key := keys.get(f"{MONOREPO}#{found['number']}".casefold())):
             continue
         staged.add(key)
-        if merges_first_lift(data["prs"][key]):
-            continue
         if UNSTAGED.match(found["cases"]):
-            unstage(data, key, found["cases"].partition(":")[2].strip(), job_id)
+            if not merges_first_lift(data["prs"][key]):
+                unstage(data, key, found["cases"].partition(":")[2].strip(), job_id)
         elif tester_id := stage_pr(data, key, found["cases"], job.get("session")):
             added.append(tester_id)
     if why := next((staging.partition(":")[2].strip() for staging in stagings if UNSTAGED.match(staging)), None):
@@ -2935,23 +2950,28 @@ def unstage(data: dict, key: str, why: str, job_id: str) -> None:
             pr["waits"] = [wait for wait in pr["waits"] if wait != f"{order_id}:{part}"]
 
 
-def merge_first(data: dict, order_id: str, part: str, why: str) -> None:
-    """Let each open PR a `staging test of #N before it lands` part names merge before that test once drive order set --drop-part or his answer drops the part, as his answer 2eb7e76 has the PRs he freed "merge, then get tested": a lift kept with why and merges_first, which the release reach honours at every head, by merges_first_lift, so the lander puts no test back on it, the PR's wait on that part ended and its reach mark cleared, its staging test then the after-merge pass install.add_prover owes each PR merged with none delivered. A builder's `STAGING: none`, by unstage, lifts no reach."""
+def staged_open(data: dict, part: str) -> list[str]:
+    """Each open Forge-AI/monorepo PR the drive tracks that a `staging test of #N before it lands` part names, a combined `staging test of #A with #B before they land` included; none for any other part."""
     if not (named := STAGING_PARTS.fullmatch(part)):
-        return
-    for number in re.findall(r"\d+", named["numbers"]):
-        if (pr := data["prs"].get(f"{MONOREPO}#{number}")) and pr["state"] == "open":
-            pr.update(unstaged={"why": why, "head": pr["paths_at"] or pr["head"], "merges_first": True}, reached=False)
-            pr["waits"] = [wait for wait in pr["waits"] if wait != f"{order_id}:{part}"]
+        return []
+    return [key for number in re.findall(r"\d+", named["numbers"]) if (pr := data["prs"].get(key := f"{MONOREPO}#{number}")) and pr["state"] == "open"]
+
+
+def merge_first(data: dict, order_id: str, part: str, why: str) -> None:
+    """Let each open PR a `staging test of #N before it lands` part names, by staged_open, merge before that test once his answer drops the part, as his answer 2eb7e76 has the PRs he freed "merge, then get tested", or once land_for_release lands a PR changing nothing dangerous that alone holds a release: a lift kept with why and merges_first, which the release reach honours at every head, by merges_first_lift, so the lander puts no test back on it, the PR's wait on that part ended and its reach mark cleared, its staging test then the after-merge pass install.add_prover owes each PR merged with none delivered. A builder's `STAGING: none`, by unstage, lifts no reach, and drive order set --drop-part refuses the part."""
+    for key in staged_open(data, part):
+        pr = data["prs"][key]
+        pr.update(unstaged={"why": why, "head": pr["paths_at"] or pr["head"], "merges_first": True}, reached=False)
+        pr["waits"] = [wait for wait in pr["waits"] if wait != f"{order_id}:{part}"]
 
 
 def merges_first_lift(pr: dict | None) -> bool:
-    """Whether a drop of the tracked PR's staging test part let it merge before that test, by merge_first, which the release reach honours whatever its head."""
+    """Whether his answer dropping the tracked PR's staging test part, or land_for_release, let it merge before that test, by merge_first, which the release reach honours whatever its head."""
     return bool(pr and pr["unstaged"] and pr["unstaged"]["merges_first"])
 
 
 def markable(data: dict, key: str, head: str) -> bool:
-    """Whether mark_dangerous may stage a PR at a head from its changed files: an open Forge-AI/monorepo PR no order holds the staging test part of whose builder's `STAGING: none` lifted no test at that head, and whose staging test drive order set --drop-part or his answer did not let it merge before, by merges_first_lift, at any head, by his answer 2eb7e76."""
+    """Whether mark_dangerous may stage a PR at a head from its changed files: an open Forge-AI/monorepo PR no order holds the staging test part of whose builder's `STAGING: none` lifted no test at that head, and whose staging test his answer did not let it merge before, by merges_first_lift, at any head, by his answer 2eb7e76."""
     pr, part = data["prs"][key], STAGING_TEST.format(number=key.split("#")[1])
     return pr["state"] == "open" and github.repo_of(key).casefold() == MONOREPO.casefold() and not (pr["unstaged"] and (pr["unstaged"]["merges_first"] or pr["unstaged"]["head"] == head)) and not any(part in order["parts"] for order in data["orders"].values())
 
@@ -3519,6 +3539,17 @@ def keep_pass(data: dict, order_id: str, part: str, job_id: str, line: str, repo
         return
     moment = min([moment, *(reply["created_at"] for reply in replies(data["name"], job_id) if re.match(r"DONE\b", body := reply["body"] or reply["subject"]) and (not staged or PROVEN_LINE.match(body)) and full_pass(data, job_id, body, part)[1] == proof)], key=parse_time)
     held.update(posted=proof, passed_at=moment)
+    take_unexercised_approves(data, order_id, part, moment)
+
+
+def take_unexercised_approves(data: dict, order_id: str, part: str, moment: str) -> None:
+    """Take back each Approve given at or before moment on an open PR waiting on a staging test part whose kept pass left cases not exercised, by unexercised, since that Approve came before his card asked whether to land it without them, so the card asks again, the lander holds the PR, by cleared, and only an Approve he gives after the pass lands it, as #56963 needed; an Approve on a pass of every case stands, as PR 5732 keeps it."""
+    held = data["orders"][order_id]["parts"][part]
+    if not (untested := unexercised(held)):
+        return
+    for pr in data["prs"].values():
+        if pr["state"] == "open" and (tap := pr["tap"] or {}).get("label") == "Approve" and parse_time(tap["at"]) <= parse_time(moment) and f"{order_id}:{part}" in job_waits(data, pr):
+            pr.update(tap=None, fundamental=f"staging did not exercise {', '.join(case for case, _ in untested)} after your Approve, so only an Approve you give now lands it without them", updated=moment)
 
 
 def full_pass(data: dict, job_id: str, report: str, part: str) -> tuple[list[tuple[str, str]], str | None]:

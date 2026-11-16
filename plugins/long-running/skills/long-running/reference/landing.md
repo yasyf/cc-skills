@@ -53,8 +53,10 @@ card a job only waits on wakes that job and holds no PR. No card holds a `flake 
   it, the PR reads waiting on that run. It reads `red`, owed by its builder, while no tester runs it.
 - `drive pr add`, `drive pr set` and the lander put that part on each PR waiting on his tap whose
   paths reach a released component, whatever its exempt class. Paths on `<ci>`'s dev list, such as
-  `<ci>` and its source, reach none. A part that `drive order set --drop-part` or his answer took
-  off holds nothing: that PR merges first and gets its staging pass after the merge.
+  `<ci>` and its source, reach none. A part his answer took off, `drive answer <id> --dropped <o>:<part>`,
+  holds nothing until a builder's `STAGING: #N <cases>` line asks for the test, which puts it back:
+  until then that PR merges first and gets its staging pass after the merge. `drive order set
+  --drop-part` refuses an open PR's staging part, by his words a9c9edc, "remember everything has to be tested on sandbox first/ staging in detail before merging".
 
 ### Title and body
 
@@ -626,8 +628,8 @@ session's confirmation or a card first. A change no words of his cover rides the
   pick to merge it is recorded with
   `drive answer <his answer> --dropped <order>:staging test of #N before it lands`.
 - **Drive tooling does not hold a release.** A release-path PR whose staging cases passed while
-  the drive refused or never kept their `DONE` lands by `drive order set --drop-part` on its
-  tester's part, the turn the defect goes to meta.
+  the drive refused or never kept their `DONE` lands once that `DONE` is kept, the turn the defect
+  goes to meta, since `drive order set --drop-part` refuses an open PR's staging part.
 - **The one wait.** A release carrying a dangerous change starts, resumes and is approved only
   while he is present, by [the presence limit](#the-monorepo). A rollback runs at any hour. An
   incident's hotfix of pull requests that change nothing dangerous, carrying no other change, runs
