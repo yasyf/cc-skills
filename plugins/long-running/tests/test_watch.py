@@ -11414,17 +11414,6 @@ def test_a_step_owed_by_6_30_wakes_the_orders_holder_once_then_the_coordinator_t
         assert (owing.still_open(data["orders"]["o1"]), data["orders"]["o1"]["owed"][0]["closed"]["by"]) == ([], "replaced")
 
 
-def test_an_order_owing_an_open_item_cannot_close_but_its_closing_post_ends_a_step_it_owed(demo: str) -> None:
-    moment = state.parse_time("2026-11-09T05:07:00-08:00")
-    with edit(demo) as data:
-        owing.posted(data, "o1", "https://example.slack.com/archives/C1/p1", moment + timedelta(hours=1), "the release", moment)
-        owing.add(data, "o1", "part", "the docs part", None, {"part_posted": ["o1", "docs"]}, "o1", moment)
-        assert owing.close_refusal(data, "o1").startswith('o1 still owes w1 step "the release" due ')
-        assert owing.close_refusal(data, "o1", closing_post=True).startswith('o1 still owes w2 part "the docs part" no due')
-        owing.close(data["orders"]["o1"]["owed"][1], "done", moment, "delivered by hand")
-        assert owing.close_refusal(data, "o1", closing_post=True) is None
-
-
 def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_ends_unsaid_for_one_that_returned(demo: str) -> None:
     due = T0 + timedelta(minutes=10)
     with edit(demo) as data:

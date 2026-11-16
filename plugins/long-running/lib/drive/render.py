@@ -29,8 +29,8 @@ OWED = (
     "Any time you tell him a next step, give it a due: on say, due=<the RFC 3339 time he should hear its outcome by> and"
     " owes=<the step in a few words>; on a POST report, --attr due=<time> --attr owes=<the step>. The drive keeps it on the"
     " order, a later post on the order replaces it, and if it passes with nothing posted the watch wakes the session holding"
-    " the order once, then its coordinator, then him. Read what an order still owes with drive owed list; an order owing"
-    " anything cannot close: deliver it, move it with drive owed due <w> --by <time>, or end it with drive owed done <w> --because <why>."
+    " the order once, then its coordinator, then him. Read what an order still owes with drive owed list; move one"
+    " with drive owed due <w> --by <time>, or end it with drive owed done <w> --because <why>."
 )
 STAMPS = (
     "What he reads, a say post, a card or a POST or ready record to the communicator, names when a job started as"

@@ -56,14 +56,6 @@ def posted(data: dict, order_id: str, link: str, due: datetime | None, owes: str
     return add(data, order_id, STEP, owes or "its next step", due, {"post_on": order_id}, link, moment)
 
 
-def close_refusal(data: dict, order_id: str, closing_post: bool = False) -> str | None:
-    """Why the order may not close yet: it owes him an item still open, each named with its fix; the post that closes an answer order is itself the next line its steps owed."""
-    held = [item for item in still_open(data["orders"][order_id]) if not (closing_post and item["kind"] == STEP)]
-    if not held:
-        return None
-    return f"{order_id} still owes {'; '.join(row(item) for item in held)}: deliver each, or end it with drive owed done <id> --because \"<why>\""
-
-
 def row(item: dict) -> str:
     due = f"due {when(item['due'])}" if item["due"] else "no due"
     missed = f", missed {item['misses']}" if item["misses"] else ""
