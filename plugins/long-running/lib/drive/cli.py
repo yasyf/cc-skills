@@ -638,8 +638,17 @@ def evidence_record(name: str, title: str, words: str, source: str, again: str) 
         raise DriveError(f"refused, nothing written: its evidence record did not open: {error}; fix that and run {again} again") from None
 
 
-def turned_incident(name: str, data: dict, order_id: str, created: str) -> list[str]:
-    """Turn an open order into an incident in the save that marks it, as drive incident open opens one: its fix and cause parts, a build whose other parts an answer order asked stay answers, its evidence record when its note names none, and a codex job by state.incident_job on each of those two parts no unfinished codex job holds, but on an order joined to an open incident, whose owner job carries it; the lines that say so."""
+def incident_record(name: str, order_id: str, order: dict) -> str | None:
+    """Open the evidence record of an order turning into an incident before the write that turns it, by evidence_record, from the order as that write leaves it, and return its id; None when its note names one already."""
+    if RECORD_NOTE.search(order["note"] or ""):
+        return None
+    if not order["title"]:
+        raise DriveError(f"{order_id}: refused, nothing written: its evidence record is titled by the order's title, and it has none; pass --title <a few words>")
+    return evidence_record(name, order["title"], order["text"], order["from"], f"drive order set {order_id} --incident")
+
+
+def turned_incident(name: str, data: dict, order_id: str, created: str, record: str | None) -> list[str]:
+    """Turn an open order into an incident in the save that marks it, as drive incident open opens one: its fix and cause parts, a build whose other parts an answer order asked stay answers, the evidence record incident_record opened before the write when its note names none, and a codex job by state.incident_job on each of those two parts no unfinished codex job holds, but on an order joined to an open incident, whose owner job carries it; the lines that say so."""
     order = data["orders"][order_id]
     parts = [state.INCIDENT_FIX, state.INCIDENT_CAUSE]
     for part in parts:
@@ -647,9 +656,8 @@ def turned_incident(name: str, data: dict, order_id: str, created: str) -> list[
     state.sort_as_build(order, parts, order["kind"] == "answer")
     opened = []
     if not RECORD_NOTE.search(order["note"] or ""):
-        if not order["title"]:
-            raise DriveError(f"{order_id}: refused, nothing written: its evidence record is titled by the order's title, and it has none; pass --title <a few words>")
-        record = evidence_record(name, order["title"], order["text"], order["from"], f"drive order set {order_id} --incident")
+        if not record:
+            raise DriveError(f"{order_id}: refused, nothing written: another write changed it while this one ran, so no evidence record opened for it; run drive order set {order_id} --incident again")
         order["note"] = "; ".join(filter(None, [order["note"], f"record {record}"]))
         opened = [f"{order_id} record {record}"]
     if joined := state.open_incidents(data, [order["joins"]] if order["joins"] else []):
@@ -1072,8 +1080,11 @@ def order_set(args: argparse.Namespace) -> int:
         "every": args.every,
         "watch": watched,
     }
+    becoming = order | {field: value for field, value in changes.items() if value is not None} | {field: (getattr(args, field) or "").strip() or None for field in FILING if getattr(args, field) is not None}
+    record = incident_record(name, args.id, becoming) if args.incident and not order["incident"] else None
     moment = state.now()
-    with state.edit(name) as data:
+
+    def order_changed(data: dict):
         order = data["orders"][args.id]
         before = apart_from_filing(order)
         aimed = (order["kind"], order["thread"])
@@ -1154,11 +1165,14 @@ def order_set(args: argparse.Namespace) -> int:
             order[field] = (getattr(args, field) or "").strip() or None
         if {"project", "workstream"} & set(filed) and order["project"] and order["workstream"]:
             one_home(data, order["project"], order["workstream"], args.id)
-        turned = turned_incident(name, data, args.id, state.stamp(moment)) if turning else []
+        turned = turned_incident(name, data, args.id, state.stamp(moment), record) if turning else []
         if not filed or args.lined or apart_from_filing(order) != before:
             order["updated"] = state.stamp(moment)
         if args.lined:
             order["last_line"] = order["updated"]
+        return data, order, aimed, added, stopped, turning, taken, turned, unjoined
+
+    data, order, aimed, added, stopped, turning, taken, turned, unjoined = state.update(name, None, order_changed)
     restarted = fresh_marked(name, [args.id], order["text"], order["from"]) if args.fresh else []
     cards = thread_cards(name, order) if args.rework or (order["kind"], order["thread"]) != aimed else []
     reworked = rework_named_prs(name, args.id, reworks, cards, f"drive order set {args.id} --rework <PR>=<his permalink>")
