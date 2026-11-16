@@ -31,7 +31,6 @@ SYNTHETIC = "<synthetic>"
 OUTAGE_WAITS = (1, 2, 4, 8)
 START_WINDOW = timedelta(minutes=5)
 BATCH_WINDOW = timedelta(minutes=1)
-RESUME_WINDOW = timedelta(minutes=30)
 EFFORT_CEILING = "high"
 ABOVE_CEILING = ("xhigh", "max")
 HANDLER_SKILLS = ("db-read", "iris-thread")
@@ -714,7 +713,7 @@ def beside(data: dict) -> tuple[str, dict]:
 
 
 def start_handler(name: str, handler: str, prompt: str) -> None:
-    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the drive's checkout at the head of its default branch, wherever the session it runs beside, the communicator's or on a drive with none the coordinator's, still runs, whether that session or the drive's watch starts it, `LONG_RUNNING_HANDLER` naming it, so every check on the communicator's handlers finds it from its first step, its entry keeping the session `claude --bg` names, by which the drive reads whether its turn is over, `CCI_PARENT_SESSION` naming that session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one; the watch's own lane stays out of its environment. Its prompt closes on the release freezes and his release hold as they stand at this start, in place of the line an earlier start of it carried. It runs on the trimmed settings, and resumes the session resumable keeps for its thread."""
+    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the drive's checkout at the head of its default branch, wherever the session it runs beside, the communicator's or on a drive with none the coordinator's, still runs, whether that session or the drive's watch starts it, `LONG_RUNNING_HANDLER` naming it, so every check on the communicator's handlers finds it from its first step, its entry keeping the session `claude --bg` names, by which the drive reads whether its turn is over, `CCI_PARENT_SESSION` naming that session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one; the watch's own lane stays out of its environment. Its prompt closes on the release freezes and his release hold as they stand at this start, in place of the line an earlier start of it carried. It runs on the trimmed settings."""
     from drive import orca
 
     data = state.saved(name)
@@ -724,20 +723,10 @@ def start_handler(name: str, handler: str, prompt: str) -> None:
     env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name}
     checkout = orca.checkout(name, held["cwd"])
     settings = session_settings(env) | trimmed(checkout)
-    thread = (data["handlers"][handler]["holds"] or {}).get("thread")
-    earlier = resumable(state.load(name), thread)
-    argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), *(["--resume", earlier] if earlier else []), "-n", f"{name} handler {handler}", prompt]
+    argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} handler {handler}", prompt]
     session = launched(reads.run(argv, checkout, {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
     with state.edit(name) as data:
         data["handlers"][handler]["session"] = session
-        if earlier:
-            data["resumable"].pop(thread, None)
-
-
-def resumable(data: dict, thread: str | None) -> str | None:
-    """The session of the handler that last ended in the thread, when it ended less than RESUME_WINDOW ago, which the thread's next handler resumes, so a thread runs on one conversation rather than a fresh session per report, by the Nov 15 order "resume the thread's existing handler session when one exists"."""
-    kept = data["resumable"].get(thread) if thread else None
-    return kept["session"] if kept and state.parse_time(kept["ended"]) + RESUME_WINDOW > state.now() else None
 
 
 def trimmed(checkout: Path) -> dict:
@@ -903,7 +892,7 @@ def take_handed(name: str, handler: str) -> list[str]:
 
 
 def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | None:
-    """End a handler's turn once refused, the Stop hook's checks of its line, lets it: hand the line it ended on to the session it runs beside, the communicator or on a drive with none the coordinator, as one cci record led by TOOK and the ts of each message of his it took by handover, each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, each permalink named once where it first appears, and remove its session. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended. In that edit its posts carry each record it held or took, and with none each `POST` report it held or took stays owed, by settled; the done record of each report given up goes to that report's writer too, led by UNPOSTED and its seq, and carries it. A handler that ends keeps its session as the one its thread's next handler resumes, by resumable, and the edit drops each kept session older than RESUME_WINDOW. A check that raises still posts the handler's line before its error goes on."""
+    """End a handler's turn once refused, the Stop hook's checks of its line, lets it: hand the line it ended on to the session it runs beside, the communicator or on a drive with none the coordinator, as one cci record led by TOOK and the ts of each message of his it took by handover, each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, each permalink named once where it first appears, and remove its session. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended. In that edit its posts carry each record it held or took, and with none each `POST` report it held or took stays owed, by settled; the done record of each report given up goes to that report's writer too, led by UNPOSTED and its seq, and carries it. A check that raises still posts the handler's line before its error goes on."""
     name = state.session_drives(payload["session_id"])[0]
     given_up: dict[str, str] = {}
     try:
@@ -918,9 +907,6 @@ def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | N
                 ended_handler["took"] += briefs
             else:
                 data["handlers"].pop(payload["agent_id"])
-                data["resumable"] = {thread: kept for thread, kept in data["resumable"].items() if state.parse_time(kept["ended"]) + RESUME_WINDOW > state.now()}
-                if (thread := (ended_handler["holds"] or {}).get("thread")) and ended_handler["session"]:
-                    data["resumable"][thread] = {"session": ended_handler["session"], "ended": state.stamp()}
                 if job_id := state.agent_job(data, payload["agent_id"]):
                     data["jobs"][job_id]["transcript"] = payload["agent_transcript_path"]
                 given_up = settled(data, ended_handler, writers, " ".join((payload.get("last_assistant_message") or "").split()))

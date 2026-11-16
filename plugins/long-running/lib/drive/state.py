@@ -820,7 +820,6 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "posts": {"mark": None, "unposted": {}},
         "mains": {},
         "dropped_waits": {},
-        "resumable": {},
         "posted": {},
         "catch_up": None,
         "launched": {},
@@ -1252,7 +1251,6 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data.setdefault("carried", {})
     data.setdefault("posts", {"mark": None, "unposted": {}})
     data.setdefault("dropped_waits", {})
-    data.setdefault("resumable", {})
     data.setdefault("posted", {})
     data["owner"].setdefault("absence", None)
     if isinstance(away := data["owner"]["away"], bool):
