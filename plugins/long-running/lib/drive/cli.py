@@ -4267,9 +4267,10 @@ FRESH_WITHIN = timedelta(minutes=10)
 FRESH_PAST_TOKENS = 170_000
 
 
-def fresh_start(bg: dict) -> str | None:
-    """Why a job's dead `claude --bg` session gets a fresh agent on its brief rather than a resume, by his pick to resume first: it died again within FRESH_WITHIN of its last resume, or its last turn held FRESH_PAST_TOKENS of context or more, near its limit, so a resume would die the same way; None to resume it."""
-    if bg.get("resumed") and state.now() - state.parse_time(bg["resumed"]) < FRESH_WITHIN:
+def fresh_start(bg: dict, kept: list[dict]) -> str | None:
+    """Why a job's dead `claude --bg` session gets a fresh agent on its brief rather than a resume, by his pick to resume first: it died again within FRESH_WITHIN of its last resume with no return kept since, since a session that kept a report after its resume, the same WAITING included, ended normally however soon, or its last turn held FRESH_PAST_TOKENS of context or more, near its limit, so a resume would die the same way; None to resume it. kept is the job's returns, newest first."""
+    resumed = bg.get("resumed") and state.parse_time(bg["resumed"])
+    if resumed and state.now() - resumed < FRESH_WITHIN and not (kept and state.parse_time(kept[0]["created_at"]) > resumed):
         return f"died again within {FRESH_WITHIN.seconds // 60} minutes of its resume at {bg['resumed']}"
     path = watch.session_transcript(bg)
     if path.exists() and (turn := watch.last_turn(path)) and (tokens := watch.context_tokens(turn)) >= FRESH_PAST_TOKENS:
@@ -4302,9 +4303,10 @@ def own_post(name: str, job_id: str, session: str, seq: str) -> str:
 
         state.write(name, own_post_write)
         return f"{job_id}: posted to its own session {session}'s cci address as handoff record {seq}, which its next step reads"
-    if why := finished(job, state.returns(name, job_id), bg):
+    kept = state.returns(name, job_id)
+    if why := finished(job, kept, bg):
         return f"{job_id}: posted as handoff record {seq}; its session {session} is gone but {why}, so nothing resumes or starts it: the record waits at its cci address"
-    if why := fresh_start(bg):
+    if why := fresh_start(bg, kept):
         old = watch.session_transcript(bg)
         def fresh_write(data: dict):
             state.hold_text(data["jobs"][job_id], f"Your previous session {bg['session']} {why}, so you start fresh on your brief: read its transcript, {old}, for the work it did before you go on.", state.held_sender(data))

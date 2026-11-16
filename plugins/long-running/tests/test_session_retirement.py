@@ -78,13 +78,13 @@ def test_a_dead_session_resumes_first_and_starts_fresh_on_its_brief_once_it_died
     transcript = tmp_path / "429b9597.jsonl"
     monkeypatch.setattr(watch, "session_transcript", lambda holder: transcript)
     bg = {"session": "429b9597", "cwd": str(tmp_path), "started": "2026-11-16T04:02:11-08:00"}
-    assert cli.fresh_start(bg) is None
+    assert cli.fresh_start(bg, []) is None
     transcript.write_text('{"type": "assistant", "message": {"usage": {"input_tokens": 12, "cache_read_input_tokens": 175000}}}\n')
-    assert cli.fresh_start(bg) == "died at 175012 tokens of context, near its limit"
+    assert cli.fresh_start(bg, []) == "died at 175012 tokens of context, near its limit"
     transcript.write_text('{"type": "assistant", "message": {"usage": {"input_tokens": 12}}}\n')
-    assert cli.fresh_start(bg | {"resumed": state.stamp(state.now() - timedelta(minutes=30))}) is None
+    assert cli.fresh_start(bg | {"resumed": state.stamp(state.now() - timedelta(minutes=30))}, []) is None
     resumed = state.stamp(state.now() - timedelta(minutes=4))
-    assert cli.fresh_start(bg | {"resumed": resumed}) == f"died again within 10 minutes of its resume at {resumed}"
+    assert cli.fresh_start(bg | {"resumed": resumed}, []) == f"died again within 10 minutes of its resume at {resumed}"
 
 
 REPORTED = {"created_at": "2026-11-16T07:06:12-08:00", "body": "DONE https://buildkite.com/forge/release/builds/17947: #56306 and #56314 passed"}
@@ -148,3 +148,19 @@ def test_own_post_to_a_finished_gone_session_neither_resumes_nor_starts_it(monke
     line = cli.own_post("durable-agents", "j4481", "299d123b", "734148")
     assert line.startswith("j4481: posted as handoff record 734148; its session 299d123b is gone but kept its report at 2026-11-16T07:06:12-08:00")
     assert line.endswith("so nothing resumes or starts it: the record waits at its cci address")
+
+
+@pytest.mark.parametrize("reported", [True, False])
+def test_a_session_that_kept_a_report_after_its_resume_ended_normally_however_soon_as_j7705s_did_26_seconds_after_and_one_with_none_died(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, reported: bool
+) -> None:
+    from datetime import timedelta
+
+    from drive import cli
+
+    monkeypatch.setattr(watch, "session_transcript", lambda holder: tmp_path / "86e88fb6.jsonl")
+    resumed = state.now() - timedelta(minutes=2)
+    bg = {"session": "86e88fb6", "cwd": str(tmp_path), "started": "2026-11-16T04:02:11-08:00", "resumed": state.stamp(resumed)}
+    waiting = {"created_at": state.stamp(resumed + timedelta(seconds=26) if reported else resumed - timedelta(minutes=40)), "body": "WAITING #57170 to merge"}
+    expected = None if reported else f"died again within 10 minutes of its resume at {bg['resumed']}"
+    assert cli.fresh_start(bg, [waiting]) == expected
