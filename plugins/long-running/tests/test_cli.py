@@ -7293,7 +7293,7 @@ def test_a_builders_staging_line_reaches_the_tester_its_prs_changed_files_gave_i
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 {cases}\n") == (0, "")
     data = state.load("demo")
     testers = [job_id for job_id, job in data["jobs"].items() if state.builds_nothing(job)]
-    assert (testers, [held["words"] for held in data["jobs"][tester_id]["undelivered"]]) == ([tester_id], [f"The staging test of {key} also runs: {cases}"])
+    assert (testers, [held["words"] for held in data["jobs"][tester_id]["undelivered"]]) == ([tester_id], [state.STAGING_CASE.format(key=key, goal=cases)])
     with state.edit("demo") as data:
         data["jobs"][tester_id]["agent"] = "a1"
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}") == (0, "")
@@ -7351,7 +7351,7 @@ def test_a_pr_a_dangerous_class_and_the_release_reach_both_stage_keeps_its_dange
     assert (code, f"{key} waits on its staging test before it lands, since its paths reach a component staging runs, so no `STAGING: none` line stands for it" in err) == (2, True)
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 {cases}\n") == (0, "")
     data = state.load("demo")
-    assert ([job_id for job_id, job in data["jobs"].items() if state.builds_nothing(job)], [held["words"] for held in data["jobs"][tester_id]["undelivered"]]) == ([tester_id], [f"The staging test of {key} also runs: {cases}"])
+    assert ([job_id for job_id, job in data["jobs"].items() if state.builds_nothing(job)], [held["words"] for held in data["jobs"][tester_id]["undelivered"]]) == ([tester_id], [state.STAGING_CASE.format(key=key, goal=cases)])
 
 
 def test_a_builders_ready_counts_only_on_a_green_required_check_and_one_still_running_or_red_returns_pushed(

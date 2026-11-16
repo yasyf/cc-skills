@@ -2860,6 +2860,38 @@ def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return lines
 
 
+def case_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Post each staging case a tester holds, by state.stage_pr, to its agent on this Mac that the session holding it started, at once and whole, as drive job resume posts a held text to such an agent, by cli.starter_post: a handoff record to the agent's cci address and the SendMessage pointing it there to that session's lane, so the tester adds the case to the test it runs rather than leaving it to its next worker; a Sprite tester's worker gets it from agent_lines, and a tester no agent of a session runs, or whose agent died, from its next worker. Says only a post that failed."""
+    from drive import cli
+
+    opens = state.STAGING_CASE.partition("{key}")[0]
+    data = state.load(watcher.name)
+    owed = [
+        (job_id, lane, held)
+        for job_id, job in data["jobs"].items()
+        if job["state"] not in state.FINISHED_JOB_STATES
+        and any(held["words"].startswith(opens) for held in job["undelivered"])
+        and heard_job(watcher, data, job)
+        and (lane := state.agent_lane(data, job))
+        and not agent_death(job, data)
+        and not superseded.fresh_builder(data, job_id, job, "", "a staging case")
+        for held in job["undelivered"]
+        if held["words"].startswith(opens)
+    ]
+    lines = []
+    for job_id, lane, held in owed:
+        job = state.load(watcher.name)["jobs"][job_id]
+        try:
+            _, line = cli.starter_post(watcher.name, job_id, job, lane, held["words"], held["at"], held["request"])
+        except state.DriveError as error:
+            lines += failed(watcher, f"case of {job_id}", f"staging case post to {job_id}", error, moment)
+            continue
+        watcher.failures.pop(f"case of {job_id}", None)
+        if line.startswith(f"{job_id}: SendMessage"):
+            lines.append(f"CASE {line} [{job['order']} {job_id}]")
+    return lines
+
+
 def unreached(job_id: str, job: dict, data: dict, answer: dict, locked: str | None, moment: datetime) -> str:
     """A text the job holds that has not reached it, by the time its words name once that passed, what the watch does with such texts, and the delivery that reaches the job now: for a lane on Orca, drive job resume with no text, which sends it what it holds, or, while orca.locked_out names why that resume is refused, the local launch orca.moved_here names; for an agent on this Mac, the same resume, which posts each text the job holds whole to the agent and prints the SendMessage pointing it at each while its starter reaches it, else hands each to the job's next worker in its handoff, so the line's cut quote is never the text anyone sends; else, a builder that returned, which superseded.fresh_builder sends a fresh builder, among them, the step superseded.delivery names from the session holding the job."""
     named = named_time(answer)
@@ -4819,7 +4851,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
         functools.partial(train_lines, watcher, moment),
         functools.partial(event_lines, watcher),
         *(owed_reads(watcher, moment) if lands else []),
-        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, clock_lines, undelivered_lines, close_answered, close_joined_repeats, tell_lines, standing_lines, orphan_lines)),
+        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, clock_lines, case_lines, undelivered_lines, close_answered, close_joined_repeats, tell_lines, standing_lines, orphan_lines)),
     ]
     names = [stage.func.__name__ for stage in later]
     resume, watcher.resume = watcher.resume, None
