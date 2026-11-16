@@ -20,6 +20,7 @@ ROWS = 8
 ROW_CHARS = 300
 WORDS_CHARS = 2000
 FOLLOW_WINDOW = timedelta(minutes=30)
+ROUTED_WAIT = 120
 ON_IT = "On it, working on this now."
 CONTRACT = (
     "The router's Jev input holds exactly: `message.words`, his words cut to WORDS_CHARS, and `thread`, the newest ROWS of the drive's rows"
@@ -109,6 +110,14 @@ def picked(data: dict, words: str, rows: str) -> tuple[str, str, bool, float]:
     return route, f"Jev picked {route}: {cut(options[route], 160)}", settled.reading(float(read["away"])) is True, time.monotonic() - began
 
 
+def routed_by(name: str, key: str) -> dict:
+    """His earlier message's routed row once its route is taken, waiting up to ROUTED_WAIT while the call routing it still runs, so a follow-up sent while the first is still being routed goes where the first goes; the fail-safe fresh handler once the wait ends."""
+    deadline = time.monotonic() + ROUTED_WAIT
+    while not (kept := state.load(name)["routed"][key])["route"] and time.monotonic() < deadline:
+        time.sleep(1)
+    return kept if kept["route"] else kept | {"route": NEW}
+
+
 def owed_ts(data: dict) -> set[str]:
     """The ts of each message of his cc-slack still owes an answer."""
     from drive import slack
@@ -118,7 +127,7 @@ def owed_ts(data: dict) -> set[str]:
 
 def followed(data: dict, ts: str, thread: str, words: str) -> tuple[str, str, bool, float] | None:
     """The route of his message just before this one in the same thread, while that one still waits on a real reply, cc-slack owing it, and Jev reads this one as its follow-up, with why, so it goes where the first went and one reply covers both; None otherwise."""
-    earlier = [(kept["at"], key, kept) for key, kept in data["routed"].items() if key != ts and kept.get("route") and kept.get("thread") == thread and state.now() - state.parse_time(kept["at"]) <= FOLLOW_WINDOW]
+    earlier = [(kept["at"], key, kept) for key, kept in data["routed"].items() if key != ts and float(key) < float(ts) and kept.get("thread") == thread and state.now() - state.parse_time(kept["at"]) <= FOLLOW_WINDOW]
     if not earlier:
         return None
     _, key, kept = max(earlier)
@@ -131,6 +140,7 @@ def followed(data: dict, ts: str, thread: str, words: str) -> tuple[str, str, bo
         return None
     if not follows:
         return None
+    kept = routed_by(data["name"], key)
     return (f"{HANDLER}{kept['handler']}" if kept.get("handler") else kept["route"]), f"Jev read it as a follow-up to his message {key}, still unanswered, so it goes where that one went", False, time.monotonic() - began
 
 
@@ -152,7 +162,7 @@ def route(name: str, brief: str, answer: str | None = None, away: bool = False) 
     with state.edit(name) as data:
         if (earlier := data["routed"].get(ts)) and not lost_handler(data, earlier):
             return earlier | {"again": True}
-        data["routed"][ts] = {"link": link, "at": state.stamp(), "route": None}
+        data["routed"][ts] = {"link": link, "thread": thread or ts, "words": cut(words, 500), "at": state.stamp(), "route": None}
     from drive import answer as rows_answer
     from drive import watch
 
