@@ -4744,8 +4744,7 @@ def rewrite(db: sqlite3.Connection, data: dict, copy: Copy | None) -> tuple[list
     """Make the database's rows data's, inside a transaction: one row for each top-level field, a collection's with no body, and one for each record of a collection, each keeping its place unless the order data holds them in moved, each job it moves into done or stopped holding no text, by drop_ended_texts. The triggers LISTED makes list each row written in the changed table, which keeps the newest CHANGES_KEPT entries, and the meta table's saver row keeps the newest release that saved the drive, for newer_saver. Each record is compared with copy's when copy holds the rows as the database does now, its rev the table's newest entry, so the save parses and serializes only what changed, else with the JSON the database holds. The id of each job whose row it moved from an unfinished state into done, failed or stopped, and, when it compared with copy, the rows it wrote and the table's newest entry after them, for copy to take."""
     for statement in LISTED:
         db.execute(statement)
-    if (saver := db.execute("SELECT value FROM meta WHERE key = 'saver'").fetchone()) is None or version_key(saver[0]) < version_key(VERSION):
-        db.execute("INSERT OR REPLACE INTO meta VALUES ('saver', ?)", (VERSION,))
+    record_saver(db)
     last = db.execute("SELECT COALESCE(MAX(rev), 0) FROM changed").fetchone()[0]
     current = copy is not None and copy.rev == last
     kept: dict[str, dict[str, tuple[int, bytes | str | None]]] = copy.rows if copy and current else {}
@@ -4786,6 +4785,11 @@ def rewrite(db: sqlite3.Connection, data: dict, copy: Copy | None) -> tuple[list
     db.execute("DELETE FROM changed WHERE rev <= ?", (newest - CHANGES_KEPT,))
     returned = [job_id for job_id in changed["jobs"] if job_id in was and gave_box_back(parse(was[job_id][1])["state"], data["jobs"][job_id]["state"])]
     return returned, (wrote, newest) if current else None
+
+
+def record_saver(db: sqlite3.Connection) -> None:
+    if (saver := db.execute("SELECT value FROM meta WHERE key = 'saver'").fetchone()) is None or version_key(saver[0]) < version_key(VERSION):
+        db.execute("INSERT OR REPLACE INTO meta VALUES ('saver', ?)", (VERSION,))
 
 
 def newer_saver(name: str) -> str | None:
@@ -5144,6 +5148,7 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
         try:
             for statement in LISTED:
                 db.execute(statement)
+            record_saver(db)
             if since is not None:
                 if db.execute("SELECT COALESCE(MIN(rev), 1) FROM changed").fetchone()[0] > since + 1:
                     raise Raced(("drive",))
