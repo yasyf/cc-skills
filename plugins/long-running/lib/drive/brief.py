@@ -5,10 +5,13 @@ import json
 import os
 import re
 import shlex
+import sqlite3
 import subprocess
 import sys
 import textwrap
+import time
 from collections.abc import Iterator
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
@@ -48,8 +51,7 @@ STORY_LINES = (
     " FAIL Sn <label>: <why> for each criterion by its label; and SEEN Sn: <the picture or recording it saved, the live post's link it read back,"
     " or, for a command, the file holding the output of its run>, which opens; a story lacking any of these lines, or printing a FAIL or GAP line, falls short"
 )
-OPENED_AGE = "24h"
-OPENED_LINKS = "opened-links"
+OPENED_AGE = 24 * 60 * 60
 GITHUB_PAGES = (
     (re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)"), "repos/{0}/pulls/{1}"),
     (re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/commit/([0-9a-f]{7,40})"), "repos/{0}/commits/{1}"),
@@ -1437,15 +1439,8 @@ def held(proof: str) -> bool:
 
 
 @functools.cache
-def opened_links() -> frozenset[str]:
-    """The GitHub links a read once found open, kept across processes, since a pull request, commit, run or release that opened stays opened, and each re-read of one spent a core call of the owner's on every wake of every proof."""
-    kept = state.root() / OPENED_LINKS
-    return frozenset(kept.read_text().split()) if kept.exists() else frozenset()
-
-
-@functools.cache
 def unopened(link: str) -> str | None:
-    """Why a link does not open as he would open it, read by its host's reader once a process, or None when it opens: a Slack message in his workspace that cc-slack reads back, a GitHub pull request, commit, Actions run or release that gh api returns once ccx's rate-limit floor lifts, an answer up to OPENED_AGE old standing, since a page that opened stays opened, or a Buildkite build that bk build view returns; a link on any other host has no reader, so it does not open."""
+    """Why a link does not open as he would open it, read by its host's reader once a process, or None when it opens: a Slack message in his workspace that cc-slack reads back, a GitHub pull request, commit, Actions run or release whose successful existence check github_page keeps for 24 hours independently of repository writes, once ccx's rate-limit floor lifts, or a Buildkite build that bk build view returns; a link on any other host has no reader, so it does not open."""
     from drive import github, slack
 
     host = urlparse(link).hostname or ""
@@ -1457,11 +1452,7 @@ def unopened(link: str) -> str | None:
         elif host == "github.com":
             if not (api := next((route.format(*found.groups()) for pattern, route in GITHUB_PAGES if (found := pattern.match(link))), None)):
                 return "it names no pull request, commit, Actions run or release, the GitHub pages the drive reads"
-            if link in opened_links():
-                return None
-            github.read_past_floor(link, ["gh", "api", api, "--silent"], max_age=OPENED_AGE)
-            with (state.root() / OPENED_LINKS).open("a") as kept:
-                kept.write(link + "\n")
+            github_page(link, api)
         elif found := github.BUILD.match(link):
             github.run(["bk", "build", "view", found["number"], "-p", found["pipeline"], "-o", "json"])
         else:
@@ -1469,6 +1460,24 @@ def unopened(link: str) -> str | None:
     except (slack.SlackError, github.GithubError) as error:
         return str(error)
     return None
+
+
+def github_page(link: str, api: str) -> None:
+    """Verify that a GitHub proof page opens, reusing a successful read for OPENED_AGE seconds across commands and repository writes. Failed reads are never stored, and no cached page contents stand in for a fresh status check."""
+    from drive import github
+
+    folder = state.root()
+    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with closing(sqlite3.connect(folder / "github-proof-pages.sqlite3", isolation_level=None)) as db:
+        db.execute("CREATE TABLE IF NOT EXISTS pages (api TEXT PRIMARY KEY, opened_at REAL NOT NULL) WITHOUT ROWID")
+        db.execute("CREATE INDEX IF NOT EXISTS pages_opened_at ON pages (opened_at)")
+        opened = db.execute("SELECT opened_at FROM pages WHERE api = ?", (api,)).fetchone()
+        if opened and time.time() - opened[0] < OPENED_AGE:
+            return
+        github.read_past_floor(link, ["gh", "api", api, "--silent"])
+        now = time.time()
+        db.execute("INSERT OR REPLACE INTO pages VALUES (?, ?)", (api, now))
+        db.execute("DELETE FROM pages WHERE opened_at <= ?", (now - OPENED_AGE,))
 
 
 def dead(named: list[str]) -> list[str]:
