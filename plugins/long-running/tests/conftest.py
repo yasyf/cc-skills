@@ -669,6 +669,10 @@ ENV_STAGE = re.compile(r"^stage: *(\S+) *$", re.MULTILINE)
 ENV_PROD = re.compile(r"^prod: *true *$", re.MULTILINE)
 ENV_TENANTS = re.compile(r"^tenants:\n((?:[ -].*(?:\n|$))*)", re.MULTILINE)
 ENV_TEAM_NAME = re.compile(r"^[ -] (?:name|displayName): *(.+?) *$", re.MULTILINE)
+TARGETS = re.compile(r"^targets:\n((?:[ -].*(?:\n|$))*)", re.MULTILINE)
+TARGET = re.compile(r"^  ([a-z0-9][a-z0-9-]*):\n((?:    .*(?:\n|$))*)", re.MULTILINE)
+INLINE_PARTS = re.compile(r"^    components: \[([^\]]*)\]", re.MULTILINE)
+LISTED_PARTS = re.compile(r"^    components:\n((?:    - .*(?:\n|$))+)", re.MULTILINE)
 LIVE_SAND_NEXT = re.compile(r"^#\d+\s+passed\s+(?:manual )?(?:release|hotfix|rollback)\s.*?\s(?P<commit>[0-9a-f]{7,40})\s+(?:not )?started\b", re.MULTILINE)
 DRY_RUN = "start the release dry run of each component staging has no copy of: `tools/ci release start <each target holding them> --only <those components> --emergency --dry-run`"
 MAC_BOX_CASES = "; {tested} changes the dashboard, so run its cases on a Mac box too: `tools/ci mac-box prove <box> --commit {live}`"
@@ -704,6 +708,17 @@ class EnvsRelease(providers.ReleaseProvider):
         text = path.read_text() if path.is_file() else ""
         stage, block = ENV_STAGE.search(text), ENV_TENANTS.search(text)
         return providers.Place(stage[1] if stage else None, bool(ENV_PROD.search(text)), tuple(ENV_TEAM_NAME.findall(block[1])) if block else ())
+
+    def parts(self) -> dict[str, tuple[str, ...]]:
+        path = self.checkout / "release" / "targets.yaml"
+        section = TARGETS.search(path.read_text()) if path.is_file() else None
+        parts = {}
+        for target, block in TARGET.findall(section[1] if section else ""):
+            if inline := INLINE_PARTS.search(block):
+                parts[target] = tuple(filter(None, (part.strip() for part in inline[1].split(","))))
+            elif listed := LISTED_PARTS.search(block):
+                parts[target] = tuple(line.strip().removeprefix("- ").strip() for line in listed[1].splitlines())
+        return parts
 
     def freeze(self, components: list[str], why: str, until: str) -> str:
         argv = [str(self.checkout / "tools" / "ci"), "release", "freeze", *components, "--reason", why, "--until", until, "--json"]
