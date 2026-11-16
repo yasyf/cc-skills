@@ -1309,13 +1309,13 @@ def unposted(entry: dict) -> tuple[str, bool] | None:
         return (
             f"{since.seconds} s since his message and you have posted nothing: post your first line in his thread with say and no record"
             f" within {FIRST_LINE // timedelta(minutes=1)} min of it, what you are doing and when he hears next, then record after it;"
-            " past that minute every tool but say is refused until it posts.",
+            " past that minute this line says how far over it is at every step.",
             False,
         )
     return (
         f"{since // timedelta(minutes=1)} min since his message and you have posted nothing: your first line in his thread, owed"
-        f" {FIRST_LINE // timedelta(minutes=1)} min after it, is {over // timedelta(minutes=1)} min over, so every tool but say is refused"
-        " until it posts. Post it now with say and no record, what you are doing and when he hears next, then record after it.",
+        f" {FIRST_LINE // timedelta(minutes=1)} min after it, is {over // timedelta(minutes=1)} min over."
+        " Post it now with say and no record, what you are doing and when he hears next, then record after it.",
         True,
     )
 

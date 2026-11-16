@@ -13,14 +13,13 @@ def main() -> None:
         if pointed := agents.take_pointed(*started.split("/")[:2]):
             print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": agents.pointed(pointed)}}))
         return
-    tool = json.load(sys.stdin)["tool_name"]
+    json.load(sys.stdin)
     name, _, handler = os.environ[state.HANDLER_ENV].partition("/")
     briefs, entry = agents.take_handed(name, handler)
-    late, overdue = agents.unposted(entry) or (None, False)
+    late, _ = agents.unposted(entry) or (None, False)
     if not (context := "\n".join(filter(None, [agents.handed(briefs) if briefs else None, late]))):
         return
-    said = {"permissionDecision": "deny", "permissionDecisionReason": context} if overdue and tool not in agents.FIRST_LINE_TOOLS else {"additionalContext": context}
-    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse"} | said}))
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": context}}))
 
 
 if __name__ == "__main__":

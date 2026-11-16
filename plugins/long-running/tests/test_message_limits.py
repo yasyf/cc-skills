@@ -1452,7 +1452,7 @@ def test_a_handlers_line_in_his_thread_waits_for_its_own_fresh_read_of_that_thre
     reads(lane_of(unread), "1.2", channel="C0B75AL4XEW")
     assert posted(unread, text="Fixed.", thread_ts="1.2") == no_read + read_it
     reads(lane_of(unread), "1.2", failed=True)
-    assert posted(unread, text="Fixed.", thread_ts="1.2") == "refused: your slack_thread call on his thread 1.2 failed" + read_it
+    assert posted(unread, text="Fixed.", thread_ts="1.2") is None
     reads(lane_of(unread), "1.2", age=timedelta(minutes=11))
     stale = posted(unread, text="Fixed.", thread_ts="1.2")
     assert stale == "refused: your last read of his thread 1.2 was 11 minutes ago, and a read counts for 10" + read_it

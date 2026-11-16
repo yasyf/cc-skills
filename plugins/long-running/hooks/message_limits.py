@@ -296,7 +296,7 @@ def unread(payload: dict, dm: str) -> str | None:
         return None
     channel = tool_input.get("channel_id") or dm
     read, unopened, failed = last_read(agents.transcript(payload), dm, (channel, thread))
-    if read and datetime.now(UTC) - read < READ_WINDOW:
+    if read and datetime.now(UTC) - read < READ_WINDOW or failed and not read:
         return None
     if unopened:
         why = UNOPENED_READ.format(thread=thread, file=max(unopened, key=unopened.__getitem__))

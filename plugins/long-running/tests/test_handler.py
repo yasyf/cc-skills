@@ -591,8 +591,8 @@ def test_a_handler_that_has_posted_nothing_reads_the_time_since_his_message_each
     monkeypatch.setattr(state, "now", lambda: sent + timedelta(minutes=10, seconds=30))
     step(monkeypatch, "Bash")
     refused = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
-    assert refused["permissionDecision"] == "deny"
-    assert refused["permissionDecisionReason"].startswith(
+    assert "permissionDecision" not in refused
+    assert refused["additionalContext"].startswith(
         "10 min since his message and you have posted nothing: your first line in his thread, owed 1 min after it, is 9 min over,"
     )
     step(monkeypatch)

@@ -43,6 +43,7 @@ def block_reason(payload: dict) -> str | None:
             or unkept(names[0], data, job_id, message)
             or overfull(handler, message)
             or unopened(handler, message)
+            or unanswered(handler, payload, data, message)
         )
     keep = (
         f"keep your whole return first, if you have not, by piping it into `drive job report {job_id or '<your job>'} -`"
@@ -120,6 +121,14 @@ def overfull(handler: bool, line: str) -> str | None:
         f" {HANDLER_FACTS}, since it lands whole in the communicator's context. Cut it to the {HANDLER_FACTS} his next"
         " message needs that Slack and the drive do not already hold, each after `; `, then end again with that line."
     )
+
+
+def unanswered(handler: bool, payload: dict, data: dict, line: str) -> str | None:
+    """Why a handler holding a message of his may not end on NOTHING with no post: its open item lives in the drive's rows, not its context, so a handler that lost its brief to a resume or compaction reads it again and answers him."""
+    entry = data["handlers"].get(payload.get("agent_id") or "")
+    if not handler or not entry or not line.startswith("NOTHING") or entry["posted"] or not (entry["holds"] or {}).get("message"):
+        return None
+    return agents.Unjudged(f"Refused on purpose: you hold a message of his you have not answered, as the drive's rows say, so NOTHING drops it. Your open item: {entry['brief']}")
 
 
 def unopened(handler: bool, line: str) -> str | None:
