@@ -67,6 +67,8 @@ CUT_OFF = (
     f"its read stopped before it finished, so what it did and printed are unknown, its output in the drive's {READS_LOG}, and no read"
     " runs twice: read what a drive command changed, then ask again if it must run again"
 )
+TAKEN_LATER = "kept {job}'s report for the drive to take now; a refusal comes back to you as a message naming its fix, so end your turn as after any report"
+REPORT_REFUSED = "The drive refused the report you sent with drive job report {job} -, answered as kept before its take ran, and kept none of it: {taken}. Fix what it names and send drive job report {job} - again."
 LIVE_JOB_STATES = ("running", "waiting")
 SAFEGUARDED = "stopped by its model's safeguards"
 QUIET_LANE = timedelta(minutes=5)
@@ -1857,7 +1859,7 @@ def spawn_reader(name: str, job_id: str, message_id: str) -> None:
 
 
 def answer_read(name: str, job_id: str, message_id: str, moment: datetime) -> tuple[str | None, str | None]:
-    """Run a lane's read here and send its answer in one orca.reply, with why it is no answer when it failed, and why none ran: no worker waits on it, by still_asked, so no write a lane asked runs after its lane gave up on it, or another reader took it. A reader takes its question by creating its answer file exclusively, holding the answer a reader stopped mid-run leaves and this process's id, then marking it unsent, so no read runs twice, a `drive break-glass` in production included, and none that crashes starts again; it writes its own answer over that file before it sends it, and the relay sends again one Orca refused. An answer past one Orca relay message is written onto the lane's Sprite first and sent as the line naming that file; one the Sprite cannot take is answered with why, as a failed read is."""
+    """Run a lane's read here and send its answer in one orca.reply, with why it is no answer when it failed, and why none ran; a `drive job report <job> -` is answered as kept before its take runs, by take_after_reply: no worker waits on it, by still_asked, so no write a lane asked runs after its lane gave up on it, or another reader took it. A reader takes its question by creating its answer file exclusively, holding the answer a reader stopped mid-run leaves and this process's id, then marking it unsent, so no read runs twice, a `drive break-glass` in production included, and none that crashes starts again; it writes its own answer over that file before it sends it, and the relay sends again one Orca refused. An answer past one Orca relay message is written onto the lane's Sprite first and sent as the line naming that file; one the Sprite cannot take is answered with why, as a failed read is."""
     data = state.load(name)
     job, message = data["jobs"][job_id], kept_question(name, job_id, message_id)
     if not still_asked(job, message, moment):
@@ -1874,6 +1876,8 @@ def answer_read(name: str, job_id: str, message_id: str, moment: datetime) -> tu
     finally:
         claim.unlink()
     path.with_suffix(".unsent").touch()
+    if (reported := reads.report_taken_later(question)) is not None:
+        return take_after_reply(name, job_id, message_id, question, reported, Path(data["roles"]["coordinator"]["cwd"]))
     try:
         said = reads.answer(question, Path(data["roles"]["coordinator"]["cwd"]), name, job_id)
     except reads.ReadError as error:
@@ -1890,6 +1894,21 @@ def answer_read(name: str, job_id: str, message_id: str, moment: datetime) -> tu
     os.replace(written, path)
     send_answer(name, job_id, message_id, kept)
     return answer, why
+
+
+def take_after_reply(name: str, job_id: str, message_id: str, question: str, reported: str, checkout: Path) -> tuple[str | None, str | None]:
+    """Answer a lane's `drive job report <job> -` as kept the moment its reader takes it, then take the report as drive job report does, its refusals, Jev's and Opus's reads and every lock it waits on included, so the lane waits on none of them; a take that refuses or fails keeps nothing, and its lane is woken with what the take printed, by `drive job resume`, to fix and report again."""
+    kept = {"job": job_id, "reader": None, "answer": reads.lane_exit(0, f"{TAKEN_LATER.format(job=job_id)}: {reported}"), "why": None}
+    written = answer_file(name, message_id).with_name(f"{message_id}.{os.getpid()}.answer")
+    written.write_text(json.dumps(kept))
+    os.replace(written, answer_file(name, message_id))
+    send_answer(name, job_id, message_id, kept)
+    taken = reads.answer(question, checkout, name, job_id)
+    if reads.exited(taken) == 0:
+        return taken, None
+    why = REPORT_REFUSED.format(job=job_id, taken=taken.partition("\n")[2].strip())
+    state.detach(name, ["job", "resume", job_id, why], READS_LOG)
+    return taken, why
 
 
 def send_answer(name: str, job_id: str, message_id: str, kept: dict) -> orca.OrcaError | None:

@@ -6360,11 +6360,33 @@ def test_a_read_still_running_starts_no_second_reader_and_its_reader_sends_its_a
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     assert [staged(watch.lane_lines, watching, T0 + timedelta(seconds=s)) for s in (0, 5)] == [[], []]
     assert (started, [args for args in replies if args[0] == "reply"]) == (["relay_drive"], [])
-    sent = [("reply", "--id", "relay_drive", "--run", RUN, "--body", "drive exited 0\njobs/j1.replies.jsonl")]
+    sent = [("reply", "--id", "relay_drive", "--run", RUN, "--body", reads.lane_exit(0, f"{watch.TAKEN_LATER.format(job='j1')}: READY x"))]
     watch.answer_read(remote, "j1", "relay_drive", T0)
     assert [args for args in replies if args[0] == "reply"] == sent
     assert staged(watch.lane_lines, watching, T0 + timedelta(seconds=10)) == []
     assert (started, [args for args in replies if args[0] == "reply"], unsent(remote)) == (["relay_drive"], sent, [])
+
+
+@pytest.mark.parametrize(("status", "woken"), [(0, False), (2, True)], ids=["a taken report wakes nobody", "a refused report wakes its lane"])
+def test_a_lanes_report_is_answered_as_kept_before_its_take_runs_and_a_refused_take_wakes_its_lane(status: int, woken: bool, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    question = 'DRIVE job report j1 -\n{"files": {}, "stdin": "PUSHED https://github.com/yasyf/demo/pull/9\\nPR: x\\n"}'
+    state.keep_reply(remote, "j1", message("question", question, id="relay_report"))
+    replies, detached = [], []
+    refusal = "drive: j1: refused, nothing kept: name each such piece on an UNBUILT: line"
+
+    def take(asked: str, root: Path, drive: str, job_id: str) -> str:
+        assert [args[2] for args in replies if args[0] == "reply"] == ["relay_report"]
+        return reads.lane_exit(status, refusal if status else f"kept {job_id}'s report")
+
+    monkeypatch.setattr(reads, "answer", take)
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or 1)
+    said, why = watch.answer_read(remote, "j1", "relay_report", T0)
+    kept = reads.lane_exit(0, f"{watch.TAKEN_LATER.format(job='j1')}: PUSHED https://github.com/yasyf/demo/pull/9")
+    assert [args[6] for args in replies if args[0] == "reply"] == [kept]
+    assert detached == ([["job", "resume", "j1", watch.REPORT_REFUSED.format(job="j1", taken=refusal)]] if woken else [])
+    assert (why is not None, reads.exited(said)) == (woken, status)
+    assert unsent(remote) == []
 
 
 def test_a_second_reader_started_while_the_first_still_runs_exits_and_the_read_runs_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:

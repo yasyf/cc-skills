@@ -524,7 +524,11 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   each picture the PR's Show me shows by its path on your Sprite, then
   prints all it printed there and exits with its status. While it waits it prints a line to stderr
   every 30 s naming the question, and at 9 minutes it gives up and exits 1, inside the Bash call's
-  600000 ms; the Mac may still run it, so read what it would change before you type it again. It runs `job report`, `job ask`,
+  600000 ms; the Mac may still run it, so read what it would change before you type it again.
+  `drive job report <your job> -` is the one verb answered before it runs: it prints that the report
+  is kept for the drive to take, and the Mac then takes it with every check a report on this Mac
+  meets. A take that refuses keeps nothing and wakes you with a message naming the refusal; fix what
+  it names and send the report again. It runs `job report`, `job ask`,
   `job set --repro`, `job replies`, `job held`, `pr add`, `pr set --flaky`, `plan search`, `datadog`, `fde-scan`, `manual`, `page-owner` and `status` on your own
   drive, and refuses, running nothing, any other verb or drive. Its reads read any job as on this
   Mac, such as `drive job report <job>` and `drive job replies <job>` for a job your brief names,

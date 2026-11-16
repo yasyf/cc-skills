@@ -332,10 +332,10 @@ session makes its parts `ORPHAN`s.
 **Drive verbs.** A lane types the drive's verbs as a job on this Mac does. Its `drive`, which
 `drive job launch` has the `orca` skill's launcher place in the Sprite's `~/.local/bin`, asks each
 as one blocking Orca question, `DRIVE <its words>` over the JSON of its stdin and of each file a
-word names, and the watch's relay starts its reader within seconds. `drive job read` runs it in the coordinator's
+word names, and the watch's responder starts its reader within seconds. `drive job read` runs it in the coordinator's
 checkout with no session of this Mac's, as the lane's own job on its own drive, and answers
 all it printed under a first line naming its exit status, each file named by the lane's own path,
-which the lane's `drive` prints and exits with. While no answer comes, that `drive` says so on
+which the lane's `drive` prints and exits with. A `job report <its job> -` is answered before it runs, as kept for the drive to take, and the reader then takes it with every check a report on this Mac meets; a take that refuses keeps nothing and wakes the lane by `drive job resume` with what it printed. While no answer comes, that `drive` says so on
 stderr every 30 s, naming the question, and gives up at 9 minutes, exiting 1. It runs `job report`, `job ask`, `job set --repro`,
 `job replies`, `job held`, `pr add`, `pr set --flaky` on a PR its own job carries, `plan search`, `datadog`, `fde-scan`, `manual`, `page-owner` and `status`, its reads on any job as a Mac lane's,
 so a lane reads the `job report` or `job replies` of any job its brief names, and a bare `status`
