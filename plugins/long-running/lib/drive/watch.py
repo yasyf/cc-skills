@@ -31,6 +31,7 @@ from drive.install import PROOF_FAILED, add_prover, config_dir, handed_on, open_
 from drive.render import cut, when
 
 POLL_SECONDS = 5
+ACTION_TEXTS = ("STAGE ", state.STAGING_CASE.partition("{key}")[0])
 RELAY_SECONDS = 2
 PROJECT_RELAY_IDLE = 10
 POSTS_IDLE = 30
@@ -3426,38 +3427,29 @@ def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def held_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Post every text a job holds for its agent on this Mac, a subagent only the session that started it reaches, the moment it is held, by cli.deliver_held: one handoff record to the agent's cci address and its starter's lane, his words first, and an urgent record to that session carrying the owed SendMessage line, so his words never sit on a job until a `drive job resume`, as "Stop delaying: staging tests, then merge" sat on j6159 and a packer's answer on j4915 for 2h25m. A builder that returned, which takes no text, hands them on by cli.deliver_returned, to the job its work went to or the session holding its order, as urgent. Says the owed line and each post that failed."""
+    """Send on the texts jobs hold, by who should act on them now: his words on a job that returned BUILT or DONE or waits only on his own open cards go once to the session holding its order to read, by cli.deliver_to_order, never waking its agent; on any other job whose agent is a subagent on this Mac, his words and texts needing action now, a staging line, reach it at once by cli.deliver_held with the owed SendMessage line to the session that started it, while other texts wait for the job's own next wake. Says each owed line and each post that failed."""
     from drive import cli
 
     data = state.load(watcher.name)
-    owed = [
-        (job_id, lane)
-        for job_id, job in data["jobs"].items()
-        if job["undelivered"]
-        and job["state"] not in state.FINISHED_JOB_STATES
-        and heard_job(watcher, data, job)
-        and (lane := state.agent_lane(data, job))
-        and not agent_death(job, data)
-        and not orca.locked_out(watcher.name, job_id, job)
-    ]
+    cards = {question["waits"] for job in data["jobs"].values() for question in job["questions"] if question["waits"] and not question["closed"]}
     lines = []
-    for job_id, lane in owed:
-        if superseded.fresh_builder(state.load(watcher.name), job_id, state.load(watcher.name)["jobs"][job_id], "", "a held text"):
-            try:
-                if line := cli.deliver_returned(watcher.name, job_id, state.load(watcher.name)["jobs"][job_id]):
-                    lines.append(f"HELD {line}")
-            except state.DriveError as error:
-                lines += failed(watcher, f"held of {job_id}", f"held text post for returned {job_id}", error, moment)
+    for job_id, job in data["jobs"].items():
+        fresh = [kept for kept in job["undelivered"] if not kept.get("told")]
+        if not fresh or job["state"] in state.ENDED_JOB_STATES or not heard_job(watcher, data, job):
             continue
-        job = state.load(watcher.name)["jobs"][job_id]
+        quiet = job["state"] in superseded.FRESH_STATES or bool(job["waits"]) and set(job["waits"]) <= cards
         try:
-            given = cli.deliver_held(watcher.name, job_id, job, lane)
+            if quiet:
+                if line := cli.deliver_to_order(watcher.name, job_id, job, [kept for kept in fresh if kept["sender"] == state.HIM]):
+                    lines.append(f"HELD {line}")
+            elif (now := [kept for kept in fresh if kept["sender"] == state.HIM or kept["words"].startswith(ACTION_TEXTS)]) and (lane := state.agent_lane(data, job)) and not agent_death(job, data) and not orca.locked_out(watcher.name, job_id, job):
+                given = cli.deliver_held(watcher.name, job_id, state.load(watcher.name)["jobs"][job_id], lane, now)
+                if given and cli.OWED in given[1]:
+                    lines.append(f"HELD {given[1]} [{job['order']} {job_id}]")
         except state.DriveError as error:
-            lines += failed(watcher, f"held of {job_id}", f"held text post to {job_id}", error, moment)
+            lines += failed(watcher, f"held of {job_id}", f"held text post for {job_id}", error, moment)
             continue
         watcher.failures.pop(f"held of {job_id}", None)
-        if given and cli.OWED in given[1]:
-            lines.append(f"HELD {given[1]} [{job['order']} {job_id}]")
     return lines
 
 

@@ -2055,6 +2055,15 @@ def job_set(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     known = state.load(name)
     found = find(known["jobs"], args.id, "job")
+    if args.heard:
+        told = [kept for kept in found["undelivered"] if kept.get("told")]
+
+        def heard_write(data: dict):
+            data["jobs"][args.id]["undelivered"] = [kept for kept in data["jobs"][args.id]["undelivered"] if not kept.get("told")]
+            return data
+
+        state.update(name, (("jobs", args.id),), heard_write)
+        return emit(args, f"{args.id}: {len(told)} held text{'' if len(told) == 1 else 's'} of his marked heard", {"id": args.id, "heard": len(told)})
     stops = args.state == "stopped"
     already = f"{args.id} is already {found['state']}\n" if args.state == found["state"] else ""
     if already:
@@ -4070,23 +4079,29 @@ def to_starter(args: argparse.Namespace, name: str, job: dict, lane: str) -> int
 
 def held_to_starter(args: argparse.Namespace, name: str, job: dict, lane: str) -> int:
     """Give each text the job holds, oldest first, to its agent on this Mac that a session of the drive started and still holds, in one record by starter_post, each held text under the last, so a resume with no text sends the words the drive holds whole in one record the agent reads once and the session that runs it types one SendMessage line, by his words "make everything less chatty"; a text another resume took off the job meanwhile is not posted again. Nothing held, handed over or started."""
-    if not (given := deliver_held(name, args.id, job, lane)):
+    if not (given := deliver_held(name, args.id, job, lane, job["undelivered"])):
         return emit(args, "", {"id": args.id, "how": f"handoff to {lane}", "seqs": []})
     seq, line = given
     return emit(args, line, {"id": args.id, "how": f"handoff to {lane}", "seqs": [seq]})
 
 
-def deliver_held(name: str, job_id: str, job: dict, lane: str) -> tuple[str, str] | None:
-    """Post every text the job holds to its agent on this Mac in one record by starter_post, his words first under an URGENT line, and take them off the job; when the agent is a subagent only the session that started it reaches, that session gets a second record at once, marked urgent, carrying the owed SendMessage line, so his words never wait for a `drive job resume`; the record's seq and the line, None when the job holds nothing."""
+def resent(kept: dict) -> str:
+    """A held text as it goes out again: his words marked re-sent with their own time and the record they came in, so no reader takes them for words he wrote now."""
+    if kept["sender"] != state.HIM:
+        return kept["words"]
+    came = f", record {kept['seq']}" if kept["seq"] else ""
+    return f"His words of {render.when(kept['at'])}{came}, re-sent: {kept['words']}"
+
+
+def deliver_held(name: str, job_id: str, job: dict, lane: str, held: list[dict]) -> tuple[str, str] | None:
+    """Post these held texts to the job's agent on this Mac in one record by starter_post, his first, each of his re-sent with its own time, and take them off the job; when the agent is a subagent only the session that started it reaches, that session gets a second record at once carrying the owed SendMessage line, so his words never wait for a `drive job resume`; the record's seq and the line, None for no texts."""
     from drive import tools
 
     left = {kept["request"] for kept in state.load(name)["jobs"][job_id]["undelivered"]}
-    held = sorted((kept for kept in job["undelivered"] if kept["request"] in left), key=lambda kept: kept["sender"] != state.HIM)
+    held = sorted((kept for kept in held if kept["request"] in left), key=lambda kept: kept["sender"] != state.HIM)
     if not held:
         return None
-    his = any(kept["sender"] == state.HIM for kept in held)
-    text = "\n\n".join([*(["URGENT: his words come first; act on them before anything else."] if his else []), *(kept["words"] for kept in held)])
-    seq, line = starter_post(name, job_id, job, lane, text, held[0]["at"], held[0]["request"])
+    seq, line = starter_post(name, job_id, job, lane, "\n\n".join(map(resent, held)), held[0]["at"], held[0]["request"])
     taken = {kept["request"] for kept in held}
 
     def deliver_held_write(data: dict):
@@ -4095,19 +4110,18 @@ def deliver_held(name: str, job_id: str, job: dict, lane: str) -> tuple[str, str
 
     state.update(name, (("jobs", job_id),), deliver_held_write)
     if OWED in line and state.session_lane(state.load(name), os.environ.get("CLAUDE_CODE_SESSION_ID")) != lane:
-        urgent = f"{'URGENT, his words: ' if his else ''}{line[line.index(OWED):]}"
-        tools.sent(name, state.WATCH_SENDER, [{"kind": "handoff", "to": [f"{lane}@{name}"], "attr": {"order": job["order"], "job": job_id, "urgent": "true"}, "text": f"{job_id}: {urgent}"}])
+        his = any(kept["sender"] == state.HIM for kept in held)
+        tools.sent(name, state.WATCH_SENDER, [{"kind": "handoff", "to": [f"{lane}@{name}"], "attr": {"order": job["order"], "job": job_id, "urgent": "true"}, "text": f"{job_id}: {'his words: ' if his else ''}{line[line.index(OWED):]}"}])
     return seq, line
 
 
-def deliver_returned(name: str, job_id: str, job: dict) -> str | None:
-    """Give each text a builder that returned holds, which superseded.fresh_builder refuses to its agent, to whoever acts on it now, so his words never sit: the job its work was handed to, in turn, while one is not finished, which holds them for its own worker, else the session holding the job's order as one record carrying the texts, his first: urgent with fresh_builder's step while the job has an open PR its work goes on, and read as heard with no builder asked when it has none, as a branch built while it waits on his card; the line saying where they went, None when the job holds nothing."""
+def deliver_to_order(name: str, job_id: str, job: dict, held: list[dict]) -> str | None:
+    """Hand his held words on a job whose agent is not to be woken, one that returned BUILT or DONE or waits only on his own open cards, to whoever acts on them now, once: the job its work was handed to, in turn, while one is not finished, which holds them for its own worker, else the session holding the job's order as one record to read, each re-sent with its own time, the texts kept on the job marked told so no pass sends them again until that session marks them heard with `drive job set <job> --heard`; the line saying where they went, None for no texts."""
     from drive import tools
 
-    data = state.load(name)
-    held = sorted(data["jobs"][job_id]["undelivered"], key=lambda kept: kept["sender"] != state.HIM)
     if not held:
         return None
+    data = state.load(name)
     taker = job["handed_to"]
     while taker and data["jobs"][taker]["state"] in state.FINISHED_JOB_STATES:
         taker = data["jobs"][taker]["handed_to"]
@@ -4120,24 +4134,23 @@ def deliver_returned(name: str, job_id: str, job: dict) -> str | None:
             return data
 
         state.update(name, None, handed_write)
-        return f"{job_id}: its builder returned, so its held texts went to {taker}, which took its work"
-    lane, step = superseded.fresh_builder(data, job_id, job, "", "his words")
-    his = any(kept["sender"] == state.HIM for kept in held)
-    open_prs = [key for key in render.job_pr_keys(job, render.prs_by_job(data).get(job_id, [])) if key in data["prs"] and data["prs"][key]["state"] == "open"]
-    if open_prs:
-        lead = f"{job_id}: {'URGENT, his words ' if his else 'texts '}held for a builder that returned with open {', '.join(open_prs)}; act on them now. {step}"
-    else:
-        lead = f"{job_id}: {'his words ' if his else 'texts '}held for a builder that returned {job['state']} with no open PR, so nothing is built from them here; read them as heard, and start a builder only for work they order that no job carries"
-    text = "\n\n".join([lead, *(kept["words"] for kept in held)])
-    attrs = {"order": job["order"], "job": job_id} | ({"urgent": "true"} if open_prs else {})
-    [seq] = tools.sent(name, state.WATCH_SENDER, [{"kind": "handoff", "to": [f"{lane}@{name}"], "attr": attrs, "text": text}])
+        return f"{job_id}: its held texts went to {taker}, which took its work"
+    lane = state.holding_lane(data, data["orders"][job["order"]])
+    why = f"returned {job['state']}" if job["state"] in superseded.FRESH_STATES else "waits only on his own open cards"
+    lead = (
+        f"{job_id} {why}, so its agent is not woken for his words held on it: read them, act through order {job['order']} only on work they order"
+        f" that no job carries, then mark them heard with `drive job set {job_id} --heard`"
+    )
+    [seq] = tools.sent(name, state.WATCH_SENDER, [{"kind": "handoff", "to": [f"{lane}@{name}"], "attr": {"order": job["order"], "job": job_id}, "text": "\n\n".join([lead, *map(resent, held)])}])
 
-    def returned_write(data: dict):
-        data["jobs"][job_id]["undelivered"] = [kept for kept in data["jobs"][job_id]["undelivered"] if kept["request"] not in taken]
+    def told_write(data: dict):
+        for kept in data["jobs"][job_id]["undelivered"]:
+            if kept["request"] in taken:
+                kept["told"] = seq
         return data
 
-    state.update(name, (("jobs", job_id),), returned_write)
-    return f"{job_id}: its builder returned, so its held texts went to {lane}@{name}, which holds its order, as {'urgent ' if open_prs else ''}record {seq}"
+    state.update(name, (("jobs", job_id),), told_write)
+    return f"{job_id}: his held words went to {lane}@{name}, which holds its order, as record {seq} to read"
 
 
 def starter_post(name: str, job_id: str, job: dict, lane: str, text: str, at: str, held: str | None = None) -> tuple[str, str]:
@@ -7907,6 +7920,11 @@ def parser() -> argparse.ArgumentParser:
             "the Slack link of a question card the job asked on, which carries its parts until he answers it; each card"
             " keeps its own question, so a job holds every card it asked on, each closed by his answer to it"
         ),
+    )
+    verb.add_argument(
+        "--heard",
+        action="store_true",
+        help="mark heard his held words the drive sent the session holding the job's order to read, as on a job that returned or waits only on his cards, so they stay off its agent",
     )
     verb.add_argument(
         "--told",
