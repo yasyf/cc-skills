@@ -1983,6 +1983,37 @@ def test_a_watch_that_finds_a_newer_install_between_two_stages_of_a_pass_runs_th
     assert f"ended on long-running {state.VERSION} for {install}, before its next pass" in capsys.readouterr().out.splitlines()
 
 
+def test_jobs_this_macs_load_holds_back_are_queued_with_a_place_and_never_keep_a_later_job_from_starting(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "three builds")
+    for goal in ("first build", "second build", "staging test"):
+        run("job", "add", "builder", "--order", "o1", "--goal", goal)
+    with state.edit(demo) as data:
+        builders = [job_id for job_id, job in data["jobs"].items() if job["kind"] == "builder"]
+        for job_id in builders:
+            data["jobs"][job_id].update(brief=f"/briefs/{job_id}.md", waits=[], state="waiting", said=state.NOT_STARTED, agent=None, where="local")
+    started: list[str] = []
+    monkeypatch.setattr(watch, "start_verb", lambda watcher, job_id, args, moment: started.append(job_id) or 1)
+    monkeypatch.setattr(place, "crowded", lambda data, job_id, moment: None if job_id == builders[-1] else "this Mac's 1-minute load is 49")
+    monkeypatch.setattr(view, "start_refusal", lambda data, job_id, strict: None)
+    watch.start_jobs(watcher(demo), state.now())
+    data = state.load(demo)
+    assert started == [builders[-1]]
+    assert [(state.SLOT_WAIT in data["jobs"][job_id]["waits"], data["jobs"][job_id]["state"]) for job_id in builders[:-1]] == [(True, "waiting")] * 2
+    started.clear()
+    watch.start_jobs(watcher(demo), state.now())
+    assert started == [builders[-1]]
+
+
+def test_a_builder_that_builds_nothing_takes_no_slot_and_skips_the_load_gate(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(place, "strained", lambda: "this Mac's 1-minute load is 49")
+    job = {"kind": "builder", "order": "o1", "carries": {}, "parts": ["staging test of #42 before it lands"], "goal": "test #42 on staging", "priority": None, "builds_nothing": False}
+    data = {"orders": {"o1": {"state": "open", "priority": None, "incident": False, "parts": job["parts"], "urgent": []}}, "jobs": {"j1": job}}
+    monkeypatch.setattr(place, "preempts", lambda data, job: False)
+    assert place.crowded(data, "j1", state.now()) is None
+    job["parts"] = ["build the fix"]
+    assert place.crowded(data, "j1", state.now()) == "this Mac's 1-minute load is 49"
+
+
 def test_a_watch_hands_off_to_a_newer_install_only_once_it_ran_hand_off_every_or_hand_off_latest_with_a_pass_cut_short_or_while_an_incident_is_open(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch, "HAND_OFF_EVERY", timedelta(minutes=10))
     monkeypatch.setattr(watch, "HAND_OFF_LATEST", timedelta(minutes=20))

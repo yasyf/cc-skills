@@ -3807,6 +3807,7 @@ def job_start(args: argparse.Namespace) -> int:
         def job_start_write2(data: dict):
             data["jobs"][args.id]["bg"]["session"] = session
             data["jobs"][args.id].update(agent=agent, launching=None)
+            state.start(data["jobs"][args.id])
 
         state.update(name, None, job_start_write2)
     return emit(args, f"{args.id} started as agent {agent}, its own claude --bg session {session}: start no agent for it", {"id": args.id, "agent": agent, "session": session})

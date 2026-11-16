@@ -500,6 +500,7 @@ def test_drive_job_start_starts_a_briefed_reader_as_its_own_session_bound_as_the
     [(job_id, agent, call)] = launches
     assert (job_id, call["subagent_type"], call["prompt"]) == ("j1", "long-running:reader", f"Read your brief first: {kept}")
     assert state.load(demo)["jobs"]["j1"]["bg"] | {"started": None} == {"agent": agent, "session": "bg-session", "started": None, "cwd": str(tmp_path), "pointed": []}
+    assert (state.load(demo)["jobs"]["j1"]["state"], state.unstarted(state.load(demo)["jobs"]["j1"])) == ("running", False)
     monkeypatch.setattr(agents, "gone", lambda entry: False)
     assert run("job", "start", "j1")[0] == 2
     assert len(launches) == 1

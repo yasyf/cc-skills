@@ -325,14 +325,12 @@ def queue_sprite(job: dict, moment: datetime) -> None:
 
 
 def crowded(data: dict, job_id: str | None, moment: datetime) -> str | None:
-    """Why the builder job takes no slot on this Mac now, None when it may: this Mac is loaded or short of memory or its local Claude lanes fill their machine-wide cap, by admission, which a builder that builds nothing waits on too, since it is a Claude session here, the cap's builders hold every slot but its own, or builders wait their turn ahead of a job that holds none, since the watch's FREE line gives each open slot to the earliest due. A builder on an open incident's order, on an open priority order, by state.first_in_line, or on an immediate fix part starts at once past both, counting against the cap for later builders once it runs, by his pick "Start at once past the cap" and his words on a priority order, "they aren't slowed down at any cost by anything", and one that builds nothing starts at once past both, holding no slot."""
+    """Why the builder job takes no slot on this Mac now, None when it may: this Mac is loaded or short of memory or its local Claude lanes fill their machine-wide cap, by admission, which a builder that builds nothing skips with every other check, since drive job add tells it it holds no slot and starts at once, the cap's builders hold every slot but its own, or builders wait their turn ahead of a job that holds none, since the watch's FREE line gives each open slot to the earliest due. A builder on an open incident's order, on an open priority order, by state.first_in_line, or on an immediate fix part starts at once past both, counting against the cap for later builders once it runs, by his pick "Start at once past the cap" and his words on a priority order, "they aren't slowed down at any cost by anything", and one that builds nothing starts at once past both, holding no slot."""
     job = data["jobs"].get(job_id)
-    if job and preempts(data, job):
+    if job and (preempts(data, job) or state.builds_nothing(job)):
         return None
     if why := admission(data, job_id, "local", moment):
         return why
-    if job and state.builds_nothing(job):
-        return None
     builders = local_builders(data, moment)
     others = {other: line for other, line in builders.items() if other != job_id}
     if len(others) >= LOCAL_BUILDERS:
