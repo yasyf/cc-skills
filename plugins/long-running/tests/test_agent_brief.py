@@ -472,6 +472,7 @@ def test_drive_job_start_starts_a_briefed_reader_as_its_own_session_bound_as_the
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Restores", "restores copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
     kept = state.drive_dir(demo) / "jobs" / "j1.brief.md"
+    kept.parent.mkdir(parents=True, exist_ok=True)
     kept.write_text("Order (his words): restores copy one store\nGoal: research the copy\nDrive: demo, order o1, job j1\n")
     with state.edit(demo) as data:
         data["jobs"]["j1"]["brief"] = str(kept)

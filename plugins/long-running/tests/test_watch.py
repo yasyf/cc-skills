@@ -4101,7 +4101,7 @@ def test_a_job_drive_job_add_recorded_is_not_started_until_its_worker_records_it
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
     clock[0] = T0 + timedelta(minutes=1)
-    assert watch.run_pass(watching, T0) == ['ORPHAN o1 "ship the watch": j2 not started 1 minutes after drive job add; Read your brief first: /briefs/j2.md']
+    assert watch.run_pass(watching, T0) == ['ORPHAN o1 "ship the watch": j2 not started 1 minutes after drive job add; the watch starts its agent on its brief /briefs/j2.md, so start no agent for it; drive job resume reaches it']
     clock[0] = T0 + timedelta(minutes=2)
     assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == []
     with state.edit(demo) as data:
@@ -4123,7 +4123,7 @@ def test_a_watch_process_a_newer_install_ends_at_its_first_read_still_says_a_nev
         files_order(data)
         data["jobs"]["j2"] = state.new_job("o2", "builder", "files", ["stack 1"], state.stamp(T0)) | {"brief": "/briefs/j2.md"}
     said = [line for lines in watch.passed(watcher(demo), T0 + timedelta(minutes=2), until=lambda: True) for line in lines]
-    assert (said, read) == (['ORPHAN o2 "stack 1": j2 not started 2 minutes after drive job add; Read your brief first: /briefs/j2.md'], [demo])
+    assert (said, read) == (['ORPHAN o2 "stack 1": j2 not started 2 minutes after drive job add; the watch starts its agent on its brief /briefs/j2.md, so start no agent for it; drive job resume reaches it'], [demo])
     assert state.load(demo)["orders"]["o1"]["parts"]["ship the watch"]["orphan_said"] == state.stamp(T0 - timedelta(minutes=5))
 
 
