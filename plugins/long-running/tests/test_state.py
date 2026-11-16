@@ -2829,7 +2829,7 @@ def test_a_staging_slot_goes_to_its_first_claimer_and_then_to_each_queued_job_in
 def test_a_staging_lease_that_runs_past_its_end_extends_once_and_an_incident_tester_jumps_the_queue() -> None:
     moment = datetime(2026, 11, 15, 22, 5, tzinfo=UTC)
     orders = {"o1": {"incident": False, "priority": None, "state": "open"}, "o2": {"incident": True, "priority": None, "state": "open"}}
-    data = {"slots": {}, "orders": orders, "jobs": {"j1": {"state": "running", "order": "o1", "carries": [], "parts": [], "goal": "", "waits": ["staging:api/plat-usw2-staging@abc1234"], "release_build": None}, "j2": {"state": "waiting", "order": "o1", "carries": [], "parts": [], "goal": "", "waits": []}, "j3": {"state": "waiting", "order": "o2", "carries": [], "parts": [], "goal": "", "waits": []}}}
+    data = {"slots": {}, "orders": orders, "jobs": {"j1": {"state": "running", "order": "o1", "carries": [], "parts": [], "goal": "", "waits": ["staging:api/plat-usw2-staging@abc1234"], "said": None, "release_build": None}, "j2": {"state": "waiting", "order": "o1", "carries": [], "parts": [], "goal": "", "waits": [], "said": None}, "j3": {"state": "waiting", "order": "o2", "carries": [], "parts": [], "goal": "", "waits": [], "said": None}}}
     state.slot_claim(data, "plat-usw2-staging", "j1", 30, [], None, moment)
     state.slot_claim(data, "plat-usw2-staging", "j2", 25, [], None, moment)
     assert state.slot_claim(data, "plat-usw2-staging", "j3", 10, [], None, moment).startswith("QUEUED j3 for the plat-usw2-staging slot, place 1, behind j1")
