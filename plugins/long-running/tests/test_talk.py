@@ -1900,3 +1900,11 @@ def test_the_watchs_paused_reply_under_his_question_card_goes_in_the_cards_threa
     assert ("channel" not in data["slack"], data["orders"]["o1"]["threads"][0][:2]) == (True, [his_dm, question])
     assert talk.posted(demo, {"text": watch.PAUSED, "thread_ts": question})["permalink"] == POSTED
     assert posts == [("dm-status", "--agent", "claude", "--drive", demo, "--as-holder", "--thread", question, "--", watch.PAUSED)]
+
+
+def test_a_pr_waiting_on_his_tap_links_its_card_so_slack_draws_its_approve() -> None:
+    pr = {"url": "https://github.com/yasyf/cc-skills/pull/7", "head": "abc1234", "title": "Fix: the run page shows its history"}
+    card = {"url": "https://acme.slack.com/archives/D1/p1794300000000200", "prs": [pr["url"]], "card": {"prs": [{"url": pr["url"], "head": "abc1234"}]}}
+    prs = {"yasyf/cc-skills#7": pr}
+    assert (refs.pr(prs, "7", "", [card])["url"], refs.pr(prs, "7", "", [card])["board"]) == (card["url"], pr["url"])
+    assert refs.pr(prs, "7", "", [card | {"card": {"prs": [{"url": pr["url"], "head": "old0000"}]}}])["url"] == pr["url"]

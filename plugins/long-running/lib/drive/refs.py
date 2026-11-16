@@ -61,6 +61,7 @@ def resolved(name: str, text: str) -> dict[str, dict]:
         raise DriveError(refusal)
     found = {}
     cards = None
+    carded = None
     data = None
     for match in REF.finditer(text):
         if match[0] in found:
@@ -72,7 +73,8 @@ def resolved(name: str, text: str) -> dict[str, dict]:
                 cards = cards or drawn_cards(name)
                 found[match[0]] = card(cards, data, state.waits_of(name, match[2]))
             case "pr":
-                found[match[0]] = pr(data["prs"], match[2], label)
+                carded = carded if carded is not None else (view.live_cards(name) or view.NO_CARDS)["pr_cards"]
+                found[match[0]] = pr(data["prs"], match[2], label, carded)
             case "order":
                 found[match[0]] = order(name, data, match[2])
             case "record":
@@ -210,15 +212,16 @@ def card(cards: dict, data: dict, waits: str) -> dict:
     )
 
 
-def pr(prs: dict, ref: str, label: str) -> dict:
-    """A PR the drive holds, named by what it does, or any other PR named by its owner/repo#number or URL, which has no title of its own here, under the words the post gives it."""
+def pr(prs: dict, ref: str, label: str, pr_cards: list[dict]) -> dict:
+    """A PR the drive holds, named by what it does, linked in Slack to his open card at its head when it has one, so every line naming a PR that waits on his tap carries its card and its Approve, which cc-slack draws once in a thread, or any other PR named by its owner/repo#number or URL, which has no title of its own here, under the words the post gives it."""
     try:
         key = state.tracked_pr(prs, ref, untracked=True)
     except DriveError as error:
         raise DriveError(f"{{pr:{ref}}}: {error}") from None
     if key in prs:
         found = prs[key]
-        return {"kind": "pr", "title": view.pr_title(found) if found["title"] else key, "url": found["url"], "board": found["url"]}
+        shown = view.head_card(found, pr_cards)
+        return {"kind": "pr", "title": view.pr_title(found) if found["title"] else key, "url": shown["url"] if shown else found["url"], "board": found["url"]}
     if label:
         url = state.pr_url(key)
         return {"kind": "pr", "title": "", "url": url, "board": url}
