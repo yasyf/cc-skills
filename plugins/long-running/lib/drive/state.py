@@ -904,7 +904,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
 
 def saved(name: str) -> dict:
     """The sessions bound to a drive as saved, read alone from its database: each role's, each sub-coordinator's and each handler's, one saved with a single driver session reading as that session coordinating."""
-    return bound(stored(name, BINDINGS))
+    return bound(stored(name, BINDINGS)) | {"name": name}
 
 
 def saved_row(name: str, collection: str, key: str) -> dict | None:
