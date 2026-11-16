@@ -437,7 +437,7 @@ def test_a_grant_whose_record_for_root_cci_refuses_runs_no_command(
     [
         (
             ["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "count"],
-            "drive order add: refused, nothing ran: a lane runs only these verbs: job report, job ask, job set, job replies, job held, pr add, pr set, slot claim, slot release, work pull, work done, plan search, datadog, fde-scan, manual, page-owner, status, wait",
+            "drive order add: refused, nothing ran: a lane runs only these verbs: job report, job ask, job set, job replies, job held, pr add, pr set, work pull, work done, plan search, datadog, fde-scan, manual, page-owner, status, wait",
         ),
         (
             ["job", "report", "j8", "-"],
@@ -447,8 +447,6 @@ def test_a_grant_whose_record_for_root_cci_refuses_runs_no_command(
         (["job", "ask", "j8", "ask.md"], "drive job ask: refused, nothing ran: it names j8"),
         (["job", "set", "j8", "--repro", "proof.sh"], "drive job set: refused, nothing ran: it names j8"),
         (["pr", "add", "https://github.com/yasyf/cc-skills/pull/1", "--jo=j8"], "drive pr add: refused, nothing ran: it names j8"),
-        (["slot", "claim", "plat-usw2-staging", "--job", "j8", "--minutes", "30"], "drive slot claim: refused, nothing ran: it names j8"),
-        (["slot", "release", "plat-usw2-staging", "--job", "j8"], "drive slot release: refused, nothing ran: it names j8"),
         (
             ["break-glass", "j7", "--stack", "sandsql/plat-usw2-prod", "--reason", "x", "--", "aws", "s3", "ls"],
             f"drive break-glass: refused, nothing ran: no Sprite lane runs break-glass, by {reads.NO_SPRITE_GRANT}: return BLOCKED naming the step and its command",

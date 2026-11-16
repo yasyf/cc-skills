@@ -13,7 +13,12 @@ TOLD = ("ASK", "BLOCKED", "DONE")
 WORKER = "worker"
 WORKER_ITEMS = 18
 READS_PER_PASS = 12
-CUT_MINUTES = 45
+CUT_SHAPE = {"cut_items": 6, "cut_minutes": 30}
+CUT_STEPS = (
+    "post the staging claim the repository's staging-claim rule names, a `POST` report to the communicator with `until` the lease's end; then start one cut"
+    " through the release provider's start, of each target the items' paths reach, carrying every item's PR head cherry-picked onto what {env} serves, as an emergency"
+    " start on {env} whose order is his answer 23eefb9, and run the items' cases once staging serves it, past the claim's 5 minutes"
+)
 STALL_AFTER = timedelta(minutes=10)
 DONE_WHEN = "drive work pull --worker {worker} prints NONE or HOLD and every item it gave you is reported; return DONE ran <each item you reported>"
 
@@ -31,9 +36,14 @@ def env(data: dict) -> str | None:
     return providers.of(data).staging.env
 
 
+def cut_shape(data: dict) -> dict:
+    """How big a staging cut the queue's packer forms: at most cut_items tests planned at cut_minutes, from the repository's [work] table in its .claude/long-running.toml, these defaults for a key it leaves out, so the drive holds shared staging for one short cut at a time."""
+    return CUT_SHAPE | (providers.of(data).config.get("work") or {})
+
+
 def enabled(data: dict, kind: str) -> bool:
-    """Whether drive work enable turned this kind of work over to the queue on this drive."""
-    return kind in data.get("work", {}).get("kinds", [])
+    """Whether the queue runs this kind of work on this drive: stage-test on every drive, by his approval of code-formed cuts, and another kind once drive work enable turned it over."""
+    return kind == STAGE_TEST or kind in data.get("work", {}).get("kinds", [])
 
 
 def claimed_by(data: dict, job: dict) -> str | None:
@@ -77,6 +87,10 @@ class Kind:
 
     def matches(self, data: dict, job: dict) -> bool:
         raise NotImplementedError
+
+    def where(self, data: dict, job: dict) -> str:
+        """Where a worker runs an item of this kind, by placed."""
+        return placed(data, job)
 
     def worth(self, data: dict, job: dict) -> bool:
         return True
@@ -125,6 +139,9 @@ class Kind:
         """Why a worker of this kind may pull nothing new while work of the queue's still stands: none for a kind holding nothing between pulls."""
         return None
 
+    def reclaimed(self, data: dict, worker_id: str) -> None:
+        """What a worker taking the items another worker ran before takes over with them: nothing for a kind holding nothing between pulls."""
+
     def group_of(self, data: dict, worker_id: str, items: list[str], moment: datetime) -> tuple[list[str], str]:
         """The group a worker takes from the ready items placed where it runs, its head first, and the GO line it reads."""
         group = items[: self.group]
@@ -132,27 +149,27 @@ class Kind:
 
     def take(self, data: dict, worker_id: str, moment: datetime) -> tuple[str, list[str], str]:
         """Claim the worker's next group in one write: the items to run again first, else, when why_not lets a group start, the head of the line and the items behind it placed where the worker runs, by group_of; the word, the items and the line the worker reads."""
-        if again := self.resumed(data):
+        where = data["jobs"][worker_id]["where"]
+        if (again := self.resumed(data)) and self.where(data, data["jobs"][again[0]]) != where:
+            return "NONE", [], f"NONE the queue's {', '.join(again)} run {'on this Mac' if where == 'remote' else 'on a Sprite'}, so a worker there takes them: end"
+        if again:
             go = data["jobs"][worker_id].get("work_go") or f"GO run these again where they ran: {', '.join(again)}"
             claim(data, worker_id, again, moment, go)
+            self.reclaimed(data, worker_id)
             return "GO", again, go
         if why := self.held(data, worker_id):
             return "HOLD", [], f"HOLD {why}"
         if why := self.why_not(data, moment):
             return "NONE", [], f"NONE {why}"
-        where = data["jobs"][worker_id]["where"]
-        if placed(data, data["jobs"][(first := self.line(data)[0])]) != where:
+        if self.where(data, data["jobs"][(first := self.line(data)[0])]) != where:
             return "NONE", [], f"NONE the queue's head {first} runs {'on this Mac' if where == 'remote' else 'on a Sprite'}, so a worker there takes it: end"
-        group, go = self.group_of(data, worker_id, [job_id for job_id in self.line(data) if placed(data, data["jobs"][job_id]) == where], moment)
+        group, go = self.group_of(data, worker_id, [job_id for job_id in self.line(data) if self.where(data, data["jobs"][job_id]) == where], moment)
         claim(data, worker_id, group, moment, go)
         return "GO", group, go
 
     def row(self, data: dict, job_id: str) -> str:
         job = data["jobs"][job_id]
         return f"- {job_id} on {job['order']}: brief {job['brief']}{f'; its last return: drive job report {job_id}' if job.get('returned') else ''}"
-
-    def absorb(self, data: dict) -> list[str]:
-        return []
 
     def done(self, data: dict, job_id: str, line: str) -> None:
         """What a reported item gives back beside its claim."""
@@ -170,7 +187,6 @@ class StageTest(Kind):
     """Staging tests: a builder holding a `staging test of #N before it lands` part that starts no cut, run in groups whose PRs change no file and reach no stack in common, one group a cut on the env's one slot, whose ledger the old first-in-first-out line shares."""
 
     name = STAGE_TEST
-    group = state.PACKED_CUT
     goal = "pull and run stage-test items on {env}, one cut a group"
     loop = (
         "You are {worker}, the drive's stage-test worker for {env}: you run groups of staging tests, each group on one cut, report every test as its own item, then pull the next group, holding the {env} slot only while a group of yours runs."
@@ -190,13 +206,17 @@ class StageTest(Kind):
     def adopted(self, job: dict) -> bool:
         return bool(job.get("work_adopted"))
 
+    def where(self, data: dict, job: dict) -> str:
+        """Every stage-test item needs staging:<env>, which only this Mac reaches, with the Mac boxes it takes, by his pick, never a Sprite."""
+        return "local"
+
     def blocking(self, data: dict, job_id: str) -> list[str]:
-        """The waits holding a stage-test item's start, but, for an item outside the queue's cut, its wait on staging serving its own commit on the env and its staging-slot turn, which only the queue's next cut gives it: a tester that reports WAITING on its cut as its brief asks stays in the line rather than stranding itself."""
+        """The waits holding a stage-test item's start, but, for an item outside the queue's cut, its wait on staging serving its own commit on the env, which only the queue's next cut gives it."""
         cut = state.slot_members(self.slot(data)) if self.ours(data) else []
-        return [wait for wait in super().blocking(data, job_id) if job_id in cut or not ((found := state.STAGING_WAIT.fullmatch(wait)) and found["env"] == env(data) or wait == f"staging-slot:{job_id}")]
+        return [wait for wait in super().blocking(data, job_id) if job_id in cut or not ((found := state.STAGING_WAIT.fullmatch(wait)) and found["env"] == env(data))]
 
     def slot(self, data: dict) -> dict:
-        return data["slots"].setdefault(env(data), {"holder": None, "queue": [], "hold": None})
+        return data["slots"].setdefault(env(data), {"holder": None})
 
     def ours(self, data: dict) -> bool:
         return bool((self.slot(data).get("holder") or {}).get("work"))
@@ -205,6 +225,10 @@ class StageTest(Kind):
         """The items of the queue's cut on the env that a worker may run there again, tests that returned WAITING and whose waits ended."""
         return [job_id for job_id in state.slot_members(self.slot(data)) if self.ready(data, job_id)] if self.ours(data) else []
 
+    def reclaimed(self, data: dict, worker_id: str) -> None:
+        """The queue's cut on the env goes to the worker running its items again, so its own release start passes the landing guard."""
+        self.slot(data)["holder"]["work"] = worker_id
+
     def held(self, data: dict, worker_id: str) -> str | None:
         slot = self.slot(data)
         if self.ours(data) and (waiting := [member for member in state.slot_members(slot) if data["jobs"][member]["state"] not in state.FINISHED_JOB_STATES]):
@@ -212,58 +236,38 @@ class StageTest(Kind):
         return None
 
     def why_not(self, data: dict, moment: datetime) -> str | None:
-        """Why no new cut of queued work takes the env now, None when one may: a cut holds the slot, or a hold drive slot hold made by name until a time stands, which only its end, root's hand or its release ends; a claim waiting its turn on the old line never stops the queue."""
+        """Why no new cut takes the env now, None when one may: a cut or release holds it, or the release train waits for it, which goes first between cuts by his ruling, his priority's and an open incident's release first."""
         slot = self.slot(data)
-        if slot["holder"]:
-            return f"waits on {env(data)}, held by {slot['holder']['job']}'s cut until {when(slot['holder']['until'])}" + (f", then held for {slot['hold']['for']} until {when(slot['hold']['until'])}" if slot.get("hold") and state.parse_time(slot["hold"]["until"]) > state.parse_time(slot["holder"]["until"]) else "") + "; the queue takes it next"
-        if not (items := self.line(data)):
+        if held := slot["holder"]:
+            holder = f"the queue's cut of {held['job']}" if held.get("work") else f"release {held['job']}"
+            return f"waits on {env(data)}, held by {holder} until {when(held['until'])}; the queue takes it next unless a release waits"
+        if not self.line(data):
             return f"no {self.name} item is ready"
-        if slot.get("hold") and parse_live(slot["hold"], moment):
-            return f"waits on {env(data)}, held for {slot['hold']['for']} until {when(slot['hold']['until'])}: {slot['hold']['reason']}; the queue takes it once that hold ends or root hands or releases it"
+        if train := state.train_waiting(data, env(data)):
+            return f"waits on {env(data)}: release {train[0]} goes first, the train between cuts; the queue takes it once that release ends"
         return None
 
     def entry(self, data: dict, job_id: str, moment: datetime) -> dict:
         job = data["jobs"][job_id]
         read = job.get("work_reads") or {}
-        return {"job": job_id, "prs": state.tested_prs(data, job), "minutes": CUT_MINUTES, "cases": None, "at": state.stamp(moment), "paths": read.get("paths"), "stacks": read.get("stacks"), "starts": False}
+        return {"job": job_id, "prs": state.tested_prs(data, job), "minutes": cut_shape(data)["cut_minutes"], "cases": None, "at": state.stamp(moment), "paths": read.get("paths"), "stacks": read.get("stacks"), "starts": False}
 
     def group_of(self, data: dict, worker_id: str, items: list[str], moment: datetime) -> tuple[list[str], str]:
-        """The head of the line and up to PACKED_CUT - 1 items behind it whose PRs change no file and reach no stack of the cut's, by state.packed, holding the env's slot for them as one cut, the lease's GO for its head and RIDE for each rider kept as the drive's lines in the same write, by told, so no lease of the queue's is ever silent."""
-        slot = self.slot(data)
-        first, riders = state.packed([self.entry(data, job_id, moment) for job_id in items])
+        """The queue's next cut, formed in code: the head of the line and the items behind it whose PRs change no file and reach no stack of the cut's, by state.packed, sized by cut_shape, holding the env for them; the line the worker reads, and no record, since the worker pulls it."""
+        first, riders = state.packed([self.entry(data, job_id, moment) for job_id in items], cut_shape(data)["cut_items"])
         group = [first["job"], *(rider["job"] for rider in riders)]
-        slot["holder"] = state.leased(first, moment, riders) | {"work": worker_id}
-        until = slot["holder"]["until"]
-        steps = state.SLOT_GO_STEPS.format(env=env(data), job=first["job"])
+        self.slot(data)["holder"] = state.leased(first, moment, riders) | {"work": worker_id}
         prs = ", ".join(pr for job_id in group for pr in state.tested_prs(data, data["jobs"][job_id]))
-        told(data, [
-            f"SLOT {env(data)} to {first['job']} until {until}: GO the work queue's cut, run by its worker {worker_id}, carrying {prs}",
-            *(f"SLOT {env(data)} RIDE {rider['job']} on {first['job']}'s cut until {until}, run by the work queue's worker {worker_id}" for rider in riders),
-        ])
-        return group, f"GO staging {env(data)} until {until} for {', '.join(group)}, one cut carrying {prs}: {steps}"
+        return group, f"GO staging {env(data)} until {self.slot(data)['holder']['until']} for {', '.join(group)}, one cut carrying {prs}: {CUT_STEPS.format(env=env(data))}"
 
     def row(self, data: dict, job_id: str) -> str:
-        return f"{super().row(data, job_id)}; tests {', '.join(state.tested_prs(data, data['jobs'][job_id]))}"
+        return f"{super().row(data, job_id)}; needs staging:{env(data)}; tests {', '.join(state.tested_prs(data, data['jobs'][job_id]))}"
 
     def done(self, data: dict, job_id: str, line: str) -> None:
         """Give an item's place in the queue's cut back once its line is DONE."""
         slot = self.slot(data)
         if line.startswith("DONE") and slot["holder"] and job_id in state.slot_members(slot):
             state.slot_release(data, env(data), job_id)
-
-    def absorb(self, data: dict) -> list[str]:
-        """Take each staging pass off the env's old first-in-first-out line into the queue, so the queue's cuts pack them: an item the queue runs already, and a tester waiting its turn there with no release of its own to start, which the queue adopts, its waits for that turn dropped, staging serving a commit of the cut it never got and its staging-slot token, so a worker runs its cases from its brief and last return; a running pass stays on the old line."""
-        slot = data["slots"].get(env(data))
-        if not slot or not enabled(data, self.name):
-            return []
-        for each in slot["queue"]:
-            job = data["jobs"][each["job"]]
-            if not each["starts"] and job["state"] == "waiting" and not job.get("work_adopted") and self.matches(data, job):
-                job.update(work_adopted=True, waits=[wait for wait in job["waits"] if not state.STAGING_WAIT.fullmatch(wait) and wait != f"staging-slot:{each['job']}"])
-        if not (ours := [each["job"] for each in slot["queue"] if self.queued(data, data["jobs"][each["job"]])]):
-            return []
-        slot["queue"] = [each for each in slot["queue"] if each["job"] not in ours]
-        return [f"WORK took {len(ours)} passes off the {env(data)} slot's old line into the queue: {', '.join(ours)}"]
 
 
 class Prove(Kind):
@@ -332,20 +336,6 @@ KIND = {kind.name: kind for kind in (STAGE, Prove(), Build())}
 KINDS = tuple(KIND)
 
 
-def told(data: dict, lines: list[str]) -> None:
-    """Keep lines the work queue owes the drive's records, in the write that makes them true, for the watch's work_lines to post on its next pass, however the write was made, by its spawner or a worker's drive work pull."""
-    data.setdefault("work", {"kinds": []}).setdefault("told", []).extend(lines)
-
-
-def parse_live(hold: dict, moment: datetime) -> bool:
-    return state.parse_time(hold["until"]) > moment
-
-
-def owed(data: dict, slot_env: str, moment: datetime) -> bool:
-    """Whether the queue's next stage-test cut takes the env's free slot now, before a claim waiting its turn on the old line: stage-test is on, the env is the queue's, no cut holds the slot and no hold drive slot hold made stands, by why_not, and this Mac admits its worker, by admitted."""
-    return enabled(data, STAGE_TEST) and slot_env == env(data) and STAGE.why_not(data, moment) is None and admitted(data, STAGE, moment) is None
-
-
 def kind_of(data: dict, job: dict) -> Kind | None:
     """The kind of the queue's item a job is, None for a job none of them takes."""
     return next((kind for kind in KIND.values() if kind.matches(data, job)), None)
@@ -379,7 +369,11 @@ def pulled(name: str, worker_id: str) -> str:
         kind = KIND[held.get("work_kind", STAGE_TEST)]
         if (done := len(held.get("work_done") or [])) >= WORKER_ITEMS:
             return f"NONE {worker_id} reported {done} items, its whole budget: end, and a fresh worker takes the rest"
-        if mine := [job_id for job_id, job in data["jobs"].items() if (job.get("claim") or {}).get("worker") == worker_id and job["state"] == "waiting" and worker_id in job["waits"]]:
+        if (mine := [job_id for job_id, job in data["jobs"].items() if (job.get("claim") or {}).get("worker") == worker_id and job["state"] == "waiting" and worker_id in job["waits"]]) and kind.where(data, data["jobs"][mine[0]]) != held["where"]:
+            for job_id in mine:
+                data["jobs"][job_id].update(claim=None, waits=[wait for wait in data["jobs"][job_id]["waits"] if wait != worker_id])
+            return f"NONE {', '.join(mine)} run {'on this Mac' if held['where'] == 'remote' else 'on a Sprite'}, so their claims go back to the queue for a worker there: end"
+        if mine:
             return shown(data, kind, "GO", mine, f"{held.get('work_go') or 'GO'}\nYou still hold {', '.join(mine)}: report each with drive work done {worker_id} <item> - before you pull again")
         word, items, said = kind.take(data, worker_id, moment)
         return shown(data, kind, word, items, said)
@@ -414,7 +408,7 @@ def add_worker(data: dict, kind: Kind, moment: datetime) -> str:
         "work": WORKER,
         "work_kind": kind.name,
         "builds_nothing": True,
-        "where": placed(data, first),
+        "where": kind.where(data, first),
         "session": held.get("session"),
         "brief_flags": {flag: None for flag in state.BRIEF_FLAGS},
         "work_done": [],
@@ -476,18 +470,17 @@ def admitted(data: dict, kind: Kind, moment: datetime) -> str | None:
     """Why no new worker of the kind starts now, by place.admission for a Sprite lane or one on this Mac, as its head item is placed, None when it may, or when that head serves a priority order or an open incident, by state.jumps_queue, which starts past every cap."""
     if not (first := kind.head(data)) or state.jumps_queue(data, first[0]):
         return None
-    return place.admission(data, None, "sprite" if placed(data, data["jobs"][first[0]]) == "remote" else "local", moment)
+    return place.admission(data, None, "sprite" if kind.where(data, data["jobs"][first[0]]) == "remote" else "local", moment)
 
 
 def spawned(data: dict, moment: datetime) -> tuple[list[str], list[str]]:
-    """The spawner's write: each enabled kind's old line absorbed, then a worker recorded for each kind that wants one and is admitted; the lines saying so, with every line told kept since, such as a lease's GO and RIDE, and the workers to start."""
+    """The spawner's write: a worker recorded for each kind that wants one and is admitted; the lines saying so and the workers to start."""
     lines, workers = [], []
     for kind in KIND.values():
-        lines += kind.absorb(data)
         if kind.wanted(data, moment) and not admitted(data, kind, moment):
             workers.append(worker_id := add_worker(data, kind, moment))
             lines.append(f"WORK {worker_id} records a {kind.name} worker, its first group claimed")
-    return [*lines, *data["work"].pop("told", [])], workers
+    return lines, workers
 
 
 def stalled(data: dict, job_id: str, moment: datetime) -> str | None:

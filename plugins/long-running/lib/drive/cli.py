@@ -84,10 +84,9 @@ ANSWER_FIRST = (
     " away too; then keep your full report and return as usual"
 )
 STAGING_MAC = (
-    "claim the staging slot for the PR each `staging test of #N before it lands` part of yours names, from this Mac or from a Sprite lane, whose drive runs it on the drive's Mac:"
-    " `drive slot claim {env} --job <your job> --minutes <how long your cut and cases run> --pr <the PR> --cases \"<your cases>\"`, which prints GO and its steps"
-    " when the slot is free, else QUEUED and your place, a priority or incident tester ahead of the rest; while queued, return `WAITING staging:<target>/{env}@<head>`,"
-    " one per target its paths reach by `the release provider's reach read <N>`, and the watch resumes you with GO and its steps once the slot is yours"
+    "each `staging test of #N before it lands` part of yours runs in the work queue, never on a cut of your own: the queue's stage-test worker on this Mac packs it"
+    " into its next cut on {env} with up to five other tests whose PRs change none of its files, starts that one cut and runs your cases once staging serves it;"
+    " while you wait for a cut, return `WAITING staging:<target>/{env}@<head>`, one per target its paths reach by `the release provider's reach read <N>`"
 )
 STAGING_FIRST = (
     "a finding of your staging run that production shows too goes to his thread the moment you have it, before any other step: one `report`"
@@ -1849,8 +1848,8 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             job["brief_flags"] = (job.get("brief_flags") or {}) | {"release": args.release}
             job["release_checkout"] = checkout
             job["release_pass"] = {"release": args.release, "at": created, "reading": args.reading}
-            if (env := brief.leased_env(words := shlex.split(args.release), data)) and not (providers.of(data).release.gives_way(words) and (data["slots"].get(env) or {}).get("holder")):
-                slotted = state.slot_claim(data, env, job_id, CUT_LEASE_MINUTES, [], None, state.parse_time(created), starts=True)
+            if (env := brief.leased_env(words := shlex.split(args.release), data)) and not (providers.of(data).release.gives_way(words) and (data["slots"].get(env) or {}).get("holder")) and not state.train_lease(data, env, job_id, state.parse_time(created)):
+                slotted = env
         if args.agent:
             job["session"] = session
             state.start(job)
@@ -1872,8 +1871,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         waiting.append(
             f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
         )
-    queued = slotted.startswith("QUEUED")
-    started = [f"{job_id} {slotted}: the watch starts `{args.release}` by drive job release {job_id} once the slot is its, so start nothing for it"] if queued else state.after(lambda: started_release(name, job_id, args.release)) if args.release else []
+    started = [f"{job_id} waits for {slotted}, which a cut holds now: the watch starts `{args.release}` by drive job release {job_id} the moment that cut ends, before any new cut, so start nothing for it"] if slotted else state.after(lambda: started_release(name, job_id, args.release)) if args.release else []
     also = list(dict.fromkeys(order_id for orders in history.values() for order_id in orders))
     names = [f"{job_id} names {', '.join(named)}" + (f", also on {', '.join(also)}" if also else "") + ": drive status <id>"] if named else []
     names += state.asked_lines(data, args.goal)
@@ -3939,7 +3937,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         "Researched": found and found[0],
         "Answer": answers and answer_first(name, order, job["order"], job_id),
         "Staging": staged
-        and STAGING_MAC.format(env=providers.of(data).staging.env) + "".join(f"; {asked}" for asked in [state.stage_ask(data, providers.of(data).staging.env)] if asked) + ". "
+        and STAGING_MAC.format(env=providers.of(data).staging.env) + ". "
         + STAGING_FIRST.format(drive=name, attrs=json.dumps(state.thread_attr(data, order) | {"order": job["order"], "job": job_id, "progress": "true", "incident": "true"}))
         + boxed
         + staging_taps(data, job)
@@ -5119,45 +5117,6 @@ def job_replies(args: argparse.Namespace) -> int:
     return emit(args, "\n\n".join(said) or f"{args.id} has sent nothing yet", kept)
 
 
-def slot_claim(args: argparse.Namespace) -> int:
-    """Claim a staging env's slot for a job: it holds the slot now when none does, its lease ending its minutes past the staging-claim rule's wait, else it queues last, first in first out, and the watch hands it the slot with a GO once the holder gives it back, finishes or outlives its lease, by state.slot_turns."""
-    name = state.resolve(args.drive)
-    prs = [state.pr_key(pr) for pr in args.pr]
-    paths, stacks = watch.pass_reads(name, state.load(name), prs)
-    def slot_claim_write(data: dict):
-        find(data["jobs"], args.job, "job")
-        line = state.slot_claim(data, args.env, args.job, args.minutes, prs, args.cases, state.now(), paths, stacks, release=providers.of(data).release)
-        return line
-
-    line = state.write(name, slot_claim_write)
-    return emit(args, line, {"env": args.env, "job": args.job, "line": line})
-
-
-def slot_hand(args: argparse.Namespace) -> int:
-    """Hand a staging env's slot to a job in its queue now, the cut holding it going back to the head of the queue, from the holder's own session or the top coordinator's, and start the job's turn as the watch's hand-on does: its release for a start of the top coordinator's, else a GO by drive job resume."""
-    name = state.resolve(args.drive)
-    data = state.load(name)
-    held = (data["slots"].get(args.env) or {}).get("holder")
-    own = (os.environ.get(state.JOB_ENV) or "").split("/")[1:2]
-    if own and held and own[0] not in state.slot_members(data["slots"][args.env]) or not own and not state.top_coordinator(data, os.environ.get("CLAUDE_CODE_SESSION_ID")):
-        raise DriveError(f"refused: only the job holding the {args.env} slot or the top coordinator hands it on")
-    before = [member for member in [held, *(held["riders"] if held else [])] if member and not member["starts"]]
-    def slot_hand_write(data: dict):
-        entry, line = state.slot_hand(data, args.env, args.to, state.now())
-        until = data["slots"][args.env]["holder"]["until"]
-        steps = state.SLOT_GO_STEPS.format(env=args.env, job=args.to) + state.holding(providers.of(data).release, data, [args.to])
-        stopped = [member["job"] for member in before if data["jobs"][member["job"]]["state"] not in state.SLOT_LIVE_END]
-        return entry, line, steps, stopped, until
-
-    entry, line, steps, stopped, until = state.write(name, slot_hand_write)
-    for job_id in stopped:
-        state.detach(name, ["job", "resume", job_id, state.SLOT_STOP.format(env=args.env, to=args.to)], watch.RELAUNCHES_LOG)
-    command = ["job", "release", args.to] if entry["starts"] else ["job", "resume", args.to, f"GO staging {args.env} until {until}: {steps}"]
-    state.detach(name, command, watch.RELAUNCHES_LOG)
-    told = f"; {', '.join(stopped)} told to STOP" if stopped else ""
-    return emit(args, f"{line}{told}; drive {' '.join(command[:3])} runs now", {"env": args.env, "job": args.to, "line": line, "stopped": stopped})
-
-
 def mac_box_handed(args: argparse.Namespace) -> int:
     """Take the drive pool's word that it handed a job a Mac box, by the Mac box provider's lend or up naming the job as holder: each mac-box:<box> or mac-box:any wait of the job ends, so the watch's next pass frees it with its FREE line, and the hand is kept as an event; refused for a job that waits on no box."""
     name = state.resolve(args.drive)
@@ -5172,69 +5131,6 @@ def mac_box_handed(args: argparse.Namespace) -> int:
     state.append_event(name, "mac_box_handed", job=args.job, box=args.box, host=args.host, ended=marked)
     line = f"{args.job} has Mac box {args.box}{f' on {args.host}' if args.host else ''}: {', '.join(marked)} ended, so the watch frees it on its next pass"
     return emit(args, line, {"job": args.job, "box": args.box, "ended": marked})
-
-
-def slot_hold(args: argparse.Namespace) -> int:
-    """Hold a staging env's slot for one job until a time, from the top coordinator's session, so the watch gives it to no other job and hands a lease that ends to the one it names; --until with a past time is refused, and --clear drops the hold."""
-    name = state.resolve(args.drive)
-    if not state.top_coordinator(state.load(name), os.environ.get("CLAUDE_CODE_SESSION_ID")):
-        raise DriveError(f"refused: only the top coordinator holds the {args.env} slot")
-    def slot_held(data: dict) -> str:
-        if args.clear:
-            (data["slots"].get(args.env) or {})["hold"] = None
-            line = f"{args.env} holds for no one now"
-        else:
-            if args.held not in data["jobs"]:
-                raise DriveError(f"{args.held}: refused, no job of this drive: a hold names one job, never an order")
-            line = state.slot_hold(data, args.env, args.held, state.parse_time(args.until), args.reason, state.now())
-        return "; ".join([line, *(state.slot_take(data, args.env, job_id) for job_id in args.take)])
-
-    line = state.write(name, slot_held)
-    for job_id in args.take:
-        state.detach(name, ["job", "resume", job_id, state.SLOT_TAKEN.format(env=args.env)], watch.RELAUNCHES_LOG)
-    return emit(args, line + "".join(f"; {job_id} told NO-START" for job_id in args.take), {"env": args.env, "line": line, "taken": args.take})
-
-
-def wave_start(args: argparse.Namespace) -> int:
-    """Start a wave of testers on a cut from the top coordinator's session: hold its START text on each named job, whichever session holds the job's order, then wake each by a detached drive job resume, as a slot hand wakes a job, so no lane relays a START to testers it cannot resume."""
-    name = state.resolve(args.drive)
-    if not state.top_coordinator(state.load(name), os.environ.get("CLAUDE_CODE_SESSION_ID")):
-        raise DriveError("refused: only the top coordinator starts a wave")
-    text = f"START {args.cut}: {args.text}"
-
-    def wave_held(data: dict) -> None:
-        sender = state.held_sender(data)
-        for job_id in args.jobs:
-            job = find(data["jobs"], job_id, "job")
-            if job["state"] in state.FINISHED_JOB_STATES:
-                raise DriveError(f"{job_id}: refused, nothing held or woken: it ended {job['state']}; add the tester that runs this wave's cases first")
-            state.hold_text(job, text, sender)
-
-    state.write(name, wave_held)
-    for job_id in args.jobs:
-        state.detach(name, ["job", "resume", job_id], watch.RELAUNCHES_LOG)
-    line = f"{args.cut}: START held on {', '.join(args.jobs)}, each woken now by drive job resume, whichever session holds its order"
-    return emit(args, line, {"cut": args.cut, "jobs": args.jobs, "text": text})
-
-
-def slot_packer(args: argparse.Namespace) -> int:
-    """Name the lane that packs a staging env's cuts, from the top coordinator's session, so each QUEUED line and tester brief addresses a tester's cut ask there, never root."""
-    name = state.resolve(args.drive)
-    if not state.top_coordinator(state.load(name), os.environ.get("CLAUDE_CODE_SESSION_ID")):
-        raise DriveError(f"refused: only the top coordinator names the {args.env} packer")
-    line = state.write(name, lambda data: state.slot_packer(data, args.env, args.lane))
-    return emit(args, line, {"env": args.env, "lane": args.lane or None})
-
-
-def slot_release(args: argparse.Namespace) -> int:
-    """Give a staging env's slot back, or leave its queue, so the watch's next pass hands it to the job first in line."""
-    name = state.resolve(args.drive)
-    def slot_release_write(data: dict):
-        line = state.slot_release(data, args.env, args.job)
-        return line
-
-    line = state.write(name, slot_release_write)
-    return emit(args, line, {"env": args.env, "job": args.job, "line": line})
 
 
 def work_enable(args: argparse.Namespace) -> int:
@@ -5288,27 +5184,25 @@ def work_show(args: argparse.Namespace) -> int:
 
 
 def slot_queue(args: argparse.Namespace) -> int:
-    """Each staging slot, or the one env named: its holder, GO with when its lease ends once its cut has its START, by state.cut_started, else held for it and waiting for that START, so no job reads a lease it has not started as leave to run, then each job waiting, in order."""
+    """Each staging env, or the one named: the work queue's cut or the release holding it and when its lease ends, each release the train holds for it, which goes before the next cut, and the queue's stage-test items for it."""
     data = state.load(state.resolve(args.drive))
-    queued = {env: {"holder": None, "queue": []}} if work.enabled(data, work.STAGE_TEST) and (env := work.env(data)) else {}
-    slots = queued | data["slots"]
+    slots = {work.env(data): {"holder": None}} | data["slots"]
     shown = {env: slot for env, slot in slots.items() if not args.env or env == args.env}
     lines = []
     for env, slot in shown.items():
         held = slot["holder"]
-        riding = "".join(", " + rider["job"] + " riding its cut" for rider in held["riders"]) if held else ""
-        said = (f"GO {held['job']} until {held['until']}{riding}" if state.cut_started(data, held, env) else f"held for {held['job']} until {held['until']}{riding}, waiting for its START") if held else "free"
-        hold = f"; held for {slot['hold']['for']} until {slot['hold']['until']}: {slot['hold']['reason']}" if slot.get("hold") else ""
-        lines.append(f"{env}: {said}{hold}")
-        lines += [f"  {place}. {each['job']} for {each['minutes']} minutes, queued {each['at']}" for place, each in enumerate(slot["queue"], 1)]
+        riding = "".join(", " + rider["job"] for rider in held["riders"]) if held else ""
+        said = (f"the work queue's cut of {held['job']}{riding}, run by {held['work']}" if held.get("work") else f"release {held['job']}") + f" until {held['until']}" if held else "free"
+        lines.append(f"{env}: {said}")
+        lines += [f"  train {place}. {job_id}, its release starts when {env} frees, before any new cut" for place, job_id in enumerate(state.train_waiting(data, env), 1)]
         lines += queue_items(data, env)
-    return emit(args, "\n".join(lines) or "no staging slot is held or queued", {"slots": shown})
+    return emit(args, "\n".join(lines) or "no staging env is held", {"slots": shown})
 
 
 def queue_items(data: dict, env: str) -> list[str]:
     """The stage-test items the work queue holds for an env, in its own order, by work.rank, each marked in the queue with whether it is ready to pull, so a tester the queue took off the slot's old line never reads as dropped."""
     kind = work.KIND[work.STAGE_TEST]
-    if env != work.env(data) or not work.enabled(data, work.STAGE_TEST):
+    if env != work.env(data):
         return []
     items = sorted((job_id for job_id, job in data["jobs"].items() if kind.queued(data, job)), key=lambda job_id: work.rank(data, job_id))
     return [f"  q{place}. {job_id} in the queue, {'ready to pull' if kind.ready(data, job_id) else 'waiting on ' + (', '.join(kind.blocking(data, job_id)) or data['jobs'][job_id]['state'])}" for place, job_id in enumerate(items, 1)]
@@ -5740,12 +5634,8 @@ def wake_pr(args: argparse.Namespace) -> int:
 def slot_turn(data: dict, job_id: str) -> str | None:
     """What a staging tester waits its turn on, so a PR's STAGE line is held for it once per head and never sent as a wake: a place in a staging slot's queue, an item the work queue holds, or a staging-slot:<job> wait on a cut only the top coordinator starts; None for any other job."""
     job = data["jobs"][job_id]
-    if env := next((env for env, slot in data["slots"].items() if any(each["job"] == job_id for each in slot["queue"])), None):
-        return f"holds a place in the {env} slot's queue"
     if work.queued(data, job):
         return "waits in the work queue for its stage-test cut"
-    if any(state.SLOT_TURN_WAIT.fullmatch(wait) for wait in job["waits"]):
-        return "waits on a staging window only the top coordinator starts"
     return None
 
 
@@ -7201,13 +7091,11 @@ def order_summary(name: str, order_id: str) -> str:
             lines.append(f"release {job_id} {job['state']}: {job['release_build']}")
     numbers = {key.split("#")[1] for key in prs}
     for env, slot in tables["slots"].items():
-        for each in [*([slot["holder"]] if slot.get("holder") else []), *slot["queue"]]:
+        for each in [slot["holder"]] if slot.get("holder") else []:
             if each.get("starts") and each["job"] not in jobs and (rides := sorted(numbers & {str(pr).rsplit("#", 1)[-1] for pr in each["prs"]})):
                 lines.append(f"release {each['job']} on {env} carries {', '.join('#' + number for number in rides)}")
         if (held := slot.get("holder")) and (riding := [job_id for job_id in [held["job"], *(rider["job"] for rider in held.get("riders", []))] if job_id in jobs]):
             lines.append(f"slot {env}: {', '.join(riding)} in the cut holding it until {render.when(held['until'])}")
-        if queued := [f"{each['job']} place {place}" for place, each in enumerate(slot["queue"], 1) if each["job"] in jobs]:
-            lines.append(f"slot {env} queue: {', '.join(queued)}")
     asks = [f"{job_id}'s card {card}" for job_id, job in jobs.items() if job["state"] not in state.FINISHED_JOB_STATES for card in view.open_cards(job | {"questions": job.get("questions") or []})]
     asks += [f"#{key.split('#')[1]}: {(pr.get('stage') or {}).get('why') or 'his tap'}" for key, pr in prs.items() if pr["state"] == "open" and (pr.get("stage") or {}).get("owner") == "him"]
     lines.append(f"waits on him: {'; '.join(render.cut(ask, 160) for ask in asks) if asks else 'nothing'}")
@@ -8263,48 +8151,14 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("box", help="the box's name, as the Mac box provider named it")
     verb.add_argument("--host", help="the Mac host the box runs on")
     verb.set_defaults(run=mac_box_handed)
-    slot = verbs.add_parser("slot", help="staging slots, a first-in first-out lease on each staging env").add_subparsers(dest="action", required=True)
-    verb = slot.add_parser("claim", parents=both, help="hold a staging env's slot now, or queue for it", description="Hold the env's slot now when no job holds it, its lease ending the minutes given past the staging-claim rule's five-minute wait, else queue last; the watch hands a queued job the slot with a GO once the holder gives it back, finishes or outlives its lease.")
-    verb.add_argument("env", help="the staging env, as the repository's staging provider names it")
-    verb.add_argument("--job", required=True, help="the job claiming it")
-    verb.add_argument("--minutes", type=int, required=True, help="how long its pass runs")
-    verb.add_argument("--pr", action="append", default=[], help="a PR its cut carries")
-    verb.add_argument("--cases", help="the cases its pass runs")
-    verb.set_defaults(run=slot_claim)
-    verb = slot.add_parser("release", parents=both, help="give a staging env's slot back, or leave its queue")
-    verb.add_argument("env", help="the staging env")
-    verb.add_argument("--job", required=True, help="the job giving it back")
-    verb.set_defaults(run=slot_release)
-    verb = slot.add_parser("packer", parents=both, help="name the lane that packs a staging env's cuts, from the top coordinator")
-    verb.add_argument("env", help="the staging env")
-    verb.add_argument("lane", help="the cci lane that packs its cuts, whose READY lines root hears; empty takes it out")
-    verb.set_defaults(run=slot_packer)
-    verb = slot.add_parser("hold", parents=both, help="hold a staging env's slot for one job until a time, from the top coordinator")
-    verb.add_argument("env", help="the staging env")
-    verb.add_argument("--for", dest="held", help="the job the slot is held for, never an order")
-    verb.add_argument("--until", help="when the hold ends, an RFC 3339 time with its offset")
-    verb.add_argument("--reason", help="why, in plain words, naming the record that set it")
-    verb.add_argument("--clear", action="store_true", help="drop the slot's hold")
-    verb.add_argument("--take", action="append", default=[], metavar="JOB", help="take the slot back from a job it went to by mistake, holding or riding its cut, without handing it on: the job goes back first in the queue and hears NO-START; repeatable")
-    verb.set_defaults(run=slot_hold)
-    verb = slot.add_parser("hand", parents=both, help="hand a staging env's slot to a job in its queue now, from its holder or the top coordinator")
-    verb.add_argument("env", help="the staging env")
-    verb.add_argument("--to", required=True, help="the queued job taking the slot")
-    verb.set_defaults(run=slot_hand)
-    verb = slot.add_parser("queue", parents=both, help="each staging slot's holder, its lease's end and the jobs waiting, in order")
+    slot = verbs.add_parser("slot", help="staging envs: the cut or release each holds, the releases waiting to go first and the queue's stage-test items").add_subparsers(dest="action", required=True)
+    verb = slot.add_parser("queue", parents=both, help="each staging env's cut or release and its lease's end, the releases waiting to go before the next cut, and the work queue's stage-test items")
     verb.add_argument("env", nargs="?", help="the staging env; default every one")
     verb.set_defaults(run=slot_queue)
 
-    wave = verbs.add_parser("wave", help="waves of staging testers on a cut").add_subparsers(dest="action", required=True)
-    verb = wave.add_parser("start", parents=both, help="hold a wave's START on each named tester and wake each, from the top coordinator")
-    verb.add_argument("cut", help="the cut the wave tests, as its START names it, such as \"wave 2 cut 2b 82778a97bccf\"")
-    verb.add_argument("jobs", nargs="+", metavar="JOB", help="each tester job the wave runs, on any session's order")
-    verb.add_argument("--text", required=True, help="the START's steps, one line per named job")
-    verb.set_defaults(run=wave_start)
-
     queue = verbs.add_parser("work", help="the work queue: items workers pull in groups").add_subparsers(dest="action", required=True)
     verb = queue.add_parser("enable", parents=both, help="turn a kind of work over to the queue, or back with --off")
-    verb.add_argument("kind", choices=work.KINDS)
+    verb.add_argument("kind", choices=[kind for kind in work.KINDS if kind != work.STAGE_TEST])
     verb.add_argument("--off", action="store_true", help="give the kind back to its own jobs")
     verb.set_defaults(run=work_enable)
     verb = queue.add_parser("pull", parents=both, help="claim a worker's next group of items")

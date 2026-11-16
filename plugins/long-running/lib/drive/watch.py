@@ -879,10 +879,10 @@ def gave_way(watcher: Watcher, data: dict, moment: datetime) -> tuple[bool, list
 def gave_way_text(freeze: dict, notice: dict, leased: bool) -> str:
     """What a staging test holding a freeze that gave way does, decided under his ruling 43aa665, "don't ask me every little thing ask my high level preferences": its cases count for nothing, it waits for that release, then reruns every case, in its own lease, which gave_way started again, or, with no lease left, by claiming the slot again once it lifts its freeze and puts back each stack the release left on its cut, so no queued test waits behind a frozen staging."""
     after = (
-        "Your staging slot's lease started again at the give-way and holds while you wait on that build, so then do the steps of your GO, or of your RIDE on another pass's cut, again from the cut on and run every case."
+        "Your staging cut's lease started again at the give-way and holds while you wait on that build, so then start your cut again and run every case."
         if leased
         else "Then put back, by the restore step of the landing page's staging tests, only each stack you deployed that `<ci> release live` still shows serving your cut,"
-        f" lift the freeze with `<ci> release unfreeze {freeze['id']}`, and claim the staging slot again with `drive slot claim`, whose GO runs every case again."
+        f" lift the freeze with `<ci> release unfreeze {freeze['id']}`, and return WAITING on that build: the work queue's next cut runs every case again."
     )
     return (
         f"Release freeze {freeze['id']}, which names you its holder on staging, gave way at `{notice['at']}` to {notice['starter']}'s staging release for production"
@@ -1033,7 +1033,7 @@ def env_alert_lines(watcher: Watcher, moment: datetime) -> list[str]:
         if not fresh:
             continue
         slot = data["slots"].get(env) or {}
-        testing = [job for job in dict.fromkeys([(slot.get("holder") or {}).get("job"), (slot.get("hold") or {}).get("for")]) if job in data["jobs"] and data["jobs"][job]["state"] not in state.FINISHED_JOB_STATES]
+        testing = [job for job in dict.fromkeys([*(state.slot_members(slot) if slot.get("holder") else []), (slot.get("holder") or {}).get("work")]) if job in data["jobs"] and data["jobs"][job]["state"] not in state.FINISHED_JOB_STATES]
         try:
             for message in fresh:
                 for job_id in testing:
@@ -5249,38 +5249,18 @@ READS_PER_PASS = 12
 
 
 def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Hand on each staging slot, by state.slot_turns: end a lease whose job finished, extend once a lease that ran past its end and end it at its second, and give a free slot to the first job in its queue with a GO, packed with each later pass whose PRs change none of its files, up to six, each of those resumed with its RIDE line, every resume by `drive job resume`, so no session sequences or packs staging by hand; it reads the files of each queued pass whose files it has not read while the slot is held, so a pass is packed the moment the slot frees. Its lines go as evidence and wake nobody; a GO's resume that is refused reaches the session holding the job as its relaunch_refused event."""
-    if watcher.project or not (slots := state.load(watcher.name, ("slots",))["slots"]):
+    """End each staging env's lease whose cut or release finished, and start the release the train holds for an env that freed, by state.slot_ends, before the work queue's packer forms its next cut; it says nothing, since no session acts on a lease's end."""
+    if watcher.project or not state.load(watcher.name, ("slots",))["slots"]:
         return []
-    known = state.load(watcher.name)
-    release = providers.of(known).release
-    unread = {each["job"]: pass_reads(watcher.name, known, each["prs"]) for each in [each for slot in slots.values() for each in slot["queue"] if (each["paths"] is None or each["stacks"] is None) and each["prs"]][:READS_PER_PASS]}
-    def slot_lines_write(data: dict):
-        for slot in data["slots"].values():
-            for each in slot["queue"]:
-                if each["job"] in unread:
-                    paths, stacks = unread[each["job"]]
-                    each["paths"] = each["paths"] if paths is None else paths
-                    each["stacks"] = each["stacks"] if stacks is None else stacks
-        waiters = state.queue_waiters(data, approved_only=any(slot.get("hold") for slot in data["slots"].values()))
-        return waiters, state.slot_turns(data, moment, release)
-
-    waiters, moved = state.write(watcher.name, slot_lines_write, budget=state.WATCH_WRITE_SECONDS)
-    lines = list(waiters)
-    for env, job_id, kind, line in moved:
-        if kind == "go":
-            start_verb(watcher, job_id, ["job", "resume", job_id, line], moment)
-            line = f"SLOT {env} to {job_id}: {line}"
-        elif kind == "start":
-            start_verb(watcher, job_id, ["job", "release", job_id], moment)
-        lines.append(line)
-    return lines
+    for _, job_id in state.write(watcher.name, lambda data: state.slot_ends(data, moment), budget=state.WATCH_WRITE_SECONDS):
+        start_verb(watcher, job_id, ["job", "release", job_id], moment)
+    return []
 
 
 def work_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Run the work queue's spawner on a drive that turned any kind of work over to it: read the files and stacks of ready stage-test items it has not read, so packing pairs only passes it can see, take the staging slot's old line into the queue, and record and start a worker of each kind whose items have none and that this Mac admits, by work.spawned, an urgent head past the cap; its lines go as evidence and wake nobody."""
+    """Run the work queue's spawner on every drive, since stage-test always runs there: read the files and stacks of ready stage-test items it has not read, so packing pairs only passes it can see, and record and start a worker of each kind whose items have none and that this Mac admits, by work.spawned, an urgent head past the cap; its lines go as evidence and wake nobody."""
     data = state.load(watcher.name)
-    if watcher.project or not data.get("work", {}).get("kinds"):
+    if watcher.project:
         return []
     read = {job_id: pass_reads(watcher.name, data, state.tested_prs(data, data["jobs"][job_id])) for job_id in work.unread(data)}
 

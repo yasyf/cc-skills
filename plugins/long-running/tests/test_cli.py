@@ -4841,69 +4841,52 @@ def test_job_ask_reads_a_remote_lanes_report_when_given_no_file(run: Run, asking
     assert run("job", "ask", asking)[1].splitlines()[0] == str(state_root / "demo" / "asks" / f"j1-{hashlib.sha256(SHORT_ASK.encode()).hexdigest()[:8]}.md")
 
 
-def test_a_testers_staging_waiting_report_keeps_its_slot_claim_and_a_queued_stage_test_item_stays_pullable_on_its_own_staging_wait(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test it")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "cut it")
-    run("job", "add", "builder", "--order", "o1", "--goal", "test it")
-    run("job", "add", "builder", "--order", "o2", "--goal", "cut it")
-    env = work.env(state.load(demo))
-    with edit(demo) as data:
-        data["jobs"]["j1"]["state"] = data["jobs"]["j2"]["state"] = "running"
-        state.slot_claim(data, env, "j2", 30, [], None, state.now())
-        state.slot_claim(data, env, "j1", 30, [], None, state.now())
-    waiting = f"WAITING staging:api/{env}@cee2114d65d4f1d078c70f27b4b7db67ca2efffa"
-    monkeypatch.setattr("sys.stdin", io.StringIO(waiting + "\n"))
-    assert run("job", "report", "j1", "-")[0] == 0
-    data = state.load(demo)
-    data["jobs"]["j1"].update(state="waiting", waits=[waiting.split()[1]])
-    state.slot_turns(data, state.now())
-    assert [each["job"] for each in data["slots"][env]["queue"]] == ["j1"]
+def test_a_stage_test_items_staging_wait_holds_it_only_inside_the_queues_cut_so_an_item_waiting_for_a_cut_stays_pullable(monkeypatch: pytest.MonkeyPatch) -> None:
+    env = "plat-usw2-staging"
+    waiting = f"staging:api/{env}@cee2114d65d4f1d078c70f27b4b7db67ca2efffa"
+    data = {"slots": {env: {"holder": None}}, "jobs": {"j1": {"waits": [waiting], "claim": None}}}
+    monkeypatch.setattr(work, "env", lambda data: env)
     monkeypatch.setattr(view, "start_waits", lambda data, job, found: job["waits"])
     kind = work.StageTest()
     assert kind.blocking(data, "j1") == []
-    data["slots"][env]["holder"] = state.leased(data["slots"][env]["queue"].pop(), state.now(), []) | {"work": True}
-    assert kind.blocking(data, "j1") == [waiting.split()[1]]
+    data["slots"][env]["holder"] = state.leased({"job": "j1", "prs": [], "minutes": 30, "cases": None, "at": "", "paths": None, "stacks": None, "starts": False}, state.now(), []) | {"work": "j9"}
+    assert kind.blocking(data, "j1") == [waiting]
 
 
 def test_slot_queue_lists_the_work_queues_stage_test_items_marked_in_the_queue_so_an_absorbed_tester_never_reads_as_dropped(monkeypatch: pytest.MonkeyPatch) -> None:
     kind = work.KIND[work.STAGE_TEST]
-    data = {"work": {"kinds": [work.STAGE_TEST]}, "jobs": {"j1": {"created": "2026-11-16T01:00:00-08:00"}, "j2": {"created": "2026-11-16T00:00:00-08:00"}, "j3": {"created": "2026-11-16T00:30:00-08:00"}}}
+    data = {"work": {"kinds": []}, "jobs": {"j1": {"created": "2026-11-16T01:00:00-08:00"}, "j2": {"created": "2026-11-16T00:00:00-08:00"}, "j3": {"created": "2026-11-16T00:30:00-08:00"}}}
     monkeypatch.setattr(type(kind), "queued", lambda self, data, job: job is not data["jobs"]["j3"])
     monkeypatch.setattr(type(kind), "ready", lambda self, data, job_id: job_id == "j2")
     monkeypatch.setattr(type(kind), "blocking", lambda self, data, job_id: ["j9"])
     monkeypatch.setattr(state, "jumps_queue", lambda data, job_id: False)
     assert cli.queue_items(data, work.env(data)) == ["  q1. j2 in the queue, ready to pull", "  q2. j1 in the queue, waiting on j9"]
     assert cli.queue_items(data, "plat-usw2-sandbox") == []
-    data["work"]["kinds"] = []
-    assert cli.queue_items(data, work.env(data)) == []
 
 
-def test_a_named_hold_keeps_a_free_staging_slot_from_the_work_queue_until_its_end_and_the_queues_lease_tells_its_go_and_rides(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_no_new_cut_starts_while_a_cut_or_release_holds_the_env_or_a_release_waits_and_the_cut_the_packer_forms_writes_no_record(monkeypatch: pytest.MonkeyPatch) -> None:
     moment = state.parse_time("2026-11-16T06:37:00-08:00")
     env = "plat-usw2-staging"
-    data = {"name": "demo", "work": {"kinds": [work.STAGE_TEST]}, "jobs": {"j7977": {"state": "done"}}, "slots": {env: {"holder": None, "queue": [], "hold": None}}}
+    created = "2026-11-16T06:00:00-08:00"
+    data = {"name": "demo", "work": {"kinds": []}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "slots": {env: {"holder": None}}, "jobs": {"j8001": {"state": "waiting", "order": "o1", "carries": [], "goal": "", "priority": None, "train": env, "release_build": None, "created": created}}}
     monkeypatch.setattr(work, "env", lambda data: env)
-    monkeypatch.setattr(work, "admitted", lambda data, kind, moment: None)
     monkeypatch.setattr(work.StageTest, "line", lambda self, data: ["j7394", "j7632"])
-    state.slot_hold(data, env, "j7977", state.parse_time("2026-11-16T07:15:00-08:00"), "root's apply", moment)
-    assert work.owed(data, env, moment) is False
-    assert work.STAGE.why_not(data, moment).startswith(f"waits on {env}, held for j7977 until ")
-    assert work.owed(data, env, state.parse_time("2026-11-16T07:16:00-08:00")) is True
-    monkeypatch.setattr(state, "packed", lambda queue: (queue[0], queue[1:]))
+    assert work.STAGE.why_not(data, moment) == f"waits on {env}: release j8001 goes first, the train between cuts; the queue takes it once that release ends"
+    data["jobs"]["j8001"]["train"] = None
+    assert work.STAGE.why_not(data, moment) is None
+    monkeypatch.setattr(state, "packed", lambda ready, most: (ready[0], ready[1:most]))
+    monkeypatch.setattr(work, "cut_shape", lambda data: {"cut_items": 6, "cut_minutes": 30})
     monkeypatch.setattr(state, "tested_prs", lambda data, job: [])
     data["jobs"] |= {"j7394": {}, "j7632": {}}
-    group, _ = work.STAGE.group_of(data, "j7989", ["j7394", "j7632"], moment)
-    until = data["slots"][env]["holder"]["until"]
-    assert (group, [line.split(", run by")[0] for line in data["work"]["told"]]) == (["j7394", "j7632"], [f"SLOT {env} to j7394 until {until}: GO the work queue's cut", f"SLOT {env} RIDE j7632 on j7394's cut until {until}"])
+    group, go = work.STAGE.group_of(data, "j7989", ["j7394", "j7632"], moment)
+    held = data["slots"][env]["holder"]
+    assert (group, held["work"], held["minutes"], "told" in data["work"], go.startswith(f"GO staging {env} until {held['until']} for j7394, j7632")) == (["j7394", "j7632"], "j7989", 30, False, True)
+    assert work.STAGE.why_not(data, moment).startswith(f"waits on {env}, held by the queue's cut of j7394 until ")
 
 
-def test_slot_queue_runs_end_to_end_with_stage_test_on_and_lists_a_queued_tester_before_any_slot_is_claimed(run: Run, demo: str) -> None:
+def test_slot_queue_runs_end_to_end_and_lists_a_queued_tester_on_a_free_env(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Soak it", "--project", "The drive", "--workstream", "Drive tooling", "soak it", "--kind", "build", "--parts", "staging test of #42 before it lands")
     run("job", "add", "builder", "--order", "o1", "--part", "staging test of #42 before it lands", "--goal", "soak #42 on staging")
-    assert run("slot", "queue") == (0, "no staging slot is held or queued")
-    assert run("work", "enable", "stage-test")[0] == 0
     code, shown = run("slot", "queue")
     assert (code, shown.splitlines()[0], shown.splitlines()[1].startswith("  q1. j1 in the queue, ")) == (0, f"{work.env(state.load(demo))}: free", True)
     assert run("work", "show")[0] == 0
@@ -5512,7 +5495,6 @@ def test_a_readers_builder_builds_its_parts_and_each_later_readers_done_rebriefs
     assert keep(monkeypatch, capsys, "j4", RESEARCH.replace("per stalled store", "per stalled store, newest first"))[0] == 0
     job = state.load("demo")["jobs"]["j2"]
     assert (job["goal"], job["agent"], Path(job["brief"]).read_text() == written) == ("copy it", "a1", True)
-
 
 
 def test_a_builder_whose_goal_came_from_an_older_readers_build_line_names_that_reader_and_carries_his_words_on_its_part(
@@ -6789,7 +6771,7 @@ def test_a_builders_pushed_naming_a_monorepo_pr_with_its_staging_cases_gives_its
     assert [event["line"] for event, _ in state.read_events("demo") if event["kind"] == state.RETURNED and tester_id in event["line"]] == [f'{tester_id} builder on "{part}": the watch starts its agent on its brief {tester["brief"]}, so start no agent for it; drive job resume reaches it']
     assert run("job", "brief", tester_id)[0] == 0
     written = Path(state.load("demo")["jobs"][tester_id]["brief"]).read_text()
-    assert (f"Staging: {cli.STAGING_MAC.format(env='plat-usw2-staging')}" in written, "\nMac:" in written, "`drive slot claim plat-usw2-staging --job" in written, "staging-slots" in written) == (True, False, True, False)
+    assert (f"Staging: {cli.STAGING_MAC.format(env='plat-usw2-staging')}" in written, "\nMac:" in written, "the queue's stage-test worker on this Mac packs it" in written, "staging-slots" in written) == (True, False, True, False)
     assert place.mac_step(written) is None
     assert ('"incident": "true"' in written, "Researched:" in written) == (True, False)
 
@@ -6846,7 +6828,7 @@ def test_a_tester_a_builders_staging_line_adds_is_briefed_on_its_builders_mac_st
     part, at = state.STAGING_TEST.format(number=42), render.when(data["prs"][with_pr]["tap"]["at"])
     assert f'{tester_id} builder on {json.dumps(part)}: the watch starts its agent on its brief {tester["brief"]}, so start no agent for it; drive job resume reaches it' in out
     written = Path(tester["brief"]).read_text()
-    assert (f"\nMac: {mac}\n" in written, "`drive slot claim plat-usw2-staging --job" in written, tester["brief_flags"]["mac"]) == (True, True, mac)
+    assert (f"\nMac: {mac}\n" in written, "the queue's stage-test worker on this Mac packs it" in written, tester["brief_flags"]["mac"]) == (True, True, mac)
     assert f"; he tapped Approve on {with_pr} at {at}, head 3fd9f47986fa{cli.STAGING_APPROVED}\n" in written
 
 
@@ -9676,17 +9658,6 @@ def test_a_pr_staging_runs_no_copy_of_prints_its_production_dry_run_plan_and_tak
     assert state.load("demo")["prs"][with_pr]["exception"]["granted"] == "https://acme.slack.com/archives/D1/p9"
 
 
-def test_a_staging_slot_wait_holds_until_the_job_rides_or_holds_a_staging_cut(run: Run, demo: str) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "prove the merge on staging")
-    run("job", "add", "builder", "--order", "o1", "--goal", "prove Forge-AI/monorepo#42 live", "--builds-nothing")
-    data = state.load(demo)
-    assert state.named_waits(data, "o1", "WAITING staging-slot:j1 for root's START") == ["staging-slot:j1"]
-    assert view.holds(data, "staging-slot:j1", None) is True
-    with edit(demo) as data:
-        data["slots"]["plat-usw2-staging"] = {"holder": {"job": "j9", "riders": [{"job": "j1"}]}, "queue": [], "hold": None}
-    assert view.holds(state.load(demo), "staging-slot:j1", None) is False
-
-
 @pytest.mark.parametrize(
     ("line", "free"),
     [
@@ -9694,7 +9665,6 @@ def test_a_staging_slot_wait_holds_until_the_job_rides_or_holds_a_staging_cut(ru
         ("WAITING his word: which bucket to keep", "heard"),
         ("WAITING his-word on the retention pick", "heard"),
         ("WAITING mac-box:any, every host busy", "handed"),
-        ("WAITING staging-slot:j1 for root's START", "seated"),
         ("WAITING pid:4411@j1-mac, its screen recording", "exited"),
     ],
 )
@@ -9704,7 +9674,7 @@ def test_every_waiting_form_a_drive_verb_writes_is_one_drive_job_report_takes_an
     exited: list[str] = []
     monkeypatch.setattr(providers.MacBoxProvider, "runs", lambda self, box, pid: not exited)
     data = state.load(demo)
-    wait = next(wait for wait in state.named_waits(data, "o1", line) if wait.split(":")[0].split("@")[0] in ("his-word", "mac-box", "staging-slot", "pid"))
+    wait = next(wait for wait in state.named_waits(data, "o1", line) if wait.split(":")[0].split("@")[0] in ("his-word", "mac-box", "pid"))
     assert state.wakes(data, "j1", state.now(), line) is True
     assert view.holds(data, wait, None) is True
     with edit(demo) as data:
@@ -9714,8 +9684,6 @@ def test_every_waiting_form_a_drive_verb_writes_is_one_drive_job_report_takes_an
             data["jobs"]["j1"]["waits"] = [wait]
             state.mac_box_handed(data, "j1", "j1-mac")
             wait = data["jobs"]["j1"]["waits"][0]
-        elif free == "seated":
-            data["slots"]["plat-usw2-staging"] = {"holder": {"job": "j9", "riders": [{"job": "j1"}]}, "queue": [], "hold": None}
         elif free == "exited":
             exited.append(wait)
     assert view.holds(state.load(demo), wait, None) is False
@@ -12601,27 +12569,6 @@ def test_a_new_waiting_replaces_a_jobs_staging_waits_and_a_withdrawn_cut_frees_a
     assert (view.holds(state.load("demo"), new, None), view.holds(state.load("demo"), old, None)) == (False, True)
 
 
-def test_a_slot_go_names_every_job_of_its_cut_as_a_freeze_holder_only_where_the_repository_names_the_holder_flag() -> None:
-    moment = datetime(2026, 11, 16, 1, 0, tzinfo=UTC)
-    data = {"name": "demo", "slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": [], "waits": [], "goal": "stage the cut"} for job_id in ("j0", "j1", "j2")}}
-    class Holding(providers.ReleaseProvider):
-        def holder(self, holder: str) -> str:
-            return f"--holder {holder}"
-
-        def join(self, freeze: str, holder: str) -> str:
-            return f"tools/ci release freeze join {freeze} --holder {holder}"
-
-    release = Holding(Path(), Path(), {})
-    assert state.slot_claim(data, "plat-usw2-staging", "j0", 20, [], None, moment, release=release).endswith("Run your freeze and every staging command of this cut with `--holder demo/j0`.")
-    for job_id, path, stack in (("j1", "a", "api"), ("j2", "b", "rsw-cp")):
-        state.slot_claim(data, "plat-usw2-staging", job_id, 15, [f"Forge-AI/monorepo#{job_id[1:]}"], None, moment, [path], [stack])
-    data["jobs"]["j0"]["state"] = "done"
-    goes = {job_id: line for _, job_id, kind, line in state.slot_turns(data, moment + timedelta(minutes=30), release) if kind == "go"}
-    assert goes["j1"].endswith("with `--holder demo/j1 --holder demo/j2`.")
-    assert goes["j2"].endswith("Join j1's freeze with `tools/ci release freeze join <its freeze id> --holder demo/j2` unless it names you, and run each staging command with `--holder demo/j2`.")
-    assert "--holder" not in state.slot_claim({"name": "demo", "slots": {}, "jobs": {"j9": {"state": "waiting", "order": "o1", "carries": [], "waits": []}}, "orders": data["orders"]}, "plat-usw2-staging", "j9", 20, [], None, moment)
-
-
 def test_a_status_of_one_job_prints_that_jobs_row_and_its_prs_not_its_whole_order(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it", "--kind", "build", "--parts", "the copy", "the proof")
     run("job", "add", "builder", "--order", "o1", "--part", "the copy", "--goal", "copy one store")
@@ -12806,24 +12753,3 @@ def test_a_staging_testers_staging_line_lists_each_case_its_pr_requires_and_its_
     monkeypatch.setattr("sys.stdin", io.StringIO(f"DONE #42 passed on staging\n{check}\nCASE the run page: pass\n"))
     assert cli.main(["job", "report", "j1", "-"]) == 0
 
-
-def test_a_wave_start_holds_its_start_on_testers_of_orders_two_sessions_hold_and_wakes_each_from_the_top_coordinator_alone(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    run("order", "add", "--title", "Short title", "--workstream", "Staging", "prove the cut on staging")
-    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Staging", "agents wake on their inbox")
-    run("job", "add", "reader", "--order", "o1", "--goal", "staging cases of wave 2")
-    run("job", "add", "reader", "--order", "o2", "--goal", "case 7 of wave 2")
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "platform-1")
-    run("start", "demo", "--role", "coordinator", "--project", "Platform")
-    detached: list[list[str]] = []
-    monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or 1)
-    assert cli.main(["wave", "start", "wave 2 cut 2b 82778a97bccf", "j1", "j2", "--text", "j1 runs now; j2 case 7"]) == 2
-    assert capsys.readouterr().err.strip() == "drive: refused: only the top coordinator starts a wave"
-    assert (detached, state.load("demo")["jobs"]["j1"]["undelivered"]) == ([], [])
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
-    code, out = run("wave", "start", "wave 2 cut 2b 82778a97bccf", "j1", "j2", "--text", "j1 runs now; j2 case 7")
-    assert (code, out.strip()) == (0, "wave 2 cut 2b 82778a97bccf: START held on j1, j2, each woken now by drive job resume, whichever session holds its order")
-    jobs = state.load("demo")["jobs"]
-    assert [[kept["words"] for kept in jobs[job_id]["undelivered"]] for job_id in ("j1", "j2")] == [["START wave 2 cut 2b 82778a97bccf: j1 runs now; j2 case 7"]] * 2
-    assert detached == [["job", "resume", "j1"], ["job", "resume", "j2"]]

@@ -564,13 +564,13 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
 
 
 def leased_start(words: list[str], data: dict, shell: Shell) -> bool:
-    """Whether a job's `ci release start` reaches one staging env alone, by one `--env`, and the job holds that env's staging slot now, by drive slot claim, so a tester starts its own cut in its lease, by his ruling that a test starts once the staging freeze names it as a holder, while every production start stays the top coordinator's."""
+    """Whether a job's `ci release start` reaches one staging env alone, by one `--env`, and the job holds that env now, as the head or worker of the work queue's cut or as the release the train started, so a cut starts in its own lease, by his ruling that a test starts once the staging freeze names it as a holder, while every production start stays the top coordinator's."""
     if not (env := brief.leased_env(words, data)):
         return False
     started = os.environ.get(state.JOB_ENV)
     job_id = started.split("/")[1] if started else state.agent_job(data, shell.caller.get("agent_id"))
     held = (data["slots"].get(env) or {}).get("holder")
-    return bool(job_id and held and held["job"] == job_id and state.parse_time(held["until"]) > state.now())
+    return bool(job_id and held and job_id in (held["job"], held.get("work")) and state.parse_time(held["until"]) > state.now())
 
 
 def job_reason(words: list[str], shell: Shell) -> str | None:

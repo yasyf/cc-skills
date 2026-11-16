@@ -541,8 +541,8 @@ PR hits, and the repository hooks into the drive through its providers.
 - **When it gives way.** Every staging freeze, and the staging slot a test holds, gives way to a
   staging release started to test a production release, by his pick 18c2fda, "Every
   staging freeze … gives way to a staging release started for production; its thread says so":
-  `drive job add --release` starts it at once rather than queue it behind a test holding the slot,
-  taking the slot only when it is free. The watch reads that release's `bypassed` notice on the
+  `drive job add --release` starts it at once rather than wait behind a cut holding the env,
+  taking the env only when it is free. The watch reads that release's `bypassed` notice on the
   freeze from the release provider's freezes read within a minute and holds
   each drive job the freeze names its holder a text, once per freeze and release, which ends any
   `staging:` wait the job holds and starts the lease of the cut it holds or rides again, held at its
@@ -550,10 +550,10 @@ PR hits, and the repository hooks into the drive through its providers.
   while the release runs and the rerun gets its whole lease; the job that started the release is
   told nothing. The cases the test ran count as not exercised. It replies in its claim's thread that the test was cut
   short and reruns, returns `WAITING <that release's build>`, again after a stop at an approve step,
-  until the build passed, failed or was canceled, then does its GO's or RIDE's steps again from the
-  cut on and runs every case. A test that no longer holds the slot instead puts back only each stack
-  it deployed that the release provider's live read still shows serving its cut, lifts its freeze
-  with the release provider's unfreeze and claims the slot again.
+  until the build passed, failed or was canceled, then starts its cut again and runs every case. A
+  test whose cut no longer holds the env instead puts back only each stack it deployed that the
+  release provider's live read still shows serving its cut, lifts its freeze with the release
+  provider's unfreeze and waits for the work queue's next cut.
 - **What holds the PR.** The pass is the drive's, not GitHub's. Three things put a PR on its test:
   - The builder's `READY` or `PUSHED` carries `STAGING: #N <cases>`, which `drive job report` turns
     into the part `<order>:staging test of #N before it lands`, the PR's wait on it and its tester.
@@ -637,10 +637,9 @@ not serve, so its first real request failed.
   than half the platform's targets that leaves one out with neither line in the job's goal or
   brief, and `drive job ask` refuses a card naming such a start. The repository's release provider names its release tool: its targets, a
   release's status (its `name`, `build`, `order`, `commit` and the targets it `carries`), the
-  start's word for every target, the components a PR's changed paths reach, which staging slots
-  pack passes by, the flag naming a job, `<drive>/<job>`, as a freeze's holder and the command
-  adding one to a freeze, which a staging slot's `GO` and `RIDE` lines name for every job of a
-  packed cut, and a prebuild starting the builds a release at a commit adopts, which `drive job release` runs at the
+  start's word for every target, the components a PR's changed paths reach, which the work
+  queue's packer forms cuts by, the flag naming a job, `<drive>/<job>`, as a freeze's holder and
+  the command adding one to a freeze, and a prebuild starting the builds a release at a commit adopts, which `drive job release` runs at the
   commit of each start reaching no production place and keeps as the job's prebuild build, so
   the production start at that commit signs, notarizes and bakes nothing again.
 - **A green, approved PR does not hold a cut.** A PR changing nothing dangerous owes no staging

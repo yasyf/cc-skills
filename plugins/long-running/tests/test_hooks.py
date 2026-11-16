@@ -1491,11 +1491,11 @@ def test_a_staging_release_for_production_starts_at_once_through_a_staging_slot_
     recorded.shown = {CLOCK_PICK["id"][:7]: CLOCK_PICK}
     jev.picks("5419ffd")
     with edit(demo) as data:
-        state.slot_claim(data, "plat-usw2-staging", "j1", 30, [], None, state.now())
+        data["slots"]["plat-usw2-staging"] = {"holder": state.leased({"job": "j1", "prs": [], "minutes": 30, "cases": None, "at": state.stamp(), "paths": None, "stacks": None, "starts": False}, state.now(), [])}
     start = f"{J2666_START} --for-production --env plat-usw2-staging"
     assert run("job", "add", "builder", "--order", "o1", "--goal", "release the merged clock", "--release", start)[1].splitlines()[:2] == ["j2", starting(demo, "j2", start)]
-    slot = state.load(demo)["slots"]["plat-usw2-staging"]
-    assert (slot["holder"]["job"], slot["queue"]) == ("j1", [])
+    data = state.load(demo)
+    assert (data["slots"]["plat-usw2-staging"]["holder"]["job"], data["jobs"]["j2"]["train"]) == ("j1", None)
 
 
 MANUAL_START = "tools/ci release start --stack sandsql/plat-usw2-sandbox --commit b79714bb452c562078e4446680106140f721e8ed --manual --emergency --order 5419ffd"

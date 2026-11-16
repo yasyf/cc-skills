@@ -5046,7 +5046,7 @@ def test_a_staging_test_whose_freeze_gave_way_to_a_staging_release_for_productio
         data["jobs"]["j2"] = job(state="waiting", said=f"WAITING {soak}", waits=[soak])
         data["jobs"]["j3"] = job(state="waiting", said="WAITING release", release_build=build)
         data["orders"]["o1"]["jobs"] += ["j2", "j3"]
-        state.slot_claim(data, STAGING_ENV, "j1", 30, [], None, T0 - timedelta(minutes=20))
+        data["slots"][STAGING_ENV] = {"holder": state.leased({"job": "j1", "prs": [], "minutes": 30, "cases": None, "at": state.stamp(T0 - timedelta(minutes=20)), "paths": None, "stacks": None, "starts": False}, T0 - timedelta(minutes=20), [])}
     gave = {"id": "bypassed-0190", "kind": "bypassed", "starter": "root@example.com", "at": "2026-11-15T23:10:00Z", "picks": ["platform"], "build": "0190", "forProduction": True, "url": build}
     text = "freeze f8erwzvg6c: api/plat-usw2-staging until Nov 15, 5:00 PM for fork cases, set by Ada Lovelace. Staging runs only for its holders."
     freezes.append({"freeze": {"id": "f8erwzvg6c", "holders": [f"{demo}/j1", f"{demo}/j2", f"{demo}/j3"], "notices": [{**gave, "id": "bypassed-0189", "forProduction": False}, gave]}, "text": text})
@@ -5059,8 +5059,8 @@ def test_a_staging_test_whose_freeze_gave_way_to_a_staging_release_for_productio
     assert [[kept["words"] for kept in data["jobs"][job_id]["undelivered"]] for job_id in ("j1", "j2", "j3")] == [[leased], [unleased], []]
     assert leased.startswith(f"Release freeze f8erwzvg6c, which names you its holder on staging, gave way at `2026-11-15T23:10:00Z` to root@example.com's staging release for production of platform, {build},")
     assert f"return `WAITING {build}`, and again on a wake that finds that build stopped at an approve step, until it passed, failed or was canceled." in leased
-    assert leased.endswith("lease started again at the give-way and holds while you wait on that build, so then do the steps of your GO, or of your RIDE on another pass's cut, again from the cut on and run every case.")
-    assert "`<ci> release unfreeze f8erwzvg6c`" in unleased and unleased.endswith("claim the staging slot again with `drive slot claim`, whose GO runs every case again.")
+    assert leased.endswith("lease started again at the give-way and holds while you wait on that build, so then start your cut again and run every case.")
+    assert "`<ci> release unfreeze f8erwzvg6c`" in unleased and unleased.endswith("return WAITING on that build: the work queue's next cut runs every case again.")
     holder = data["slots"][STAGING_ENV]["holder"]
     assert (holder["job"], holder["since"], holder["until"], holder["extended"], holder["gave_way_to"]) == ("j1", state.stamp(T0), state.stamp(T0 + state.CLAIM_WAIT + timedelta(minutes=30)), False, build)
     assert [(data["jobs"][job_id]["waits"], data["jobs"][job_id]["gave_way"]) for job_id in ("j1", "j2", "j3")] == [([], ["f8erwzvg6c/bypassed-0190"])] * 2 + [([], [])]
@@ -12615,7 +12615,7 @@ def test_each_new_alert_in_a_staging_envs_channel_goes_once_to_each_job_testing_
     with edit(demo) as data:
         data["jobs"]["j2"] = job()
         data["jobs"]["j3"] = job(state="done")
-        data["slots"]["plat-usw2-staging"] = {"holder": {"job": "j1"}, "hold": {"for": "j2"}, "queue": [{"job": "j3"}]}
+        data["slots"]["plat-usw2-staging"] = {"holder": {"job": "j1", "riders": [{"job": "j2"}, {"job": "j3"}]}}
         data["slack"]["env_alerts"]["plat-usw2-staging"] = {"channel": "C0ALERTS", "seen": "1800000000.000000"}
     history = [
         {"ts": "1800000200.000000", "user_name": "Sentry", "from_claude": False, "from_user": None, "text": "[api] TypeError: boom\nmore", "permalink": "https://acme.slack.com/archives/C0ALERTS/p1800000200000000"},
@@ -12716,7 +12716,7 @@ def test_a_watch_text_reaches_a_job_once_until_its_next_return_and_a_possessive_
         data["jobs"]["j1"].update(kind="reader", prs=[], state="running")
         data["jobs"]["j2"] = job(kind="reader", goal="the tip")
         data["jobs"]["j3"] = job(kind="reader", goal="the bridge")
-    stop = state.SLOT_STOP.format(env="plat-usw2-staging", to="j2")
+    stop = "STOP: stop every staging command on plat-usw2-staging at once, which j2 runs on now"
     with edit(demo) as data:
         assert state.hold_text(data["jobs"]["j1"], stop, state.WATCH_SENDER)
         data["jobs"]["j1"]["undelivered"] = []

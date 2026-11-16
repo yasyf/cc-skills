@@ -1,6 +1,6 @@
 # Staging slots as a first-in, first-out lease
 
-Status: built. Testers and after-merge passes claim the slot themselves, and the `staging-slots` ask to root is retired: a cut a tester cannot start itself, as while a release freeze stands, goes as an `ask` on that topic to the lane `drive slot packer` names for the env, which the QUEUED line and the tester's brief name, and root hears only that lane's READY. An overrunning lease extends once, and a priority or incident pass jumps the queue.
+Status: superseded by migration step 3 of the drive rethink (2026-11-16). The first-in, first-out queue, `slot claim`, `slot release`, `slot hold`, `slot hand`, `slot packer` and `wave start` are deleted. The work queue's packer forms every staging cut, and a release waiting for the env goes before the next cut. This page records the old design.
 
 ## The problem
 

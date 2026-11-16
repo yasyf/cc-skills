@@ -134,7 +134,6 @@ def test_a_ready_record_naming_a_pr_is_refused_since_drive_pr_add_and_the_watch_
         assert refusal(record_lines.decision(ready)) == record_lines.READY_GONE
     for ready in (
         post(kind="ready", text="Drive tooling: the watch reads taps", to=META),
-        post(kind="ready", topic="staging-slots", text=f"READY staging pass of {TAPPED} and #4244: every case passed", to=["root@demo"]),
     ):
         assert (record_lines.decision(ready) or {}).get("permissionDecision") != "deny", ready
     for said in ("carries his Approve tap", "he tapped Approve at `6:40 PM`", "his approval landed at `6:40 PM`"):

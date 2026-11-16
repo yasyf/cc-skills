@@ -174,7 +174,7 @@ COORDINATOR_RULES = (
         "Post a record only when one other lane must act on it now: a handoff, ask, answer, decide, defect or report"
         " to that one lane, never progress, state or a relayed copy, and several lanes only for an incident or"
         " blocker naming each lane's step. A project coordinator sends root one report opening UP, no reply expected,"
-        " when it acts on his words, starts, cancels or holds a release, takes or hands a staging slot, or changes"
+        " when it acts on his words, starts, cancels or holds a release, starts a release on staging, or changes"
         " an order's plan, and root never asks what those lines answer. Messages reach you only between tool calls:"
         " run anything past about 30 seconds in the background and end your turn to wait."
     ),
