@@ -2881,6 +2881,18 @@ def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
     return added
 
 
+def dangerous_staged(data: dict, order_id: str) -> list[str]:
+    """Each open PR waiting on a staging test part of the order that the watch staged because its head changes a dangerous class of file, by its tester's DANGEROUS_GOAL, so closing the order, which frees that wait, would let it land untested."""
+    return [
+        key
+        for key, pr in data["prs"].items()
+        if pr["state"] in github.UNLANDED
+        for wait in pr["waits"]
+        if (part := part_wait(data, wait)) and part[0] == order_id and STAGING_PART.fullmatch(part[1])
+        and (tester := part_tester(data, *part)) and data["jobs"][tester]["goal"].startswith(DANGEROUS_GOAL.partition("{changes}")[0].format(key=key))
+    ]
+
+
 def stage_pr(data: dict, key: str, goal: str, session: str | None) -> str | None:
     """Put a Forge-AI/monorepo PR the drive tracks on its staging test, by wait_on_staging, and give the part a tester when no job tests it, by part_tester, a builder building nothing on this Mac in the session given, its goal the one given, as install.add_prover adds a prover; else hold that goal on that tester as a STAGING_CASE, unless it is that job's goal, which the watch's next pass posts to its running agent, by watch.case_lines, or sends a Sprite worker that takes messages, so the tester adds the case to the test it runs, and which else its next worker hears; or, when that job is a tester mark_dangerous gave it that finished before its builder named these cases, give the part a tester of these; the tester added, or None."""
     order_id, part = wait_on_staging(data, key)

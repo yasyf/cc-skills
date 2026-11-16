@@ -12901,3 +12901,18 @@ def test_a_staging_only_release_start_is_refused_while_another_job_holds_that_en
         data["slots"]["plat-usw2-staging"] = {"holder": {"job": "j7394", "until": "2026-11-16T01:00:00-08:00"}, "queue": []}
     assert cli.slot_refusal(demo, start).startswith("j7394 holds the plat-usw2-staging staging slot until 2026-11-16T01:00:00-08:00")
     assert cli.slot_refusal(demo, start.replace("plat-usw2-staging", "core-usw2-prod")) is None
+
+
+def test_dropping_an_order_whose_staging_test_holds_a_dangerous_pr_is_refused_naming_the_pr(
+    run: Run, demo: str, on_github: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dangerous_repo(tmp_path, on_github, ["api/migrations/1700_add_runs.sql"])
+    run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    key = "Forge-AI/monorepo#42"
+    reaching(monkeypatch, key)
+    run("pr", "add", PR, "--job", "j1", *LEAD)
+    assert state.dangerous_staged(state.load("demo"), "o1") == [key]
+    code, out = run("order", "set", "o1", "--state", "dropped", "--note", "backlog cut")
+    assert (code, f"o1: refused, {key} waits on o1's staging test, staged because its head changes a dangerous class of file" in out) == (2, True)
+    assert state.load("demo")["orders"]["o1"]["state"] not in state.CLOSED_ORDER_STATES
