@@ -708,7 +708,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Drop each wait of a job or PR that ended, his card answered, the job finished, a job's wait on another job's change once that job registers a PR, by state.change_pr, its FREE line and its brief's Where: then naming the branch to cut its own from, by state.stacked_on, the release out by the watch's release live read or its PR closed unmerged, a staging:<target>/<env>@<commit> wait of a test whose freeze gave way to a staging release for production, by gave_way, the Buildkite build finished or stopped at an approve step by the watch's Buildkite read, a process on this Mac ended, a teammate's reply come, a job a job waits on returned BUILT, by built_bases, a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, or a once-only pass of state.shaped ended it, each by the reason that pass handed by state.drop_waits, forgotten as this edit saves, and say once, as its last wait ends, that nothing holds it, saying nothing of a job the watch starts itself: one start_jobs starts, and a codex job or a Sprite job no worker took, which the watch launches by drive job launch once busy lets it, or holds waiting its turn on sprite-slot while place.admission refuses it a Sprite lane, so no session is woken to run the launch; holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite, or taking over here from its agent on this Mac, keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it; a job holding texts that carry_held launches, by carrier's drive job launch, names no brief and says the watch launches it and to start no agent for it, so no session starts a second worker beside that launch, while one whose worker carry_held resumes says it carries them. A release wait is a wake the job set, freed by out_because once every cluster of its service, or the one env it names, serves the PR's merge, and never comes back. A job waiting its turn for a Sprite lane on sprite-slot is freed, earliest due first after a priority order's, by place.sprite_turns, one for each lane under this Mac's Sprite cap no drive here runs, its turn stamped so that lane counts as held while its launch starts it."""
     data = state.load(watcher.name)
     out, lines = replies(watcher, data, moment)
-    out |= shipped(watcher, data)
+    out |= freed_waits(watcher, data)
     bases, failed = built_bases(watcher, data, moment)
     lines += failed
     gave, unread = gave_way(watcher, data, moment)
@@ -1941,21 +1941,9 @@ def started(pid: int) -> str | None:
     return procs.lstart(seconds) if (seconds := procs.started(pid)) is not None else None
 
 
-def shipped(watcher: Watcher, data: dict, keys: set[str]) -> dict[str, str]:
-    """Each merged PR among keys production already carries, with how: every target the repository's release reach names for the PR's paths, by cli.release_reach, has a production cluster serving a commit holding its merge in the watch's last release live read; a release or hotfix that only named the PR, as the desktop-only cuts did for #57634, carries nothing."""
-    from drive import cli
-
-    checkout = str(orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"], wait=0))
-    carries = github.carrier(checkout)
-    serving = [row for row in watcher.live or [] if settled.prod(row["env"], checkout)]
-    merged = {key: data["prs"][key]["merged_sha"] for key in keys if key in data["prs"] and data["prs"][key]["merged_sha"]}
-    reach = cli.release_reach(watcher.name, data, list(merged))
-    carried = {}
-    for key, sha in merged.items():
-        held = {target: next((row for row in serving if row["target"] == target and carries(row["commit"], sha, github.split(data["prs"][key]["into"] or key)[2])), None) for target in reach.get(key, {}).get("releases", ())}
-        if held and all(held.values()):
-            carried[key] = "; ".join(f"{target} on {row['env']} serves {row['commit'][:12]}" for target, row in held.items())
-    return carried
+def freed_waits(watcher: Watcher, data: dict) -> dict[str, str]:
+    """Each release wait of a live job or open PR that out_because frees, each staging wait whose env runs its soak commit, each Buildkite build that ended or stopped at an approve step and each PR the drive does not track that merged or closed, with what says so."""
+    return {wait: said for order_id, owner in release_owners(data) if hears(watcher, data, order_id) for wait in owner["waits"] if (said := out_because(watcher, data, wait))}
 
 
 def out_because(watcher: Watcher, data: dict, wait: str) -> str | None:
@@ -5670,16 +5658,9 @@ def shipped_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def shipped(watcher: Watcher, data: dict, keys: set[str]) -> dict[str, str]:
-    """Each merged PR among keys production already carries, with how: a hotfix the drive started naming it whose job ended done, or a production cluster of a target that ships the PR's paths, by cli.release_reach, serving a commit holding its merge in the watch's last release live read."""
+    """Each merged PR among keys production already carries, with how: every target the repository's release reach names for the PR's paths, by cli.release_reach, has a production cluster serving a commit holding its merge in the watch's last release live read; a release or hotfix that only named the PR, as the desktop-only cuts did for #57634, carries nothing."""
     from drive import cli
 
-    hotfixed = {
-        number: job_id
-        for job_id, job in data["jobs"].items()
-        if state.starts_cut(job) and job["state"] == "done"
-        for flags in brief.started(job["brief_flags"]["release"], data)
-        for number in flags.get("hotfix", ())
-    }
     checkout = str(orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"], wait=0))
     carries = github.carrier(checkout)
     serving = [row for row in watcher.live or [] if settled.prod(row["env"], checkout)]
@@ -5687,10 +5668,9 @@ def shipped(watcher: Watcher, data: dict, keys: set[str]) -> dict[str, str]:
     reach = cli.release_reach(watcher.name, data, list(merged))
     carried = {}
     for key, sha in merged.items():
-        if cut := hotfixed.get(key.split("#")[1]):
-            carried[key] = f"hotfix {cut} shipped it"
-        elif rows := [row for row in serving if row["target"] in reach.get(key, {}).get("releases", ()) and carries(row["commit"], sha, github.split(data["prs"][key]["into"] or key)[2])]:
-            carried[key] = f"{rows[0]['target']} on {rows[0]['env']} serves {rows[0]['commit'][:12]}"
+        held = {target: next((row for row in serving if row["target"] == target and carries(row["commit"], sha, github.split(data["prs"][key]["into"] or key)[2])), None) for target in reach.get(key, {}).get("releases", ())}
+        if held and all(held.values()):
+            carried[key] = "; ".join(f"{target} on {row['env']} serves {row['commit'][:12]}" for target, row in held.items())
     return carried
 
 
