@@ -4347,6 +4347,9 @@ def drop_ended_texts(data: dict, ended: dict[str, str]) -> list[str]:
     return dropped
 
 
+MAC_BOX_DOWNS_STOPPED = True
+
+
 def gave_box_back(then: str | None, now: str) -> bool:
     """Whether a job whose state a save moved from then to now gives its Mac box back: it stopped running, returning WAITING or any other line, or it finished, by his Nov 16 words "a waiting job should not hold a box"; it takes a box again when it resumes."""
     return now != then and now != "running" and (then == "running" or now in FINISHED_JOB_STATES and then not in FINISHED_JOB_STATES)
@@ -4354,7 +4357,7 @@ def gave_box_back(then: str | None, now: str) -> bool:
 
 def down_mac_boxes(name: str, data: dict, finished: list[str]) -> None:
     """Take down every Mac box each job a save just moved out of running or finished holds: `drive mac-boxes-down` on those jobs, a process of its own that outlives the save, its output appended to the drive's mac-boxes.log, so a box comes down with the job it is named after while the save neither waits on the drive's checkout nor fails with it, unless box_wanted keeps it for a job still to take its turn there. None for a scratch drive, a proof's or a test's, or a repository whose .claude/long-running.toml names no [mac_box] down command, which holds no Mac box."""
-    if not finished or scratch() or not mac_box_command(data, "down") or not (freed := [job_id for job_id in finished if not box_wanted(data, job_id)]):
+    if MAC_BOX_DOWNS_STOPPED or not finished or scratch() or not mac_box_command(data, "down") or not (freed := [job_id for job_id in finished if not box_wanted(data, job_id)]):
         return
     detach(name, ["mac-boxes-down", *freed], MAC_BOXES_LOG)
 

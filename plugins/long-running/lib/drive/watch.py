@@ -4345,7 +4345,7 @@ def rest_sessions(watcher: Watcher, moment: datetime) -> list[str]:
 def finished_boxes(watcher: Watcher, moment: datetime) -> list[str]:
     """Take down, by `drive mac-boxes-down` in a process of its own, each live Mac box held by a job of this drive the watch hears that is not running, waiting ones included, read as the <drive>/<job> holders the repository's [mac_box] list command prints, once every BOX_SWEEP, so a box whose save never gave it back, or whose down refused, comes down after, except one state.box_wanted keeps; the lines a failed list makes."""
     data = state.load(watcher.name)
-    if watcher.boxes_at is not None and moment - watcher.boxes_at < BOX_SWEEP or not (command := state.mac_box_command(data, "list")):
+    if state.MAC_BOX_DOWNS_STOPPED or watcher.boxes_at is not None and moment - watcher.boxes_at < BOX_SWEEP or not (command := state.mac_box_command(data, "list")):
         return []
     watcher.boxes_at = moment
     try:

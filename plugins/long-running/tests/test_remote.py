@@ -5690,6 +5690,7 @@ def test_the_watch_takes_down_each_live_mac_box_its_jobs_hold_unless_they_run_or
         data["jobs"]["j2"]["state"] = "running"
     started: list[list[str]] = []
     monkeypatch.setattr(state, "detach", lambda name, args, log: started.append(args) or ENDED_READER)
+    monkeypatch.setattr(state, "MAC_BOX_DOWNS_STOPPED", False)
     monkeypatch.setattr(state, "scratch", lambda: False)
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     for at in (T0, T0 + timedelta(minutes=30), T0 + watch.BOX_SWEEP):
