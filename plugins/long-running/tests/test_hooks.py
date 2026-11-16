@@ -1626,7 +1626,7 @@ def test_the_release_gate_reads_a_start_against_the_drive_release_notes_in_its_r
     release_noted.append(SANDSQL_NOTE)
     start, hotfix, fix = (f"tools/ci release {release} --order 5d0c4a1" for release in ("start --targets sandsql", "hotfix 56001", "hotfix 55980"))
     assert brief.release_notes([start, hotfix, fix], data) == []
-    jev.speaks = {"3e6822d": 0.9}
+    jev.speaks = {SANDSQL_NOTE["title"]: 0.9}
     [line] = brief.release_notes([start, hotfix, fix], data)
     assert line.startswith(
         f'Jev reads release note 3e6822d, "{SANDSQL_NOTE["title"]}", as speaking to `{start}` (at main\'s head {head[:12]}: holds #55980 ({merge[:12]}));'
@@ -1656,7 +1656,7 @@ def test_the_release_gate_reads_every_release_note_however_many_one_jev_request_
     ]
     huge = {"id": "9" * 40, "title": "Release-order hazard: the longest note", "body": "Why. " * 2400, "tags": ["drive:demo", "release-order"]}
     release_noted.extend([*newer, huge, SANDSQL_NOTE])
-    jev.speaks = {note["id"][:7]: 0.9 for note in release_noted}
+    jev.speaks = {note["title"]: 0.9 for note in release_noted}
     start = "tools/ci release start --targets sandsql --order 5d0c4a1"
     [unread, *lines] = brief.release_notes([start], data)
     assert unread.startswith(f"the drive's release notes were not read against `{start}` (no room in a Jev request for {huge['id'][:7]})")
@@ -1664,7 +1664,7 @@ def test_the_release_gate_reads_every_release_note_however_many_one_jev_request_
     assert f"(at main's head {head[:12]}: holds #55980 ({merge[:12]}))" in lines[-1]
     assert len(jev.asked) > 1
     assert all(settled.size(asked["state"], asked["questions"]) <= settled.REQUEST_CHARS for asked in jev.asked)
-    assert sorted(note["id"] for asked in jev.asked for note in asked["state"]["notes"].values()) == sorted(note["id"][:7] for note in [*newer, SANDSQL_NOTE])
+    assert sorted(asked["state"]["note"]["title"] for asked in jev.asked) == sorted(note["title"] for note in [*newer, SANDSQL_NOTE])
 
 
 def test_the_release_gate_refuses_a_start_whose_commit_lacks_a_merged_pr_the_card_his_answer_answers_names_and_names_its_merge_to_start_from(

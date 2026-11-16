@@ -4414,7 +4414,7 @@ def test_job_ask_prints_each_release_note_in_its_range_jev_reads_as_speaking_to_
     clone = state.load("demo")["roles"]["coordinator"]["cwd"]
     pr_reads[f"{github.checkout_repo(clone)}#55980"] = {"state": "MERGED", "mergeCommit": merge, "base_pr": None}
     release_noted.extend([SANDSQL_NOTE, SAND_NEXT_NOTE])
-    jev.speaks = {"3e6822d": 0.9}
+    jev.speaks = {SANDSQL_NOTE["title"]: 0.9}
     snapshot = "  When a run finishes, the uploader in `journal/snapshot.go` writes one snapshot.ltx to the team's bucket with its page map at a fixed place, and the run page's reader in `site/journal.js` reads that map, then 2 page ranges; a backfill writes one for each old run."
     beside = "  Each journal upload in `journal/upload.go` also writes a map object beside its file in the team's bucket, and `site/journal.js` reads each map, then its page range; every journal upload pays one more object write."
     block = tmp_path / "ask.md"
@@ -4429,9 +4429,11 @@ def test_job_ask_prints_each_release_note_in_its_range_jev_reads_as_speaking_to_
         f" (at {later}: holds #55980 ({merge[:12]})). Nothing is refused:"
         f" follow its words before you offer or start one, and `ccn note show 3e6822d` prints them whole: {SANDSQL_NOTE['body'].strip()}\n"
     )
-    [asked] = [asked for asked in jev.asked if any(key.startswith("speaks.") for key in asked["questions"])]
-    assert [note["id"] for note in asked["state"]["notes"].values()] == ["3e6822d", "1510272"]
-    assert sorted(asked["questions"]) == ["speaks.n1.s1", "speaks.n2.s1", "speaks.n2.s2"]
+    asked = [asked for asked in jev.asked if any(key.startswith("speaks.") for key in asked["questions"])]
+    assert sorted((request["state"]["note"]["title"], sorted(request["state"]["starts"]), sorted(request["questions"])) for request in asked) == sorted([
+        (SANDSQL_NOTE["title"], ["s1"], ["speaks.n1.s1"]),
+        (SAND_NEXT_NOTE["title"], ["s1", "s2"], ["speaks.n2.s1", "speaks.n2.s2"]),
+    ])
 
 
 def test_job_ask_draws_a_cited_answer_whose_order_the_recommended_option_starts_by_the_release_gates_own_reading_as_his_cards_already_answered_tap_never_asking_him_to_lift_it_or_an_older_answer_it_breaks(
@@ -6566,7 +6568,7 @@ def test_a_builders_done_leaving_a_piece_of_its_design_to_a_follow_up_is_refused
     assert f'j4: refused, nothing kept: a DONE leaves a piece of its plan to a follow-up, as Jev reads "{left}": name each such piece on an UNBUILT: line' in err
     [read] = [asked for asked in jev.asked if "leaves.l1" in asked["questions"]]
     assert (read["state"], list(read["questions"])) == (
-        {"lines": {"l1": left}, "goal": "build j3's change: the moved-table interface", "parts": {"p1": "copy one store", "p2": "the reads through it", "p3": "the writes through it"}},
+        {"line": left, "goal": "build j3's change: the moved-table interface", "parts": {"p1": "copy one store", "p2": "the reads through it", "p3": "the writes through it"}},
         ["leaves.l1", "names.l1.p1", "names.l1.p2", "names.l1.p3"],
     )
     code, err = keep(monkeypatch, capsys, "j4", f'{done}{left}\nUNBUILT: the "moved-table" index\n')
@@ -6707,7 +6709,7 @@ def test_a_builders_own_change_change_lines_and_unbuilt_lines_naming_no_piece_ma
     )
     [held] = [asked for asked in jev.asked if "names.l1.p1" in asked["questions"]]
     assert (held["state"], list(held["questions"])) == (
-        {"lines": {"l1": "UNBUILT: reads go through the moved table"}, "parts": {"p1": "copy one store", "p2": "the reads through it", "p3": "the writes through it"}},
+        {"line": "UNBUILT: reads go through the moved table", "parts": {"p1": "copy one store", "p2": "the reads through it", "p3": "the writes through it"}},
         ["names.l1.p1", "names.l1.p2", "names.l1.p3"],
     )
     jev.named.clear()
@@ -6747,7 +6749,7 @@ def test_an_unbuilt_line_restating_in_new_words_a_piece_the_same_builders_earlie
     assert (restated["state"], list(restated["questions"])) == (
         {
             "lines": {"l1": "UNBUILT: run a stalled copy again until it finishes"},
-            "earlier": {"e1": {"line": "UNBUILT: retry each stalled copy", "builds": {"goals": ["build j2's change: retry each stalled copy"], "prs": ["Fix: a stalled copy retries until it lands"]}}},
+            "earlier": {"line": "UNBUILT: retry each stalled copy", "builds": {"goals": ["build j2's change: retry each stalled copy"], "prs": ["Fix: a stalled copy retries until it lands"]}},
         },
         ["restates.l1.e1"],
     )

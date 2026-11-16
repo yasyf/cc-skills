@@ -1379,7 +1379,7 @@ class Jev:
         if question == "names" and state["parts"][about.partition(".")[2]] in self.named:
             return 0.9
         if question == "speaks":
-            return self.speaks.get(state["notes"][about.partition(".")[0]]["id"], 0.05)
+            return self.speaks.get(state["note"]["title"], 0.05)
         if key == "preference":
             return self.preference
         if question == "same":
