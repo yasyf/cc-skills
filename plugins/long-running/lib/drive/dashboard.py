@@ -27,6 +27,7 @@ from typing import NamedTuple
 from drive import (
     artifacts,
     card,
+    children,
     completion,
     github,
     install,
@@ -755,6 +756,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
 def serve(name: str, port: int, inherited: list[int]) -> None:
     """Serve the dashboard on loopback and this machine's own tailnet addresses, never a wildcard, the tailnet ones over HTTPS when the tailnet issues certificates, on the listening sockets an older install handed over when there are any. Once a newer long-running is installed, its drive takes this process's place on the same sockets, which queue each connection meanwhile, so the port answers throughout, once Board.stop has ended and reaped its record watch and review streams, so none piles up across handovers. Following the drive's files failing ends the server rather than freezing its page."""
     os.environ.update(launchd.session_env())
+    children.reap_inherited()
     net = tailnet()
     board = Board(name, links_of(port, net))
     page = handler(port, net, board)

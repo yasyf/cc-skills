@@ -68,3 +68,15 @@ def test_a_capped_verb_waits_for_its_slot_before_the_cli_reads_anything_and_any_
     with children.held(lambda args: 0):
         held.append(taken(state.root() / "slots") if (state.root() / "slots").exists() else [])
     assert held == [[0], []]
+
+
+def test_a_process_an_exec_replaced_in_place_reaps_each_child_its_earlier_image_started_and_never_one_of_its_own() -> None:
+    later = (
+        f"import os, subprocess, sys, time; sys.path.insert(0, {str(LIB)!r}); from drive import children; children.reap_inherited();"
+        " own = subprocess.Popen(['sleep', '0.2']); time.sleep(3);"
+        " gone = subprocess.run(['ps', '-o', 'stat=', '-p', sys.argv[1]], capture_output=True, text=True).stdout.strip();"
+        " print(repr(gone), own.wait(), flush=True)"
+    )
+    earlier = f"import os, subprocess, sys; child = subprocess.Popen(['true']); os.execv(sys.executable, [sys.executable, '-c', {later!r}, str(child.pid)])"
+    done = subprocess.run([sys.executable, "-c", earlier], capture_output=True, text=True, timeout=30, check=True)
+    assert done.stdout.split() == ["''", "0"]

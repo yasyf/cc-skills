@@ -3,6 +3,7 @@
 import argparse
 import fcntl
 import os
+import subprocess
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -71,3 +72,25 @@ def held(verb: Callable[[argparse.Namespace], int]) -> Iterator[None]:
     die_with_watch()
     with slot():
         yield
+
+
+def reap_inherited() -> None:
+    """Reap, as each exits, every child this process holds at its start, which only an earlier install's image of it, replaced in place by an exec, can have started: no Popen of this image waits on one, so each would stay a zombie under it for good; a child this image starts is its Popen's to wait on, never this thread's."""
+    with subprocess.Popen(["ps", "-A", "-o", "pid=", "-o", "ppid="], stdout=subprocess.PIPE, text=True) as listing:
+        listed = listing.communicate()[0]
+    held = {int(pid) for pid, parent in (line.split() for line in listed.splitlines()) if int(parent) == os.getpid() and int(pid) != listing.pid}
+    if not held:
+        return
+
+    def reap() -> None:
+        while held:
+            for pid in list(held):
+                try:
+                    done, _ = os.waitpid(pid, os.WNOHANG)
+                except ChildProcessError:
+                    done = pid
+                if done:
+                    held.discard(pid)
+            time.sleep(WAIT_SECONDS)
+
+    threading.Thread(target=reap, daemon=True).start()
