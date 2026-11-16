@@ -213,7 +213,7 @@ addEventListener('message', (event) => {
         RAIL | {"key": f"demo-org/{repo}#{n}", "title": f"change {n}", "url": f"https://github.com/demo-org/{repo}/pull/{n}", "head": "abc", "card": None, "feature": "o1", "checks": "pass", "review": "approved", "stage": {"name": "card", "why": ""}}
         for repo, n in (("shop", 20), ("ledger", 41))
     ]
-    questions = [QUESTION | {"answer": f"https://x.slack.com/archives/D1/p179438245385920{n}", "title": f"Question {n}", "tasks": ["o1"]} for n in (1, 2)]
+    questions = [QUESTION | {"answer": f"https://x.slack.com/archives/D1/p179438245385920{n}", "title": f"Question {n}", "told": None, "tasks": ["o1"]} for n in (1, 2)]
     seen = browse(tmp_path, """
 const opened = [];
 window.open = (...args) => { opened.push(args); return null; };

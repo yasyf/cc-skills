@@ -727,7 +727,7 @@ function risks(entry, row, pr, read) {
   const proof = (entry?.staging ?? '').match(/\[proof\]\((https?:[^)\s]+)\)/)?.[1];
   const staged = proof ? `<li class="good"><span class="mark">✓</span><span>${link('Open its staging proof', proof)}</span></li>` : '';
   const said = RISK_FIELDS.filter(([field]) => row[field]).map(([field, label]) => {
-    const text = row[field].replace(/^\s*[-*•]\s*/, '').trim();
+    const text = unjobbed(row[field].replace(/^\s*[-*•]\s*/, '').trim());
     const [lead, rest] = firstSentence(text);
     const body = `<b>${esc(label)}.</b> ${inline(lead, pr)}`;
     return `<li><span class="mark">!</span>${rest ? `<details><summary>${body}</summary><p>${inline(rest, pr)}</p></details>` : `<span>${body}</span>`}</li>`;
@@ -954,6 +954,7 @@ const DONE_STATES = new Set(['merged', 'live']);
 const STAGE_ORDER = [['not started', 'Not started'], ['waiting', 'Waiting'], ['blocked', 'Blocked'], ['running', 'Being built'], ['built', 'Built, waits on you'], ['merged', 'Merged'], ['live', 'Live']];
 const BLOCK_DEFAULTS = { title: '', text: '', tone: 'plain', prs: [], questions: [], orders: [], beats: [], steps: [], options: [], before: '', after: '', diagram: '' };
 const appletPicks = new Map();
+const TOLD_MOMENTS = new Set(['order', 'answer', 'answered', 'tap', 'merged', 'live', 'failed']);
 
 function defaultLayout(page, shown) {
   const waiting = shown.prs.filter((entry) => entry.group === 'you').map((entry) => entry.key);
@@ -1023,7 +1024,8 @@ const APPLET_BLOCKS = {
       const options = item.card.options.map((label, i) => {
         const path = told?.options[i];
         const recommended = label === item.card.recommended;
-        return `<button class="ap-option${recommended ? ' recommended' : ''}" data-card="${esc(item.answer)}" data-label="${esc(label)}"${given && !given.error ? ' disabled' : ''}><strong>${esc(path?.title ?? decisionPlain(optionParts(label)[0]))}${recommended ? '<em>Recommended</em>' : ''}</strong>${path?.consequence ? `<small>${esc(path.consequence)}</small>` : ''}</button>`;
+        const acts = told ? `data-ap-decide="${esc(item.answer)}" data-index="${i}"` : `data-card="${esc(item.answer)}" data-label="${esc(label)}"`;
+        return `<button class="ap-option${recommended ? ' recommended' : ''}" ${acts}${given && !given.error ? ' disabled' : ''}><strong>${esc(path?.title ?? decisionPlain(optionParts(label)[0]))}${recommended ? '<em>Recommended</em>' : ''}</strong>${path?.consequence ? `<small>${esc(path.consequence)}</small>` : ''}</button>`;
       }).join('');
       return `<article class="ap-decision"><h3>${esc(told?.headline ?? item.headline ?? decisionPlain(item.title))}</h3>${told?.beats?.[0] ? `<p>${esc(told.beats[0].text)}</p>` : ''}<div class="ap-options">${options}</div>${given?.done || given?.label ? `<p class="answered">✓ ${esc(given.label)}</p>` : ''}<a class="linkish" href="${esc(item.href)}">Open its full story in the queue ›</a></article>`;
     }).join('')}</div>`);
@@ -1062,7 +1064,7 @@ const APPLET_BLOCKS = {
     }).join('')}</ol>`);
   },
   timeline(page, shown, block) {
-    const moments = shown.story.filter((entry) => entry.kind !== 'heard');
+    const moments = shown.story.filter((entry) => TOLD_MOMENTS.has(entry.kind));
     return moments.length ? blockShell(block, 'timeline', `<ol class="ap-timeline">${moments.slice(0, 12).map((entry) => `<li><time>${clock(entry.at)}</time><p>${momentText(entry)}</p></li>`).join('')}</ol>`, false) : '';
   },
   compare(page, shown, block) {
@@ -2850,6 +2852,11 @@ document.addEventListener('click', (event) => {
   }
   const pr = event.target.closest('button[data-pr]');
   if (pr) return openPR(pr.dataset.pr);
+  const deciding = event.target.closest('button[data-ap-decide]');
+  if (deciding) {
+    decisionStates.set(deciding.dataset.apDecide, { selected: Number(deciding.dataset.index), step: 0, compare: false });
+    return reviewDecision(deciding.dataset.apDecide);
+  }
   const approving = event.target.closest('button[data-ap-approve]');
   if (approving) {
     const page = model.pages.find((each) => approving.dataset.apApprove.startsWith(`${each.slug}:`));

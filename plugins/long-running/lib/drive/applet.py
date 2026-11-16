@@ -17,6 +17,7 @@ SLICE_PRS = 40
 SLICE_QUESTIONS = 20
 SLICE_ORDERS = 80
 SLICE_MOMENTS = 20
+TOLD_MOMENTS = {"order", "answer", "answered", "tap", "merged", "live", "failed"}
 BLOCKS = {
     "story": "beats he reads in order: why this goal exists, where it stands, what is at stake; two to four beats",
     "decide": "the decisions in questions, each drawn live as its own decision applet with its paths and their consequences",
@@ -91,11 +92,12 @@ def make(name: str, slug: str, order_id: str, goal: str, scope: dict | str | Non
 
     folder = pages.pages_dir(name) / slug
     kept = json.loads((folder / "page.json").read_text()) if (folder / "page.json").is_file() else {}
+    orders = list(dict.fromkeys([*kept.get("orders", []), order_id]))
     page = {
         "kind": KIND,
-        "title": view.order_title(drive["orders"][order_id]),
+        "title": view.order_title(drive["orders"][orders[0]]),
         "goal": goal,
-        "orders": list(dict.fromkeys([*kept.get("orders", []), order_id])),
+        "orders": orders,
         "prs": kept.get("prs", []),
         "scope": scope,
         "source": None,
@@ -141,7 +143,7 @@ def fed(page: dict, sliced: dict) -> dict:
             }
             for entry in sliced["questions"][:SLICE_QUESTIONS]
         ],
-        "moments": [{"at": entry["at"], "what": entry["kind"], "text": entry.get("text")} for entry in sliced["story"] if entry["kind"] != "heard"][:SLICE_MOMENTS],
+        "moments": [{"at": entry["at"], "what": entry["kind"], "text": entry.get("text")} for entry in sliced["story"] if entry["kind"] in TOLD_MOMENTS][:SLICE_MOMENTS],
     }
 
 

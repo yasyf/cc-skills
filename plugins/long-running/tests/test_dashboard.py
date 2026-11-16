@@ -1187,7 +1187,7 @@ def test_the_top_strip_shows_on_a_phone(tmp_path: Path) -> None:
     seen = browse(tmp_path, """
 const chips = [...document.querySelectorAll('#alerts > *')].map((chip) => chip.getBoundingClientRect());
 done({ shown: chips.length, inside: chips.every((chip) => chip.width > 0 && chip.left >= 0 && chip.right <= innerWidth) });
-""", board(incidents=incidents, queue=[QUESTION, QUESTION | {"kind": "tap", "answer": "https://x.slack.com/archives/D1/p1794382453859300"}]), size="390,844")
+""", board(incidents=incidents, queue=[QUESTION, QUESTION | {"kind": "tap", "prs": [], "answer": "https://x.slack.com/archives/D1/p1794382453859300"}]), size="390,844")
     assert seen == {"shown": 3, "inside": True}
 
 
@@ -1373,7 +1373,7 @@ done({ walked, clicked: location.hash, trails: document.querySelectorAll('.crumb
 def test_now_draws_waiting_and_movement_as_labeled_metrics_and_lists_global_priority(tmp_path: Path) -> None:
     newer = QUESTION | {"since": "2026-11-10T23:00:00-08:00"}
     older = QUESTION | {"answer": "https://x.slack.com/archives/D1/p1794382400000000", "title": "Shard it?", "since": "2026-11-10T21:30:00-08:00"}
-    tap = QUESTION | {"kind": "tap", "answer": "https://x.slack.com/archives/D1/p1794382453859300", "since": "2026-11-10T22:15:00-08:00"}
+    tap = QUESTION | {"kind": "tap", "prs": [], "answer": "https://x.slack.com/archives/D1/p1794382453859300", "since": "2026-11-10T22:15:00-08:00"}
     owned = FEATURE | {"cards": [{"title": newer["title"], "url": newer["answer"], "asked": newer["since"]}]}
     seen = browse(tmp_path, """
 location.hash = '#/now';
@@ -1539,7 +1539,7 @@ document.querySelector('[data-story-priority="1"]').click();
 await wait(50);
 done({ ...asked, outcome: document.querySelector('.story-outcome h3').textContent, beats: [...document.querySelectorAll('.story-beats p')].map((beat) => beat.textContent) });
 """, board(queue=[QUESTION | {"told": {"story": told}}]))
-    assert seen == {"label": "Decision interview", "ask": "What matters more this week?", "priorities": ["No new code", "Room to grow"], "outcome": "Shard it", "beats": ["What happened Writes hit the bucket's cap."]}
+    assert seen == {"label": "Decision: what matters most", "ask": "What matters more this week?", "priorities": ["No new code", "Room to grow"], "outcome": "Shard it", "beats": ["What happened Writes hit the bucket's cap."]}
 
 
 def test_a_question_whose_story_is_still_being_written_says_so_and_still_takes_his_answer(tmp_path: Path) -> None:
@@ -1642,7 +1642,7 @@ done({ first, hovered, left, focused, blurred, keyed: outcome() });
 
 
 def test_arrow_keys_on_a_pr_cards_tabs_switch_tabs_and_leave_the_queue_where_it_is(tmp_path: Path) -> None:
-    tap = {"kind": "tap", "tasks": [], "url": "https://github.com/a/b/pull/7", "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": None, "holds": 0, "blocks": []}
+    tap = {"kind": "tap", "tasks": [], "url": "https://github.com/a/b/pull/7", "pr": "https://github.com/a/b/pull/7", "prs": [{"url": "https://github.com/a/b/pull/7", "title": "fix the lock", "state": "open", "checks": "pass", "review": "none", "tap": None}], "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": None, "holds": 0, "blocks": []}
     seen = browse(tmp_path, """
 location.hash = '#/queue/all';
 await wait(100);
@@ -1717,7 +1717,7 @@ def test_a_stack_card_opens_on_its_first_pr_still_waiting_with_landed_prs_collap
     seen = browse(tmp_path, """
 location.hash = '#/queue/all';
 await wait(300);
-const rows = () => [...document.querySelectorAll('#main ol.stack > li')].map((li) => [li.className, ...[...li.querySelectorAll('.name, .fact')].map((part) => part.textContent)]);
+const rows = () => [...document.querySelectorAll('#main ol.stack > li')].map((li) => [li.className, ...[...li.querySelectorAll('.name, .row-word')].map((part) => part.textContent)]);
 const chosen = () => ({ hash: location.hash, row: document.querySelector('#main .stack [aria-current="true"]').dataset.row, link: document.querySelector('#main .type-label a').textContent });
 const opened = { rows: rows(), ...chosen() };
 document.querySelector('#main .stack [data-row="2"]').click();
@@ -1734,9 +1734,9 @@ done({ opened, picked, linked, merged: { kinds: rows().map(([kind]) => kind), ..
     assert seen == {
         "opened": {
             "rows": [
-                ["gone", "demo-org/demo-app#40 · move the lock", "Landed"],
-                ["", "demo-org/demo-app#41 · time out the lock", "Tests pass", "Review approved", "Approve lands it"],
-                ["", "demo-org/demo-app#42 · drop the old queue", "Tests fail", "No review yet", "CI failed; the agent is fixing it"],
+                ["gone", "move the lock", "Landed"],
+                ["", "time out the lock", "No staging test"],
+                ["", "drop the old queue", "No staging test"],
             ],
             "hash": f"{address}/41", "row": "1", "link": "demo-org/demo-app#41",
         },
@@ -1766,7 +1766,6 @@ for (const tab of ['show', 'change', 'context']) {
 done(measured);
 """, board(queue=[STACK], review=OPEN), size, before=STAND_IN)
     assert len({each["card"] for each in seen}) == 1
-    assert len({each["bar"] for each in seen}) == 1
     assert [(each["tab"], each["shown"], each["frame"]) for each in seen] == [("show", True, False), ("change", True, True), ("context", True, False)]
 
 
@@ -1964,7 +1963,7 @@ done({ opened, changed, closed: !drawer.open, back: document.activeElement === o
 
 
 def test_a_decision_shows_its_ask_box_beside_the_card_without_a_click_as_a_pr_card_does(tmp_path: Path) -> None:
-    tap = {"kind": "tap", "tasks": [], "url": "https://github.com/a/b/pull/7", "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": None, "holds": 0, "blocks": []}
+    tap = {"kind": "tap", "tasks": [], "url": "https://github.com/a/b/pull/7", "pr": "https://github.com/a/b/pull/7", "prs": [{"url": "https://github.com/a/b/pull/7", "title": "fix the lock", "state": "open", "checks": "pass", "review": "none", "tap": None}], "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": None, "holds": 0, "blocks": []}
     seen = browse(tmp_path, """
 location.hash = '#/queue/all';
 await wait(100);
@@ -2193,6 +2192,7 @@ def test_jump_lists_each_pr_once_finds_it_by_number_or_repo_marks_what_matched_a
     tap = {
         "kind": "tap", "tasks": [], "answer": "https://x.slack.com/archives/D1/p1794382453859300", "url": "https://x.slack.com/archives/D1/p1794382453859300", "title": "Fix: the lock", "since": None,
         "links": [], "thread": None, "holds": 0, "blocks": [], "card": {"title": "Approve the lock?", "options": ["Approve", "Hold"], "recommended": "Approve", "prs": stack},
+        "pr": stack[0]["url"], "prs": [{"url": row["url"], "title": row["title"], "state": "open", "checks": "pass", "review": "approved", "tap": None} for row in stack],
     }
     review = [
         RAIL | {"key": f"a/b#{n}", "title": title, "url": f"https://github.com/a/b/pull/{n}", "head": "abc", "group": "you", "feature": "o1", "feature_title": "ship the fix", "detail": "",
@@ -2918,12 +2918,12 @@ fact().dispatchEvent(new PointerEvent('pointerover', { pointerType: 'mouse', bub
 fact().dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
 await wait(50);
 done({ opened, again, elsewhere, scrolled, hovered: open() });
-""", board(queue=[{"kind": "tap", "tasks": [], "url": "https://github.com/a/b/pull/7", "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": "2026-11-10T23:00:00-08:00", "holds": 0, "blocks": []}]), "390,844")
+""", board(queue=[{"kind": "tap", "tasks": [], "url": "https://github.com/a/b/pull/7", "pr": "https://github.com/a/b/pull/7", "prs": [{"url": "https://github.com/a/b/pull/7", "title": "fix the lock", "state": "open", "checks": "pass", "review": "none", "tap": None}], "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": "2026-11-10T23:00:00-08:00", "holds": 0, "blocks": []}]), "390,844")
     assert seen == {"opened": {"open": True, "says": True}, "again": False, "elsewhere": False, "scrolled": False, "hovered": True}
 
 
 def test_on_a_phone_the_screens_sit_in_a_bottom_bar_every_target_is_a_thumb_wide_and_nothing_hides_under_the_bar(tmp_path: Path) -> None:
-    tap = {"kind": "tap", "tasks": [], "url": "https://github.com/a/b/pull/7", "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": None, "holds": 0, "blocks": []}
+    tap = {"kind": "tap", "tasks": [], "url": "https://github.com/a/b/pull/7", "pr": "https://github.com/a/b/pull/7", "prs": [{"url": "https://github.com/a/b/pull/7", "title": "fix the lock", "state": "open", "checks": "pass", "review": "none", "tap": None}], "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": None, "holds": 0, "blocks": []}
     incidents = [{"id": "o1", "title": "ship the fix", "created": "2026-11-10T20:00:00-08:00"}]
     looked = """
 location.hash = '#/queue/all';
@@ -3046,7 +3046,7 @@ def test_each_screen_reads_the_same_requests_of_the_same_size_however_old_the_dr
 def test_filtering_keeps_global_ranks_and_visible_reasons_without_shortening_the_question(tmp_path: Path, size: str) -> None:
     title = "Should we reserve capacity for writes so one team's reads cannot stop everyone else?"
     items = [
-        QUESTION | {"answer": f"https://x.slack.com/archives/D1/p1794382453859{n:03}", "project": project, "workstream": "Reads", "title": title, "priority": {"incident": n == 1, "weight": n}}
+        QUESTION | {"answer": f"https://x.slack.com/archives/D1/p1794382453859{n:03}", "project": project, "workstream": "Reads", "title": title, "told": None, "priority": {"incident": n == 1, "weight": n}}
         for n, project in enumerate(["Iris", "Platform", "Iris", "Platform"])
     ]
     seen = browse(tmp_path, """
