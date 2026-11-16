@@ -625,7 +625,20 @@ def test_merge_is_reported_and_the_pr_leaves_the_read_set(demo: str, monkeypatch
     assert calls == [[KEY]]
 
 
-def test_github_is_read_for_every_pr_at_a_watchs_start_no_watch_handed_its_owed_reads_to_and_otherwise_only_for_the_prs_those_reads_and_the_deliveries_since_name(
+def run_landing_loop(name: str, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, str]]:
+    def stop(seconds: float) -> None:
+        raise KeyboardInterrupt
+
+    lines, given = os.pipe()
+    monkeypatch.setattr(watch, "time", SimpleNamespace(sleep=stop))
+    monkeypatch.setattr(watch, "signal", SimpleNamespace(signal=lambda signum, handler: None, SIGTERM=signal.SIGTERM))
+    with pytest.raises(KeyboardInterrupt):
+        watch.landing_loop(name, None, given)
+    with os.fdopen(lines) as written:
+        return [json.loads(line) for line in written]
+
+
+def test_github_is_read_for_every_pr_at_a_landing_loops_start_none_before_it_handed_its_owed_reads_to_and_otherwise_only_for_the_prs_those_reads_and_the_deliveries_since_name(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
@@ -639,12 +652,14 @@ def test_github_is_read_for_every_pr_at_a_watchs_start_no_watch_handed_its_owed_
     assert watch.run_pass(watching, T0 + timedelta(seconds=65)) == []
     watch.keep_unposted(watching)
     state.append_event(demo, receiver.DELIVERY, repo="Forge-AI/monorepo", numbers=[42], event="pull_request", guid="g2")
-    run_watch(demo, monkeypatch)
-    run_watch(demo, monkeypatch)
+    run_landing_loop(demo, monkeypatch)
+    run_landing_loop(demo, monkeypatch)
+    state.take_held_reads(demo)
+    run_landing_loop(demo, monkeypatch)
     assert calls == [[KEY, OTHER], [OTHER], [KEY], [KEY, OTHER]]
 
 
-def test_a_watch_reading_github_by_another_query_than_the_watch_that_handed_it_its_reads_reads_every_pr_whole(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_landing_loop_reading_github_by_another_query_than_the_one_that_handed_it_its_reads_reads_every_pr_whole(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
     with state.edit(demo) as data:
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False}
@@ -653,7 +668,7 @@ def test_a_watch_reading_github_by_another_query_than_the_watch_that_handed_it_i
     watch.run_pass(watching, T0)
     watch.keep_unposted(watching)
     monkeypatch.setattr(state, "READ_MARK", "the query of a newer install")
-    run_watch(demo, monkeypatch)
+    run_landing_loop(demo, monkeypatch)
     assert calls == [[KEY, OTHER], [KEY, OTHER]]
 
 
@@ -902,24 +917,30 @@ def test_a_watch_that_stops_ends_its_relay_process_before_it_returns(demo: str, 
     serve(monkeypatch, {})
     posts(monkeypatch)
     run_watch(demo, monkeypatch)
-    assert [relayer.returncode for relayer in watch_process.relays] == [-signal.SIGTERM]
+    assert [child.returncode for child in watch_process.relays] == [-signal.SIGTERM, -signal.SIGTERM]
     assert [thread.name for thread in threading.enumerate() if thread.name.endswith("(relayed_lines)")] == []
 
 
-def test_the_watch_hands_on_each_line_its_relay_process_writes_and_stops_on_a_relay_that_ended_unasked(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    started: list[subprocess.Popen] = []
+def test_the_watch_hands_on_each_line_its_relay_process_writes_keeps_the_untracked_prs_its_landing_loop_writes_and_stops_on_the_first_that_ended_unasked(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    started: dict[str, subprocess.Popen] = {}
+    written = {"--relay": "os.write({lines}, b'DUE o1 was due\\nDUE o2 was due\\n'); raise SystemExit(1)", "--land": 'os.write({lines}, b\'{{"yasyf/cc-skills#9": "MERGED"}}\\n\'); time.sleep(3600)'}
 
-    def spawn_relay(watcher: watch.Watcher, lines: int) -> subprocess.Popen:
-        started.append(subprocess.Popen([sys.executable, "-c", f"import os; os.write({lines}, b'DUE o1 was due\\nDUE o2 was due\\n'); raise SystemExit(1)"], pass_fds=(lines,)))
-        return started[0]
+    def spawn(watcher: watch.Watcher, flag: str, lines: int) -> subprocess.Popen:
+        started[flag] = subprocess.Popen([sys.executable, "-c", "import os, time; " + written[flag].format(lines=lines)], pass_fds=(lines,))
+        return started[flag]
 
-    monkeypatch.setattr(watch, "spawn_relay", spawn_relay)
+    took = threading.Event()
+    real_took = watch.took_untracked
+    monkeypatch.setattr(watch, "spawn", spawn)
+    monkeypatch.setattr(watch, "took_untracked", lambda watching, line: real_took(watching, line) or took.set())
     watching = watcher(demo)
     with watch.relaying(watching):
-        started[0].wait()
-    assert (list(watching.relayed), str(watching.relay_error)) == (
+        assert took.wait(30)
+        started["--relay"].wait()
+    assert (list(watching.relayed), watching.untracked, str(watching.relay_error)) == (
         ["DUE o1 was due", "DUE o2 was due"],
-        f"the relay, process {started[0].pid}, exited 1; its output is in {state.watch_log_path(demo)}",
+        {"yasyf/cc-skills#9": "MERGED"},
+        f"the relay, process {started['--relay'].pid}, exited 1; its output is in {state.watch_log_path(demo)}",
     )
 
 
@@ -967,6 +988,41 @@ def test_the_relay_process_runs_its_next_pass_on_a_newer_install_in_its_place_ke
         watch.relay(demo, None, given)
     assert exec_ran.value.code == (newer, [str(newer), "watch", "--relay", str(given), "--drive", demo])
     os.close(lines)
+
+
+def test_the_watchs_own_pass_reads_no_github_and_lands_nothing_leaving_both_to_its_landing_loop_whatever_the_pass_holds(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = serve(monkeypatch, {KEY: read(state="MERGED", mergeCommit="ccc333")})
+    assert ([line for lines in watch.passed(watcher(demo), T0) for line in lines], calls) == ([], [])
+    landing = watcher(demo)
+    assert [line for lines in watch.passed(landing, T0, staged=watch.landing_pass) for line in lines] == [f"PR {KEY}: merged [o1 j1]"]
+    assert (calls, state.load(demo)["prs"][KEY]["merged_sha"]) == ([[KEY]], "ccc333")
+
+
+def test_the_landing_loop_holds_the_reads_it_owes_before_it_runs_on_a_newer_install_in_its_place_so_the_one_there_reads_each_delivery_since(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = serve(monkeypatch, {KEY: read()})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    watch.keep_unposted(watching)
+    state.append_event(demo, receiver.DELIVERY, repo="Forge-AI/monorepo", numbers=[42], event="check_run", guid="g1")
+    lines, given = os.pipe()
+    newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
+    monkeypatch.setattr(watch, "upgraded", lambda: newer)
+    monkeypatch.setattr(install, "upgraded", lambda: newer)
+    monkeypatch.setattr(watch, "signal", SimpleNamespace(signal=lambda signum, handler: None, SIGTERM=signal.SIGTERM))
+
+    def execv(path: Path, argv: list[str]) -> None:
+        raise SystemExit((path, argv))
+
+    monkeypatch.setattr(os, "execv", execv)
+    with pytest.raises(SystemExit) as exec_ran:
+        watch.landing_loop(demo, None, given)
+    os.close(lines)
+    assert exec_ran.value.code == (newer, [str(newer), "watch", "--land", str(given), "--drive", demo])
+    monkeypatch.setattr(watch, "upgraded", lambda: None)
+    assert run_landing_loop(demo, monkeypatch) == [{}]
+    assert calls == [[KEY], [KEY]]
 
 
 def test_a_restarted_watch_replays_events_written_while_none_ran(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2895,26 +2951,26 @@ def test_a_watch_that_finds_a_newer_install_between_two_stages_ends_before_the_n
     install = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
     newer: list[Path] = []
     monkeypatch.setattr(watch, "upgraded", lambda: newer[-1] if newer else None)
-    ran = spied(monkeypatch, ("main_lines", "release_lanes", "standing_lines"))
+    ran = spied(monkeypatch, ("settle_lines", "release_lanes", "standing_lines"))
     mid_pass(monkeypatch, lambda: newer.append(install))
     monkeypatch.setattr(watch.time, "sleep", lambda seconds: None)
     launched(monkeypatch, demo)
     assert watch.main(demo) == 0
-    assert (ran, json.loads(state.reads_path(demo).read_text())["resume"]) == (["main_lines"], "release_lanes")
+    assert (ran, state.resume_path(demo).read_text()) == (["settle_lines"], "release_lanes")
     assert f"ended on long-running {state.VERSION} for {install}, before release_lanes" in capsys.readouterr().out.splitlines()
     ran.clear()
     newer.clear()
     run_watch(demo, monkeypatch)
-    assert (ran, state.reads_path(demo).exists()) == (["release_lanes", "standing_lines"], False)
+    assert (ran, state.resume_path(demo).exists()) == (["release_lanes", "standing_lines"], False)
 
 
 def test_a_held_resume_naming_no_stage_of_this_install_runs_the_whole_pass(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     posts(monkeypatch)
-    state.hold_reads(demo, None, {"owed": [], "merging": [], "stale": [], "untracked": {}, "resume": "renamed_lines"})
-    ran = spied(monkeypatch, ("main_lines", "release_lanes", "standing_lines"))
+    state.hold_resume(demo, None, "renamed_lines")
+    ran = spied(monkeypatch, ("settle_lines", "release_lanes", "standing_lines"))
     run_watch(demo, monkeypatch)
-    assert ran == ["main_lines", "release_lanes", "standing_lines"]
+    assert ran == ["settle_lines", "release_lanes", "standing_lines"]
 
 
 def test_a_watch_that_crashes_mid_pass_has_posted_the_lines_its_earlier_stages_made_so_the_watch_its_launch_agent_starts_again_says_none_again(
@@ -2926,6 +2982,7 @@ def test_a_watch_that_crashes_mid_pass_has_posted_the_lines_its_earlier_stages_m
     serve(monkeypatch, {KEY: read(state="MERGED", mergeCommit="ccc333")})
     mid_pass(monkeypatch, lambda: state.load("gone"))
     sent = posts(monkeypatch)
+    run_landing_loop(demo, monkeypatch)
     launched(monkeypatch, demo)
     with pytest.raises(state.DriveError):
         watch.main(demo)

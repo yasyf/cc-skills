@@ -1047,13 +1047,13 @@ def watch_process(monkeypatch: pytest.MonkeyPatch) -> WatchProcess:
         process.ensured.append(f"{name} --project {project}" if project else name)
         return f"the watch runs for {name}"
 
-    def spawn_relay(watcher: watch.Watcher, lines: int) -> subprocess.Popen:
-        relayer = subprocess.Popen(["sleep", "3600"], pass_fds=(lines,))
-        process.relays.append(relayer)
-        return relayer
+    def spawn(watcher: watch.Watcher, flag: str, lines: int) -> subprocess.Popen:
+        child = subprocess.Popen(["sleep", "3600"], pass_fds=(lines,))
+        process.relays.append(child)
+        return child
 
     monkeypatch.setattr(watch, "ensure", ensure)
-    monkeypatch.setattr(watch, "spawn_relay", spawn_relay)
+    monkeypatch.setattr(watch, "spawn", spawn)
     monkeypatch.setattr(launchd, "session_env", dict)
     return process
 
