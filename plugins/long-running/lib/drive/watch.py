@@ -382,7 +382,7 @@ def reach_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def main_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Keep the tests each yasyf/* repository's main fails since a drive PR merged over a check main failed too, which the lander reads per check, never per test, each owned by the merge that broke it: once a heard merged PR's own run failed, each test its log names that main's last finished run before the merge passed, and no finished main run since has passed, is that PR's. Wake its builder to fix them forward, at once and again every 30 minutes while main fails one. A test clears once the newest finished main run created since its merge passes it, read again each time the receiver hears a run complete on main."""
+    """Keep the tests each yasyf/* repository's main fails since a drive PR merged over a check main failed too, which the lander reads per check, never per test, each owned by the merge that broke it: once a heard merged PR's own run failed, each test its log names that main's last finished run before the merge passed, and no finished main run since has passed, is that PR's. A test another job already holds, by state.main_holder, as the first main fix claiming it or an earlier merge owns it, stays that job's, so no second builder is woken on it. Wake its builder to fix them forward, at once and again every 30 minutes while main fails one, and a main fix's builder only once its fix merged, 30 minutes after that merge, while main still fails the test. A test clears once the newest finished main run created since its merge passes it, read again each time the receiver hears a run complete on main."""
     data = state.load(watcher.name)
     grades = [key for key, pr in data["prs"].items() if state.grading(key, pr) and hears(watcher, data, pr["order"])]
     marks = {repo: mark for repo, owned in data["mains"].items() if owned and (mark := receiver.heard(repo, "ci")) != watcher.ci_marks.get(repo)}
@@ -401,12 +401,16 @@ def main_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 data["mains"][repo].pop(test, None)
         for key, found in broke.items():
             data["prs"][key]["graded"] = True
-            data["mains"].setdefault(github.repo_of(key), {}).update({test: failure | {"owner": key, "woke": None, "waking": None} for test, failure in found.items()})
+            owned = data["mains"].setdefault(github.repo_of(key), {})
+            for kept in owned.values():
+                if kept["owner"] == key:
+                    kept["woke"] = state.stamp(moment)
+            owned |= {test: failure | {"owner": key, "job": data["prs"][key]["job"], "woke": None, "waking": None} for test, failure in found.items() if state.main_holder(data, owned.get(test)) is None}
         wakes = main_wakes(watcher, data, moment)
         for repo, owner, tests in wakes:
             for test in tests:
                 data["mains"][repo][test]["waking"] = state.stamp(moment)
-        texts = [(owner, main_fix(repo, owner, data["mains"][repo], tests), [f"main:{repo}@{test}" for test in tests]) for repo, owner, tests in wakes]
+        texts = [(owner, main_fix(repo, owner, data["prs"][owner], data["mains"][repo], tests), [f"main:{repo}@{test}" for test in tests]) for repo, owner, tests in wakes]
     for owner, text, marks in texts:
         stage.wake(watcher.name, owner, text, marks=marks, at=state.stamp(moment))
     return []
@@ -435,11 +439,12 @@ def passing(repo: str, owned: dict[str, dict]) -> set[str]:
 
 
 def main_wakes(watcher: Watcher, data: dict, moment: datetime) -> list[tuple[str, str, list[str]]]:
-    """Each heard merged PR owing a wake for the tests it broke on its repository's main, with those tests: one owning a test whose builder was never woken for it, or last woken 30 minutes ago."""
+    """Each heard merged PR owing a wake for the tests it owns on its repository's main, with those tests: one owning a test whose builder was never woken for it, or last woken 30 minutes ago; a main fix still open, or a claim whose fix is not up yet, wakes nobody, since its own stage wakes its builder."""
     owners: dict[tuple[str, str], list[str]] = {}
     for repo, owned in data["mains"].items():
         for test, kept in owned.items():
-            owners.setdefault((repo, kept["owner"]), []).append(test)
+            if kept["owner"] and data["prs"][kept["owner"]]["state"] == "merged":
+                owners.setdefault((repo, kept["owner"]), []).append(test)
     return [
         (repo, owner, sorted(tests))
         for (repo, owner), tests in owners.items()
@@ -448,8 +453,11 @@ def main_wakes(watcher: Watcher, data: dict, moment: datetime) -> list[tuple[str
     ]
 
 
-def main_fix(repo: str, owner: str, owned: dict[str, dict], tests: list[str]) -> str:
+def main_fix(repo: str, owner: str, pr: dict, owned: dict[str, dict], tests: list[str]) -> str:
+    """The wake to the builder owning tests its repository's main fails: the merge that broke them, from its own run, or a main fix that merged with main still failing them."""
     runs = ", ".join(sorted({owned[test]["run"] for test in tests}))
+    if pr["exempt"] == state.MAIN_FIX:
+        return f"{owner}: {repo}'s main still fails {', '.join(tests)} though it merged to fix them, as {runs} failed them; fix them forward in a PR of your own from a fresh main, since no other builder is asked to"
     return f"{owner}: {repo}'s main fails {', '.join(tests)} since it merged, as its own run {runs} failed them; fix them forward in a PR of your own from a fresh main, since no other builder is asked to"
 
 

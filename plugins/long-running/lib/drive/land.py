@@ -96,6 +96,15 @@ def staged(data: dict, pr: dict) -> list[str]:
     return view.holding(data, state.staging_runs(data, pr), None)
 
 
+def claim_main(name: str, job_id: str) -> str:
+    """Claim for a job about to open a main fix, under the drive's lock, each test its repository's main fails now that no other job holds, by state.claim_mains, before its PR goes up, so of two builders shipping a fix of one test seconds apart the second is refused naming the first: the `bash_guard` hook asks it of every `ccx vcs ship` registering its PR as a main fix in the same call, on this Mac and through `drive job held` on a Sprite; the refusal, else ""."""
+    if not (repo := state.load(name)["jobs"][job_id]["repo"]):
+        return ""
+    failing = install.default_failures(repo)
+    with state.edit(name) as data:
+        return state.claim_mains(data, repo, job_id, failing, None, state.stamp(state.now()))
+
+
 def lane_held(*flags: str) -> dict:
     """What `drive job held --json` answers a Sprite lane, which holds no drive: the lane's `drive` asks it of the coordinator's Mac, where the drive's records live, waiting up to LANE_HELD_SECONDS; DriveError when it could not say."""
     try:

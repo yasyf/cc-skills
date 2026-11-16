@@ -553,7 +553,9 @@ and reads the PR grading meanwhile, and a checkout failing again on the rerun re
 First read the same check on `dev`'s newest run: a red `dev` shows too is inherited, and `dev`'s
 own gate is a gate of the drive's, so the first job to meet an inherited red names the merge on `dev`
 whose run first failed it, then finds the PR fixing it (`drive status`, `cci who --pr`) or opens that
-fix itself, one owner for every PR it blocks. Fix your own; for an
+fix itself, one owner for every PR it blocks. On a `yasyf/*` main the drive keeps that owner by each
+test's name: the first job to claim a failing test owns it until main passes it, and `drive job held
+--exempt "main fix"`, a main fix's ship and its `drive pr add` each refuse a second job, naming the owner. Fix your own; for an
 inherited one, restack onto a `dev` that has the fix, or fix it forward in its own PR, a `flake fix` when
 a test flaked, whose cause may be in product code. The one exception is a `yasyf/*` test that main fails
 since a drive PR merged whose own run failed it: that merge's builder owns it, and the watch wakes it to

@@ -235,25 +235,31 @@ def held(job_id: str, cards: list[str]) -> str:
 
 
 def held_pr(found: list[list[str]], agent: str, drives: list[str]) -> str | None:
-    """Why a builder's `ccx vcs ship` on this Mac may not open its PR: his open cards hold its job."""
+    """Why a builder's `ccx vcs ship` on this Mac may not open its PR: his open cards hold its job, or, for a main fix, another job already owns every test main fails, by land.claim_main, which claims the rest for this job."""
     if not opens_pr(found):
         return None
     for name in drives:
         data = state.load(name)
-        if (job_id := state.agent_job(data, agent)) and (cards := land.ship_held(data, job_id, exempted(found))):
+        if not (job_id := state.agent_job(data, agent)):
+            continue
+        if cards := land.ship_held(data, job_id, exempted(found)):
             return held(job_id, cards)
+        if exempted(found) == state.MAIN_FIX and (owned := land.claim_main(name, job_id)):
+            return f"refused: {owned}"
     return None
 
 
 def lane_held(found: list[list[str]]) -> str | None:
-    """Why a Sprite lane's `ccx vcs ship` may not open its PR: `drive job held`, which the Sprite's `drive` asks of the coordinator's Mac, names his open cards holding the lane's job."""
+    """Why a Sprite lane's `ccx vcs ship` may not open its PR: `drive job held`, which the Sprite's `drive` asks of the coordinator's Mac, names his open cards holding the lane's job, or, for a main fix, the job already owning every test main fails; a Mac whose drive predates that claim answers no `main`."""
     if not opens_pr(found):
         return None
     try:
         answer = land.lane_held(*(f"--exempt={exempt}" for exempt in [exempted(found)] if exempt))
     except state.DriveError as error:
         return f"refused: `drive job held` could not say whether his open cards hold this lane's PR: {error}; ship again once it answers"
-    return held(answer["id"], answer["cards"]) if answer["cards"] else None
+    if answer["cards"]:
+        return held(answer["id"], answer["cards"])
+    return f"refused: {owned}" if (owned := answer.get("main")) else None
 
 
 def cached_page(text: str) -> str | None:
