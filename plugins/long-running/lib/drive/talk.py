@@ -136,7 +136,6 @@ def hook_refusal(name: str, data: dict, post: dict) -> str | None:
 
 def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> str:
     """Post one message as say does, once its caller may: known is the drive as say's caller read it; recorded_first waits for the post's record on its order, as a close does, for a caller that closes the order next."""
-    post = rooted(known, post)
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
     order = cli.post_order(known, post, report)
     if close := bool(order and cli.answers_order(known, order, post)):
@@ -704,15 +703,6 @@ def places(data: dict, post: dict, stack: list[str]) -> list[tuple[str, str | No
     linked = [where for where in state.pr_threads(data, stack) if where[0] in operators or where == named]
     spots = list(dict.fromkeys([named, *linked] if named != (dm, None) else linked))
     return [*([where for where in spots if where[0] in operators] or [(dm, None)]), *(where for where in spots if where[0] not in operators)]
-
-
-def rooted(known: dict, post: dict) -> dict:
-    """The post at the root of a drive channel, a project's or a priority seat's, when it names a thread there but answers no message of his, carries no card and asks no in_thread follow-up, by his words "most of the messages in this thread should be channel messages; for prio lanes most things that aren't immediate replies to the thread or directly relevant should be channel messages"."""
-    if not post.get("thread_ts") or any(post.get(key) for key in ("edit", "card", "tap_prs", "about", "asked", "in_thread")):
-        return post
-    if post.get("channel_id") not in {made["id"] for made in known["slack"]["channels"].values()}:
-        return post
-    return {key: value for key, value in post.items() if key != "thread_ts"}
 
 
 def place(post: dict) -> tuple[str, str | None]:

@@ -1621,16 +1621,6 @@ def test_a_line_asking_his_tap_on_a_carded_pr_links_its_card_and_a_line_only_nam
     assert refs.pr(prs, "7", "", [card | {"card": {"prs": [{"url": pr["url"], "head": "old0000"}]}}])["card"] is None
 
 
-def test_a_post_in_a_drive_channels_thread_goes_at_its_root_unless_it_answers_him_carries_a_card_or_asks_in_thread() -> None:
-    known = {"slack": {"channels": {"": {"id": "C0DRIVE", "name": "drive"}, "Priority": {"id": "C0PRIO", "name": "prio"}}}}
-    update = {"channel_id": "C0PRIO", "thread_ts": "1.2", "text": "Release 3 is on sandbox."}
-    assert talk.rooted(known, update) == {"channel_id": "C0PRIO", "text": "Release 3 is on sandbox."}
-    for kept in ({"asked": "how is release 3?"}, {"in_thread": True}, {"card": {"waits": "demo:j1-1"}}, {"tap_prs": ["acme/app#1"]}, {"about": "demo:j1-1"}, {"edit": "https://x"}):
-        assert talk.rooted(known, update | kept) == update | kept
-    assert talk.rooted(known, update | {"channel_id": "C0ALERTS"}) == update | {"channel_id": "C0ALERTS"}
-    assert talk.rooted(known, {"text": "In his DM.", "thread_ts": "1.2"}) == {"text": "In his DM.", "thread_ts": "1.2"}
-
-
 def test_while_the_drive_keeps_channels_an_orders_line_bound_for_its_dm_thread_starts_its_thread_at_its_seats_channel_root_and_a_follow_up_replies_there(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
