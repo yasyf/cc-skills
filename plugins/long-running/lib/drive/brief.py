@@ -173,6 +173,7 @@ CLAIMED_JOB = (
     " the drive holds behind that claim until it ends, then post your own claim as that rule says and start the Job once its thread"
     " stood 5 minutes with no objection"
 )
+PIECES_ASKED = 15
 RELEASE_NOTE_LABELS = ("release-order", "release")
 NOTE_REFS = re.compile(r"#(\d+)\b|\b((?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,40})\b")
 NOTED = (
@@ -1372,17 +1373,15 @@ def restated_piece(name: str, data: dict, job_id: str, listed: list[re.Match]) -
 
 
 def pieces(lines: list[str], parts: list[str], goal: str | None) -> dict[str, float]:
-    """Jev's reads of these lines of a builder's return, one request a line holding only that line, the goal when one is given and the names of the parts: with the goal, whether the line leaves a piece of that work unbuilt for later, and for each part, whether it names the piece the line leaves unbuilt; settled.Unheard when Jev gave none."""
-    named = {f"p{index}": part for index, part in enumerate(parts, 1)}
-    return settled.jev_all(
-        [
-            (
-                {"line": line} | ({"goal": goal} if goal is not None else {}) | ({"parts": named} if named else {}),
-                ({f"leaves.l{number}": settled.LEAVES} if goal is not None else {}) | {f"names.l{number}.{part}": settled.asking(settled.NAMES_PIECE, part=part) for part in named},
-            )
-            for number, line in enumerate(lines, 1)
-        ]
-    )
+    """Jev's reads of these lines of a builder's return: with the goal, one request a line holding only that line and the goal, whether the line leaves a piece of that work unbuilt for later, and one request a line and PIECES_ASKED parts holding only that line and those parts' names, whether each names the piece the line leaves unbuilt, so an order of a hundred parts never packs one request; settled.Unheard when Jev gave none."""
+    named = [(f"p{index}", part) for index, part in enumerate(parts, 1)]
+    leaves = [({"line": line, "goal": goal}, {f"leaves.l{number}": settled.LEAVES}) for number, line in enumerate(lines, 1)] if goal is not None else []
+    names = [
+        ({"line": line, "parts": dict(named[start : start + PIECES_ASKED])}, {f"names.l{number}.{slot}": settled.asking(settled.NAMES_PIECE, part=slot) for slot, _ in named[start : start + PIECES_ASKED]})
+        for number, line in enumerate(lines, 1)
+        for start in range(0, len(named), PIECES_ASKED)
+    ]
+    return settled.jev_all([*leaves, *names])
 
 
 def reported_surface(text: str) -> str | None:

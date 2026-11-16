@@ -6567,9 +6567,10 @@ def test_a_builders_done_leaving_a_piece_of_its_design_to_a_follow_up_is_refused
     assert code == 2
     assert f'j4: refused, nothing kept: a DONE leaves a piece of its plan to a follow-up, as Jev reads "{left}": name each such piece on an UNBUILT: line' in err
     [read] = [asked for asked in jev.asked if "leaves.l1" in asked["questions"]]
-    assert (read["state"], list(read["questions"])) == (
-        {"line": left, "goal": "build j3's change: the moved-table interface", "parts": {"p1": "copy one store", "p2": "the reads through it", "p3": "the writes through it"}},
-        ["leaves.l1", "names.l1.p1", "names.l1.p2", "names.l1.p3"],
+    [named] = [asked for asked in jev.asked if "names.l1.p1" in asked["questions"]]
+    assert ((read["state"], list(read["questions"])), (named["state"], list(named["questions"]))) == (
+        ({"line": left, "goal": "build j3's change: the moved-table interface"}, ["leaves.l1"]),
+        ({"line": left, "parts": {"p1": "copy one store", "p2": "the reads through it", "p3": "the writes through it"}}, ["names.l1.p1", "names.l1.p2", "names.l1.p3"]),
     )
     code, err = keep(monkeypatch, capsys, "j4", f'{done}{left}\nUNBUILT: the "moved-table" index\n')
     assert (code, "its detail goes on its NEXT: or UNPROVEN: line" in err) == (2, True)
@@ -6577,7 +6578,7 @@ def test_a_builders_done_leaving_a_piece_of_its_design_to_a_follow_up_is_refused
     monkeypatch.setattr("sys.stdin", io.StringIO(f"{done}{left}\nUNBUILT: the moved-table index\n"))
     assert cli.main(["job", "report", "j4", "-"]) == 0
     assert capsys.readouterr().out.splitlines()[-1] == f'j7 builder on "the moved-table index": the watch starts its agent on its brief {state.load("demo")["jobs"]["j7"]["brief"]}, so start no agent for it; drive job resume reaches it'
-    read = [asked for asked in jev.asked if "leaves.l1" in asked["questions"]][-1]
+    read = [asked for asked in jev.asked if "names.l1.p1" in asked["questions"] and len(asked["state"]["parts"]) == 4][-1]
     assert list(read["state"]["parts"].values()) == ["the moved-table index", "copy one store", "the reads through it", "the writes through it"]
     jev.named.clear()
     jev.picks("none")

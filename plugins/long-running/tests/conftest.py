@@ -1410,7 +1410,7 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
         elif "looks" in questions or limits.ARCHED in questions or limits.WHOLE in questions or any(key.startswith(limits.PLAIN) for key in questions):
             judged.looked += [state] if "looks" in questions else []
             judged.cards += [state] if limits.WHOLE in questions else []
-            judged.terms += list(state.get("names", {}).values())
+            judged.terms += list(state.get("names", {}).values()) if limits.WHOLE in questions else []
         elif "answers_nothing" in questions:
             judged.weighed.append(state["his_words"])
         elif "preference" in questions:
