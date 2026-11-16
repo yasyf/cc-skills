@@ -14,7 +14,6 @@ from drive.state import DriveError
 OTHERS_STAND = 3
 SUBJECT_TERMS = 3
 GENERIC_TITLES = 10
-MOVED_ON = "Withdrawn: the work that asked this went on without it · a new card asks again if it still needs your pick"
 FRESH_STATES = ("built", "done")
 GIVEN_TEXT = re.compile(r"(j\d+)(?:-\d+(?:\.resume)?|\.handoff|\.sent-[\w-]+)?\.md")
 QUOTES = str.maketrans("‘’“”", "''\"\"")
@@ -332,26 +331,24 @@ def decided_by(data: dict, job_id: str, question: dict, words: str, found: dict 
     return [older[int(key.rpartition(":q")[2])] for key in sorted(keys)]
 
 
-def moved_on(data: dict, job_id: str, report: str, kept: str | None) -> list[tuple[str, dict]]:
-    """End as withdrawn, in the write the caller saves, each open question of a job drawn on a card of his that its newest return no longer names, by waits id, permalink or ASK file, so the job went on without it, as j4145's WAITING on its release left its memory-move card asking him for a day: never on a return that stops the job, whose work goes on elsewhere, nor one folded into another question's card by a `Replaces:` line, the question this same return kept in `kept`, as a reader's DESIGN keeps its ASK, or one holding an open PR of the drive from landing, by state.part_cards, which his answer still decides. The questions it ended, by their job, for `follow`."""
+def unnamed(data: dict, job_id: str, report: str, kept: str | None) -> list[tuple[str, dict]]:
+    """Each open question of a job drawn on a card of his that its newest return no longer names, by waits id, permalink or ASK file, which its session weighs withdrawing with `drive cards withdraw` when the work went on without it, as j4145's WAITING on its release left its memory-move card asking him for a day, by his words "get rid of hard-coded stuff, give it the rules, and let it make the call": never on a return that stops the job, whose work goes on elsewhere, nor one folded into another question's card by a `Replaces:` line, the question this same return kept in `kept`, as a reader's DESIGN keeps its ASK, or one holding an open PR of the drive from landing, by state.part_cards, which his answer still decides."""
     if data["jobs"][job_id]["state"] == "stopped":
         return []
     named = {view.message_key(found[0]) for found in state.CARD_LINK.finditer(report)}
-    unnamed = [
-        question
+    holding = {drawn for pr in data["prs"].values() if pr["state"] == "open" for drawn in state.part_cards(data, pr["job"], pr)}
+    return [
+        (job_id, question)
         for question in view.open_questions(data["jobs"][job_id])
         if (question["card"] or question["waits"])
+        and question["closed"] is None
         and not question["replaced"]
         and not (kept and question["file"] == kept)
         and not (question["waits"] and question["waits"] in report)
         and not (question["card"] and view.message_key(question["card"]) in named)
         and not (question["file"] and Path(question["file"]).name in report)
+        and (question["card"] or question["waits"]) not in holding
     ]
-    if not unnamed:
-        return []
-    holding = {drawn for pr in data["prs"].values() if pr["state"] == "open" for drawn in state.part_cards(data, pr["job"], pr)}
-    closed = state.new_close("withdrawn", MOVED_ON, None)
-    return [ended for question in unnamed if question["closed"] is None and (question["card"] or question["waits"]) not in holding for ended in end(data, job_id, question, closed)]
 
 
 def restart(data: dict, order_id: str, words: str, link: str | None) -> list[tuple[str, dict]]:

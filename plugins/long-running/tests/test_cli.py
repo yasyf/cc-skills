@@ -12212,7 +12212,7 @@ def test_j4737_cards_withdraw_via_another_open_card_of_the_drive_folds_its_quest
     assert [(job_id, question["closed"]["how"], question["closed"]["words"]) for job_id, question in ended] == [("j1", "answered", "Ship all three"), ("j2", "answered", "Ship all three")]
 
 
-def test_j5473_job_report_withdraws_each_open_card_its_return_no_longer_names_but_one_it_links_one_holding_an_open_pr_and_one_a_handoff_leaves(
+def test_j5473_job_report_prints_each_open_card_its_return_no_longer_names_for_its_session_to_weigh_withdrawing_but_one_it_links_one_holding_an_open_pr_and_one_a_handoff_leaves(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     assert run("job", "add", "reader", "--order", "o1", "--goal", "read the copy")[0] == 0
@@ -12230,16 +12230,16 @@ def test_j5473_job_report_withdraws_each_open_card_its_return_no_longer_names_bu
     monkeypatch.setattr(slack, "cc_slack", lambda *args: calls.append(args) or {"answered": True})
     monkeypatch.setattr("sys.stdin", io.StringIO(f"BLOCKED the bucket refuses the copy\nUNPROVEN: the disk pick on {shown[7]['url']}?thread_ts=1794300000.000107&cid=D123\n"))
     code, out = run("job", "report", "j1", "-")
-    assert (code, calls) == (0, [("card-answer", "--card", shown[8]["url"], "--label", superseded.MOVED_ON, "--withdrawn", "--via", shown[8]["url"])])
+    assert (code, calls) == (0, [])
     assert out.splitlines()[1:] == [
-        f"demo:j1-8: his card {shown[8]['url']} now shows that its work went on without it with no buttons, its question withdrawn",
-        "drive job ask <job> <file> --redraws demo:j1-8 asks it again once its work is back, from j1 or any job of o1, which redraws its card",
+        f"weigh: his card {shown[8]['url']} still asks him and this return names it nowhere; if the work went on without it,"
+        ' withdraw it now with drive cards withdraw demo:j1-8 --words "<what happened>"',
     ]
     jobs = state.load("demo")["jobs"]
-    assert [question["closed"] and question["closed"]["how"] for question in jobs["j1"]["questions"]] == [None, "withdrawn", None]
+    assert [question["closed"] for question in jobs["j1"]["questions"]] == [None, None, None]
     monkeypatch.setattr("sys.stdin", io.StringIO("HANDOFF /scratch/j2/left.md\n"))
-    assert run("job", "report", "j2", "-")[0] == 0
-    assert (len(calls), state.load("demo")["jobs"]["j2"]["questions"][0]["closed"]) == (1, None)
+    code, out = run("job", "report", "j2", "-")
+    assert (code, calls, "weigh:" in out, state.load("demo")["jobs"]["j2"]["questions"][0]["closed"]) == (0, [], False, None)
 
 
 def test_an_event_overtakes_a_card_once_its_pr_closed_its_build_or_job_finished_or_a_teammate_or_another_bot_wrote(
