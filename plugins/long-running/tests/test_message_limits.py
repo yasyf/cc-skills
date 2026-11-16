@@ -587,6 +587,7 @@ def test_jev_reads_a_refused_say_post_as_slack_gets_it_and_a_reference_nested_in
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     with state.edit("demo") as data:
+        data["orders"]["o1"] = state.new_order("show the run page's history", "", None, {}, state.stamp()) | {"jobs": ["j1"]}
         data["jobs"]["j1"] = state.new_job("o1", "builder", "show the run page's history", [], state.stamp())
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1") | {"title": "New: \U0001f680 the run page shows its history"}
     release = "https://buildkite.com/acme/release/builds/14765"
@@ -1062,6 +1063,8 @@ def test_a_claim_naming_a_drive_pr_hands_jev_the_drives_line_for_it_once_beside_
     tool(lane_of(transcript), *REPORT)
     key = "Forge-AI/monorepo#56983"
     with state.edit("demo") as data:
+        data["orders"]["o1"] = state.new_order("keep one epoch", "", None, {}, state.stamp()) | {"jobs": ["j1"]}
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "keep one epoch", [], state.stamp())
         data["prs"][key] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/56983", "j1", "o1") | {"title": "Fix: the journal keeps one epoch"}
 
     def claimed(many: int) -> list[dict]:
