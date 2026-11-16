@@ -179,7 +179,7 @@ def take(name: str, data: dict, job_id: str, run: Run) -> str | None:
         except (ValueError, KeyError, TypeError, AttributeError):
             line, report = "", text
         opening = line or state.opening(text)
-        state.after_save(name, lambda: state.keep_report(name, job_id, opening, report) or [])
+        state.after(lambda: state.keep_report(name, job_id, opening, report) or [])
         job = data["jobs"][job_id]
         if line.startswith("DONE") and (repro := state.REPRO.search(report)) and Path(repro["path"]).expanduser().is_file():
             from drive import cli
