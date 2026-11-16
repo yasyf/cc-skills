@@ -3465,11 +3465,15 @@ def stale_texts(watcher: Watcher, moment: datetime) -> list[str]:
         except settled.Unheard:
             continue
         stale = {slots[slot]["request"] for slot, sure in read.items() if isinstance(sure, float) and sure >= settled.YES}
-        with state.edit(watcher.name) as data:
+
+        def texts_read(data: dict) -> dict:
             data["answers"][answer_id]["texts_read"] = state.stamp(moment)
             for job_id in kept["jobs"]:
                 if job_id in data["jobs"]:
                     data["jobs"][job_id]["undelivered"] = [entry for entry in data["jobs"][job_id]["undelivered"] if entry["request"] not in stale]
+            return data
+
+        data = state.update(watcher.name, None, texts_read)
     return []
 
 
