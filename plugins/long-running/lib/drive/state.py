@@ -227,6 +227,7 @@ STAGING_RULE = (
 )
 FREED = "FREE"
 PR_KEY = re.compile(r"([^/\s#]+)/([^/\s#]+)#(\d+)")
+NAMED_WORD = re.compile(rf"[jo]\d+|{PR_KEY.pattern}")
 DATADOG_MONITOR = re.compile(r"https://(?:[\w-]+\.)*datadoghq\.(?:com|eu)/monitors/(\d+)(?:[/?#]\S*)?")
 SENTRY_ISSUE = re.compile(r"https://(?:[\w-]+\.)*sentry\.io/(?:organizations/[\w-]+/)?issues/[\w-]+(?:[/?#]\S*)?")
 KEPT_ASK = re.compile(r"(?P<job>[\w.-]+)-(?P<hash>[0-9a-f]{8})")
@@ -273,6 +274,7 @@ HANDOFF_JOBS = ".handoff-jobs-read"
 CARDS_NOTED = "card_answers_noted"
 INDEX: ContextVar["Index | None"] = ContextVar("index", default=None)
 WAITS_OUT_LOCK: ContextVar[bool] = ContextVar("waits_out_lock", default=False)
+NAMED: ContextVar[frozenset[str]] = ContextVar("named", default=frozenset())
 BATCHED: dict[str, bytes] = {}
 WHOLE_READS: dict[tuple[Path, int], "Copy"] = {}
 READING = threading.Lock()
@@ -3962,13 +3964,19 @@ def same_question(one: str | None, other: str | None) -> bool:
     return bool(one and other) and re.findall(r"\w+", one.casefold()) == re.findall(r"\w+", other.casefold())
 
 
-def taken(handle: IO, seconds: float) -> bool:
-    """Take handle's lock exclusive within seconds, polling, since a blocking flock waits forever and on macOS lets new shared holders past a waiting exclusive one; whether it was taken."""
+def taken(handle: IO, seconds: float, line: IO | None = None) -> bool:
+    """Take handle's lock exclusive within seconds, polling, since a blocking flock waits forever and on macOS lets new shared holders past a waiting exclusive one; with line, trying it only while line's lock is free, which every writer going first holds shared as it waits, so this one tries only once none waits; whether it was taken."""
     ends = time.monotonic() + seconds
     while True:
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return True
+            if line:
+                fcntl.flock(line, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return True
+            finally:
+                if line:
+                    fcntl.flock(line, fcntl.LOCK_UN)
         except BlockingIOError:
             if time.monotonic() >= ends:
                 return False
@@ -4156,13 +4164,17 @@ def flocked(path: Path) -> Iterator[None]:
 
 @contextmanager
 def locked(name: str) -> Iterator[None]:
-    """Hold the drive's lock for one load and save, waiting up to DRIVE_LOCK_SECONDS for the process holding it, then refusing with who that is, so a process stuck under it fails this verb instead of holding every writer of the drive behind it, but for one under waiting_out_lock, which waits as long as the lock is held; a process's first hold moves the reports an older install kept into their jobs' histories."""
+    """Hold the drive's lock for one load and save, waiting up to DRIVE_LOCK_SECONDS for the process holding it, then refusing with who that is, so a process stuck under it fails this verb instead of holding every writer of the drive behind it, but for one under waiting_out_lock, which waits as long as the lock is held; a process's first hold moves the reports an older install kept into their jobs' histories.
+    A writer that finds the lock held and acts for a priority order, by named_first, holds the drive's .first.lock shared while it waits, and every other writer tries the lock only while no one holds that, so a priority order's verbs take it ahead of every writer waiting beside them, by his words "so they aren't slowed down at any cost by anything"."""
     path = drive_dir(name) / ".lock"
     path.parent.mkdir(parents=True, exist_ok=True)
     asked = time.monotonic()
-    with open(path, "a") as handle:
-        if not taken(handle, math.inf if WAITS_OUT_LOCK.get() else DRIVE_LOCK_SECONDS):
-            raise DriveError(f"{name}'s drive lock is still held after {DRIVE_LOCK_SECONDS}s, so this changed nothing: {holders(path)}")
+    with open(path, "a") as handle, open(path.with_name(".first.lock"), "a") as line:
+        if not taken(handle, 0, line):
+            if first := bool(NAMED.get()) and named_first(load(name), NAMED.get()):
+                fcntl.flock(line, fcntl.LOCK_SH)
+            if not taken(handle, math.inf if WAITS_OUT_LOCK.get() else DRIVE_LOCK_SECONDS, None if first else line):
+                raise DriveError(f"{name}'s drive lock is still held after {DRIVE_LOCK_SECONDS}s, so this changed nothing: {holders(path)}")
         got = time.monotonic()
         stuck = threading.Timer(STUCK_HOLD_SECONDS, kept_stack, (name, threading.get_ident()))
         stuck.daemon = True
@@ -4184,6 +4196,24 @@ def waiting_out_lock() -> Iterator[None]:
         yield
     finally:
         WAITS_OUT_LOCK.reset(token)
+
+
+@contextmanager
+def naming(given: object) -> Iterator[None]:
+    """Run a verb or a drive MCP call under each job, order and PR its arguments name, at any depth, a PR by its key, so each wait for the drive's lock under it reads by named_first whether it acts for a priority order, and one naming none, such as the watch, reads nothing."""
+
+    def words(value: object) -> frozenset[str]:
+        if isinstance(value, str):
+            return frozenset([pr_key(value)] if PR_URL.search(value) else [value] if NAMED_WORD.fullmatch(value) else [])
+        if isinstance(value, dict):
+            return words(list(value.values()))
+        return frozenset().union(*map(words, value)) if isinstance(value, list | tuple) else frozenset()
+
+    token = NAMED.set(NAMED.get() | words(given))
+    try:
+        yield
+    finally:
+        NAMED.reset(token)
 
 
 def kept_hold(name: str, held: float, waited: float) -> None:
@@ -5212,7 +5242,17 @@ def coordinator_seat(data: dict, order: dict) -> str | None:
 
 def first_in_line(data: dict, job: dict) -> bool:
     """Whether the job serves an open order marked first in line by drive order set --priority, its own or one it carries, so it starts ahead of every other order's work at each admission point."""
-    return any(data["orders"][order_id]["priority"] and data["orders"][order_id]["state"] not in CLOSED_ORDER_STATES for order_id in [job["order"], *job["carries"]])
+    return any(prioritized(data["orders"][order_id]) for order_id in [job["order"], *job["carries"]])
+
+
+def prioritized(order: dict) -> bool:
+    return bool(order["priority"]) and order["state"] not in CLOSED_ORDER_STATES
+
+
+def named_first(data: dict, named: Iterable[str]) -> bool:
+    """Whether a call naming these jobs, orders and PR keys acts for an open priority order: it names the order, a job first_in_line reads as serving one, or a PR such a job carries."""
+    jobs = [data["jobs"][key] for key in named if key in data["jobs"]] + [data["jobs"][job_id] for key in named if (job_id := data["prs"].get(key, {}).get("job")) in data["jobs"]]
+    return any(prioritized(data["orders"][key]) for key in named if key in data["orders"]) or any(first_in_line(data, job) for job in jobs)
 
 
 def hurts_now(data: dict, order: dict) -> bool:
