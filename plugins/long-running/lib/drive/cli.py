@@ -1773,11 +1773,25 @@ GITHUB_5XX = re.compile(r"\b(?:GET|HEAD|POST|PUT|PATCH|DELETE) /\S+ failed: 5\d\
 
 
 def started_release(name: str, job_id: str, command: str) -> list[str]:
-    """Start the release a job's --release names in a process of its own, drive job release, which outlives the call that added the job, so a call that times out or fails once it started keeps the job, and that process its build and brief, its start naming the session that added the job to go/ci as the call's own would; the job waits on it under the same save, so the watch frees the job once it ends."""
+    """Start the release a job's --release names in a process of its own, drive job release, which outlives the call that added the job, so a call that times out or fails once it started keeps the job, and that process its build and brief, its start naming the session that added the job to go/ci as the call's own would; the job waits on this call until that process starts and then on it, so the watch frees the job once it ends."""
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    with state.edit(name) as data:
+    claim = state.pid_waits(f"pid:{os.getpid()}")
+
+    def claimed(data: dict) -> None:
+        data["jobs"][job_id]["waits"] += claim
+
+    state.update(name, None, claimed)
+    waits: list[str] = []
+
+    def own(data: dict) -> None:
+        job = data["jobs"][job_id]
+        job["waits"] = [kept for wait in job["waits"] for kept in (waits if wait in claim else [wait])]
+
+    try:
         pid = state.detach(name, ["job", "release", job_id, *(["--session", session] if session else [])], RELEASES_LOG)
-        data["jobs"][job_id]["waits"] += state.pid_waits(f"pid:{pid}")
+        waits = state.pid_waits(f"pid:{pid}")
+    finally:
+        state.update(name, (("jobs", job_id, "waits"),), own)
     return [f"{job_id} starts `{command}` in process {pid}, which keeps the build it starts as {job_id}'s Release build: line and writes its brief, its lines in {state.drive_dir(name) / RELEASES_LOG}: start no agent for it until the watch's FREE line on {job_id} names that brief"]
 
 
