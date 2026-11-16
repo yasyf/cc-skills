@@ -273,10 +273,11 @@ class AccessProvider(Provider):
 
 
 class DataProvider(Provider):
-    """What holds a team's data in this repository, which a guard refuses any session reading or writing where it runs: staff_routes, the words in a reader's tool calls that show it took one of the repository's staff routes to a refused read, and staff_note, the text naming those routes and where a team's data is read, which the reader ending on a refused read is told."""
+    """What holds a team's data in this repository, which a guard refuses any session reading or writing where it runs: rule, the drive's rule on where a team's data is read or written, which each refusal and a brief's Runs as refusal quote; staff_routes, the words in a reader's tool calls that show it took one of the repository's staff routes to a refused read, and staff_note, the text naming those routes and where a team's data is read, which the reader ending on a refused read is told."""
 
     team_area: re.Pattern | None = None
     namespaces: frozenset[str] = frozenset()
+    rule: str = "a drive job reads or writes a team's data only as a service account, on a machine the repository grants it or in the team's own cluster, never on this Mac, a Sprite or under `drive break-glass`"
     staff_routes: frozenset[str] = frozenset()
     staff_note: str = ""
 
