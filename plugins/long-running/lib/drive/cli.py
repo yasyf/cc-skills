@@ -5276,21 +5276,33 @@ def end_lane(name: str, job_id: str) -> tuple[str, dict]:
     return "\n".join(filter(None, [reclaimed, released, line, *evicted])), {"id": job_id, "reclaim": reclaimed, "released": released, "evicted": evicted, "state": ended["state"], "saved": saved, "branches": branches}
 
 
+def idle_kept(job: dict) -> bool:
+    """Whether the job's Sprite has sat KEPT_IDLE with no worker on it, kept either by its lane's end, timed from that end, or by a kept mark on a job with no running lane, timed from the mark."""
+    if job["state"] == "running" or not orca.holds_sprite(job):
+        return False
+    death = state.lane_death(job, "dispatch") or {}
+    if (death.get("ended") or {}).get("kept"):
+        return state.now() - state.parse_time(death["ended"]["at"]) >= KEPT_IDLE
+    mark = orca.KEPT_SPRITES / job["workspace"]
+    return mark.is_file() and time.time() - mark.stat().st_mtime >= KEPT_IDLE.total_seconds()
+
+
 def release_idle_kept(name: str, root: Path) -> list[str]:
-    """Save and destroy, by release_sprite under each job's own lock, every Sprite a drive job end kept for its job's next lane once KEPT_IDLE has passed with no worker on it, by his ruling that a waiting job holds no machine and an idle one goes back soon, so that job's next lane starts fresh and resumes its session from the transcript kept here; a job whose lock another verb holds is passed over until the next check. A line for each one freed, kept by a refusal or passed over."""
-    data = state.load(name)
-    idle = [job_id for job_id, job in data["jobs"].items() if (death := state.lane_death(job, "dispatch")) and (death.get("ended") or {}).get("kept") and orca.holds_sprite(job) and state.now() - state.parse_time(death["ended"]["at"]) >= KEPT_IDLE]
+    """Save and destroy, by release_sprite under each job's own lock, every Sprite kept for a job with no running lane once idle_kept, by his ruling that a waiting job holds no machine and an idle one goes back soon, so that job's next lane starts fresh and resumes its session from the transcript kept here; a Sprite a refusal keeps has its mark touched, so it waits KEPT_IDLE before the next try, and a job whose lock another verb holds is passed over until the next check. A line for each one freed, kept by a refusal or passed over."""
     lines = []
-    for job_id in idle:
+    for job_id in [job_id for job_id, job in state.load(name)["jobs"].items() if idle_kept(job)]:
         try:
             with state.job_locked(name, job_id, 0):
                 job = state.load(name)["jobs"][job_id]
-                if not ((state.lane_death(job, "dispatch") or {}).get("ended") or {}).get("kept"):
+                if not idle_kept(job):
                     continue
                 lines.append(release_sprite(name, job_id, job, root) or f"{job_id}'s kept Sprite {job['workspace']} was already gone")
+                if (orca.KEPT_SPRITES / job["workspace"]).is_file():
+                    orca.keep_sprite(job["workspace"])
 
                 def unkept(data: dict) -> None:
-                    state.lane_death(data["jobs"][job_id], "dispatch")["ended"]["kept"] = False
+                    if ended := (state.lane_death(data["jobs"][job_id], "dispatch") or {}).get("ended"):
+                        ended["kept"] = False
 
                 state.write(name, unkept)
         except DriveError:

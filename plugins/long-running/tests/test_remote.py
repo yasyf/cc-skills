@@ -8981,6 +8981,7 @@ def test_a_sprite_a_job_end_kept_goes_back_once_no_worker_was_on_it_for_thirty_m
     workspaces = tmp_path / "cc-remote-workspaces"
     workspaces.mkdir()
     monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
+    monkeypatch.setattr(orca, "KEPT_SPRITES", tmp_path / "kept")
     with edit(remote) as data:
         for job_id, minutes in (("j1", 31), ("j2", 10)):
             job = data["jobs"].setdefault(job_id, copy.deepcopy(data["jobs"]["j1"]))
@@ -8994,6 +8995,35 @@ def test_a_sprite_a_job_end_kept_goes_back_once_no_worker_was_on_it_for_thirty_m
     assert released == ["pool-j1"]
     data = state.load(remote)
     assert [state.lane_death(data["jobs"][job_id], "dispatch")["ended"]["kept"] for job_id in ("j1", "j2")] == [False, True]
+
+
+def test_a_kept_mark_left_on_a_job_with_no_running_lane_goes_back_after_thirty_minutes_and_a_refusal_waits_thirty_more(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspaces = tmp_path / "cc-remote-workspaces"
+    workspaces.mkdir()
+    monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
+    monkeypatch.setattr(orca, "KEPT_SPRITES", tmp_path / "kept")
+    with edit(remote) as data:
+        for job_id, job_state, minutes in (("j1", "waiting", 31), ("j2", "running", 31), ("j3", "waiting", 10), ("j4", "built", 31)):
+            job = data["jobs"].setdefault(job_id, copy.deepcopy(data["jobs"]["j1"]))
+            workspace = f"pool-{job_id}"
+            (workspaces / f"{workspace}.json").write_text("{}")
+            orca.keep_sprite(workspace)
+            marked = time.time() - minutes * 60
+            os.utime(orca.KEPT_SPRITES / workspace, (marked, marked))
+            job.update(state=job_state, where="remote", dispatch=f"ctx_{job_id}", workspace=workspace, deaths=[])
+
+    def release(drive: str, job_id: str, job: dict, root: Path, unverified: bool = False) -> str:
+        if job_id == "j4":
+            raise orca.OrcaError("could not read /home/sprite/monorepo")
+        (orca.KEPT_SPRITES / job["workspace"]).unlink()
+        return f"destroyed {job['workspace']}"
+
+    monkeypatch.setattr(orca, "release", release)
+    assert cli.release_idle_kept(remote, tmp_path) == ["destroyed pool-j1", "pool-j4 is kept: could not read /home/sprite/monorepo"]
+    assert sorted(path.name for path in orca.KEPT_SPRITES.iterdir()) == ["pool-j2", "pool-j3", "pool-j4"]
+    assert cli.release_idle_kept(remote, tmp_path) == []
 
 
 def test_a_resume_cci_cannot_address_keeps_the_text_at_the_starters_lane_and_prints_the_owed_sendmessage_as_j7071s_dropped_it(
