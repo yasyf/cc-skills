@@ -4985,7 +4985,7 @@ class Budget(NamedTuple):
 
 
 def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows: tuple[Row, ...], since: int | None = None, reads: frozenset[Row] = frozenset(), budget: Budget | None = None) -> tuple[int, list[Callable[[], list[str]]]]:
-    """Save a write of rows alone in one short transaction of the drive's database, writing only the records the rows name: each as mine holds it, a row naming one field of a record that field alone on the record as the database holds it, while every record reads as held, the database's when the write loaded the drive as base; Raced at the first another write changed since, even to the value mine holds, since a write that read it may have counted on what it held; with since, the revision of the drive base was loaded at, Raced instead at the first row any write committed after it that is one of the records, one reads names or the order of a job the save finishes, whose standing part keeps its texts, a record or every record of a collection by "*", or at any once the changed table no longer reaches back to it. It waits on the drive's lock and then the database's write lock no longer than budget leaves, DRIVE_LOCK_SECONDS from now unless named, or for good under waiting_out_lock, then raises Busy, keeping nothing. New records take places after the collection's last in the order mine holds them. A job the save moves into done or stopped drops the texts it holds, as rewrite drops them. It returns the drive's newest revision once it commits and what the commit leaves to do outside the drive, for its caller to run by ran, so a failure there never reads as nothing kept, gives back no id the write took, and stops none of the write's own effects: taking down the Mac boxes of each job it moves into done, failed or stopped, and telling the lane losing each open order the save moved to another lane, by its own record or by the drive's bindings, by told_moved; the drive's clocks are drawn again by redrawn. The drive's lock is held for that transaction alone, while older installs still save the whole drive under it; what a write left to do outside the drive runs after it, by write, in no order across processes, so a file a record names is written by publish."""
+    """Save a write of rows alone in one short transaction of the drive's database, writing only the records the rows name: each as mine holds it, a row naming one field of a record that field alone on the record as the database holds it, while every record reads as held, the database's when the write loaded the drive as base; Raced at the first another write changed since, even to the value mine holds, since a write that read it may have counted on what it held; with since, the revision of the drive base was loaded at, Raced instead at the first row any write committed after it that is one of the records, one reads names or the order of a job the save finishes, whose standing part keeps its texts, a record or every record of a collection by "*", or at any once the changed table no longer reaches back to it. It waits on the drive's lock and then the database's write lock no longer than budget leaves, DRIVE_LOCK_SECONDS from now unless named, or for good under waiting_out_lock, then raises Busy, keeping nothing. New records take places after the collection's last in the order mine holds them. A job the save moves into done or stopped drops the texts it holds, as rewrite drops them. It returns the drive's newest revision once it commits and what the commit leaves to do outside the drive, for its caller to run by ran, so a failure there never reads as nothing kept, gives back no id the write took, and stops none of the write's own effects: logging the hold to writes.log, taking down the Mac boxes of each job it moves into done, failed or stopped, and telling the lane losing each open order the save moved to another lane, by its own record or by the drive's bindings, by told_moved; the drive's clocks are drawn again by redrawn. The drive's lock is held for that transaction alone, while older installs still save the whole drive under it; what a write left to do outside the drive runs after it, by write, in no order across processes, so a file a record names is written by publish."""
     budget = budget or waiting()
     jobs = mine.get("jobs", {})
     ended = {key: then["state"] for collection, key in held if collection == "jobs" and isinstance(then := held[(collection, key)], dict) and key in jobs and jobs[key]["state"] in FINISHED_JOB_STATES and then.get("state") != jobs[key]["state"]}
@@ -4999,7 +4999,8 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
             fields[("jobs", job_id)].add("undelivered")
     order = {collection: {key: index for index, key in enumerate(records)} for collection, records in mine.items() if collection in COLLECTIONS}
     records = sorted(held, key=lambda record: (record[0], order.get(record[0], {}).get(record[1], -1), record[1]))
-    with handled_lock(name, budget), closing(connect(database_path(name), min(budget.left(), DRIVE_LOCK_SECONDS))) as db:
+    with handled_lock(name, budget) as waited, closing(connect(database_path(name), min(budget.left(), DRIVE_LOCK_SECONDS))) as db:
+        got = time.monotonic()
         with unlocked(name, budget):
             db.execute("BEGIN IMMEDIATE")
         try:
@@ -5033,6 +5034,7 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
         db.execute("COMMIT")
         with suppress(sqlite3.OperationalError):
             db.execute("PRAGMA wal_checkpoint(PASSIVE)")
+    held_for = time.monotonic() - got
     boxes = [key for collection, key in held if collection == "jobs" and isinstance(then := held[(collection, key)], dict) and key in jobs and gave_box_back(then.get("state"), jobs[key]["state"])]
     bound = any(collection == "" and key in BINDINGS for collection, key in held)
     moved: dict[str, tuple[str, str]] = {}
@@ -5040,6 +5042,10 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
         moved = {order_id: (holding_lane(base, order), holding_lane(mine, mine["orders"][order_id])) for order_id, order in open_orders(base).items() if order_id in mine["orders"]}
     elif any(collection in ("orders", "jobs") for collection, _ in held):
         moved = {key: (holding_lane(base, base["orders"][key]), holding_lane(base, mine["orders"][key])) for collection, key in held if collection == "orders" and key in open_orders(base) and key in mine["orders"]}
+
+    def logged() -> list[str]:
+        kept_write(name, waited, held_for, "rows")
+        return []
 
     def boxes_down() -> list[str]:
         down_mac_boxes(name, mine, boxes)
@@ -5049,7 +5055,7 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
         told_moved(name, mine, {order_id: lanes for order_id, lanes in moved.items() if lanes[0] != lanes[1]})
         return []
 
-    return newest, [boxes_down, moves_told]
+    return newest, [logged, boxes_down, moves_told]
 
 
 def told_moved(name: str, data: dict, moved: dict[str, tuple[str, str]]) -> None:
@@ -5229,8 +5235,8 @@ def fields_set(record: dict, mine: object, fields: set[str]) -> dict:
 
 
 @contextmanager
-def handled_lock(name: str, budget: Budget) -> Iterator[None]:
-    """Hold the drive's lock exclusive for one short transaction, without its waits' logging or the reports moved on a first hold, while writes of no rows and older installs still load, change and save the whole drive under it, so no such save of what it loaded before this one writes over it; waiting no longer than budget leaves, then raising Busy naming who holds it."""
+def handled_lock(name: str, budget: Budget) -> Iterator[float]:
+    """Hold the drive's lock exclusive for one short transaction, without its waits' logging or the reports moved on a first hold, while writes of no rows and older installs still load, change and save the whole drive under it, so no such save of what it loaded before this one writes over it; waiting no longer than budget leaves, then raising Busy naming who holds it; the seconds it waited. A hold that ends in an exception logs itself to writes.log by kept_write as it ends, and one that commits leaves that log to its caller, rows_saved, which runs it after the commit by ran, so a log that cannot be written never stops a committed write's effects."""
     path = drive_dir(name) / ".lock"
     asked = time.monotonic()
     with open(path, "a") as handle:
@@ -5238,9 +5244,10 @@ def handled_lock(name: str, budget: Budget) -> Iterator[None]:
             raise Busy(f"{name}'s drive lock is still held after {budget.seconds:g}s, so this changed nothing: {holders(path)}")
         got = time.monotonic()
         try:
-            yield
-        finally:
+            yield got - asked
+        except BaseException:
             kept_write(name, got - asked, time.monotonic() - got, "rows")
+            raise
 
 
 def write[T](name: str, change: Callable[[dict], T], *, budget: float | None = None, patient: bool = False) -> T:
