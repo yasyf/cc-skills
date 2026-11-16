@@ -4384,11 +4384,11 @@ def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     paths, stacks = unread[each["job"]]
                     each["paths"] = each["paths"] if paths is None else paths
                     each["stacks"] = each["stacks"] if stacks is None else stacks
-        moved = state.slot_turns(data, moment, state.repo_config(data).get("release"))
-        return moved
+        waiters = state.queue_waiters(data)
+        return waiters, state.slot_turns(data, moment, state.repo_config(data).get("release"))
 
-    moved = state.update(watcher.name, None, slot_lines_write)
-    lines = []
+    waiters, moved = state.update(watcher.name, None, slot_lines_write)
+    lines = list(waiters)
     for env, job_id, kind, line in moved:
         if kind == "go":
             start_verb(watcher, job_id, ["job", "resume", job_id, line], moment)
