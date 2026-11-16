@@ -136,15 +136,12 @@ Contents:
    watch starts a build worker under the caps, on this Mac or on a Sprite as its brief places it.
    That worker builds a group of items on one stack. `drive work show` names each worker and
    ready item. `drive job start` or `drive job launch` on an item no worker holds takes it off the
-   queue as its own lane, and is refused while a worker holds it. The watch starts a briefed reader
-   or design job once nothing holds it: here with
-   `drive job start <j>`, which runs its agent as its own `claude --bg` session on the line the
-   `brief` op printed, or on a Sprite with `drive job launch <j>` when the job was placed there.
-   `drive job start` runs every check the `agent_brief` hook runs and refuses a second start while
-   one is in flight. The session reads as the job's agent of the session holding its order, and its
-   return reaches you as any agent's does. `drive job resume <j> "<text>"` posts to its cci address,
-   which its next step reads or a `claude --bg --resume` wakes it on, so it needs no `SendMessage`.
-   It outlives your session.
+   queue as its own lane, and is refused while a worker holds it. A briefed reader or design job
+   is a research or design item the same way: a research worker answers a group of one order's
+   reads, and a design worker takes one design at a time, each as its own `claude --bg` session
+   here or an Orca lane on a Sprite. Each item's return reaches you as its own job's does.
+   `drive job resume <j> "<text>"` on an item holds the text, and the brief the next worker that
+   pulls the item reads carries it. A worker outlives your session.
 3. A local job has no Orca terminal, dispatch or Run. It starts faster and leaves no Orca state,
    but shows in no Orca sidebar, so `claude --bg` and the drive's own death and gap reads track it.
    A Sprite lane, and a role that needs a visible terminal or Orca's ask and reply, runs through
@@ -154,7 +151,7 @@ Contents:
    with the Agent tool only past a refusal: the `agent_brief` hook refuses the first such start of a
    job and warns on a repeat, since a subagent takes your
    session's Fable advisor, while a `drive job start` lane runs Opus as its advisor, by his pick
-   "use opus as the advisor for those". A design job starts with the Agent tool, as
+   "use opus as the advisor for those". A design job starts through the queue, as
    [Design first](design.md) says. A codex job runs no agent: see [Codex jobs](#codex-jobs).
 
 What the hooks do to an Agent call:

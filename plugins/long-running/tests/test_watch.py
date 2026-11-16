@@ -82,6 +82,7 @@ from drive import (
     train,
     view,
     watch,
+    work,
 )
 
 KEY = "Forge-AI/monorepo#42"
@@ -2160,58 +2161,17 @@ def test_a_watch_that_finds_a_newer_install_between_two_stages_of_a_pass_runs_th
     assert f"ended on long-running {state.VERSION} for {install}, before its next pass" in capsys.readouterr().out.splitlines()
 
 
-def test_start_jobs_leaves_a_builder_to_the_work_queue_holds_back_a_reader_this_macs_load_refuses_and_launches_one_needing_no_mac_on_a_sprite_or_queues_for_one(
-    home_repo: None,
-    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_spawn_lines_starts_each_worker_the_queue_records_on_the_drives_own_watch_every_pass_and_a_projects_watch_starts_none(
+    demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "four builds")
-    run("job", "add", "builder", "--order", "o1", "--goal", "first build")
-    with edit(demo) as data:
-        data["prs"].pop(KEY)
-        builders = [job_id for job_id, job in data["jobs"].items() if job["kind"] == "builder"]
-        for goal in ("held read", "local read", "sprite read", "queued sprite read"):
-            builders.append(job_id := state.next_id(data["jobs"], "j"))
-            data["jobs"][job_id] = data["jobs"][builders[0]] | {"goal": goal, "kind": "reader"}
-            data["orders"]["o1"]["jobs"].append(job_id)
-        for index, job_id in enumerate(builders):
-            brief = tmp_path / f"{job_id}.md"
-            brief.write_text(f"Goal: build\nMac: drive job prove {job_id}\n" if index < 3 else "Goal: build\n")
-            data["jobs"][job_id].update(brief=str(brief), waits=[], state="waiting", said=state.NOT_STARTED, agent=None, where="local", launching=None, dispatch=None, prs=[])
-    started: list[tuple[str, str]] = []
-    monkeypatch.setattr(watch, "start_verb", lambda watcher, job_id, args, moment: started.append((job_id, args[1])) or 1)
-    monkeypatch.setattr(place, "admission", lambda data, job_id, where, moment: "this Mac's 1-minute load is 49" if job_id == builders[1] else "the Sprite cap is full" if job_id == builders[4] else None)
-    monkeypatch.setattr(view, "start_refusal", lambda data, job_id, strict: None)
-    watch.start_jobs(watcher(demo), state.now())
-    data = state.load(demo)
-    assert started == [(builders[2], "start"), (builders[3], "launch")]
-    assert [(state.SLOT_WAIT in data["jobs"][job_id]["waits"], data["jobs"][job_id]["state"]) for job_id in builders[:2]] == [(False, "waiting")] * 2
-    assert state.SPRITE_WAIT in data["jobs"][builders[4]]["waits"]
-    started.clear()
-    watch.start_jobs(watcher(demo), state.now())
-    assert started == [(builders[2], "start"), (builders[3], "launch")]
-
-
-def test_the_drives_own_watch_starts_a_projects_briefed_reader_and_a_projects_watch_starts_none_outside_its_first_starts_as_the_starved_iris_builders_waited(
-    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "one read")
-    run("job", "add", "reader", "--order", "o1", "--goal", "research: first read")
-    with edit(demo) as data:
-        job_id = next(job_id for job_id, job in data["jobs"].items() if job["kind"] == "reader")
-        brief = tmp_path / f"{job_id}.md"
-        brief.write_text("Goal: build\n")
-        data["jobs"][job_id].update(brief=str(brief), waits=[], state="waiting", said=state.NOT_STARTED, agent=None, where="local", launching=None, dispatch=None)
-    started: list[tuple[str, str]] = []
-    monkeypatch.setattr(watch, "start_verb", lambda watcher, job_id, args, moment: started.append((job_id, args[1])) or 1)
-    monkeypatch.setattr(place, "admission", lambda data, job_id, where, moment: None)
-    monkeypatch.setattr(view, "start_refusal", lambda data, job_id, strict: None)
-    monkeypatch.setattr(state, "heard_job_lane", lambda data, job: "iris")
-    iris = watch.Watcher(demo, offset=state.events_end(demo), project="Iris")
-    watch.start_jobs(iris, state.now())
-    watch.start_jobs(iris, state.now(), first=True)
-    assert started == []
-    watch.start_jobs(watcher(demo), state.now())
-    assert started == [(job_id, "launch")]
+    started: list[list[str]] = []
+    kinds: list[list[str]] = []
+    monkeypatch.setattr(watch, "start_verb", lambda watcher, job_id, args, moment: started.append(args) or 1)
+    monkeypatch.setattr(work.Kind, "wanted", lambda self, data, where, moment: self.name == work.RESEARCH and where == "remote")
+    monkeypatch.setattr(work, "spawned", lambda data, moment, given: kinds.append([kind.name for kind in given]) or (["WORK j9 records a research worker on a Sprite, its first group claimed"], ["j9"]))
+    assert watch.spawn_lines(watch.Watcher(demo, offset=state.events_end(demo), project="Iris"), state.now()) == []
+    assert watch.spawn_lines(watcher(demo), state.now()) == ["WORK j9 records a research worker on a Sprite, its first group claimed"]
+    assert (started, work.STAGE_TEST in kinds[0]) == ([["work", "start", "j9"]], False)
 
 
 def test_a_merge_prover_carries_only_the_parts_its_merged_prs_deliver_never_another_prs_staging_test(named_repo: None) -> None:

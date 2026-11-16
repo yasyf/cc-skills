@@ -4885,10 +4885,10 @@ def test_the_spawner_starts_a_build_worker_per_pool_for_each_ready_group_no_work
     monkeypatch.setattr(place, "preempts", lambda data, job: False)
     monkeypatch.setattr(place, "admitted_room", lambda where, moment, priority=False: 10)
     monkeypatch.setattr(place, "local_builders", lambda data, moment: {})
-    lines, workers = work.spawned(data, moment)
+    lines, workers = work.spawned(data, moment, [build])
     assert [(data["jobs"][worker_id]["where"], data["jobs"][worker_id]["builds_nothing"]) for worker_id in workers] == [("local", False), ("local", False), ("remote", False)]
     assert [data["jobs"][job_id]["claim"]["worker"] for job_id in ("j1", "j2", "j3")] == workers
-    assert work.spawned(data, moment) == ([], [])
+    assert work.spawned(data, moment, [build]) == ([], [])
 
 
 def test_no_new_cut_starts_while_a_cut_or_release_holds_the_env_or_a_release_waits_and_the_cut_the_packer_forms_writes_no_record(monkeypatch: pytest.MonkeyPatch) -> None:

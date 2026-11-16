@@ -10,6 +10,8 @@ from drive.render import when
 STAGE_TEST = "stage-test"
 PROVE = "prove"
 BUILD = "build"
+RESEARCH = "research"
+DESIGN = "design"
 TOLD = ("ASK", "BLOCKED", "DONE")
 WORKER = "worker"
 WORKER_ITEMS = 18
@@ -181,6 +183,7 @@ class Kind:
     loop = ""
     agent = "builder"
     compiles = False
+    free_here = False
     told: tuple[str, ...] | None = TOLD
     most: int | None = None
 
@@ -198,7 +201,7 @@ class Kind:
         return False
 
     def queued(self, data: dict, job: dict) -> bool:
-        """Whether the queue, never start_jobs or carry_held, starts this job's work: an item of this kind that no agent or lane of its own took or that the queue adopted."""
+        """Whether the queue, never carry_held, starts this job's work: an item of this kind that no agent or lane of its own took or that the queue adopted."""
         return (untaken(job) or self.adopted(job)) and job["state"] not in state.FINISHED_JOB_STATES and self.matches(data, job)
 
     def ready(self, data: dict, job_id: str) -> bool:
@@ -292,6 +295,7 @@ class StageTest(Kind):
 
     name = STAGE_TEST
     most = 1
+    free_here = True
     goal = "pull and run stage-test items on {env}, one cut a group"
     loop = (
         "You are {worker}, the drive's stage-test worker for {env}: you run groups of staging tests, each group on one cut, report every test as its own item, then pull the next group, holding the {env} slot only while a group of yours runs."
@@ -386,6 +390,7 @@ class Prove(Kind):
     """Live proofs of merged PRs: a builder whose goal reads `prove <PRs> live`, each run by its brief's handoff, the install or release cut it waits on, its proof file and drive job prove, which takes its DONE; a worker runs a group of them one after another, so a merge's proof holds no agent of its own."""
 
     name = PROVE
+    free_here = True
     goal = "pull and prove merged PRs live, one item at a time"
     loop = (
         "You are {worker}, the drive's prove worker: you prove merged PRs live, a group at a time, each item its own job, then pull the next group."
@@ -444,8 +449,54 @@ class Build(Kind):
         return group, f"GO build {', '.join(group)} on {' '.join(filter(None, stack))}"
 
 
+class Research(Kind):
+    """Reads: a reader job no agent or lane of its own took, run a group of one order's reads at a time by a reader worker, each read answered and reported as its own item, so a burst of reads holds a few lanes rather than one each."""
+
+    name = RESEARCH
+    group = 3
+    agent = "reader"
+    told = None
+    goal = "pull and answer research items, a group of one order's reads at a time"
+    loop = (
+        "You are {worker}, the drive's research worker: you answer a group of one order's reads, each its own job, then pull the next group."
+        " 1) Run `drive work pull --worker {worker}`: it prints your group, each item's job id, its brief and, for an item that ran before, the `drive job report <item>` that prints its last return; on `NONE` or `HOLD` go to 4."
+        " 2) For each item, read its brief and last return whole and answer it as a reader answers its own job, the item's id standing for your job wherever agents/reader.md names it, then pipe its whole return, in the shape agents/reader.md gives a reader's, into `drive work done {worker} <item> -` from a quoted heredoc."
+        " 3) Go to 1."
+        " 4) Return. Never report an item another worker holds."
+    )
+
+    def matches(self, data: dict, job: dict) -> bool:
+        return not worker(job) and job["kind"] == "reader"
+
+    def group_of(self, data: dict, worker_id: str, items: list[str], moment: datetime) -> tuple[list[str], str]:
+        """The head of the line and the reads behind it on its order, up to group."""
+        order = data["jobs"][items[0]]["order"]
+        group = [job_id for job_id in items if data["jobs"][job_id]["order"] == order][: self.group]
+        return group, f"GO answer {', '.join(group)} on {order}"
+
+
+class Design(Kind):
+    """Designs: a design job no agent or lane of its own took, run one at a time by a designer worker as its own session, never an Agent call inside the session holding its order, so a design takes no root's advisor."""
+
+    name = DESIGN
+    group = 1
+    agent = "design"
+    told = None
+    goal = "pull and flesh out designs, one at a time"
+    loop = (
+        "You are {worker}, the drive's design worker: you flesh out one design at a time, each its own job, then pull the next."
+        " 1) Run `drive work pull --worker {worker}`: it prints your item, its job id, its brief and, for an item that ran before, the `drive job report <item>` that prints its last return; on `NONE` or `HOLD` go to 4."
+        " 2) Read its brief and last return whole and design it as a designer designs its own job, the item's id standing for your job wherever agents/designer.md names it, then pipe its whole return, in the shape agents/designer.md gives a designer's, into `drive work done {worker} <item> -` from a quoted heredoc."
+        " 3) Go to 1."
+        " 4) Return. Never report an item another worker holds."
+    )
+
+    def matches(self, data: dict, job: dict) -> bool:
+        return not worker(job) and job["kind"] == "design"
+
+
 STAGE = StageTest()
-KIND = {kind.name: kind for kind in (STAGE, Prove(), Build())}
+KIND = {kind.name: kind for kind in (STAGE, Prove(), Build(), Research(), Design())}
 
 
 def kind_of(data: dict, job: dict) -> Kind | None:
@@ -454,7 +505,7 @@ def kind_of(data: dict, job: dict) -> Kind | None:
 
 
 def queued(data: dict, job: dict) -> bool:
-    """Whether the queue, never start_jobs or carry_held, starts this job's work: a worker, or an item one of its kinds queues."""
+    """Whether the queue, never carry_held, starts this job's work: a worker, or an item one of its kinds queues."""
     return worker(job) or any(kind.queued(data, job) for kind in KIND.values())
 
 
@@ -595,25 +646,25 @@ def admitted(data: dict, kind: Kind, where: str, moment: datetime) -> str | None
 
 
 def room(data: dict, kind: Kind, where: str, moment: datetime) -> int:
-    """How many workers of the kind may start where this pass, at most WORKERS_PER_PASS: none while admitted refuses one, all of them for a kind that builds nothing on this Mac, which holds no cap there, else the room under the cap of the head's class, and, for one compiling here, under the builder cap too, since a worker recorded this pass counts in neither until it starts."""
+    """How many workers of the kind may start where this pass, at most WORKERS_PER_PASS: none while admitted refuses one, all of them for a kind whose items hold no cap on this Mac, by free_here, a staging test or proof compiling nothing here, else the room under the cap of the head's class, and, for one compiling here, under the builder cap too, since a worker recorded this pass counts in neither until it starts."""
     if admitted(data, kind, where, moment):
         return 0
-    if where == "local" and not kind.compiles:
+    if where == "local" and kind.free_here:
         return WORKERS_PER_PASS
     urgent = place.preempts(data, data["jobs"][kind.pool(data, where)[0]])
     left = place.admitted_room("local" if where == "local" else "sprite", moment, urgent)
-    if where == "local" and not urgent:
+    if where == "local" and kind.compiles and not urgent:
         left = min(left, place.LOCAL_BUILDERS - len(place.local_builders(data, moment)))
     return min(left, WORKERS_PER_PASS)
 
 
-def spawned(data: dict, moment: datetime) -> tuple[list[str], list[str]]:
-    """The spawner's write: for each kind and pool, workers recorded while it wants one and room lets one start, each claiming its first group, so ready items no worker holds start as fast as the caps allow; the lines saying so and the workers to start."""
+def spawned(data: dict, moment: datetime, kinds: list[Kind]) -> tuple[list[str], list[str]]:
+    """The spawner's write: for each of these kinds and each pool, workers recorded while it wants one and room lets one start, each claiming its first group, so ready items no worker holds start as fast as the caps allow; the lines saying so and the workers to start."""
     lines, workers = [], []
     for job in data["jobs"].values():
         if KIND[BUILD].queued(data, job) and (left := [wait for wait in job["waits"] if wait not in (state.SLOT_WAIT, state.SPRITE_WAIT)]) != job["waits"]:
             job.update(waits=left, slot=None, sprite_turn=None)
-    for kind in KIND.values():
+    for kind in kinds:
         for where in POOLS:
             for _ in range(room(data, kind, where, moment) if kind.wanted(data, where, moment) else 0):
                 if not kind.wanted(data, where, moment):

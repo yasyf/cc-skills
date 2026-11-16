@@ -4127,12 +4127,6 @@ def transcript_line(job_id: str, job: dict) -> str | None:
 
 
 @orca.rides_restarts()
-def claimed_refusal(data: dict, job_id: str) -> None:
-    """Refuse a start of a work queue item while a live worker holds its claim, as a second start of a job at work is refused, so no lane runs beside that worker; an item no worker holds starts as its own lane, which takes it off the queue."""
-    if (kind := work.item_of(data, job := find(data["jobs"], job_id, "job"))) and (holder := work.claimed_by(data, job)):
-        raise DriveError(f"{job_id}: refused, not started: worker {holder} of the work queue holds this {kind.name} item and runs it now")
-
-
 def job_launch(args: argparse.Namespace) -> int:
     """Start a job's next worker by the one relaunch launch and resume share, with no message: its first Orca lane, on a Sprite or with --local on this Mac, where a brief declaring a step only this Mac runs on its Mac: or Release: line starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; the next lane of a job whose worker ended or returned its line, with --local moved from its Sprite to this Mac; a lane taking over from an agent on this Mac that stopped or whose session ended; or the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps; never a finished pass of a standing part, which unrun refuses, nor a stopped job, which unstopped refuses. Given drive job brief's flags, it first writes the job's brief from them by write_brief, so briefing and starting a job is one command and a flag argparse or write_brief refuses starts nothing; refused beside a brief file, which is the brief whole."""
     name = state.resolve(args.drive)
@@ -4145,7 +4139,6 @@ def job_launch(args: argparse.Namespace) -> int:
             raise DriveError(f"{args.id}: refused, nothing written or started: {args.brief} is its brief whole, which {flags} cannot add a line to: drop the file or the flags")
         line, payload = write_brief(name, args.id, named)
         emit(args, f"{args.id}'s brief written at {payload['brief']}: {line.partition("\n")[2]}", payload)
-    claimed_refusal(state.load(name), args.id)
     if unrun(state.load(name), args.id)["kind"] == "codex":
         folder = codex_launch(name, args.id, args.brief)
         return emit(args, f"{args.id} started its codex-ask run in {folder}; the watch takes its result once it ends", {"id": args.id, "codex_run": str(folder)})
@@ -4196,7 +4189,6 @@ def job_start(args: argparse.Namespace) -> int:
         data = state.load(name)
         job = find(data["jobs"], args.id, "job")
         unstopped(args.id, job)
-        claimed_refusal(data, args.id)
         if job["kind"] not in state.STARTS_ITSELF or job.get("where") == "remote" or not job.get("brief"):
             raise DriveError(f"{args.id}: refused, not started: drive job start starts only a briefed builder, reader or design job on this Mac, and this is a {job['kind']}{' on a Sprite' if job.get('where') == 'remote' else ''}{'' if job.get('brief') else ' with no brief'}")
         if (bg := job.get("bg")) and not agents.gone(bg):

@@ -33,11 +33,10 @@ no builder waits on a job holding its design.
   plus `--ruling <answer id>` for each answer of his on the area. The `--plan` names the files, PRs
   and findings it starts from. The design follows what his words need; the code that exists is an
   input, not a shape to keep.
-- **The watch starts it** with `drive job start <j>` once its brief is kept and nothing holds it,
-  as its own `claude --bg` session on `long-running:designer`. On a refused start, its
-  `relaunch_refused` event, start it with the Agent tool: `subagent_type: "long-running:designer"`,
-  `model: "fable"`, `run_in_background: true`, a short `description`, no `name`, and the
-  `Read your brief first: <path>` line as the whole `prompt`.
+- **The work queue starts it.** Once its brief is kept and nothing holds it, it is a design item, and
+  the watch starts a design worker for it as its own `claude --bg` session on
+  `long-running:designer`, one design at a time. `drive work show` names the worker. Start no
+  agent for it yourself.
 
 ## What it returns
 

@@ -113,7 +113,6 @@ PASS_DONE = (
     " pass, since drive status reads a pass's HANDOFF as stopped"
 )
 RELAUNCH_REFUSED = "relaunch_refused"
-START_AT_ONCE = 4
 LANE_READS_AT_ONCE = 6
 SPENT_SHOWN = 3
 SPENT_WORDS = 3
@@ -706,7 +705,7 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished, a job's wait on another job's change once that job registers a PR, by state.change_pr, its FREE line and its brief's Where: then naming the branch to cut its own from, by state.stacked_on, the release out by the watch's release live read or its PR closed unmerged, a staging:<target>/<env>@<commit> wait of a test whose freeze gave way to a staging release for production, by gave_way, the Buildkite build finished or stopped at an approve step by the watch's Buildkite read, a process on this Mac ended, a teammate's reply come, a job a job waits on returned BUILT, by built_bases, a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, or a once-only pass of state.shaped ended it, each by the reason that pass handed by state.drop_waits, forgotten as this edit saves, and say once, as its last wait ends, that nothing holds it, saying nothing of a job the watch starts itself: one start_jobs starts, and a codex job or a Sprite job no worker took, which the watch launches by drive job launch once busy lets it, or holds waiting its turn on sprite-slot while place.admission refuses it a Sprite lane, so no session is woken to run the launch; holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite, or taking over here from its agent on this Mac, keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it; a job holding texts that carry_held launches, by carrier's drive job launch, names no brief and says the watch launches it and to start no agent for it, so no session starts a second worker beside that launch, while one whose worker carry_held resumes says it carries them. A release wait is a wake the job set, freed by out_because once every cluster of its service, or the one env it names, serves the PR's merge, and never comes back. A job waiting its turn for a Sprite lane on sprite-slot is freed, earliest due first after a priority order's, by place.sprite_turns, one for each lane under this Mac's Sprite cap no drive here runs, its turn stamped so that lane counts as held while its launch starts it."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished, a job's wait on another job's change once that job registers a PR, by state.change_pr, its FREE line and its brief's Where: then naming the branch to cut its own from, by state.stacked_on, the release out by the watch's release live read or its PR closed unmerged, a staging:<target>/<env>@<commit> wait of a test whose freeze gave way to a staging release for production, by gave_way, the Buildkite build finished or stopped at an approve step by the watch's Buildkite read, a process on this Mac ended, a teammate's reply come, a job a job waits on returned BUILT, by built_bases, a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, or a once-only pass of state.shaped ended it, each by the reason that pass handed by state.drop_waits, forgotten as this edit saves, and say once, as its last wait ends, that nothing holds it, saying nothing of a job the watch starts itself: a work queue item, and a codex job or a Sprite job no worker took, which the watch launches by drive job launch once busy lets it, or holds waiting its turn on sprite-slot while place.admission refuses it a Sprite lane, so no session is woken to run the launch; holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite, or taking over here from its agent on this Mac, keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it; a job holding texts that carry_held launches, by carrier's drive job launch, names no brief and says the watch launches it and to start no agent for it, so no session starts a second worker beside that launch, while one whose worker carry_held resumes says it carries them. A release wait is a wake the job set, freed by out_because once every cluster of its service, or the one env it names, serves the PR's merge, and never comes back. A job waiting its turn for a Sprite lane on sprite-slot is freed, earliest due first after a priority order's, by place.sprite_turns, one for each lane under this Mac's Sprite cap no drive here runs, its turn stamped so that lane counts as held while its launch starts it."""
     data = state.load(watcher.name)
     out, lines = replies(watcher, data, moment)
     out |= freed_waits(watcher, data)
@@ -2106,7 +2105,7 @@ def minutes(span: timedelta) -> int:
 
 
 def brief_first(job: dict) -> str:
-    """What starts an untaken job: for a briefed builder or reader, the watch, by start_jobs, so the line names no prompt for a session to start an agent on; for a design job, the prompt an agent starts it on, its brief; a codex job's drive job launch is named apart."""
+    """What starts an untaken job: for a briefed builder, reader or design job, the work queue's worker, by spawn_lines, so the line names no prompt for a session to start an agent on; for a design job, the prompt an agent starts it on, its brief; a codex job's drive job launch is named apart."""
     if job["kind"] == "codex" or not job.get("brief") or job.get("agent") or job.get("dispatch"):
         return ""
     return f"; {render.start_now(job['brief'])}" if starts_itself(job) else f"; Read your brief first: {job['brief']}"
@@ -5164,53 +5163,22 @@ def send_held(watcher: Watcher, job_id: str, moment: datetime) -> int:
 
 
 def starts_itself(job: dict) -> bool:
-    """Whether the watch starts a job's first worker itself, by start_jobs: a briefed builder, reader or design job no agent, lane or start took yet, on this Mac by drive job start, or on a Sprite by drive job launch when it was placed there."""
+    """Whether the watch starts a job's first worker itself, through the work queue's spawner: a briefed builder, reader or design job no agent, lane or start took yet, which a worker of its kind pulls."""
     return job["kind"] in state.STARTS_ITSELF and bool(job.get("brief")) and not (job.get("agent") or job.get("dispatch") or job.get("bg"))
 
 
-def starts_here(watcher: Watcher, data: dict, job: dict, first: bool) -> bool:
-    """Whether this watch's start_jobs starts the job: in a first_starts call, a job its own watch hears, so each priority seat's watch starts its first-in-line work every pass; otherwise the drive's own watch alone, for a job of any lane but a first-in-line one a seat's watch hears, since a project's pass comes round only every ten to twenty minutes while the drive's comes every few, and a starved project's briefed builders waited hours for its turn."""
-    lane = state.heard_job_lane(data, job)
-    if first:
-        return lane == watcher.lane
-    return not watcher.project and (lane == watcher.lane or not (job.get("priority") or state.first_in_line(data, job)))
-
-
-def start_jobs(watcher: Watcher, moment: datetime, first: bool = False) -> None:
-    """Start each heard reader's or design job's first worker that nothing holds, so no session's Agent call or launch starts it and no root relays it, a builder's being the work queue's: `drive job start` for a briefed one on this Mac, which starts its agent as its own claude --bg session past every check an Agent start meets, and `drive job launch` for one placed on a Sprite, each by start_verb once busy lets it and at most once per RELAUNCH a watch, at most START_AT_ONCE a pass, a job whose brief declares no step only this Mac runs, by place.mac_step, launched on a Sprite at once beside the rest, taking no place of that count, or queued on sprite-slot under the Sprite cap, whose line launches it as a lane frees, and a local job this Mac's load or caps hold back taking no place of that count, since refused starts heading the jobs every pass once kept about 25 briefed jobs from ever starting but for a priority order's, which first takes past that count, so a burst of freed jobs starts over several passes, and a refusal, which reaches the session holding the job as its relaunch_refused event, leaves the job to that session. A job no order of a coordinator or the meta session holds, such as a handler's, a stopped or finished one, one whose cards or waits hold it, by view.start_refusal, or one launching is left alone. With first, only a job drive job set --priority marks or one serving an open priority order, by state.first_in_line, which first_starts runs on every pass."""
-    data, room, sprites = state.load(watcher.name), START_AT_ONCE, []
-    for job_id, job in data["jobs"].items():
-        if first and not (job.get("priority") or state.first_in_line(data, job)):
-            continue
-        if room <= 0 and not first:
-            break
-        if not starts_itself(job) or job["kind"] == "builder" or work.queued(data, job) or job["state"] in (*state.FINISHED_JOB_STATES, "running") or state.SLOT_WAIT in job["waits"] or state.SPRITE_WAIT in job["waits"] or moment - watcher.started.get(job_id, moment - RELAUNCH) < RELAUNCH or not starts_here(watcher, data, job, first) or view.open_cards(job) or launching(job, moment):
-            continue
-        if state.holding_lane(data, data["orders"][job["order"]]) == "communicator" or view.start_refusal(data, job_id, False) or busy(watcher, job_id, moment):
-            continue
-        if job.get("where") == "remote" or not place.mac_step(Path(job["brief"]).read_text()):
-            if place.admission(data, job_id, "sprite", moment):
-                sprites.append(job_id)
-            else:
-                start_verb(watcher, job_id, ["job", "launch", job_id], moment)
-            continue
-        if place.admission(data, job_id, "local", moment):
-            continue
-        start_verb(watcher, job_id, ["job", "launch", job_id] if job.get("where") == "remote" else ["job", "start", job_id], moment)
-        room -= 1
-    if sprites:
-        def start_jobs_write(data: dict) -> None:
-            for job_id in sprites:
-                if state.unstarted(data["jobs"][job_id]):
-                    place.queue_sprite(data["jobs"][job_id], moment)
-
-        state.write(watcher.name, start_jobs_write, budget=state.WATCH_WRITE_SECONDS)
-
-
-def first_starts(watcher: Watcher, moment: datetime) -> list[str]:
-    """Start each job serving an open priority order that nothing holds, by start_jobs, on every pass right after its orphans, ahead of the READ_EVERY reads, the slow stages and a resumed pass's skip past start_jobs, by his words on a priority order, "they aren't slowed down at any cost by anything"."""
-    start_jobs(watcher, moment, first=True)
-    return []
+def spawn_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Run the work queue's spawner on every pass of the drive's own watch, right after its orphans, ahead of the READ_EVERY reads and the slow stages, so an urgent item, a priority order's or an incident's, starts a worker past the elastic cap in the pass it turns ready, by his words on a priority order, "they aren't slowed down at any cost by anything": record a worker for each kind but stage-test, which work_lines starts once its items' files are read, and each pool that wants one while the caps admit it, by work.spawned, and start each by drive work start; a pass where no kind wants one writes nothing. Its lines go as evidence and wake nobody."""
+    if watcher.project:
+        return []
+    data = state.load(watcher.name)
+    kinds = [kind for kind in work.KIND.values() if kind is not work.STAGE]
+    if not any(kind.wanted(data, where, moment) for kind in kinds for where in work.POOLS):
+        return []
+    lines, workers = state.write(watcher.name, lambda data: work.spawned(data, moment, kinds), budget=state.WATCH_WRITE_SECONDS)
+    for worker_id in workers:
+        start_verb(watcher, worker_id, ["work", "start", worker_id], moment)
+    return lines
 
 
 def seated_first(watcher: Watcher) -> list[Watcher]:
@@ -5253,7 +5221,7 @@ PROMOTION_READ_EVERY = timedelta(minutes=5)
 
 
 def work_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Run the work queue's spawner on every drive, since stage-test always runs there: read the files and stacks of ready stage-test items it has not read, so packing pairs only passes it can see, and record and start a worker of each kind whose items have none and that this Mac admits, by work.spawned, an urgent head past the cap; its lines go as evidence and wake nobody."""
+    """Read the files and stacks of ready stage-test items the queue has not read, so packing pairs only passes it can see, then record and start the stage-test worker once its line may form a cut, by work.spawned, and keep each queued item's planned start; spawn_lines starts every other kind's workers. Its lines go as evidence and wake nobody."""
     if watcher.project:
         return []
     data = state.load(watcher.name)
@@ -5274,7 +5242,7 @@ def work_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for job_id, (paths, stacks) in read.items():
             if paths is not None and stacks is not None:
                 data["jobs"][job_id]["work_reads"] = {"paths": paths, "stacks": stacks}
-        spawned = work.spawned(data, moment)
+        spawned = work.spawned(data, moment, [work.STAGE])
         work.scheduled(data, moment)
         return spawned
 
@@ -6218,8 +6186,8 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
     yield contained(watcher, functools.partial(event_lines, watcher), moment)
     beat("orphan_lines", True)
     yield contained(watcher, functools.partial(orphan_lines, watcher, moment, NotStarted if watcher.read_at is None else (NotStarted, type(None))), moment)
-    beat("first_starts", True)
-    yield contained(watcher, functools.partial(first_starts, watcher, moment), moment)
+    beat("spawn_lines", True)
+    yield contained(watcher, functools.partial(spawn_lines, watcher, moment), moment)
     later: list[functools.partial] = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -6246,7 +6214,6 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
                     release_card_lines,
                     status_lines,
                     waits_lines,
-                    start_jobs,
                     folded_lines,
                     cut_lines,
                     shipped_lines,
