@@ -194,10 +194,15 @@ def describe(event: dict) -> str:
     return "his reply"
 
 
+def code_stamp() -> float:
+    return max(path.stat().st_mtime for path in Path(__file__).parent.iterdir() if path.suffix in (".py", ".md"))
+
+
 def supervise(drive: str) -> None:
-    """Pass after pass, each pass_seconds apart or sooner when a verb kicks it."""
+    """Pass after pass, each pass_seconds apart or sooner when a verb kicks it; it exits when its own code changes, and launchd starts it again on the new code, while every owner runs on."""
     kick = store.drive_dir(drive) / "kick"
-    while True:
+    loaded = code_stamp()
+    while code_stamp() == loaded:
         result = run_pass(drive)
         good, lines = check(drive)
         with (store.drive_dir(drive) / "checks.jsonl").open("a") as out:
