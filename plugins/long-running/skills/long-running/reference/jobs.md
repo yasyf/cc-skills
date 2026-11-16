@@ -321,11 +321,28 @@ session makes its parts `ORPHAN`s.
    answer or the save fails, end refuses, ending nothing and naming why. The watch keeps each end's
    pid and start on the job's row, and each `drive job reclaim` it starts on what an earlier lane
    left on that lane's death, and runs one again only once that process is gone and 300 seconds
-   have passed, so a watch that restarts never asks a second time while the first still runs. A
-   reclaim that cannot destroy a Sprite, since it does not answer, holds what could not be saved or
-   cc-remote would not destroy it, marks it kept on that lane's death, and the watch says that
-   refusal once and never asks for it again: destroying it unread may lose what it holds on no
-   remote, so that is his pick, and `drive job reclaim <j> <workspace>` run by hand asks again.
+   have passed, so a watch that restarts never asks a second time while the first still runs.
+7. The reclaim rule: the watch frees each Sprite a job's lanes left, whatever the job's state. A
+   job's own lane goes to `drive job end`, as above. Each Sprite an earlier lane left goes to
+   `drive job reclaim <j> <workspace>`, in the pass after a relaunch records that lane's death.
+   That includes the Sprite of an attempt a relaunch moved off, one an end kept, and one the watch
+   adopts. Each pass, the watch starts from `sprite list`, read at most every 10 minutes for every
+   watch on this Mac. It joins each live Sprite cc-remote records to a job by its pool record's
+   lane, whatever that record's state, else by the Sprite's own name. It adopts as a death any
+   Sprite of a job's lane that the job's row and deaths do not name, when no launch of the job is
+   in flight. It adopts at once when the job is done, failed or stopped. Otherwise it waits until
+   the Sprite's records are an hour old, and it adopts only when the job's row names the Sprite of
+   its current lane and this Sprite belongs to another lane. A job whose launch recorded no
+   Sprite, or this Sprite of its current lane, may have its live worker there, so the watch keeps
+   that Sprite. A reclaim saves the Sprite's unpushed work to GitHub and destroys it. A Sprite whose
+   ssh gives no answer is first revived by `sprite restore` of a fresh checkpoint and then read
+   again. If ssh still cannot read it, a superseded attempt's Sprite, one left by an earlier lane
+   while the job's row names a newer one, is destroyed unverified, and the reclaim says so. Any
+   other Sprite the reclaim cannot read or save, or that cc-remote would not destroy, is marked
+   kept on that lane's death, and the reclaim says so once. A job's current Sprite is never
+   destroyed unread. The watch asks again an hour later, and `drive job reclaim <j> <workspace>`
+   run by hand asks at once. A live Sprite cc-remote holds no workspace record for is not the
+   drive's to free.
 
 ## Remote lanes
 

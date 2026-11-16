@@ -72,6 +72,7 @@ REAL_KEEP_LOGS = orca.keep_logs
 REAL_SAVED_BRANCHES = github.saved_branches
 REAL_SESSION_OF = orca.session_of
 REAL_SESSION_TERMINALS = orca.session_terminals
+REAL_SPRITES = orca.sprites
 SILENT_SPRITE = "ssh exited 255: Connection timed out during banner exchange"
 REAL_KEEP_TRANSCRIPTS = orca.keep_transcripts
 REAL_SPRITE_API = orca.sprite_api
@@ -429,6 +430,14 @@ def drive_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every drive speaks to Orca as the terminals of its own it already keeps, never ones Orca opens for the test."""
     monkeypatch.setattr(orca, "drive_terminal", lambda drive: DRIVE_TERMINAL)
     monkeypatch.setattr(orca, "binder_terminal", lambda drive: BINDER_TERMINAL)
+
+
+@pytest.fixture(autouse=True)
+def sprites_listed(monkeypatch: pytest.MonkeyPatch) -> set[str]:
+    """The Sprites every `sprite list` names, none until a test adds one; a test of the list itself calls REAL_SPRITES."""
+    listed: set[str] = set()
+    monkeypatch.setattr(orca, "sprites", lambda: listed)
+    return listed
 
 
 @pytest.fixture(autouse=True)

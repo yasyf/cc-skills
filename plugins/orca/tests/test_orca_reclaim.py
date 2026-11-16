@@ -1155,6 +1155,20 @@ class DestroyTest(unittest.TestCase):
         self.assertEqual(orca_gc.destroy("pool-abc", "demo-j1", cc_remote), "destroyed pool-abc")
         self.assertEqual(cc_remote.destroyed, ["pool-abc"])
 
+    def test_an_unverified_destroy_destroys_only_a_sprite_ssh_cannot_read(self):
+        unread = orca_gc.Unreachable("ssh to pool-abc could not read /home/sprite/repo: Connection to UNKNOWN port 65535 timed out")
+        kept = self.hosting(unread)
+        with self.assertRaisesRegex(orca_gc.Unread, "^ssh to pool-abc could not read"):
+            orca_gc.destroy("pool-abc", "demo-j1", kept)
+        self.assertEqual(kept.destroyed, [])
+        gone = self.hosting(unread)
+        self.assertEqual(orca_gc.destroy("pool-abc", "demo-j1", gone, unverified=True), f"destroyed pool-abc unverified, as its work could not be read: {unread}")
+        self.assertEqual(gone.destroyed, ["pool-abc"])
+        refused = self.hosting("GitHub could not answer: gh: API rate limit exceeded (HTTP 403)")
+        with self.assertRaisesRegex(orca_gc.Unsaved, "^GitHub could not answer"):
+            orca_gc.destroy("pool-abc", "demo-j1", refused, unverified=True)
+        self.assertEqual(refused.destroyed, [])
+
     def test_destroy_of_a_workspace_no_task_records_fails_naming_that_it_destroyed_nothing(self):
         cc_remote = self.hosting(checkout(SPRITE.root))
         with self.assertRaisesRegex(orca_gc.Unsaved, "^cc-remote records no Sprite pool-other, so nothing was destroyed$"):

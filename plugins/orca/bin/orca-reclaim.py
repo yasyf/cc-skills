@@ -649,10 +649,10 @@ class CcRemote:
         done = self.ssh(sprite, script)
         if mute(done):
             if failed := self.revive(sprite):
-                return f"ssh to {sprite.host} could not read {sprite.root}: {unanswered(done)}, and reviving it failed: {failed}"
+                return Unreachable(f"ssh to {sprite.host} could not read {sprite.root}: {unanswered(done)}, and reviving it failed: {failed}")
             done = self.ssh(sprite, script)
         if done.returncode != 0 or not done.stdout:
-            return f"ssh to {sprite.host} could not read {sprite.root}: {unanswered(done)}"
+            return Unreachable(f"ssh to {sprite.host} could not read {sprite.root}: {unanswered(done)}")
         origin, off_origin, changed, *lines = done.stdout.splitlines()
         hub = GITHUB_ORIGIN.search(origin)
         if hub is None:
@@ -792,6 +792,14 @@ class Unsaved(Exception):
     pass
 
 
+class Unreachable(str):
+    pass
+
+
+class Unread(Unsaved):
+    pass
+
+
 @contextmanager
 def one_destroy(workspace: str) -> Iterator[None]:
     DESTROYING.mkdir(parents=True, exist_ok=True)
@@ -803,14 +811,21 @@ def one_destroy(workspace: str) -> Iterator[None]:
         yield
 
 
-def destroy(workspace: str, lane: str, cc_remote: CcRemote) -> str:
+def destroy(workspace: str, lane: str, cc_remote: CcRemote, unverified: bool = False) -> str:
     if (sprite := cc_remote.sprite(workspace)) is None:
         raise Unsaved(f"cc-remote records no Sprite {workspace}, so nothing was destroyed")
     with one_destroy(workspace):
-        saved = save(workspace, lane, cc_remote)
-        checkout = cc_remote.checkout(sprite)
-        if isinstance(checkout, str):
-            raise Unsaved(checkout)
+        try:
+            saved = save(workspace, lane, cc_remote)
+            checkout = cc_remote.checkout(sprite)
+            if isinstance(checkout, str):
+                raise (Unread if isinstance(checkout, Unreachable) else Unsaved)(checkout)
+        except Unread as unread:
+            if not unverified:
+                raise
+            if refusal := cc_remote.destroy(sprite):
+                raise Unsaved(refusal) from None
+            return f"destroyed {workspace} unverified, as its work could not be read: {unread}"
         if holding := unsaved(checkout, cc_remote.remote(checkout.repository)):
             raise Unsaved(holding)
         if refusal := cc_remote.destroy(sprite):
@@ -823,7 +838,7 @@ def save(workspace: str, lane: str, cc_remote: CcRemote) -> str | None:
         return f"cc-remote records no Sprite {workspace}, so nothing on it was read or saved"
     checkout = cc_remote.checkout(sprite)
     if isinstance(checkout, str):
-        raise Unsaved(checkout)
+        raise (Unread if isinstance(checkout, Unreachable) else Unsaved)(checkout)
     remote = cc_remote.remote(checkout.repository)
     try:
         refs = {name: tip for name, tip in checkout.off_origin if not remote.holds(tip)}
@@ -1295,6 +1310,7 @@ def main() -> int:
     parser.add_argument("--held", metavar="WORKSPACE", help="print what this cc-remote workspace's Sprite holds on no remote, or nothing, and change nothing")
     parser.add_argument("--save", nargs=2, metavar=("WORKSPACE", "LANE"), help="commit and push what this cc-remote workspace's Sprite holds on no remote to saved/LANE/<name>-<sha> branches on GitHub, and print what it saved, that it held nothing, or that no cc-remote task records it")
     parser.add_argument("--destroy", nargs=2, metavar=("WORKSPACE", "LANE"), help="save what this cc-remote workspace's Sprite holds on no remote as --save does, then destroy it and its Orca environment, and print both")
+    parser.add_argument("--unverified", action="store_true", help="with --destroy, destroy a Sprite whose checkout ssh cannot read even after a revive, unsaved, and say so: for a superseded attempt's Sprite, never a job's current worker")
     parser.add_argument("--wake", metavar="WORKSPACE", help="wake this cc-remote workspace's Sprite and reconnect Orca to the runtime it runs, starting no worker")
     parser.add_argument("--new", action="store_true", help="the recurring pass: a bounded batch of settled dispatches, capped closes and removals, backing off when Orca is slow")
     parser.add_argument("--shells", action="store_true", help="with --new, also close empty Orca shells quiet for three days")
@@ -1319,7 +1335,7 @@ def main() -> int:
         return 0
     if args.destroy:
         try:
-            print(destroy(*args.destroy, CcRemote()))
+            print(destroy(*args.destroy, CcRemote(), args.unverified))
         except Unsaved as refused:
             print(refused, file=sys.stderr)
             return 1
