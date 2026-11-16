@@ -836,7 +836,7 @@ def scripted_post(name: str, handler: str) -> str | None:
     from drive import answer
 
     data = state.load(name)
-    if not (entry := data["handlers"].get(handler)) or entry["handed"] or not (seq := holds(entry["brief"])["record"]):
+    if not (entry := data["handlers"].get(handler)) or entry["handed"] or not entry["brief"] or not (seq := holds(entry["brief"])["record"]):
         return None
     try:
         found = answer.post_report(name, seq)
