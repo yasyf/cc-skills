@@ -4897,7 +4897,8 @@ def test_a_named_hold_keeps_a_free_staging_slot_from_the_work_queue_until_its_en
     monkeypatch.setattr(state, "tested_prs", lambda data, job: [])
     data["jobs"] |= {"j7394": {}, "j7632": {}}
     group, _ = work.STAGE.group_of(data, "j7989", ["j7394", "j7632"], moment)
-    assert (group, [line.split(":")[0] for line in data["work"]["told"]]) == (["j7394", "j7632"], [f"SLOT {env} to j7394 until {data['slots'][env]['holder']['until']}", f"SLOT {env} RIDE j7632 on j7394's cut until {data['slots'][env]['holder']['until'].split(':')[0]}"])
+    until = data["slots"][env]["holder"]["until"]
+    assert (group, [line.split(", run by")[0] for line in data["work"]["told"]]) == (["j7394", "j7632"], [f"SLOT {env} to j7394 until {until}: GO the work queue's cut", f"SLOT {env} RIDE j7632 on j7394's cut until {until}"])
 
 
 def test_slot_queue_runs_end_to_end_with_stage_test_on_and_lists_a_queued_tester_before_any_slot_is_claimed(run: Run, demo: str) -> None:
