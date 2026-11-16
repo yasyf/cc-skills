@@ -3721,9 +3721,13 @@ def unproven_merge(order_id: str, part: str, key: str) -> str:
 
 
 def unposted_card(job_id: str, job: dict, data: dict) -> tuple[str, dict] | None:
-    """The open question whose card never drew for a waiting job, by the job keeping it: one of its own, or one asked on a card it waits on, such as its reader's, that `drive job ask` or `drive job card` refused, or whose draw failed, kept with no card and no refusal and folded into no other, which `draw_questions` draws again."""
+    """The open question whose card never drew for a waiting job, by the job keeping it: one of its own, or one asked on a card it waits on, such as its reader's, that `drive job ask` or `drive job card` refused, or whose draw failed, kept with no card and no refusal and folded into no other, which `draw_questions` draws again; none kept undrawn while its job waits on an order he has not scheduled, by state.unscheduled_job, which draws when he schedules it."""
     asked = [*((job_id, question) for question in view.open_questions(job)), *view.drawn_on(data, *job["waits"])]
-    unposted = [(owner, question) for owner, question in asked if question["closed"] is None and (question["refused"] or question["file"] and not (question["card"] or question["replaced"]))]
+    unposted = [
+        (owner, question)
+        for owner, question in asked
+        if question["closed"] is None and (question["refused"] or question["file"] and not (question["card"] or question["replaced"]) and not state.unscheduled_job(data, owner))
+    ]
     return next((found for found in unposted if found[1]["refused"]), None) or next(iter(unposted), None)
 
 
@@ -4511,7 +4515,7 @@ def heard_since_shown(data: dict, keys: list[str], found: dict, woke: str) -> bo
 
 
 def draw_questions(watcher: Watcher, moment: datetime) -> None:
-    """Draw his card on each open question of a heard job, kept in its file with no card drawn and no refusal, as drive job ask draws it, so a draw that failed in that call goes up on this read; a job that failed or stopped asks him nothing new, and one his answer to the same question settled since it was kept is kept settled by `keep_settled` and draws none. A draw that fails again is said to the meta session from its third failure in a row, and a card drive job card refuses leaves its question refused, which the job's line then says."""
+    """Draw his card on each open question of a heard job, kept in its file with no card drawn and no refusal, as drive job ask draws it, so a draw that failed in that call goes up on this read; a job that failed or stopped asks him nothing new, nor one waiting on an order he has not scheduled, by state.unscheduled_job, until he schedules it, and one his answer to the same question settled since it was kept is kept settled by `keep_settled` and draws none. A draw that fails again is said to the meta session from its third failure in a row, and a card drive job card refuses leaves its question refused, which the job's line then says."""
     if watcher.cards is None:
         return
     from drive import cli
@@ -4522,7 +4526,7 @@ def draw_questions(watcher: Watcher, moment: datetime) -> None:
         for job_id, job in data["jobs"].items()
         if job["state"] not in state.ENDED_JOB_STATES and heard_job(watcher, data, job)
         for question in view.open_questions(job)
-        if question["file"] and not (question["card"] or question["refused"])
+        if question["file"] and not (question["card"] or question["refused"]) and not state.unscheduled_job(data, job_id)
     ]
     for job_id, question, file in undrawn:
         try:
@@ -4537,17 +4541,20 @@ def draw_questions(watcher: Watcher, moment: datetime) -> None:
 
 
 def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str, moment: datetime) -> list[str]:
-    """What the watch does for a PR that entered its stage, entered, or passed that stage's deadline, and the lines it says: his card withdrawn from a PR reworked to his words that still has one, then the act its stage owes, none for a PR behind another, whose owner that PR's stage wakes."""
+    """What the watch does for a PR that entered its stage, entered, or passed that stage's deadline, and the lines it says: his card withdrawn from a PR reworked to his words or waiting on work he has not scheduled that still has one, a failed withdrawal of the second clearing its stage so the next read enters it again, then the act its stage owes, none for a PR behind another, whose owner that PR's stage wakes."""
     from drive import talk
 
     said = []
     data = state.load(watcher.name)
     pr = data["prs"][key]
-    if pr["rework"] and view.standing_card(pr, view.live_cards(watcher.name) or view.NO_CARDS):
+    if (pr["rework"] or now.name == "unscheduled") and view.standing_card(pr, view.live_cards(watcher.name) or view.NO_CARDS):
         try:
             talk.withdraw(watcher.name, key)
         except slack.SlackError as error:
-            said += failed(watcher, "rework withdraw", f"withdrawal of his card on {key}, reworked to his words", error, moment)
+            said += failed(watcher, "rework withdraw", f"withdrawal of his card on {key}, {'reworked to his words' if pr['rework'] else 'waiting on work he has not scheduled'}", error, moment)
+            if not pr["rework"]:
+                with state.edit(watcher.name) as data:
+                    data["prs"][key]["stage"] = None
     if now.name == "behind":
         return said
     job_id = now.owner if now.owner in data["jobs"] else None

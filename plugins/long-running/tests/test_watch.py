@@ -6594,6 +6594,39 @@ def test_a_pr_reworked_to_his_words_loses_the_card_left_up_wakes_its_builder_and
     assert (state.load(demo)["prs"][KEY]["rework"], draws.keys) == (None, [[KEY]])
 
 
+def test_a_pr_waiting_on_an_order_he_has_not_scheduled_loses_the_card_left_up_wakes_no_one_and_draws_a_fresh_card_once_he_schedules_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals, draws: Draws, woken: list[tuple[str, str]]
+) -> None:
+    waiting_job(demo)
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text="cut over to the new tree", title="The cutover", state="waiting", jobs=[])
+        data["prs"][KEY] |= {"wants_tap": True, "waits": ["o2"]}
+    shown = [pr_card(KEY)]
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "closed": [], "pr_cards": list(shown)})
+    serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
+    withdrawals.cards = [CARD]
+    said = watch.run_pass(watcher(demo), T0)
+    shown.clear()
+    data = state.load(demo)
+    reason = 'Waits on your order "The cutover", which you have not scheduled. A fresh card asks your tap once you do'
+    assert (withdrawals.asked, data["prs"][KEY]["stage"]["name"], woken, draws.keys) == ([(state.pr_url(KEY), reason)], "unscheduled", [], [])
+    assert state.tap_refused(data, data["prs"][KEY]) == f"it waits on o2, work he has not scheduled, so no card asks him on it until he does, by his answer {state.UNSCHEDULED_RULING}"
+    assert not [line for line in said if line.startswith("STAGE ")]
+    watch.run_pass(watcher(demo), T0 + timedelta(hours=2))
+    assert (len(withdrawals.asked), woken, draws.keys) == (1, [], [])
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["state"] = "open"
+    watch.run_pass(watcher(demo), T0 + timedelta(hours=2, minutes=1))
+    assert draws.keys == [[KEY]]
+
+
+def test_a_job_waiting_on_an_order_he_has_not_scheduled_holds_its_pr_from_his_card_as_the_pr_s_own_wait_does() -> None:
+    data = {"orders": {"o2": order(state="waiting")}, "jobs": {"j1": job(waits=["o2"])}, "prs": {KEY: state.new_pr(state.pr_url(KEY), "j1", "o1")}}
+    assert state.unscheduled_waits(data, data["prs"][KEY]) == ["o2"]
+    data["orders"]["o2"]["state"] = "open"
+    assert state.unscheduled_waits(data, data["prs"][KEY]) == []
+
+
 @pytest.mark.parametrize("wants_tap", [False, True])
 def test_an_exempt_pr_whose_landers_try_ended_unlanded_wakes_the_session_holding_its_order_at_once_and_every_thirty_minutes(
     demo: str, monkeypatch: pytest.MonkeyPatch, wants_tap: bool, landers: list[tuple[str, ...]]
