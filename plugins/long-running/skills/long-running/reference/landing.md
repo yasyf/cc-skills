@@ -541,6 +541,21 @@ PR hits, and the monorepo hooks into the drive through its `.claude/long-running
   on this Mac holds a live claim, the `landing_guard` hook and `drive job held --cluster` refuse a
   Job on `<staging env>`, naming that claim. Wait behind it with
   `WAITING staging:<what you test>/<staging env>@<its commit>`, then claim staging yourself.
+- **When it gives way.** Every staging freeze, and the staging slot a test holds, gives way to a
+  staging release started with `<ci> release start --for-production`, by his pick 18c2fda, "Every
+  staging freeze … gives way to a staging release started for production; its thread says so":
+  `drive job add --release` starts it at once rather than queue it behind a test holding the slot,
+  taking the slot only when it is free. The watch reads that release's `bypassed` notice on the
+  freeze from the `freezes` command of the repository's `[release]` table within a minute and holds
+  each drive job the freeze names its holder a text, once per freeze and release, which ends any
+  `staging:` wait the job holds and starts the lease of the cut it holds or rides again, so no other
+  test takes staging while the release runs; the job that started the release is told nothing. The
+  cases the test ran count as not exercised. It replies in its claim's thread that the test was cut
+  short and reruns, returns `WAITING <that release's build>`, again after a stop at an approve step,
+  until the build passed, failed or was canceled, then does its GO's or RIDE's steps again from the
+  cut on and runs every case. A test that no longer holds the slot instead puts back only each stack
+  it deployed that `<ci> release live` still shows serving its cut, lifts its freeze with
+  `<ci> release unfreeze` and claims the slot again.
 - **What holds the PR.** The pass is the drive's, not GitHub's. Three things put a PR on its test:
   - The builder's `READY` or `PUSHED` carries `STAGING: #N <cases>`, which `drive job report` turns
     into the part `<order>:staging test of #N before it lands`, the PR's wait on it and its tester.

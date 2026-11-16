@@ -209,6 +209,7 @@ class Watcher:
     fix_waits: dict[str, list[str]] | None = None
     production: set[str] = field(default_factory=set)
     live_at: datetime | None = None
+    freezes_at: datetime | None = None
     staged: set[str] | None = None
     live: list[dict] | None = None
     builds: dict[str, dict | None] = field(default_factory=dict)
@@ -719,12 +720,16 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished, a job's wait on another job's change once that job registers a PR, by state.change_pr, its FREE line and its brief's Where: then naming the branch to cut its own from, by state.stacked_on, the release out by the watch's release live read or its PR closed unmerged, the Buildkite build finished or stopped at an approve step by the watch's Buildkite read, a process on this Mac ended, a teammate's reply come, a job a job waits on returned BUILT, by built_bases, a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, or a once-only pass of state.shaped ended it, each by the reason that pass handed by state.drop_waits, forgotten as this edit saves, and say once, as its last wait ends, that nothing holds it, saying nothing of a job the watch starts itself: one start_jobs starts, and a codex job or a Sprite job no worker took, which the watch launches by drive job launch once busy lets it, or holds waiting its turn on sprite-slot while place.admission refuses it a Sprite lane, so no session is woken to run the launch; holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite, or taking over here from its agent on this Mac, keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it; a job holding texts that carry_held launches, by carrier's drive job launch, names no brief and says the watch launches it and to start no agent for it, so no session starts a second worker beside that launch, while one whose worker carry_held resumes says it carries them. A release wait is a wake the job set, freed by out_because once every cluster of its service, or the one env it names, serves the PR's merge, and never comes back. A job waiting its turn for a Sprite lane on sprite-slot is freed, earliest due first after a priority order's, by place.sprite_turns, one for each lane under this Mac's Sprite cap no drive here runs, its turn stamped so that lane counts as held while its launch starts it."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished, a job's wait on another job's change once that job registers a PR, by state.change_pr, its FREE line and its brief's Where: then naming the branch to cut its own from, by state.stacked_on, the release out by the watch's release live read or its PR closed unmerged, a staging:<target>/<env>@<commit> wait of a test whose freeze gave way to a staging release for production, by gave_way, the Buildkite build finished or stopped at an approve step by the watch's Buildkite read, a process on this Mac ended, a teammate's reply come, a job a job waits on returned BUILT, by built_bases, a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, or a once-only pass of state.shaped ended it, each by the reason that pass handed by state.drop_waits, forgotten as this edit saves, and say once, as its last wait ends, that nothing holds it, saying nothing of a job the watch starts itself: one start_jobs starts, and a codex job or a Sprite job no worker took, which the watch launches by drive job launch once busy lets it, or holds waiting its turn on sprite-slot while place.admission refuses it a Sprite lane, so no session is woken to run the launch; holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite, or taking over here from its agent on this Mac, keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it; a job holding texts that carry_held launches, by carrier's drive job launch, names no brief and says the watch launches it and to start no agent for it, so no session starts a second worker beside that launch, while one whose worker carry_held resumes says it carries them. A release wait is a wake the job set, freed by out_because once every cluster of its service, or the one env it names, serves the PR's merge, and never comes back. A job waiting its turn for a Sprite lane on sprite-slot is freed, earliest due first after a priority order's, by place.sprite_turns, one for each lane under this Mac's Sprite cap no drive here runs, its turn stamped so that lane counts as held while its launch starts it."""
     data = state.load(watcher.name)
     out, lines = replies(watcher, data, moment)
     out |= shipped(watcher, data)
     bases, failed = built_bases(watcher, data, moment)
     lines += failed
+    gave, unread = gave_way(watcher, data, moment)
+    lines += unread
+    if gave:
+        data = state.load(watcher.name)
     turns, held = place.turns(data, moment)
     turned = {job_id for job_id in turns if heard_job(watcher, data, data["jobs"][job_id]) and not (place.moves_here(data["jobs"][job_id]) and busy(watcher, job_id, moment))}
     sprite_turns, running = place.sprite_turns(data, moment)
@@ -844,6 +849,60 @@ def built_bases(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[st
         wait: f"{wait} built on " + ", ".join(f"{branch} at {heads[repo, branch][:12]}" if heads[repo, branch] else f"{branch}, which {repo} does not hold" for repo, branch in both)
         for wait, both in branches.items()
     }, []
+
+
+def gave_way(watcher: Watcher, data: dict, moment: datetime) -> tuple[bool, list[str]]:
+    """Tell each unfinished job the watch hears that a freeze it holds on staging gave way to a staging release for production, by his pick 18c2fda, "Every staging freeze, a teammate's from Platy included, gives way to a staging release started for production; its thread says so", whose option says the drive tells each test holding it to rerun: one `tools/ci release freezes --json`, by brief.freezes, each READ_EVERY while such a job holds or rides a staging slot's cut, as every test on staging does, read once per freeze and release, kept on the job's gave_way, never the job that started that release or waits on its build already. The text gave_way_text writes is held on the job, which a running worker gets at once and a waiting one once its waits end; each staging:<target>/<env>@<commit> wait it holds goes to state.drop_waits, since staging serves that release now, so waits_lines ends it once his cards ask the job nothing; and the lease of the cut it holds or rides starts again, so no other test takes staging while the release runs and the test reruns in its own turn. Whether it kept any, and the lines of a read that failed, said as a failed read is and tried again a minute on."""
+    holders = {f"{watcher.name}/{job_id}": job_id for job_id, job in data["jobs"].items() if job["state"] not in state.FINISHED_JOB_STATES and heard_job(watcher, data, job)}
+    leased = {job_id for slot in data["slots"].values() for job_id in state.slot_members(slot)}
+    if not leased & set(holders.values()) or watcher.freezes_at and moment - watcher.freezes_at < READ_EVERY:
+        return False, []
+    watcher.freezes_at = moment
+    try:
+        freezes = brief.freezes(watcher.name, data)
+    except (state.DriveError, reads.ReadError) as error:
+        return False, failed(watcher, "release freezes", "release freezes read", error, moment)
+    watcher.failures.pop("release freezes", None)
+    told = [
+        (job_id, key, freeze, notice)
+        for each in freezes
+        for freeze in [each["freeze"]]
+        for notice in freeze.get("notices", [])
+        if notice["kind"] == "bypassed" and notice.get("forProduction")
+        for holder in freeze.get("holders", [])
+        if (job_id := holders.get(holder))
+        and (key := f"{freeze['id']}/{notice['id']}") not in (job := data["jobs"][job_id])["gave_way"]
+        and notice["url"] not in [job["release_build"], *job["waits"]]
+    ]
+    if not told:
+        return False, []
+    with state.edit(watcher.name) as saved:
+        for job_id, key, freeze, notice in told:
+            job = saved["jobs"][job_id]
+            job["gave_way"].append(key)
+            held = [slot for slot in saved["slots"].values() if job_id in state.slot_members(slot)]
+            for slot in held:
+                slot["holder"] = state.leased(slot["holder"], moment, slot["holder"]["riders"]) | {"released": slot["holder"]["released"]}
+            state.hold_text(job, gave_way_text(freeze, notice, bool(held)), state.WATCH_SENDER)
+            reason = f"freeze {freeze['id']} it holds gave way to the staging release for production {notice['url']}"
+            state.drop_waits(saved, job_id, {wait: reason for wait in job["waits"] if state.STAGING_WAIT.fullmatch(wait)})
+    return True, []
+
+
+def gave_way_text(freeze: dict, notice: dict, leased: bool) -> str:
+    """What a staging test holding a freeze that gave way does, decided under his ruling 43aa665, "don't ask me every little thing ask my high level preferences": its cases count for nothing, it waits for that release, then reruns every case, in its own lease, which gave_way started again, or, with no lease left, by claiming the slot again once it lifts its freeze and puts back each stack the release left on its cut, so no queued test waits behind a frozen staging."""
+    after = (
+        "Your staging slot's lease started again at the give-way, so then do the steps of your GO, or of your RIDE on another pass's cut, again from the cut on and run every case."
+        if leased
+        else "Then put back, by the restore step of the landing page's staging tests, only each stack you deployed that `tools/ci release live` still shows serving your cut,"
+        f" lift the freeze with `tools/ci release unfreeze {freeze['id']}`, and claim the staging slot again with `drive slot claim`, whose GO runs every case again."
+    )
+    return (
+        f"Release freeze {freeze['id']}, which names you its holder on staging, gave way at `{notice['at']}` to {notice['starter']}'s staging release for production"
+        f" of {', '.join(notice.get('picks', []))}, {notice['url']}, which deploys over staging while the freeze stands, so your staging test there is cut short"
+        f" and each case it ran counts as not exercised. Reply in your staging claim's thread that the test was cut short and reruns, and return `WAITING {notice['url']}`,"
+        f" and again on a wake that finds that build stopped at an approve step, until it passed, failed or was canceled. {after}"
+    )
 
 
 def exited_text(name: str, job_id: str, exited: list[str]) -> str:

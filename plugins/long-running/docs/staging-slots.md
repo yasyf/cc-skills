@@ -56,7 +56,7 @@ Each pass, for each slot:
 
 ## The top coordinator's cuts
 
-Every staging start holds the slot, the top coordinator's included. `drive job add --release` whose start names one staging `--env` takes that env's slot for the job it adds, with a 60-minute lease that ends with the job. While another cut holds the slot it queues, and the watch starts its release with `drive job release` when its turn comes. Its release names its own branch, so it holds a cut alone.
+Every staging start holds the slot, the top coordinator's included. `drive job add --release` whose start names one staging `--env` takes that env's slot for the job it adds, with a 60-minute lease that ends with the job. While another cut holds the slot it queues, and the watch starts its release with `drive job release` when its turn comes. Its release names its own branch, so it holds a cut alone. The staging release of a production release, `--for-production`, never queues: it goes through a held slot as it goes through every staging freeze, by his pick 18c2fda, and takes the slot only when it is free. The test it cuts short keeps its slot, its lease started again, and reruns once that release ends.
 
 ## Packing
 
@@ -70,7 +70,7 @@ A hold from `drive slot hold` names one job, never an order. Another job of the 
 
 ## The queue
 
-Claims queue first in, first out. A pass serving a priority order or an open incident goes ahead of every pass that does not, behind only the passes that jump too, as their builders jump the builder-slot line. A holder is never cut short.
+Claims queue first in, first out. A pass serving a priority order or an open incident goes ahead of every pass that does not, behind only the passes that jump too, as their builders jump the builder-slot line. A holder is cut short only by a staging release for production, whose give-way starts its lease again.
 
 ## What stays with a model
 

@@ -12345,6 +12345,7 @@ def test_a_parse_never_hands_a_verb_the_list_its_parser_keeps_as_a_default() -> 
 def test_a_staging_release_start_names_one_rehearsal_env_alone() -> None:
     start = "tools/ci release start api rsw-cp --from b --emergency --env plat-usw2-staging --order 23eefb9"
     assert (brief.leased_env(start.split()), brief.leased_env("tools/ci release start api --order 23eefb9".split()), brief.leased_env(f"{start} --env core-usw2-prod".split())) == ("plat-usw2-staging", None, None)
+    assert (brief.gives_way(f"{start} --for-production".split()), brief.gives_way(start.split())) == (True, False)
 
 
 def test_dropping_an_order_closes_its_open_prs_with_the_reason_and_is_refused_while_one_is_queued_to_land(

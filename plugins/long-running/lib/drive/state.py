@@ -1716,7 +1716,7 @@ def hand_off_stopped(data: dict) -> None:
 
 
 def drop_waits(data: dict, job_id: str, why: dict[str, str]) -> None:
-    """Hand watch.waits_lines each wait of a job a once-only pass of shaped ends, with why it ended, which its next pass ends by released, saying FREE with that reason once nothing else holds the job, and forgets under its own edit; the pass leaves the job's waits and state as saved, since shaping runs on every load until a save and makes no line."""
+    """Hand watch.waits_lines each wait of a job a once-only pass of shaped, or the watch's gave_way, ends, with why it ended, which its next pass ends by released, saying FREE with that reason once nothing else holds the job, and forgets under its own edit; the pass leaves the job's waits and state as saved, since shaping runs on every load until a save and makes no line."""
     if why:
         data["dropped_waits"][job_id] = data["dropped_waits"].get(job_id, {}) | why
 
@@ -4178,6 +4178,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "release_build": None,
         "prebuild_build": None,
         "release_heard": None,
+        "gave_way": [],
         "release_pass": None,
         "release_cards": {},
         "waits": [],

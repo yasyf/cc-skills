@@ -1762,7 +1762,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         if args.release:
             job["brief_flags"] = (job.get("brief_flags") or {}) | {"release": args.release}
             job["release_pass"] = {"release": args.release, "at": created, "reading": args.reading}
-            if env := brief.leased_env(shlex.split(args.release)):
+            if (env := brief.leased_env(words := shlex.split(args.release))) and not (brief.gives_way(words) and (data["slots"].get(env) or {}).get("holder")):
                 slotted = state.slot_claim(data, env, job_id, CUT_LEASE_MINUTES, [], None, state.parse_time(created), starts=True)
         if args.agent:
             job["session"] = session
@@ -1785,7 +1785,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         waiting.append(
             f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
         )
-    queued = args.release and brief.leased_env(shlex.split(args.release)) and slotted.startswith("QUEUED")
+    queued = slotted.startswith("QUEUED")
     started = [f"{job_id} {slotted}: the watch starts `{args.release}` by drive job release {job_id} once the slot is its, so start nothing for it"] if queued else state.after_save(name, lambda: started_release(name, job_id, args.release)) if args.release else []
     also = list(dict.fromkeys(order_id for orders in history.values() for order_id in orders))
     names = [f"{job_id} names {', '.join(named)}" + (f", also on {', '.join(also)}" if also else "") + ": drive status <id>"] if named else []
