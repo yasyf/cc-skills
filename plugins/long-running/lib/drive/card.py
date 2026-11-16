@@ -648,10 +648,12 @@ def kept_later(known: dict[str, tuple[str, dict]], changes: dict[str, dict]) -> 
 
 
 def record_kept(name: str, kept: Path) -> None:
-    """Apply a receipt kept_later kept to the drive in one edit, waiting out its lock however long it is held, since the card is already drawn: each PR's stack, its undrawn pictures and its refusal, telling the session hearing its order a reason it was not told before, so a refusal cc-slack gives again after every draw is told once until its reason changes; a PR the drive stopped tracking since is passed over. The receipt is removed once applied."""
-    events = []
-    with state.waiting_out_lock(), state.edit(name) as data:
-        for key, change in json.loads(kept.read_text()).items():
+    """Apply a receipt kept_later kept to the drive in one write that is never refused, since the card is already drawn: each PR's stack, its undrawn pictures and its refusal, telling the session hearing its order a reason it was not told before, so a refusal cc-slack gives again after every draw is told once until its reason changes; a PR the drive stopped tracking since is passed over. The receipt is removed once applied."""
+    changes = json.loads(kept.read_text())
+
+    def applied(data: dict) -> list[tuple[str, dict]]:
+        events = []
+        for key, change in changes.items():
             if not (pr := data["prs"].get(key)):
                 continue
             repo, number = key.split("#")
@@ -665,7 +667,9 @@ def record_kept(name: str, kept: Path) -> None:
             if "refused" in change and pr.get("refused") != change["refused"]:
                 pr["refused"] = change["refused"]
                 events.append(("refused", told | {"reason": change["refused"]}))
-    for kind, fields in events:
+        return events
+
+    for kind, fields in state.update(name, None, applied):
         state.append_event(name, kind, **fields)
     kept.unlink()
 
