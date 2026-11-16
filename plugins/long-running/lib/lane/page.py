@@ -32,7 +32,7 @@ def keep_view(drive: str, prs: dict[tuple[str, int], dict], moment: datetime) ->
         since = {}
     kept = {}
     for (repo, number), pull in prs.items():
-        kept[f"{repo}#{number}"] = {key: pull[key] for key in ("state", "merged", "head", "rollup", "review", "base", "branch")}
+        kept[f"{repo}#{number}"] = {key: pull[key] for key in ("state", "merged", "head", "rollup", "review", "base", "branch", "title")}
         if read := since.get((repo, number)):
             kept[f"{repo}#{number}"] |= {"commits": read["commits"], "whole": read["commit_count"] <= len(read["commits"])}
         elif (repo, number) in moved and "commits" in (last := before.get(f"{repo}#{number}", {})):
@@ -62,7 +62,7 @@ def tapless(lane: dict, seen: dict) -> list[dict]:
 
 
 def ready(taps: list[dict], seen: dict) -> tuple[list[dict], dict[str, int]]:
-    """Of a lane's PRs waiting on his tap, the stacks he can tap now, one per bottom PR that is green, reviewed and on no open PR, each with how many of its tapless PRs sit above it, and the rest counted by why each is not ready: behind a parent, red, CI running or no review."""
+    """Of a lane's PRs waiting on his tap, the stacks he can tap now, one per bottom PR that is green, reviewed and on no open PR, each with its tapless PRs above it, `above`, bottom first, and the rest counted by why each is not ready: behind a parent, red, CI running or no review."""
     branches = {(key.rpartition("#")[0], pull.get("branch")): key for key, pull in seen.items() if pull["state"] == "OPEN"}
 
     def parent(key: str) -> str | None:
@@ -87,10 +87,10 @@ def ready(taps: list[dict], seen: dict) -> tuple[list[dict], dict[str, int]]:
         elif pull.get("review") != "APPROVED":
             counts["no review"] += 1
         else:
-            stacks[key] = {**row, "above": 0}
+            stacks[key] = {**row, "above": []}
     for key in keyed:
         if parent(key) and (base := bottom(key)) in stacks:
-            stacks[base]["above"] += 1
+            stacks[base]["above"].append(key)
     return list(stacks.values()), {why: count for why, count in counts.items() if count}
 
 
@@ -136,7 +136,7 @@ def text(value: object) -> str:
 
 
 def tap_line(row: dict) -> str:
-    above = f" <span class=dim>and {row['above']} stacked above</span>" if row["above"] else ""
+    above = f" <span class=dim>and {len(row['above'])} stacked above</span>" if row["above"] else ""
     moved = f" <span class=dim>commits since his Approve: {text('; '.join(row['moved']))}</span>" if row["moved"] else ""
     return f"<li><a href='https://github.com/{text(row['repo'])}/pull/{row['number']}'>#{row['number']}</a> {text(row.get('words') or '')}{above}{moved}</li>"
 

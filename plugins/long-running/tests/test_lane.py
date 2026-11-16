@@ -14,7 +14,7 @@ LIB = Path(__file__).resolve().parents[1] / "lib"
 
 
 def pull(state: str = "OPEN", rollup: str | None = "PENDING", head: str = "abc", base: str = "main", branch: str = "feature") -> dict:
-    return {"state": state, "merged": state == "MERGED", "head": head, "base": base, "branch": branch, "default": "main", "review": None, "rollup": rollup}
+    return {"state": state, "merged": state == "MERGED", "head": head, "base": base, "branch": branch, "default": "main", "review": None, "rollup": rollup, "title": ""}
 
 
 @pytest.fixture
@@ -669,15 +669,15 @@ def test_his_dashboard_queue_on_a_live_lane_drive_lists_lane_taps_in_queue_order
 
     opened("a", prs=[("acme/app", 7)])
     opened("b", prs=[("acme/app", 8)])
-    world["prs"][("acme/app", 7)] = pull(head="h7", rollup="SUCCESS")
-    world["prs"][("acme/app", 8)] = pull(head="h8")
+    world["prs"][("acme/app", 7)] = pull(head="h7", rollup="SUCCESS") | {"review": "APPROVED", "title": "seven"}
+    world["prs"][("acme/app", 8)] = pull(head="h8", rollup="SUCCESS") | {"review": "APPROVED"}
     world["scores"] = {"a": 9, "b": 1}
     supervisor.run_pass(DRIVE)
     assert board.taps(DRIVE) is None
     (store.drive_dir(DRIVE) / store.LIVE).touch()
     assert [(tap["key"], tap["position"]) for tap in board.taps(DRIVE)] == [("acme/app#7", 1), ("acme/app#8", 2)]
     item = view.lane_tap_item(board.taps(DRIVE)[0], {"pr_cards": []}, None)
-    assert (item["kind"], item["key"], item["head"], item["checks"], item["reason"]["label"]) == ("tap", "acme/app#7", "h7", "pass", "Lane #1 in the queue")
+    assert (item["kind"], item["key"], item["head"], item["checks"], item["title"], item["reason"]["label"], [pr["state"] for pr in item["prs"]]) == ("tap", "acme/app#7", "h7", "pass", "seven", "Lane #1 in the queue", ["open"])
 
 
 def test_his_page_shows_only_stacks_ready_for_his_tap_and_counts_the_rest_by_why(world: dict) -> None:
@@ -691,5 +691,5 @@ def test_his_page_shows_only_stacks_ready_for_his_tap_and_counts_the_rest_by_why
     supervisor.run_pass(DRIVE)
     shown = {lane["id"]: lane for lane in page.model(DRIVE)["lanes"]}
     stacks, rest = shown["a"]["ready"]
-    assert ([(row["number"], row["above"]) for row in stacks], rest) == ([(1, 1)], {"behind a parent": 1, "red": 1, "no review": 1})
+    assert ([(row["number"], row["above"]) for row in stacks], rest) == ([(1, ["acme/app#2"])], {"behind a parent": 1, "red": 1, "no review": 1})
     assert "3 more not ready" in page.drawn(DRIVE)
