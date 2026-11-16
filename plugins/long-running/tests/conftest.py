@@ -987,6 +987,7 @@ def agents_at_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch, "last_write", lambda job, data: (wrote, None))
     monkeypatch.setattr(orca, "worker", lambda dispatch: LIVE_WORKER)
     monkeypatch.setattr(orca, "task_title", lambda run, task: f"lane-of-{task}")
+    monkeypatch.setattr(orca, "tasks", lambda run: [])
     monkeypatch.setattr(github, "open_on", lambda heads: {})
 
 
