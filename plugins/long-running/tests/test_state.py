@@ -239,7 +239,7 @@ def test_a_row_save_indexes_only_written_collections_and_keeps_insertion_order(s
         held = {(collection, key): state.ABSENT for key in ("a2", "a9")}
     else:
         mine["terminal"] = "the new terminal"
-        held = {("", "terminal"): base["terminal"]}
+        held = {("", "terminal"): state.row_of(state.stored("demo"), ("", "terminal"))}
     state.rows_saved("demo", held, base, mine, tuple(held))
     assert traversed == ([collection] if collection else [])
     with closing(state.connect(state.database_path("demo"))) as db:
