@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from drive import agents, github, install, served, state, view
+from drive import agents, github, install, served, state, train, view
 from drive.render import cut
 
 ENQUEUE = Path(".agents/skills/submit-pr/scripts/stack-enqueue")
@@ -591,7 +591,7 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
         elif testing := [run for key in keys for run in staged(data, data["prs"][key])]:
             outcome = f"{WAITED}: its staging test {', '.join(testing)} has not passed"
         elif state.merges_untapped(keys[0]):
-            outcome = f"would merge it with {' '.join(MERGE)} --{data['prs'][keys[0]]['merge_method']} --admin once every check at its head finished with none failing on its own change, then install each plugin it changes" if dry_run else admin_merged(name, keys[0])
+            outcome = f"would merge it with {' '.join(MERGE)} --{data['prs'][keys[0]]['merge_method']} --admin once every check at its head finished with none failing on its own change, then board each plugin it changes on the install train, or install it at once for an incident or priority order" if dry_run else admin_merged(name, keys[0])
         else:
             from drive import cli
 
@@ -753,7 +753,7 @@ def ask_review(repo: str, number: str, head: str) -> str | None:
 
 
 def merged(name: str, key: str, method: str, flags: list[str], past: str = "") -> str:
-    """Merge a PR by method, squash, rebase or merge, the one github.merge_method reads its repository allowing, with gh pr merge and the flags given, --admin for a yasyf/* one by his rule for his own repositories, and --match-head-commit, which GitHub merges only at that head and, without --admin, only once its repository's rules pass, or through GitHub's merge-async endpoint once gh pr merge is refused for a PR of a native GitHub stack, with gh itself since ccx's GitHub gateway refuses a merge; then read the PR back with github.fetch and record its landing on its row by github.landing, the one rule of whether a PR merged, so the row reads merged before the watch's next read and a merge GitHub does not read merged ends the try not landed, installing nothing, rather than crediting the PR with whatever the default branch's head carries; once merged, install from its own merge commit each plugin of this Mac it changes; what came of it, its merge naming past the failing checks admin_merged() read as the default branch's, a refusal not landed but a yasyf/* squash merge GitHub refuses on a conflict, which rebased() takes, and a merge GitHub gave no answer to or a read back that failed, the lander's own failure by unanswered()."""
+    """Merge a PR by method, squash, rebase or merge, the one github.merge_method reads its repository allowing, with gh pr merge and the flags given, --admin for a yasyf/* one by his rule for his own repositories, and --match-head-commit, which GitHub merges only at that head and, without --admin, only once its repository's rules pass, or through GitHub's merge-async endpoint once gh pr merge is refused for a PR of a native GitHub stack, with gh itself since ccx's GitHub gateway refuses a merge; then read the PR back with github.fetch and record its landing on its row by github.landing, the one rule of whether a PR merged, so the row reads merged before the watch's next read and a merge GitHub does not read merged ends the try not landed, installing nothing, rather than crediting the PR with whatever the default branch's head carries; once merged, board each plugin of this Mac it changes on the install train at its own merge commit, by train.board, which installs the newest sha boarded of each at most every train.EVERY, or install each from that commit at once when hotfix() reads its PR serving an open incident or priority order; what came of it, its merge naming past the failing checks admin_merged() read as the default branch's, a refusal not landed but a yasyf/* squash merge GitHub refuses on a conflict, which rebased() takes, and a merge GitHub gave no answer to or a read back that failed, the lander's own failure by unanswered()."""
     if (refusal := merged_sync(key, method, flags)) and STACKED in refusal:
         print(f"{key}: {refusal}; merging it through GitHub's {MERGE_ASYNC} instead", flush=True)
         refusal = merged_async(key, method, flags)
@@ -771,6 +771,7 @@ def merged(name: str, key: str, method: str, flags: list[str], past: str = "") -
     landed = github.landing(reads[key])
     with state.edit(name) as data:
         data["prs"][key].update(landed, updated=state.stamp())
+        urgent = hotfix(data, data["prs"][key])
     if landed["state"] != "merged":
         return f"not landed: GitHub reads it {landed['state']} after {' '.join(MERGE)} said it merged, so nothing was installed"
     sha = landed["merged_sha"]
@@ -779,12 +780,19 @@ def merged(name: str, key: str, method: str, flags: list[str], past: str = "") -
     outcome = f"merged at {sha[:12]}{f' past {past}' if past else ''}"
     if not plugins:
         return f"{outcome}; it changes no plugin installed on this Mac"
+    if not urgent:
+        return "; ".join([outcome, *(train.board(plugin, repo, key, sha) for plugin in plugins)])
     lines = [outcome]
     for plugin in plugins:
         done = subprocess.run([str(DRIVE), "install", plugin, "--sha", sha, "--drive", name], capture_output=True, text=True)
         print(done.stdout + done.stderr, flush=True)
         lines.append(done.stdout.splitlines()[0] if done.returncode == 0 else f"but drive install {plugin} --sha {sha[:12]} failed: {said(done.stderr)}")
     return "; ".join(lines)
+
+
+def hotfix(data: dict, pr: dict) -> bool:
+    """Whether a merge installs at once rather than boarding the install train: its PR serves an open incident order or one drive order set --priority marked, by state.served_orders, so a fix someone waits on never waits out the train."""
+    return any((order := data["orders"][order_id])["incident"] or order["priority"] for order_id in state.served_orders(data, pr) if data["orders"][order_id]["state"] not in state.CLOSED_ORDER_STATES)
 
 
 def merged_sync(key: str, method: str, flags: list[str]) -> str | None:

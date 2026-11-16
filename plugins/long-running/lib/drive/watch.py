@@ -20,8 +20,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import NamedTuple, Self
 
-from drive import agents, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, page, place, procs, reads, receiver, refs, render, served, settled, slack, stage, stall, state, superseded, superseded_procs, view
-from drive.install import PROOF_FAILED, add_prover, config_dir, done_before_proofs, done_unproven, merged_done, merged_ready, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, released_prs, reported_prs, watch_upgraded as upgraded, watch_proves, widen
+from drive import agents, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, page, place, procs, reads, receiver, refs, render, served, settled, slack, stage, stall, state, superseded, superseded_procs, train, view
+from drive.install import PROOF_FAILED, add_prover, config_dir, done_before_proofs, done_unproven, merged_done, merged_ready, merges_of, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, released_prs, reported_prs, watch_upgraded as upgraded, watch_proves, widen
 from drive.render import cut, when
 
 POLL_SECONDS = 5
@@ -1668,14 +1668,15 @@ def responder(name: str, project: str | None, lines: int) -> int:
 
 
 def beside_passes(name: str, project: str | None, lines: int, flag: str, passing: Callable[[Watcher, datetime], list[str]], seconds: float) -> int:
-    """Run one pass after another, seconds apart, each first moving this process onto the newest install, by install.reopen, so the code installed now runs it however long a pass holds the watch on the install it started on. Each line a pass makes goes to the watch down the pipe end it inherited, for the watch's next pass to hand on; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag rather than an Event, which a handler setting it can deadlock on. It keeps a Watcher of its own, so a failed Orca read of its own never reruns the pass's 60-second block."""
+    """Run one pass after another, seconds apart, each first moving this process onto the newest install, by install.reopen, once watch_upgraded reads that install running other code than this one, so the code installed now runs it however long a pass holds the watch on the install it started on, and an install that changes none of its code moves nothing. Each line a pass makes goes to the watch down the pipe end it inherited, for the watch's next pass to hand on; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag rather than an Event, which a handler setting it can deadlock on. It keeps a Watcher of its own, so a failed Orca read of its own never reruns the pass's 60-second block."""
     ended: list[int] = []
     signal.signal(signal.SIGTERM, lambda signum, frame: ended.append(signum))
     children.reap_inherited()
     passer = Watcher(name, offset=state.watch_cursor(name, project), project=project)
     with os.fdopen(lines, "w", buffering=1) as relayed:
         while not ended:
-            install.reopen(["watch", flag, str(lines), "--drive", name, *(["--project", project] if project else [])])
+            if upgraded():
+                install.reopen(["watch", flag, str(lines), "--drive", name, *(["--project", project] if project else [])])
             for line in passing(passer, state.now()):
                 relayed.write(f"{LINE_BREAKS.sub(' ', line)}\n")
             time.sleep(seconds)
@@ -4207,13 +4208,13 @@ def unproved(data: dict, job_id: str) -> dict[str, list[str]]:
 
 
 def proof_due(data: dict, job_id: str) -> bool:
-    """Whether the watch starts the job's proof: a builder still waiting on a READY or PUSHED whose PRs all merged, a yasyf/* one among them, none a PR a lander still merges or installs, each merged outside yasyf/* handed with the parts its job holds to its prover, by unproved, so the install's proof delivers none of them, a DONE of a job's own on work no proof delivered, or a repair waiting on the proof its drive job prove marked, keeping an executable proof file, and no proof started on that line, one that waits on his next word once he is heard after it started, or one that ended with no result before a newer long-running's watch read it, never one that took a pass or a fail, which proof_kept marks on it as its result, so an install reruns no proof that ran to its end, one whose job was put back on the line it ran on included."""
+    """Whether the watch starts the job's proof: a builder still waiting on a READY or PUSHED whose PRs all merged, a yasyf/* one among them, none a PR a lander still merges or installs, none a merge the install train holds, boarded or carried by an install it started that still runs, by train.holds, so the proof starts on the pass after the train's install ends rather than installing early, each merged outside yasyf/* handed with the parts its job holds to its prover, by unproved, so the install's proof delivers none of them, a DONE of a job's own on work no proof delivered, or a repair waiting on the proof its drive job prove marked, keeping an executable proof file, and no proof started on that line, one that waits on his next word once he is heard after it started, or one that ended with no result before a newer long-running's watch read it, never one that took a pass or a fail, which proof_kept marks on it as its result, so an install reruns no proof that ran to its end, one whose job was put back on the line it ran on included."""
     job = data["jobs"][job_id]
     if not watch_proves(data, job_id) or proof_gap(data, job_id) or any(land.running(data["prs"][key]) for key in reported_prs(data, job_id)) or unproved(data, job_id):
         return False
     proof = job.get("proof")
     if not proof or proof["said"] != job["said"]:
-        return True
+        return not train.holds(merges_of(data, job_id))
     if proof.get("waits"):
         heard = data["owner"]["heard"]
         return not state.alive(proof["pid"]) and bool(heard) and state.parse_time(heard) > state.parse_time(proof["at"])
@@ -4221,7 +4222,7 @@ def proof_due(data: dict, job_id: str) -> bool:
 
 
 def proving(data: dict, job_id: str) -> bool:
-    """Whether a merged job's, a DONE of a job's own's or a repair's proof is to come: a lander still merging or installing one of its PRs, a PR of it merged outside yasyf/* still to be handed to its prover, by unproved, a proof running on its line or waiting on his next word, or one the watch starts on its next read."""
+    """Whether a merged job's, a DONE of a job's own's or a repair's proof is to come: a lander still merging or installing one of its PRs, a merge of it the install train holds, a PR of it merged outside yasyf/* still to be handed to its prover, by unproved, a proof running on its line or waiting on his next word, or one the watch starts on its next read."""
     job = data["jobs"][job_id]
     if not watch_proves(data, job_id) or proof_gap(data, job_id):
         return False
@@ -4230,6 +4231,7 @@ def proving(data: dict, job_id: str) -> bool:
         proof_due(data, job_id)
         or any(land.running(data["prs"][key]) for key in reported_prs(data, job_id))
         or bool(unproved(data, job_id))
+        or bool(train.holds(merges_of(data, job_id)))
         or proof["said"] == job["said"]
         and bool(proof.get("waits") or state.alive(proof["pid"]))
     )
@@ -4726,6 +4728,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
         ]
     later += [
         functools.partial(superseded_lines, watcher, moment),
+        functools.partial(train_lines, watcher, moment),
         functools.partial(event_lines, watcher),
         *(owed_reads(watcher, moment) if lands else []),
         *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, quiet_lines, clock_lines, undelivered_lines, close_answered, close_joined_repeats, tell_lines, standing_lines, orphan_lines)),
@@ -4746,6 +4749,15 @@ def superseded_lines(watcher: Watcher, moment: datetime) -> list[str]:
     for line in [*superseded_procs.end(watcher.name, not watcher.project), *([] if watcher.project else install.due_reloads(watcher.name))]:
         print(f"{state.stamp(moment)} {line}", flush=True)
     return []
+
+def train_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Send the install train from the drive's own watch once it is due, by train.depart, whichever drive's watch on this Mac reads it due first, said in the watch's log, never to a session, since each proof waiting on it starts once its install ends."""
+    if state.scratch() or watcher.project:
+        return []
+    for line in train.depart(watcher.name, moment):
+        print(f"{state.stamp(moment)} {line}", flush=True)
+    return []
+
 
 def github_owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """The GitHub reads the pass's stages and deliveries owe, unless its last GitHub read failed, which the next 60-second read retries."""
