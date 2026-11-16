@@ -138,7 +138,7 @@ def again(words: str, said: str, why: str) -> str:
 def reply_of(said: str, rows: str) -> tuple[str | None, str]:
     """The answer to post and why, or None and why the message goes to a handler instead."""
     head, _, rest = said.partition("\n")
-    if head.strip() != ANSWER:
+    if head.strip().rstrip(":") != ANSWER:
         return None, said.removeprefix(ESCALATE).strip() or "the model escalated it"
     text = rest.strip()
     if refused := unbacked(text, rows):
@@ -252,6 +252,7 @@ def report_of(said: str, rows: str) -> tuple[str | None, str | None, str]:
     """The line to post, or NOTHING, and why; (None, None, why) when the report goes to a handler."""
     head, _, rest = said.partition("\n")
     verb, _, why = head.strip().partition(" ")
+    verb, why = verb.rstrip(":"), why.strip()
     if verb == NOTHING:
         return None, NOTHING, why or "nothing he acts on moved"
     if verb != POST:
