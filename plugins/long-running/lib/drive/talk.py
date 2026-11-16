@@ -346,7 +346,7 @@ def report_post(name: str, seq: str) -> str:
         return f"report {seq} sent back to {made['to'][0]}: {error}"
 
 
-SAID_FILE = "said.json"
+SAID_FILE = "posted-words.json"
 SAID_KEPT = 50
 
 
