@@ -5337,12 +5337,15 @@ def sweep_lines(watcher: Watcher, moment: datetime) -> list[str]:
     except (slack.SlackError, github.GithubError, state.DriveError) as error:
         return lines + failed(watcher, "sweep", "daily Slack sweep", error, moment)
     watcher.failures.pop("sweep", None)
-    with state.edit(watcher.name) as data:
+
+    def drained_backlog(data: dict) -> tuple[list[str], dict[str, str]]:
         for order_id, note in filed.items():
             data["orders"][order_id]["note"] = note
         data["slack"]["swept"] = {"at": state.stamp(moment), "offset": offset}
         promoted, dropped = state.backlog_drain(data, moment)
-        drained = {order_id: data["orders"][order_id]["promoted"]["why"] for order_id in promoted}
+        return dropped, {order_id: data["orders"][order_id]["promoted"]["why"] for order_id in promoted}
+
+    dropped, drained = state.update(watcher.name, None, drained_backlog)
     print(f"{state.stamp(moment)} drive tooling backlog: dropped {', '.join(dropped) or 'none'}, no repeat in {state.BACKLOG_STALE.days} days", flush=True)
     return lines + [f"BACKLOG {order_id} promoted ({why}): add its one builder now, which researches inline with no reader" for order_id, why in drained.items()]
 
