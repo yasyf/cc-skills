@@ -12,7 +12,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from itertools import chain, repeat
 from pathlib import Path, PurePosixPath
-from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from conftest import REAL_PLUGIN_COPIES_FIRST, Jev, commit_files, edit, git_in
@@ -204,6 +203,8 @@ class FakeGit:
         self.now += self.call_seconds
         if cmd[0] == "gh":
             return subprocess.CompletedProcess(cmd, 1, "", "gh: API rate limit exceeded (HTTP 403)")
+        if cmd[:3] == ["ccx", "vcs", "gh"] and any("history(" in arg for arg in cmd):
+            return subprocess.CompletedProcess(cmd, 0, history([], []), "")
         if cmd[0] == "env" and cmd[3:5] == ["status", "--drive"]:
             with pytest.MonkeyPatch.context() as copied:
                 copied.setenv("LONG_RUNNING_STATE", cmd[1].partition("=")[2])
@@ -1539,7 +1540,7 @@ def test_a_jobs_own_done_citing_prs_other_jobs_opened_proves_only_itself_and_say
     git = fake([BUILD], {BUILD})
     cited = "DONE 1,216 PRs checked at 27c34883bf69: 0 gaps; no readers added. #41015 held by its o2 part and j5676/#56696"
     watched = {"child": state.born(os.getpid()), "state": "adopted", "at": state.stamp(), "said": cited, "version": state.VERSION}
-    script = repairing(config, tmp_path, git, exits, {"state": "done", "said": cited, "proof": watched})
+    repairing(config, tmp_path, git, exits, {"state": "done", "said": cited, "proof": watched})
     with edit("demo") as data:
         for number, job_id in (("41015", "j0"), ("56696", "j5676")):
             data["prs"][f"Forge-AI/monorepo#{number}"] = state.new_pr(f"https://github.com/Forge-AI/monorepo/pull/{number}", job_id, "o1") | {"state": "merged", "merged_sha": "fedcba"}
@@ -2477,6 +2478,18 @@ def test_a_proof_file_runs_on_the_newest_install_read_right_before_it_and_again_
 MERGED_BEFORE = "291e838bc0ffee"
 MERGED_AFTER = "e16c9ce5a1b2c3"
 FIXED_AFTER = "38425f1b6d4e5f"
+MAIN = [MERGED_BEFORE, SHA, MERGED_AFTER, FIXED_AFTER]
+MERGED_AT = "2026-11-13T05:00:00Z"
+
+
+def history(line: list[str], runs: list[dict], statuses: dict[str, list[dict]] | None = None) -> str:
+    """The answer install.branch_pages reads for a branch whose commits are line, oldest first, each the parent of the next, with each of runs, a push run unless it names its event, on the commit its head_sha names and statuses by commit: one page, newest first."""
+    commits = [{"oid": oid, "parents": line[at - 1 : at] if at else [], "statuses": (statuses or {}).get(oid, []), "runs": [{"event": "push"} | run for run in runs if run["head_sha"] == oid]} for at, oid in enumerate(line)]
+    return "".join(json.dumps(row) + "\n" for row in [{"hasNextPage": False, "endCursor": None}, *commits[::-1]])
+
+
+def reads_history(cmd: list[str]) -> bool:
+    return cmd[2] == "graphql" and "history(" in cmd[4]
 
 
 def ci(run_id: int, name: str, created: str, status: str = "in_progress", conclusion: str | None = None, head: str = SHA) -> dict:
@@ -2502,13 +2515,13 @@ def on_actions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, triggered: list[
             return "main\n"
         if cmd[1:3] == ["pr", "view"]:
             return f"{SHA}\n"
-        if cmd[2] == "graphql":
+        if cmd[-1] == ".commit.committer.date":
+            return f"{MERGED_AT}\n"
+        if not reads_history(cmd):
             return ""
-        if f"/compare/{SHA}..." in cmd[2]:
-            return "behind\n" if cmd[2].endswith(MERGED_BEFORE) else "ahead\n"
-        runs = triggered if f"&head_sha={SHA}" in cmd[2] else [run for run in next(answers) if f"/actions/workflows/{run['workflow_id']}/runs?" in cmd[2]]
+        runs = list({run["id"]: run for run in [*triggered, *next(answers)]}.values())
         shown.write_text("".join(f"{run['id']} {run['status']} {run['conclusion']}\n" for run in runs))
-        return "".join(json.dumps(run) + "\n" for run in runs)
+        return history(MAIN, runs)
 
     monkeypatch.setattr(github, "read", read)
     return shown
@@ -2572,14 +2585,14 @@ def test_tonights_proof_reads_its_merges_ci_once_per_workflow_run_finishing_on_m
         if cmd[-1] == ".default_branch":
             return "main\n"
         reads.append(cmd[2])
-        if cmd[2] == "graphql":
-            return ""
-        return "".join(json.dumps(run) + "\n" for run in ([running] if f"&head_sha={SHA}" in cmd[2] else next(polls)))
+        if cmd[-1] == ".commit.committer.date":
+            return f"{MERGED_AT}\n"
+        return history(MAIN, next(polls))
 
     monkeypatch.setattr(github, "read", read)
     start = install.clock()
     assert install.await_ci({f"{REPO}#7": SHA})
-    assert (git.now - start, len(git.heard), len(reads), git.sleeps) == (720, 4, 3 * 5, [])
+    assert (git.now - start, len(git.heard), len(reads), git.sleeps) == (720, 4, 1 + 5, [])
     assert len(capsys.readouterr().err.splitlines()) == 1
 
 
@@ -2593,11 +2606,11 @@ def test_a_ci_read_that_fails_is_read_again_within_poll_seconds_since_no_deliver
     def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
         if cmd[-1] == ".default_branch":
             return "main\n"
-        if cmd[2] == "graphql":
-            return ""
+        if cmd[-1] == ".commit.committer.date":
+            return f"{MERGED_AT}\n"
         if isinstance(answer := next(answers), Exception):
             raise answer
-        return "".join(json.dumps(run) + "\n" for run in answer)
+        return history(MAIN, answer)
 
     monkeypatch.setattr(github, "read", read)
     assert not install.await_ci({f"{REPO}#7": SHA})
@@ -2653,17 +2666,9 @@ def on_dev(monkeypatch: pytest.MonkeyPatch, statuses: dict[str, list[dict]]) -> 
     def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
         if cmd[1:3] == ["pr", "view"]:
             return f"{STACK[cmd[3]]}\n"
-        if cmd[2] == "graphql":
-            return "".join(json.dumps(status) + "\n" for status in statuses.get(re.search(r'oid: "(\w+)"', cmd[4])[1], []))
-        if compared := re.search(r"/compare/(\w+)\.\.\.(\w+)$", cmd[2]):
-            base, head = compared.groups()
-            if cmd[-1] == ".status":
-                return "ahead\n" if DEV.index(head) > DEV.index(base) else "behind\n"
-            return "".join(f"{commit}\n" for commit in DEV[DEV.index(base) + 1 :])
-        asked = {field: values[0] for field, values in parse_qs(urlsplit(cmd[2]).query).items() if field in ("head_sha", "event")}
-        workflow = re.search(r"/workflows/(\d+)/runs", cmd[2])
-        runs = [run for run in REVIEWERS if all(run[field] == value for field, value in asked.items()) and (not workflow or run["workflow_id"] == int(workflow[1]))]
-        return "".join(json.dumps(run) + "\n" for run in runs)
+        if cmd[-1] == ".commit.committer.date":
+            return "2026-11-15T11:50:00Z\n"
+        return history(DEV, REVIEWERS, statuses)
 
     monkeypatch.setattr(github, "read", read)
     monkeypatch.setattr(github, "default_branch", lambda repo: "dev")
@@ -2706,15 +2711,9 @@ def test_a_proof_of_a_merge_its_push_carried_below_its_head_waits_on_the_ci_of_t
     def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
         if cmd[-1] == ".default_branch":
             return "main\n"
-        if cmd[2] == "graphql":
-            return ""
-        if cmd[-1] == ".commits[].sha":
-            return f"{MERGED_AFTER}\n"
-        if cmd[-1] == ".status":
-            return "ahead\n"
-        if "/workflows/" in cmd[2]:
-            return "".join(json.dumps(run) + "\n" for run in next(polls))
-        return json.dumps(running) + "\n" if f"&head_sha={MERGED_AFTER}" in cmd[2] else ""
+        if cmd[-1] == ".commit.committer.date":
+            return f"{MERGED_AT}\n"
+        return history(MAIN, next(polls))
 
     monkeypatch.setattr(github, "read", read)
     assert install.await_ci({f"{REPO}#7": SHA})
@@ -3000,7 +2999,7 @@ def test_a_workflow_with_no_finished_main_run_in_its_range_says_nothing_of_any_t
     def gh_printing_an_empty_runs_list(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
         if cmd[-1] == ".default_branch":
             return "main\n"
-        return "null\n" if cmd[-1].endswith("| tojson") else "\n"
+        return history([], [])
 
     monkeypatch.setattr(github, "read", gh_printing_an_empty_runs_list)
     assert install.main_failures(REPO, 7, ">=2026-11-15T13:20:00Z") is None
@@ -3100,3 +3099,17 @@ def test_an_install_whose_try_runs_past_its_deadline_without_a_crash_passes_and_
     assert json.loads(install.tried_path(newer).read_text())["passed"] is True
     [[record]] = sent
     assert record["to"] == ["meta@demo"] and "untried" in record["text"]
+
+
+def test_a_workflows_last_main_run_before_a_merge_is_its_newest_finished_one_not_cancelled_created_before_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    passed = ci(43375540001, "long-running CI", "2026-11-13T04:00:00Z", "completed", "success", head=MERGED_BEFORE)
+    cancelled = ci(43375540002, "long-running CI", "2026-11-13T04:30:00Z", "completed", "cancelled", head=MERGED_BEFORE)
+    later = ci(43375540003, "long-running CI", "2026-11-13T06:00:00Z", "completed", "failure", head=MERGED_AFTER)
+
+    def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
+        if cmd[-1] == ".default_branch":
+            return "main\n"
+        return history(MAIN, [passed, cancelled, later])
+
+    monkeypatch.setattr(github, "read", read)
+    assert install.main_failures(REPO, 366540480, "<2026-11-13T05:00:00Z") == []
