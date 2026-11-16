@@ -1105,6 +1105,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order.setdefault("title", None)
         order.setdefault("terms", {})
         order.setdefault("complex", False)
+        order.setdefault("urgent", [])
         order.setdefault("options_only", False)
         order.setdefault("fresh", None)
         order.setdefault("once", False)
@@ -2101,6 +2102,11 @@ def saved_thread(data: dict, order: dict) -> list[str] | None:
     source = SLACK_SOURCE.fullmatch(order.get("from", ""))
     thread = thread or (source and source[2])
     return [source[1] if source and thread in (source[2], from_thread) else dm, thread] if thread else None
+
+
+def urgent_part(data: dict, job: dict) -> bool:
+    """Whether a job carries a part the coordinator marked urgent with drive order set --urgent, judging from his words that he wants it soon, so its design or builder starts past every cap at once."""
+    return any(part in data["orders"][order_id]["urgent"] for order_id in [job["order"], *job["carries"]] if order_id in data["orders"] for part in job_parts(job, order_id))
 
 
 def job_parts(job: dict, order_id: str) -> list[str]:
@@ -4004,6 +4010,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "incident": False,
         "kind": "build",
         "complex": False,
+        "urgent": [],
         "options_only": False,
         "fresh": None,
         "once": False,

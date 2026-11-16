@@ -1099,48 +1099,29 @@ def own_communicator(payload: dict) -> bool:
 
 CRAFT_SECONDS = 3
 CRAFT_GUIDE = (
-    'His standard for every post to him. A post must never: open on something other than the answer, in one plain sentence '
-    'saying what changed for him; run past about 60 words without short parts under bold headings, or run a list of several '
-    'items through one sentence where bullets would serve; show a raw URL, or a link whose words are its own URL, where words'
-    " saying what it opens belong, other than an alert's own Sentry or Datadog link alone on its line; tell him something "
-    'waits or sits somewhere else, such as his card in another thread, without linking it or showing what it asks right here;'
-    ' ask him to act on a card, such as picking an option on it or tapping it, without linking that card so it draws with the'
-    " post; link a release to its build page where its own release post belongs; name the drive's own machinery or process, "
-    'such as a job, seat, reader, builder, lane, design job, codex job, fde-scan, an order or job id, or which read or '
-    "session backs a claim, where plain words for what happens to his work would serve; state a time as a log's UTC stamp or "
-    'with a zone label rather than in his own local time; call itself a correction, or correct an earlier line, without '
-    "saying what it corrects, or stand as a new post rather than in that post's thread or an edit of it; name an option by "
-    'its number or position rather than its own words; apologize, compare itself with another draft, report that nothing '
-    'changed, or list what is not proven yet; walk through progress across several stages, such as a release moving through '
-    'sandbox, staging and production, in words alone while `post.pictures` is 0.'
+    "His standard for every post to him: the answer first, in one plain sentence saying what changed for him; past about 60 words,"
+    " short parts under bold headings such as *What changed:* and *What happens next:*, lists as bullets; every PR, build, card or"
+    " doc linked on words saying what it is; anything it refers to, a card, a question, a release, shown or linked right here, never"
+    " left for him to find in another thread; plain words for what happens to his work, never the drive's own machinery; and a"
+    " picture of progress when work moves through stages, such as a release across sandbox, staging and production."
 )
 CRAFT = {
-    "craft.answer": settled.Noul('Does `post.text` open on something other than the answer, in one plain sentence saying what changed for him?'),
-    "craft.sections": settled.Noul('Does `post.text` run past about 60 words without short parts under bold headings, or run a list of several items through one sentence where bullets would serve?'),
-    "craft.links": settled.Noul("Does `post.text` show a raw URL, or a link whose words are its own URL, where words saying what it opens belong, other than an alert's own Sentry or Datadog link alone on its line?"),
-    "craft.elsewhere": settled.Noul('Does `post.text` tell him something waits or sits somewhere else, such as his card in another thread, without linking it or showing what it asks right here?'),
-    "craft.card": settled.Noul('Does `post.text` ask him to act on a card, such as picking an option on it or tapping it, without linking that card so it draws with the post?'),
-    "craft.release": settled.Noul('Does `post.text` link a release to its build page where its own release post belongs?'),
-    "craft.machinery": settled.Noul("Does `post.text` name the drive's own machinery or process, such as a job, seat, reader, builder, lane, design job, codex job, fde-scan, an order or job id, or which read or session backs a claim, where plain words for what happens to his work would serve?"),
-    "craft.times": settled.Noul("Does `post.text` state a time as a log's UTC stamp or with a zone label rather than in his own local time?"),
-    "craft.correction": settled.Noul("Does `post.text` call itself a correction, or correct an earlier line, without saying what it corrects, or stand as a new post rather than in that post's thread or an edit of it?"),
-    "craft.options": settled.Noul('Does `post.text` name an option by its number or position rather than its own words?'),
-    "craft.noise": settled.Noul('Does `post.text` apologize, compare itself with another draft, report that nothing changed, or list what is not proven yet?'),
-    "craft.visual": settled.Noul('Does `post.text` walk through progress across several stages, such as a release moving through sandbox, staging and production, in words alone while `post.pictures` is 0?'),
+    "craft.answer": settled.Noul("Does `post.text` open on something other than the answer, in one plain sentence saying what changed for him?"),
+    "craft.sections": settled.Noul("Is `post.text` past about 60 words yet not cut into short parts under bold headings, or does it run a list of several items through one sentence where bullets would serve?"),
+    "craft.elsewhere": settled.Noul(
+        "Does `post.text` tell him something waits or sits somewhere else, such as his card in another thread, without linking it or showing what it asks right here?"
+    ),
+    "craft.machinery": settled.Noul(
+        "Does `post.text` name the drive's own machinery or process, such as a job, seat, reader, builder, lane, design job, order or job id, or which read or session backs a claim, where plain words for what happens to his work would serve?"
+    ),
+    "craft.visual": settled.Noul("Does `post.text` walk through progress across several stages, such as a release moving through sandbox, staging and production, in words alone while `post.pictures` is 0?"),
 }
 CRAFT_FIXES = {
-    "craft.answer": 'open with the answer in one plain sentence',
-    "craft.sections": 'cut it into short parts under bold headings, with lists as bullets',
-    "craft.links": 'link each thing on words saying what it opens',
-    "craft.elsewhere": 'show what the card or thread it names asks right here, or link it on its words',
-    "craft.card": 'link the card he acts on, so it draws right under the post',
-    "craft.release": "link the release's own release post, never its build",
-    "craft.machinery": 'say what happens to his work in plain words',
-    "craft.times": 'write times in Pacific, as 1:15 AM',
-    "craft.correction": "name what it corrects, and put it in that post's thread or edit that post",
-    "craft.options": 'name each option in its own words',
-    "craft.noise": 'say what is true, standing alone',
-    "craft.visual": 'attach a picture of the stages beside the words',
+    "craft.answer": "open with the answer in one plain sentence",
+    "craft.sections": "cut it into short parts under bold headings, with lists as bullets",
+    "craft.elsewhere": "show what the card or thread it names asks right here, or link it on its words",
+    "craft.machinery": "say what happens to his work in plain words, never the drive's machinery or which read backs a claim",
+    "craft.visual": "attach a picture of the stages, as a visual, beside the words",
 }
 
 
@@ -1175,7 +1156,7 @@ def findings_in(drive: dict, payload: dict, tool_input: dict) -> tuple[str, list
 
 
 def mechanical(payload: dict) -> dict:
-    """What the say hook prints for the communicator's own post on say, slack_edit, slack_reply and slack_send, by his words "it needs to be just as fast and fluid asking me things and making the right judgement calls as you would", so nothing holds his answer: a placeholder text refuses; each `cc-slack check-post` finding whose fix is mechanical, a UTC stamp, a zone label, a bare link or a paragraph over three sentences, is made in the post's text, by fixes.mended, and the fixed post goes out in the same call; every rule of his standard is one quick Jev read, by crafted, that only warns, by his words "just add it to that one very simple Jev check that gives it the rules, don't keep adding new independent checks". slack_dm_status, a status line, gets no check; a check that cannot run lets the post out with a warning."""
+    """What the say hook prints for the communicator's own post on say, slack_edit, slack_reply and slack_send, by his words "it needs to be just as fast and fluid asking me things and making the right judgement calls as you would", so nothing holds his answer: a placeholder text refuses; each `cc-slack check-post` finding whose fix is mechanical, a UTC stamp, a zone label, a bare link or a paragraph over three sentences, is made in the post's text, by fixes.mended, and the fixed post goes out in the same call, every other finding going with it as a warning, so no post is refused and written again; one quick Jev read against his standard, by crafted, only warns. slack_dm_status, a status line, gets no check; a check that cannot run lets the post out with a warning."""
     if payload["tool_name"].endswith("slack_dm_status"):
         return {}
     tool_input = payload["tool_input"]
@@ -1192,7 +1173,7 @@ def mechanical(payload: dict) -> dict:
             typed, findings = findings_in(drive, payload, tool_input)
     except (DriveError, slack.SlackError) as error:
         return warned(f"message_limits: this post goes out as written, unchecked: `cc-slack check-post` could not check its words: {error}.")
-    notes = []
+    notes = [f"`cc-slack check-post` still finds, and the post went out: {' | '.join(findings)}"] if findings else []
     try:
         notes += [f"a quick read against his standard finds, and the post went out: {' | '.join(broken)}"] if (broken := crafted(typed, len(tool_input.get("visuals") or []) + len(tool_input.get("files") or []))) else []
     except settled.Unheard as error:

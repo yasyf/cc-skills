@@ -154,6 +154,7 @@ RELAUNCH_RETRY = timedelta(minutes=5)
 RELAUNCH_TRIES = 3
 UNSTAFFED_FOR = timedelta(minutes=5)
 UNSTARTED_FOR = timedelta(minutes=1)
+READ_WAIT = timedelta(minutes=30)
 RELAUNCH = timedelta(seconds=orca.LAUNCH_SECONDS)
 REWAKE = timedelta(seconds=orca.QUIET_SECONDS)
 RECLAIM = timedelta(seconds=orca.RECLAIM_SECONDS)
@@ -4905,6 +4906,11 @@ def carded(job: dict, asked: datetime) -> bool:
     return any(state.parse_time(question["asked"]) >= asked for question in drawn)
 
 
+def read_for(data: dict, job_id: str, job: dict, order_id: str, part: str, now: datetime) -> str | None:
+    """The reader on the same part of the order that finished READ_WAIT or more before now while this design or builder waits for a slot, None for none, so the watch flags work his order waits on past its research."""
+    return next((reader_id for reader_id, reader in data["jobs"].items() if reader_id != job_id and reader["kind"] == "reader" and reader["state"] == "done" and part in state.job_parts(reader, order_id) and now - state.parse_time(reader["updated"]) >= READ_WAIT), None)
+
+
 class NotStarted(str):
     """A part's gap naming a job drive job add recorded that no worker started, which the watch says before its reads on every pass, a process's first included, so its ORPHAN comes on time whatever the length of a pass or the life of a watch process."""
 
@@ -4915,7 +4921,12 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, order_id: str,
         if (now := state.now()) - state.parse_time(job["updated"]) < UNSTARTED_FOR or launching(job, now) and (job["where"] != "remote" or state.launch_in_flight(watcher.name, job_id, job)):
             return SETTLING
         if job["kind"] in state.STARTS_ITSELF and place.admission(data, job_id, "sprite" if job["where"] == "remote" else "local", now):
-            return SETTLING
+            if (read := read_for(data, job_id, job, order_id, part, now)) is None:
+                return SETTLING
+            return NotStarted(
+                f"{job_id} {job['kind']} not started, waiting its turn for a slot {minutes(now - state.parse_time(data['jobs'][read]['updated']))} minutes after its reader {read} finished:"
+                f" if his words want it soon, drive order set {order_id} --part \"{part}\" --urgent starts it past the caps; if they already settle the design, start its builder on them and put only the open fork on his card"
+            )
         return NotStarted(f"{job_id} not started {minutes(now - state.parse_time(job['created']))} minutes after drive job add{brief_first(job)}")
     if moment - state.parse_time(job["updated"]) < HANDOFF:
         return SETTLING

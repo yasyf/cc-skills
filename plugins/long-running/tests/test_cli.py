@@ -9060,6 +9060,31 @@ def test_status_reads_the_prs_from_the_drive_and_never_from_github(run: Run, wit
     assert json.loads(run("status", "o1", "--json")[1])["prs"][with_pr]["title"] == "Fix: the watched title"
 
 
+def test_an_urgent_part_starts_its_design_past_the_caps_and_a_design_waiting_30_minutes_after_its_reader_is_flagged(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    part = "Every blob goes through blobstore to one folder"
+    run("order", "add", "--title", "Blobs", "--project", "The drive", "--workstream", "Drive tooling", "--parts", part, "every blob through blobstore")
+    run("job", "add", "reader", "--order", "o1", "--part", part, "--goal", "research the blob writers")
+    run("job", "add", "design", "--order", "o1", "--part", part, "--goal", "design the move")
+    data = state.load(demo)
+    design = next(job_id for job_id, job in data["jobs"].items() if job["kind"] == "design")
+    reader = next(job_id for job_id, job in data["jobs"].items() if job["kind"] == "reader")
+    assert place.preempts(data, data["jobs"][design]) is False
+    assert run("order", "set", "o1", "--urgent")[0] != 0
+    assert run("order", "set", "o1", "--part", part, "--urgent")[0] == 0
+    data = state.load(demo)
+    assert (data["orders"]["o1"]["urgent"], place.preempts(data, data["jobs"][design])) == ([part], True)
+    run("order", "set", "o1", "--part", part, "--no-urgent")
+    data = state.load(demo)
+    assert place.preempts(data, data["jobs"][design]) is False
+    now = state.now()
+    with state.edit(demo) as data:
+        data["jobs"][reader].update(state="done", updated=state.stamp(now - timedelta(minutes=29)))
+    assert watch.read_for(state.load(demo), design, state.load(demo)["jobs"][design], "o1", part, now) is None
+    with state.edit(demo) as data:
+        data["jobs"][reader]["updated"] = state.stamp(now - timedelta(minutes=31))
+    assert watch.read_for(state.load(demo), design, state.load(demo)["jobs"][design], "o1", part, now) == reader
+
+
 def test_status_of_an_order_sums_it_from_the_saved_rows_with_no_github_or_slack_read(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
     def refused(*_: object, **__: object) -> str:
         raise AssertionError("drive status read GitHub or Slack")
