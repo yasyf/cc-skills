@@ -678,7 +678,7 @@ def context(drive: dict, role: str, project: str | None = None) -> str:
         *opening(drive, role, project),
         f"cci: run cci drive use {drive['name']}, and no cci subscribe: your cci alias {alias(drive['name'], role, project)} owns your subscription.",
         *rules(drive, role),
-        *([f"Your brief: {brief_path(drive['name'], project)}" + ("" if project else f"; a project or priority channel's brief is {brief_path(drive['name'], '<project>').parent}/<its lane>.md, such as {brief_path(drive['name'], 'Iris').name} for Iris")] if role == "communicator" else []),
+        *([f"Your brief: {brief_path(drive['name'], project)}" + ("" if project else f"; a project or priority channel's brief is <its lane>.md beside it, such as {brief_path(drive['name'], 'Iris').name} for Iris")] if role == "communicator" else []),
     ]
     lines += [
         (

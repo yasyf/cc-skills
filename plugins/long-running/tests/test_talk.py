@@ -644,8 +644,6 @@ def test_a_pr_card_goes_under_its_first_line_in_his_dm_and_each_other_open_order
             state.carry(data, "j1", order_id, list(data["orders"][order_id]["parts"]))
         data["orders"]["o3"]["state"] = "done"
         data["orders"]["o4"]["incident"] = True
-    with pytest.raises(DriveError, match="pass channel_id C9TEAM and thread_ts 1794500000.000100"):
-        talk.say(demo, {"text": "land these", "tap_prs": [PR_URL]})
     team = {"text": "land these", "tap_prs": [PR_URL], "channel_id": "C9TEAM", "thread_ts": "1794500000.000100"}
     assert talk.say(demo, team | {"dry_run": True}) == (
         "DRY thread 1794200000.000100, thread 1794300000.000100, thread 1794500000.000100 of channel C9TEAM, 0 pictures, PR card for 1 PRs: land these"
@@ -1634,7 +1632,7 @@ def test_a_line_asking_his_tap_on_a_carded_pr_links_its_card_and_a_line_only_nam
     assert refs.pr(prs, "7", "", [card | {"card": {"prs": [{"url": pr["url"], "head": "old0000"}]}}])["card"] is None
 
 
-def test_while_the_drive_keeps_channels_an_orders_line_bound_for_its_dm_thread_starts_its_thread_at_its_seats_channel_root_and_a_follow_up_replies_there(
+def test_while_the_drive_keeps_channels_an_orders_line_naming_no_place_starts_its_thread_at_its_seats_channel_root_and_a_follow_up_replies_there(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     his, root = "1794200000.000100", "1794200100.000200"
@@ -1649,7 +1647,7 @@ def test_while_the_drive_keeps_channels_an_orders_line_bound_for_its_dm_thread_s
     calls: list[tuple[str, ...]] = []
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: calls.append(argv) or {"permalink": first})
     report(monkeypatch, {"progress": "true", "order": "o1"})
-    assert talk.say(demo, {"text": "The fix is building.", "thread_ts": his, "record": "677158"}) == (
+    assert talk.say(demo, {"text": "The fix is building.", "record": "677158"}) == (
         f"POSTED {first}; o1 progress line, no part delivered: {first}, in thread {root}, now one of its threads"
     )
     assert calls[-1][calls[-1].index("--channel") + 1] == "C200" and "--thread" not in calls[-1]
