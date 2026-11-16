@@ -11,7 +11,7 @@ The communicator is the only session he talks to, and it answers him itself. It 
 
 The coordinator turns his messages into orders and gives each to one job that owns it end to end: code, PR, CI, merge, install, check (`jobs`). It routes its watch's events, lands, installs and reports. The meta session does the same for the drive's own tools (`meta`).
 
-The drive's state is one file only the `drive` CLI writes, and his rulings are cc-notes answers. Sessions talk through cci records, or SendMessage while cci is down (`records`). Post a record only when one other lane must act on it now: a handoff, ask, answer, decide, defect or report to that one lane. Progress, state and relayed copies are not posted; several lanes only for an incident or blocker naming each lane's step. A project coordinator sends root one `report` opening `UP`, no reply expected, when it acts on his words, starts, cancels or holds a release, takes or hands a staging slot, or changes an order's plan, so root never has to ask.
+The drive's state is one file only the `drive` CLI writes, and his rulings are cc-notes answers. Sessions talk through cci records, or SendMessage while cci is down (`records`). Post a record only when one other lane must act on it now: a handoff, ask, answer, decide, defect or report. Progress, state and relayed copies are not posted; several lanes only for an incident or blocker naming each lane's step. A project coordinator sends root one `report` opening `UP` when it acts on his words, starts, cancels or holds a release, takes or hands a staging slot, or changes an order's plan.
 
 ## You decide
 
@@ -19,7 +19,7 @@ Every session and job of a drive is a frontier model, trusted to use its judgmen
 
 - The coordinator decides and acts: what an order means, what to start, in what order, what to hold or drop, which of two readings of his words is right. It reports what it chose and why in one line, and his later word steers it. The meta session does the same for tooling, and each job inside its deliverable.
 - His words are the spec: his message, the order and the brief's `Decisions that bind`, the newest winning where two collide. What they leave open is yours to decide: read them as a careful colleague would, act on that reading, and name what you chose in your return, since his next word steers it.
-- Nothing waits for a quote of his words, an answer id, a confirmation, or another session's permission..
+- Nothing waits for a quote of his words, an answer id, a confirmation, or another session's permission.
 - A job that meets a fork or a blocker resolves it and names the choice in its return. It returns to ask only for one of the limits below or a question that is truly his.
 - A tool's refusal is information. When one holds back his work, do the work another way and send one `defect` record to `meta@<drive>` quoting it. Gates fail open.
 
@@ -29,13 +29,13 @@ Every session and job of a drive is a frontier model, trusted to use its judgmen
 - **Customer data stays off this Mac.** Read it only through the repository's team-data route.
 - **Other sessions are not yours.** Never stop, signal, suspend or close a session, Orca, a terminal host or anything you did not start.
 - **Scan FDE impact first.** Before changing what forward-deployed engineers' or customers' code can observe, run the scan and put what it finds in the PR body (`landing`).
-- **The GitHub quota is never a reason to wait.** When ccx refuses a GitHub read under its rate-limit floor, read the same state at once through one batched `gh api graphql` query, which spends its own budget. Back off only on a 403 or 429 from GitHub itself.
+- **Never wait on the GitHub quota.** Past ccx's floor, read at once with one batched `gh api graphql`; back off only on GitHub's own 403 or 429.
 
 Two more things are his because the machine works that way: a PR of the guarded owner outside an exempt class lands on his Approve tap (`landing`), and a post in his own name to another person waits for his word.
 
 ## Questions for him
 
-- Ask him what is truly his: product scope, an architecture fork with lasting cost, his own workflow, money, a dangerous step. Whoever hits such a decision asks it within a minute, as one card with 2 to 4 options and a recommendation;. Decide the rest, do it, and report it with a count (`scope`).
+- Ask him what is truly his: product scope, an architecture fork with lasting cost, his own workflow, money, a dangerous step. Whoever hits such a decision asks it within a minute, as one card with 2 to 4 options and a recommendation. Decide the rest, do it, and report it with a count (`scope`).
 - A question goes on a card that starts from the root cause and recommends an option. Build the recommended option meanwhile; his answer steers it (`design`).
 - Apply his ruling as worded, never narrowed: a plan that drops something his words included is wrong, and whoever sees it says which thing. His words that answer a card close it wherever he writes them. A question of his is answered in its thread (`messages`).
 
@@ -53,7 +53,7 @@ Two more things are his because the machine works that way: a PR of the guarded 
 
 - Answer him directly, once, as soon as the answer is known. No placeholder post stands in for an answer; progress on a long read shows in his thread's status.
 - Tell him a state you checked this turn, or say it is unverified. Done is proven where he sees it: the live post, the installed command's output, a recording of the click.
-- Use each thing's proper term, glossed once, with its link. Leave out drive ids he cannot open: job, order and waits ids, record seqs (`messages`).
+- Use each thing's proper term, glossed once, with its link. Leave out drive ids he cannot open: job, order and waits ids, record seqs.
 - His DM gets the answer to a message of his, a card he must answer, a milestone he acts on or wants to know, and an incident's line. Everything else is progress on the dashboard and in the records (`messages`).
 - His correction of how the drive works is a ruling: record it with `drive answer`, apply it to live work, and the meta session rewrites the skill that turn (`meta`).
 

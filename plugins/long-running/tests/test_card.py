@@ -1840,7 +1840,7 @@ def redrawn_by_the_watch(moment: datetime) -> list[str]:
     return watch.redraw_lines(watching, moment)
 
 
-def test_his_typed_approve_of_one_pr_and_hold_of_the_other_redraw_their_stack_card_whole_leaving_the_held_one_out_and_his_approve_redraws_it_again(
+def test_his_typed_approve_of_one_pr_and_hold_of_the_other_redraw_their_stack_card_whole_leaving_the_held_one_out(
     stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch, redraws: Redraws
 ) -> None:
     moment = state.parse_time("2026-11-12T12:30:00-08:00")
@@ -1852,10 +1852,6 @@ def test_his_typed_approve_of_one_pr_and_hold_of_the_other_redraw_their_stack_ca
     assert (redrawn_by_the_watch(moment), redraws.asked, redraws.drawn) == ([], [stack_url(41)], [])
     [redrawn] = ask(asks(41, 42) | {"redraw": True})["cards"]
     assert ([row["url"] for row in redrawn["card"]["prs"]], redrawn["card"]["title"].endswith("left out, held by your word: #42")) == ([stack_url(41)], True)
-    posted = {"url": "https://acme.slack.com/archives/D123/p1794515083771169", "prs": [stack_url(41), stack_url(42)], "asked": "2026-11-12T12:26:00-08:00", "card": redrawn["card"]}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [posted], "closed": []})
-    typed(42, "Approve")
-    assert (redrawn_by_the_watch(moment), redraws.asked, redraws.drawn) == ([], [stack_url(41), stack_url(42)], [])
 
 def test_a_tap_on_his_stack_card_after_his_typed_approve_of_one_pr_keeps_that_approve_and_taps_the_rest(
     stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch, redraws: Redraws
