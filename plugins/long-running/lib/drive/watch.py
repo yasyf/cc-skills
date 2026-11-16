@@ -2582,12 +2582,15 @@ def codex_takes(watcher: Watcher) -> None:
     }
     if not ended:
         return
-    shippers = {}
-    with state.edit(watcher.name) as data:
+    def took(data: dict) -> tuple[dict, list[str], dict[str, str]]:
         taken = [job_id for job_id in ended if data["jobs"][job_id]["state"] == "running"]
+        shippers = {}
         for job_id in taken:
             if builder_id := ended[job_id].take(watcher.name, data, job_id):
                 shippers[job_id] = builder_id
+        return data, taken, shippers
+
+    data, taken, shippers = state.update(watcher.name, None, took)
     for job_id in taken:
         state.returned(watcher.name, data, job_id, "; ".join(filter(None, [data["jobs"][job_id]["said"], *(codex_asks(watcher.name, job_id) if isinstance(ended[job_id], Answered) else []), *([fix_shipped(watcher.name, shippers[job_id])] if job_id in shippers else [])])))
 
