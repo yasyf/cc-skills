@@ -198,38 +198,6 @@ def told_stale(name: str, seq: str, writer: str, due: str) -> None:
     tools.sent(name, "watch", [{"kind": "note", "to": [f"{writer}@{name}"], "re": [seq], "text": f"report {seq} posted after its due {due} passed, so its post left that due out: send a fresh due if a next step is still owed"}])
 
 
-def report_records(name: str, order_id: str | None, words: str) -> list[dict]:
-    """The records from within two minutes of an event a report calls unexplained, by events.event_records, which its writer gets to cite; none for a report calling nothing unexplained at a stated time, or when cci cannot be read."""
-    from drive import events
-
-    if not (times := events.event_times(words, state.now())):
-        return []
-    try:
-        return events.event_records(name, order_id, times)
-    except reads.ReadError:
-        return []
-
-
-def unexplained_refusal(name: str, text: str, nearby: list[dict], channel: str | None, thread: str | None) -> str | None:
-    """Why a report's post calling an event unexplained goes nowhere the first time, by the one Jev rule the say hook holds a post to, events.UNEXPLAINED_RULE: it cites none of the records beside the event and does not say none applies; through gate.gate, so it blocks once."""
-    from drive import events, gate, settled
-
-    if not nearby or not events.event_times(text, state.now()):
-        return None
-    try:
-        answers = settled.jev({"post": {"text": text}, "records": nearby}, {"craft.unexplained": settled.Noul(events.UNEXPLAINED_RULE)}, events.EVENT_SECONDS, "unexplained")
-    except settled.Unheard:
-        return None
-    if answers.get("craft.unexplained", 0) < settled.YES:
-        return None
-    listed = "; ".join(f"{record['seq']} {record['lane']} {record['kind']} {json.dumps(record['attrs'])}: {record['text']}" for record in nearby)
-    return gate.gate(name, f"unexplained {channel or 'dm'}/{thread or ''}", [f"its post calls an event unexplained, citing none of the records from within two minutes of it, nor saying none applies: {listed}"])
-
-
-EDIT_KEEPS_RULE = "Does `edit`, the new words of `post`, drop or change any part of `post` that `correction` does not name?"
-EDIT_SECONDS = 5
-
-
 def post_words(link: str) -> str:
     """The words a post of the drive shows now, its text and each block's, one line each, read from Slack; empty for no post or one Slack cannot read."""
     if not state.CARD_LINK.search(link or ""):
@@ -241,27 +209,6 @@ def post_words(link: str) -> str:
         return ""
     message = next((each for each in read.get("messages") or [] if each.get("ts") == ts), None)
     return "\n".join(block_words(((message or {}).get("raw") or {}).get("blocks") or [])) or (message or {}).get("text") or ""
-
-
-def dropped_lines(now_reads: str, correction: str, shown: dict) -> list[str]:
-    """What an edit of a post drops or changes beyond what its correction names, as one Jev read of the post as it reads now, the correction and the new words judges, by his push for rules over hard-coded thresholds, as 736473's edit replaced a whole status with its correction; none when the read finds nothing, gives no answer, or the post cannot be read."""
-    from drive import settled
-
-    new = "\n".join([shown.get("text") or "", *block_words(shown.get("blocks") or [])])
-    if not now_reads.strip():
-        return []
-    try:
-        said = settled.jev({"post": now_reads, "correction": correction, "edit": new}, {"edit.keeps": settled.Noul(EDIT_KEEPS_RULE)}, EDIT_SECONDS, "edit-keeps")
-    except settled.Unheard:
-        return []
-    return [line for line in now_reads.splitlines() if line.strip() and line.strip() not in new] or [now_reads.splitlines()[0]] if said.get("edit.keeps", 0) >= settled.YES else []
-
-
-def gate_edit(name: str, link: str, dropped: list[str]) -> str | None:
-    """Refuse once, through gate.gate, an edit that drops most of the post it rewords, so the correction goes as a reply beside it and the post keeps its other sections; a repeat edits."""
-    from drive import gate
-
-    return gate.gate(name, f"edit {link}", [f"the edit drops {len(dropped)} lines of the post it corrects, such as {render.cut(dropped[0], 120)!r}"])
 
 
 def report_line(name: str, seq: str) -> str:
@@ -299,8 +246,6 @@ def report_line(name: str, seq: str) -> str:
             ],
         )
     )
-    nearby = report_records(name, read["attrs"].get("order"), words)
-    facts += "".join(f"\nRecords from within two minutes of an event it calls unexplained, case attrs first; cite the one that caused it, or say none applies:\n- {record['seq']} {record['lane']} {record['kind']} {json.dumps(record['attrs'])}: {record['text']}" for record in nearby[:1]) + "".join(f"\n- {record['seq']} {record['lane']} {record['kind']} {json.dumps(record['attrs'])}: {record['text']}" for record in nearby[1:])
     said, _ = answer.ask(facts, "Write his post for this report as one JSON object.", REPORT_RULES, "ask")
     try:
         made = json.loads(said[said.index("{") : said.rindex("}") + 1])
@@ -312,8 +257,6 @@ def report_line(name: str, seq: str) -> str:
         raise Skipped(f"its post was skipped: {made['skip']}")
     if not (text := (made.get("text") or "").strip()):
         raise DriveError(f"its post was not written: {render.cut(said, 200)}")
-    if refused := unexplained_refusal(name, text, nearby, attrs.get("channel") or channel, thread):
-        raise DriveError(refused)
     drawn = {link for ref in refs.resolved(name, words).values() for link in (ref.get("url"), ref.get("card"), ref.get("board")) if link}
     if strays := [url for url in answer.URL.findall(json.dumps(made)) if url not in words and url not in corrected and url not in drawn]:
         raise DriveError(f"its post links {strays[0]}, which the report does not print")
@@ -323,9 +266,7 @@ def report_line(name: str, seq: str) -> str:
     if made.get("place") == "edit" or report["kind"] == "correction" and state.CARD_LINK.search(corrected):
         if not corrected.startswith("https://"):
             raise DriveError(f"it corrects report {report.get('re')}, which went out in no post")
-        if not (dropped := dropped_lines(now_reads, words, shown)) or gate_edit(name, corrected, dropped) is None:
-            return spoken(name, shown | {"edit": corrected, "record": seq}, known)
-        made = made | {"place": "thread"}
+        return spoken(name, shown | {"edit": corrected, "record": seq}, known)
     place = {"channel_id": channel} if channel else {}
     if (made.get("place") == "thread" or incident) and (under :=(channel, thread) if thread else corrected and state.link_thread(corrected)):
         place = {"thread_ts": under[1]} | ({"channel_id": under[0]} if under[0] else {})

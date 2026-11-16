@@ -20,7 +20,6 @@ from captain_hook import (
     BaseHookEvent,
     Block,
     Event,
-    FileFixture,
     HookResult,
     Input,
     Rewrite,
@@ -94,15 +93,7 @@ for script in scripts:
 TURN = Path(__file__).resolve().parent / "tests" / "fixtures" / "turn.jsonl"
 COMMUNICATOR_TURN = TURN.with_name("communicator.jsonl")
 BRIEFS = TURN.with_name("state") / "fixture" / "jobs"
-HIS_DM_HOME = FileFixture(
-    home=True,
-    name=".claude/plugins/installed_plugins.json",
-    content=json.dumps({"plugins": {"cc-slack@cc-slack": [{"installPath": str(TURN.with_name("cc-slack"))}]}}),
-)
 THREAD = "1794378983.440769"
-ACK = "You set the staging-claim rule and want the fuzzing box back; both orders are handed off."
-RESUMED = "drive job resume now works from a session that did not start the job's agent."
-AWAY = "Refused on purpose: he is away, since he said so or has written nothing for an hour."
 ASKED = (
     "POST Yes: the old attributes are deleted, dreaming is cleaned up, and the 1024 memory indexes are gone."
     " Each landed in its own PR and merged, and the watch shows no write to the old tables since."
@@ -113,35 +104,12 @@ WEIGH = "import json, sys; sys.path.insert(0, sys.argv[1]); from drive import se
 WEIGHS = "python3 -I -c"
 HELD = {WEIGHS: json.dumps({"verdict": "hold", "note": ""})}
 PASSED = {WEIGHS: json.dumps({"verdict": "pass", "note": ""})}
-GUESSED = "The cloud's inbox reader queries Postgres straight."
-GUESSED_CLAIMS = [{"claim": GUESSED, "read": "cloudrunner/inbox.go"}]
-CLOUD_READ = 'ccx_code_read {"path": "internal/cloudrunner/inbox.go"}\n57  rows, err := r.postgres.Query(ctx, selectInbox, agentID)'
-NOT_READ = 'none: no call of the handler\'s own holds "cloudrunner/inbox.go"'
-HELD_BACK = "Jev held back this post: claim \"The cloud's inbox reader queries Postgres straight.\" does not stand on its read."
-UNSURE = "message_limits: this post goes out as written; Jev is unsure of whether it reaches past the work of his thread: if one is wrong, reword the post in place."
-UNROOMED = (
-    "refused: no Jev request of 10,000 characters holds these parts whole beside the post's 1,678 characters, largest first:"
-    ' record:716852 "716852" beside the 5 claims naming it, 12,936.'
-    " Name a grep, jq filter or line range of each in its claims, never a smaller `cci read` budget, then call say again."
-)
+DEAD_LINK = "The post links '<http://localhost:8080/run|the run>', which opens nowhere from Slack: link a web page, or name it in words."
 
 
 def verdict(kind: str, note: str) -> dict[str, str]:
     """An inline test's stub of the verdict `weighed` reads from settled.weighed: hold, warn or pass, beside its note."""
     return {WEIGHS: json.dumps({"verdict": kind, "note": note})}
-
-
-def handler_reads(read: str) -> str:
-    """What message_limits.py hands Jev for a handler's say post its checks found nothing in: the read its claim names, as its newest call that read names with its whole result, and the claim naming that read by its id."""
-    named = {"id": "read:1", "read": "cloudrunner/inbox.go", "source": 'the read the posting handler\'s claims name as "cloudrunner/inbox.go"', "quote": read}
-    return json.dumps({"his_words": [], "reads": [named], "post": {"text": GUESSED, "thread_ts": THREAD, "claims": [{"claim": GUESSED, "read": "read:1"}]}})
-
-
-def refused_post(text: str, reason: str) -> dict:
-    """What message_limits.py hands Jev for a say post one finding refuses, beside the rule that finding stands for."""
-    denied = {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}
-    findings = [{"rule": reason, "found": reason}]
-    return {"hookSpecificOutput": denied, "rule": reason, "findings": findings, "his_words": [], "reads": [], "post": {"text": text}}
 
 
 def state_root() -> Path:
@@ -514,54 +482,12 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
     tests={
         Input(tool=SLACK + "slack_dm_status", tool_input={"text": "On it. Then more."}, session_id=NO_DRIVE): Allow(),
         Input(
-            tool=SLACK + "slack_dm_status",
-            tool_input={"text": "The fix merged."},
-            session_id=COMMUNICATOR,
-            agent_id="a1",
-            transcript=COMMUNICATOR_TURN,
-            file=HIS_DM_HOME,
-            commands=verdict("hold", HELD_BACK),
-        ): Block(pattern="Jev held back this post"),
-        Input(
-            tool=SLACK + "slack_dm_status",
-            tool_input={"text": "The fix merged."},
-            session_id=COMMUNICATOR,
-            agent_id="a1",
-            transcript=COMMUNICATOR_TURN,
-            file=HIS_DM_HOME,
-            commands=verdict("warn", UNSURE),
-        ): Warn(pattern="Jev is unsure of whether"),
-        Input(
             tool=SAY,
-            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
-            session_id=COMMUNICATOR,
-            agent_id="a1",
-            transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": handler_reads(NOT_READ), **verdict("hold", HELD_BACK)},
-        ): Block(pattern="Jev held back this post"),
-        Input(
-            tool=SAY,
-            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
-            session_id=COMMUNICATOR,
-            agent_id="a1",
-            transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": UNROOMED}, "judged": False})},
-        ): Block(pattern="largest first: record:716852"),
-        Input(
-            tool=SAY,
-            tool_input={"text": ACK, "thread_ts": THREAD, "dry_run": True},
+            tool_input={"text": "The run is up: <http://localhost:8080/run|the run>."},
             session_id=COMMUNICATOR,
             transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": json.dumps(refused_post(ACK, AWAY)), **PASSED},
-        ): Allow(),
-        Input(
-            tool=SAY,
-            tool_input={"text": "The fix merged."},
-            session_id=COMMUNICATOR,
-            agent_id="a1",
-            transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": json.dumps(refused_post("The fix merged.", AWAY)), **verdict("hold", AWAY)},
-        ): Block(pattern="he is away"),
+            commands={"python3 -I": json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": DEAD_LINK}, "judged": False})},
+        ): Block(pattern="opens nowhere from Slack"),
     },
 )
 def message_limits(evt: BaseHookEvent) -> HookResult | None:

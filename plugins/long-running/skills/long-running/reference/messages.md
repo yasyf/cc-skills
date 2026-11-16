@@ -19,13 +19,13 @@ facts about how `say` and the cards behave.
 - [What goes in](#what-goes-in)
 - [What stays out](#what-stays-out)
 - [Examples](#examples)
-- [The rules Jev judges a post by](#the-rules-jev-judges-a-post-by)
+- [What the hook refuses](#what-the-hook-refuses)
 - [Before it goes out](#before-it-goes-out)
 
 ## Limits
 
-He asked for short messages, so the tooling counts each post. It counts the words its writer
-typed. A link or a `{card:…}`, `{pr:…}`, `{order:…}`, `{record:…}`, `{answer:…}`, `{started:…}` or
+He asked for short messages, so keep each post within these limits. Count the words you
+type. A link or a `{card:…}`, `{pr:…}`, `{order:…}`, `{record:…}`, `{answer:…}`, `{started:…}` or
 `{at:…}` reference counts as the words after its `|`, or as one word. What `say` adds itself, such
 as a card it draws, counts for nothing.
 
@@ -47,9 +47,6 @@ as a card it draws, counts for nothing.
   words, or the message's permalink in his DM. A reply to his Explain more tap passes
   `asked="Explain more"`. A post outside the thread his message is in, such as a share he ordered to
   another person's group DM, passes the permalink.
-- The hook looks for each quote in his messages in that thread, in his answers on its cards and in
-  each message an `asked` permalink links. One found quote is enough, and straight and curly quote
-  marks match alike.
 - Text passed beside a question card is drawn atop its body and counts toward its 150 words, so
   post the card with no text beside it. A Show me counts toward none of them, so do not cut one to
   fit.
@@ -457,9 +454,7 @@ The references `say` expands:
   record went out. `say` fills both from the drive's stamps. Use them for how long something has
   waited.
 - A post may pass `claims`: each factual line beside the read behind it, as `record:<seq>` or
-  words copied from a call of its writer's, such as a path, command or query. Jev checks each claim
-  against that read, except on the communicator's own posts, which pass the mechanical checks
-  alone. A bare `{pr:}`, `{card:}`, `{started:}` or `{at:}` is not a claim. A claim
+  words copied from a call of its writer's, such as a path, command or query. A bare `{pr:}`, `{card:}`, `{started:}` or `{at:}` is not a claim. A claim
   about every member of a set stands on a read of what decides it, not of one member.
 
 Other facts:
@@ -498,8 +493,8 @@ Other facts:
 - The current time, and a typed time for work already done. Slack stamps every post, and
   `{started:<job>}` and `{at:<seq>}` give a job's or record's time. A job's stamp is not when a
   release, build or deploy started: quote that as its build or tool printed it, in backticks, on
-  the line linking it, unless it is a log's UTC stamp such as `09:15:42Z`, which `cc-slack check-post`
-  refuses even in backticks and which goes in Pacific instead. A time a tool or query measured, such as an outage window, is written in
+  the line linking it, unless it is a log's UTC stamp such as `09:15:42Z`, which goes in Pacific
+  instead. A time a tool or query measured, such as an outage window, is written in
   Pacific on the line linking that read. A SendMessage, a defect, a handoff and `drive job report`
   quote times as they stand.
 
@@ -560,37 +555,24 @@ names a model post, write the way it does.
 A review walkthrough's leads might read *What your PR does*, *What we want instead*, *Why it
 matters* and *A test for next time*. A routine line keeps its bold line and two sentences.
 
-## The rules Jev judges a post by
+## What the hook refuses
 
-Jev is the judge `say`'s hook asks about a post. It reads a post only when a check finds something
-in it or its claims name reads, and judges each finding by its rule beside his words. The
-communicator's own posts skip Jev: they pass the mechanical checks alone, such as a placeholder
-left in the text, so its answer goes out the moment it is written. The watch's posts keep every
-check.
+`say`'s hook refuses three things outright, and Jev never weighs them:
 
-| Rule | Found by | Words in |
-| --- | --- | --- |
-| A post stands alone: it names nothing its reader never saw, such as another draft of itself, a drive id or his DM, and says no sorry | `cc-slack check-post` `apology` and `earlier-draft` findings | `ALONE_RULE`, `hooks/message_limits.py` |
-| Plain words for the person reading the thread: no internal shorthand, and each table, column, function, file, migration or flag glossed the first time it appears | every other `cc-slack check-post` finding | `PLAIN_WORDS_RULE`, `lib/drive/agents.py` |
-| Anything that says it waits on him carries the card with its buttons | `cc-slack check-post` `waits-without-card`; a `{pr:}` on a line asking his tap links his card | `CARD_RULE`, `hooks/message_limits.py` |
-| Each claim stands on the read it names, and a claim about a whole set reads every member | Jev's claim items on a post passing `claims` | `settled.post_verdict` |
-| An answer under a card explains each term of the card's first line his question turns on | Jev's card item | `settled.post_verdict` |
-| A post in a thread of his DM answers from that thread's work; one naming other work only warns | Jev's scope item and `cli.thread_strays` | `settled.post_verdict` |
+- A post by the coordinator or the meta session. Send the words to the communicator as a `report`
+  record instead.
+- A placeholder, such as `$(cat post.txt)`, in place of the post's text.
+- A link that opens nothing: a reference naming nothing the drive holds, an empty link, or a link
+  to localhost or a `file://` address.
 
-A check that cannot finish lets the post out unchecked with a warning, since a gate that cannot
-finish fails open. Only a count refuses outright: a post over its word count.
+Every other rule in this document is advice to follow as you write. Nothing else refuses a post.
 
 ## Before it goes out
 
-- `say` posts the words you pass and adds none. Its hook runs them through `cc-slack check-post`
-  and counts them, each reference read as the words after its `|`.
-- A post Jev holds comes back unposted with the finding and its reason. Fix the words and call
-  `say` again. When the finding is wrong, say the same thing another way so the answer still
-  reaches him, and send the meta session one defect record. A held post is not a reason to leave
-  him without his answer.
+- `say` posts the words you pass and adds none.
 - Read it as he will, on a phone, with no other context. Does he know what changed and whether he
   must act? Does every number, term and reference make sense with nothing else open, and does each
   thing he can open carry its link?
 - When he faults a post, fix it in place. His feedback also becomes a drive tooling order for the
-  meta session, by [meta.md](meta.md#records-and-inputs), so the library or the check changes and
+  meta session, by [meta.md](meta.md#records-and-inputs), so the library changes and
   the next post of that class comes out right.
