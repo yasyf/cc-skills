@@ -1351,9 +1351,11 @@ def closed(watcher: Watcher, head: str, links: list[str], fix: str, moment: date
             state.detach(watcher.name, ["report-post", seq], POSTS_LOG)
         except OSError as failure:
             lines += failed(watcher, f"live post {head}", f"post of the Live line of {head} from its record", failure, moment)
-    with state.edit(watcher.name) as data:
+    def recovered_write(data: dict) -> None:
         for order_id in group:
             data["orders"][order_id]["recovered"] = state.stamp(moment)
+
+    state.update(watcher.name, None, recovered_write)
     closes = "".join(talk.closed(watcher.name, order_id, seq, said.split()[1], live["text"]) for order_id in group) if said else ""
     moved = f"; its live jobs, open PRs and parts left moved to the plain order {follow}" if follow else ""
     return [*lines, f"RECOVERED {head}: {f'{read_ok} and ' if links else ''}{fix}, so the watch posted its Live line{closes}{moved}"]
