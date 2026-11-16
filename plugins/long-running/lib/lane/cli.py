@@ -60,11 +60,11 @@ def reserved(drive: str, keys: list[str]) -> Iterator[bool]:
 
 
 def land(args: argparse.Namespace) -> None:
-    """Refresh every lane PR's head, checks and stack link by rows.refresh and write each unjudged head's verdict by rows.judge, then print what his Approve lands now in each lane, and in live mode queue each landing unit by merged() under its reservation."""
-    rows.refresh(args.drive)
-    rows.judge(args.drive)
+    """Read every lane PR's state by rows.view, write each unjudged head's verdict by rows.judge, then print what his Approve lands now in each lane, and in live mode queue each landing unit by merged() under its reservation."""
+    read = rows.view(args.drive)
+    rows.judge(args.drive, read)
     moment = store.now()
-    for lane in store.load_all(args.drive).values():
+    for lane in [rows.seen(lane, read) for lane in store.load_all(args.drive).values()]:
         by_key = {landing.key(row): row for row in lane["prs"]}
         for verdict in landing.verdicts(lane, heard(args.drive), moment):
             print(f"{lane['id']}: {'LANDS ' + ', '.join(verdict.keys) if verdict.lands else 'HOLDS'}; {verdict.why}")

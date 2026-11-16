@@ -1,39 +1,32 @@
-"""lane-land's writes onto lane prs rows: each open PR's head, checks, merge and the PR it sits on, the dangerous reader's verdict at each head, and each stack's staging proof."""
+"""lane-land's reads and writes of lane PRs: their state from GitHub, kept in memory and never on a row, and on each row the dangerous reader's verdict at a head and its stack's staging proof."""
 
 from pathlib import Path
 
 from lane import facts, landing, store
 
 CHECKS = {"SUCCESS": "pass", "FAILURE": "fail", "ERROR": "fail"}
+PR_STATE = ("head", "checks", "merged", "under")
 
 
-def refresh(drive: str) -> int:
-    """Read every unmerged lane PR in one GraphQL request and write its head, checks, merged and under: the tracked open PR whose branch is its base, None when its base is the default branch, and the key left out when its base is a branch no tracked PR heads, which landing reads as unread; the count of rows changed."""
-    keys = {(row["repo"], row["number"]) for lane in store.load_all(drive).values() for row in lane["prs"] if not row.get("merged")}
+def view(drive: str) -> dict[str, dict]:
+    """Each lane PR's state, read in lane-core's one GraphQL request and kept in memory, never on its row: head, checks, merged and under, the tracked open PR whose branch is its base, None when its base is the default branch, and left out when its base is a branch no tracked PR heads, which landing reads as unread."""
+    keys = {(row["repo"], row["number"]) for lane in store.load_all(drive).values() for row in lane["prs"]}
     read = facts.read_prs(keys)
     heads = {(repo, pull["branch"]): f"{repo}#{number}" for (repo, number), pull in read.items() if pull["state"] == "OPEN"}
+    found = {}
+    for (repo, number), pull in read.items():
+        facts_of = {"head": pull["head"], "checks": CHECKS.get(pull["rollup"] or "", "pending"), "merged": pull["merged"]}
+        if pull["base"] == pull["default"]:
+            facts_of["under"] = None
+        elif below := heads.get((repo, pull["base"])):
+            facts_of["under"] = below
+        found[f"{repo}#{number}"] = facts_of
+    return found
 
-    def written(lanes: dict[str, dict]) -> int:
-        count = 0
-        for lane in lanes.values():
-            for row in lane["prs"]:
-                if not (pull := read.get((row["repo"], row["number"]))):
-                    continue
-                was = dict(row)
-                row["head"] = pull["head"]
-                row["checks"] = CHECKS.get(pull["rollup"] or "", "pending")
-                if pull["merged"]:
-                    row["merged"] = row.get("merged") or store.stamp()
-                if pull["base"] == pull["default"]:
-                    row["under"] = None
-                elif below := heads.get((row["repo"], pull["base"])):
-                    row["under"] = below
-                else:
-                    row.pop("under", None)
-                count += row != was
-        return count
 
-    return store.transact(drive, written)
+def seen(lane: dict, read: dict[str, dict]) -> dict:
+    """The lane with each prs row joined to its PR's state from view(), in memory, a PR GitHub did not answer keeping no head, so it never lands."""
+    return lane | {"prs": [{field: value for field, value in row.items() if field not in PR_STATE} | read.get(landing.key(row), {"head": None}) for row in lane["prs"]]}
 
 
 def unjudged(lanes: dict[str, dict]) -> list[str]:
@@ -41,12 +34,12 @@ def unjudged(lanes: dict[str, dict]) -> list[str]:
     return list(dict.fromkeys(landing.key(row) for lane in lanes.values() for row in lane["prs"] if row["head"] and not row.get("merged") and not landing.judged(row)))
 
 
-def judge(drive: str) -> int:
-    """Read each unjudged head's changed files in one batched GitHub read and write its verdict, {head, classes}, by state.dangerous_in as the providers of the drive's checkout, its config's `checkout`, read the repository's [[dangerous]] tables and dangerous_paths; with no checkout configured nothing is judged, so nothing lands. The count written."""
+def judge(drive: str, read: dict[str, dict]) -> int:
+    """Read each unjudged head, as view() read it,'s changed files in one batched GitHub read and write its verdict, {head, classes}, by state.dangerous_in as the providers of the drive's checkout, its config's `checkout`, read the repository's [[dangerous]] tables and dangerous_paths; with no checkout configured nothing is judged, so nothing lands. The count written."""
     from drive import github, providers, state
 
     checkout = store.config(drive)["checkout"]
-    if not checkout or not (waiting := unjudged(store.load_all(drive))):
+    if not checkout or not (waiting := unjudged({lane_id: seen(lane, read) for lane_id, lane in store.load_all(drive).items()})):
         return 0
     found = providers.at(Path(checkout))
     verdicts = {key: {"head": head, "classes": state.dangerous_in(found.config, found.repo, paths)} for key, (head, paths) in github.paths(waiting).items()}
@@ -55,7 +48,7 @@ def judge(drive: str) -> int:
         count = 0
         for lane in lanes.values():
             for row in lane["prs"]:
-                if (verdict := verdicts.get(landing.key(row))) and verdict["head"] == row["head"] and not landing.judged(row):
+                if (verdict := verdicts.get(landing.key(row))) and verdict["head"] == read[landing.key(row)]["head"] and (row.get("dangerous") or {}).get("head") != verdict["head"]:
                     row["dangerous"] = verdict
                     count += 1
         return count

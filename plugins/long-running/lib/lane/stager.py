@@ -47,9 +47,10 @@ def lane_candidates(drive: str) -> list[dict]:
     """Each stack of a lane holding a dangerous PR with no proof at the stack's top head, its PRs green, in rank.json's order of lanes."""
     folder = lanes_dir(drive)
     order = json.loads((folder / RANK).read_text())["order"]
+    read = rows.view(drive)
     found = []
     for rank, lane_id in enumerate(order):
-        lane = store.load(drive, lane_id)
+        lane = rows.seen(store.load(drive, lane_id), read)
         for stack in landing.stacks(lane):
             open_rows = [row for row in stack if not row.get("merged")]
             if any(landing.judged(row) and landing.dangerous(row) for row in open_rows) and not landing.proven(open_rows):
