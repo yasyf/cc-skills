@@ -1227,6 +1227,14 @@ def test_a_correction_of_a_report_already_posted_names_the_post_it_went_out_in_t
     with pytest.raises(DriveError, match=f"nothing posted: record 669980 corrects report 669950, which went out in {re.escape(POSTED)}: reword that post with say\\(edit={re.escape(POSTED)}"):
         talk.say(demo, {"text": "Each request reads 16 MiB.", "record": "669980"})
     assert len(posts) == 1
+    with state.edit(demo) as data:
+        data["carried"]["669980"] = agents.DRIVE_CLAIM
+        data["posts"]["claimed"] = {"669980": state.stamp(state.now() - agents.UNPOSTED_AFTER - timedelta(minutes=1))}
+    assert talk.say(demo, {"edit": POSTED, "text": "Each request reads 16 MiB.", "record": "669980"}).startswith(f"EDITED {POSTED}")
+    assert state.load(demo, ("carried",))["carried"]["669980"] == POSTED
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: pytest.fail(f"flagged a posted correction: {records}"))
+    agents.unposted(demo, state.now())
+    assert state.load(demo, ("posts",))["posts"]["claimed"] == {}
 
 
 def test_a_post_goes_out_in_exactly_the_words_it_was_given_while_built_work_waits_on_his_card(

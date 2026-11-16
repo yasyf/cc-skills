@@ -18,7 +18,7 @@ CARDS_A_MESSAGE = 5
 CARD_KINDS = (("question", "question"), ("tap", "PR card"))
 NO_CARDS = "No open cards"
 TICKET_FLAGS = {"ticket_id": "--ticket", "ticket_tree": "--ticket-tree", "ticket_agent": "--ticket-agent", "ticket_call": "--ticket-call", "ticket_fingerprint": "--ticket-fingerprint"}
-EDIT_TAKES = {"edit", "text", "blocks", "asked", "claims", "dry_run", "done", *TICKET_FLAGS}
+EDIT_TAKES = {"edit", "text", "blocks", "asked", "claims", "dry_run", "done", "record", *TICKET_FLAGS}
 RECORD_WAIT_SECONDS = 1.0
 RECORD_POLL_SECONDS = 0.05
 BARE_TS = re.compile(r"\d{10}\.\d{6}")
@@ -188,7 +188,7 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
         post = {key: value for key, value in post.items() if key != "record"}
         report = {"close": order, "writer": "communicator", "written": state.stamp()}
     seq = report.get("seq")
-    if refused := carried_refusal(known, seq, report) or (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)):
+    if refused := carried_refusal(known, seq, report, post.get("edit")) or (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)):
         raise DriveError(f"nothing posted: {refused}")
     if refused := unclaimed(known, post, report):
         raise DriveError(f"nothing posted: {refused}; {returned(name, post, report, refused)}")
@@ -344,11 +344,16 @@ def closed(name: str, order_id: str, seq: str) -> str:
     return f"; {order_id} closed on report {seq}"
 
 
-def carried_refusal(data: dict, seq: str | None, report: dict) -> str | None:
-    """Why a correction's post goes nowhere: the report it corrects went out in a post, which the correction rewords."""
-    if (post := data["carried"].get(report.get("corrects"))) and state.CARD_LINK.search(post):
+def carried_refusal(data: dict, seq: str | None, report: dict, edit: str | None = None) -> str | None:
+    """Why a correction's post goes nowhere: the report it corrects went out in a post, which the correction rewords; none for the edit of that very post, which say marks the correction posted at."""
+    if (post := data["carried"].get(report.get("corrects"))) and state.CARD_LINK.search(post) and not same_message(post, edit):
         return f"record {seq} corrects report {report['corrects']}, which went out in {post}: reword that post with say(edit={post}, text=…)"
     return None
+
+
+def same_message(one: str, other: str | None) -> bool:
+    """Whether two Slack permalinks name one message, whatever thread or cid query each carries."""
+    return bool(other and (found := POSTED_TS.search(one)) and (again := POSTED_TS.search(other)) and found.groups() == again.groups() and one.split("/p")[0] == other.split("/p")[0])
 
 
 def outage(data: dict, post: dict, report: dict, order_id: str | None) -> bool:
