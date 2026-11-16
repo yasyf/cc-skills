@@ -18,6 +18,7 @@ from typing import TextIO
 import drive
 from drive import cli, reads, state, tools
 from drive.install import config_dir, installed
+from lane import voice
 
 PLUGIN = "long-running@skills"
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
@@ -122,8 +123,8 @@ SAY = {
         " recordings included, and"
         " show it on the drive's dashboard, in one call; with channel_id, post a line, or a card's line linking the card it draws in"
         " his DM, in a thread outside his DM, such as an alert's, through cc-slack reply, or with no thread_ts a new post through cc-slack send, at the root of that channel, such as a staging claim to its members, or with a person's user id in the group DM of that person, him and the bot; cc-slack's Slack permission hook judges either as it judges slack_reply or slack_send. A post at a channel's root speaks to its members, never him, and so does a reply in that post's thread, a reporter's thread or a teammate's thread the drive watches, so none of the checks of a line to him, such as its length, his time away or the card it links, holds it, while Jev still checks each claim of an agent's post against the read it names; the post at that root and each line in its thread get a reader's checks instead: cc-slack check-post passes its exact words, each is at most 60 words naming no file or function unless his message it answers, passed as asked, asks for code, the root the one line a person would type, with no line break or bold, such as 'testing X on staging for 30, lmk if anyone objects', citing the repository's rule for the claim with no PR list or formatting, and a report's until attr names the end of what it claims, from which the watch owes its thread a closing line: the root goes out only on a report whose until is still to come and whose words say how long it holds or its clock time, and a report naming no until or a past one goes back to its writer as a refused record, so you post nothing and return NOTHING sent back to <writer>. A post in a reporter's or teammate's thread passes cc-slack check-post on its exact words too. Every post stands alone and says no sorry: it names nothing its reader never saw, such as another draft of it, so it never opens on 'here's the longer version'. In text, {card:<waits id>}, {pr:<number, owner/repo#number or"
-        " URL>} and {order:<id>} link under the card's question, the PR's title or the order's title, or the words after a |, as"
-        " {pr:298|the fix that draws charts}; cc-slack draws the tap card of each PR a line links, by {pr:} or by its PR card's {card:}, right under the line before it goes out while that PR still waits on his tap, and nothing for one approved, merged or closed. {record:<seq>|<what that read measured>} links what that"
+        " URL>} and {order:<id>} link under the card's question, the order's title, or the words after a |, and a PR as its #number plus the words after its |, never its title, as"
+        " {pr:298|draws charts}; cc-slack draws the tap card of each PR a line links, by {pr:} or by its PR card's {card:}, right under the line before it goes out while that PR still waits on his tap, and nothing for one approved, merged or closed. {record:<seq>|<what that read measured>} links what that"
         " record measured, its url, under the words after its |, and a bare {record:<seq>}, which would draw the record's own words, is refused. {answer:<id>}"
         " draws his recorded answer as when he said it and its first words, linked to the ack of them in his DM. {started:<job>}"
         " and {at:<seq>} write when a job started, as \"4:50 AM (job start)\", and when a record went out from the drive's stamps,"
@@ -309,6 +310,8 @@ def respond(request: dict, stdout: TextIO, writing: threading.Lock) -> None:
         case "tools/list":
             LISTED["drive"] = newest_drive()
             reply["result"] = {"tools": listed(LISTED["drive"])}
+        case "tools/call" if request["params"]["name"] == "say" and (owner := voice.own_lane()):
+            reply["result"] = {"content": [{"type": "text", "text": voice.say(Path(newest_drive()).parents[1], *owner, request["params"].get("arguments") or {})}]}
         case "tools/call":
             result = call(request["id"], request["params"]["name"], ticketed(request["params"]))
             if result is None:

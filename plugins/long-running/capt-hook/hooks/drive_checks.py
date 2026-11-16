@@ -67,6 +67,7 @@ def newest_checks() -> dict:
     plugin = newest_install()
     return listed_checks(plugin) if (plugin / CHECKS_FILE).is_file() else LOADED_CHECKS
 REMOTE_LANE = "LONG_RUNNING_REMOTE_LANE"
+LANE_OWNER = "LONG_RUNNING_LANE"
 QUOTING = re.compile(r"[\"'\\]")
 EXPANSION = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?")
 LANDING_WORDS = re.compile(r"(?<![\w.-])(?:gh|ccx|ci|cci|[\w-]*enqueue)(?![\w.-])")
@@ -564,6 +565,8 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
     },
 )
 def message_limits(evt: BaseHookEvent) -> HookResult | None:
+    if os.environ.get(LANE_OWNER) and tool_name_matches(evt._raw.get("tool_name") or "", SAY):
+        return None
     return checked(evt, "message_limits.py")
 
 
