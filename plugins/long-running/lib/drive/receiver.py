@@ -267,20 +267,20 @@ def took(repo: str, hook_id: int, guid: str, event: str, payload: dict | None) -
     print(f"{moment()} {event} {guid} {repo}{''.join(f'; marks {kind}' for kind in marks)}", flush=True)
 
 
-def buildkite_heard_path() -> Path:
+def builds_heard_path() -> Path:
     return home() / "buildkite-heard"
 
 
-def buildkite_silent() -> bool:
-    """Whether Buildkite never delivered to the receiver, no notification service of its organization pointing at the /buildkite path, so a watch reads each build it holds from Buildkite on every pass rather than only on a delivery naming it."""
-    return not buildkite_heard_path().exists()
+def builds_silent() -> bool:
+    """Whether the CI never delivered a build event to the receiver, no webhook of it pointing at the build provider's receiver path, so a watch reads each build it holds from the CI on every pass rather than only on a delivery naming it."""
+    return not builds_heard_path().exists()
 
 
 def took_builds(event: str, links: list[str] | None) -> None:
-    """Append one build delivery line naming the Buildkite builds a delivery of Buildkite's names to the deliveries log, for each drive's watch to read again those it holds, keep the time of a delivery Buildkite sent, by buildkite_heard_path, and log it; a missed delivery, links None, names every build each watch holds, since the receiver took none of what Buildkite sent while it was down."""
+    """Append one build delivery line naming the Buildkite builds a delivery of Buildkite's names to the deliveries log, for each drive's watch to read again those it holds, keep the time of a delivery Buildkite sent, by builds_heard_path, and log it; a missed delivery, links None, names every build each watch holds, since the receiver took none of what Buildkite sent while it was down."""
     state.append_line(deliveries_path(), BUILD_DELIVERY, builds=links, event=event)
     if links is not None:
-        buildkite_heard_path().write_text(moment())
+        builds_heard_path().write_text(moment())
     print(f"{moment()} buildkite {event}: {' '.join(links) if links is not None else 'every build a drive holds'}", flush=True)
 
 

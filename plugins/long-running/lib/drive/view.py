@@ -375,7 +375,7 @@ def holds(drive: dict, wait: str, found: dict | None) -> bool:
         return any(question["closed"] is None for _, question in drawn)
     if staged := state.STAGING_WAIT.fullmatch(wait):
         return not withdrawn(drive, staged["commit"])
-    return wait in state.TURN_WAITS or bool( github.BUILD.fullmatch(wait) or state.REPLY_WAIT.fullmatch(wait) or state.REVIEW_WAIT.fullmatch(wait) or state.untracked_wait(drive, wait)) or card_open(wait, found)
+    return wait in state.TURN_WAITS or bool( providers.of(drive).build.fullmatch(wait) or state.REPLY_WAIT.fullmatch(wait) or state.REVIEW_WAIT.fullmatch(wait) or state.untracked_wait(drive, wait)) or card_open(wait, found)
 
 
 def withdrawn(drive: dict, commit: str) -> bool:
@@ -1058,7 +1058,7 @@ def wait_entry(drive: dict, wait: str, found: dict) -> dict:
         return {"title": f"{staging['env']} running {staging['target']} at {staging['commit'][:12]} or a build carrying it", "url": f"https://github.com/{state.MONOREPO}/commit/{staging['commit']}"}
     if part := state.part_wait(drive, wait):
         return {"title": f'{part[0]} delivering "{cut(part[1], TITLE_CHARS)}"', "url": None}
-    if build := github.BUILD.fullmatch(wait):
+    if build := providers.of(drive).build.fullmatch(wait):
         return {"title": build_title(build), "url": wait}
     if reply := state.REPLY_WAIT.fullmatch(wait):
         return {"title": f"another drive's next record after its record {reply['seq']} on that topic", "url": None} if reply["seq"] else {"title": "a teammate's reply to the drive's question", "url": reply["link"]}

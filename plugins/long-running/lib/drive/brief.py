@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-from drive import github, limits, providers, reads, settled, state
+from drive import limits, providers, reads, settled, state
 from drive.render import cut
 from drive.shell import simple_commands
 
@@ -314,9 +314,9 @@ def release_record(release: str, data: dict) -> dict | None:
 
 def recorded_job(record: dict, data: dict) -> dict | None:
     """The job that started the release a record names: the one whose release build is the record's build, else the newest whose Release line names the record's --order and a --from its commit starts with, since a start's first answer can name the cut build before the release build it triggers."""
-    number = (found := github.BUILD.match(record.get("build") or "")) and found["number"]
+    number = (found := providers.of(data).build.match(record.get("build") or "")) and found["number"]
     cutting = [job for job in data["jobs"].values() if state.starts_cut(job)]
-    if built := next((job for job in cutting if number and job["release_build"] and (kept := github.BUILD.match(job["release_build"])) and kept["number"] == number), None):
+    if built := next((job for job in cutting if number and job["release_build"] and (kept := providers.of(data).build.match(job["release_build"])) and kept["number"] == number), None):
         return built
     ordered = [job for job in cutting for flags in started(job["brief_flags"]["release"]) if record.get("order") in flags.get("order", ()) and any(record.get("commit", "").startswith(given) for given in flags.get("from", ()))]
     return max(ordered, key=lambda job: state.parse_time(job["created"]), default=None)
