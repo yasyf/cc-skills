@@ -3003,7 +3003,7 @@ def applet_lines(watcher: Watcher, moment: datetime) -> list[str]:
             milestone_at(watcher, record, words, {"channel_id": made["id"]} if made else {})
         except (slack.SlackError, state.DriveError) as error:
             return failed(watcher, f"page {page_shown['slug']}", f"post sending him the page {page_shown['slug']}", error, moment)
-        applet.announce(watcher.name, page_shown["slug"], laid, glance)
+        applet.announce(watcher.name, page_shown["slug"], laid, layout)
         watcher.failures.pop(f"page {page_shown['slug']}", None)
     return []
 

@@ -586,7 +586,7 @@ def test_a_composed_layout_keeps_only_the_keys_its_slice_holds_and_composes_agai
     assert applet.digest(page, told) != applet.digest(page, told | {"prs": [*told["prs"], {"key": "a/b#2", "waits_on_him": True}]})
 
 
-def test_a_page_reaches_him_once_when_first_composed_and_again_only_when_its_next_step_changes(ordered: str) -> None:
+def test_a_page_reaches_him_once_when_first_composed_and_again_only_when_what_it_asks_of_him_changes(ordered: str) -> None:
     from drive import applet
 
     demo = ordered
@@ -594,18 +594,17 @@ def test_a_page_reaches_him_once_when_first_composed_and_again_only_when_its_nex
     folder = state.drive_dir(demo) / "applets" / "run-page"
     folder.mkdir(parents=True)
     glance = {"tone": "warn", "status": "Blocked on you", "changed": "Two PRs passed staging", "next": "Approve the two PRs", "why": "The window opens at 2 PM"}
+    asks = applet.basis({"questions": [], "prs": [{"key": "a/b#1", "waits_on_him": True}], "orders": [{"key": "o1", "state": "running"}]})
 
     def laid(file: str, seconds: int, **layout: object) -> None:
-        (folder / file).write_text(json.dumps({"headline": "h", "summary": "s", "blocks": []} | layout))
+        (folder / file).write_text(json.dumps({"headline": "h", "summary": "s", "blocks": [], "glance": glance, "changed_for_him": "", "basis": asks} | layout))
         os.utime(folder / file, (time.time() + seconds, time.time() + seconds))
 
-    laid("old.json", 0)
-    assert applet.unannounced(demo) == []
-    laid("first.json", 1, glance=glance, changed_for_him="A new page for the release")
+    laid("first.json", 1, changed_for_him="A new page for the release")
     [(page, first, layout)] = applet.unannounced(demo)
     assert (page["slug"], first) == ("run-page", "first.json")
-    applet.announce(demo, "run-page", first, layout["glance"])
-    laid("counted.json", 2, glance=glance | {"status": "Blocked on you: 27 approvals"}, changed_for_him="One more PR waits on your approval")
+    applet.announce(demo, "run-page", first, layout)
+    laid("counted.json", 2, glance=glance | {"status": "Blocked on you: 27 approvals", "next": "Approve the 27 PRs"}, changed_for_him="One more PR waits on your approval")
     assert applet.unannounced(demo) == []
-    laid("changed.json", 3, glance=glance | {"next": "Pick how writes move"}, changed_for_him="A decision now waits on you")
+    laid("changed.json", 3, basis=asks | {"questions": ["https://x.slack.com/archives/D1/p1"]}, changed_for_him="A decision now waits on you")
     assert [file for page, file, layout in applet.unannounced(demo)] == ["changed.json"]

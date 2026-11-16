@@ -19,6 +19,7 @@ SLICE_QUESTIONS = 20
 SLICE_ORDERS = 80
 SLICE_MOMENTS = 20
 TOLD_MOMENTS = {"order", "answer", "answered", "tap", "merged", "live", "failed"}
+DONE_STATES = {"merged", "live"}
 BLOCKS = {
     "waits": "what waits on him, each decision in questions with its recommended path one tap away and each PR in prs with its own Approve, so he acts without leaving the page",
     "story": "the story in two to four steps he walks one at a time: why this goal exists, where it stands, what is at stake",
@@ -187,7 +188,16 @@ def compose(name: str, page: dict, told: dict, before: dict | None) -> dict:
     layout = served.structured(state.drive_dir(name), RULES, prompt, SCHEMA, COMPOSE_SECONDS, f"composing the page {page['slug']}")
     known = {"prs": {each["key"] for each in told["prs"]}, "questions": {each["key"] for each in told["questions"]}, "orders": {each["key"] for each in told["orders"]}}
     blocks = [block | {field: [key for key in block[field] if key in keys] for field, keys in known.items()} | {"steps": [step | {"orders": [key for key in step["orders"] if key in known["orders"]]} for step in block["steps"]]} for block in layout["blocks"]]
-    return layout | {"blocks": blocks}
+    return layout | {"blocks": blocks, "basis": basis(told)}
+
+
+def basis(told: dict) -> dict:
+    """What a page's next step for him turns on, read from its slice rather than its words: the decisions waiting on him, whether any PR waits on his approval, and whether every order is done, so one more PR joining those already waiting changes nothing."""
+    return {
+        "questions": sorted(each["key"] for each in told["questions"]),
+        "approvals": any(each["waits_on_him"] for each in told["prs"]),
+        "done": all(each["state"] in DONE_STATES for each in told["orders"]),
+    }
 
 
 def digest(page: dict, told: dict) -> str:
@@ -263,22 +273,22 @@ def seen_path(name: str, slug: str) -> Path:
 
 
 def unannounced(name: str) -> list[tuple[dict, str, dict]]:
-    """Each applet page whose newest layout he has not been sent: a page composed under COMPOSE_VERSION's guidance that was never sent, or one whose glance asks a different next step of him, or turned to another tone, than the glance last sent, and whose compose names what changed for him, by changed_for_him; never one recomposed with the same next step, so a page reaches him once per material change. Each with the name of its newest layout and the layout."""
+    """Each applet page whose newest layout he has not been sent: a page never sent, or one whose basis, the decisions waiting on him, whether any PR waits on his approval and whether its orders are all done, or whose glance's tone differs from what he was last sent; never one recomposed on the same basis, whatever its words say, so a page reaches him once per material change. Each with the name of its newest layout and the layout."""
     due = []
     for page in pages.listed(name):
         if page.get("kind") != KIND:
             continue
         folder = state.drive_dir(name) / "applets" / page["slug"]
         laid = sorted(folder.glob("*.json"), key=lambda each: each.stat().st_mtime) if folder.is_dir() else []
-        if not laid or "glance" not in (layout := json.loads(laid[-1].read_text())):
+        if not laid or "basis" not in (layout := json.loads(laid[-1].read_text())):
             continue
         seen = seen_path(name, page["slug"])
         sent = json.loads(seen.read_text()) if seen.is_file() else None
-        if sent is None or laid[-1].name != sent["laid"] and layout["changed_for_him"] and (layout["glance"]["next"], layout["glance"]["tone"]) != (sent["next"], sent["tone"]):
+        if sent is None or laid[-1].name != sent["laid"] and (layout["basis"], layout["glance"]["tone"]) != (sent["basis"], sent["tone"]):
             due.append((page, laid[-1].name, layout))
     return due
 
 
-def announce(name: str, slug: str, laid: str, glance: dict) -> None:
-    """Keep the layout and glance he was last sent of a page, which unannounced weighs the next compose against."""
-    seen_path(name, slug).write_text(json.dumps({"laid": laid, "next": glance["next"], "tone": glance["tone"]}) + "\n")
+def announce(name: str, slug: str, laid: str, layout: dict) -> None:
+    """Keep the layout, basis and tone he was last sent of a page, which unannounced weighs the next compose against."""
+    seen_path(name, slug).write_text(json.dumps({"laid": laid, "basis": layout["basis"], "tone": layout["glance"]["tone"]}) + "\n")
