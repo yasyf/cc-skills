@@ -162,11 +162,10 @@ UNCARRIED = (
 )
 JOB_HELD = (
     'refused: he holds every release, by his words "{said}" ({where}), and only he grants an exception, so the {cronjob} Job on {cluster},'
-    " a production cluster, starts only on an answer of his recorded since that orders that Job there now: {why}. Start, unblock and rerun"
-    " nothing of it: ask him with `drive job ask` whether to start it, record his answer with `drive answer`, and start the Job naming"
-    f" that answer's id in its `--reason`, which its build keeps for its gate's unblock to read. {UNSURE_READING} start the Job with"
-    ' that reading in its `--reason`: `tools/ci cluster-job ... --reason "<answer id> reading: <why his words order it, quoting them>"`;'
-    " a confident no still goes to him"
+    " a production cluster, starts only on an answer of his recorded since that orders that Job there now: {why}. Its `--reason` names that"
+    " answer's id, which its build keeps for its gate's unblock to read. When Opus is unsure or gave no reading, the top coordinator starts it"
+    " on its own reading, from its session, naming that reading in the `--reason` as `<answer id> reading: <what of his words you read as ordering it>`;"
+    " a dangerous Job still waits for his presence"
 )
 CLAIMED_JOB = (
     "refused: {order} of drive {drive} claims staging until {until} in {link}, and the repository's staging-claim rule holds staging for"
@@ -976,7 +975,7 @@ def heavier(data: dict, job_id: str, brief: str, model: str | None) -> bool:
 
 
 def report_refusal(name: str, data: dict, job_id: str, text: str, judged: bool = True) -> str | None:
-    """Why a job's return may not be kept, with judged False leaving out the checks Jev reads, by judged_refusal, for a check that runs after the report is kept: a builder's or designer's opens with a result word, a report naming a limit in its own words as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, building all his words name and the abstraction several strategies share before any of them, by narrowed_design, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options, starting from the root cause and recommending the option that removes it, a DONE, READY or PUSHED leaves no step for someone else, nor a builder's a piece of its plan to a follow-up that no UNBUILT: line of it names, by left_piece, a builder's UNBUILT: lines naming their pieces as a design's Change: lines must and none naming work the drive already holds, by held_piece, a builder's or codex job's DONE on a staging test part carries a CASE line for each case, a design's DESIGN of several keeping the words of each change it listed before that a live builder carries, by state.renamed_change, a builder's DONE names its proof, and a picture, recording or live post when he sees the result, a DONE whose brief names user stories refused, since only drive job prove proves them from what its proof file prints, a repair keeping a proof file told to prove it with drive job prove instead, and a builder's READY or PUSHED names PRs whose tap card draws, saying how his words are met on each reworked to them, and says how it builds on what its research found."""
+    """Why a job's return may not be kept, with judged False leaving out the checks Jev reads, by judged_refusal, for a check that runs after the report is kept: a builder's or designer's opens with a result word, a design lane's is the design in its shape, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options, starting from the root cause and recommending the option that removes it, a builder's UNBUILT: lines naming their pieces as a design's Change: lines must and none naming work the drive already holds, by held_piece, a builder's or codex job's DONE on a staging test part carries a CASE line for each case, a design's DESIGN of several keeping the words of each change it listed before that a live builder carries, by state.renamed_change, a builder's DONE names its proof, and a picture, recording or live post when he sees the result, a DONE whose brief names user stories refused, since only drive job prove proves them from what its proof file prints, a repair keeping a proof file told to prove it with drive job prove instead, and a builder's READY or PUSHED names PRs whose tap card draws, saying how his words are met on each reworked to them. A limit its own words leave standing, a NEXT: or UNPROVEN: step a DONE, READY or PUSHED leaves for someone else, and a READY or PUSHED naming no REUSES: line beside research that found what already does part of it are said on stderr and refuse nothing."""
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
     lines = [line.strip() for line in text.strip().splitlines()]
@@ -987,16 +986,7 @@ def report_refusal(name: str, data: dict, job_id: str, text: str, judged: bool =
             f" or {OPENINGS[-1]}, the word that sets the job's state; start it with the one that says where the job is"
         )
     if opening not in CHOICE_OPENINGS and (finding := limit_finding(lines)):
-        if order["text"].startswith(state.TOOLING):
-            return (
-                f'it reports a limit as a finding left standing: "{finding}". On a drive tooling order the job decides it, by his ruling'
-                f" {state.TOOLING_DETAILS_RULING}: build the option that removes it and report that, or return ASK or DESIGN with two to four"
-                " options, one recommended, which drive job ask decides with no card unless its options differ in what he gets"
-            )
-        return (
-            f'it reports a limit as a finding left standing: "{finding}". A limit or capacity finding is his'
-            " choice, so return ASK or DESIGN with two to four options for it, one recommended, in place of this report"
-        )
+        print(f'drive job report: it reports a limit as a finding left standing: "{finding}". When removing it is his choice, an ASK or DESIGN with two to four options, one recommended, puts it on his card', file=sys.stderr)
     if job["kind"] == "design" and opening not in UNDESIGNED and (missing := design_missing(lines)):
         return (
             "a design lane's report is the design in its shape, which the coordinator reads for its forks, and this one"
@@ -1023,17 +1013,10 @@ def report_refusal(name: str, data: dict, job_id: str, text: str, judged: bool =
         return renamed
     if judged and job["kind"] == "builder" and (held := held_refusal(name, data, job_id, listed)):
         return held
-    if judged and job["kind"] == "design" and opening == "DESIGN" and (narrowed := narrowed_design(name, data, job, text)):
-        return narrowed
     if job["kind"] == "reader" and (refused := reader_refusal(data, job_id, job, order, text, lines)):
         return refused
     if opening in ("DONE", *READY_OPENINGS) and (left := left_steps(text)):
-        return (
-            f'a {opening} leaves a step for someone else: "{cut(left, 120)}". Do that step yourself before you return,'
-            " or return ASK when it needs his choice"
-        )
-    if judged and job["kind"] == "builder" and opening in ("DONE", *READY_OPENINGS) and (piece := piece_refusal(data, job, opening, text)):
-        return piece
+        print(f'drive job report: a {opening} leaves a step for someone else: "{cut(left, 120)}"; no session runs it unless one picks it up', file=sys.stderr)
     if job["kind"] in state.CHANGE_KINDS and opening == "DONE" and (staging := state.staging_parts(data, job)) and not state.CASE_LINE.search(text):
         return (
             f'{job_id} holds "{staging[0][1]}", so its DONE names each case of the staging test on a line of its own, CASE <case>: <verdict>,'
@@ -1061,12 +1044,9 @@ def report_refusal(name: str, data: dict, job_id: str, text: str, judged: bool =
         return None
     found = research(name, data, job["order"], job["parts"])
     exists = researched(found[1]).get("exists", "none") if found else "none"
-    if settled.none_only(exists) or REUSES.search(text):
-        return None
-    return (
-        f"{found[0]}'s research found what already does part of this: {exists}. A {opening} says, in a REUSES: line, how the"
-        " PR calls or extends it rather than adding a second copy beside it"
-    )
+    if not (settled.none_only(exists) or REUSES.search(text)):
+        print(f"drive job report: {found[0]}'s research found what already does part of this: {exists}; a REUSES: line says how the PR calls or extends it rather than adding a second copy", file=sys.stderr)
+    return None
 
 
 def held_refusal(name: str, data: dict, job_id: str, listed: list[re.Match]) -> str | None:
@@ -1080,32 +1060,39 @@ def held_refusal(name: str, data: dict, job_id: str, listed: list[re.Match]) -> 
     )
 
 
-def piece_refusal(data: dict, job: dict, opening: str, text: str) -> str | None:
-    """Why a builder's DONE, READY or PUSHED may not be kept for a piece of its plan left to a follow-up that no UNBUILT: line names, by left_piece."""
+def piece_note(data: dict, job: dict, opening: str, text: str) -> str | None:
+    """What judged_notes says of a builder's DONE, READY or PUSHED leaving a piece of its plan to a follow-up that no UNBUILT: line names, by left_piece."""
     if not (piece := left_piece(data, job, text)):
         return None
     return (
-        f'a {opening} leaves a piece of its plan to a follow-up, as Jev reads "{cut(piece, 120)}": name each such piece on an UNBUILT:'
-        f" line of this return, in at most {state.PART_CHARS} characters with no backtick, double quote, $ or backslash, which keeps"
-        " it as a part of the order with a builder of its own, or build it before you return, or return ASK when leaving it out needs his choice"
+        f'a {opening} leaves a piece of its plan to a follow-up, as Jev reads "{cut(piece, 120)}": an UNBUILT: line naming it, in at most {state.PART_CHARS}'
+        " characters with no backtick, double quote, $ or backslash, keeps it as a part of the order with a builder of its own"
     )
 
 
 def judged_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
-    """Why a job's return may not stand for the checks Jev and Opus read, which report_refusal with judged False and overruled_refusal leave out: a builder's UNBUILT: line naming work the drive holds, by held_refusal, a design lane's narrowed design, by narrowed_design, a builder's piece of its plan left to a follow-up, by piece_refusal, and a reader's or design's line going against a recorded answer of his, by overruled_refusal."""
+    """Why a job's return may not stand for the checks Jev reads, which report_refusal with judged False leaves out: a builder's UNBUILT: line naming work the drive holds, by held_refusal; what else Jev reads in it is said on stderr, by judged_notes."""
     job = data["jobs"][job_id]
-    opening = re.match(r"[A-Z]*", text.strip())[0]
     if job["kind"] == "builder" and (held := held_refusal(name, data, job_id, state.change_lines(job["kind"], text))):
         return held
-    if job["kind"] == "design" and opening == "DESIGN" and (narrowed := narrowed_design(name, data, job, text)):
-        return narrowed
-    if job["kind"] == "builder" and opening in ("DONE", *READY_OPENINGS) and (piece := piece_refusal(data, job, opening, text)):
-        return piece
-    return overruled_refusal(data, job, text)
+    judged_notes(name, data, job, text)
+    return None
 
 
-def overruled_refusal(data: dict, job: dict, text: str) -> str | None:
-    """Why a reader's or design's return may not be kept: a line of its Researched: block but exists:, a Change: line or a line of a list says no ruling of his covers, puts up for change or asks him again an item a recorded answer of his orders or keeps, as settled.overruled reads it, naming that answer's id and words, a line saying only none, as the reader's rules ask an empty block line to, going unread; kept with a warning on stderr when Jev gives no reading, and a reader's DESIGN is read as his card by drive job ask instead, whose finding refuses nothing, by his pick 320b7a7."""
+def judged_notes(name: str, data: dict, job: dict, text: str) -> None:
+    """Say on stderr what Jev reads in a job's return that is kept anyway: a design lane's design building less than his words or against them, by narrowed_design, a builder's piece of its plan left to a follow-up, by piece_note, and a reader's or design's line going against a recorded answer of his, by overruled_note."""
+    opening = re.match(r"[A-Z]*", text.strip())[0]
+    for found in (
+        job["kind"] == "design" and opening == "DESIGN" and narrowed_design(name, data, job, text),
+        job["kind"] == "builder" and opening in ("DONE", *READY_OPENINGS) and piece_note(data, job, opening, text),
+        overruled_note(data, job, text),
+    ):
+        if found:
+            print(f"drive job report: {found}", file=sys.stderr)
+
+
+def overruled_note(data: dict, job: dict, text: str) -> str | None:
+    """What judged_notes says of a reader's or design's return, which is kept: a line of its Researched: block but exists:, a Change: line or a line of a list says no ruling of his covers, puts up for change or asks him again an item a recorded answer of his orders or keeps, as settled.overruled reads it, naming that answer's id and words, a line saying only none, as the reader's rules ask an empty block line to, going unread; kept with a warning on stderr when Jev gives no reading, and a reader's DESIGN is read as his card by drive job ask instead, whose finding refuses nothing, by his pick 320b7a7."""
     if job["kind"] not in RESEARCH_KINDS or job["kind"] == "reader" and text.lstrip().startswith("DESIGN"):
         return None
     lines = [line for line in block_lines(text) if not line.removeprefix("- ").casefold().startswith("exists:")]
@@ -1118,8 +1105,7 @@ def overruled_refusal(data: dict, job: dict, text: str) -> str | None:
     if not picks:
         return None
     return (
-        f"as Jev reads it, {settled.overruling(picks)}. His words stand until he lifts them: keep each item as his answer orders,"
-        f" citing its id as standing, {settled.LIFTS}, or put it to him as a card asking him to lift it"
+        f"as Jev reads it, {settled.overruling(picks)}. When this change is meant, {settled.LIFTS}, or a card can ask him to lift it"
     )
 
 
@@ -1190,7 +1176,7 @@ def unlisted_waits(listed: list[re.Match]) -> str | None:
 
 
 def narrowed_design(name: str, data: dict, job: dict, text: str) -> str | None:
-    """Why a design may not be kept, as Jev reads it whole against his words on its order and each order its job carries, his spec on its feature, by spec, and his answer to each of its cards, all newest first, beside the forks it asks him, one request a word of his holding only the forks, the whole design by sentence and that word's `asked` and `said`, and one more holding only the design, for whether it names strategies and builds their abstraction first, its rulings: line never sent, since it quotes his words rather than builds anything: it leaves out, defers or narrows what one names with no fork asking him, or keeps, reuses or builds on what one set aside, at settled.YES or more, at the sentence flagged picks beside his words given after it; or, where Jev reads several strategies doing one job at settled.YES or more, its first change is not the abstraction they share, under settled.NO. By his pick "Refuse a design only when Jev read all of it, quoting the sentence it flags; larger designs keep with a warning", a design past one Jev request of settled.REQUEST_CHARS // 2 characters is kept unread, and a reading in the band between, a pick of no sentence, or none, keeps it too, each said on stderr."""
+    """What judged_notes says of a design it keeps, as Jev reads it whole against his words on its order and each order its job carries, his spec on its feature, by spec, and his answer to each of its cards, all newest first, beside the forks it asks him, one request a word of his holding only the forks, the whole design by sentence and that word's `asked` and `said`, and one more holding only the design, for whether it names strategies and builds their abstraction first, its rulings: line never sent, since it quotes his words rather than builds anything: it leaves out, defers or narrows what one names with no fork asking him, or keeps, reuses or builds on what one set aside, at settled.YES or more, at the sentence flagged picks beside his words given after it; or, where Jev reads several strategies doing one job at settled.YES or more, its first change is not the abstraction they share, under settled.NO. A design past one Jev request of settled.REQUEST_CHARS // 2 characters is kept unread, and a reading in the band between, a pick of no sentence, or none, keeps it too, each said on stderr."""
     words = sorted(
         [
             *(word for order_id in [job["order"], *job["carries"]] for word in settled.order_words(data, order_id)),
@@ -1235,9 +1221,8 @@ def narrowed_design(name: str, data: dict, job: dict, text: str) -> str | None:
     strategies, first = settled.reading(max(sure for key, sure in read.items() if key.partition(".")[0] == "strategies")), settled.reading(read["first"])
     if strategies and first is False:
         return (
-            "Jev reads this design as building a strategy before the one abstraction its strategies share: design that abstraction first,"
-            " walk every strategy through it on paper with a worked example of each operation, make it change 1 and each strategy a later"
-            f" Change: line waiting on it, by his words {ABSTRACTION_RULING}"
+            "Jev reads this design as building a strategy before the one abstraction its strategies share; he prefers that abstraction"
+            f" designed first, as change 1, with each strategy a later Change: line waiting on it: {ABSTRACTION_RULING}"
         )
     if strategies is not False and first is not True:
         print("drive job report: Jev is unsure whether this design builds a strategy before the abstraction its strategies share, so it is kept", file=sys.stderr)
@@ -1245,7 +1230,7 @@ def narrowed_design(name: str, data: dict, job: dict, text: str) -> str | None:
 
 
 def flagged(design: dict, question: str, word: dict, words: list[dict]) -> str | None:
-    """The refusal of a design Jev reads as building less than his words name, or going against them, quoting the sentence of it Jev picks as doing so beside every word of his given after them, newest first, since the newer wins where two collide, and the fix; None when it picks none or his newer words run past one request beside it, said on stderr, since a refusal quoting no sentence leaves the designer nothing to fix."""
+    """The note on a design Jev reads as building less than his words name, or going against them, quoting the sentence of it Jev picks as doing so beside every word of his given after them, newest first, since the newer wins where two collide, and the fix; None when it picks none or his newer words run past one request beside it, said on stderr, since a note quoting no sentence leaves the designer nothing to act on."""
     pick = settled.NARROWED_AT if question == "narrows" else settled.CONTRADICTED_AT
     sentences = design["design"]
     named = f", {word['id']}" if limits.ANSWER_ID.fullmatch(word["id"]) else ""
@@ -1262,15 +1247,13 @@ def flagged(design: dict, question: str, word: dict, words: list[dict]) -> str |
         return None
     if question == "narrows":
         return (
-            f'Jev reads this design\'s sentence "{cut(sentence, settled.QUOTED_CHARS)}" as building less than {said} name, or later, with no fork asking him:'
-            " building less than his words or an answer of his name is a fork whatever it costs to switch, so build it in, or keep it as a"
-            " fork with drive job ask"
+            f'Jev reads this design\'s sentence "{cut(sentence, settled.QUOTED_CHARS)}" as building less than {said} name, or later, with no fork asking him;'
+            " build it in, or keep it as a fork with drive job ask, unless the narrower design is what you mean"
         )
     return (
-        f'Jev reads this design\'s sentence "{cut(sentence, settled.QUOTED_CHARS)}" as going against {said}: his words outrank every default of the designer,'
-        " keeping or reusing the code that exists included. Rewrite that sentence to do what they say, or keep the choice as a fork with drive"
-        " job ask that asks him to lift them, and report again; a sentence that only quotes or cites his words goes on the Researched: block's"
-        " rulings: line, which Jev never reads as the design"
+        f'Jev reads this design\'s sentence "{cut(sentence, settled.QUOTED_CHARS)}" as going against {said};'
+        " a fork with drive job ask can ask him to lift them, and a sentence that only quotes or cites his words reads as no design on the Researched: block's"
+        " rulings: line"
     )
 
 

@@ -4467,7 +4467,7 @@ def test_list_lines_are_each_bullet_numbered_item_and_table_row_but_its_rule_wit
     ]
 
 
-def test_job_report_refuses_a_readers_line_jev_reads_as_putting_up_for_change_what_his_recorded_answer_orders_and_keeps_it_with_a_warning_when_jev_gives_no_reading(
+def test_job_report_keeps_a_readers_line_jev_reads_as_putting_up_for_change_what_his_recorded_answer_orders_with_a_note_naming_that_answer(
     run: Run, meta: str, recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the cloud tree")
@@ -4478,17 +4478,17 @@ def test_job_report_refuses_a_readers_line_jev_reads_as_putting_up_for_change_wh
     returned = RESEARCH.replace("open: none", undoing)
     jev.breaks(f"{settled.LINE_KEY}2", CAP_RULING["id"])
     code, err = keep(monkeypatch, capsys, "j1", returned)
-    assert (code, err.startswith(f'drive: j1: refused, nothing kept: as Jev reads it, the line "{undoing}" says no ruling of his covers')) == (2, True)
+    assert (code, f'drive job report: as Jev reads it, the line "{undoing}" says no ruling of his covers' in err) == (0, True)
     assert f'his answer {CAP_RULING["id"]}, "{CAP_RULING["asked"]}", ruling on card:card-cloud-tree-cap, drive-tooling, orders or keeps: "{CAP_RULING["said"]}"' in err
-    assert f"citing its id as standing, {settled.LIFTS}, or put it to him as a card asking him to lift it" in " ".join(err.split())
-    assert state.returns("demo", "j1") == []
+    assert f"When this change is meant, {settled.LIFTS}, or a card can ask him to lift it" in " ".join(err.split())
+    assert len(state.returns("demo", "j1")) == 1
     [asked] = [request for request in jev.asked if any(key.startswith(settled.LINE_KEY) for key in request["questions"])]
     lines = ["rulings: none on the copy path", undoing, "build: one store_copy_at call per stalled store"]
     assert asked["state"] == {"against": settled.AGAINST, "lines": {f"l{number}": line for number, line in enumerate(lines, 1)}, "answers": {CAP_RULING["id"]: {key: capping[key] for key in ("asked", "said", "area")}}}
     assert asked["questions"] == {f"{settled.LINE_KEY}{number}.{CAP_RULING['id']}": settled.asking(settled.LINE, line=f"l{number}", answer=CAP_RULING["id"]) for number in range(1, len(lines) + 1)}
     jev.answer = None
     code, err = keep(monkeypatch, capsys, "j1", returned)
-    assert (code, f"drive job report: {settled.UNREAD_LINES.format(failure='no jev decision within 20s')}" in err, len(state.returns("demo", "j1"))) == (0, True, 1)
+    assert (code, f"drive job report: {settled.UNREAD_LINES.format(failure='no jev decision within 20s')}" in err, len(state.returns("demo", "j1"))) == (0, True, 2)
 
 
 def test_job_report_reads_no_line_saying_only_none_against_his_answers_so_a_readers_bare_none_lines_keep_while_jev_reads_every_line_question_at_yes(
@@ -4500,13 +4500,13 @@ def test_job_report_reads_no_line_saying_only_none_against_his_answers_so_a_read
     for number in range(1, 5):
         jev.breaks(f"{settled.LINE_KEY}{number}", CAP_RULING["id"])
     code, err = keep(monkeypatch, capsys, "j1", RESEARCH)
-    assert (code, err.startswith('drive: j1: refused, nothing kept: as Jev reads it, the line "rulings: none on the copy path" says no ruling of his covers')) == (2, True)
+    assert (code, 'drive job report: as Jev reads it, the line "rulings: none on the copy path" says no ruling of his covers' in err) == (0, True)
     [asked] = [request for request in jev.asked if any(key.startswith(settled.LINE_KEY) for key in request["questions"])]
     assert asked["state"]["lines"] == {"l1": "rulings: none on the copy path", "l2": "build: one store_copy_at call per stalled store"}
     jev.asked.clear()
     bare = RESEARCH.replace("rulings: none on the copy path", "Rulings: None.").replace("one store_copy_at call per stalled store", "none") + "\nLeft open:\n- None.\n"
     code, err = keep(monkeypatch, capsys, "j1", bare)
-    assert (code, len(state.returns("demo", "j1"))) == (0, 1)
+    assert (code, len(state.returns("demo", "j1"))) == (0, 2)
     assert [request for request in jev.asked if any(key.startswith(settled.LINE_KEY) for key in request["questions"])] == []
 
 
@@ -6165,7 +6165,7 @@ def test_a_design_that_kept_a_question_is_kept_with_no_fork_line_and_its_builder
     assert (view.start_refusal(data, "j2", True), land.open_cards(data, "j2", None)) == (None, [card] if held else [])
 
 
-def test_a_builders_ready_says_how_it_reuses_what_its_research_found(
+def test_a_builders_ready_naming_no_reuse_of_what_its_research_found_is_kept_with_a_note(
     run: Run, meta: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
@@ -6175,8 +6175,7 @@ def test_a_builders_ready_says_how_it_reuses_what_its_research_found(
     kept_proof(tmp_path, "j2")
     ready = "READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: drive tooling\n"
     code, err = keep(monkeypatch, capsys, "j2", ready)
-    assert code == 2
-    assert "j2: refused, nothing kept: j1's research found what already does part of this: supervisor/copies.rs store_copy_at copies one store." in err
+    assert (code, "drive job report: j1's research found what already does part of this: supervisor/copies.rs store_copy_at copies one store; a REUSES: line" in err) == (0, True)
     assert keep(monkeypatch, capsys, "j2", ready + "REUSES: calls store_copy_at for each store\n") == (0, "")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a new verb", "--kind", "build")
     run("job", "add", "reader", "--order", "o2", "--goal", "research: the verb")
@@ -6331,23 +6330,23 @@ def test_a_design_saying_nothing_exists_is_refused_while_its_orders_reader_found
 
 
 @pytest.mark.parametrize(
-    ("pick", "sentence", "code", "said"),
+    ("pick", "sentence", "said"),
     [
-        ("o1", "s2", 2, 'Jev reads this design\'s sentence "Design: one copy per store, in the order the stores list" as building less than his words "time, hash by key and spill" (his words the order quotes) name, or later, with no fork asking him'),
-        ("o1", "none", 0, 'Jev reads this design as building less than his words "time, hash by key and spill" (his words the order quotes) but picks none of its sentences as doing so, so it is kept'),
-        ("strategies", "none", 2, f"Jev reads this design as building a strategy before the one abstraction its strategies share: design that abstraction first, walk every strategy through it on paper with a worked example of each operation, make it change 1 and each strategy a later Change: line waiting on it, by his words {brief.ABSTRACTION_RULING}"),
-        ("none", "none", 0, ""),
+        ("o1", "s2", 'Jev reads this design\'s sentence "Design: one copy per store, in the order the stores list" as building less than his words "time, hash by key and spill" (his words the order quotes) name, or later, with no fork asking him'),
+        ("o1", "none", 'Jev reads this design as building less than his words "time, hash by key and spill" (his words the order quotes) but picks none of its sentences as doing so, so it is kept'),
+        ("strategies", "none", f"Jev reads this design as building a strategy before the one abstraction its strategies share; he prefers that abstraction designed first, as change 1, with each strategy a later Change: line waiting on it: {brief.ABSTRACTION_RULING}"),
+        ("none", "none", ""),
     ],
 )
-def test_a_design_building_less_or_later_than_his_words_at_the_sentence_jev_picks_or_a_strategy_before_their_shared_abstraction_is_refused(
-    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], pick: str, sentence: str, code: int, said: str
+def test_a_design_building_less_or_later_than_his_words_at_the_sentence_jev_picks_or_a_strategy_before_their_shared_abstraction_is_kept_with_a_note(
+    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], pick: str, sentence: str, said: str
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", 'Drive tooling: partition each table by "time, hash by key and spill"')
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the partitions")
     jev.picks(pick)
     jev.picked["sentence"] = sentence
     kept, err = keep(monkeypatch, capsys, "j1", DESIGNED)
-    assert kept == code
+    assert kept == 0
     assert (said in err) if said else err == ""
     [read] = [asked for asked in jev.asked if "narrows.o1" in asked["questions"]]
     assert (read["state"]["words"], read["state"]["design"]["s2"]) == (
@@ -6356,9 +6355,9 @@ def test_a_design_building_less_or_later_than_his_words_at_the_sentence_jev_pick
     )
 
 
-@pytest.mark.parametrize(("sentence", "code"), [("s3", 2), ("none", 0)])
-def test_a_design_jev_reads_going_against_his_words_is_refused_quoting_the_sentence_it_picks_and_the_fix_and_never_reads_its_rulings_line(
-    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], sentence: str, code: int
+@pytest.mark.parametrize(("sentence", "picked"), [("s3", True), ("none", False)])
+def test_a_design_jev_reads_going_against_his_words_is_kept_with_a_note_quoting_the_sentence_it_picks_and_never_reads_its_rulings_line(
+    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], sentence: str, picked: bool
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", 'Drive tooling: design the store copy "from scratch, reusing none of the HA code"')
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
@@ -6366,19 +6365,19 @@ def test_a_design_jev_reads_going_against_his_words_is_refused_quoting_the_sente
     jev.breaks("against", "o1")
     jev.picked["sentence"] = sentence
     kept, err = keep(monkeypatch, capsys, "j1", reusing)
-    assert kept == code
+    assert kept == 0
     assert (
-        'Jev reads this design\'s sentence "It goes through sandsql-ha\'s claim code." as going against his words "from scratch, reusing none of the HA code" (his words the order quotes):'
-        " his words outrank every default of the designer, keeping or reusing the code that exists included. Rewrite that sentence to do what they say, or keep the choice as a fork with drive job ask"
-        if code
+        'Jev reads this design\'s sentence "It goes through sandsql-ha\'s claim code." as going against his words "from scratch, reusing none of the HA code" (his words the order quotes);'
+        " a fork with drive job ask can ask him to lift them"
+        if picked
         else 'Jev reads this design as going against his words "from scratch, reusing none of the HA code" (his words the order quotes) but picks none of its sentences as doing so, so it is kept'
     ) in err
     assert not [said for asked in jev.asked for said in asked["state"]["design"].values() if said.startswith("rulings:")]
 
 
-@pytest.mark.parametrize(("sentence", "code"), [("s3", 2), ("none", 0)])
+@pytest.mark.parametrize(("sentence", "picked"), [("s3", True), ("none", False)])
 def test_a_design_jev_reads_going_against_his_older_words_is_judged_beside_his_newer_words_which_win_where_the_two_collide(
-    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], sentence: str, code: int
+    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], sentence: str, picked: bool
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", 'Drive tooling: design the store copy "from scratch, reusing none of the HA code"')
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
@@ -6391,11 +6390,11 @@ def test_a_design_jev_reads_going_against_his_older_words_is_judged_beside_his_n
     jev.breaks("against", "o1")
     jev.picked["sentence"] = sentence
     kept, err = keep(monkeypatch, capsys, "j1", leasing)
-    assert kept == code
+    assert kept == 0
     [weighed] = [asked["state"] for asked in jev.asked if "against.q1" in asked["questions"]]
     [picking] = [asked["state"] for asked in jev.asked if "sentence" in asked["questions"]]
     assert (weighed["words"]["w1"]["said"], picking["words"]["said"], picking["newer"]) == (lease, '"from scratch, reusing none of the HA code"', {"n1": {"asked": "Reuse sandsql-ha's claim code for the lease?", "said": lease}})
-    assert ('Jev reads this design\'s sentence "It takes its lease through sandsql-ha\'s claim code." as going against' if code else "but picks none of its sentences as doing so, so it is kept") in err
+    assert ('Jev reads this design\'s sentence "It takes its lease through sandsql-ha\'s claim code." as going against' if picked else "but picks none of its sentences as doing so, so it is kept") in err
 
 
 def test_a_design_past_one_jev_request_is_kept_unread_with_a_warning(run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
@@ -6455,7 +6454,7 @@ def test_each_builder_a_design_adds_is_briefed_with_that_design_as_its_plan_by_a
     assert "\nPlan: the store copy section\n" in Path(state.load("demo")["jobs"]["j2"]["brief"]).read_text()
 
 
-def test_a_builders_done_leaving_a_piece_of_its_design_to_a_follow_up_is_refused_until_an_unbuilt_line_names_it_which_becomes_a_part_under_that_design_with_its_own_builder(
+def test_a_builders_done_leaving_a_piece_of_its_design_to_a_follow_up_is_kept_with_a_note_and_an_unbuilt_line_naming_it_becomes_a_part_under_that_design_with_its_own_builder(
     run: Run, meta: str, jev: Jev, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "copy one store")
@@ -6469,8 +6468,8 @@ def test_a_builders_done_leaving_a_piece_of_its_design_to_a_follow_up_is_refused
     jev.picks("leaves")
     kept_proof(tmp_path, "j4")
     code, err = keep(monkeypatch, capsys, "j4", f"{done}{left}\n")
-    assert code == 2
-    assert f'j4: refused, nothing kept: a DONE leaves a piece of its plan to a follow-up, as Jev reads "{left}": name each such piece on an UNBUILT: line' in err
+    assert code == 0
+    assert f'drive job report: a DONE leaves a piece of its plan to a follow-up, as Jev reads "{left}": an UNBUILT: line naming it' in err
     [read] = [asked for asked in jev.asked if "leaves.l1" in asked["questions"]]
     [named] = [asked for asked in jev.asked if "names.l1.p1" in asked["questions"]]
     assert ((read["state"], list(read["questions"])), (named["state"], list(named["questions"]))) == (
@@ -6494,7 +6493,7 @@ def test_a_builders_done_leaving_a_piece_of_its_design_to_a_follow_up_is_refused
     assert (code, "\nResearched: j3\n" in written, '\nPlan: j3\'s design, change "the moved-table index": drive job report j3; j4 left it unbuilt: drive job report j4\n' in written) == (0, True, True)
 
 
-def test_a_sprite_lanes_done_is_kept_before_jev_reads_it_and_the_check_after_wakes_its_lane_with_the_refusal(
+def test_a_sprite_lanes_done_is_kept_before_jev_reads_it_and_the_check_after_wakes_no_lane_for_what_jev_notes(
     run: Run, meta: str, jev: Jev, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "copy one store")
@@ -6514,8 +6513,8 @@ def test_a_sprite_lanes_done_is_kept_before_jev_reads_it_and_the_check_after_wak
     assert (len(jev.asked), detached[-1], state.load("demo")["jobs"]["j4"]["said"]) == (asked_before, ["job", "check", "j4"], done.splitlines()[0])
     checked = len(detached)
     assert run("job", "check", "j4")[0] == 0
-    [resume] = detached[checked:]
-    assert resume[:3] == ["job", "resume", "j4"] and f'as Jev reads "{left}"' in resume[3]
+    assert detached[checked:] == []
+    assert f'as Jev reads "{left}"' in capsys.readouterr().err
 
 
 def test_a_follow_up_piece_a_builder_names_on_an_unbuilt_line_of_an_undesigned_order_is_read_by_its_parts_reader_so_its_builder_starts_on_that_research(
@@ -6987,7 +6986,7 @@ def test_a_readers_design_starts_from_the_root_cause_and_counts_only_its_options
     assert keep(monkeypatch, capsys, "j1", bulleted) == (0, "")
 
 
-def test_a_done_or_ready_leaves_no_step_for_someone_else(
+def test_a_done_or_ready_leaving_a_step_for_someone_else_is_kept_with_a_note(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "backfill the copies")
@@ -6996,13 +6995,12 @@ def test_a_done_or_ready_leaves_no_step_for_someone_else(
     done = "DONE the copies page lists every store\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
     for left in ("NEXT: coordinator runs the backfill once it ships", "UNPROVEN: the old stores, until the coordinator runs the backfill"):
         code, err = keep(monkeypatch, capsys, "j1", f"{done}{left}\n")
-        assert code == 2
-        assert f'j1: refused, nothing kept: a DONE leaves a step for someone else: "{left}". Do that step yourself before you return, or return ASK' in err
+        assert (code, f'drive job report: a DONE leaves a step for someone else: "{left}"; no session runs it' in err) == (0, True)
     assert keep(monkeypatch, capsys, "j1", f"{done}NEXT: no coordinator runs a backfill; the release applies it automatically\n") == (0, "")
     assert keep(monkeypatch, capsys, "j1", f"{done}PROVE: after release, open the run page\n") == (0, "")
 
 
-def test_a_done_leaves_no_step_after_its_install_to_the_lander_or_a_mac_lane(
+def test_a_done_leaving_a_step_after_its_install_to_the_lander_or_a_mac_lane_is_kept_with_a_note(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "redraw the stale card")
@@ -7015,13 +7013,12 @@ def test_a_done_leaves_no_step_after_its_install_to_the_lander_or_a_mac_lane(
         "UNPROVEN: the redraw, until a lane on this Mac runs it",
     ):
         code, err = keep(monkeypatch, capsys, "j1", f"{done}{left}\n")
-        assert code == 2
-        assert f'j1: refused, nothing kept: a DONE leaves a step for someone else: "{left}".' in err
+        assert (code, f'drive job report: a DONE leaves a step for someone else: "{left}";' in err) == (0, True)
     for kept in ("NEXT: once the lander merges it, drive job prove runs the After install: redraw", "NEXT: no Mac lane runs it; drive job prove runs the After install: redraw"):
         assert keep(monkeypatch, capsys, "j1", f"{done}{kept}\n") == (0, "")
 
 
-def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
+def test_a_limit_left_standing_is_kept_with_a_note_that_an_ask_or_design_puts_it_on_his_card(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy the bucket")
@@ -7034,9 +7031,7 @@ def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
         "the copy did not lose data and hit the 5k objects/s rate limit",
     ):
         code, err = keep(monkeypatch, capsys, "j1", f"DONE {finding}\n{check}")
-        assert code == 2
-        assert f'j1: refused, nothing kept: it reports a limit as a finding left standing: "DONE {finding}". A limit or capacity finding is his choice' in err
-        assert "return ASK or DESIGN with two to four options for it, one recommended" in err
+        assert (code, f'drive job report: it reports a limit as a finding left standing: "DONE {finding}". When removing it is his choice' in err) == (0, True)
     refusal = "GraphQL: API rate limit already exceeded for user ID 709645."
     for own_words in (
         "UNPROVEN: the queue state of the stack; the read stopped when it hit GitHub's 5,000 calls an hour rate limit",
@@ -7044,9 +7039,7 @@ def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
         f'UNPROVEN: the queue state of the stack, read for each of its four PRs before the merge, after the restack and at the enqueue; every read was refused with "{refusal}"',
     ):
         code, err = keep(monkeypatch, capsys, "j1", f"DONE the copy finished\n{check}{own_words}\n")
-        assert code == 2
-        assert f'it reports a limit as a finding left standing: "{own_words.rpartition("; ")[2]}". A limit or capacity finding is his choice' in err
-    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+        assert (code, f'it reports a limit as a finding left standing: "{own_words.rpartition("; ")[2]}". When removing it is his choice' in err) == (0, True)
     design = "DESIGN the bucket caps at 5k objects/s, left as is\n- shard the copy across buckets (recommended)\n- copy at 5k objects/s\n"
     assert keep(monkeypatch, capsys, "j1", design) == (0, "")
     run("job", "add", "builder", "--order", "o1", "--goal", "queue the cards")
@@ -7057,9 +7050,7 @@ def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
     run("start", "demo", "--role", "meta")
     run("job", "add", "builder", "--order", "o2", "--goal", "copy them", "--agent", "a3")
     code, err = keep(monkeypatch, capsys, "j3", f"DONE the bucket caps at 5k objects/s, left as is\n{check}")
-    assert code == 2
-    assert "On a drive tooling order the job decides it, by his ruling 43aa665: build the option that removes it and report that" in err
-    assert "A limit or capacity finding is his choice" not in err
+    assert (code, "it reports a limit as a finding left standing" in err) == (0, True)
     assert keep(monkeypatch, capsys, "j2", f"DONE the 5k objects/s cap was never hit\n{check}") == (0, "")
     assert keep(monkeypatch, capsys, "j2", f'DONE limits.py and cli.py never set "hints" (0 grep hits)\n{check}') == (0, "")
     for evidence in (
@@ -7515,14 +7506,14 @@ def test_a_ready_is_judged_by_the_watchs_check_against_the_answers_its_design_li
     assert said.startswith('o1, ') and f'asked "{DOORS["title"]}": "Close every door once Env::file_of reads env_id (recommended)' in said
 
 
-def test_a_ready_or_pushed_whose_design_line_names_no_answer_of_his_keeps_nothing_and_pr_set_refuses_such_a_design(
+def test_a_ready_or_pushed_whose_design_line_names_no_answer_of_his_is_kept_with_a_note_and_pr_set_refuses_such_a_design(
     run: Run, with_pr: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     for first in ("READY", "PUSHED"):
         code, err = keep(monkeypatch, capsys, "j1", f"{first} {PR}\nDESIGN: also start stopped boxes, as built (his pick, 3:24 AM Nov 10)\n{UNSTAGED}")
-        assert (code, f"j1: refused, nothing kept: {served.NAMELESS}" in err) == (2, True)
-    assert state.report_text("demo", "j1") == ""
-    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}DESIGN: none: it makes no design decision\n") == (0, "")
+        assert (code, f"drive job report: {served.NAMELESS}" in err) == (0, True)
+    code, err = keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}DESIGN: none: it makes no design decision\n")
+    assert (code, served.NAMELESS in err) == (0, False)
     with pytest.raises(SystemExit):
         cli.main(["pr", "set", PR, "--serves", "o1", "--design", "asked:his pick, 3:24 AM Nov 10"])
     assert served.NAMES in capsys.readouterr().err
@@ -8604,9 +8595,7 @@ def test_pr_set_tap_takes_a_pr_on_an_order_with_merged_prs_on_other_symptoms(run
     assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
 
 
-def test_pr_set_serves_needs_the_design_answer_he_gave_or_none(run: Run, with_pr: str) -> None:
-    assert run("pr", "set", PR, "--tap", "--serves", "o1")[0] == 2
-    assert state.load("demo")["prs"][with_pr].get("serves") is None
+def test_pr_set_serves_takes_a_design_answer_he_gave_or_none_and_runs_without_one(run: Run, with_pr: str) -> None:
     for unsaid in ("maybe", "asked:", "asked: "):
         with pytest.raises(SystemExit):
             run("pr", "set", PR, "--tap", "--serves", "o1", "--design", unsaid)
@@ -8615,6 +8604,8 @@ def test_pr_set_serves_needs_the_design_answer_he_gave_or_none(run: Run, with_pr
     assert (pr["wants_tap"], pr["design"]) == (True, "asked:045b08d")
     assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
     assert state.load("demo")["prs"][with_pr]["design"] == "none"
+    assert run("pr", "set", PR, "--tap", "--serves", "o1")[0] == 0
+    assert state.load("demo")["prs"][with_pr]["serves"] == "o1"
 
 
 def test_pr_set_tap_draws_a_body_with_no_releasable_section_and_a_step_after_the_release(

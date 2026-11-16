@@ -35,12 +35,14 @@ def test_a_design_job_starts_as_the_designer(demo: str, run: Run, monkeypatch: p
     assert agent_brief.deny_reason(briefed("long-running:designer", prompt, "fable")) is None
 
 
-def test_a_builders_serves_line_names_one_of_the_three(demo: str) -> None:
+def test_a_builder_whose_serves_line_names_none_of_the_three_starts_with_a_note(demo: str) -> None:
     order = "Order (his words): fix the watch\n"
-    refused = agent_brief.deny_reason(briefed("long-running:builder", f"{order}Serves: cleanup I noticed\nGoal: tidy the watch"))
-    assert refused.startswith("refused: `Serves: cleanup I noticed` names none of `port of #N`, `drive tooling` or `his order`")
+    unserved = briefed("long-running:builder", f"{order}Serves: cleanup I noticed\nGoal: tidy the watch")
+    assert agent_brief.deny_reason(unserved) is None
+    assert agent_brief.note(unserved).startswith("`Serves: cleanup I noticed` names none of `port of #N`, `drive tooling` or `his order`")
     for serves in ("his order o284", "port of #4203", '"fix the watch"'):
-        assert agent_brief.deny_reason(briefed("long-running:builder", f"{order}Serves: {serves}\nGoal: fix it")) is None
+        call = briefed("long-running:builder", f"{order}Serves: {serves}\nGoal: fix it")
+        assert (agent_brief.deny_reason(call), agent_brief.note(call)) == (None, None)
 
 
 def test_a_builders_brief_file_is_read_from_whichever_line_of_its_prompt_names_it_in_the_drives_jobs_folder(demo: str, tmp_path: Path) -> None:
@@ -62,9 +64,8 @@ def test_a_builders_brief_file_is_read_from_whichever_line_of_its_prompt_names_i
         " `drive job add` it, then `drive job brief <j>`, and start it on the line that prints"
     )
     kept.write_text("Order (his words): fix the watch\nGoal: fix it\nDrive: demo, order o1, job j3\n")
-    assert agent_brief.deny_reason(started("long-running:builder", f"Brief: {kept}")).startswith(
-        "refused: a builder's brief, in its prompt or the brief file the prompt names, carries a `Serves:` line"
-    )
+    assert agent_brief.deny_reason(started("long-running:builder", f"Brief: {kept}")) is None
+    assert agent_brief.note(started("long-running:builder", f"Brief: {kept}")).startswith("This builder's brief carries no `Serves:` line")
 
 
 def test_a_builder_reads_no_brief_of_another_job_its_prompt_names_beside_its_own_drive_line(demo: str) -> None:
@@ -231,18 +232,19 @@ def test_a_priority_orders_builder_starts_here_at_once_past_a_full_cap_the_line_
     assert place.crowded(state.load(demo), "j10", state.now()).startswith("9 builders already run on this Mac")
 
 
-def test_a_builder_whose_wait_still_holds_starts_here_only_on_its_free_line_by_the_refusal_drive_job_launch_gives(demo: str, run: Run) -> None:
+def test_a_builder_whose_wait_still_holds_starts_with_a_note_naming_the_wait(demo: str, run: Run) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--parts", "the interface", "the reads")
     run("job", "add", "builder", "--order", "o1", "--part", "the interface", "--goal", "build the interface")
     run("job", "add", "builder", "--order", "o1", "--part", "the reads", "--goal", "build the reads", "--waits", "j1")
     brief = "Order (his words): copy one store\nServes: his order\nGoal: build it\nDrive: demo, order o1, job "
     refused = "j2 waits on j1: start nothing for it now: once the last wait ends the watch starts it, or its FREE line names who does"
     assert view.start_refusal(state.load(demo), "j2", True) == refused
-    assert agent_brief.deny_reason(briefed("long-running:builder", f"{brief}j2")) == f"refused: {refused}"
-    assert agent_brief.deny_reason(briefed("long-running:builder", f"{brief}j1")) is None
+    assert agent_brief.deny_reason(briefed("long-running:builder", f"{brief}j2")) is None
+    assert agent_brief.note(briefed("long-running:builder", f"{brief}j2")) == "j2 still waits on j1; it starts now on your call, ahead of the watch, which starts it once the last wait ends."
+    assert agent_brief.note(briefed("long-running:builder", f"{brief}j1")) is None
     with state.edit(demo) as data:
         data["jobs"]["j1"]["state"] = "done"
-    assert agent_brief.deny_reason(briefed("long-running:builder", f"{brief}j2")) is None
+    assert agent_brief.note(briefed("long-running:builder", f"{brief}j2")) is None
 
 
 def test_a_builder_added_to_build_nothing_such_as_an_agentinbox_live_proof_starts_here_at_once_past_a_full_cap_and_its_line_and_holds_no_slot(demo: str, run: Run) -> None:

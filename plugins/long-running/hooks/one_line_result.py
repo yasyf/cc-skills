@@ -38,10 +38,10 @@ def block_reason(payload: dict) -> str | None:
     lines = message.splitlines()
     job_id = state.agent_job(data, payload.get("agent_id"))
     if len(lines) <= 1 and len(message) <= RESULT_CHARS:
+        unread(payload, data, handler, job_id, message)
+        overfull(handler, message)
         return (
-            unread(payload, data, handler, job_id, message)
-            or unkept(names[0], data, job_id, message)
-            or overfull(handler, message)
+            unkept(names[0], data, job_id, message)
             or unopened(handler, message)
             or unanswered(handler, payload, data, message)
         )
@@ -74,7 +74,7 @@ def in_flight(payload: dict) -> str | None:
 
 
 def unkept(name: str, data: dict, job_id: str | None, line: str) -> str | None:
-    """Why a job's agent may not end on its one line yet: its whole return, a line per fact, is not kept in the drive, and only `drive job report` sets a job's state from it, so whoever acts on the job reads only that line and the job stays running; a reader's one line on an answer or incident order can be its whole return, and an ASK ends any job but a running builder."""
+    """Why a job's agent may not end on its one line yet: its whole return, a line per fact, is not kept in the drive, and only `drive job report` sets a job's state from it, so whoever acts on the job reads only that line and the job stays running; a reader's one line on an answer or incident order can be its whole return, and an ASK ends any job."""
     if not job_id:
         return None
     job = data["jobs"][job_id]
@@ -93,33 +93,19 @@ def unkept(name: str, data: dict, job_id: str | None, line: str) -> str | None:
     )
 
 
-def unbuilt(job_id: str, job: dict) -> str | None:
-    """Why a running builder may not end on the ASK `drive job ask` kept: his card's recommended option is built in the same run while he decides, so the builder ends on BUILT, or PUSHED on an open incident, and only an ASK his words ask no build for ends it waiting, once `drive job report` keeps it."""
-    if job["kind"] != "builder" or job["state"] != "running":
-        return None
-    return agents.Unjudged(
-        f"Refused on purpose: {job_id} put his card up and built nothing, and the recommended option is built in this run while he"
-        f" decides. Build it on your branch, push it with `ccx vcs ship --no-pr`, keep `BUILT <branch>, waits on <the card's waits id,"
-        f" which drive status {job_id} shows>` and its lines with `drive job report {job_id} -`, and end on that line; on an open"
-        " incident open its PR, which lands on that option while his card stays open, and end on `PUSHED <its url>`, unless the card"
-        " was kept unsettled, asking him to lift a ruling of his, whose PR waits on his answer there too. Only when his"
-        f" words ask for options and no build, or the recommended option is no change you build, keep this ASK with `drive job report"
-        f" {job_id} -` and end on it again."
-    )
+def unbuilt(job_id: str, job: dict) -> None:
+    """Let a running builder end on the ASK `drive job ask` kept, noting on stderr that it built nothing while he decides, since building the card's recommended option in the same run is usually what he wants."""
+    if job["kind"] == "builder" and job["state"] == "running":
+        print(f"one_line_result: {job_id} ends on an ASK and built nothing; building the recommended option while he decides, ending on BUILT or PUSHED, usually saves him a round trip.", file=sys.stderr)
 
 
-def overfull(handler: bool, line: str) -> str | None:
-    """Why a handler may not end on its line yet: past its results it carries at most three facts, since the line lands whole in the communicator's context."""
+def overfull(handler: bool, line: str) -> None:
+    """Let a handler end on its line, noting on stderr when past its results it carries more than three facts, since the line lands whole in the communicator's context."""
     if not handler or "DEFECT " in line:
-        return None
+        return
     facts = [part for part in line.split(";") if part.strip() and not HANDLER_RESULT.match(part.strip())]
-    if len(facts) <= HANDLER_FACTS:
-        return None
-    return agents.Unjudged(
-        f"Refused on purpose: your line carries {len(facts)} facts past its results, and a handler's carries at most"
-        f" {HANDLER_FACTS}, since it lands whole in the communicator's context. Cut it to the {HANDLER_FACTS} his next"
-        " message needs that Slack and the drive do not already hold, each after `; `, then end again with that line."
-    )
+    if len(facts) > HANDLER_FACTS:
+        print(f"one_line_result: your line carries {len(facts)} facts past its results; {HANDLER_FACTS} keep the communicator's context small.", file=sys.stderr)
 
 
 def unanswered(handler: bool, payload: dict, data: dict, line: str) -> str | None:
@@ -142,20 +128,20 @@ def unopened(handler: bool, line: str) -> str | None:
     )
 
 
-def unread(payload: dict, data: dict, handler: bool, job_id: str | None, line: str) -> str | None:
-    """Why a handler or reader may not end on a refused read: his asking authorizes the read, so a refusal sends it down the staff route that opens it before it gives up."""
+def unread(payload: dict, data: dict, handler: bool, job_id: str | None, line: str) -> None:
+    """Let a handler or reader end on a refused read, noting on stderr the staff routes that often open it when its transcript tried none."""
     if not REFUSED_READ.search(line) or not (handler or (job_id and data["jobs"][job_id]["kind"] == "reader")):
-        return None
+        return
     steps = (json.loads(entry).get("message") or {} for entry in agents.transcript(payload).read_text().splitlines())
     calls = (json.dumps(block["input"]) for step in steps for block in step.get("content") or [] if isinstance(block, dict) and block.get("type") == "tool_use")
     if any(route in call for call in calls for route in STAFF_ROUTES):
-        return None
-    return (
-        "Refused on purpose: your line ends on a refused read, and the read his words or the order name is authorized"
-        " by his asking. In this turn take the staff route that opens it: an admin view, the"
+        return
+    print(
+        "one_line_result: your line ends on a refused read, and a staff route often opens it: an admin view, the"
         " `db-read` skill, or `drive break-glass`, which runs it under this Mac's machine profile with no sign-in, and for a team's"
         " data, which none of those reads, a service account on a pass box, by docs/pass-boxes.md in Forge-AI/monorepo. Then read"
-        " it and end on what it says; a read every route refuses goes on `UNPROVEN:` with each refusal."
+        " it and end on what it says; a read every route refuses goes on `UNPROVEN:` with each refusal.",
+        file=sys.stderr,
     )
 
 

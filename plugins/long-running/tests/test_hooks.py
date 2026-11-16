@@ -453,7 +453,9 @@ def test_a_drive_job_with_a_long_final_message_is_sent_back_to_keep_it_in_its_re
     assert "`drive job report j1 -`" in output["reason"]
     waiting = "WAITING CI on https://github.com/yasyf/cc-skills/pull/1"
     assert one_line_result.block_reason(agent_stop(waiting)).startswith("Refused on purpose: j1's return is not kept in the drive")
-    assert one_line_result.block_reason(agent_stop("ASK /scratch/ask.md")).startswith("Refused on purpose: j1 put his card up and built nothing")
+    capsys.readouterr()
+    assert one_line_result.block_reason(agent_stop("ASK /scratch/ask.md")) is None
+    assert capsys.readouterr().err.startswith("one_line_result: j1 ends on an ASK and built nothing")
     monkeypatch.setattr("sys.stdin", io.StringIO(f"{waiting}\nPR: https://github.com/yasyf/cc-skills/pull/1\n"))
     run("job", "report", "j1", "-")
     assert one_line_result.block_reason(agent_stop(waiting)) is None
@@ -504,7 +506,7 @@ J2776_QUESTION = "How should the release's tenant smoke remove the cloud agent i
 J2776_PART = "the release's tenant smoke creates one cloud agent and deletes it"
 
 
-def test_a_builder_asking_his_card_builds_its_recommended_option_in_the_same_run_and_ends_built_where_j2776_ended_waiting_with_nothing_built(
+def test_a_builder_asking_his_card_may_end_on_its_ask_with_a_note_and_ends_built_once_it_builds_the_recommended_option(
     run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("start", "durable-agents", "--role", "coordinator")
@@ -521,9 +523,7 @@ def test_a_builder_asking_his_card_builds_its_recommended_option_in_the_same_run
     job = state.load("durable-agents")["jobs"]["j2776"]
     assert (job["state"], job["said"], [question["waits"] for question in job["questions"]]) == ("running", J2776_QUESTION, ["durable-agents:j2776-7"])
     lane = stepped(tmp_path, "Drive: durable-agents, order o1, job j2776", prompted=EARLIER)
-    refused = json.loads(hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop(f"ASK {asked}", **lane))))
-    assert refused["reason"].startswith("Refused on purpose: j2776 put his card up and built nothing")
-    assert "`ccx vcs ship --no-pr`" in refused["reason"]
+    assert hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop(f"ASK {asked}", **lane))) == ""
     assert land.open_cards(state.load("durable-agents"), "j2776", None) == [drawn_card(1)]
     built = "BUILT j2776-delete-agent, waits on durable-agents:j2776-7"
     monkeypatch.setattr("sys.stdin", io.StringIO(f"{built}\nCHECK: the recommended deleteAgent mutation, pushed on j2776-delete-agent\n"))
@@ -905,7 +905,7 @@ def started_by_role(session: str, **call: object) -> dict:
     return {"session_id": session, "tool_name": "Agent", "tool_input": {"description": "d", "prompt": "Record: 1 Drive: demo", **call}}
 
 
-def test_a_drive_roles_agent_runs_unnamed_with_fable_on_its_designer_alone_and_no_builder_without_scope(
+def test_a_drive_roles_agent_runs_unnamed_with_fable_on_its_designer_alone_and_a_builder_without_scope_starts_with_a_note(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     coordinator = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -924,7 +924,8 @@ def test_a_drive_roles_agent_runs_unnamed_with_fable_on_its_designer_alone_and_n
     for effort, kept in (("xhigh", "high"), ("max", "high"), ("high", "high"), ("medium", "medium")):
         assert agents.shaped(started_by_role(coordinator, subagent_type="long-running:designer", model="fable", effort=effort))["effort"] == kept
     unscoped = started_by_role(coordinator, subagent_type="long-running:builder", prompt=kept_brief("Order (his words): fix it\nGoal: fix it"))
-    assert agent_brief.deny_reason(unscoped).startswith("refused: a builder's brief, in its prompt or the brief file the prompt names")
+    assert agent_brief.deny_reason(unscoped) is None
+    assert agent_brief.note(unscoped).startswith("This builder's brief carries no `Serves:` line")
     assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:builder", prompt=kept_brief(handoff))) is None
     tooling = kept_brief("Order: Drive tooling: x\nServes: drive tooling")
     assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:builder", prompt=tooling)) == (

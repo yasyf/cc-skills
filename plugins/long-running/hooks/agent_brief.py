@@ -47,23 +47,10 @@ def unbriefed(name: str, data: dict, prompt: str, kind: str) -> str | None:
 
 
 def builder_refusal(text: str) -> str | None:
-    """Why a builder's brief may not start it: it names no scope, its Serves line names none of the three, or its Goal's own action is a pass over a team's data, not a PR or check named for one, with no Runs as line."""
-    if not SCOPED.search(text):
-        return (
-            "refused: a builder's brief, in its prompt or the brief file the prompt names, carries a `Serves:` line, `port of"
-            " #N`, `drive tooling` or `his order`, or a `Handoff:` line for a PR event, so work no order asked for is caught"
-            " before it starts; add the line, or start no builder when none of the three fits"
-        )
+    """Why a builder's brief may not start it: its Goal's own action is a pass over a team's data, not a PR or check named for one, with no Runs as line."""
     served = SERVES.search(text)
-    value = served[1].strip().strip("\"“”").casefold() if served else ""
-    if served and not (SERVED.search(value) or (value and any(value in words.casefold() for words in ORDER_WORDS.findall(text)))):
-        return (
-            f"refused: `Serves:{served[1]}` names none of `port of #N`, `drive tooling` or `his order`, nor words of the"
-            " brief's Order line; a job for anything else is never started: write the brief again with the one that fits,"
-            " or start no builder"
-        )
     task = GOAL.search(text)
-    found = DATA_PASS.search(task[1]) if task and not RUNS_AS.search(text) and "drive tooling" not in value else None
+    found = DATA_PASS.search(task[1]) if task and not RUNS_AS.search(text) and not (served and "drive tooling" in served[1].casefold()) else None
     if found is None:
         return None
     job = brief.BRIEF_JOB.search(text)
@@ -74,6 +61,17 @@ def builder_refusal(text: str) -> str | None:
         " `--runs-as \"none: <why>\"` when it writes no team's data",
         DATA_PASS_RULE,
     )
+
+
+def unscoped(text: str) -> str | None:
+    """A note on a builder whose brief names no scope, or whose Serves line names none of the three nor words of its Order line: it starts on its starter's reading of what it serves."""
+    if not SCOPED.search(text):
+        return "This builder's brief carries no `Serves:` line (`port of #N`, `drive tooling` or `his order`) and no `Handoff:` line, so the drive records no order it serves; it starts on your reading of its scope."
+    served = SERVES.search(text)
+    value = served[1].strip().strip("\"“”").casefold() if served else ""
+    if served and not (SERVED.search(value) or (value and any(value in words.casefold() for words in ORDER_WORDS.findall(text)))):
+        return f"`Serves:{served[1]}` names none of `port of #N`, `drive tooling` or `his order`, nor words of the brief's Order line; it starts on your reading of its scope."
+    return None
 
 
 def tooling_refusal(name: str, data: dict, text: str, role: str) -> str:
@@ -98,10 +96,12 @@ def tooling_refusal(name: str, data: dict, text: str, role: str) -> str:
 
 
 def waiting(data: dict, text: str) -> str | None:
-    """Why a builder starts no agent while a wait of its holds, by the one view.start_refusal drive job launch reads, so it starts on the watch's FREE line here as on a Sprite; its turn for a builder slot on this Mac is crowded's to name."""
+    """A note on a builder started while a wait of its job still holds, by the one view.start_refusal drive job launch reads: the start goes ahead, ahead of the watch, which starts it once the last wait ends; its turn for a builder slot on this Mac is crowded's to name."""
     match = brief.BRIEF_JOB.search(text)
-    refused = view.start_refusal(data, match[1], False) if match and match[1] in data["jobs"] else None
-    return refused and agents.Unjudged(f"refused: {refused}")
+    if not (match and match[1] in data["jobs"] and view.start_refusal(data, match[1], False)):
+        return None
+    waits = [wait for wait in view.start_waits(data, data["jobs"][match[1]], None) if wait != state.SLOT_WAIT]
+    return f"{match[1]} still waits on {', '.join(waits)}; it starts now on your call, ahead of the watch, which starts it once the last wait ends."
 
 
 def overloaded(data: dict, text: str) -> str | None:
@@ -180,7 +180,7 @@ def in_line(data: dict, job_id: str) -> str:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session may not start this agent, in the shape `agents.shaped` gives its call: a handler starts with the drive's handler tool, a reader, builder or designer starts only on a brief the drive wrote, a build order's codex lane waits on its reader's research, a reader or designer starts here only while this Mac admits a local Claude lane, by unadmitted, a builder's brief says its scope, drive tooling is the meta session's alone, a builder starts on the watch's FREE line once its last wait ends, a monorepo builder starts here over this Mac's load limit only when its brief declares a step only this Mac runs, and a builder starts here only in its turn for one of this Mac's builder slots."""
+    """Why a drive session may not start this agent, in the shape `agents.shaped` gives its call: a handler starts with the drive's handler tool, a reader, builder or designer starts only on a brief the drive wrote, a build order's codex lane waits on its reader's research, a reader or designer starts here only while this Mac admits a local Claude lane, by unadmitted, drive tooling is the meta session's alone, a builder's Goal that is a pass over a team's data names what it runs as, a monorepo builder starts here over this Mac's load limit only when its brief declares a step only this Mac runs, and a builder starts here only in its turn for one of this Mac's builder slots."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
@@ -206,8 +206,17 @@ def deny_reason(payload: dict) -> str | None:
     if kind == BUILDER and role not in (None, "meta") and brief.SERVES_TOOLING.search(text):
         return tooling_refusal(names[0], data, text, role)
     if kind == BUILDER:
-        return builder_refusal(text) or waiting(data, text) or overloaded(data, text) or crowded(names[0], data, text)
+        return builder_refusal(text) or overloaded(data, text) or crowded(names[0], data, text)
     return unadmitted(names[0], data, text) if kind in BRIEFED else None
+
+
+def note(payload: dict) -> str | None:
+    """What a drive session's builder start that goes ahead is told: its brief names no scope the drive knows, by unscoped, and a wait of its job still holds, by waiting."""
+    call = payload["tool_input"]
+    if payload.get("agent_id") or call.get("subagent_type") != BUILDER or not (names := state.session_drives(payload.get("session_id") or "")):
+        return None
+    text = brief.carried(call.get("prompt") or "")
+    return "\n".join(filter(None, [unscoped(text), waiting(state.load(names[0]), text)])) or None
 
 
 def main() -> None:
@@ -215,8 +224,11 @@ def main() -> None:
     made = agents.shaped(payload)
     if reason := deny_reason(payload | {"tool_input": made}):
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}} | agents.ruled(reason)))
-    elif made != payload["tool_input"]:
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": made}}))
+        return
+    told = note(payload | {"tool_input": made})
+    output = ({"updatedInput": made} if made != payload["tool_input"] else {}) | ({"additionalContext": told} if told else {})
+    if output:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse"} | output}))
 
 
 if __name__ == "__main__":

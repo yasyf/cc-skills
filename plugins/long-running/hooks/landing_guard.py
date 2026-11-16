@@ -230,9 +230,9 @@ CCI_POST = Landing(
 )
 RELEASE_BY_HAND = (
     "Refused on purpose: a drive starts a release only through `drive job add builder --order <o> --goal \"<what it ships>\""
-    ' --release "{command}"`, run by the top coordinator, which reads the answer of his its --order names, starts it from the'
+    ' --release "{command}"`, run by the top coordinator on its own reading of his words, named in --reading, which starts it from the'
     " top's checkout, prints its build and briefs the job's agent to follow it and read its approve hold. A job needing a release"
-    " returns WAITING release naming that exact command once its `tools/ci release plan` reads right, and the top asks him for his go"
+    " returns WAITING release naming that exact command once its release plan reads right; a dangerous release waits for his presence"
 )
 MISROUTED = (
     "This {kind} record goes to {lanes}: a defect, and the communicator's owner record about the drive, to the meta"
