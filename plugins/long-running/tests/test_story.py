@@ -11,7 +11,7 @@ TOLD = {
     "headline": "Raise the limit?",
     "beats": [{"label": "Writes hit the cap", "text": "Writes hit the bucket's cap.", "when": "Nov 15, 9 PM", "picture": "/pics/cap.png"}, {"label": "Your pick waits", "text": "Shards wait on you.", "when": "", "picture": "/pics/made-up.png"}],
     "ask": "",
-    "options": [{"title": "Raise it", "consequence": "One setting changes.", "priority": "", "metrics": []}, {"title": "Shard it", "consequence": "Each journal writes under 16 prefixes.", "priority": "", "metrics": []}],
+    "options": [{"title": "Raise it", "consequence": "One setting changes.", "after": "The builder ships it tonight; you hear once staging passes.", "priority": "", "metrics": []}, {"title": "Shard it", "consequence": "Each journal writes under 16 prefixes.", "after": "A builder starts the shards; you hear when its PR waits on you.", "priority": "", "metrics": []}],
 }
 
 UNSTAGED = "Not on staging: its staging test has not started"

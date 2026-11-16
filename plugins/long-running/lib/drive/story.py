@@ -36,7 +36,7 @@ Pick the format deciding it takes, never by how many options it has, by his word
 Then tell its story:
 - headline: the decision itself, a plain question or statement of at most 90 characters.
 - beats: what happened, as two to four short steps in the order they happened, never paragraphs: each `label` a few words naming the step, such as "Staging test failed" or "Your pick waits"; `text` one short sentence on that step, where the card shows evidence saying what it shows; `when` the time or day the card gives for that step, as it writes it, such as "Nov 15, 9 PM" or "this morning", empty when it gives none; `picture` the path of the image in the card's body that shows that step, exactly as the body writes it, empty when none does. The last step says what turns on his pick.
-- options: one for each option of the card, in its order: `title` at most six words naming the path; `consequence` one or two sentences on what is true once he picks it; `metrics` its lab values, each `label` the same across the options and each `value` a few words from the card, none outside a lab; `priority` the words of the priority it serves in an interview, empty outside one.
+- options: one for each option of the card, in its order: `title` at most six words naming the path; `consequence` one or two sentences on what is true once he picks it; `after` one sharp sentence on what happens right after he picks it: what the drive does next and when he will hear, from the card's own facts, such as "The builder merges it tonight; you hear when it is live on staging, about an hour later"; `metrics` its lab values, each `label` the same across the options and each `value` a few words from the card, none outside a lab; `priority` the words of the priority it serves in an interview, empty outside one.
 - ask: an interview's question on his priority, empty outside an interview.
 - needs_him: why this is his to decide and not the drive's, the one that fits best: "dangerous act" when the answer lets a step run that can break customers' work or lose their data, "customer data" when it touches what customers stored, "money" when it spends money, "his hands" when he must do something himself, such as sign in, tap or hand over a secret, "his own words" when the drive needs a ruling only his words give, "only he knows" when it turns on a fact only he holds.
 - today: one or two sentences on what happens while he has not picked: what a user, a service or the drive sees meanwhile, as the card says.
@@ -55,7 +55,7 @@ Tell its story:
 - approve: one or two sentences on what happens once he taps Approve: when it lands and ships and who sees the change.
 - hold: one or two sentences on what stays true while he holds it."""
 NEEDS_HIM = ("dangerous act", "customer data", "money", "his hands", "his own words", "only he knows")
-QUESTION_VERSION = 4
+QUESTION_VERSION = 5
 QUESTION = {
     "type": "object",
     "properties": {
@@ -74,10 +74,11 @@ QUESTION = {
                 "properties": {
                     "title": {"type": "string"},
                     "consequence": {"type": "string"},
+                    "after": {"type": "string"},
                     "priority": {"type": "string"},
                     "metrics": pairs("label", "value"),
                 },
-                "required": ["title", "consequence", "priority", "metrics"],
+                "required": ["title", "consequence", "after", "priority", "metrics"],
             },
         },
     },

@@ -1362,3 +1362,5 @@ button.task-row { cursor: pointer; }
 .ap-card-list > summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 .ap-card-list .queue-list { position: static; max-height: 360px; margin-top: 8px; }
 .ap-card-list button.qrow-main { width: 100%; border: 0; background: none; font: inherit; text-align: left; cursor: pointer; }
+.story-after { display: grid; gap: 2px; margin: 10px 0 0; padding: 10px 12px; border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; background: var(--soft); color: var(--ink); font-size: 14px; line-height: 1.5; }
+.story-after b { font: var(--caps); letter-spacing: 1px; color: var(--accent); }
