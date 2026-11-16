@@ -563,6 +563,12 @@ record. Your PR reads `waiting`, waking nobody, until that fix merges.
   `stack-enqueue --flake` once the fix merges, once, and `stack-enqueue` records the retry on the PR. A
   second ejection at that commit reads `unlanded`, and so does a fix that closed unmerged: restack and
   fix the cause, as above.
+- Ejected by Trunk with your own head green on a flake a requeue alone passes, such as a test that fails
+  only in the minute the date changes, `drive pr set <url> --flaky <the test> "<its cause>"` names that
+  cause in words in place of a fix PR, and the lander queues the same commit again with
+  `stack-enqueue --flake` at once, once, so no push that changes nothing stales its approval. Its fix
+  still goes up the same day as its own `flake fix` PR. A head whose own checks fail is refused it, since
+  a rerun there grades the same merge commit.
 
 An ejection whose record in cci's `trunk` drive gives a `GITHUB_API_` reason, such as
 `GITHUB_API_MERGE_PR_FAILED`, with no failing check needs no push either: Trunk tested the stack green

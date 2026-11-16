@@ -4263,6 +4263,11 @@ def pr_set(args: argparse.Namespace) -> int:
             f"{key}: refused, nothing set: --flaky names the flaky test that failed it at its head, in its own checks or in Trunk's ejection of its lander's try,"
             f" and at {before['head'][:7]} none of its checks fail and Trunk ejected no try of its lander"
         )
+    if args.flaky and not state.PR_WORD.fullmatch(args.flaky[1]) and before["checks"] == "fail":
+        raise DriveError(
+            f"{key}: refused, nothing set: --flaky {args.flaky[0]} names its cause and no fix PR, which queues again only a green head Trunk ejected,"
+            f" and its own checks fail at {before['head'][:7]}, where a rerun grades the same merge commit: name that test's fix, a PR the drive tracks, to restack onto"
+        )
     if args.staging and key.rpartition("#")[0].casefold() != state.MONOREPO.casefold():
         raise DriveError(f"{key}: refused, nothing set: --staging runs a {state.MONOREPO} PR's cases on plat-usw2-staging, and {key} is no {state.MONOREPO} PR")
     if args.exempt == state.FLAKE_FIX and args.tap is None:
@@ -4551,7 +4556,8 @@ def set_pr(pr: dict, args: argparse.Namespace, answered: dict[str, list[str]] | 
     if args.no_tapped:
         pr["tap"] = None
     if args.flaky:
-        pr["flaky"] = {"test": args.flaky[0], "fix": state.pr_key(args.flaky[1]), "head": pr["head"], "failed_checks": pr["failed_checks"] if pr["checks"] == "fail" else [], "requeued": None}
+        fixed = bool(state.PR_WORD.fullmatch(args.flaky[1]))
+        pr["flaky"] = {"test": args.flaky[0], "fix": state.pr_key(args.flaky[1]) if fixed else None, "cause": None if fixed else args.flaky[1], "head": pr["head"], "failed_checks": pr["failed_checks"] if pr["checks"] == "fail" else [], "requeued": None}
     pr["updated"] = state.stamp()
 
 
@@ -6555,7 +6561,9 @@ def parser() -> argparse.ArgumentParser:
             "the flaky test outside its diff that failed it at its head, and that test's fix, a PR the drive tracks: it waits on that fix, waking nobody;"
             " red at its own head, while every check failing there is one this kept, then red again once the fix merges or closes, waking its builder"
             " once to restack onto it; ejected by Trunk with its own head green, queued again at the same commit with stack-enqueue --flake once the fix"
-            " merges, once; refused unless its checks fail or Trunk ejected it at its head"
+            " merges, once; refused unless its checks fail or Trunk ejected it at its head. A FIX that names no PR is the test's cause in words, such as"
+            " a date it reads that changes at midnight UTC: Trunk's ejection of a green head is then queued again at the same commit at once, once, and"
+            " a head whose own checks fail is refused"
         ),
     )
     verb.set_defaults(run=rehearsed(pr_set))
@@ -7114,7 +7122,7 @@ def changed_fields(before: dict, after: dict) -> list[str]:
 
 
 def keyed_prs(args: argparse.Namespace) -> None:
-    """Name each PR the verb's arguments name by the drive's key for it, state.tracked_pr's: url, urls, --lands, --pr, --below, --rework's PR, --flaky's FIX, --asked's PR, and each id and --waits value state.PR_WORD reads as a PR. The argument UNTRACKED_PRS names for its verb takes any PR as owner/repo#N or its URL, read without the drive, which pr ci never loads; an id takes an untracked one too, which only refuses naming every form an id takes."""
+    """Name each PR the verb's arguments name by the drive's key for it, state.tracked_pr's: url, urls, --lands, --pr, --below, --rework's PR, --flaky's FIX when state.PR_WORD reads it as a PR rather than the test's cause, --asked's PR, and each id and --waits value state.PR_WORD reads as a PR. The argument UNTRACKED_PRS names for its verb takes any PR as owner/repo#N or its URL, read without the drive, which pr ci never loads; an id takes an untracked one too, which only refuses naming every form an id takes."""
     verb, given = (args.verb, getattr(args, "action", None)), vars(args)
     prs = cache(lambda: state.load(state.resolve(given.get("drive")))["prs"])
 
@@ -7136,7 +7144,7 @@ def keyed_prs(args: argparse.Namespace) -> None:
     for name in ("ids", "waits"):
         if isinstance(given.get(name), list):
             setattr(args, name, [keyed(name, ref) if state.PR_WORD.fullmatch(ref) else ref for ref in given[name]])
-    if given.get("flaky"):
+    if given.get("flaky") and state.PR_WORD.fullmatch(args.flaky[1]):
         args.flaky = [args.flaky[0], keyed("flaky", args.flaky[1])]
     if given.get("asked"):
         args.asked = [[keyed("asked", pr), head] for pr, head in args.asked]

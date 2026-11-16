@@ -108,7 +108,7 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
         return Stage("reviewing", OUTSIDE, f"it waits on a GitHub review of {pr['head'][:7]} by {', '.join(reviewers)}, and {'his card draws' if carded(pr) else 'it lands'} once that review lands")
     if state.ships_untapped(data, key):
         return waiting(data, key, cards) or Stage("ready", LANDER, f"its builder reported it and every check at {pr['head'][:7]} finished, so the lander merges it with --admin unless one fails on its own change")
-    if (flaky := land.flaked(pr)) and not flaky["failed_checks"] and data["prs"][flaky["fix"]]["state"] == "open":
+    if (flaky := land.flaked(pr)) and not flaky["failed_checks"] and flaky["fix"] and data["prs"][flaky["fix"]]["state"] == "open":
         return Stage(
             "waiting",
             mover(data, key, [flaky["fix"]], cards),
@@ -204,7 +204,7 @@ def landing_why(pr: dict) -> str:
     lander = pr["lander"]
     if lander["outcome"] == land.QUEUED:
         flaky = pr["flaky"] if pr["flaky"] and pr["flaky"]["requeued"] and pr["flaky"]["head"] == lander["head"] else None
-        requeued = f", requeued once {flaky['fix']}, the fix of its flaky test {flaky['test']}, merged" if flaky else ""
+        requeued = f", requeued {requeued_on(flaky)}" if flaky else ""
         taken = f"; pid {dequeuer['pid']} takes it out of the queue since {dequeuer['at']}, and it lands again after that" if (dequeuer := lander.get("dequeue")) else ""
         return f"queued for merge at {lander['head'][:7]} since {lander['at']}{requeued}{taken}"
     if lander["outcome"]:
@@ -232,15 +232,19 @@ def unlanded(data: dict, key: str, cards: dict | None) -> str | None:
 
 
 def ejection(data: dict, pr: dict) -> str | None:
-    """How Trunk's ejection of the PR at its head stands: None while drive pr set --flaky names the flaky test it failed there and that test's fix is not closed unmerged, since the lander requeues that commit once the fix merges; final otherwise, naming that test and fix when they were named."""
+    """How Trunk's ejection of the PR at its head stands: None while drive pr set --flaky names the flaky test it failed there and that test's fix is not closed unmerged, or the test's cause with no fix, since the lander requeues that commit once the fix merges, or at once on a cause; final otherwise, naming that test and its fix or cause when they were named."""
     flaky = pr["flaky"] if pr["flaky"] and pr["flaky"]["head"] == pr["head"] else None
     if not flaky:
         return "Trunk ejected it from the merge queue"
     if flaky["requeued"]:
-        return f"Trunk ejected it from the merge queue again after the lander requeued {pr['head'][:7]} once {flaky['fix']}, the fix of its flaky test {flaky['test']}, merged"
-    if data["prs"][flaky["fix"]]["state"] == "closed":
+        return f"Trunk ejected it from the merge queue again after the lander requeued {pr['head'][:7]} {requeued_on(flaky)}"
+    if flaky["fix"] and data["prs"][flaky["fix"]]["state"] == "closed":
         return f"Trunk ejected it from the merge queue on its flaky test {flaky['test']}, and {flaky['fix']}, that test's fix, closed unmerged"
     return None
+
+
+def requeued_on(flaky: dict) -> str:
+    return f"once {flaky['fix']}, the fix of its flaky test {flaky['test']}, merged" if flaky["fix"] else f"on its flaky test {flaky['test']} ({flaky['cause']})"
 
 
 def flake_red(data: dict, key: str, failing: str, cards: dict | None) -> Stage | None:
