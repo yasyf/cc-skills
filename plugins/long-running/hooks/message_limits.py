@@ -1107,7 +1107,8 @@ CRAFT_GUIDE = (
     "words are its own URL, where words saying what it opens belong, other than an alert's own Sentry or Datadog link alone"
     ' on its line; tell him something waits or sits somewhere else, such as his card in another thread, without linking it '
     'or showing what it asks right here; ask him to act on a card, such as picking an option on it or tapping it, without '
-    'linking that card so it draws with the post; link a release to its build page where its own release post belongs; name'
+    'linking that card so it draws with the post; ask him to approve or merge PRs without naming each PR by number, so the '
+    'tool links its card; link a release to its build page where its own release post belongs; name'
     " the drive's own machinery or process, such as a job, seat, reader, builder, lane, design job, codex job, fde-scan, an"
     ' order or job id, or which read or session backs a claim, where plain words for what happens to his work would serve; '
     "state a time as a log's UTC stamp or with a zone label rather than in his own local time; lean on context he does not "
@@ -1123,6 +1124,7 @@ CRAFT = {
     "craft.links": settled.Noul("Does `post.text` show a raw URL, or a link whose words are its own URL, where words saying what it opens belong, other than an alert's own Sentry or Datadog link alone on its line?"),
     "craft.elsewhere": settled.Noul('Does `post.text` tell him something waits or sits somewhere else, such as his card in another thread, without linking it or showing what it asks right here?'),
     "craft.card": settled.Noul('Does `post.text` ask him to act on a card, such as picking an option on it or tapping it, without linking that card so it draws with the post?'),
+    "craft.prs": settled.Noul("Does `post.text` ask him to approve or merge PRs without naming each PR by its number?"),
     "craft.release": settled.Noul('Does `post.text` link a release to its build page where its own release post belongs?'),
     "craft.machinery": settled.Noul("Does `post.text` name the drive's own machinery or process, such as a job, seat, reader, builder, lane, design job, codex job, fde-scan, an order or job id, or which read or session backs a claim, where plain words for what happens to his work would serve?"),
     "craft.times": settled.Noul("Does `post.text` state a time as a log's UTC stamp or with a zone label rather than in his own local time?"),
@@ -1137,6 +1139,7 @@ CRAFT_FIXES = {
     "craft.links": 'link each thing on words saying what it opens',
     "craft.elsewhere": 'show what the card or thread it names asks right here, or link it on its words',
     "craft.card": 'link the card he acts on, so it draws right under the post',
+    "craft.prs": "name each PR by number, so the tool links its card",
     "craft.release": "link the release's own release post, never its build",
     "craft.machinery": 'say what happens to his work in plain words',
     "craft.times": 'write times in Pacific, as 1:15 AM',
