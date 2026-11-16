@@ -995,7 +995,7 @@ func TestRemovedSubcommandRefusesBeforeMinting(t *testing.T) {
 	stubDir := mustTempDir(t)
 	writeStub(t, stubDir, stubCodexReply)
 	scope := canonicalScope(t)
-	for _, args := range [][]string{{"tools"}, {"channel", "--no-tools"}, {"daemon"}, {"agent-start"}, {"direct", "ping"}, {"supervise"}} {
+	for _, args := range [][]string{{"daemon"}, {"agent-start"}, {"direct", "ping"}, {"supervise"}} {
 		t.Run(args[0], func(t *testing.T) {
 			runs := mustTempDir(t)
 			var stderr bytes.Buffer
@@ -1029,5 +1029,25 @@ func TestChannelCheckAnOlderSessionsStopHookRunsExitsZeroSilently(t *testing.T) 
 	}
 	if stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Fatalf("codex-ask channel-check printed stdout %q stderr %q", stdout.String(), stderr.String())
+	}
+}
+
+func TestChannelAndToolsAnOlderSessionsMCPServerRunsAnswerInitializeWithNoTools(t *testing.T) {
+	for _, args := range [][]string{{"channel"}, {"channel", "--no-tools"}, {"tools"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			c := exec.Command(codexAskBin(t), args...) //nolint:gosec // runs the binary under test
+			c.Stdin = strings.NewReader(`{"jsonrpc":"2.0","method":"notifications/cancelled"}` + "\n" +
+				`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}` + "\n" +
+				`{"jsonrpc":"2.0","id":2,"method":"tools/list"}` + "\n")
+			out, err := c.Output()
+			if err != nil {
+				t.Fatalf("codex-ask %v: %v", args, err)
+			}
+			want := `{"id":1,"jsonrpc":"2.0","result":{"capabilities":{},"protocolVersion":"2025-03-26","serverInfo":{"name":"codex-ask","version":"` + appVersion + `"}}}` + "\n" +
+				`{"id":2,"jsonrpc":"2.0","result":{"tools":[]}}` + "\n"
+			if string(out) != want {
+				t.Fatalf("codex-ask %v replied %q, want %q", args, out, want)
+			}
+		})
 	}
 }

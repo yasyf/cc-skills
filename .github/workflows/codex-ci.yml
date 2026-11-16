@@ -67,7 +67,7 @@ jobs:
         run: |
           mkdir -p /tmp/codex-ci
           cd plugins/codex && go build -o /tmp/codex-ci/codex-ask ./ && go vet ./... && go test -race -v ./...
-      - name: every hook command of the last 10 releases still runs on this codex-ask
+      - name: every hook command and MCP server of the last 10 releases still runs on this codex-ask
         run: .github/scripts/codex_hook_history.sh /tmp/codex-ci/codex-ask 10
       - name: release build parity (CGO_ENABLED=0, goreleaser's env)
         run: cd plugins/codex && CGO_ENABLED=0 go build -o /dev/null .

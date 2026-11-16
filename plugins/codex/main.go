@@ -48,8 +48,6 @@ const usageStr = "usage: codex-ask [-m sol|luna|astra] [--effort low|medium|high
 var appVersion = "dev"
 
 var removedSubcommands = map[string]string{
-	"tools":        "1.16.4",
-	"channel":      "1.16.4",
 	"daemon":       "1.16.5",
 	"stop":         "1.16.5",
 	"agent-start":  "1.16.5",
@@ -114,6 +112,9 @@ func main() {
 	case len(args) == 1 && args[0] == "channel-check":
 		// Sessions started on 1.16.0-1.16.3 keep a Stop hook running channel-check through bin/codex-ask, which execs the newest binary, so it stays a silent no-op.
 		os.Exit(0)
+	case len(args) >= 1 && (args[0] == "channel" || args[0] == "tools"):
+		// Sessions started on 1.15.x-1.16.3 keep an MCP server running channel or tools on the newest binary, so each stays a toolless server that only answers initialize.
+		idleMCPServer()
 	case len(args) >= 1 && removedSubcommands[args[0]] != "":
 		die(fmt.Sprintf("codex-ask %s: removed in %s", args[0], removedSubcommands[args[0]]), 1)
 	default:
