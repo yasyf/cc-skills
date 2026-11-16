@@ -841,7 +841,7 @@ function queueScreen(id) {
       <div><div class="eyebrow">Your attention</div><h1 class="h1">Priority queue <span class="total-chip">${list.length}</span></h1></div>
       <div class="queue-tools">${queueScope(filter)}<nav class="subtabs" aria-label="Show">${filters}</nav></div>
     </div>
-    <p class="queue-order">Most urgent first: fixes for live incidents, then finished work waiting on your answer, then what frees the most work, then the oldest. What the drive is answering you on sits last.</p>
+    <p class="queue-order">${filter === 'question' ? 'Grouped by why each decision needs you, riskiest first; inside a group, ' : ''}${filter === 'question' ? 'most' : 'Most'} urgent first: fixes for live incidents, then finished work waiting on your answer, then what frees the most work, then the oldest. What the drive is answering you on sits last.</p>
     ${unread}
     ${list.length === 1 ? `<div class="queue-current">${priorityChips(item)}</div>` : ''}
     <div class="queue-shell${list.length > 1 ? '' : ' alone'}">${list.length > 1 ? `<details class="queue-picker"${narrow.matches ? '' : ' open'}><summary>Browse ranked queue <span>${list.length}</span></summary>${queueList(list, at, filter)}</details>` : ''}${shown}</div>
