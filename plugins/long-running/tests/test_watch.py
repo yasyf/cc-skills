@@ -5704,16 +5704,23 @@ def test_a_job_waiting_on_a_codex_job_holds_through_its_handoff_a_pointer_report
         assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=minute)) if line.startswith("FREE ")]
     with state.edit(demo) as data:
         state.start(data["jobs"]["j3"])
+    assert state.load(demo)["jobs"]["j3"]["state"] == "stopped"
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=6)) if line.startswith("FREE ")]
     assert [state.load(demo)["jobs"][job_id]["waits"] for job_id in ("j1", "j4")] == [["j3"], ["j2"]]
     with state.edit(demo) as data:
-        data["prs"][OTHER] = merged_other("j3", "o2")
-        data["jobs"]["j3"]["prs"].append(state.pr_url(OTHER))
-        codex.take(demo, data, "j3", completed_run(tmp_path / "codex-ask.2", codex_reply("DONE", f"built the page kit in {state.pr_url(OTHER)}, merged")))
-    assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=8)) if line.startswith("FREE ")] == ["FREE j1 o1: j3 answered or done, nothing else holds it"]
+        data["jobs"]["j5"] = job(order="o2", kind="codex", goal="build the page kit", parts=["page kit"])
+        data["orders"]["o2"]["jobs"].append("j5")
+        data["prs"][OTHER] = merged_other("j5", "o2")
+        data["jobs"]["j5"]["prs"].append(state.pr_url(OTHER))
     with state.edit(demo) as data:
-        state.deliver_proven(data, "j3", "j3 live: repro/j3.sh exits 0 on no plugin of this Mac")
-    assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=10)) if line.startswith("FREE ")] == ["FREE j4 o1: j2 answered or done, nothing else holds it"]
+        codex.take(demo, data, "j5", completed_run(tmp_path / "codex-ask.2", codex_reply("DONE", f"built the page kit in {state.pr_url(OTHER)}, merged")))
+    assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=8)) if line.startswith("FREE ")]
+    with state.edit(demo) as data:
+        state.deliver_proven(data, "j5", "j5 live: repro/j5.sh exits 0 on no plugin of this Mac")
+    assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=10)) if line.startswith("FREE ")] == [
+        "FREE j1 o1: j3 answered or done, nothing else holds it",
+        "FREE j4 o1: j2 answered or done, nothing else holds it",
+    ]
 
 
 def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_the_earliest_due_once_as_each_slot_opens_while_old_held_work_holds_none(

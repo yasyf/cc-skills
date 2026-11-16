@@ -156,8 +156,8 @@ job, and its first call after a prompt that reached it after its return, such as
 marks the job running again, when its type is one the job's kind runs as: `long-running:builder` on a builder, `long-running:reader` on a reader,
 `long-running:designer` on a design job, and an incident's second-lane `long-running:builder` on
 a codex job; a call or stop after its return with no such prompt leaves
-the return standing. Every worker start runs its job, a stopped one included, and ends its turn in line for a builder slot: this record, `drive job launch`, a `drive job resume` of a job not stopped, which refuses a stopped one, and `drive job set <j> --agent` naming a worker other
-than the one recorded. Each start also ends a question the job's last lane asked, holding that lane's said line for the new worker, dated when the lane asked and sent by no one, so a brief, handoff or opening prompt quoting it takes it off and one lacking it leaves it to the watch's `ANSWER undelivered` line, never an `ORPHAN`; `drive job set <j> --agent` naming an agent on this Mac hears that agent's opening prompt, as its first step would. A pass of a standing part is the exception: the watch alone starts each, so `drive job launch` and `drive job resume` refuse one that finished, done, failed or stopped. Only the agent a stop left on its job keeps the stop, so that agent's later return is kept in the job's history and sets nothing, and the agent ends on its line. An agent of any other type is never recorded this way, even
+the return standing. Every worker start runs its job but a stopped one, which stays stopped, and ends its turn in line for a builder slot: this record, `drive job launch` and `drive job resume`, which both refuse a stopped one, and `drive job set <j> --agent` naming a worker other
+than the one recorded. Each start also ends a question the job's last lane asked, holding that lane's said line for the new worker, dated when the lane asked and sent by no one, so a brief, handoff or opening prompt quoting it takes it off and one lacking it leaves it to the watch's `ANSWER undelivered` line, never an `ORPHAN`; `drive job set <j> --agent` naming an agent on this Mac hears that agent's opening prompt, as its first step would. A pass of a standing part is the exception: the watch alone starts each, so `drive job launch` and `drive job resume` refuse one that finished, done, failed or stopped. A stopped job keeps its stop whatever agent starts on it, so that agent's later return is kept in the job's history and sets nothing, the agent ending on its line, and `drive job add` on its parts adds the job that takes its work. An agent of any other type is never recorded this way, even
 when its brief, the brief file it names or the record it is briefed with names a job: a
 `long-running:handler` started to run `drive job launch <j>` leaves `<j>` to the lane it launches
 and its return sets nothing on `<j>`, and an `orca:orca-doctor` or Explore agent that reads a lane's
@@ -418,7 +418,7 @@ lane reads those, and Slack, through this Mac with a blocking question.
   safeguards stopped is set `stopped` at once instead, with nothing resumed or relaunched, since
   Claude Code's notice on that stop asks for it to go to him and for no one to do the agent's work:
   a POST report passes the notice to him, its `LANE … stopped by its model's safeguards` line says
-  so, its parts make no `ORPHAN`, and `drive job launch <j>` runs it again only on his word. A PR's next step goes to its lane by `drive pr wake`, as its
+  so, its parts make no `ORPHAN`, and only his word adds the job that takes its work, by `drive job add` on its parts. A PR's next step goes to its lane by `drive pr wake`, as its
   stage owes. While its job stays `running`, a lane that finished, or ended with
   no next lane started within 30 minutes, or whose relaunch ended without one, makes its parts
   `ORPHAN`s even when another job or a posted answer carries them, as does work he ordered that only
@@ -696,7 +696,7 @@ session started, which `SendMessage` cannot reach: there it prints a handoff bri
 returned gets a fresh builder, since a resumed one re-reads all it ever did on every event: the
 `communicator_calls` hook refuses `SendMessage` to a builder that returned `BUILT` or `DONE` outside
 an incident unless it carries an answer of his the job holds, by `superseded.delivery`, the rule each watch line names its step by. Run `drive job add builder` for the same order and parts, which takes each PR the old job opened that serves them and stops it
-`handed to <new>` once it is left no part, since a part has one change job, or takes a failed old job's open PRs and stops it
+`handed to <new>` once it is left no part, since a part or branch has one change job, or takes a failed old job's open PRs and stops it
 `replaced by <new>`, then write its brief with the `Handoff:` line and every earlier
 job's transcript under `Transcripts:`.
 

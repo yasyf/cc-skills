@@ -2051,11 +2051,16 @@ def resumed(job: dict) -> str | None:
 
 
 def start(job: dict) -> None:
-    """Run the job a worker started on, a stopped one included, its turn for a builder slot on this Mac over, so the drive keeps the return of each worker it lets start and when it started: the one call that runs a job drive job add recorded not started, as each worker records itself, so no job reads running before one did. A question the worker before it asked ends here, handed on as a text the job holds, that lane's said line dated when it asked and sent by no one, which the text this worker started on takes off by superseded.hear when it quotes it, so no question of a worker gone reads unanswered while this one runs that step."""
+    """Run the job a worker started on, by run_state, its turn for a builder slot on this Mac over, so the drive keeps the return of each worker it lets start and when it started: the one call that runs a job drive job add recorded not started, as each worker records itself, so no job reads running before one did. A question the worker before it asked ends here, handed on as a text the job holds, that lane's said line dated when it asked and sent by no one, which the text this worker started on takes off by superseded.hear when it quotes it, so no question of a worker gone reads unanswered while this one runs that step."""
     if job.get("ask"):
         hold_text(job, job["said"], None, job["ask_at"])
     said = None if job["said"] == NOT_STARTED else job["said"]
-    job.update(state="running", said=said, ask=None, waits=[wait for wait in job["waits"] if wait != SLOT_WAIT], updated=stamp(), worker_started=stamp())
+    job.update(state=run_state(job), said=said, ask=None, waits=[wait for wait in job["waits"] if wait != SLOT_WAIT], updated=stamp(), worker_started=stamp())
+
+
+def run_state(job: dict) -> str:
+    """The state a job takes once a worker starts on it or takes a text it held: running, but stopped for a stopped job, since the stop ends the lane of a start or send that was in flight, by cli.stopped_lane."""
+    return "stopped" if job["state"] == "stopped" else "running"
 
 
 def started_after(job: dict, moment: str) -> bool:
@@ -3152,32 +3157,43 @@ def carriers(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
     ]
 
 
-def change_job(data: dict, order_id: str, parts: list[str], waits: list[str] = (), job_id: str | None = None, proving: bool = False) -> tuple[str, dict, str] | None:
-    """The one unfinished builder or codex job but job_id on any of these parts of the order, beside the parts it holds of them, quoted, since a part has one change job at a time, so one reader's return frees one builder and one PR builds one change; none on an incident, whose second job on a brief whose clock ran out races the first by design, none that these waits name, by its id or a PR it opened, whose next change waits on its own, and none that builds nothing, nor any at all for a job that builds nothing, as proving says the job asking does, since a prover or staging tester changes no code and so races no job on its part, and a build folding into one would take its release waits and drop its goal."""
+def change_job(data: dict, order_id: str, parts: list[str], waits: list[str] = (), job_id: str | None = None, branch: str | None = None, repo: str | None = None, proving: bool = False) -> tuple[str, dict, str] | None:
+    """The one unfinished builder or codex job but job_id on any of these parts of the order, or of any order on this branch of its repo, a repo either job leaves unrecorded matching, beside what it holds of them, quoted, since a part or branch has one change job at a time, so one reader's return frees one builder, one PR builds one change and one branch has one pusher; none on an incident, whose second job on a brief whose clock ran out races the first by design, none that these waits name, by its id or a PR it opened, whose next change waits on its own, nor one whose waits name job_id so, whose change waits on job_id's, and none that builds nothing, nor any at all for a job that builds nothing, as proving says the job asking does, since a prover or staging tester changes no code and so races no job on its part, and a build folding into one would take its release waits and drop its goal."""
     if proving or data["orders"][order_id]["incident"]:
         return None
+    mine = {job_id, *map(pr_key, data["jobs"][job_id]["prs"])} if job_id else set()
     return next(
         (
-            (other_id, other, ", ".join(json.dumps(part, ensure_ascii=False) for part in shared))
-            for other_id in data["orders"][order_id]["jobs"]
+            (other_id, other, ", ".join(shared))
+            for other_id in (data["jobs"] if branch else data["orders"][order_id]["jobs"])
             if other_id != job_id
             and (other := data["jobs"][other_id])["kind"] in CHANGE_KINDS
-            and not {other_id, *map(pr_key, other["prs"])} & set(waits)
+            and not ({other_id, *map(pr_key, other["prs"])} & set(waits) or mine & set(other["waits"]))
             and other["state"] not in FINISHED_JOB_STATES
             and not builds_nothing(other)
-            and (shared := [part for part in parts if part in job_parts(other, order_id)])
+            and (
+                shared := [
+                    *(json.dumps(part, ensure_ascii=False) for part in parts if part in job_parts(other, order_id)),
+                    *([f"branch {branch}"] if works_branch(other, branch, repo) else []),
+                ]
+            )
         ),
         None,
     )
 
 
-def hand_over(data: dict, held: tuple[str, dict, str], job_id: str, order_id: str, parts: list[str], moment: str) -> str:
-    """Give the job drive job add adds on these parts of an order what the returned change job change_job found carries of them, a part having one change job: those parts, each PR it opened serving one, and each part such a PR serves, since one PR builds one change, a PR serving the parts its row names or else every part of its job. The old job stops, handed to the new one, which its handed_to names, with the texts it holds and the waits on it, by hand_off, only when that leaves it no part; else it keeps its other parts and PRs and its state, so a staging tester also carrying another part keeps its staging test; the line saying which."""
+def works_branch(job: dict, branch: str | None, repo: str | None) -> bool:
+    """Whether the job works one of these comma-joined branches of the repo, a repo either side leaves unrecorded matching."""
+    return bool(branch and job["branch"] and {*branch.split(", ")} & {*job["branch"].split(", ")} and not (repo and job["repo"] and repo.casefold() != job["repo"].casefold()))
+
+
+def hand_over(data: dict, held: tuple[str, dict, str], job_id: str, order_id: str, parts: list[str], moment: str, branch: str | None = None, repo: str | None = None) -> str:
+    """Give the job drive job add adds on these parts of an order, or on this branch of the repo, or whose BUILT line names that branch, what the change job change_job found, returned or taken by no worker, carries of them, a part or branch having one change job: those parts, each PR it opened serving one, and each part such a PR serves, since one PR builds one change, a PR serving the parts its row names or else every part of its job, and every part and PR it carries once it works that branch, by works_branch, since a branch has one pusher. The old job stops, handed to the new one, which its handed_to names, with the texts it holds and the waits on it, by hand_off, only when that leaves it no part; else it keeps its other parts and PRs and its state, so a staging tester also carrying another part keeps its staging test; the line saying which."""
     old_id, old, shared = held
     lists = [(old["order"], old["parts"]), *old["carries"].items()]
     carried = {(held_order, part) for held_order, kept in lists for part in kept}
     served = {url: {(pr["order"], part) for part in pr["parts"]} if (pr := data["prs"].get(pr_key(url))) and pr["parts"] else carried for url in old["prs"]}
-    moved = {(order_id, part) for part in parts} & carried
+    moved = carried if works_branch(old, branch, repo) else {(order_id, part) for part in parts} & carried
     while grown := {pair for pairs in served.values() if pairs & moved for pair in pairs} & carried - moved:
         moved |= grown
     whole = moved == carried
@@ -3192,9 +3208,10 @@ def hand_over(data: dict, held: tuple[str, dict, str], job_id: str, order_id: st
             data["jobs"][job_id]["prs"].append(url)
     named = ", ".join(map(pr_key, taken)) or "no PR"
     if whole:
+        how = "no worker took it" if untaken(old) else "returned"
         hand_off(data, {old_id: job_id})
         old.update(state="stopped", said=f"handed to {job_id}", updated=moment)
-        return f"{job_id} replaces {old_id}, which carried {shared} and returned, a part having one change job: it takes {old_id}'s parts and {named}, and {old_id} stopped, handed to {job_id}"
+        return f"{job_id} replaces {old_id}, which carried {shared} and {how}, a part or branch having one change job: it takes {old_id}'s parts and {named}, and {old_id} stopped, handed to {job_id}"
     left = ", ".join(json.dumps(part, ensure_ascii=False) for held_order, kept in lists for part in kept if (held_order, part) not in moved)
     given = ", ".join(json.dumps(part, ensure_ascii=False) for held_order, kept in lists for part in kept if (held_order, part) in moved)
     old["parts"] = [part for part in old["parts"] if (old["order"], part) not in moved]

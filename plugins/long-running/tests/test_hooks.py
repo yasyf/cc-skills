@@ -727,7 +727,7 @@ def test_a_step_leaves_a_job_another_agent_runs_and_a_stopped_job_the_agent_its_
     assert [(jobs[job_id]["agent"], jobs[job_id]["state"]) for job_id in ("j1", "j2")] == [("a-1", "running"), ("a-2", "stopped")]
 
 
-def test_a_fresh_agent_started_on_a_stopped_jobs_brief_runs_it_past_its_builder_slot_wait_and_its_return_is_kept(
+def test_a_fresh_agent_started_on_a_stopped_jobs_brief_leaves_it_stopped_and_its_return_is_kept_setting_nothing(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
@@ -741,10 +741,11 @@ def test_a_fresh_agent_started_on_a_stopped_jobs_brief_runs_it_past_its_builder_
     run("job", "set", "j1", "--state", "stopped")
     hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Edit") | stepped(tmp_path, "Handoff: 681835\nDrive: demo, order o1, job j1")))
     job = state.load("demo")["jobs"]["j1"]
-    assert (job["agent"], job["state"], job["waits"]) == ("a-9", "running", [])
+    assert (job["agent"], job["state"]) == ("a-9", "stopped")
     monkeypatch.setattr("sys.stdin", io.StringIO("DONE installed 1.0.549\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"))
-    assert run("job", "report", "j1", "-")[0] == 0
-    assert state.load("demo")["jobs"]["j1"]["state"] == "done"
+    code, out = run("job", "report", "j1", "-")
+    assert (code, out.splitlines()[-1]) == (0, "j1 stays stopped: this return sets nothing on it")
+    assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
 
 
 def test_the_agent_a_stop_left_on_its_job_keeps_its_last_return_and_ends_on_its_first_stop_while_the_job_stays_stopped_where_j92_could_not(
@@ -1095,7 +1096,7 @@ def test_a_build_orders_codex_lane_is_added_at_once_and_started_only_on_its_read
     run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
     assert run("job", "add", "codex", "--order", "o1", "--part", "the copy", "--goal", "build it", "--waits", "j2") == (
         0,
-        'j3\nj3 carried "the copy" and no worker took it, so this add folded into it, a part having one change job: its goal is this add\'s and its waits gained this add\'s\n'
+        'j3\nj3 carried "the copy" and no worker took it, so this add folded into it, a part or branch having one change job: its goal is this add\'s and its waits gained this add\'s\n'
         "j3 waits on j2: start no agent for it until the watch's FREE line says its last wait ended",
     )
     assert state.load("demo")["jobs"]["j3"]["kind"] == "codex"
