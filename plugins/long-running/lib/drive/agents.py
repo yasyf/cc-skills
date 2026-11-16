@@ -517,8 +517,8 @@ def holder(data: dict, held: dict) -> str | None:
 
 
 def gone(entry: dict) -> bool:
-    """Whether a handler's turn is over, whatever its Stop hook did, read from the records Claude Code keeps of the session its launch named: no running process's `sessions/<pid>.json`, the record Claude Code keeps of each session's process, names that session with a status but idle, and its background job, which `claude --bg` writes `working` before it returns, ended a turn done, blocked, failed or stopped, rests idle or blocked, as one stuck on a startup dialog does, or `claude rm` took it; so a launch whose job ended blocked before it ran a turn holds nothing. A handler whose launch has not named its session yet is in flight for START_WINDOW, many times the seconds a `claude --bg` launch takes, and past it never started, as when an install or a stopped watch ended its start between the drive's save of its entry and its launch's save of the session; one whose turn an API error ended is not gone until the resume that wakes it."""
-    if (wakes := entry.get("wakes")) and state.parse_time(wakes) > state.now():
+    """Whether a handler's turn is over, whatever its Stop hook did, read from the records Claude Code keeps of the session its launch named: no running process's `sessions/<pid>.json`, the record Claude Code keeps of each session's process, names that session with a status but idle, and its background job, which `claude --bg` writes `working` before it returns, ended a turn done, blocked, failed or stopped, rests idle or blocked, as one stuck on a startup dialog does, or `claude rm` took it; so a launch whose job ended blocked before it ran a turn holds nothing. A handler whose launch has not named its session yet is in flight for START_WINDOW, many times the seconds a `claude --bg` launch takes, and past it never started, as when an install or a stopped watch ended its start between the drive's save of its entry and its launch's save of the session; one whose start waits its turn in a process still running, by waiting, is not gone, nor one whose turn an API error ended until the resume that wakes it."""
+    if waiting(entry) or (wakes := entry.get("wakes")) and state.parse_time(wakes) > state.now():
         return False
     if not entry["session"]:
         return state.parse_time(entry["started"]) + START_WINDOW <= state.now()
@@ -598,7 +598,7 @@ def handle(name: str, brief: str, detached: bool = False, answer: str | None = N
         while (held := holder(data, held_now)) and gone(data["handlers"][held]):
             lost += held_records(data["handlers"][held])
             left += forget(data, held)
-        if held and his_message(held_now) and not data["handlers"][held]["session"] and data["handlers"][held].get("wakes"):
+        if held and his_message(held_now) and not data["handlers"][held]["session"] and waiting(data["handlers"][held]):
             held = None
         left = [one for one in dict.fromkeys(left) if one != brief.strip() and (not (named := RECORD.search(one)) or (named[1] != held_now["record"] and named[1] not in data["carried"]))]
         if owed and read["record"] in lost:
@@ -709,12 +709,18 @@ def kept_prompt(name: str, handler: str) -> str:
 
 
 def waits_turn(name: str, handler: str) -> None:
-    """Keep a handler whose start waits its turn on this Mac read as not gone, by its wakes past the next read of place.waited_turn, so no read takes it for a start that never came."""
-    from drive import place
-
+    """Keep a handler whose start waits its turn on this Mac read as not gone while the process waiting for it runs, by its waiter, that process's pid and start, saved once as it first waits, so no read takes it for a start that never came and a wait that lasts an hour rewrites the handler's row once, not every TURN_SECONDS."""
+    waiter = {"pid": os.getpid(), "started": procs.started(os.getpid())}
+    if (state.saved_row(name, "handlers", handler) or {}).get("waiter") == waiter:
+        return
     with state.edit(name) as data:
         if entry := data["handlers"].get(handler):
-            entry["wakes"] = state.stamp(state.now() + timedelta(seconds=2 * place.TURN_SECONDS))
+            entry["waiter"] = waiter
+
+
+def waiting(entry: dict) -> bool:
+    """Whether the process a handler's start waits its turn in, its waiter, still runs."""
+    return bool(waiter := entry.get("waiter")) and procs.started(waiter["pid"]) == waiter["started"]
 
 
 def start_error(error: Exception) -> str:
