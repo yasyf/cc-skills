@@ -595,6 +595,34 @@ def test_a_post_report_gets_one_handler_whichever_of_the_handler_tool_and_the_wa
     assert state.load("demo")["posts"]["mark"] == 706843
 
 
+def test_the_post_reports_of_one_thread_inside_a_minute_go_to_one_handler_and_the_threads_next_handler_resumes_the_last_ones_session(
+    communicator: str, started: list[list[str]], cci_records: dict[str, dict], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    thread, moment = "1794440505.483109", state.now()
+    for seq in ("706844", "706845", "706846"):
+        cci_records[seq] = POST_REPORT | {"seq": int(seq), "fields": {"attrs": {"thread": thread}}}
+    read = [("706844", moment - timedelta(seconds=90), thread), ("706845", moment - timedelta(seconds=10), thread)]
+    monkeypatch.setattr(agents, "posts", lambda name, since: (read, int(read[-1][0])))
+    monkeypatch.setattr(agents, "seeded", lambda name: 0)
+    agents.start_posts("demo", moment)
+    launches = [argv for argv in started if argv[:2] == ["claude", "--bg"]]
+    [handler] = state.load("demo")["handlers"]
+    assert ([argv[-1].split()[1] for argv in launches], "--resume" in launches[0]) == (["706844"], False)
+    assert [brief.split()[1] for brief in state.load("demo")["handlers"][handler]["handed"]] == ["706845"]
+    with state.edit("demo") as data:
+        data["handlers"].clear()
+        data["carried"] |= {"706844": "posted", "706845": "posted"}
+        data["resumable"][thread] = {"session": "s-thread", "ended": state.stamp()}
+    read[:] = [("706846", moment - timedelta(seconds=10), thread)]
+    agents.start_posts("demo", moment)
+    assert len([argv for argv in started if argv[:2] == ["claude", "--bg"]]) == 1
+    agents.start_posts("demo", moment + timedelta(minutes=1))
+    resumed = [argv for argv in started if argv[:2] == ["claude", "--bg"]][-1]
+    assert (resumed[-1].split()[1], resumed[resumed.index("--resume") + 1], state.load("demo")["resumable"]) == ("706846", "s-thread", {})
+    settings = json.loads(resumed[resumed.index("--settings") + 1])
+    assert (settings["autoMemoryEnabled"], [Path(path).name for path in settings["claudeMdExcludes"]]) == (False, ["CLAUDE.md", "AGENTS.md"])
+
+
 def test_a_post_reports_handler_that_ends_posting_nothing_leaves_it_owed_for_a_fresh_handler_naming_its_line_and_a_second_such_end_gives_it_up_to_its_writer(
     communicator: str, tmp_path: Path, started: list[list[str]], cci_records: dict[str, dict], posts_to_communicator: list[str], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

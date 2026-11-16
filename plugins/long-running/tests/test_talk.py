@@ -1282,14 +1282,14 @@ def test_amendments_reads_each_correction_and_withdrawal_re_the_reports_in_one_c
 
 def test_the_watch_reads_each_post_report_and_post_correction_to_the_communicator_from_the_drives_mark_in_one_cci_tail(monkeypatch: pytest.MonkeyPatch) -> None:
     tail = [
-        {"seq": 700, "kind": "report", "to": ["communicator@demo"], "text": "POST his release card is coming"},
+        {"seq": 700, "kind": "report", "to": ["communicator@demo"], "text": "POST his release card is coming", "at": "2026-11-15T20:00:00Z", "fields": {"attrs": {"thread": "1794300000.000100"}}},
         {"seq": 701, "kind": "report", "to": ["communicator@demo"], "text": "FYI the cut is green"},
-        {"seq": 702, "kind": "correction", "re": 700, "to": ["communicator@demo"], "text": "POST no release card follows"},
+        {"seq": 702, "kind": "correction", "re": 700, "to": ["communicator@demo"], "text": "POST no release card follows", "at": "2026-11-15T20:00:30Z", "fields": {}},
         {"seq": 703, "kind": "report", "to": ["communicator@demo"], "text": "FYI the canary is up"},
     ]
     calls: list[list[str]] = []
     monkeypatch.setattr(reads, "run", lambda argv, checkout: calls.append(argv) or "".join(json.dumps(record) + "\n" for record in tail))
-    assert POSTS("demo", 699) == (["700", "702"], 703)
+    assert POSTS("demo", 699) == ([("700", datetime(2026, 11, 15, 20, tzinfo=UTC), "1794300000.000100"), ("702", datetime(2026, 11, 15, 20, 0, 30, tzinfo=UTC), None)], 703)
     assert calls[0] == ["cci", "tail", "--drive", "demo", "--to", "communicator", "--kind", "report", "--kind", "correction", "--since", "#699", "--budget", str(agents.AMENDMENT_BYTES), "--json"]
     tail.clear()
     assert POSTS("demo", 703) == ([], 703)

@@ -30,6 +30,10 @@ HANDLER = "long-running:handler"
 SYNTHETIC = "<synthetic>"
 OUTAGE_WAITS = (1, 2, 4, 8)
 START_WINDOW = timedelta(minutes=5)
+BATCH_WINDOW = timedelta(minutes=1)
+RESUME_WINDOW = timedelta(minutes=30)
+HANDLER_SKILLS = ("db-read", "iris-thread")
+SKILL_NAME = re.compile(r"^name:[ \t]*(\S+)", re.MULTILINE)
 RESUMED = "Resumed: an API error ended your last turn before it was done, so do now what the prompt it answered asked, from where it stopped."
 MESSAGE_ORIGIN = "coordinator"
 DESIGNER = "long-running:designer"
@@ -373,14 +377,15 @@ def answering(name: str, seq: str) -> list[dict]:
     return [record for record in map(json.loads, reversed(lines)) if str(record.get("re")) == seq]
 
 
-def posts(name: str, since: int) -> tuple[list[str], int]:
-    """The seq of each `POST` report or correction to communicator@<drive> after since, oldest first, read in one cci tail, so a correction of a report already posted gets the handler that rewords that post, and the newest seq the read reached, which is short of the drive's newest when the read held more than AMENDMENT_BYTES, since cci then prints the oldest records and the next read goes on from there."""
+def posts(name: str, since: int) -> tuple[list[tuple[str, datetime, str | None]], int]:
+    """The seq of each `POST` report or correction to communicator@<drive> after since, oldest first, with when cci took it and the thread its thread attr names, read in one cci tail, so a correction of a report already posted gets the handler that rewords that post, and the newest seq the read reached, which is short of the drive's newest when the read held more than AMENDMENT_BYTES, since cci then prints the oldest records and the next read goes on from there."""
     argv = ["cci", "tail", "--drive", name, "--to", "communicator", *(flag for kind in POSTED_KINDS for flag in ("--kind", kind)), "--since", f"#{since}", "--budget", str(AMENDMENT_BYTES), "--json"]
     try:
         records = [json.loads(line) for line in reads.run(argv, Path.cwd()).splitlines()]
     except reads.ReadError as error:
         raise state.DriveError(f"the POST reports to communicator@{name} could not be read: {error}") from None
-    return [str(record["seq"]) for record in records if posting(name, record)], max((record["seq"] for record in records), default=since)
+    found = [(str(record["seq"]), state.parse_time(record["at"]), record["fields"].get("attrs", {}).get("thread")) for record in records if posting(name, record)]
+    return found, max((record["seq"] for record in records), default=since)
 
 
 def seeded(name: str) -> int:
@@ -407,18 +412,21 @@ def owing(data: dict, seq: str) -> bool:
     return seq not in data["carried"] and seq not in data["held"]
 
 
-def start_posts(name: str) -> None:
-    """Start a handler on each POST report the drive owes a post from its mark on, but one a live handler holds, by its record or a brief handed to it, as the watch's read of them: each stays owed until a post carries it, so one whose handler did not start, never started, died or ended posting nothing gets a fresh one on the next read, and the mark moves past a report only once it is carried or held, in one save after every start, so a read that dies anywhere leaves each report it read owed. A report whose handler died or never started after the one before it ended without posting is given up, by give_up, as a second such end of a handler's turn is. A handler that did not start, whatever its start raised, raises a refusal naming its report and its error, once the rest started."""
+def start_posts(name: str, moment: datetime) -> None:
+    """Start a handler on each POST report the drive owes a post from its mark on, but one a live handler holds, by its record or a brief handed to it, as the watch's read of them: each stays owed until a post carries it, so one whose handler did not start, never started, died or ended posting nothing gets a fresh one on the next read, and the mark moves past a report only once it is carried or held, in one save after every start, so a read that dies anywhere leaves each report it read owed. A report cci took less than BATCH_WINDOW before the moment waits for a later read unless a live handler, one this read started included, holds the thread its thread attr names, so the reports of one thread inside a minute go to one handler, by the Nov 15 pick "Handlers batched + trimmed". A report whose handler died or never started after the one before it ended without posting is given up, by give_up, as a second such end of a handler's turn is. A handler that did not start, whatever its start raised, raises a refusal naming its report and its error, once the rest started."""
     data = state.load(name)
     since = seeded(name) if data["posts"]["mark"] is None else data["posts"]["mark"]
-    seqs, newest = posts(name, since)
+    read, newest = posts(name, since)
+    seqs = [seq for seq, _, _ in read]
     data = state.load(name)
     holders = [(gone(entry), held_records(entry)) for entry in data["handlers"].values()]
     live = {seq for ended, records in holders if not ended for seq in records}
     dead = {seq for ended, records in holders if ended for seq in records}
     errors = []
-    for seq in seqs:
+    for seq, at, thread in read:
         if not owing(data, seq) or seq in live:
+            continue
+        if at + BATCH_WINDOW > moment and not live_thread(state.load(name), thread):
             continue
         if seq in dead and (line := data["posts"]["unposted"].get(seq)):
             try:
@@ -438,6 +446,11 @@ def start_posts(name: str) -> None:
         data["posts"]["unposted"] = {seq: line for seq, line in data["posts"]["unposted"].items() if int(seq) > mark}
     if errors:
         raise state.DriveError("; ".join(errors))
+
+
+def live_thread(data: dict, thread: str | None) -> bool:
+    """Whether a handler whose turn is not over holds the thread."""
+    return bool(thread) and any(entry["holds"] and entry["holds"].get("thread") == thread and not gone(entry) for entry in data["handlers"].values())
 
 
 def held_records(entry: dict) -> list[str]:
@@ -697,7 +710,7 @@ def beside(data: dict) -> tuple[str, dict]:
 
 
 def start_handler(name: str, handler: str, prompt: str) -> None:
-    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the drive's checkout at the head of its default branch, wherever the session it runs beside, the communicator's or on a drive with none the coordinator's, still runs, whether that session or the drive's watch starts it, `LONG_RUNNING_HANDLER` naming it, so every check on the communicator's handlers finds it from its first step, its entry keeping the session `claude --bg` names, by which the drive reads whether its turn is over, `CCI_PARENT_SESSION` naming that session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one; the watch's own lane stays out of its environment. Its prompt closes on the release freezes and his release hold as they stand at this start, in place of the line an earlier start of it carried."""
+    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the drive's checkout at the head of its default branch, wherever the session it runs beside, the communicator's or on a drive with none the coordinator's, still runs, whether that session or the drive's watch starts it, `LONG_RUNNING_HANDLER` naming it, so every check on the communicator's handlers finds it from its first step, its entry keeping the session `claude --bg` names, by which the drive reads whether its turn is over, `CCI_PARENT_SESSION` naming that session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one; the watch's own lane stays out of its environment. Its prompt closes on the release freezes and his release hold as they stand at this start, in place of the line an earlier start of it carried. It runs on the trimmed settings, and resumes the session resumable keeps for its thread."""
     from drive import orca
 
     data = state.saved(name)
@@ -705,11 +718,32 @@ def start_handler(name: str, handler: str, prompt: str) -> None:
     lines = [line for line in prompt.strip().splitlines() if not line.startswith(f"{RELEASES}:")]
     prompt = "\n".join([*lines, f"{RELEASES}: {releases(name, data)}"])
     env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name}
-    settings = session_settings(env)
-    argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} handler {handler}", prompt]
-    session = launched(reads.run(argv, orca.checkout(name, held["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
+    checkout = orca.checkout(name, held["cwd"])
+    settings = session_settings(env) | trimmed(checkout)
+    thread = (data["handlers"][handler]["holds"] or {}).get("thread")
+    earlier = resumable(state.load(name), thread)
+    argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), *(["--resume", earlier] if earlier else []), "-n", f"{name} handler {handler}", prompt]
+    session = launched(reads.run(argv, checkout, {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
     with state.edit(name) as data:
         data["handlers"][handler]["session"] = session
+        if earlier:
+            data["resumable"].pop(thread, None)
+
+
+def resumable(data: dict, thread: str | None) -> str | None:
+    """The session of the handler that last ended in the thread, when it ended less than RESUME_WINDOW ago, which the thread's next handler resumes, so a thread runs on one conversation rather than a fresh session per report, by the Nov 15 order "resume the thread's existing handler session when one exists"."""
+    kept = data["resumable"].get(thread) if thread else None
+    return kept["session"] if kept and state.parse_time(kept["ended"]) + RESUME_WINDOW > state.now() else None
+
+
+def trimmed(checkout: Path) -> dict:
+    """The settings a handler starts on beyond every drive session's: no auto-memory, so the repository's MEMORY.md stays out, no CLAUDE.md or AGENTS.md at the checkout's root, and every skill but HANDLER_SKILLS that a user, the checkout or claude.ai sync installed turned off in the listing, since a handler's own definition carries what it does, by the Nov 15 pick "Handlers batched + trimmed"; a plugin's skills stay listed, since skillOverrides cannot turn them off."""
+    names = {found[1] if (found := SKILL_NAME.search(path.read_text())) else path.parent.name for root in (install.config_dir() / "skills", checkout / ".claude" / "skills") for path in [*root.glob("*/SKILL.md"), *root.glob("synced/*/*/SKILL.md")]}
+    return {
+        "autoMemoryEnabled": False,
+        "claudeMdExcludes": [str(checkout / "CLAUDE.md"), str(checkout / "AGENTS.md")],
+        "skillOverrides": {skill: "off" for skill in sorted(names - set(HANDLER_SKILLS))},
+    }
 
 
 def watchdog(name: str, brief: str, cwd: str, out: Path) -> int:
@@ -865,7 +899,7 @@ def take_handed(name: str, handler: str) -> list[str]:
 
 
 def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | None:
-    """End a handler's turn once refused, the Stop hook's checks of its line, lets it: hand the line it ended on to the session it runs beside, the communicator or on a drive with none the coordinator, as one cci record led by TOOK and the ts of each message of his it took by handover, each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, each permalink named once where it first appears, and remove its session. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended. In that edit its posts carry each record it held or took, and with none each `POST` report it held or took stays owed, by settled; the done record of each report given up goes to that report's writer too, led by UNPOSTED and its seq, and carries it. A check that raises still posts the handler's line before its error goes on."""
+    """End a handler's turn once refused, the Stop hook's checks of its line, lets it: hand the line it ended on to the session it runs beside, the communicator or on a drive with none the coordinator, as one cci record led by TOOK and the ts of each message of his it took by handover, each post's POSTED, EDITED and CARD links in it say's own result, whole with its thread_ts, in place of any the handler typed, each permalink named once where it first appears, and remove its session. A job the handler held keeps its transcript's path, since the drive forgets the handler. A handler drive handler handed briefs since its last step does not end: they come back as the reason its stop is refused, taken in the one edit that would forget it, so no brief lands on a handler that has ended. In that edit its posts carry each record it held or took, and with none each `POST` report it held or took stays owed, by settled; the done record of each report given up goes to that report's writer too, led by UNPOSTED and its seq, and carries it. A handler that ends keeps its session as the one its thread's next handler resumes, by resumable, and the edit drops each kept session older than RESUME_WINDOW. A check that raises still posts the handler's line before its error goes on."""
     name = state.session_drives(payload["session_id"])[0]
     given_up: dict[str, str] = {}
     try:
@@ -880,6 +914,9 @@ def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | N
                 ended_handler["took"] += briefs
             else:
                 data["handlers"].pop(payload["agent_id"])
+                data["resumable"] = {thread: kept for thread, kept in data["resumable"].items() if state.parse_time(kept["ended"]) + RESUME_WINDOW > state.now()}
+                if (thread := (ended_handler["holds"] or {}).get("thread")) and ended_handler["session"]:
+                    data["resumable"][thread] = {"session": ended_handler["session"], "ended": state.stamp()}
                 if job_id := state.agent_job(data, payload["agent_id"]):
                     data["jobs"][job_id]["transcript"] = payload["agent_transcript_path"]
                 given_up = settled(data, ended_handler, writers, " ".join((payload.get("last_assistant_message") or "").split()))
