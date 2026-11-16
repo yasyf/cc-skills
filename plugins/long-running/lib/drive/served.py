@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from contextlib import suppress
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -198,7 +199,15 @@ def verdict(name: str, key: str) -> str:
 def kept(name: str, key: str, result: dict) -> str:
     """Keep a check's outcome on each PR it judged, with the head, orders and binding answers it checked, but on a PR another check started on after this one, whose outcome is the one kept there; a pass makes a check event on each PR, a refusal none, since the watch's pass reads it from the PR's checker; an objection takes back the Approve the drive took on an open PR from his standing approval, so his card asks him, by his "given my constraints"; the outcome for key."""
     outcome = result["outcomes"][key]
-    with state.edit(name) as data:
+    try:
+        return kept_outcome(name, key, result, outcome)
+    except state.Refused as refused:
+        return f"{outcome}; not kept: {refused}"
+
+
+def kept_outcome(name: str, key: str, result: dict, outcome: str) -> str:
+    """Keep a check's outcome as kept says, a write of each judged PR's checker, checked and tap alone, so no other write of the drive waits on it."""
+    with state.edit(name, tuple(("prs", member, field) for member in result["heads"] for field in ("checker", "checked", "tap"))) as data:
         fresh = [
             member
             for member in result["heads"]
@@ -216,10 +225,11 @@ def kept(name: str, key: str, result: dict) -> str:
             }
             if result["against"] and pr["state"] == "open" and (pr["tap"] or {}).get("approval"):
                 pr["tap"] = None
-            if not said.startswith(CHECKED):
-                continue
+    data = state.load(name)
+    for member in fresh:
+        if (said := result["outcomes"][member]).startswith(CHECKED):
             repo, number = member.split("#")
-            state.append_event(name, "check", repo=repo, number=int(number), change=said, lane=state.heard_lane(data, pr["order"]))
+            state.append_event(name, "check", repo=repo, number=int(number), change=said, lane=state.heard_lane(data, data["prs"][member]["order"]))
     return outcome
 
 
@@ -512,7 +522,7 @@ def kept_answers(name: str, data: dict, key: str) -> dict[str, list[str]]:
     if pr["answers"] is not None:
         return pr["answers"]
     read = answers(data, [pr["design"] or ""], view.live_cards(name))
-    with state.edit(name) as data:
+    with suppress(state.Refused), state.edit(name, (("prs", key, "design"), ("prs", key, "answers"))) as data:
         if data["prs"][key]["design"] == pr["design"]:
             data["prs"][key]["answers"] = read
     return read

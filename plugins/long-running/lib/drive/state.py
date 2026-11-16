@@ -18,7 +18,7 @@ import traceback
 import uuid
 from calendar import monthrange
 from collections.abc import Callable, Collection, Iterable, Iterator
-from contextlib import AbstractContextManager, closing, contextmanager, suppress
+from contextlib import AbstractContextManager, ExitStack, closing, contextmanager, suppress
 from contextvars import ContextVar
 from datetime import date, datetime, timedelta
 from fnmatch import fnmatchcase
@@ -346,6 +346,10 @@ VERSION = json.loads((Path(__file__).resolve().parents[2] / ".claude-plugin" / "
 
 class DriveError(Exception):
     pass
+
+
+class Refused(DriveError):
+    """A write of its rows another write changed one of meanwhile, which kept nothing."""
 
 
 class Raced(Exception):
@@ -4430,18 +4434,29 @@ def writing(name: str) -> Iterator[None]:
         yield
 
 
+Row = tuple[str, ...]
+
+
 @contextmanager
-def scoped(name: str, scope: tuple[str, ...] | None) -> Iterator[None]:
-    """Hold the lock of one scope of the drive, such as one job's or the watch's relaunches, for a write that reads the drive, acts outside it at most once on what it read and records that it did, so a second such write of the same scope reads what the first recorded, while writes of every other scope and every write of no scope run beside it; waiting up to DRIVE_LOCK_SECONDS, then refusing with who holds it. A scope this thread holds already is held on, so a write inside another of the same scope never waits on itself."""
-    if scope is None or (held_here := (threading.get_ident(), drive_dir(name) / "locks" / f"{'-'.join(part.replace('/', '_') for part in scope)}.lock")) in HELD_SCOPES:
+def scoped(name: str, rows: tuple[Row, ...]) -> Iterator[None]:
+    """Hold the lock of each of the drive's rows, a collection's record by its key or a top-level field under "", a row named by one field of it locked whole, taken in one order so two writes of overlapping rows never wait on each other in turn, for a write of those rows alone, so a second write of one of them reads what the first saved, while writes of every other row run beside it; waiting up to DRIVE_LOCK_SECONDS for each, then refusing with who holds it. A row this thread holds already is held on, so a write inside another of the same row never waits on itself."""
+    with ExitStack() as held:
+        for row in sorted({row[:2] for row in rows}):
+            held.enter_context(row_locked(name, row))
+        yield
+
+
+@contextmanager
+def row_locked(name: str, row: Row) -> Iterator[None]:
+    path = drive_dir(name) / "locks" / f"{row[0] or 'drive'}-{row[1].replace('/', '_')}.lock"
+    if (held_here := (threading.get_ident(), path)) in HELD_SCOPES:
         yield
         return
-    path = held_here[1]
     path.parent.mkdir(parents=True, exist_ok=True)
     asked = time.monotonic()
     with open(path, "a") as handle:
         if not taken(handle, math.inf if WAITS_OUT_LOCK.get() else DRIVE_LOCK_SECONDS):
-            raise DriveError(f"{name}'s {'/'.join(scope)} lock is still held after {DRIVE_LOCK_SECONDS}s, so this changed nothing: {holders(path)}")
+            raise DriveError(f"{name}'s lock of {'.'.join(filter(None, row))} is still held after {DRIVE_LOCK_SECONDS}s, so this changed nothing: {holders(path)}")
         got = time.monotonic()
         HELD_SCOPES.add(held_here)
         try:
@@ -4449,12 +4464,59 @@ def scoped(name: str, scope: tuple[str, ...] | None) -> Iterator[None]:
         finally:
             HELD_SCOPES.discard(held_here)
             if (held := time.monotonic() - got) >= SLOW_HOLD_SECONDS or got - asked >= SLOW_HOLD_SECONDS:
-                kept_hold(name, held, got - asked, f"the {'/'.join(scope)} lock")
+                kept_hold(name, held, got - asked, f"the {'.'.join(filter(None, row))} lock")
+
+
+def row_of(data: dict, row: Row) -> object:
+    """What data holds at a row, or at the one field of it the row names, ABSENT where it holds none."""
+    held = data.get(row[1], ABSENT) if row[0] == "" else data.get(row[0], {}).get(row[1], ABSENT)
+    return held.get(row[2], ABSENT) if len(row) == 3 and isinstance(held, dict) else ABSENT if len(row) == 3 else held
+
+
+def set_row(data: dict, row: Row, value: object) -> None:
+    """Set a row, or the one field of it the row names, to value, removing it for ABSENT; a field of a record another write removed stays removed with it."""
+    home = data if row[0] == "" else data.setdefault(row[0], {})
+    if len(row) == 3:
+        if not isinstance(home.get(row[1]), dict):
+            return
+        home, row = home[row[1]], (row[0], row[2])
+    if value is ABSENT:
+        home.pop(row[1], None)
+    else:
+        home[row[1]] = value
+
+
+def outside_rows(base: dict, mine: dict, rows: tuple[Row, ...]) -> list[Row]:
+    """Each row, or field of a row named by its fields alone, mine changed from base that rows does not name."""
+    whole, fields = {row for row in rows if len(row) == 2}, {row[:2]: set() for row in rows if len(row) == 3}
+    for row in rows:
+        if len(row) == 3:
+            fields[row[:2]].add(row[2])
+    outside = []
+    for row in sorted(written_rows(base, mine)):
+        if row in whole:
+            continue
+        if row not in fields:
+            outside.append(row)
+            continue
+        was, now = row_of(base, row), row_of(mine, row)
+        changed = {key for key in {*was, *now} if was.get(key, ABSENT) != now.get(key, ABSENT)} if isinstance(was, dict) and isinstance(now, dict) else {None}
+        outside += [(*row, key) for key in sorted(changed - fields[row], key=str)]
+    return outside
+
+
+def written_rows(base: dict, mine: dict) -> set[Row]:
+    """Each row mine holds differently from base: a top-level field under "", else a collection's record by its key."""
+    rows = {("", field) for field in {*base, *mine} if field not in COLLECTIONS and base.get(field, ABSENT) != mine.get(field, ABSENT)}
+    for collection in COLLECTIONS:
+        if (was := base.get(collection, {})) != (now := mine.get(collection, {})):
+            rows |= {(collection, key) for key in {*was, *now} if was.get(key, ABSENT) != now.get(key, ABSENT)}
+    return rows
 
 
 @contextmanager
-def edit(name: str, scope: tuple[str, ...] | None = None) -> Iterator[dict]:
-    """Load the drive, yield it for changes and save them on exit, telling each session the save took open orders from; inside a batch, keep the changes on its copy for its one save. A write of no scope holds the drive's lock from its load through its save, so its every field reads as the drive stands at its save. A write naming its scope, one shown to decide nothing from the drive outside that scope, holds that scope's lock alone from its load through its save, by scoped, so its process, Orca or model calls hold no other write behind it: its save alone takes the drive's lock, by committed, laying its changes over what other writes saved meanwhile and refusing, keeping nothing, when one changed a field it changed differently, which locks.log names."""
+def edit(name: str, rows: tuple[Row, ...] | None = None) -> Iterator[dict]:
+    """Load the drive, yield it for changes and save them on exit, telling each session the save took open orders from; inside a batch, keep the changes on its copy for its one save. A write naming no rows holds the drive's lock from its load through its save, so its every field reads as the drive stands at its save. A write naming its rows, one that reads and writes only those rows of the drive, each a record or one field of it, holds their locks alone from its load through its save, by scoped, so the process, Orca or model calls it makes hold no other write behind it, and only its save takes the drive's lock, by row_committed. That save keeps its rows as it changed them while no other write changed them since it loaded, and once one did refuses, raising Refused and keeping nothing, which locks.log names; a write that must never be refused is an update. A write changing a row it did not name raises, keeping nothing."""
     if name in BATCHED:
         data = load(name)
         yield data
@@ -4462,7 +4524,7 @@ def edit(name: str, scope: tuple[str, ...] | None = None) -> Iterator[dict]:
         return
     token = EDITING.set(name)
     try:
-        if scope is None or WAITS_OUT_LOCK.get() or not database_path(name).exists():
+        if rows is None or WAITS_OUT_LOCK.get() or not database_path(name).exists():
             with writing(name):
                 data = load(name)
                 before = holding_lanes(data)
@@ -4470,18 +4532,63 @@ def edit(name: str, scope: tuple[str, ...] | None = None) -> Iterator[dict]:
                 save(name, data | {CLOCKS: clocks(data)})
                 tell_moved(name, data, before)
             return
-        with scoped(name, scope):
+        with scoped(name, rows):
             data = load(name)
             version, base, before = LOADED_VERSION.get(), marshal.dumps(data), holding_lanes(data)
             yield data
+            if outside := outside_rows(marshal.loads(base), data, rows):
+                raise DriveError(f"refused, nothing kept: a write of {', '.join('.'.join(filter(None, row)) for row in rows)} changed {', '.join('.'.join(filter(None, row)) for row in outside)} too")
             try:
-                committed(name, base, data, version, before)
+                row_committed(name, base, data, version, before, rows)
             except Raced as raced:
                 with open(drive_dir(name) / "locks.log", "a") as log:
-                    log.write(f"{stamp()} pid {os.getpid()} refused: another write changed {'.'.join(raced.args[0])} differently while it ran: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
-                raise DriveError(f"refused, nothing kept: another write changed {'.'.join(raced.args[0])} differently while this ran, so send it again") from None
+                    log.write(f"{stamp()} pid {os.getpid()} refused: another write changed {'.'.join(raced.args[0])} while it ran: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
+                raise Refused(f"refused, nothing kept: another write changed {'.'.join(raced.args[0])} while this ran, so send it again") from None
     finally:
         EDITING.reset(token)
+
+
+def row_committed(name: str, base: bytes, mine: dict, version: int | None, before: dict[str, str], rows: tuple[Row, ...]) -> None:
+    """Save a write of rows alone, made on the drive as base held it at version, under the drive's lock for the save alone: mine whole while no other connection committed since; else the drive as it stands now with each of the rows as mine holds it, raising Raced at the first another write changed since base, even to the value mine holds, since a write that read it before then may have counted on what it held."""
+    with writing(name):
+        if unchanged_since(name, version):
+            saved = mine
+        else:
+            saved, was = load(name), marshal.loads(base)
+            before = holding_lanes(saved)
+            if raced := next((row for row in rows if row_of(saved, row) != row_of(was, row)), None):
+                raise Raced(tuple(filter(None, raced)))
+            for row in rows:
+                set_row(saved, row, row_of(mine, row))
+        save(name, saved | {CLOCKS: clocks(saved)})
+        tell_moved(name, saved, before)
+
+
+def update[T](name: str, rows: tuple[Row, ...] | None, change: Callable[[dict], T]) -> T:
+    """Apply change, a function of the drive that only reads and changes data, to the drive and return what it returns, as a write of rows that is never refused, or with rows None as a write naming no rows: first on the drive as it loads, holding only the rows' locks, by edit's write of rows, then, when another write changed one of the rows meanwhile or change changed a row it did not name, once again on the drive as it stands, under the drive's lock from its load through its save, as a write naming no rows; locks.log names each such second run."""
+    if rows is None or name in BATCHED or WAITS_OUT_LOCK.get() or not database_path(name).exists():
+        with edit(name) as data:
+            return change(data)
+    token = EDITING.set(name)
+    try:
+        with scoped(name, rows):
+            data = load(name)
+            version, base, before = LOADED_VERSION.get(), marshal.dumps(data), holding_lanes(data)
+            done = change(data)
+            if outside := outside_rows(marshal.loads(base), data, rows):
+                why = f"it changed {', '.join('.'.join(filter(None, row)) for row in outside)} too"
+            else:
+                try:
+                    row_committed(name, base, data, version, before, rows)
+                    return done
+                except Raced as raced:
+                    why = f"another write changed {'.'.join(raced.args[0])} while it ran"
+    finally:
+        EDITING.reset(token)
+    with open(drive_dir(name) / "locks.log", "a") as log:
+        log.write(f"{stamp()} pid {os.getpid()} ran again under the drive lock, since {why}: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
+    with edit(name) as data:
+        return change(data)
 
 
 def committed(name: str, base: bytes, mine: dict, version: int | None, before: dict[str, str]) -> None:
