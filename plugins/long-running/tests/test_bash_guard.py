@@ -1013,11 +1013,23 @@ def test_a_destructive_command_refuses_once_naming_the_withdrawal_and_open_recor
     withdrawn = "735710 withdraw root: drop the writer pod restart, sandsql is mid-incident"
     urgent = {"num": "#735705", "kind": "blocker", "status": "open", "text": "plat-usw2-staging writer corrupts on restart", "fields": {}}
     asked = {"num": "#700001", "kind": "ask", "status": "open", "text": "restart plat-usw2-staging writers next week", "fields": {}}
-    inbox = {"mail": withdrawn, "recent": [urgent, asked]}
-    monkeypatch.setattr(bash_guard.reads, "run", lambda argv, checkout: inbox["mail"] if "--mail" in argv else "\n".join(map(json.dumps, inbox["recent"])))
+    inbox = {"mail": withdrawn, "recent": [urgent, asked], "own": "@1:09 PM\n735700 answer root>meta ^735690 + done"}
+    since: list[str] = []
+
+    def run(argv: list[str], checkout: Path) -> str:
+        if "--lane" in argv:
+            return inbox["own"]
+        if "--to" in argv:
+            since.append(argv[argv.index("--since") + 1])
+            return inbox["mail"]
+        return "\n".join(map(json.dumps, inbox["recent"]))
+
+    monkeypatch.setattr(bash_guard.reads, "run", run)
     delete = bash("scripts/drop-writer -n plat-usw2-staging --force", cwd=str(cwd))
     assert bash_guard.deny_reason(delete) == gate.refusal([f"records to {state.session_lane(state.load(demo), SESSION)} it has not read: {withdrawn}", "an open blocker on plat-usw2-staging: #735705 plat-usw2-staging writer corrupts on restart"])
+    assert since[0] == "735700"
     assert bash_guard.deny_reason(delete) is None
+    assert bash_guard.deny_reason(bash("scripts/drop-writer -n plat-usw2-staging --other-flags", cwd=str(cwd))) is None
     assert bash_guard.deny_reason(bash("scripts/list-writers -n plat-usw2-staging", cwd=str(cwd))) is None
     inbox.update(mail="", recent=[asked])
     assert bash_guard.deny_reason(bash("scripts/drop-writer -n plat-usw2-staging --now", cwd=str(cwd))) is None

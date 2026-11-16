@@ -50,6 +50,8 @@ RERUN_FAILED = (
 )
 URGENT_KINDS = frozenset({"incident", "blocker", "hold", "withdraw"})
 RECENT_BYTES = 400_000
+READ_SINCE = "24h"
+RECORD_LINE = re.compile(r"^(\d+) ", re.MULTILINE)
 RERUN_UNREAD = "bash_guard let `{step}` through unjudged: whether the build, job or run it reruns passed could not be read ({error}), and a gate that cannot read its inputs lets the call go"
 BREW_RESTARTS = {"upgrade", "reinstall"}
 RESUME_TIMEOUT = 20000
@@ -767,7 +769,7 @@ def ended_role(words: list[str]) -> tuple[dict, str] | None:
 
 
 def destroying(command: str, cwd: str, session: str, drives: list[str]) -> str | None:
-    """Why a drive session's own destructive command waits for it to read what came since, by meta defect 735756, where root deleted a writer pod a minute after the urgent stop and withdrawal of its ask, which reach a session only when a tool call returns: a command a `[[destructive]]` table of the repository's .claude/long-running.toml matches, each table naming a `class`, a `match` regex and an optional `env` regex whose first group names the env it acts on, refuses once, by gate.gate, printing each record addressed to the session's lane it has not read and each open incident, blocker, hold or withdraw, or record marked urgent, of the last 24 hours naming that env; with neither it runs at once; an inbox that cannot be read lets it through, warned."""
+    """Why a drive session's own destructive command waits for it to read what came since, by meta defect 735756, where root deleted a writer pod a minute after the urgent stop and withdrawal of its ask, which reach a session only when a tool call returns: a command a `[[destructive]]` table of the repository's .claude/long-running.toml matches, each table naming a `class`, a `match` regex and an optional `env` regex whose first group names the env it acts on, refuses once, by gate.gate keyed on its class, the newest unread record and the held records it names, so another command of that class with nothing new goes through warned, printing each record addressed to the session's lane it has not read, by unread_mail, and each open incident, blocker, hold or withdraw, or record marked urgent, of the last 24 hours naming that env; with neither it runs at once; an inbox that cannot be read lets it through, warned."""
     rules = next((folder / state.REPO_RULES for folder in [Path(cwd), *Path(cwd).parents] if (folder / state.REPO_RULES).is_file()), None)
     if not drives or rules is None:
         return None
@@ -776,15 +778,24 @@ def destroying(command: str, cwd: str, session: str, drives: list[str]) -> str |
         return None
     envs = {found[1] for table in tables if table.get("env") and (found := re.search(table["env"], command))}
     try:
-        unread = reads.run(["cci", "tail", "--drive", data["name"], "--to", lane, "--mail"], Path.cwd()).strip()
-        recent = reads.run(["cci", "tail", "--drive", data["name"], "--since", "24h", "--json", "--budget", str(RECENT_BYTES)], Path.cwd()).splitlines() if envs else []
+        unread = unread_mail(data["name"], lane)
+        recent =reads.run(["cci", "tail", "--drive", data["name"], "--since", "24h", "--json", "--budget", str(RECENT_BYTES)], Path.cwd()).splitlines() if envs else []
     except reads.ReadError as error:
         print(f"bash_guard let this {tables[0]['class']} through unread: this lane's records could not be read: {error}", file=sys.stderr)
         return None
     findings = [f"records to {lane} it has not read: {unread}"] if unread else []
     held = [record for line in recent if (record := json.loads(line))["status"] != "closed" and (record["kind"] in URGENT_KINDS or record.get("fields", {}).get("attrs", {}).get("urgent"))]
-    findings += [f"an open {record['kind']} on {env}: {record['num']} {record['text']}" for env in sorted(envs) for record in held if re.search(rf"\b{re.escape(env)}\b", record["text"])]
-    return gate.gate(data["name"], f"{tables[0]['class']} {command}", findings, session)
+    named = [record for env in sorted(envs) for record in held if re.search(rf"\b{re.escape(env)}\b", record["text"])]
+    findings += [f"an open {record['kind']} on {env}: {record['num']} {record['text']}" for env in sorted(envs) for record in named]
+    newest = max(map(int, RECORD_LINE.findall(unread)), default=0)
+    return gate.gate(data["name"], f"{tables[0]['class']} past #{newest} {' '.join(sorted({record['num'] for record in named}))}".rstrip(), findings, session)
+
+
+def unread_mail(drive: str, lane: str) -> str:
+    """The records to lane it has not read, judged only after the newest record it wrote in READ_SINCE, by meta defect 736713, where root's mail cursor had not moved in six days and the gate listed 14,344 records it had read by seq, seen on its channel or answered: a lane that posts has had every record before its post delivered on its channel, and its answer or resolve of a record comes after that record, so every record up to its newest post counts as read; a lane that wrote nothing in READ_SINCE is judged on that window's records."""
+    own = reads.run(["cci", "tail", "--drive", drive, "--lane", lane, "--since", READ_SINCE], Path.cwd())
+    since = str(max(map(int, RECORD_LINE.findall(own)))) if RECORD_LINE.search(own) else READ_SINCE
+    return reads.run(["cci", "tail", "--drive", drive, "--to", lane, "--since", since], Path.cwd()).strip()
 
 
 def mid_incident(found: list[list[str]]) -> str | None:
