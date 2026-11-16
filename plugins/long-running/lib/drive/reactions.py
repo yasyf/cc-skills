@@ -11,7 +11,6 @@ DONE = "white_check_mark"
 STEPS = (EYES, BUILDING, DONE)
 FILE = "reactions.json"
 RECENT = timedelta(days=1)
-RUNNING = "running"
 RANK = (BUILDING, None, DONE)
 MOVES_PER_PASS = 20
 
@@ -27,14 +26,11 @@ def wanted(order: dict, running: bool) -> str | None | bool:
 
 def moved(name: str, moment: datetime) -> list[str]:
     """Move the reaction on each message of his an open or recently closed order answers to the one its orders want, construction while any runs work, else none while any is open, else a check, once each time that changes, removing every other step's, the newest messages first and at most MOVES_PER_PASS a pass so a first sweep never floods Slack; a line for each it moved."""
-    data = state.load(name, ("orders", "jobs"))
-    running = {job["order"] for job in data["jobs"].values() if job["state"] == RUNNING}
+    orders, running = state.reaction_snapshot(name, moment - RECENT)
     path = state.drive_dir(name) / FILE
     kept = json.loads(path.read_text()) if path.exists() else {}
     steps: dict[str, list[str | None]] = {}
-    for order_id, order in data["orders"].items():
-        if not order.get("thread") or order["state"] in state.CLOSED_ORDER_STATES and moment - state.parse_time(order["updated"]) > RECENT:
-            continue
+    for order_id, order in orders.items():
         if (step := wanted(order, order_id in running)) is not False and order["thread"][1]:
             steps.setdefault("/".join(order["thread"]), []).append(step)
     lines = []
@@ -68,9 +64,8 @@ def react(channel: str, ts: str, step: str | None, was: str | None | bool = True
 
 def answered(name: str, channel: str, ts: str, working: bool = False) -> str:
     """Move his message's reaction once a post answers it, to the one its orders want now, as the watch's pass would, in the same call, so a post closing his order with something handled leaves the check at once, never a bare message for a pass: construction while the post says work it started keeps running or an order's work on it runs, a check once its order is done, else none, so the construction a pickup put on it never outlives its work, as one stayed on his status question at C0CJ378LSBT/1794857634.488009 after its answer; the step it left."""
-    data = state.load(name, ("orders", "jobs"))
-    running = {job["order"] for job in data["jobs"].values() if job["state"] == RUNNING}
-    wants = [want for order_id, order in data["orders"].items() if order.get("thread") == [channel, ts] and (want := wanted(order, order_id in running)) is not False]
+    orders, running = state.reaction_thread(name, channel, ts)
+    wants = [want for order_id, order in orders.items() if (want := wanted(order, order_id in running)) is not False]
     step = BUILDING if working else min(wants, key=RANK.index) if wants else None
     path = state.drive_dir(name) / FILE
     kept = json.loads(path.read_text()) if path.exists() else {}
