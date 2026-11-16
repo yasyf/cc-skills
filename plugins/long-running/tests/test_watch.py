@@ -292,6 +292,7 @@ def home_repo(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(providers, "at", lambda clone, checkout=None: built(clone))
     monkeypatch.setattr(providers, "default_head", lambda clone: "0" * 40)
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
+    monkeypatch.setattr(github, "files", lambda key: [])
 
 
 @pytest.fixture(autouse=True)

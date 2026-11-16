@@ -663,7 +663,7 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
             below = uncleared_below(data, keys)
             misfiled = {key: why for key in keys if (why := unexempt(data, key))}
             untested = {key: unstaged for key, unstaged in cli.staging_reach(name, data, [key for key in keys if data["prs"][key]["wants_tap"]]).items() if not state.staging_tested(data, key) and not (unstaged and (data["prs"][key]["exception"] or {}).get("granted"))}
-            changed = {key: github.files(key) for key in keys if key not in untested and not state.staging_tested(data, key) and not lifted(data["prs"][key])}
+            changed = {key: github.files(key) for key in keys if key not in untested and not state.staging_tested(data, key) and not lifted(data["prs"][key]) and not any(state.part_wait(data, wait) for wait in data["prs"][key]["waits"])}
             risky = {key: made for key, files in changed.items() if (made := dangerous(data, files))}
             if (untested or misfiled or risky) and not dry_run:
 

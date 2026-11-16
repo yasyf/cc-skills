@@ -664,3 +664,15 @@ def test_a_sub_coordinators_job_holding_the_staging_slot_starts_its_staging_cut_
     staging = "tools/ci release start api --from b --emergency --env plat-usw2-staging --order 23eefb9".split()
     assert landing_guard.cut_reason(staging, shell) is None
     assert landing_guard.cut_reason("tools/ci release start api --order 23eefb9".split(), shell).startswith("ci release start: the sub-coordinator for Platform starts, approves and rolls back no production cut")
+
+
+def test_the_release_guard_reads_the_drives_own_checkout_never_a_removed_lane_worktree_the_session_runs_in_as_733991_crashed_on(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from drive import providers
+
+    removed = tmp_path / "worktrees" / "j7843-reslice"
+    drives = HomeRelease(Path(), Path(), {})
+    monkeypatch.setattr(providers, "of", lambda data: providers.Providers(None, {}, release=drives))
+    monkeypatch.setattr(providers, "default_head", lambda clone: pytest.fail(f"read the default head of {clone}"))
+    assert landing_guard.release_guard(landing_guard.Shell(str(removed), {}, "s1", True, True), [demo]) is drives
