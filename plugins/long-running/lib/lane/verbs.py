@@ -326,3 +326,13 @@ def adopt(drive: str, paths: list[str]) -> list[str]:
         said.append(f"{lane['id']}: {lane['state']}, {len(lane['asks'])} asks ({len(store.unreplied(lane))} unanswered), {len(lane['rulings'])} rulings" + ("" if lane.get("worktree") else ", NO WORKTREE: set one with `lane worktree`"))
     store.kick(drive)
     return said
+
+
+def handover(drive: str, lane_id: str, text: str | None) -> None:
+    """Set or clear the note every owner of the lane reads at its start, such as the old jobs still running on its work, which is no ask of his and wants no reply."""
+
+    def setting(lane: dict) -> None:
+        lane["handover"] = text
+        store.note(lane, "handover cleared" if text is None else "handover set")
+
+    store.update(drive, lane_id, setting)

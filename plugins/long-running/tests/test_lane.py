@@ -435,3 +435,11 @@ def test_an_incident_hurts_users_by_its_facts_until_its_fix_is_live(world: dict,
     verbs.set_incident(DRIVE, "a", token_of("a"), fix_live="https://release/live")
     supervisor.run_pass(DRIVE)
     assert rank.last(DRIVE)["hurting"] == []
+
+
+def test_a_handover_note_reaches_the_owner_brief_and_is_no_ask(world: dict) -> None:
+    opened("a")
+    verbs.handover(DRIVE, "a", "old job j1 runs on branch b in /w with #7")
+    lane = store.load(DRIVE, "a")
+    assert "old job j1 runs on branch b" in owners.brief(DRIVE, lane, "woken")
+    assert len(lane["asks"]) == 1

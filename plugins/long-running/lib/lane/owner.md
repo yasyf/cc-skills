@@ -13,6 +13,9 @@ His rulings that bind this lane, and the drive-wide ones. Read them before you a
 PRs:
 {prs}
 
+Handover (work already running for this lane; adopt it, start no duplicate, and clear this with `{lane} handover --clear` once adopted):
+{handover}
+
 Next step: {next}
 Open promise: {promise}
 Recent log:

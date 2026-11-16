@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import sys
+from pathlib import Path
 
 from lane import queue, store, supervisor, verbs
 from lane import voice
@@ -93,6 +94,10 @@ def main(argv: list[str] | None = None) -> int:
     ruled.add_argument("--link")
     ruled.add_argument("--binds", required=True)
     verbs_parser.add_parser("unpark").add_argument("lane")
+    handing = verbs_parser.add_parser("handover", help="set the note every owner of the lane reads at its start, from a file, or clear it")
+    handing.add_argument("--lane")
+    handing.add_argument("--file")
+    handing.add_argument("--clear", action="store_true")
     verbs_parser.add_parser("adopt", help="write lane files of the first shape, such as the rebuild's, into the drive in the agreed shape").add_argument("paths", nargs="+")
     placing = verbs_parser.add_parser("worktree", help="set the checkout a lane's owner starts in")
     placing.add_argument("lane")
@@ -176,6 +181,11 @@ def run(args: argparse.Namespace) -> int:
             verbs.ruling(drive, args.lane, args.words, args.link, args.binds)
         case "adopt":
             print("\n".join(verbs.adopt(args.drive, args.paths)))
+        case "handover":
+            drive, lane_id = where(args)
+            if args.clear == bool(args.file):
+                raise store.Refused("give --file or --clear")
+            verbs.handover(drive, lane_id, None if args.clear else Path(args.file).read_text())
         case "worktree":
             verbs.set_worktree(*where(args), args.path)
         case "unpark":
