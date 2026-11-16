@@ -991,13 +991,13 @@ def test_a_watch_that_stops_ends_its_relay_process_before_it_returns(demo: str, 
     serve(monkeypatch, {})
     posts(monkeypatch)
     run_watch(demo, monkeypatch)
-    assert [child.returncode for child in watch_process.relays] == [-signal.SIGTERM, -signal.SIGTERM]
+    assert [child.returncode for child in watch_process.relays] == [-signal.SIGTERM, -signal.SIGTERM, -signal.SIGTERM]
     assert [thread.name for thread in threading.enumerate() if thread.name.endswith("(relayed_lines)")] == []
 
 
 def test_the_watch_hands_on_each_line_its_relay_process_writes_keeps_the_untracked_prs_its_landing_loop_writes_and_stops_on_the_first_that_ended_unasked(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     started: dict[str, subprocess.Popen] = {}
-    written = {"--relay": "os.write({lines}, b'DUE o1 was due\\nDUE o2 was due\\n'); raise SystemExit(1)", "--land": 'os.write({lines}, b\'{{"yasyf/cc-skills#9": "MERGED"}}\\n\'); time.sleep(3600)'}
+    written = {"--respond": "time.sleep(3600)", "--relay": "os.write({lines}, b'DUE o1 was due\\nDUE o2 was due\\n'); raise SystemExit(1)", "--land": 'os.write({lines}, b\'{{"yasyf/cc-skills#9": "MERGED"}}\\n\'); time.sleep(3600)'}
 
     def spawn(watcher: watch.Watcher, flag: str, lines: int) -> subprocess.Popen:
         started[flag] = subprocess.Popen([sys.executable, "-c", "import os, time; " + written[flag].format(lines=lines)], pass_fds=(lines,))
@@ -1046,6 +1046,19 @@ def test_the_relay_process_writes_each_line_to_the_watch_moving_onto_the_newest_
     with os.fdopen(lines) as written:
         assert written.read() == "DUE o1 was due by noon\nDUE o2 was due by noon\n"
     assert (passes, reopened) == ([f"{state.project_lane('Iris')} at offset 7"] * 2, [["watch", "--relay", str(given), "--drive", demo, "--project", "Iris"]] * 2)
+
+
+def test_the_responder_process_runs_only_respond_passes_moving_onto_the_newest_install_before_each(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    lines, given = os.pipe()
+    passes = relay_passes(monkeypatch, 2)
+    monkeypatch.setattr(watch, "respond_pass", watch.relay_pass)
+    monkeypatch.setattr(watch, "relay_pass", lambda watching, moment: pytest.fail("the responder ran a relay pass"))
+    reopened: list[list[str]] = []
+    monkeypatch.setattr(install, "reopen", reopened.append)
+    assert watch.responder(demo, None, given) == 0
+    with os.fdopen(lines) as written:
+        assert written.read() == "DUE o1 was due by noon\nDUE o2 was due by noon\n"
+    assert (len(passes), reopened) == (2, [["watch", "--respond", str(given), "--drive", demo]] * 2)
 
 
 def test_the_relay_process_runs_its_next_pass_on_a_newer_install_in_its_place_keeping_the_pipe_to_the_watch(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -26,6 +26,7 @@ from drive.render import cut, when
 
 POLL_SECONDS = 5
 RELAY_SECONDS = 2
+RESPOND_SECONDS = 1
 READ_EVERY = timedelta(seconds=60)
 FAILURES_BEFORE_SAYING = 3
 FAILURE_EVERY = timedelta(minutes=10)
@@ -1611,8 +1612,8 @@ def sending(message: dict) -> str:
 
 @contextlib.contextmanager
 def relaying(watcher: Watcher) -> Iterator[None]:
-    """Answer the lanes' reads and owe him each promised line from the watch's relay, and land, stage and wake from its landing loop, each a process of its own the watch starts, by spawn, for as long as the watch runs: each line the relay writes handed to the watcher as it comes, and each map of the PRs the drive does not track the landing loop writes kept as the watcher's, by relayed_lines; each ended with SIGTERM and waited for in turn before the watch keeps its unposted lines, so each line the relay made is kept."""
-    started = [beside(watcher, "--relay", "the relay", watcher.relayed.append), beside(watcher, "--land", "the landing loop", functools.partial(took_untracked, watcher))]
+    """Answer the lanes' reads from the watch's responder, owe him each promised line from its relay, and land, stage and wake from its landing loop, each a process of its own the watch starts, by spawn, for as long as the watch runs: each line the responder or relay writes handed to the watcher as it comes, and each map of the PRs the drive does not track the landing loop writes kept as the watcher's, by relayed_lines; each ended with SIGTERM and waited for in turn before the watch keeps its unposted lines, so each line the relay made is kept."""
+    started = [beside(watcher, "--respond", "the responder", watcher.relayed.append), beside(watcher, "--relay", "the relay", watcher.relayed.append), beside(watcher, "--land", "the landing loop", functools.partial(took_untracked, watcher))]
     try:
         yield
     finally:
@@ -1631,7 +1632,7 @@ def beside(watcher: Watcher, flag: str, what: str, took: Callable[[str], None]) 
 
 
 def spawn(watcher: Watcher, flag: str, lines: int) -> subprocess.Popen:
-    """Start `drive watch <flag> <fd>`, the relay's `--relay` or the landing loop's `--land`, as a child of the watch, writing to that end of the watch's pipe, in the watch's process group, so the watch's launch agent ends it with the watch whatever ends the watch."""
+    """Start `drive watch <flag> <fd>`, the responder's `--respond`, the relay's `--relay` or the landing loop's `--land`, as a child of the watch, writing to that end of the watch's pipe, in the watch's process group, so the watch's launch agent ends it with the watch whatever ends the watch."""
     return subprocess.Popen(
         [str(install.DRIVE), "watch", flag, str(lines), "--drive", watcher.name, *(["--project", watcher.project] if watcher.project else [])],
         stdin=subprocess.DEVNULL,
@@ -1655,17 +1656,27 @@ def took_untracked(watcher: Watcher, line: str) -> None:
 
 
 def relay(name: str, project: str | None, lines: int) -> int:
-    """Run the watch's relay, the process the watch starts: a relay pass every RELAY_SECONDS beside the watch's passes, each first moving this process onto the newest install, by install.reopen, so a lane's reads are answered by the code installed now however long a pass holds the watch on the install it started on, and no GitHub read, landing, Slack redraw or install a pass runs holds a lane's answer, the handler on a line promised him by a time or the handler on a POST report. Each line it makes goes to the watch down the pipe end it inherited, for the watch's next pass to hand on; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag rather than an Event, which a handler setting it can deadlock on. It keeps a Watcher of its own, so a failed Orca read of its own never reruns the pass's 60-second block."""
+    """Run the watch's relay, the process the watch starts: a relay pass every RELAY_SECONDS beside the watch's passes, by beside_passes, so no GitHub read, landing, Slack redraw or install a pass runs holds the handler on a line promised him by a time or the handler on a POST report."""
+    return beside_passes(name, project, lines, "--relay", lambda watcher, moment: relay_pass(watcher, moment), RELAY_SECONDS)
+
+
+def responder(name: str, project: str | None, lines: int) -> int:
+    """Run the watch's responder, the process the watch starts: a respond pass every RESPOND_SECONDS beside the watch's passes and its relay's, by beside_passes, so a lane's read or drive verb gets its reader the moment it is asked, however long the relay's handler starts or a pass of the watch take."""
+    return beside_passes(name, project, lines, "--respond", lambda watcher, moment: respond_pass(watcher, moment), RESPOND_SECONDS)
+
+
+def beside_passes(name: str, project: str | None, lines: int, flag: str, passing: Callable[[Watcher, datetime], list[str]], seconds: float) -> int:
+    """Run one pass after another, seconds apart, each first moving this process onto the newest install, by install.reopen, so the code installed now runs it however long a pass holds the watch on the install it started on. Each line a pass makes goes to the watch down the pipe end it inherited, for the watch's next pass to hand on; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag rather than an Event, which a handler setting it can deadlock on. It keeps a Watcher of its own, so a failed Orca read of its own never reruns the pass's 60-second block."""
     ended: list[int] = []
     signal.signal(signal.SIGTERM, lambda signum, frame: ended.append(signum))
     children.reap_inherited()
-    relaying = Watcher(name, offset=state.watch_cursor(name, project), project=project)
+    passer = Watcher(name, offset=state.watch_cursor(name, project), project=project)
     with os.fdopen(lines, "w", buffering=1) as relayed:
         while not ended:
-            install.reopen(["watch", "--relay", str(lines), "--drive", name, *(["--project", project] if project else [])])
-            for line in relay_pass(relaying, state.now()):
+            install.reopen(["watch", flag, str(lines), "--drive", name, *(["--project", project] if project else [])])
+            for line in passing(passer, state.now()):
                 relayed.write(f"{LINE_BREAKS.sub(' ', line)}\n")
-            time.sleep(RELAY_SECONDS)
+            time.sleep(seconds)
     return 0
 
 
@@ -1723,8 +1734,8 @@ def owed_reads(watcher: Watcher, moment: datetime) -> list[functools.partial]:
     return [functools.partial(stage, watcher, moment) for stage in (github_owed_lines, pushed_lines)]
 
 
-def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """Start a reader on each new read or `DRIVE` question a live lane asked, then send again each answer a reader kept that no reply took, by resend_lines, then take each ended codex-ask run, by codex_takes, then start the handler on each line promised him by a time this pass's own clock is due to start it at, by due_lines, on each POST report to the communicator, by post_lines, and, once he is back, on each thread's line carrying the reports held for his return, by held_report_lines, and on his catch-up, by catch_up_lines, so no main pass stands between his return and either. Its first pass, and one after a failed read, first has this process's Orca calls speak as the drive's own terminal; a failed read goes again next pass, said as the watch says its reads."""
+def respond_pass(watcher: Watcher, moment: datetime) -> list[str]:
+    """Start a reader on each new read or `DRIVE` question a live lane asked, then send again each answer a reader kept that no reply took, by resend_lines, and nothing else, so no handler start or Slack call stands between a lane's question and its reader. Its first pass, and one after a failed read, first has this process's Orca calls speak as the drive's own terminal; a failed read goes again next pass, said as the watch says its reads."""
     lines = []
     try:
         if watcher.read_at is None:
@@ -1735,7 +1746,19 @@ def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
         lines = read_failed(watcher, NEWEST_MAIL, error, moment)
     else:
         watcher.failures.pop(NEWEST_MAIL, None)
-    lines += resend_lines(watcher, moment)
+    return lines + resend_lines(watcher, moment)
+
+
+def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
+    """Take each ended codex-ask run, by codex_takes, then start the handler on each line promised him by a time this pass's own clock is due to start it at, by due_lines, on each POST report to the communicator, by post_lines, and, once he is back, on each thread's line carrying the reports held for his return, by held_report_lines, and on his catch-up, by catch_up_lines, so no main pass stands between his return and either; the lanes' reads are the responder's, by respond_pass. Its first pass, and one after a failed read, first has this process's Orca calls speak as the drive's own terminal."""
+    lines = []
+    if watcher.read_at is None:
+        try:
+            orca.speak_as_drive(watcher.name)
+        except orca.OrcaError as error:
+            lines = read_failed(watcher, NEWEST_MAIL, error, moment)
+        else:
+            watcher.read_at = moment
     codex_takes(watcher)
     return lines + due_lines(watcher, moment) + post_lines(watcher, moment) + held_report_lines(watcher, moment) + catch_up_lines(watcher, moment)
 
