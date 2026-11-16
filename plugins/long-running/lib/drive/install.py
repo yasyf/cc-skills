@@ -20,6 +20,12 @@ from drive import github, state, train
 
 POLL_SECONDS = 20
 READ_EVERY_SECONDS = 60
+CI_COMMITS = 30
+CI_HISTORY = (
+    "{ pageInfo { hasNextPage endCursor } nodes { oid parents(first: 1) { nodes { oid } } "
+    "checkSuites(first: 50) { nodes { status conclusion workflowRun { databaseId event url createdAt workflow { databaseId name } } } } "
+    "status { contexts { context state targetUrl } } } }"
+)
 FAILED_TEST = re.compile(r"^\S+ (?:FAILED|ERROR) (?P<test>\S+\.py(?:::[^\r\n]+?)?)(?: - [^\r\n]*)?\r?$", re.MULTILINE)
 GITHUB_REPO = re.compile(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?/?$")
 DEFAULT_BRANCH = "refs/heads/default"
@@ -790,7 +796,7 @@ def await_ci(merges: dict[str, str]) -> bool:
                 if not hooked and receiver.unhooked({repo}):
                     receiver.hook(repo)
                 hooked = True
-                if not (unpassed := [line for line, passed in pushed_ci(repo, sha) if not passed]):
+                if not (unpassed := [line for line, passed in pushed_ci(branch_line(repo, sha)[1]) if not passed]):
                     break
                 waiting, waited = ", ".join(unpassed), True
             except github.GithubError as error:
@@ -799,7 +805,7 @@ def await_ci(merges: dict[str, str]) -> bool:
                 print(f"drive job prove: waiting for {key}'s CI at {sha[:12]} to pass: {waiting}", file=sys.stderr, flush=True)
             last = waiting
             if failed:
-                sleep(POLL_SECONDS)
+                sleep(github.floor_lifts_in(waiting) or POLL_SECONDS)
             else:
                 receiver.hear(repo, "ci", heard)
                 if (rest := read_at + READ_EVERY_SECONDS - clock()) > 0:
@@ -807,50 +813,77 @@ def await_ci(merges: dict[str, str]) -> bool:
     return waited
 
 
-def ci_runs(repo: str, listed: str, query: str) -> list[dict]:
-    """The newest hundred workflow runs a listing names, newest first, as one read: a run on the default branch tests every merge its commit holds, so the newest runs judge a merge as well as all of them, and the pages past the first cost a read each on every wake of a proof."""
-    jq = ".workflow_runs[] | {id, workflow_id, name, head_sha, created_at, status, conclusion, html_url}"
-    return [json.loads(line) for line in github.read(f"{repo}'s workflow runs", ["gh", "api", f"repos/{repo}/actions/{listed}?per_page=100&{query}", "--jq", jq]).splitlines()]
-
-
 def ci_passed(run: dict) -> bool:
     """Whether a workflow run completed with a conclusion GitHub counts as passed, but skipped, since a run whose every job skipped tested nothing."""
     return run["status"] == "completed" and (run["conclusion"] or "").upper() in github.PASSED - {"SKIPPED"}
 
 
-def ci_statuses(repo: str, commit: str) -> list[dict]:
-    jq = ".statuses[] | {context, state, target_url}"
-    return [json.loads(line) for line in github.read(f"{repo}'s commit statuses on {commit[:12]}", ["gh", "api", f"repos/{repo}/commits/{commit}/status", "--jq", jq]).splitlines()]
+def branch_line(repo: str, sha: str) -> tuple[str, list[dict]]:
+    """repo's default branch and each commit of its first-parent line from the merge at sha to its head, oldest first, with the push-event workflow runs and the commit statuses on each, by ci_commit: the commits a push carrying the merge and each push after it put on that branch, each holding the merge. One `gh api graphql` call reads CI_COMMITS of the branch's newest commits, newest first, and another the next CI_COMMITS while the line has not reached sha, so a proof waiting on a fresh merge reads once a pass on GitHub's GraphQL budget, never its REST one."""
+    nodes: dict[str, dict] = {}
+    head, after = None, ""
+    while True:
+        page = f"first: {CI_COMMITS}{f', after: {json.dumps(after)}' if after else ''}"
+        ref = github.answered(github.graphql(github.repository_query(repo, f"defaultBranchRef {{ name target {{ ... on Commit {{ history({page}) {CI_HISTORY} }} }} }}"), f"the CI on {repo}'s default branch since {sha[:12]}"))["defaultBranchRef"]
+        history = ref["target"]["history"]
+        nodes |= {node["oid"]: node for node in history["nodes"]}
+        head = head or history["nodes"][0]["oid"]
+        if sha in nodes:
+            line = first_parents(nodes, head, sha)
+            if line is None:
+                raise github.GithubError(f"{sha[:12]} is not on the first-parent line of {repo}'s {ref['name']}")
+            return ref["name"], [ci_commit(nodes[oid]) for oid in reversed(line)]
+        if not history["pageInfo"]["hasNextPage"]:
+            raise github.GithubError(f"{repo}'s {ref['name']} does not hold {sha[:12]}")
+        after = history["pageInfo"]["endCursor"]
 
 
-def pushed(repo: str, sha: str, branch: str) -> Iterator[str]:
-    """The merge's commit at sha, then each commit GitHub's compare of it with branch lists after it, oldest first, that holds it: the commits its push and each push after it put on branch, the compare read only once one past the merge's is asked for."""
-    yield sha
-    later = github.read(f"the commits after {sha[:12]} on {repo}'s {branch}", ["gh", "api", f"repos/{repo}/compare/{sha}...{branch}", "--jq", ".commits[].sha"]).split()
-    yield from (commit for commit in later if github.holds(repo, commit, sha))
+def first_parents(nodes: dict[str, dict], head: str, sha: str) -> list[str] | None:
+    """The commits from head down its first parents to sha, newest first, or None when that line leaves the commits read before it reaches sha."""
+    line, at = [], head
+    while at in nodes:
+        line.append(at)
+        if at == sha:
+            return line
+        at = next((parent["oid"] for parent in nodes[at]["parents"]["nodes"]), "")
+    return None
 
 
-def ci_judged(repo: str, sha: str, branch: str, triggered: list[dict]) -> list[tuple[str, bool]]:
-    """A line naming each workflow in triggered, the push-event runs on the commit the CI of the merge's push reported on, beside whether it passed the merge: once its run there passed, or else any of its push-event runs on the branch from that one on, by run id, passed on a commit holding the merge, the line naming the first, since a run on the default branch tests every merge its commit holds, so a run before it that failed on another merge's change or was cancelled never decides it; else not yet, the line naming its newest run. Each workflow's runs are read on their own, since GitHub lists at most 1000 runs for a filtered read, which a busy default branch's runs of every workflow together pass within a day."""
+def ci_commit(node: dict) -> dict:
+    """A commit of a branch_line read as CI reported on it: its push-event workflow runs, each as GitHub's REST API lists a run, its status and conclusion lowercased, and its commit statuses, such as Buildkite's buildkite/test, as its combined status lists them."""
+    runs = [(suite, suite["workflowRun"]) for suite in node["checkSuites"]["nodes"] if suite["workflowRun"] and suite["workflowRun"]["event"] == "push"]
+    return {
+        "oid": node["oid"],
+        "runs": [
+            {"id": run["databaseId"], "workflow_id": run["workflow"]["databaseId"], "name": run["workflow"]["name"], "created_at": run["createdAt"], "status": suite["status"].lower(), "conclusion": (suite["conclusion"] or "").lower() or None, "html_url": run["url"]}
+            for suite, run in runs
+        ],
+        "statuses": [{"context": status["context"], "state": status["state"].lower(), "target_url": status["targetUrl"]} for status in (node["status"] or {"contexts": []})["contexts"]],
+    }
+
+
+def ci_judged(triggered: list[dict], line: list[dict]) -> list[tuple[str, bool]]:
+    """A line naming each workflow in triggered, the runs on the commit the CI of the merge's push reported on, beside whether it passed the merge: once its run there passed, or else any of its runs on that commit or a later one of line, by run id, passed, the line naming the first, since a run on the default branch tests every merge its commit holds, so a run before it that failed on another merge's change or was cancelled never decides it; else not yet, the line naming its newest run."""
     owns: dict[int, dict] = {}
     for run in sorted(triggered, key=lambda run: run["id"]):
         owns.setdefault(run["workflow_id"], run)
     judged = []
     for workflow, own in owns.items():
-        listed = [own] if ci_passed(own) else ci_runs(repo, f"workflows/{workflow}/runs", f"branch={branch}&event=push&created=>={own['created_at']}")
-        runs = sorted((run for run in listed if run["id"] >= own["id"]), key=lambda run: run["id"])
-        passing = next((run for run in runs if ci_passed(run) and github.holds(repo, run["head_sha"], sha)), None)
+        runs = sorted((run for commit in line for run in commit["runs"] if run["workflow_id"] == workflow and run["id"] >= own["id"]), key=lambda run: run["id"])
+        passing = next((run for run in runs if ci_passed(run)), None)
         run = passing or runs[-1]
         judged.append((f"{run['name']} {run['html_url']} {run['status']} {run['conclusion'] or ''}".rstrip(), passing is not None))
     return judged
 
 
-def statuses_judged(repo: str, statuses: list[dict], later: Iterator[str]) -> list[tuple[str, bool]]:
-    """A line naming each commit status in statuses, those on the commit the CI of the merge's push reported on, beside whether it passed the merge: once its state there is success, or else once a status of its context on a commit later yields after it, each holding the merge, is, the line naming the first, since each push's build tests every merge its commit holds; else not yet, the line naming its newest. A later commit is read only while a context has not passed."""
+def statuses_judged(statuses: list[dict], later: list[dict]) -> list[tuple[str, bool]]:
+    """A line naming each commit status in statuses, those on the commit the CI of the merge's push reported on, beside whether it passed the merge: once its state there is success, or else once a status of its context on a commit of later, each holding the merge, is, the line naming the first, since each push's build tests every merge its commit holds; else not yet, the line naming its newest."""
     newest = {status["context"]: status for status in statuses}
     passing = {context for context, status in newest.items() if status["state"] == "success"}
-    while len(passing) < len(newest) and (commit := next(later, None)):
-        for status in ci_statuses(repo, commit):
+    for commit in later:
+        if len(passing) == len(newest):
+            break
+        for status in commit["statuses"]:
             if status["context"] in newest.keys() - passing:
                 newest[status["context"]] = status
                 if status["state"] == "success":
@@ -858,21 +891,19 @@ def statuses_judged(repo: str, statuses: list[dict], later: Iterator[str]) -> li
     return [(" ".join(filter(None, [context, status["target_url"], status["state"]])), context in passing) for context, status in newest.items()]
 
 
-def pushed_ci(repo: str, sha: str) -> list[tuple[str, bool]]:
-    """How the CI of the push that carried a merge at sha onto repo's default branch judges it, on the first commit from the merge's on, as pushed lists them, that any CI reported on: the merge's own when its push ended there, else that push's head, the one commit CI builds for a push. Its push-event workflow runs, as ci_judged judges them, and its commit statuses, such as Buildkite's buildkite/test, as statuses_judged judges them, each by a line beside whether it passed; a run of another event, such as a reviewer workflow's on issue_comment or check_run, which GitHub stamps with the branch's head whatever pushed it, is no CI, nor is a run that skipped. None before any CI reported."""
-    branch = github.default_branch(repo)
-    line = pushed(repo, sha, branch)
-    for commit in line:
-        runs = [run for run in ci_runs(repo, "runs", f"branch={branch}&event=push&head_sha={commit}") if run["conclusion"] != "skipped"]
-        statuses = ci_statuses(repo, commit)
-        if runs or statuses:
-            return [*ci_judged(repo, sha, branch, runs), *statuses_judged(repo, statuses, line)]
+def pushed_ci(line: list[dict]) -> list[tuple[str, bool]]:
+    """How the CI of the push that carried a merge onto its repository's default branch judges it, on the first commit of its branch_line that any CI reported on: the merge's own when its push ended there, else that push's head, the one commit CI builds for a push. Its push-event workflow runs, as ci_judged judges them, and its commit statuses, as statuses_judged judges them, each by a line beside whether it passed; a run of another event, such as a reviewer workflow's on issue_comment or check_run, which GitHub stamps with the branch's head whatever pushed it, is no CI, nor is a run that skipped. None before any CI reported."""
+    for at, commit in enumerate(line):
+        runs = [run for run in commit["runs"] if run["conclusion"] != "skipped"]
+        if runs or commit["statuses"]:
+            return [*ci_judged(runs, line[at:]), *statuses_judged(commit["statuses"], line[at + 1 :])]
     return []
 
 
 def ci_verdict(repo: str, sha: str) -> list[tuple[str, bool]]:
     """pushed_ci's lines for a merge at sha on repo's default branch, or, while no CI reported on its commit or any commit after it, one saying so that has not passed."""
-    return pushed_ci(repo, sha) or [(f"no CI reported on {sha[:12]} or any commit after it on {github.default_branch(repo)}", False)]
+    branch, line = branch_line(repo, sha)
+    return pushed_ci(line) or [(f"no CI reported on {sha[:12]} or any commit after it on {branch}", False)]
 
 
 def red_default_runs(repo: str) -> list[dict]:

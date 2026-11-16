@@ -17,8 +17,16 @@ for its repository says, then return `DONE <proof>`.
 - Open PRs that change the same files land in a train, one at a time, oldest first. Each later one
   gets `drive pr set <url> --waits <the earlier PR>` and rebases once onto the base that merge left,
   never on every move of the base, since each push restarts every gate it waits on. Before opening a
-  PR, `gh pr list` and `gh pr diff <n> --name-only` find the open ones on its files; a change that
-  must ship with one of them is amended into it.
+  PR, one `gh api graphql` query of the repository's open PRs and their `files` finds the open ones
+  on its files; a change that must ship with one of them is amended into it.
+- Read and write GitHub through GraphQL, by his words "also just use graphql for gh": a read is one
+  `gh api graphql` query naming its repository, which `ccx vcs gh` runs on the GitHub App's quota
+  wherever the app is installed, and a merge or enqueue is the `mergePullRequest` or
+  `enqueuePullRequest` mutation. `gh pr view`, `gh pr list`, `gh pr checks` and `gh pr merge` send
+  GraphQL themselves; `gh run`, `gh pr diff` and `gh api repos/…` are REST, kept for what GraphQL
+  has no field for, such as a job's log, a workflow rerun or a stacked PR's `merge-async`. The
+  lander and `drive job prove` read the same way. Every session is refused a `while` or `until`
+  loop that calls `gh` and a read with `GH_TOKEN` or `GITHUB_TOKEN` set.
 - The default branch stays releasable, in his words "dev mustr always be releasable". No body section,
   card or refusal checks it, by his words "Get rid of the fucking releasable check no one asked for that
   remove it entirely".

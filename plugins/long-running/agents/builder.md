@@ -617,6 +617,10 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   after a delivery, never after a wait that timed out. Each wait prints `--after <offset>`: pass it to
   the next wait so a delivery between the two is not missed. Its default 110 s fits Bash's 120-second
   call; `--timeout 270` with Bash `timeout: 280000` is the longest.
+- Read and write GitHub through GraphQL, by his words "also just use graphql for gh": one
+  `gh api graphql` query a read, naming its repository, and REST only where GraphQL has no field,
+  such as a job's log, as `drive manual landing "Every PR"` says. A `while` or `until` loop that
+  calls `gh` and a read with `GH_TOKEN` set are refused in every session.
 - Block in one call for at most 270 s, then call again: a wait past 5 minutes expires your prompt
   cache, and the next turn re-reads your whole context at full price, a median 158k tokens.
 - Wait on a step of your own with the wait your run has, never a loop or a `sleep` you write, which

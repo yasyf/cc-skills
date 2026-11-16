@@ -12,7 +12,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from itertools import chain, repeat
 from pathlib import Path, PurePosixPath
-from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from conftest import REAL_PLUGIN_COPIES_FIRST, commit_files, git_in, Jev
@@ -2388,12 +2387,13 @@ MERGED_AFTER = "e16c9ce5a1b2c3"
 FIXED_AFTER = "38425f1b6d4e5f"
 
 
-def ci(run_id: int, name: str, created: str, status: str = "in_progress", conclusion: str | None = None, head: str = SHA) -> dict:
-    workflow = {"long-running CI": 366540480, "Guides": 310890487}[name]
+def ci(run_id: int, name: str, created: str, status: str = "in_progress", conclusion: str | None = None, head: str = SHA, event: str = "push") -> dict:
+    workflow = {"long-running CI": 366540480, "Guides": 310890487, "PR Reviewer Commands": 201, "PR Review Trigger": 202, "FDE Docs": 203}[name]
     return {
         "id": run_id,
         "workflow_id": workflow,
         "name": name,
+        "event": event,
         "head_sha": head,
         "created_at": created,
         "status": status,
@@ -2402,24 +2402,45 @@ def ci(run_id: int, name: str, created: str, status: str = "in_progress", conclu
     }
 
 
-def on_actions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, triggered: list[dict], polls: list[list[dict]]) -> Path:
+def history(branch: str, line: list[str], runs: list[dict], statuses: dict[str, list[dict]] | None = None) -> dict:
+    """GitHub's GraphQL answer to branch_line for a default branch whose first-parent line is line, oldest first, each commit carrying the runs whose head it is and its statuses."""
+    statuses = statuses or {}
+    nodes = [
+        {
+            "oid": oid,
+            "parents": {"nodes": [{"oid": line[at - 1]}] if at else []},
+            "checkSuites": {
+                "nodes": [
+                    {
+                        "status": run["status"].upper(),
+                        "conclusion": run["conclusion"] and run["conclusion"].upper(),
+                        "workflowRun": {"databaseId": run["id"], "event": run["event"], "url": run["html_url"], "createdAt": run["created_at"], "workflow": {"databaseId": run["workflow_id"], "name": run["name"]}},
+                    }
+                    for run in runs
+                    if run["head_sha"] == oid
+                ]
+            },
+            "status": {"contexts": [{"context": status["context"], "state": status["state"].upper(), "targetUrl": status["target_url"]} for status in statuses[oid]]} if statuses.get(oid) else None,
+        }
+        for at, oid in enumerate(line)
+    ]
+    return {"data": {"r0": {"defaultBranchRef": {"name": branch, "target": {"history": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes[::-1]}}}}}}
+
+
+MAIN = [MERGED_BEFORE, SHA, MERGED_AFTER, FIXED_AFTER]
+
+
+def on_actions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, polls: list[list[dict]]) -> Path:
     shown = tmp_path / "runs"
     answers = chain(polls, repeat(polls[-1]))
 
-    def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
-        if cmd[-1] == ".default_branch":
-            return "main\n"
-        if cmd[1:3] == ["pr", "view"]:
-            return f"{SHA}\n"
-        if cmd[2].endswith("/status"):
-            return ""
-        if f"/compare/{SHA}..." in cmd[2]:
-            return "behind\n" if cmd[2].endswith(MERGED_BEFORE) else "ahead\n"
-        runs = triggered if f"&head_sha={SHA}" in cmd[2] else [run for run in next(answers) if f"/actions/workflows/{run['workflow_id']}/runs?" in cmd[2]]
+    def graphql(text: str, what: str, max_age: str = "0s") -> dict:
+        runs = next(answers)
         shown.write_text("".join(f"{run['id']} {run['status']} {run['conclusion']}\n" for run in runs))
-        return "".join(json.dumps(run) + "\n" for run in runs)
+        return history("main", MAIN, runs)
 
-    monkeypatch.setattr(github, "read", read)
+    monkeypatch.setattr(github, "read", lambda what, cmd, max_age="0s", text=True: f"{SHA}\n")
+    monkeypatch.setattr(github, "graphql", graphql)
     return shown
 
 
@@ -2431,7 +2452,7 @@ def test_a_proof_failing_while_its_merges_ci_runs_follows_that_run_past_the_dead
     script = proving(config, tmp_path, git, 0)
     guides = ci(43375546815, "Guides", "2026-11-13T05:59:05Z", "completed", "success")
     running = ci(43375546307, "long-running CI", "2026-11-13T05:59:04Z")
-    shown = on_actions(monkeypatch, tmp_path, [guides, running], [[guides, running], [guides, running], [guides, running | {"status": "completed", "conclusion": "success"}]])
+    shown = on_actions(monkeypatch, tmp_path, [[guides, running], [guides, running], [guides, running | {"status": "completed", "conclusion": "success"}]])
     script.write_text(f"#!/bin/sh\necho ran >> {tmp_path / 'ran'}\ngrep -x '43375546307 completed success' {shown}\n")
     install.prove("demo", "j1", 60)
     assert (git.heard, git.sleeps) == ([f"{REPO} ci", f"{REPO} ci"], [])
@@ -2446,7 +2467,7 @@ def test_a_merge_whose_own_run_its_concurrency_group_cancelled_waits_on_the_run_
     script = proving(config, tmp_path, git, 0)
     cancelled = ci(43370495715, "long-running CI", "2026-11-13T05:12:31Z", "completed", "cancelled")
     superseding = ci(43370536229, "long-running CI", "2026-11-13T05:12:53Z", head=MERGED_AFTER)
-    shown = on_actions(monkeypatch, tmp_path, [cancelled], [[superseding, cancelled], [superseding | {"status": "completed", "conclusion": "success"}, cancelled]])
+    shown = on_actions(monkeypatch, tmp_path, [[superseding, cancelled], [superseding | {"status": "completed", "conclusion": "success"}, cancelled]])
     script.write_text(f"#!/bin/sh\ngrep -x '43370536229 completed success' {shown}\n")
     install.prove("demo", "j1", 900)
     assert (git.heard, git.sleeps) == ([f"{REPO} ci"], [install.READ_EVERY_SECONDS - git.delivered_every])
@@ -2461,34 +2482,34 @@ def test_a_proof_failing_while_a_run_holding_its_merge_failed_on_another_merge_w
     cancelled = ci(43464105662, "long-running CI", "2026-11-13T16:34:41Z", "completed", "cancelled")
     red = ci(43464306223, "long-running CI", "2026-11-13T16:35:50Z", "completed", "failure", head=MERGED_AFTER)
     green = ci(43465943058, "long-running CI", "2026-11-13T16:46:12Z", "completed", "success", head=FIXED_AFTER)
-    shown = on_actions(monkeypatch, tmp_path, [cancelled], [[red, cancelled], [green, red, cancelled]])
+    shown = on_actions(monkeypatch, tmp_path, [[red, cancelled], [green, red, cancelled]])
     script.write_text(f"#!/bin/sh\ngrep -x '43465943058 completed success' {shown}\n")
     install.prove("demo", "j1", 900)
     assert (git.heard, git.sleeps) == ([f"{REPO} ci"], [install.READ_EVERY_SECONDS - git.delivered_every])
     assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3"
 
 
-def test_tonights_proof_reads_its_merges_ci_once_per_workflow_run_finishing_on_main_not_every_20_seconds(
+def test_tonights_proof_reads_its_merges_ci_once_per_workflow_run_finishing_on_main_in_one_graphql_call_not_every_20_seconds(
     fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     git = fake([BUILD], {BUILD})
     git.delivered_every = 180
-    reads: list[str] = []
     running = ci(43375546307, "long-running CI", "2026-11-13T05:59:04Z")
     polls = iter([[running]] * 4 + [[running | {"status": "completed", "conclusion": "success"}]])
+    reads: list[str] = []
 
-    def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
-        if cmd[-1] == ".default_branch":
-            return "main\n"
-        reads.append(cmd[2])
-        if cmd[2].endswith("/status"):
-            return ""
-        return "".join(json.dumps(run) + "\n" for run in ([running] if f"&head_sha={SHA}" in cmd[2] else next(polls)))
+    def graphql(text: str, what: str, max_age: str = "0s") -> dict:
+        reads.append(text)
+        return history("main", MAIN, next(polls))
 
-    monkeypatch.setattr(github, "read", read)
+    def rest(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
+        raise AssertionError(f"a REST read of {what}")
+
+    monkeypatch.setattr(github, "graphql", graphql)
+    monkeypatch.setattr(github, "read", rest)
     start = install.clock()
     assert install.await_ci({f"{REPO}#7": SHA})
-    assert (git.now - start, len(git.heard), len(reads), git.sleeps) == (720, 4, 3 * 5, [])
+    assert (git.now - start, len(git.heard), len(reads), git.sleeps) == (720, 4, 5, [])
     assert len(capsys.readouterr().err.splitlines()) == 1
 
 
@@ -2499,18 +2520,32 @@ def test_a_ci_read_that_fails_is_read_again_within_poll_seconds_since_no_deliver
     done = ci(43375546307, "long-running CI", "2026-11-13T05:59:04Z", "completed", "success")
     answers = iter([github.GithubError("ccx: GitHub rate limit floor"), [done], [done]])
 
-    def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
-        if cmd[-1] == ".default_branch":
-            return "main\n"
-        if cmd[2].endswith("/status"):
-            return ""
+    def graphql(text: str, what: str, max_age: str = "0s") -> dict:
         if isinstance(answer := next(answers), Exception):
             raise answer
-        return "".join(json.dumps(run) + "\n" for run in answer)
+        return history("main", MAIN, answer)
 
-    monkeypatch.setattr(github, "read", read)
+    monkeypatch.setattr(github, "graphql", graphql)
     assert not install.await_ci({f"{REPO}#7": SHA})
     assert (git.sleeps, git.heard) == ([install.POLL_SECONDS], [])
+
+
+def test_a_ci_read_ccx_refuses_under_its_floor_is_read_again_once_the_floor_lifts_not_every_poll(
+    fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    git = fake([BUILD], {BUILD})
+    done = ci(43375546307, "long-running CI", "2026-11-13T05:59:04Z", "completed", "success")
+    reset = datetime.fromtimestamp(time.time() + 600).astimezone().isoformat()
+    answers = iter([github.GithubError(f"ccx: GitHub rate limit floor: user graphql has 0 of 5000 left ({reset})"), [done]])
+
+    def graphql(text: str, what: str, max_age: str = "0s") -> dict:
+        if isinstance(answer := next(answers), Exception):
+            raise answer
+        return history("main", MAIN, answer)
+
+    monkeypatch.setattr(github, "graphql", graphql)
+    assert not install.await_ci({f"{REPO}#7": SHA})
+    assert [600 <= wait <= 601 for wait in git.sleeps] == [True]
 
 
 def test_drive_pr_ci_passes_a_merge_by_a_later_run_holding_it_past_its_cancelled_own_and_a_red_one_never_by_a_run_of_a_push_merged_before_it(
@@ -2522,7 +2557,7 @@ def test_drive_pr_ci_passes_a_merge_by_a_later_run_holding_it_past_its_cancelled
     red = ci(43384700412, "long-running CI", "2026-11-13T07:17:30Z", "completed", "failure", head=MERGED_AFTER)
     green = ci(43384815193, "long-running CI", "2026-11-13T07:18:31Z", "completed", "success", head=FIXED_AFTER)
     guides = ci(43384591254, "Guides", "2026-11-13T07:16:42Z", "completed", "success")
-    on_actions(monkeypatch, tmp_path, [cancelled, guides], [[green, red, guides, created_late, cancelled, earlier]])
+    on_actions(monkeypatch, tmp_path, [[green, red, guides, created_late, cancelled, earlier]])
     assert cli.main(["pr", "ci", URL]) == 0
     assert capsys.readouterr().out.splitlines() == [
         f"long-running CI https://github.com/{REPO}/actions/runs/43384815193 completed success",
@@ -2537,7 +2572,7 @@ def test_drive_pr_ci_exits_1_while_a_workflow_of_the_merge_has_no_passing_run_ho
     failed = ci(43384583289, "long-running CI", "2026-11-13T07:16:37Z", "completed", "failure")
     running = ci(43384815193, "long-running CI", "2026-11-13T07:18:31Z", head=MERGED_AFTER)
     cancelled = ci(43384591254, "Guides", "2026-11-13T07:16:42Z", "completed", "cancelled")
-    on_actions(monkeypatch, tmp_path, [failed, cancelled], [[running, cancelled, failed]])
+    on_actions(monkeypatch, tmp_path, [[running, cancelled, failed]])
     assert cli.main(["pr", "ci", URL]) == 1
     newest, unrun = f"long-running CI https://github.com/{REPO}/actions/runs/43384815193 in_progress", f"Guides https://github.com/{REPO}/actions/runs/43384591254 completed cancelled"
     assert capsys.readouterr().out.splitlines() == [newest, unrun, f"yasyf/cc-skills#7 merged at {SHA[:12]}: not passed: {newest}; {unrun}"]
@@ -2548,9 +2583,9 @@ PUSH_HEAD = "15a282a500228429a32023e661baf2ee35cd2c01"
 NEXT_HEAD = "024e77d4156a4f36198b8a530ed7b5a93889066c"
 DEV = [*STACK.values(), PUSH_HEAD, NEXT_HEAD]
 REVIEWERS = [
-    {"id": 43711036649, "workflow_id": 201, "name": "PR Reviewer Commands", "event": "issue_comment", "head_sha": PUSH_HEAD, "created_at": "2026-11-15T11:53:02Z", "status": "completed", "conclusion": "skipped"},
-    {"id": 43711056525, "workflow_id": 202, "name": "PR Review Trigger", "event": "check_run", "head_sha": PUSH_HEAD, "created_at": "2026-11-15T11:53:10Z", "status": "completed", "conclusion": "success"},
-    {"id": 43711056530, "workflow_id": 203, "name": "FDE Docs", "event": "push", "head_sha": PUSH_HEAD, "created_at": "2026-11-15T11:52:44Z", "status": "completed", "conclusion": "skipped"},
+    ci(43711036649, "PR Reviewer Commands", "2026-11-15T11:53:02Z", "completed", "skipped", head=PUSH_HEAD, event="issue_comment"),
+    ci(43711056525, "PR Review Trigger", "2026-11-15T11:53:10Z", "completed", "success", head=PUSH_HEAD, event="check_run"),
+    ci(43711056530, "FDE Docs", "2026-11-15T11:52:44Z", "completed", "skipped", head=PUSH_HEAD),
 ]
 
 
@@ -2559,23 +2594,8 @@ def buildkite(build: int, state: str) -> dict:
 
 
 def on_dev(monkeypatch: pytest.MonkeyPatch, statuses: dict[str, list[dict]]) -> None:
-    def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
-        if cmd[1:3] == ["pr", "view"]:
-            return f"{STACK[cmd[3]]}\n"
-        if cmd[2].endswith("/status"):
-            return "".join(json.dumps(status) + "\n" for status in statuses.get(cmd[2].split("/")[-2], []))
-        if compared := re.search(r"/compare/(\w+)\.\.\.(\w+)$", cmd[2]):
-            base, head = compared.groups()
-            if cmd[-1] == ".status":
-                return "ahead\n" if DEV.index(head) > DEV.index(base) else "behind\n"
-            return "".join(f"{commit}\n" for commit in DEV[DEV.index(base) + 1 :])
-        asked = {field: values[0] for field, values in parse_qs(urlsplit(cmd[2]).query).items() if field in ("head_sha", "event")}
-        workflow = re.search(r"/workflows/(\d+)/runs", cmd[2])
-        runs = [run for run in REVIEWERS if all(run[field] == value for field, value in asked.items()) and (not workflow or run["workflow_id"] == int(workflow[1]))]
-        return "".join(json.dumps(run) + "\n" for run in runs)
-
-    monkeypatch.setattr(github, "read", read)
-    monkeypatch.setattr(github, "default_branch", lambda repo: "dev")
+    monkeypatch.setattr(github, "read", lambda what, cmd, max_age="0s", text=True: f"{STACK[cmd[3]]}\n")
+    monkeypatch.setattr(github, "graphql", lambda text, what, max_age="0s": history("dev", DEV, REVIEWERS, statuses))
 
 
 @pytest.mark.parametrize("number", list(STACK))
@@ -2605,27 +2625,32 @@ def test_drive_pr_ci_passes_a_merge_its_push_heads_build_failed_once_a_later_bui
     assert capsys.readouterr().out.splitlines() == [f"buildkite/test https://buildkite.com/forge/test/builds/132341 {later}", f"Forge-AI/monorepo#56685 merged at 5f986a086f4d: {verdict}"]
 
 
+def test_a_merge_off_the_newest_page_of_its_branch_reads_the_next_page_and_a_merge_no_page_holds_fails_the_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    newest, oldest = history("main", MAIN[2:], []), history("main", MAIN[:2], [])
+    newest["data"]["r0"]["defaultBranchRef"]["target"]["history"]["pageInfo"] = {"hasNextPage": True, "endCursor": "c1"}
+    newest["data"]["r0"]["defaultBranchRef"]["target"]["history"]["nodes"][-1]["parents"]["nodes"] = [{"oid": SHA}]
+    asked: list[str] = []
+
+    def graphql(text: str, what: str, max_age: str = "0s") -> dict:
+        asked.append(text)
+        return oldest if 'after: "c1"' in text else newest
+
+    monkeypatch.setattr(github, "graphql", graphql)
+    branch, line = install.branch_line(REPO, SHA)
+    assert (branch, [commit["oid"] for commit in line], len(asked)) == ("main", [SHA, MERGED_AFTER, FIXED_AFTER], 2)
+    with pytest.raises(github.GithubError, match="does not hold 0123"):
+        install.branch_line(REPO, "0123456789ab")
+
+
 def test_a_proof_of_a_merge_its_push_carried_below_its_head_waits_on_the_ci_of_that_head(
     fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     git = fake([BUILD], {BUILD})
     running = ci(43375546307, "long-running CI", "2026-11-13T05:59:04Z", head=MERGED_AFTER)
     polls = iter([[running], [running | {"status": "completed", "conclusion": "success"}]])
-
-    def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
-        if cmd[-1] == ".default_branch":
-            return "main\n"
-        if cmd[2].endswith("/status"):
-            return ""
-        if cmd[-1] == ".commits[].sha":
-            return f"{MERGED_AFTER}\n"
-        if cmd[-1] == ".status":
-            return "ahead\n"
-        if "/workflows/" in cmd[2]:
-            return "".join(json.dumps(run) + "\n" for run in next(polls))
-        return json.dumps(running) + "\n" if f"&head_sha={MERGED_AFTER}" in cmd[2] else ""
-
-    monkeypatch.setattr(github, "read", read)
+    monkeypatch.setattr(github, "graphql", lambda text, what, max_age="0s": history("main", MAIN, next(polls)))
     assert install.await_ci({f"{REPO}#7": SHA})
     assert git.heard == [f"{REPO} ci"]
     assert capsys.readouterr().err.splitlines() == [f"drive job prove: waiting for {REPO}#7's CI at {SHA[:12]} to pass: long-running CI https://github.com/{REPO}/actions/runs/43375546307 in_progress"]
@@ -2637,7 +2662,7 @@ def test_a_proof_file_passing_while_its_merges_ci_still_runs_takes_done_right_af
     git = fake([BUILD], {BUILD})
     script = proving(config, tmp_path, git, 0)
     running = ci(43375546307, "long-running CI", "2026-11-13T05:59:04Z")
-    on_actions(monkeypatch, tmp_path, [running], [[running]])
+    on_actions(monkeypatch, tmp_path, [[running]])
     install.prove("demo", "j1", 60)
     assert (git.heard, git.sleeps) == ([], [])
     assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3"

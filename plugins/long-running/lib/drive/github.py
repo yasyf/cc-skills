@@ -120,9 +120,15 @@ def close(url: str) -> None:
 
 
 def files(key: str) -> list[str]:
-    """The path of each file a PR changes, as GitHub lists them."""
-    owner, name, number = split(key)
-    return run(["gh", "api", "--paginate", f"repos/{owner}/{name}/pulls/{number}/files", "--jq", ".[].filename"]).splitlines()
+    """The path of each file a PR changes, as GitHub lists them, a hundred to a `gh api graphql` call."""
+    found, after = [], ""
+    while True:
+        page = f"first: 100{f', after: {json.dumps(after)}' if after else ''}"
+        listed = answered(graphql(query([key], f"files({page}) {{ pageInfo {{ hasNextPage endCursor }} nodes {{ path }} }}"), f"{key}'s changed files"))[f"p{split(key)[2]}"]["files"]
+        found += [node["path"] for node in listed["nodes"]]
+        if not listed["pageInfo"]["hasNextPage"]:
+            return found
+        after = listed["pageInfo"]["endCursor"]
 
 
 def default_branch(repo: str) -> str:
@@ -538,7 +544,7 @@ def mergeability(keys: list[str]) -> tuple[dict[str, dict], GithubError | None]:
 
 
 def paths(keys: list[str]) -> dict[str, tuple[str, list[str]]]:
-    """Each PR's head and the path of each file it changes, PRS_PER_QUERY PRs of one repository to a `gh api graphql` call, the files of one changing more than the 100 a query lists read over REST, by files(); a PR GitHub answered none for left out."""
+    """Each PR's head and the path of each file it changes, PRS_PER_QUERY PRs of one repository to a `gh api graphql` call, the files of one changing more than the 100 a query lists read a hundred to a call, by files(); a PR GitHub answered none for left out."""
     found = {}
     for chunk in by_repository(keys, PRS_PER_QUERY):
         for key, node in nodes(graphql(query(chunk, PATHS), f"the changed files of {len(chunk)} PRs of {repo_of(chunk[0])}"), chunk).items():
