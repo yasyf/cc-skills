@@ -25,6 +25,7 @@ CI_HEARD_SECONDS = 600
 FAILED_TEST = re.compile(r"^\S+ (?:FAILED|ERROR) (?P<test>\S+\.py(?:::[^\r\n]+?)?)(?: - [^\r\n]*)?\r?$", re.MULTILINE)
 GITHUB_REPO = re.compile(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?/?$")
 DEFAULT_BRANCH = "refs/heads/default"
+INSTALLED_PROOF = " merged and installed in "
 FETCH = ("fetch", "--quiet", "--filter=blob:none", "--no-tags", "origin")
 UNREACHED = re.compile(r"unable to access '|RPC failed|early EOF|remote end hung up")
 AFTER_UPDATE = {"cc-inbox": ("bin/cci", "serve"), "long-running": ("bin/drive", "migrate")}
@@ -1015,17 +1016,17 @@ def installed_fixes(data: dict, repo: str) -> dict[str, list[str]]:
 
 def close_installed(clone: str, repo: str, key: str, build: str, version: str, deadline: float) -> list[str]:
     """Close done on the install each open drive tooling order of every drive whose fix, by installed_fixes, the installed build holds, its proof the PRs merged and the version installed, no recording asked of it, fetching the default branch's commits once only when some order has such a fix; the orders of his words a drive closes so get one close report between them, live_report, so he reads one line an install, never one an order. A line for each order closed."""
+    lines = [line for name in state.names() if unbatched(state.load(name)) for line in clear_unbatched(name)]
     if not (owed := {name: fixes for name in state.names() if (fixes := installed_fixes(state.load(name), repo))}):
-        return []
+        return lines
     git(clone, "fetch", "--quiet", "--filter=tree:0", "--no-tags", "origin", f"+HEAD:{DEFAULT_BRANCH}", deadline=deadline)
-    lines = []
     for name in owed:
         with state.edit(name) as data:
             his = []
             for order_id, keys in installed_fixes(data, repo).items():
                 if not all(ran(["git", "-C", clone, "merge-base", "--is-ancestor", data["prs"][each]["merged_sha"], build], deadline).returncode == 0 for each in keys):
                     continue
-                proof = f"{' '.join(map(state.pr_url, keys))} merged and installed in {key} {version} at {build[:12]}"
+                proof = f"{' '.join(map(state.pr_url, keys))}{INSTALLED_PROOF}{key} {version} at {build[:12]}"
                 data["orders"][order_id].update(proof=proof, state="done", updated=state.stamp())
                 if not state.unasked_tooling(data["orders"][order_id]):
                     his.append(order_id)
@@ -1033,6 +1034,24 @@ def close_installed(clone: str, repo: str, key: str, build: str, version: str, d
             if his:
                 data["orders"][his[0]].update(state="open", close_report=live_report(name, his, key.partition("@")[0], version, build))
     return lines
+
+
+def unbatched(data: dict) -> list[str]:
+    """The open orders holding an unsent close report of their own that an install before live_report kept on its close, one report an order."""
+    return [
+        order_id
+        for order_id, order in state.open_orders(data).items()
+        if (report := order["close_report"]) and "seq" not in report and INSTALLED_PROOF in (order["proof"] or "") and not report["id"].startswith(f"{state.PROVED_REPORT}install-")
+    ]
+
+
+def clear_unbatched(name: str) -> list[str]:
+    """Close done each order unbatched reads, dropping its close report unsent, since the line of an install's fixes posts him once for them all. A line for each order closed."""
+    with state.edit(name) as data:
+        cleared = unbatched(data)
+        for order_id in cleared:
+            data["orders"][order_id].update(close_report=None, state="done", updated=state.stamp())
+    return [f"{name} {order_id}: closed, its close report dropped unsent for the one line of its install's fixes" for order_id in cleared]
 
 
 def live_report(name: str, order_ids: list[str], plugin: str, version: str, build: str) -> dict:
