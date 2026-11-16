@@ -113,6 +113,21 @@ def test_rebuild_says_why_his_owed_messages_went_unread(demo: str, monkeypatch: 
     assert board.model["sweep"]["owed"] == "unavailable: cc-slack dm-owed exited 1"
 
 
+@pytest.mark.parametrize("replies", [None, [], [{"thread_ts": "1794200000.000100", "ts": "1794200000.000100", "text": "where is it?", "permalink": "https://acme.slack.com/archives/D123/p1794200000000100"}]])
+@pytest.mark.parametrize("holder", ["s1", "s2"])
+def test_owed_wire_empty_collection_is_stored_and_projected_as_a_list(demo: str, monkeypatch: pytest.MonkeyPatch, replies: list[dict] | None, holder: str) -> None:
+    monkeypatch.setattr(dashboard, "home_repo", lambda checkout: None)
+    monkeypatch.setattr(slack, "cc_slack", lambda *args, **kwargs: {"holder_session": holder, "replies": replies})
+    expected = (replies or []) if holder == "s1" else []
+    assert slack.owed("s1") == expected
+    dashboard.view.refresh_owed(demo, "s1")
+    assert json.loads(state.owed_path(demo).read_text()) == {"source": "live", "replies": expected}
+    assert dashboard.view.stored_owed(demo) == (expected, "live")
+    board = dashboard.Board(demo, [])
+    board.rebuild()
+    assert board.model["sweep"]["owed"] == "live"
+
+
 def serving(board: dashboard.Board, net: dashboard.Tailnet = NET) -> tuple[ThreadingHTTPServer, int]:
     server = ThreadingHTTPServer((dashboard.LOOPBACK, 0), BaseHTTPRequestHandler)
     port = server.server_address[1]
