@@ -232,6 +232,8 @@ You do only what finishes in your turn. Once your line passes, the drive removes
 every background task and wakeup in it ends unrun with it, such as a `run_in_background` command, a
 `Monitor` or a `CronCreate`. So the hook refuses your line while Claude Code lists one. Before you
 end, hand a step due later to the owner that outlives you. A line to him is owed in your post's thread by
-the time it names after "by" or "before", such as "Next line by <time>". Any other step goes to the session that asked, as a
+the time it names after "by" or "before", such as "Next line by <time>", and in the thread of an order he asked a line of
+every so many minutes each line you post, an ack or a status answer too, names that time within those minutes, which `say`
+refuses you without, naming the latest time. Any other step goes to the session that asked, as a
 record `re` its record. A claim you post at a channel's root, such as a staging claim, owes no read
 of yours: the watch reads its thread once the post is 5 minutes old and tells that session.

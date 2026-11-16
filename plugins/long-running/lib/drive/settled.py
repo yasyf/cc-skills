@@ -427,6 +427,13 @@ ASKS_PAGE = Noul(
     yes="He follows that work over days, and the drive builds a live page of it.",
     no="It orders one bounded thing built, fixed, released or answered, asking nothing of where the larger work stands.",
 )
+CADENCE = re.compile(r"\bevery\s+(?:(?P<minutes>\d+)\s*(?:m|mins?|minutes?)\b|(?P<half>half\s+(?:an\s+)?hour)\b|(?P<hour>hour)\b)", re.IGNORECASE)
+PACED = "paced"
+ASKS_CADENCE = Noul(
+    "Do `words` ask that he get a line, update or status from the drive every `minutes` minutes, as \"give me updates every 15 mins\" or \"ur supposed to give updates every 15 mins\" do?",
+    yes="He wants a line in this thread that many minutes after the last one until the work is done.",
+    no="The words name those minutes for something else, such as how often a tool, alert, job or session repeats or runs.",
+)
 APPROVAL = "kind:approval"
 INCIDENT = "incident"
 RELEASE_HOLD = "release-hold"
@@ -1137,6 +1144,18 @@ def asks_page(words: str) -> bool:
     except Unheard as failure:
         raise DriveError(f"no order added: Jev did not read whether these words name a goal or ask where work stands ({failure}), so its page would go unbuilt; run it again") from None
     return read["page"] >= YES
+
+
+def cadence(words: str) -> int:
+    """The minutes his words ask a line every, as "every 15 mins", "every half hour" or "every hour" name them, when Jev reads them as asking that line at YES, so the drive sets the cadence itself when he says it, by his words "Add something specific to our tooling for cases where you've been explicitly asked for updates on some cadence"; 0 for words naming no such minutes, which Jev is not asked, and for words naming them of something else, such as how often a tool repeats; refused when Jev gives no answer, since an order added unread would lose its cadence."""
+    if not (named := CADENCE.search(words)):
+        return 0
+    minutes = int(named["minutes"]) if named["minutes"] else 30 if named["half"] else 60
+    try:
+        read = jev({"words": words[max(0, named.start() - BODY_CHARS // 2) :][:BODY_CHARS], "minutes": minutes}, {PACED: ASKS_CADENCE})
+    except Unheard as failure:
+        raise DriveError(f"no order added: Jev did not read whether these words ask a line every {minutes} minutes ({failure}), so that cadence would go unset; run it again") from None
+    return minutes if read[PACED] >= YES else 0
 
 
 def unordered(answer: dict, release: str, data: dict) -> str | None:

@@ -50,6 +50,8 @@ def say(name: str, post: dict) -> str:
     seq = report.get("seq")
     if refused := held_refusal(known, seq, report) or held_away(name, known, post, report, order) or (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)) or unplaced(known, post, report):
         raise DriveError(f"nothing posted: {refused}")
+    if refused := uncadenced(name, known, post, [*state.closed_orders(report), *([order] if close else [])], state.now()):
+        raise DriveError(f"nothing {'edited' if post.get('edit') else 'posted'}: {refused}")
     if refused := unclaimed(known, post, report):
         raise DriveError(f"nothing posted: {refused}; {returned(name, post, report, refused)}")
     if refused := unended(known, post, report):
@@ -464,6 +466,26 @@ def unplaced(data: dict, post: dict, report: dict) -> str | None:
             f" and thread_ts {thread}, the place cc-slack's Slack permission hook judges this say for, and a post it refuses there goes nowhere else"
         )
     return f"report {report['seq']}'s line goes in thread {thread} of his DM, never his DM root: pass thread_ts {thread}"
+
+
+def uncadenced(name: str, data: dict, post: dict, closing: list[str], moment: datetime) -> str | None:
+    """Why a line in the thread of an open order he asked a line of every so many minutes, an ack or a status answer included, goes out promising its next line later than the fewest of those minutes after it, or not at all, by his words "ur supposed to give updates every 15 mins you forgot that you just promised next like 30 mins": a promise as cli.promised_due reads one, such as "Next line by 9:36 PM", counted from moment, or for an edit from the post it rewords, in the thread it goes in, a reply about a card in that card's thread. None for a post anywhere else, a card or PR card, which the drive draws, a line closing every such order, and an incident's, whose next line the watch owes five quiet minutes after its last."""
+    if post.get("card") or post.get("tap_prs"):
+        return None
+    where = (slack.dm(), shown_in(name, post)) if post.get("about") else place(post)
+    paced = {each: order["every"] for each, order in state.open_orders(data).items() if order["every"] > 0 and not order["incident"] and each not in closing and state.promise_thread(order) == where}
+    if not paced:
+        return None
+    at = slack.sent_at({"ts": state.slack_message(post["edit"])[1]}) if post.get("edit") else moment
+    latest = (at + timedelta(minutes=min(paced.values()))).replace(second=0, microsecond=0)
+    if (promised := cli.promised_due(post.get("text") or "", at)) and promised <= latest:
+        return None
+    asked = " and ".join(f"{each} every {minutes} minutes" for each, minutes in paced.items())
+    said = f"promise it by {render.clock(promised)}" if promised else "promise none"
+    return (
+        f"he asked a line in this thread on {asked}, so each line here, an ack or a status answer too, promises the next by"
+        f' {render.clock(latest)} at the latest, as "Next line by {render.clock(latest)}." does, and these words {said}'
+    )
 
 
 def unclaimed(data: dict, post: dict, report: dict) -> str | None:
