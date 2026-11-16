@@ -31,6 +31,7 @@ from drive.render import cut, when
 POLL_SECONDS = 5
 RELAY_SECONDS = 2
 RESPOND_SECONDS = 1
+RELAY_JOIN_SECONDS = 10
 READ_EVERY = timedelta(seconds=60)
 SETTLED_READ_EVERY = timedelta(minutes=10)
 PASS_FOR = timedelta(minutes=5)
@@ -1660,17 +1661,17 @@ def sending(message: dict) -> str:
 
 @contextlib.contextmanager
 def relaying(watcher: Watcher) -> Iterator[None]:
-    """Answer the lanes' reads from the watch's responder, owe him each promised line from its relay, and land, stage and wake from its landing loop, each a process of its own the watch starts, by beside, for as long as the watch runs: each line the responder or relay writes handed to the watcher as it comes, and each map of the PRs the drive does not track the landing loop writes kept as the watcher's, by relayed_lines, which starts again each that ends before the watch ends it; each ended with SIGTERM and waited for before the watch keeps its unposted lines, so each line the relay made is kept."""
+    """Answer the lanes' reads from the watch's responder, owe him each promised line from its relay, and land, stage and wake from its landing loop, each a process of its own the watch starts, by beside, for as long as the watch runs: each line the responder or relay writes handed to the watcher as it comes, and each map of the PRs the drive does not track the landing loop writes kept as the watcher's, by relayed_lines, which starts again each that ends before the watch ends it; each ended with SIGTERM and its reader waited for RELAY_JOIN_SECONDS before the watch keeps its unposted lines, so each line the relay made is kept, then SIGKILL and as long again, so a pipe another process still holds open never holds the watch's end, which says the reader it left."""
     ending, guard, live = threading.Event(), threading.Lock(), {}
-    readers = [
-        threading.Thread(target=relayed_lines, args=(watcher, ending, guard, live, flag, what, took, beside(watcher, flag, live)), daemon=True)
+    readers = {
+        flag: (what, threading.Thread(target=relayed_lines, args=(watcher, ending, guard, live, flag, what, took, beside(watcher, flag, live)), daemon=True))
         for flag, what, took in (
             ("--respond", "the responder", functools.partial(routed, watcher, took=took_relayed)),
             ("--relay", "the relay", functools.partial(routed, watcher, took=took_relayed)),
             ("--land", "the landing loop", functools.partial(routed, watcher, took=took_untracked)),
         )
-    ]
-    for reader in readers:
+    }
+    for _, reader in readers.values():
         reader.start()
     try:
         yield
@@ -1679,8 +1680,13 @@ def relaying(watcher: Watcher) -> Iterator[None]:
             ending.set()
             for child in live.values():
                 child.terminate()
-        for reader in readers:
-            reader.join()
+        for flag, (what, reader) in readers.items():
+            reader.join(RELAY_JOIN_SECONDS)
+            if reader.is_alive():
+                live[flag].kill()
+                reader.join(RELAY_JOIN_SECONDS)
+            if reader.is_alive():
+                watcher.relayed.append(f"WATCH {what}, process {live[flag].pid}, still held its pipe open {2 * RELAY_JOIN_SECONDS} seconds after the watch ended it; the watch ended without its last lines")
 
 
 def beside(watcher: Watcher, flag: str, live: dict[str, subprocess.Popen]) -> int:
