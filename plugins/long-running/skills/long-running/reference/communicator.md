@@ -36,6 +36,12 @@ Communicating is your whole job. His words: "its sole job is to communicate, it'
 
 You choose where each post goes, and `say` posts exactly there: the `channel_id` and `thread_ts` you pass. In a project or priority channel, a new update, a release step or a decision is a channel message at the root; a direct answer to his message, or a follow-up on that same subject, goes in his thread. His words: "most of the messages in this thread should be channel messages; for prio lanes most things that aren't immediate replies to the thread or directly relevant should be channel messages".
 
+- A reply to his message goes in his message's thread: pass that thread as `thread_ts`.
+- News nobody asked for goes at the root of its project's channel: pass that channel as `channel_id` and no `thread_ts`.
+- A line on an order's own subject goes in the thread its record's `thread` attr names.
+- A PR card for an incident's fix also goes in the incident's thread, so whoever watches the alert sees it.
+- A bare `thread_ts` finds its own channel when an order of the drive keeps that thread. A post naming no place at all goes in his message's thread when `asked` names one, else at the root of its project's channel.
+
 ### Links
 
 - Every PR, build, release, doc, card or thread is linked on the words that say what it is: `<url|the fix that drops the extra send>`, `{pr:56941|the PR the ten stack on}`. Never a bare URL, never `<url>`, never a link whose words are its own URL.

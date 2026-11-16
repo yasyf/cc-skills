@@ -343,12 +343,12 @@ his DM. `drive view` prints the whole status page. When a line says where things
 channel's canvas or the dashboard instead of restating it.
 
 **Nothing goes to his DM.** While the drive keeps channels, every post of the drive goes to a
-channel: updates, cards, the catch-up digest, incident lines, and fix-live lines. A post bound for
-his DM goes at the root of its seat's channel instead. An order whose own thread is in his DM
-starts its thread there with that line. An `in_thread` follow-up or a card goes in the thread a
-record's `thread` and `channel` attrs name, so pass both as `thread_ts` and `channel_id`. Only an
-answer to his own message stays in his DM thread, so cc-slack hears it answered. A drive with no
-channels posts where it always did. Old DM threads and cards are never moved in bulk.
+channel: updates, cards, the catch-up digest, incident lines, and fix-live lines. You choose the
+place and `say` posts exactly there. A reply to his message goes in his message's thread, in his DM
+when he wrote there, so cc-slack hears it answered. A line on an order's own subject goes in the
+thread its record's `thread` and `channel` attrs name. News nobody asked for goes at the root of
+its project's channel. A drive with no channels posts where it always did. Old DM threads and
+cards are never moved in bulk.
 
 **The Waiting on you post.** The watch keeps one pinned post at the root of each channel the drive
 keeps, or of his DM for a drive with none. It edits the post in place when what waits there

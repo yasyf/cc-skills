@@ -1231,23 +1231,20 @@ def test_a_line_in_an_alerts_thread_goes_out_through_cc_slack_reply_with_the_tic
         )
     ]
     assert said(demo)[0]["channel"] == "C0ALERT1"
-    with pytest.raises(DriveError, match=f"^nothing posted: thread {ALERT} is in channel C0ALERT1, not his DM, so pass channel_id C0ALERT1 with it$"):
-        talk.say(demo, {"text": "The release failed on the migration.", "thread_ts": ALERT, "record": "683598"})
+    assert talk.say(demo, {"text": "The release failed on the migration.", "thread_ts": ALERT, "dry_run": True}).startswith(f"DRY thread {ALERT} of channel C0ALERT1, ")
     assert len(posts) == 1
 
 
-def test_a_reports_post_naming_no_place_goes_nowhere_when_its_line_has_a_thread_so_a_line_refused_there_never_lands_at_his_dm_root(
+def test_a_reports_post_naming_no_place_goes_in_the_thread_and_channel_its_record_names(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     alert_order(run, slack_thread)
     report(monkeypatch, {"order": "o1", "thread": ALERT})
     line = {"text": "The release failed on the migration.", "record": "683597"}
-    with pytest.raises(DriveError, match=f"^nothing posted: report 683597's line goes in thread {ALERT} of channel C0ALERT1, never its root: pass channel_id C0ALERT1 and thread_ts {ALERT}, "):
-        talk.say(demo, line)
+    assert talk.say(demo, line | {"dry_run": True}).startswith(f"DRY thread {ALERT} of channel C0ALERT1, ")
     card = "1794439546.145729"
     report(monkeypatch, {"order": "o1", "thread": card})
-    with pytest.raises(DriveError, match=f"^nothing posted: report 683597's line goes in thread {card} of his DM, never his DM root: pass thread_ts {card}$"):
-        talk.say(demo, line | {"dry_run": True})
+    assert talk.say(demo, line | {"dry_run": True}).startswith(f"DRY thread {card}, ")
     assert posts == []
 
 
@@ -1285,10 +1282,8 @@ def test_a_card_on_an_order_in_an_alerts_thread_goes_up_in_his_dm_and_its_line_g
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], slack_thread: Thread
 ) -> None:
     alert_order(run, slack_thread)
-    with pytest.raises(DriveError, match=f"^nothing posted: thread {ALERT} is in channel C0ALERT1, not his DM, so pass channel_id C0ALERT1 with it$"):
-        talk.say(demo, {"text": "Your pick holds the fix.", "card": {"title": QUESTION}, "thread_ts": ALERT})
-    with pytest.raises(DriveError, match=f"pass channel_id C0ALERT1 and thread_ts {ALERT}"):
-        talk.say(demo, {"text": "Ready to land.", "tap_prs": [PR_URL]})
+    bare = {"text": "Your pick holds the fix.", "card": {"title": QUESTION}, "thread_ts": ALERT}
+    assert talk.say(demo, bare | {"dry_run": True}) == f"DRY his DM root, thread {ALERT} of channel C0ALERT1, 0 pictures, card {QUESTION!r}: Your pick holds the fix."
     assert posts == []
     card = {"text": "Your pick holds the fix.", "card": {"title": QUESTION}, "channel_id": "C0ALERT1", "thread_ts": ALERT}
     assert talk.say(demo, card | {"dry_run": True}) == f"DRY his DM root, thread {ALERT} of channel C0ALERT1, 0 pictures, card {QUESTION!r}: Your pick holds the fix."
@@ -1647,17 +1642,17 @@ def test_while_the_drive_keeps_channels_an_orders_line_bound_for_its_dm_thread_s
     second = f"https://acme.slack.com/archives/C200/p1794200200000300?thread_ts={root}&cid=C200"
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: calls.append(argv) or {"permalink": second, "thread_ts": root})
     report(monkeypatch, {"progress": "true", "order": "o1", "thread": root, "channel": "C200"})
-    assert talk.say(demo, {"text": "The fix is live.", "thread_ts": root, "in_thread": True, "record": "677159"}).startswith(f"POSTED {second}; o1 progress line")
+    assert talk.say(demo, {"text": "The fix is live.", "thread_ts": root, "record": "677159"}).startswith(f"POSTED {second}; o1 progress line")
     assert (calls[-1][calls[-1].index("--channel") + 1], calls[-1][calls[-1].index("--thread") + 1]) == ("C200", root)
 
 
-def test_an_answer_to_his_message_stays_in_his_dm_thread_while_a_drive_post_bound_for_his_dm_goes_to_its_own_channel(demo: str) -> None:
+def test_a_post_naming_a_place_goes_there_and_one_naming_none_goes_in_his_thread_when_it_answers_him_else_to_its_own_channel(demo: str) -> None:
     his = "1794200000.000100"
     with state.edit(demo) as data:
         data["slack"]["channels"] = {"": {"id": "C100", "name": "him-drive-demo"}}
     data = state.load(demo)
     assert talk.homed(demo, data, {"text": "x", "thread_ts": his, "asked": [his]}, [], None, ("D123", his)) == ("D123", his)
-    assert talk.homed(demo, data, {"text": "x", "thread_ts": his}, [], None, ("D123", his)) == ("C100", None)
+    assert talk.homed(demo, data, {"text": "x", "thread_ts": his}, [], None, ("D123", his)) == ("D123", his)
     assert talk.homed(demo, data, {"text": "x", "asked": [his]}, [], None, ("D123", None)) == ("D123", his)
     reply = "https://acme.slack.com/archives/D123/p1794200000000300?thread_ts=1794200000.000200&cid=D123"
     assert talk.homed(demo, data, {"text": "x", "asked": reply}, [], None, ("D123", None)) == ("D123", "1794200000.000200")

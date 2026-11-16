@@ -162,7 +162,7 @@ SAY = {
         "type": "object",
         "properties": {
             "text": {"type": "string", "description": "The post's exact words, with its references, where a markdown table draws as Slack's own data table and the dashboard's table; none for a question card"},
-            "thread_ts": {"type": "string", "description": "The thread the post goes in, in his DM unless channel_id names another channel, which a thread outside his DM, such as an alert's, always takes, as a record's channel attr names it; none for the root, which is his DM's only for a drive keeping no channel"},
+            "thread_ts": {"type": "string", "description": "The thread the post goes in, exactly as you name it: a reply to his message goes in his message's thread, a line on an order's own subject in that order's thread, and news nobody asked for goes at the root of its project's channel, with no thread_ts. A thread of an order in a channel the drive keeps or outside his DM, such as an alert's, finds its channel; any other goes in his DM"},
             "channel_id": {
                 "type": "string",
                 "description": (
@@ -201,14 +201,6 @@ SAY = {
                     " conversation each minute, and the first message after this post from anyone but the drive and a bot, in its thread"
                     " or, for a post at the conversation's top level, there too, frees the job, carries it the reply's words and sends"
                     " them to the communicator to post in the job's order's thread"
-                ),
-            },
-            "in_thread": {
-                "type": "boolean",
-                "description": (
-                    "In a drive channel, a project's or a priority seat's, keep a post that answers no message of his in the thread_ts it names,"
-                    " as a follow-up on that thread's own subject; without it such a post goes at the channel's root, since a new update,"
-                    " release step or decision there is a channel message, and only an answer to his message, which asked names, stays in his thread"
                 ),
             },
             "blocks": {

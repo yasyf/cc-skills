@@ -627,8 +627,6 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
     if not posts_to(payload, drive, dm):
         return every([(payload["tool_name"] == SAY and unread(payload, dm)) or teammate_findings(payload)])
     report, order_id = said_order(payload, drive)
-    if misplaced := talk.misplaced(drive, tool_input):
-        return agents.Unjudged(misplaced)
     if stale := unread(payload, dm):
         return every([stale])
     try:

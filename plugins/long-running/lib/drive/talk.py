@@ -127,7 +127,7 @@ def report_line(name: str, seq: str) -> str:
         return spoken(name, shown | {"edit": corrected}, known)
     place = {"channel_id": channel} if channel else {}
     if made.get("place") == "thread" and (under := (channel, thread) if thread else corrected and state.link_thread(corrected)):
-        place = {"thread_ts": under[1], "in_thread": True} | ({"channel_id": under[0]} if under[0] else {})
+        place = {"thread_ts": under[1]} | ({"channel_id": under[0]} if under[0] else {})
     line = spoken(name, shown | {"record": seq} | place, known)
     return line + "".join(closed(name, order_id, seq) for order_id in state.closed_orders(attrs) if state.load(name)["orders"][order_id]["state"] not in state.CLOSED_ORDER_STATES)
 
@@ -180,12 +180,13 @@ def hook_refusal(name: str, data: dict, post: dict) -> str | None:
 def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> str:
     """Post one message as say does, once its caller may: known is the drive as say's caller read it; recorded_first waits for the post's record on its order, as a close does, for a caller that closes the order next."""
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
+    post = placed(known, post, report)
     order = cli.post_order(known, post, report)
     if close := bool(order and cli.answers_order(known, order, post)):
         post = {key: value for key, value in post.items() if key != "record"}
         report = {"close": order, "writer": "communicator", "written": state.stamp()}
     seq = report.get("seq")
-    if refused := carried_refusal(known, seq, report) or (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)) or unplaced(known, post, report):
+    if refused := carried_refusal(known, seq, report) or (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)):
         raise DriveError(f"nothing posted: {refused}")
     if refused := unclaimed(known, post, report):
         raise DriveError(f"nothing posted: {refused}; {returned(name, post, report, refused)}")
@@ -410,7 +411,7 @@ def dry(name: str, post: dict) -> str:
 
 
 def check(name: str, post: dict) -> None:
-    """Refuse an edit carrying anything but new words for its post, or a fence that draws as a picture, which an edit of a Slack message cannot add, a PR card naming a PR the drive holds none of, which it cannot draw, a post outside his DM naming his DM, carrying about, which names a card his reply in his DM is about, or drawing a card with no thread, a thread outside his DM named with no channel_id, and a PR card leaving out the thread outside his DM of an incident its PRs carry out, which its line goes in, and a job a question is for named on a post in his DM, on a card or on a job finished or unknown."""
+    """Refuse an edit carrying anything but new words for its post, or a fence that draws as a picture, which an edit of a Slack message cannot add, a PR card naming a PR the drive holds none of, which it cannot draw, a post outside his DM naming his DM, carrying about, which names a card his reply in his DM is about, or drawing a card with no thread, and a job a question is for named on a post in his DM, on a card or on a job finished or unknown."""
     data = state.load(name)
     if channel := post.get("channel_id"):
         if channel == slack.dm():
@@ -419,8 +420,6 @@ def check(name: str, post: dict) -> None:
             raise DriveError("nothing posted: about names the card a reply in his DM is about, which cc-slack puts in that card's thread there, so a post with channel_id takes none")
         if not post.get("thread_ts") and (post.get("card") or post.get("tap_prs")) and channel not in slack.homes(data):
             raise DriveError(f"nothing posted: a card goes up in his DM and its line in a thread outside it, so with channel_id {channel} it takes that thread's thread_ts")
-    if refused := misplaced(data, post):
-        raise DriveError(refused)
     if post.get("edit") and (extra := sorted(key for key, value in post.items() if value and key not in EDIT_TAKES)):
         raise DriveError(
             f"nothing edited: an edit rewords the text of one post of yours, so it takes edit, text, asked and claims alone, and this one also"
@@ -439,33 +438,17 @@ def check(name: str, post: dict) -> None:
     stack = [state.pr_key(each) for each in post.get("tap_prs") or []]
     if strays := [key for key in stack if key not in data["prs"]]:
         raise DriveError(f"tap_prs names {', '.join(strays)}, which the drive holds no PR for, so nothing was posted: drive pr add records it")
-    outside = [where for where in state.pr_threads(data, stack) if where[0] not in slack.homes(data)]
-    if outside and (post.get("channel_id"), post.get("thread_ts")) not in outside:
-        raise DriveError(
-            f"nothing posted: {', '.join(stack)} carry out an order whose thread is {outside[0][1]} of channel {outside[0][0]}, so the card's line"
-            f" and link go there as well as in his DM: pass channel_id {outside[0][0]} and thread_ts {outside[0][1]}, the place cc-slack's Slack"
-            " permission hook judges this say for"
-        )
 
 
-def misplaced(data: dict, post: dict) -> str | None:
-    """Why a post naming a thread with no channel_id goes nowhere: the thread is an order's, its own or one it keeps, in a channel outside his DM, such as an alert's, so in his DM Slack finds no such thread."""
-    if post.get("channel_id") or post.get("edit") or not (thread := post.get("thread_ts")):
-        return None
-    place = outside(data, thread)
-    return place and f"nothing posted: thread {thread} is in channel {place}, not his DM, so pass channel_id {place} with it"
-
-
-def unplaced(data: dict, post: dict, report: dict) -> str | None:
-    """Why a report's post naming no place goes nowhere: its line goes in the thread its record names and never at his DM root instead, so a line cc-slack's Slack permission hook refuses in its thread goes nowhere else."""
-    if not (thread := report.get("thread")) or any(post.get(key) for key in ("channel_id", "thread_ts", "edit", "about", "card", "tap_prs")):
-        return None
-    if channel := outside(data, thread) or kept_in(data, thread):
-        return (
-            f"report {report['seq']}'s line goes in thread {thread} of channel {channel}, never its root: pass channel_id {channel}"
-            f" and thread_ts {thread}, the place cc-slack's Slack permission hook judges this say for, and a post it refuses there goes nowhere else"
-        )
-    return f"report {report['seq']}'s line goes in thread {thread} of his DM, never his DM root: pass thread_ts {thread}"
+def placed(data: dict, post: dict, report: dict) -> dict:
+    """The post where its caller names it: a bare thread_ts of an order's thread in a channel the drive keeps, or outside his DM such as an alert's, with that channel filled in, and a report's post naming no place in the thread and channel its record names, as its writer chose them."""
+    if post.get("edit") or post.get("channel_id"):
+        return post
+    if thread := post.get("thread_ts"):
+        return post | ({"channel_id": channel} if (channel := outside(data, thread) or kept_in(data, thread)) else {})
+    if (thread := report.get("thread")) and not any(post.get(key) for key in ("about", "card", "tap_prs")):
+        return post | {"thread_ts": thread} | ({"channel_id": channel} if (channel := report.get("channel") or outside(data, thread) or kept_in(data, thread)) else {})
+    return post
 
 
 def unclaimed(data: dict, post: dict, report: dict) -> str | None:
@@ -682,17 +665,14 @@ def asked_already(name: str, data: dict, stack: list[str]) -> str | None:
 
 
 def homed(name: str, data: dict, post: dict, stack: list[str], order: str | None, where: tuple[str, str | None]) -> tuple[str, str | None]:
-    """An answer to a message of his, one asked names, goes where he wrote it, in the thread of his DM message even with no thread_ts, while anything the drive starts on its own goes to the channel: Where a new post bound for his DM goes while the drive keeps channels, by his words "everything should be out of DMs now for drive stuff": at the root of its seat's channel, by project, an order whose own thread is in his DM and an incident's line included, so that line starts the order's thread there, as rooted puts a drive channel's update; an in_thread follow-up or a card in the thread of a channel the drive keeps its bare ts names, else in the thread its order's lines go in there, by promise_thread. A post answering his message in its own thread, by answered_ts, stays there, so cc-slack hears it answered; an edit stays on its post, and a drive keeping no channel posts where it did."""
-    if where[0] != slack.dm() or post.get("edit") or not data["slack"]["channels"]:
+    """Where a post naming no channel and no thread goes while the drive keeps channels, by his words "everything should be out of DMs now for drive stuff": an answer to a message of his that asked names goes in that message's thread, a card in the thread its order's lines go in in its project's channel, and anything else at the root of its project's channel; a post naming a place, an edit, and a drive keeping no channel post where they name."""
+    if where != (slack.dm(), None) or post.get("edit") or not data["slack"]["channels"]:
         return where
     if answered_ts(data, post):
-        return where if where[1] else (where[0], his_thread(post))
-    threaded = bool(post.get("in_thread") or post.get("card") or post.get("about") or stack)
-    if where[1] and (kept := kept_in(data, where[1])):
-        return kept, where[1] if threaded else None
+        return where[0], his_thread(post)
     on = order or posted_order(data, post, None)
     channel = channel_for(name, data, project(data, post, stack, on))
-    thread = state.promise_thread(data, data["orders"][on]) if on and threaded else None
+    thread = state.promise_thread(data, data["orders"][on]) if on and (post.get("card") or post.get("about") or stack) else None
     return channel, thread[1] if thread and thread[0] == channel else None
 
 
