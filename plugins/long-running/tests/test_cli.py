@@ -1034,7 +1034,7 @@ def test_an_incident_order_records_a_job_on_each_part_and_names_every_open_incid
             'j6 on "fix": start it now with drive job launch j6 -, its brief on stdin ending Drive: demo, order o4, job j6\n'
             'j7 on "first check": start it now with drive job launch j7 -, its brief on stdin ending Drive: demo, order o4, job j7\n'
             f"{state.INCIDENT_BRIEF}\n"
-            "o1 open incident: SandSQL fork copies fail on plat; record 3fa2c1"
+            "o1 open incident: SandSQL fork copies fail on plat; record 3fa2c1; not marked as hitting real users; he was not paged"
         ),
     )
     data = state.load("demo")
@@ -12725,7 +12725,7 @@ def test_job_show_and_status_of_a_job_render_its_orders_reporters_own_and_kept_b
 
 def test_an_incident_order_an_older_install_saved_without_its_page_mark_shows_it_unmarked_through_order_show(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "chats fail")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["incident"] = True
         for field in state.ORDER_FIELDS:
             data["orders"]["o1"].pop(field)
