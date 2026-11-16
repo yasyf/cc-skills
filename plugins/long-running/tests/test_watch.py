@@ -2579,6 +2579,23 @@ def test_replaying_o2103_an_order_he_called_top_priority_owes_a_line_every_five_
     assert calls[0][0]["text"] == "POST order o1 has had no line to him in 5 minutes: post where it stands now in its thread"
 
 
+def test_replaying_o2138_the_relay_starts_the_handler_on_a_line_he_asked_every_fifteen_minutes_at_its_minute_while_a_pass_that_began_before_then_still_runs(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    threaded(demo)
+    said = due_owed(monkeypatch)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["state"] = "waiting"
+        data["orders"]["o1"]["every"] = 15
+    relaying = watcher(demo)
+    mid_pass(monkeypatch, lambda: watch.relay_pass(relaying, T0 + timedelta(minutes=15)))
+    watch.run_pass(watcher(demo), T0 + timedelta(minutes=14))
+    [report, brief] = said
+    assert report["text"] == "POST order o1 has had no line to him in 15 minutes: post where it stands now in its thread"
+    assert brief == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-901'}"
+
+
 def test_an_order_with_a_thread_owes_a_line_there_every_five_quiet_minutes_while_a_job_of_it_works_and_after_each_step_none_within_five_minutes_of_its_last_line_none_for_a_stage_relabel_or_a_new_head_failing_as_before_and_none_for_news_a_handler_got_and_never_posted(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -11144,12 +11161,14 @@ def test_o852s_close_in_record_682673_replayed_stays_open_with_its_five_minute_l
     o852(demo)
     live = {"55166": True, "55225": False}
     calls = incident_reads(monkeypatch, {"341360574": "OK"}, live, tmp_path)
-    watching = watcher(demo)
+    watching, relaying = watcher(demo), watcher(demo)
     assert [line for line in watch.run_pass(watching, T0) if line.startswith("RECOVERED")] == []
+    watch.relay_pass(relaying, T0)
     data = state.load(demo)
     assert (data["jobs"]["j2322"]["state"], "fixed" in data["orders"]["o852"], data["orders"]["o852"]["recovered"]) == ("done", False, None)
     assert "o852" in [entry["id"] for entry in view.incidents(data)]
     assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=6)) if line.startswith("RECOVERED")] == []
+    watch.relay_pass(relaying, T0 + timedelta(minutes=6))
     data = state.load(demo)
     topics = [record["topic"] for records in ready_records for record in records]
     assert (data["orders"]["o852"]["proof"], bool(data["orders"]["o852"]["quiet"]), "watch-recovered-o852" in topics) == (None, True, False)
