@@ -113,15 +113,18 @@ Contents:
     the sprite door. The Mac box and devbox verbs run on this Mac's machine profile, with no
     sign-in. Codex jobs and any job that touches this Mac's
     processes run here, and so does a reader unless a cap sends it to a Sprite.
-- **Mac boxes.** A Mac box comes down with the job that holds it.
+- **Mac boxes.** A job holds a Mac box only while it works on it; the drive keeps a pool of boxes
+  and hands them on, never terminating one.
   The Mac box provider's up verb refuses a box with no holder `<drive>/<job>`. The lane names the
-  drive and job from its brief's `Drive:` line, which tags the box with its holder. The save that
-  moves a job out of running, or to done, failed or stopped, starts `drive mac-boxes-down <job>`, which runs
-  the Mac box provider's down for the holder `<drive>/<job>` and logs to the drive's `mac-boxes.log`. A job holds a
-  box only while it runs: the save that moves it to waiting, by WAITING or any other line, takes its
-  box down too, and it brings its box up again when it resumes. To hand a box on, run the Mac box provider's
-  hand-over before the old job's save: it moves the holder tag. A box handed on without it comes down at the old job's save, and its host
-  sits in AWS's scrub for an hour or more.
+  drive and job from its brief's `Drive:` line, which tags the box with its holder, and it takes a warm
+  box from the pool before a new host. The save that moves a job out of running, to waiting, paused,
+  done, failed or stopped, starts `drive mac-boxes-down <job>`, which returns the box to the pool,
+  unless the job's waits name the box or something still runs on it; a box a later step needs goes back
+  too, and the job takes one again when it resumes. Each sweep the watch retries that give-back for a
+  box still held by a job not running, says a box still held after two give-backs, and hands boxes to
+  the jobs whose WAITING names `mac-box:<box>` or `mac-box:any`, a priority order's first, then the
+  oldest. Only `drive mac-boxes-reap`, run by hand, releases a warm box or an empty host to AWS. To hand
+  a box on directly, lend it with the Mac box provider's lend verb; the borrower returns it.
 
 ## Start one on this Mac
 
