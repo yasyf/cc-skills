@@ -43,6 +43,7 @@ CHECK_SWEEP = timedelta(minutes=30)
 SETTLED_READ_EVERY = timedelta(minutes=10)
 PASS_FOR = timedelta(minutes=5)
 HAND_OFF_EVERY = timedelta(minutes=10)
+HAND_OFF_LATEST = timedelta(minutes=20)
 STALL_FOR = timedelta(minutes=2)
 SLOW_STAGE = timedelta(minutes=1)
 LOGGED_STAGE = timedelta(seconds=10)
@@ -5997,11 +5998,11 @@ def watched(name: str, project: str | None) -> Watcher:
 
 
 def handing_off(watcher: Watcher, ran: float) -> bool:
-    """Whether the watch may end for a newer install at this pass boundary: only once every project's pass ran to its last stage, so no install leaves a stage it cut short waiting on the next process, and then once it ran HAND_OFF_EVERY, so installs landing minutes apart hand it off at most that often, or at once while an incident order is open, whose fix must not wait out the clock."""
+    """Whether the watch may end for a newer install at this pass boundary: once it ran HAND_OFF_EVERY with every project's pass at its last stage, so no install leaves a stage it cut short waiting on the next process and installs landing minutes apart hand it off at most that often; once it ran HAND_OFF_LATEST however many passes stand cut short, since keep_unposted holds each one's resume for the next process and five projects' long passes kept one cut short every boundary, which held a 1.0.1510 watch over fourteen installs for half an hour; or at once while an incident order is open, whose fix must not wait out the clock."""
     data = state.load(watcher.name)
-    if any(one.resume for one in [watcher, *watcher.others.values()]):
-        return False
-    return ran >= HAND_OFF_EVERY.total_seconds() or bool(state.open_incidents(data, list(data["orders"])))
+    if ran >= HAND_OFF_LATEST.total_seconds() or state.open_incidents(data, list(data["orders"])):
+        return True
+    return ran >= HAND_OFF_EVERY.total_seconds() and not any(one.resume for one in [watcher, *watcher.others.values()])
 
 
 def watching(watcher: Watcher) -> None:

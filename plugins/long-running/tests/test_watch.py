@@ -2029,12 +2029,13 @@ def test_a_watch_that_finds_a_newer_install_between_two_stages_of_a_pass_runs_th
     assert f"ended on long-running {state.VERSION} for {install}, before its next pass" in capsys.readouterr().out.splitlines()
 
 
-def test_a_watch_hands_off_to_a_newer_install_only_once_it_ran_hand_off_every_or_while_an_incident_is_open(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_watch_hands_off_to_a_newer_install_only_once_it_ran_hand_off_every_or_hand_off_latest_with_a_pass_cut_short_or_while_an_incident_is_open(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch, "HAND_OFF_EVERY", timedelta(minutes=10))
+    monkeypatch.setattr(watch, "HAND_OFF_LATEST", timedelta(minutes=20))
     watching = watcher(demo)
     assert (watch.handing_off(watching, 599.0), watch.handing_off(watching, 600.0)) == (False, True)
     watching.resume = "release_lanes"
-    assert watch.handing_off(watching, 600.0) is False
+    assert (watch.handing_off(watching, 600.0), watch.handing_off(watching, 1199.0), watch.handing_off(watching, 1200.0)) == (False, False, True)
     watching.resume = None
     with state.edit(demo) as data:
         data["orders"]["o1"]["incident"] = True
