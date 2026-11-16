@@ -266,7 +266,7 @@ def test_a_kept_dashboard_serving_its_links_is_left_alone_and_one_that_is_not_is
 
 
 def test_a_newer_install_landing_takes_the_port_from_the_dashboard_which_answers_throughout(
-    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, held_port: int
 ) -> None:
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
     done, landed = threading.Event(), threading.Event()
@@ -302,13 +302,13 @@ def test_a_newer_install_landing_takes_the_port_from_the_dashboard_which_answers
     def ask() -> None:
         while not done.is_set():
             try:
-                with urllib.request.urlopen(dashboard.url_of(port) + "api/view", timeout=10) as answer:
+                with urllib.request.urlopen(dashboard.url_of(held_port) + "api/view", timeout=10) as answer:
                     answers.append(json.load(answer)["drive"])
             except OSError as error:
                 answers.append(error)
 
     def newer_install_lands() -> None:
-        while dashboard.serving(demo, port) is None:
+        while dashboard.serving(demo, held_port) is None:
             time.sleep(0.05)
         threading.Thread(target=ask, daemon=True).start()
         time.sleep(0.3)
@@ -321,11 +321,9 @@ def test_a_newer_install_landing_takes_the_port_from_the_dashboard_which_answers
     monkeypatch.setattr(dashboard.signal, "signal", lambda signum, handler: None)
     monkeypatch.setattr(dashboard.install, "upgraded", lambda: newer if landed.is_set() else None)
     monkeypatch.setattr(dashboard.os, "execv", execv)
-    with socket.create_server((dashboard.LOOPBACK, 0)) as probe:
-        port = probe.getsockname()[1]
     threading.Thread(target=newer_install_lands, daemon=True).start()
     with pytest.raises(Handed):
-        dashboard.serve(demo, port, [])
+        dashboard.serve(demo, held_port, [])
     handed_at = len(answers)
     deadline = time.monotonic() + 10
     while len(answers) < handed_at + 3 and time.monotonic() < deadline:
@@ -333,13 +331,15 @@ def test_a_newer_install_landing_takes_the_port_from_the_dashboard_which_answers
     done.set()
     reopened[0].join(5)
     [argv] = handed
-    assert argv[:-1] == [sys.executable, "-I", str(newer), "dashboard", "--drive", demo, "--port", str(port), "--serve"]
+    assert argv[:-1] == [sys.executable, "-I", str(newer), "dashboard", "--drive", demo, "--port", str(held_port), "--serve"]
     assert re.fullmatch(r"--listening=\d+", argv[-1])
     assert len(answers) >= handed_at + 3
     assert set(answers) == {demo}
 
 
-def test_a_dashboard_ends_and_reaps_its_record_watch_before_a_newer_install_takes_its_place(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_dashboard_ends_and_reaps_its_record_watch_before_a_newer_install_takes_its_place(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, held_port: int
+) -> None:
     fake = tmp_path / "fake-bin"
     fake.mkdir()
     (fake / "cci").write_text("#!/bin/sh\nexec sleep 600\n")
@@ -367,10 +367,8 @@ def test_a_dashboard_ends_and_reaps_its_record_watch_before_a_newer_install_take
     monkeypatch.setattr(dashboard.Board, "follow", follow)
     monkeypatch.setattr(dashboard.signal, "signal", lambda signum, handler: None)
     monkeypatch.setattr(dashboard.os, "execv", execv)
-    with socket.create_server((dashboard.LOOPBACK, 0)) as probe:
-        port = probe.getsockname()[1]
     with pytest.raises(Handed):
-        dashboard.serve(demo, port, [])
+        dashboard.serve(demo, held_port, [])
     assert handed == [-dashboard.signal.SIGTERM]
 
 
