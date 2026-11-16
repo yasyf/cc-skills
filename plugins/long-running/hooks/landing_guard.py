@@ -813,7 +813,7 @@ def cli_posted(payload: dict) -> str | None:
 def shell_of(payload: dict) -> tuple[list[str], Shell]:
     session = payload.get("session_id") or ""
     names = state.session_drives(session)
-    job = (payload.get("agent_type") or "").startswith(AGENTS) or bool(names and payload.get("agent_id"))
+    job = (payload.get("agent_type") or "").startswith(AGENTS) or bool(names and payload.get("agent_id")) or bool(os.environ.get(state.JOB_ENV))
     return names, Shell(payload.get("cwd") or os.getcwd(), dict(os.environ), session, bool(names) or job, job, caller=payload)
 
 

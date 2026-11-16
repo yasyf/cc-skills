@@ -672,6 +672,14 @@ def test_a_staging_start_passes_only_for_the_job_holding_that_envs_slot_now(monk
     assert landing_guard.leased_start(start, data, shell) is False
 
 
+def test_a_top_level_worker_session_its_environment_names_a_job_of_is_a_job_so_its_staging_start_reaches_its_lease_as_j8254s_did_not(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(state, "session_drives", lambda session: [])
+    monkeypatch.delenv(state.JOB_ENV, raising=False)
+    assert landing_guard.shell_of({"session_id": "worker", "cwd": "/"})[1].job is False
+    monkeypatch.setenv(state.JOB_ENV, "durable-agents/j8254/a1/worker")
+    assert landing_guard.shell_of({"session_id": "worker", "cwd": "/"})[1].job is True
+
+
 def test_a_sub_coordinators_job_holding_the_staging_slot_starts_its_staging_cut_while_its_production_cut_stays_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     shell = landing_guard.Shell("/", {}, "sub-session", True, True)
     monkeypatch.setattr(state, "session_drives", lambda session: ["demo"])
