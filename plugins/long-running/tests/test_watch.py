@@ -17,7 +17,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import DRIVE_TERMINAL, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, UNFROZEN, Answers, CodexAsk, drawn_card, Draws, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged
+from conftest import DRIVE_TERMINAL, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, UNFROZEN, Answers, CodexAsk, drawn_card, Draws, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, dangerous_checkout, git_in, said_lines, staged
 from drive import agents, card, cli, codex, dashboard, github, install, land, launchd, limits, orca, place, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, train, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -296,7 +296,8 @@ def test_the_watch_reads_the_reach_once_and_takes_each_pr_an_older_reach_staged_
     assert (watch.reach_lines(watcher(demo), T0), asked) == ([], [[KEY, OTHER]])
 
 
-def test_a_green_approved_pr_only_its_staging_test_holds_from_a_production_release_lands_now_unless_it_is_dangerous(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_green_approved_pr_only_its_staging_test_holds_from_a_production_release_lands_now_unless_it_is_dangerous(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    dangerous_checkout(tmp_path)
     held, kept = state.STAGING_TEST.format(number=42), state.STAGING_TEST.format(number=43)
     with state.edit(demo) as data:
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "ccccccc333"}
@@ -7325,9 +7326,10 @@ def test_a_dangerous_pr_trunk_queued_before_he_went_quiet_leaves_the_queue_while
     demo: str, tmp_path: Path, landers: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     on_main(tmp_path, demo, '#!/bin/sh\necho "#42 DEQUEUED aaaaaaa"\n')
+    dangerous_checkout(tmp_path)
     approve(demo, KEY)
     queued(demo)
-    monkeypatch.setattr(github, "files", {KEY: ["go/sand/sandsql/write.go"]}.__getitem__)
+    monkeypatch.setattr(github, "files", {KEY: ["go/sand/internal/sandsql/write.go"]}.__getitem__)
     whys: list[str] = []
     monkeypatch.setattr(land, "unqueue", lambda name, keys, why: whys.append(why) or os.getpid())
     watching = watcher(demo)
@@ -7340,7 +7342,7 @@ def test_a_dangerous_pr_trunk_queued_before_he_went_quiet_leaves_the_queue_while
         data["owner"]["heard"] = state.stamp(state.now() - timedelta(minutes=20))
     watch.landed(watching, T0)
     watch.landed(watching, T0)
-    assert len(whys) == 1 and whys[0].startswith(f"{land.AWAY}: he last wrote or tapped 20 minutes ago, and it changes go/sand/sandsql/write.go")
+    assert len(whys) == 1 and whys[0].startswith(f"{land.AWAY}: he last wrote or tapped 20 minutes ago, and it changes go/sand/internal/sandsql/write.go")
     land.dequeue(demo, [KEY], whys[0])
     assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("waiting", stage.HIM, f"green and cleared, and its lander's try at aaaaaaa ended {whys[0]}; stack-enqueue --dequeue said #42 DEQUEUED aaaaaaa")
     with state.edit(demo) as data:
@@ -8218,7 +8220,8 @@ def ejected_on_a_flake(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
     assert stage.of(state.load(name), EJECTED, NO_CARDS) == stage.Stage("unlanded", stage.ORDER, "Trunk ejected it from the merge queue")
 
 
-def test_a_forge_ai_pr_he_approved_changing_sandsql_waits_for_his_next_word_while_he_is_away_and_one_changing_only_its_tests_lands(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_forge_ai_pr_he_approved_changing_sandsql_waits_for_his_next_word_while_he_is_away_and_one_changing_only_its_tests_lands(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    dangerous_checkout(tmp_path)
     files = {EJECTED: ["go/sand/internal/sandsql/write.go", "go/sand/internal/sandsql/write_test.go"], FLAKE_FIX: ["go/sand/internal/sandsql/write_test.go"]}
     monkeypatch.setattr(github, "files", files.__getitem__)
     with state.edit(demo) as data:
@@ -8256,6 +8259,7 @@ def test_replayed_717646_an_approved_dangerous_pr_whose_last_wait_ended_on_a_del
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, part: str, posted: str, said: str
 ) -> None:
     monkeypatch.setattr(github, "files", {KEY: ["go/sand/internal/sandsql/write.go"]}.__getitem__)
+    dangerous_checkout(tmp_path)
     enqueue_exiting(tmp_path, demo, 0)
     with state.edit(demo) as data:
         data["owner"]["heard"] = state.stamp(T0)
@@ -8276,7 +8280,8 @@ def test_replayed_717646_an_approved_dangerous_pr_whose_last_wait_ended_on_a_del
     assert land.run(demo, [KEY]) == land.QUEUED
 
 
-def test_a_pr_he_approved_before_he_went_quiet_whose_builder_staged_it_waits_for_his_next_word_once_its_staging_test_passes_whatever_its_paths(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_pr_he_approved_before_he_went_quiet_whose_builder_staged_it_waits_for_his_next_word_once_its_staging_test_passes_whatever_its_paths(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    dangerous_checkout(tmp_path)
     monkeypatch.setattr(github, "files", {EJECTED: ["infra/rows/router/router.ts"]}.__getitem__)
     part = state.STAGING_TEST.format(number=55582)
     with state.edit(demo) as data:
@@ -8284,7 +8289,7 @@ def test_a_pr_he_approved_before_he_went_quiet_whose_builder_staged_it_waits_for
         data["orders"]["o1"]["parts"][part] = state.new_part()
         data["jobs"]["j1"]["prs"] += [state.pr_url(EJECTED)]
         data["prs"][EJECTED] = state.new_pr(state.pr_url(EJECTED), "j1", "o1") | {"head": "bb28d680bf", "checks": "pass", "review": "approved", "tap": state.new_tap("Approve", "bb28d680bf", "pressed the button", at=state.stamp(T0))}
-    assert land.dangerous(github.files(EJECTED)) == []
+    assert land.dangerous(state.load(demo), github.files(EJECTED)) == []
     assert land.unattended(state.load(demo), EJECTED, T0 + timedelta(minutes=20)) == (
         f"he last wrote or tapped 20 minutes ago, and o1 holds its {part} part, given only to a change its builder read as dangerous, which can break FDE or customer runs"
         f" or lose their data, so it lands only while he is present, his word or tap within 15 minutes, at his next word, by his words {state.PRESENCE_WORDS}"

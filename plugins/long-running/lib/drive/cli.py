@@ -2306,7 +2306,7 @@ def release_holds(data: dict, job: dict, asked: limits.Question, text: str) -> l
     problems = []
     for key in sorted(key for key in named if key in data["prs"] and state.release_held(data, key)):
         number = key.rpartition("#")[2]
-        if not (found := land.dangerous(github.files(key))):
+        if not (found := land.dangerous(data, github.files(key))):
             problems.append(
                 f"{key} is green and approved and changes nothing dangerous, so the watch lands it now through the merge queue and the cut waits minutes on its landing,"
                 f" its staging retest rerunning only what {key} touches: ask nothing about it, and offer no option leaving a component out or holding the release for it ({state.RELEASE_HOLD_WORDS})"

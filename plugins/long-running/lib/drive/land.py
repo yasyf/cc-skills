@@ -56,11 +56,6 @@ REVIEW_ASK = "@forge-pr-reviewer review"
 BLOCKED_LINE = re.compile(r"^#(?P<number>\d+) BLOCKED (?P<head>\w+) (?P<gaps>.+)$", re.MULTILINE)
 OLDER_HEAD = re.compile(r"awaiting approval on head from \S+ \(approved [^,]+, (?:on an older head|dismissed by a push)\)")
 REVERT = re.compile(r"^Reverts?\s|⏪|\bThis reverts\b", re.MULTILINE)
-DANGEROUS = re.compile(
-    r"migrations?/|backfill|bucketdelete/|sandsql|sanddb|^go/sand/(?:next/)?internal/(?:builtin|irisbuiltins|parser|checker|compiler|vm\w*|runtime-api)/"
-    r"|^api/src/modules/runtimeApi/|^common/src/iris/appShell/",
-    re.IGNORECASE,
-)
 STORED_DATA = re.compile(r"(?:^|/)migrations?/|(?:^|/)[^/]*schema[^/]*$|\.(?:sql|proto)$", re.IGNORECASE)
 CI_FILES = re.compile(r"^(?:\.github|\.buildkite|(?:go|infra)/ci)/|^tools/ci(?:-ts)?(?:/|$)")
 BRANCH_HISTORY = 50
@@ -128,14 +123,15 @@ def stored(paths: list[str]) -> list[str]:
     return [path for path in paths if STORED_DATA.search(path) and not served.TESTS.search(path)]
 
 
-def dangerous(paths: list[str]) -> list[str]:
-    """The paths outside test and fixture code that the root AGENTS.md of Forge-AI/monorepo calls dangerous, able to break FDE or customer runs or lose their data: a database migration, a backfill, a delete of user data, SandSQL, a Sand builtin, the parser, checker, compiler or VM, runtime-api, or the app API in common/src/iris/appShell."""
-    return [path for path in paths if DANGEROUS.search(path) and not served.TESTS.search(path)]
+def dangerous(data: dict, paths: list[str]) -> list[str]:
+    """The paths of these, in their order, that make a class of dangerous change by state.dangerous, the [[dangerous]] tables of the repository's .claude/long-running.toml, the one list of what its AGENTS.md calls dangerous that the staging test a PR's files mark and this presence gate both read."""
+    made = {path for found in state.dangerous(data, paths).values() for path in found}
+    return [path for path in paths if path in made]
 
 
 def danger(data: dict, key: str) -> str:
     """What makes a Forge-AI PR dangerous, so it lands or releases only while he is present: each path dangerous() names, as GitHub lists its files now, else an order's `staging test of #N before it lands` part for it, delivered or not, which a builder's STAGING line gives only a change it read as dangerous, an infra or blue-green one included whatever its paths; "" for neither."""
-    if found := dangerous(github.files(key)):
+    if found := dangerous(data, github.files(key)):
         return f"it changes {', '.join(found[:3])}{', …' if len(found) > 3 else ''}"
     part = state.STAGING_TEST.format(number=key.partition("#")[2])
     if github.repo_of(key).lower() != state.MONOREPO.lower() or not (order_id := next((order_id for order_id, order in data["orders"].items() if part in order["parts"]), None)):

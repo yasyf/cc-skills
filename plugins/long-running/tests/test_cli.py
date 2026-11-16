@@ -18,7 +18,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import ACME_CUT, CAP_RULING, CARD_BODY, card_reads, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, Redraws, SessionLaunches, Thread, WatchProcess, Withdrawals
+from conftest import ACME_CUT, CAP_RULING, CARD_BODY, card_reads, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, cloned, dangerous_checkout, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, Redraws, SessionLaunches, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -7265,17 +7265,9 @@ def test_pr_set_staging_stages_a_monorepo_pr_in_one_save_as_its_builders_staging
     assert "yasyf/cc-skills#7: refused, nothing set: --staging runs a Forge-AI/monorepo PR's cases on plat-usw2-staging" in capsys.readouterr().err
 
 
-DANGEROUS_TOML = (
-    '[[dangerous]]\nclass = "a database migration"\npaths = ["api/migrations/*"]\n'
-    '[[dangerous]]\nclass = "the parser, checker or VM"\npaths = ["go/sand/internal/checker/*"]\n'
-    '[skip]\npaths = ["*.md", "go/*test/*"]\n'
-)
-
-
 def dangerous_repo(tmp_path: Path, on_github: dict, changed: list[str]) -> None:
-    """The drive's checkout naming two dangerous classes of the monorepo's AGENTS.md in its .claude/long-running.toml, and its PR changing these files."""
-    (tmp_path / ".claude").mkdir(exist_ok=True)
-    (tmp_path / state.REPO_RULES).write_text(DANGEROUS_TOML)
+    """The drive's checkout naming dangerous classes of the monorepo's AGENTS.md, by dangerous_checkout, and its PR changing these files."""
+    dangerous_checkout(tmp_path)
     on_github |= {"changedFiles": len(changed), "files": [{"path": path} for path in changed]}
 
 

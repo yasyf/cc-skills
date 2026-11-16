@@ -280,6 +280,21 @@ def commit_files(repo: Path, message: str, files: dict[str, str]) -> str:
     return git_in(repo, "rev-parse", "HEAD")
 
 
+DANGEROUS_TOML = (
+    '[[dangerous]]\nclass = "a database migration"\npaths = ["api/migrations/*"]\n'
+    '[[dangerous]]\nclass = "SandSQL consistency, storage or write paths"\npaths = ["go/sand/*internal/sandsql/*"]\n'
+    '[[dangerous]]\nclass = "the parser, checker or VM"\npaths = ["go/sand/internal/checker/*"]\n'
+    '[[dangerous]]\nclass = "runtime-api"\npaths = ["go/sand/*internal/runtime-api/*"]\n'
+    '[skip]\npaths = ["*.md", "go/*test/*"]\n'
+)
+
+
+def dangerous_checkout(checkout: Path) -> None:
+    """Name four dangerous classes of the monorepo's AGENTS.md in the .claude/long-running.toml of the drive's checkout, as its [[dangerous]] tables do."""
+    (checkout / ".claude").mkdir(exist_ok=True)
+    (checkout / state.REPO_RULES).write_text(DANGEROUS_TOML)
+
+
 def cloned(tmp_path: Path, name: str, files: dict[str, str] | None = None) -> str:
     """Commit files, by default an .orca.json, on main of an origin that the drive's coordinator checkout is a clone of, both made on the first call, as the drive's checkout is moved to before a launch; main's head."""
     origin, clone = tmp_path / "origin", tmp_path / "clone"

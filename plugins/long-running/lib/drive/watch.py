@@ -430,7 +430,7 @@ def reach_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def release_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Land at once each open PR the release reach alone holds from a production release, green, approved and changing nothing dangerous, by state.release_held, land.dangerous and the repository's [[dangerous]] classes, read in one github.paths call: its staging test part taken off and merged first, by state.land_for_release, so the lander queues it through stack-enqueue on this same pass's stage_lines and the cut waits minutes on its landing rather than a skip-or-hold card, by his words state.RELEASE_HOLD_WORDS; a dangerous one stays on its test and his card asks to merge it; each landing and each job it stopped said."""
+    """Land at once each open PR the release reach alone holds from a production release, green, approved and changing nothing dangerous, by state.release_held and the repository's [[dangerous]] classes, read in one github.paths call: its staging test part taken off and merged first, by state.land_for_release, so the lander queues it through stack-enqueue on this same pass's stage_lines and the cut waits minutes on its landing rather than a skip-or-hold card, by his words state.RELEASE_HOLD_WORDS; a dangerous one stays on its test and his card asks to merge it; each landing and each job it stopped said."""
     data = state.load(watcher.name)
     keys = [key for key, pr in data["prs"].items() if pr["reached"] and key not in watcher.stale and state.release_held(data, key) and hears(watcher, data, pr["order"])]
     if not keys:
@@ -443,7 +443,7 @@ def release_lines(watcher: Watcher, moment: datetime) -> list[str]:
     lines = []
     with state.edit(watcher.name) as data:
         for key, (_, paths) in read.items():
-            if not data["prs"][key]["reached"] or not (orders := state.release_held(data, key)) or land.dangerous(paths) or state.dangerous(data, paths):
+            if not data["prs"][key]["reached"] or not (orders := state.release_held(data, key)) or state.dangerous(data, paths):
                 continue
             stopped = state.land_for_release(data, key, orders)
             ended = f", and {', '.join(stopped)} stopped" if stopped else ""
