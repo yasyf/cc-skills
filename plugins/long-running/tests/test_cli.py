@@ -10417,6 +10417,35 @@ def test_a_second_report_of_the_same_bug_joins_its_order_and_each_thread_hears_t
     assert run("order", "set", "o1", "--state", "done", "--record", "30")[0] == 0
 
 
+def test_an_order_whose_job_carries_the_order_keeping_its_reporters_thread_reads_that_one_record_while_a_different_fix_reported_there_keeps_its_own(
+    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    release = "https://acme.slack.com/archives/C0REPORTS01/p1794400160000300?thread_ts=1794400100.000200&cid=C0REPORTS01"
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the stuck staging deploy", "--thread", "1794200000.000100", "--reporter", REPORTED)
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "cut a release with that fix", "--thread", "1794200000.000100", "--reporter", release)
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the slow search", "--thread", "1794200000.000100", "--reporter", release)
+    run("job", "add", "builder", "--order", "o2", "--goal", "release it")
+    run("job", "set", "j1", "--carries", "o1")
+    run("job", "set", "j1", "--carries", "o3")
+    orders = state.load("demo")["orders"]
+    assert orders["o2"]["reporters"] == [{"link": release, "channel": "C0REPORTS01", "thread": "1794400100.000200", "kept_by": "o1"}]
+    assert [held["told"] for held in orders["o3"]["reporters"]] == [None]
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    note = note_in(slack_thread, "1794418000.000100")
+    assert cli.main(["order", "told", "o2", note]) == 2
+    assert "o1: refused, it keeps no proof that its fix is live, so a note now would come before the fix" in capsys.readouterr().err
+    run("order", "set", "o1", "--proof", "https://buildkite.com/forge/release/builds/14185")
+    assert run("order", "told", "o2", note) == (0, f"o2: told in the reporter's thread, {note}")
+    assert state.load("demo")["orders"]["o1"]["reporters"][0]["told"] == note
+    assert f", reported in {REPORTED}, told it is fixed in {note} under o1:" in run("order", "show", "o2")[1]
+    assert cli.main(["order", "told", "o1", note_in(slack_thread, "1794418060.000100")]) == 2
+    assert f"o1: refused, the thread its bug was reported in heard it is fixed once, in {note}, and hears it only once" in capsys.readouterr().err
+    assert f", reported in {release}, which hears it is fixed once its fix is proven live:" in run("order", "show", "o3")[1]
+
+
 def test_his_order_to_keep_answering_a_teammates_thread_keeps_that_thread_on_the_order_from_its_filing_and_a_link_naming_no_thread_is_refused(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:

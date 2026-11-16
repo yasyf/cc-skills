@@ -11683,6 +11683,22 @@ def test_a_fix_proven_live_whose_bug_report_has_not_heard_it_is_fixed_is_said_on
     assert watch.line_lane(line, state.load(demo)) == "meta"
 
 
+def test_a_passing_job_proof_on_a_pr_of_the_order_owes_the_one_fix_live_note_though_the_order_keeps_no_proof_and_the_order_carrying_it_owes_none(demo: str) -> None:
+    proof = f"{state.pr_url(KEY)} live: /tmp/prove.sh exits 0 on long-running 1.0.1"
+    release = "https://acme.slack.com/archives/C0REPORTS01/p1794400160000300?thread_ts=1794400100.000200&cid=C0REPORTS01"
+    with state.edit(demo) as data:
+        data["orders"]["o1"] |= {"reporters": [state.reporter(REPORTED)], "jobs": ["j1", "j2"]}
+        data["orders"]["o2"] = order(text="release the watch", jobs=["j2"], reporters=[state.reporter(release)])
+        data["jobs"]["j2"] = job(order="o2", goal="follow its release and prove it live", carries={"o1": []}, state="done", said=f"DONE {proof}")
+    assert state.load(demo)["orders"]["o2"]["reporters"] == [{"link": release, "channel": "C0REPORTS01", "thread": "1794400100.000200", "kept_by": "o1"}]
+    assert watch.tell_lines(watcher(demo), T0 + timedelta(minutes=10)) == [
+        f"TELL o1: its fix is proven live by {proof} and nothing moved on it for 10 minutes,"
+        f" but {REPORTED}, the thread its bug was reported in,"
+        " has not heard it is fixed: send its report with --attr close=o1, whose handler posts the fix-live note there and records it"
+        " with drive order told o1 <its permalink>; done refuses until then"
+    ]
+
+
 def test_a_fix_proven_live_names_every_reporters_thread_not_yet_told_on_one_tell_and_a_reporter_added_later_on_its_own(demo: str) -> None:
     second, later = "https://acme.slack.com/archives/C0REPORTS02/p1794593225751189", "https://acme.slack.com/archives/C0REPORTS03/p1794600000000100"
     told = state.reporter("https://acme.slack.com/archives/C0REPORTS04/p1794500000000100") | {"told": "https://acme.slack.com/archives/C0REPORTS04/p1794500060000100"}

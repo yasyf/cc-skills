@@ -1152,13 +1152,14 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     unkinded = [order_id for order_id, order in data["orders"].items() if not order.get("kind")]
     for order_id in unkinded:
         sort_unkinded(name, data, order_id)
+    share_reporters(data)
     for order_id, order in data["orders"].items():
         if "joins" not in order:
             carriers = (data["jobs"][job_id]["order"] for job_id in order["jobs"]) if order["incident"] else ()
             order["joins"] = next((other for other in carriers if other != order_id and data["orders"][other]["incident"]), None)
         if merge_proven(order):
             order.update(proof=None, close_report=None, closed_on=None)
-            for held in untold_reporters(order):
+            for held in untold_reporters(data, order):
                 held["tell_said"] = None
     for pr in data["prs"].values():
         waits = pr.get("waits")
@@ -3642,7 +3643,7 @@ def answered(data: dict, order_id: str) -> bool:
     """Whether an open answer order is left nothing owed, so it closes done: every part posted, every job finished, no promised line owed and every reporter told."""
     order = data["orders"][order_id]
     finished = all(data["jobs"][other]["state"] in FINISHED_JOB_STATES for other in order["jobs"])
-    return order["kind"] == "answer" and order["state"] not in CLOSED_ORDER_STATES and finished and not owed(order) and not untold_reporters(order) and all(held["posted"] for held in order["parts"].values())
+    return order["kind"] == "answer" and order["state"] not in CLOSED_ORDER_STATES and finished and not owed(order) and not untold_reporters(data, order) and all(held["posted"] for held in order["parts"].values())
 
 
 def merge_proven(order: dict) -> bool:
@@ -3652,12 +3653,30 @@ def merge_proven(order: dict) -> bool:
 
 
 def may_tell(data: dict, order: dict) -> bool:
-    """Whether the threads an order's reporters asked in may hear from it now: an answer order's once every part of its answer is posted, any other's once the order keeps the proof its fix is live, from where he sees it when it builds something he uses, by brief.unseen."""
-    from drive import brief
-
+    """Whether the threads whose records an order keeps may hear from it now: an answer order's once every part of its answer is posted, any other's once its fix is proven live, by fix_proof."""
     if order["kind"] == "answer":
         return all(held["posted"] for held in order["parts"].values())
-    return bool(order["proof"]) and not brief.unseen(data, order, order["proof"])
+    return bool(fix_proof(data, order))
+
+
+def fix_proof(data: dict, order: dict) -> str | None:
+    """The proof that an order's fix is live: the order's own, from where he sees it when it builds something he uses, by brief.unseen, else the passing drive job prove of a job of the order, or of an order sharing one of its jobs, on a PR a job of the order opened, as a release follower's proof of the fix it carries is."""
+    from drive import brief
+
+    if order["proof"] and not brief.unseen(data, order, order["proof"]):
+        return order["proof"]
+    fixes = {pr_key(ref) for job_id in order["jobs"] for ref in data["jobs"][job_id]["prs"]}
+    near = dict.fromkeys(other for job_id in order["jobs"] for held in [data["jobs"][job_id]["order"], *data["jobs"][job_id]["carries"]] for other in data["orders"][held]["jobs"])
+    return next(
+        (
+            proven["proof"]
+            for job_id in near
+            if data["jobs"][job_id]["state"] == "done"
+            and (proven := PROVEN_LINE.match(data["jobs"][job_id]["said"] or ""))
+            and fixes & {pr_key(found[0]) for found in PR_URL.finditer(proven["proof"].partition(" live: ")[0])}
+        ),
+        None,
+    )
 
 
 def named_prs(data: dict, order_id: str, words: str) -> list[str]:
@@ -3834,9 +3853,40 @@ def reported_bug(order: dict) -> bool:
     return bool(order["reporters"]) and order["kind"] != "answer"
 
 
-def untold_reporters(order: dict) -> list[dict]:
-    """Each reporter of an order whose thread has not heard its one note."""
-    return [held for held in order["reporters"] if not held["told"]]
+def untold_reporters(data: dict, order: dict) -> list[dict]:
+    """The record of each reporter of an order whose thread has not heard its one note, the keeper's for one another order keeps, by kept_record."""
+    return [kept for held in order["reporters"] if not (kept := kept_record(data, held)[1])["told"]]
+
+
+def kept_record(data: dict, held: dict) -> tuple[str | None, dict]:
+    """The order keeping the record of a reporter an order names, None when the order keeps it itself, and that record, by share_reporters."""
+    if not (keeper := held.get("kept_by")):
+        return None, held
+    return keeper, next(kept for kept in data["orders"][keeper]["reporters"] if (kept["channel"], kept["thread"]) == (held["channel"], held["thread"]))
+
+
+def carrying(data: dict, order_id: str, other: str) -> bool:
+    """Whether two orders are on the same fix: a job of one carries the other, as a release order's follower carries the order of the fix it releases."""
+    return any((job := data["jobs"][job_id])["order"] == order_id and other in job["carries"] or job["order"] == other and order_id in job["carries"] for job_id in data["orders"][order_id]["jobs"])
+
+
+def share_reporters(data: dict) -> None:
+    """Keep one record of a thread a bug was reported in for each fix: an order naming a thread kept by an order on the same fix, by carrying, keeps no copy and reads that order's record, by kept_by, so the thread hears the fix is live once; the record is kept by the order that told it, else by the oldest open one, and a different fix reported there keeps its own, even one a job carries beside it. Worked out afresh on each load, so a record its keeper drops, or closes untold, is kept again by an order naming it."""
+    naming: dict[tuple[str, str], list[tuple[str, int]]] = {}
+    for order_id, order in data["orders"].items():
+        if not order["reporters"] or order["kind"] == "answer":
+            continue
+        order["reporters"] = [reporter(held["link"]) if "kept_by" in held else held for held in order["reporters"]]
+        for place, held in enumerate(order["reporters"]):
+            naming.setdefault((held["channel"], held["thread"]), []).append((order_id, place))
+    for ranked in naming.values():
+        keepers: list[str] = []
+        for order_id, place in sorted(ranked, key=lambda found: (not data["orders"][found[0]]["reporters"][found[1]]["told"], parse_time(data["orders"][found[0]]["created"]))):
+            order, held = data["orders"][order_id], data["orders"][order_id]["reporters"][place]
+            if keeper := next((other for other in keepers if carrying(data, order_id, other)), None):
+                order["reporters"][place] = {"link": held["link"], "channel": held["channel"], "thread": held["thread"], "kept_by": keeper}
+            elif held["told"] or order["state"] not in CLOSED_ORDER_STATES:
+                keepers.append(order_id)
 
 
 def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str) -> dict:
