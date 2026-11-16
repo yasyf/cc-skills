@@ -2150,7 +2150,7 @@ def held_beside(name: str) -> Callable[[str], bool]:
 
 
 def landing_loop(name: str, project: str | None, lines: int) -> int:
-    """Run the watch's landing loop, the process the watch starts beside its passes: a landing pass the moment anything appends to the drive's events file or the receiver's deliveries log, as the receiver does for each delivery, or POLL_SECONDS after the last, by rests, each first moving this process onto the newest install, by install.reopen, once it held what it owes for the landing loop it starts there, so a GitHub read, a stage's wake and a landing wait on no lane read, Sprite launch or install a pass of the watch runs, and a fix to any of them runs within a pass of its install. It hands its own lines on as the watch does, those the process before it held with the first stage of its first pass, so lines kept back for a later post never cost a landing pass, and writes the watch down the pipe end it inherited each new map of the PRs the drive does not track it read, first the one the landing loop before it held. It takes the reads the landing loop before it held, with the events and deliveries offsets it had read to, else owes a read of every PR from each file's end; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag, and however it ends it holds its unposted lines and owed reads for the landing loop after it."""
+    """Run the watch's landing loop, the process the watch starts beside its passes: a landing pass the moment anything appends to the drive's events file or the receiver's deliveries log, as the receiver does for each delivery, or POLL_SECONDS after the last, by rests, each first moving this process onto the newest install, by install.reopen, once it held what it owes for the landing loop it starts there, so a GitHub read, a stage's wake and a landing wait on no lane read, Sprite launch or install a pass of the watch runs, and a fix to any of them runs within a pass of its install. It hands its own lines on as the watch does, those the process before it held with the first stage of its first pass, so lines kept back for a later post never cost a landing pass, and writes the watch down the pipe end it inherited each new map of the PRs the drive does not track it read, first the one the landing loop before it held. It takes the reads the landing loop before it held, with the events and deliveries offsets it had read to, else owes a read of every PR from each file's end; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, and a watch gone, as a kickstart leaves it, ends it at the next stage boundary, so no orphan runs a landing pass beside the next watch's landing loop, kept as a flag, and however it ends it holds its unposted lines and owed reads for the landing loop after it."""
     ended = term_flag()
     if unwatched(project):
         return 0
@@ -2182,6 +2182,8 @@ def landing_loop(name: str, project: str | None, lines: int) -> int:
                     for said in passed(one, moment, staged=landing_pass):
                         for line in sent(one, one.lane, said, moment):
                             print(line, flush=True)
+                        if over(ended):
+                            break
                 beat("rest")
     finally:
         for one in [landing, *landing.others.values()]:
