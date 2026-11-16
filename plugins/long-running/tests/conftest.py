@@ -625,6 +625,13 @@ def lander_exited(name: str, *keys: str) -> None:
             data["prs"][key]["lander"] |= {"state": "adopted", "child": state.born(GONE_PID)}
 
 
+def dequeuer_exited(name: str, *keys: str) -> None:
+    """End the dequeue a halt reserved on each of keys as its `drive pr land --dequeue` exiting does: adopted by a child that no longer runs, so dequeuing() reads it done and the next lander may take its PRs."""
+    with edit(name) as data:
+        for key in keys:
+            data["prs"][key]["lander"]["dequeue"] |= {"state": "adopted", "child": state.born(GONE_PID)}
+
+
 def adopted_as(name: str, args: list[str], pid: int) -> int:
     """Adopt, as the child the launch args start would on its first step, the reservation they name by --reserved, wherever the drive holds it, naming pid as that child, so a test reads the child's liveness by pid as a real launch's; pid."""
     if "--reserved" not in args:

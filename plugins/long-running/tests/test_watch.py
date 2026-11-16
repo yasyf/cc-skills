@@ -42,6 +42,7 @@ from conftest import (
     Withdrawals,
     codex_reply,
     commit_files,
+    dequeuer_exited,
     drawn_card,
     edit,
     git_in,
@@ -7934,6 +7935,7 @@ def test_a_dangerous_pr_trunk_queued_before_he_went_quiet_leaves_the_queue_while
     assert len(whys) == 1 and whys[0].startswith(f"{land.AWAY}: he last wrote or tapped 20 minutes ago, and it changes go/sand/sandsql/write.go")
     land.dequeue(demo, [KEY], whys[0])
     assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("waiting", stage.HIM, f"green and cleared, and its lander's try at aaaaaaa ended {whys[0]}; stack-enqueue --dequeue said #42 DEQUEUED aaaaaaa")
+    dequeuer_exited(demo, KEY)
     with edit(demo) as data:
         data["owner"]["heard"] = state.stamp(state.now())
     assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
@@ -7950,6 +7952,8 @@ def test_a_dequeue_takes_the_unit_out_of_trunks_queue_from_main_records_why_and_
     assert (calls.read_text().splitlines(), land.landing(state.load(demo)["prs"][KEY])) == (["--dequeue 42"], False)
     assert watch.event_lines(watching) == [f"PR {KEY}: {why}; stack-enqueue --dequeue said #42 DEQUEUED aaaaaaa [o1 j1]"]
     approve(demo, KEY)
+    assert land.start(demo, [KEY], NO_CARDS) == []
+    dequeuer_exited(demo, KEY)
     assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
     assert landers == [("--dequeue", KEY), (KEY,)]
 
@@ -7960,6 +7964,7 @@ def test_a_lander_reservation_no_lander_adopted_leaves_its_head_to_land_again(ho
     assert land.halt(demo, [KEY], NO_CARDS) == [KEY]
     land.dequeue(demo, [KEY], f"{land.HELD}: {KEY}: nothing clears it now, since his Approve came off it")
     approve(demo, KEY)
+    dequeuer_exited(demo, KEY)
     assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
     lander = state.load(demo)["prs"][KEY]["lander"]
     state.cancel(demo, state.Reservation(lander["token"], tuple(map(tuple, lander["members"]))))
