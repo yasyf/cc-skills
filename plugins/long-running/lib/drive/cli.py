@@ -4101,7 +4101,7 @@ def deliver_held(name: str, job_id: str, job: dict, lane: str) -> tuple[str, str
 
 
 def deliver_returned(name: str, job_id: str, job: dict) -> str | None:
-    """Give each text a builder that returned holds, which superseded.fresh_builder refuses to its agent, to whoever acts on it now, so his words never sit: the job its work was handed to, in turn, while one is not finished, which holds them for its own worker, else the session holding the job's order, as one urgent record carrying the texts, his first, and fresh_builder's step; the line saying where they went, None when the job holds nothing."""
+    """Give each text a builder that returned holds, which superseded.fresh_builder refuses to its agent, to whoever acts on it now, so his words never sit: the job its work was handed to, in turn, while one is not finished, which holds them for its own worker, else the session holding the job's order as one record carrying the texts, his first: urgent with fresh_builder's step while the job has an open PR its work goes on, and read as heard with no builder asked when it has none, as a branch built while it waits on his card; the line saying where they went, None when the job holds nothing."""
     from drive import tools
 
     data = state.load(name)
@@ -4123,15 +4123,21 @@ def deliver_returned(name: str, job_id: str, job: dict) -> str | None:
         return f"{job_id}: its builder returned, so its held texts went to {taker}, which took its work"
     lane, step = superseded.fresh_builder(data, job_id, job, "", "his words")
     his = any(kept["sender"] == state.HIM for kept in held)
-    text = "\n\n".join([f"{job_id}: {'URGENT, his words ' if his else 'texts '}held for a builder that returned; act on them now. {step}", *(kept["words"] for kept in held)])
-    [seq] = tools.sent(name, state.WATCH_SENDER, [{"kind": "handoff", "to": [f"{lane}@{name}"], "attr": {"order": job["order"], "job": job_id, "urgent": "true"}, "text": text}])
+    open_prs = [key for key in render.job_pr_keys(job, render.prs_by_job(data).get(job_id, [])) if key in data["prs"] and data["prs"][key]["state"] == "open"]
+    if open_prs:
+        lead = f"{job_id}: {'URGENT, his words ' if his else 'texts '}held for a builder that returned with open {', '.join(open_prs)}; act on them now. {step}"
+    else:
+        lead = f"{job_id}: {'his words ' if his else 'texts '}held for a builder that returned {job['state']} with no open PR, so nothing is built from them here; read them as heard, and start a builder only for work they order that no job carries"
+    text = "\n\n".join([lead, *(kept["words"] for kept in held)])
+    attrs = {"order": job["order"], "job": job_id} | ({"urgent": "true"} if open_prs else {})
+    [seq] = tools.sent(name, state.WATCH_SENDER, [{"kind": "handoff", "to": [f"{lane}@{name}"], "attr": attrs, "text": text}])
 
     def returned_write(data: dict):
         data["jobs"][job_id]["undelivered"] = [kept for kept in data["jobs"][job_id]["undelivered"] if kept["request"] not in taken]
         return data
 
     state.update(name, (("jobs", job_id),), returned_write)
-    return f"{job_id}: its builder returned, so its held texts went to {lane}@{name}, which holds its order, as urgent record {seq}"
+    return f"{job_id}: its builder returned, so its held texts went to {lane}@{name}, which holds its order, as {'urgent ' if open_prs else ''}record {seq}"
 
 
 def starter_post(name: str, job_id: str, job: dict, lane: str, text: str, at: str, held: str | None = None) -> tuple[str, str]:
