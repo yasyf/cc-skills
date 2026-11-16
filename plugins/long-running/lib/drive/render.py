@@ -2,8 +2,10 @@ import hashlib
 import json
 import shlex
 import sys
+import traceback
 from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from drive import slack
 from drive.state import AWAY_HOLD, CLOCKS, DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owed, owed_at_return, owner_away, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, present, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
@@ -319,6 +321,13 @@ def cut(text: str, limit: int) -> str:
         return flat
     head = flat[: limit - 1]
     return (head if flat[limit - 1] == " " else head.rsplit(" ", 1)[0]).rstrip(" ,;:") + "…"
+
+
+def raised(error: Exception) -> str:
+    """An error the drive did not expect, named by its type and the innermost frame of the drive's own code it was raised through, then its words, so the line alone says which line to read."""
+    frame = next(frame for frame in reversed(traceback.extract_tb(error.__traceback__)) if Path(frame.filename).resolve().parent == Path(__file__).resolve().parent)
+    where = f"{type(error).__name__} at {Path(frame.filename).name}:{frame.lineno} in {frame.name}"
+    return f"{where}: {cut(str(error), 200)}" if str(error) else where
 
 
 def unread(words: list[str], failed: str | None = None) -> str:

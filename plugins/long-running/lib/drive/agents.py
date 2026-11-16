@@ -386,16 +386,16 @@ def posting(name: str, record: dict) -> bool:
 
 
 def start_posts(name: str, own: str | None = None, detached: bool = False) -> bool:
-    """Start a handler on each POST report POSTS_CURSOR has not passed but own, on the watch's brief for it, under its caller's hold of the drive's POSTS_LOCK, so no two starters read at once: the first to read a report, the watch's read, a stage of the watch on its own report or the handler tool on one, starts its one handler, and each later one finds it passed. One whose handler did not start sets the cursor back to it, or to own read before it, raising, so the next read starts both; whether the cursor had not passed own."""
+    """Start a handler on each POST report POSTS_CURSOR has not passed but own, on the watch's brief for it, under its caller's hold of the drive's POSTS_LOCK, so no two starters read at once: the first to read a report, the watch's read, a stage of the watch on its own report or the handler tool on one, starts its one handler, and each later one finds it passed. One whose handler did not start, whatever its start raised, sets the cursor back to it, or to own read before it, so the next read starts both, raising a refusal naming the report and its error; whether the cursor had not passed own."""
     seqs = posts(name)
     for seq in seqs:
         if seq == own:
             continue
         try:
             handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'post-{seq}'}", detached=detached)
-        except state.DriveError as error:
+        except Exception as error:
             unread(name, min(seq, own, key=int) if own in seqs else seq)
-            raise state.DriveError(f"the handler on POST report {seq} did not start: {error}") from None
+            raise state.DriveError(f"the handler on POST report {seq} did not start: {start_error(error)}") from None
     return own in seqs
 
 
@@ -412,7 +412,7 @@ def handle_report(name: str, seq: str, brief: str, once: bool = False, detached:
                 return held, True
         try:
             return handle(name, brief, detached=detached, briefed=briefed)
-        except state.DriveError:
+        except Exception:
             if read:
                 unread(name, seq)
             raise
@@ -528,9 +528,9 @@ def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str
     try:
         prompt = briefed(handler_id) if briefed else brief
         state.after_save(name, lambda: started(name, handler_id, brief, prompt, detached))
-    except (reads.ReadError, state.DriveError) as error:
+    except Exception as error:
         unstarted(name, handler_id)
-        raise (error if isinstance(error, state.DriveError) else state.DriveError(f"claude --bg started no handler: {error}")) from None
+        raise (state.DriveError(f"claude --bg started no handler: {error}") if isinstance(error, reads.ReadError) else error) from None
     return handler_id, False
 
 
@@ -582,12 +582,17 @@ def start_kept(name: str, handler: str) -> str:
     kept = brief_path(name, handler)
     try:
         start_handler(name, handler, kept.read_text())
-    except (reads.ReadError, state.DriveError) as error:
+    except Exception as error:
         unstarted(name, handler)
-        line = f"BLOCKED handler {handler} did not start: {error}; its brief is kept in {kept}: start it again with the handler tool"
+        line = f"BLOCKED handler {handler} did not start: {start_error(error)}; its brief is kept in {kept}: start it again with the handler tool"
         reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"{beside(state.saved(name))[0]}@{name}", "--id", f"handler-start-{handler}", "--text", line], Path.cwd(), reads.posting())
         return line
     return f"started {handler}"
+
+
+def start_error(error: Exception) -> str:
+    """Why a handler did not start: a refusal's or a failed command's own words, else the error as render.raised names one the drive did not expect."""
+    return str(error) if isinstance(error, state.DriveError | reads.ReadError) else render.raised(error)
 
 
 def beside(data: dict) -> tuple[str, dict]:
