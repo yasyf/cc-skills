@@ -8944,7 +8944,7 @@ PARK_REMOVED = 'his ruling 4a5f9cd on all of {area}, "stop all the conflicting w
 
 
 def test_his_ruling_on_a_whole_workstream_refuses_a_job_on_a_part_it_removes_and_binds_the_brief_of_an_order_on_no_feature_it_was_said_on(
-    run: Run, meta: str, recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]
+    run: Run, meta: str, recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     recorded.listed = [PARK_RULING]
     recorded.shown["4a5f9cd"] = PARK_RULING
@@ -8957,9 +8957,15 @@ def test_his_ruling_on_a_whole_workstream_refuses_a_job_on_a_part_it_removes_and
     assert "j1" not in state.load("demo")["jobs"]
     jev.ruled.clear()
     builder = run("job", "add", "builder", "--order", "o2", "--goal", "draw the run page")[1].splitlines()[0]
+    monkeypatch.setattr(settled, "shown", lambda *args: pytest.fail("listed area answers must not be fetched individually"))
     code, out = run("job", "brief", builder, "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
     written = Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
     assert (code, "Decisions that bind:\n- Why am I still getting cards about park? (4a5f9cd, 2026-11-12T11:36:00Z)\n  stop all the conflicting work and just get the HA rewrite done for ssql\n" in written) == (0, True)
+    changed = "Keep every word of this updated ruling: " + "complete body " * settled.BODY_CHARS
+    recorded.listed = [PARK_RULING | {"body": changed}]
+    code, out = run("job", "brief", builder, "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
+    written = Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
+    assert (code, changed in written) == (0, True)
 
 
 def test_a_follow_up_piece_his_ruling_on_the_whole_project_removes_becomes_no_part_and_starts_no_builder(
