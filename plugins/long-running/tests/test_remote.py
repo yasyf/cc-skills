@@ -8283,6 +8283,14 @@ def test_live_kept_terminal_reads_only_its_saved_handle(remote: str, monkeypatch
     assert loaded == [(key,)]
 
 
+@pytest.mark.parametrize("key", ["terminal", "binder"])
+def test_live_kept_terminal_without_a_saved_handle_needs_no_whole_drive(remote: str, monkeypatch: pytest.MonkeyPatch, key: str) -> None:
+    monkeypatch.setattr(state, "load", lambda *args: pytest.fail("absent terminal lookup must not shape the drive"))
+    monkeypatch.setattr(state, "stored", lambda name, fields: {})
+    monkeypatch.setattr(orca, "terminal", lambda handle: pytest.fail("an absent terminal has no handle to show"))
+    assert orca.live_kept(remote, key) is None
+
+
 def test_speaking_as_drive_reads_only_its_saved_handle(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     with edit(remote) as data:
         data["terminal"] = "term_kept"
