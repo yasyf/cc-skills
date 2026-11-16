@@ -2184,6 +2184,24 @@ def test_a_proof_ending_on_wait_with_no_fail_line_takes_no_result_and_marks_its_
     assert proof_events() == [("yasyf/cc-skills#7", waits)]
 
 
+def test_a_proof_whose_wait_line_is_followed_by_a_tools_stderr_noise_still_reads_waiting_as_j7710s_did_not(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
+) -> None:
+    script = proving(config, tmp_path, fake([BUILD], {BUILD}), 2)
+    wait = "WAIT the next LTX delete lands at 09:40 PT; run this again after it"
+    noise = "WARN tools/ci: GitHub answered 429, retrying in 30s"
+    script.write_text(f"#!/bin/sh\necho 'PASS the partition holds'\necho \"{wait}\"\necho '{noise}' >&2\necho '{noise}' >&2\nexit 2\n")
+    marker = {"pid": 4242, "at": state.stamp(), "said": f"PUSHED {URL}", "version": state.VERSION}
+    with edit("demo") as data:
+        data["jobs"]["j1"]["proof"] = marker
+    kept = state.proof_path("demo", "j1")
+    waits = f"{install.PROOF_WAITS}: {URL}: {script} exits 2 on long-running@skills 1.0.3, its output {kept}: {wait}"
+    assert install.prove("demo", "j1", 900) == f"j1: {waits}"
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["proof"]) == ("waiting", marker | {"waits": wait})
+    assert (install.quoted(f"{wait}\n{noise}\n"), install.quoted(f"PASS a\n{wait}\nPASS b\n{noise}\n")) == (wait, "it printed no FAIL line")
+
+
 QUEUE_STORIES = "press j and the next card opens; hover a card and its title shows"
 POST = "https://acme.slack.com/archives/D123/p1794559450293519?thread_ts=1794555580.526529&cid=D123"
 
