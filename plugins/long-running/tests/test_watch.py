@@ -1,4 +1,5 @@
 import fcntl
+import functools
 import io
 import json
 import os
@@ -2651,7 +2652,7 @@ def test_second_instance_exits_quietly(demo: str, monkeypatch: pytest.MonkeyPatc
 
 def test_stale_pid_file_is_claimed_and_released(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     state.pid_path(demo).write_text("999999999\n")
-    monkeypatch.setattr(watch, "passed", lambda watching, moment: [])
+    monkeypatch.setattr(watch, "passed", lambda watching, moment, until: [])
     run_watch(demo, monkeypatch)
     assert not state.pid_path(demo).exists()
 
@@ -2676,7 +2677,7 @@ def test_a_watch_no_launch_agent_started_lets_its_pid_file_go_loads_the_agent_an
     demo: str, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess, capsys: pytest.CaptureFixture[str]
 ) -> None:
     state.pid_path(demo).write_text(f"{os.getpid()}\n")
-    monkeypatch.setattr(watch, "passed", lambda watching, moment: pytest.fail("a pass ran outside the watch's launch agent"))
+    monkeypatch.setattr(watch, "passed", lambda watching, moment, until: pytest.fail("a pass ran outside the watch's launch agent"))
     assert watch.main(demo) == 0
     assert (watch_process.ensured, capsys.readouterr().out, state.pid_path(demo).exists()) == ([demo], f"the watch runs for {demo}\n", False)
 
@@ -2685,7 +2686,7 @@ def test_the_watch_waits_for_one_an_older_install_ran_under_a_monitor_and_sends_
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     passes = []
-    monkeypatch.setattr(watch, "passed", lambda watching, moment: passes.append(moment) or [])
+    monkeypatch.setattr(watch, "passed", lambda watching, moment, until: passes.append(moment) or [])
     sent = posts(monkeypatch)
     state.held_path(demo).write_text(f"PR {KEY}: approved [o1 j1]\n")
     state.monitor_pid_path(demo).write_text(f"{os.getppid()}\n")
@@ -2699,7 +2700,7 @@ def test_the_watch_waits_for_one_an_older_install_ran_under_a_monitor_and_sends_
 
 
 def test_a_crashed_watch_wakes_the_coordinator_naming_its_version_and_the_line_of_the_drives_code_that_raised(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    def crash(watching: watch.Watcher, moment: datetime) -> list[str]:
+    def crash(watching: watch.Watcher, moment: datetime, until: Callable[[], object]) -> list[str]:
         state.load("gone")
         return []
 
@@ -2741,16 +2742,54 @@ def test_a_line_whose_post_failed_goes_to_the_watch_its_launch_agent_starts_on_t
 ) -> None:
     upgrades(monkeypatch, tmp_path, [False, True])
     tapped = f"TAP Hold {KEY} [o1 j1]"
-    monkeypatch.setattr(watch, "passed", lambda watching, moment: [[tapped]])
+    monkeypatch.setattr(watch, "passed", lambda watching, moment, until: [[tapped]])
     monkeypatch.setattr(watch.time, "sleep", lambda seconds: None)
     sent = posts(monkeypatch, [False])
     launched(monkeypatch, demo)
     assert watch.main(demo) == 0
     assert (sent, state.held_path(demo).read_text()) == ([], f"{tapped}\n")
     monkeypatch.setattr(watch, "upgraded", lambda: None)
-    monkeypatch.setattr(watch, "passed", lambda watching, moment: [])
+    monkeypatch.setattr(watch, "passed", lambda watching, moment, until: [])
     run_watch(demo, monkeypatch)
     assert posted(sent) == [("handoff", f"root@{demo}", tapped)]
+
+
+def spied(monkeypatch: pytest.MonkeyPatch, names: tuple[str, ...]) -> list[str]:
+    ran: list[str] = []
+    for name in names:
+        real = getattr(watch, name)
+        monkeypatch.setattr(watch, name, functools.wraps(real)(lambda *args, real=real, name=name, **kwargs: ran.append(name) or real(*args, **kwargs)))
+    return ran
+
+
+def test_a_watch_that_finds_a_newer_install_between_two_stages_ends_before_the_next_and_the_watch_on_that_install_runs_only_the_stages_it_had_not(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    serve(monkeypatch, {})
+    posts(monkeypatch)
+    install = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
+    newer: list[Path] = []
+    monkeypatch.setattr(watch, "upgraded", lambda: newer[-1] if newer else None)
+    ran = spied(monkeypatch, ("main_lines", "release_lanes", "standing_lines"))
+    mid_pass(monkeypatch, lambda: newer.append(install))
+    monkeypatch.setattr(watch.time, "sleep", lambda seconds: None)
+    launched(monkeypatch, demo)
+    assert watch.main(demo) == 0
+    assert (ran, json.loads(state.reads_path(demo).read_text())["resume"]) == (["main_lines"], "release_lanes")
+    assert f"ended on long-running {state.VERSION} for {install}, before release_lanes" in capsys.readouterr().out.splitlines()
+    ran.clear()
+    newer.clear()
+    run_watch(demo, monkeypatch)
+    assert (ran, state.reads_path(demo).exists()) == (["release_lanes", "standing_lines"], False)
+
+
+def test_a_held_resume_naming_no_stage_of_this_install_runs_the_whole_pass(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    posts(monkeypatch)
+    state.hold_reads(demo, None, {"owed": [], "merging": [], "stale": [], "untracked": {}, "resume": "renamed_lines"})
+    ran = spied(monkeypatch, ("main_lines", "release_lanes", "standing_lines"))
+    run_watch(demo, monkeypatch)
+    assert ran == ["main_lines", "release_lanes", "standing_lines"]
 
 
 def test_a_watch_that_crashes_mid_pass_has_posted_the_lines_its_earlier_stages_made_so_the_watch_its_launch_agent_starts_again_says_none_again(
@@ -2769,7 +2808,7 @@ def test_a_watch_that_crashes_mid_pass_has_posted_the_lines_its_earlier_stages_m
         [f"PR {KEY}", f"JOB j2 o1 added, proves {KEY}, waits on no release", "WATCH stopped on long-running " + state.VERSION],
         "",
     )
-    monkeypatch.setattr(watch, "passed", lambda watching, moment: [])
+    monkeypatch.setattr(watch, "passed", lambda watching, moment, until: [])
     run_watch(demo, monkeypatch)
     assert len(sent) == 3
 
@@ -2806,7 +2845,7 @@ def test_a_launched_watch_takes_the_env_of_this_macs_claude_settings_so_each_rea
     monkeypatch.setenv("BUILDKITE_API_TOKEN", "the token the watch inherited")
     monkeypatch.setattr(launchd, "session_env", REAL_SESSION_ENV)
     seen = []
-    monkeypatch.setattr(watch, "passed", lambda watching, moment: seen.append(reads.run(["printenv", "BUILDKITE_API_TOKEN"], tmp_path)) or [])
+    monkeypatch.setattr(watch, "passed", lambda watching, moment, until: seen.append(reads.run(["printenv", "BUILDKITE_API_TOKEN"], tmp_path)) or [])
     run_watch(demo, monkeypatch)
     assert seen == ["the settings token\n"]
 
@@ -2821,7 +2860,7 @@ def test_a_drive_whose_state_root_is_moved_gets_no_watch_process_and_a_watch_sta
     monkeypatch.setattr(state, "scratch", REAL_SCRATCH)
     monkeypatch.setattr(watch, "ensure", REAL_ENSURE)
     monkeypatch.setattr(launchd, "keep", lambda *args: started.append(args))
-    monkeypatch.setattr(watch, "passed", lambda watching, moment: pytest.fail(f"a pass ran on a drive {moved_by} moves"))
+    monkeypatch.setattr(watch, "passed", lambda watching, moment, until: pytest.fail(f"a pass ran on a drive {moved_by} moves"))
     assert cli.main(["watch", "--drive", demo]) == 0
     assert "watch.run_pass" in capsys.readouterr().out
     assert watch.main(demo) == 0
@@ -3007,7 +3046,7 @@ def test_a_projects_watch_runs_as_its_own_process_from_where_the_drives_watch_st
     assert (state.watch_cursor(demo, "Iris"), state.pid_path(demo, "Iris").name, state.pid_path(demo, "Iris").exists()) == (state.events_end(demo), "watchd-iris.pid", False)
     assert state.watch_cursor(demo) == drives_cursor
 
-    def crash(watching: watch.Watcher, moment: datetime) -> list[str]:
+    def crash(watching: watch.Watcher, moment: datetime, until: Callable[[], object]) -> list[str]:
         raise OSError("disk full")
 
     monkeypatch.setattr(watch, "passed", crash)
