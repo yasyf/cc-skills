@@ -6584,12 +6584,14 @@ def hand_over_filled(text: str, drive: str | None) -> str:
 
 
 def repo_page(drive: str | None, page: str) -> str:
-    """What the [[page]] tables of the .claude/long-running.toml in the drive's checkout add to a page of the skill, under an `## In this repository` heading, or nothing when no drive or no such table is there to read."""
+    """What the [[page]] tables of the .claude/long-running.toml in the drive's checkout and the repository's providers add to a page of the skill, under an `## In this repository` heading, or nothing when no drive or no such text is there to read."""
     try:
         data = state.load(state.resolve(drive))
     except DriveError:
         return ""
-    texts = [table["text"].strip() for table in (state.repo_config(data).get("page", []) if state.bound_sessions(data) else []) if table["page"] == page]
+    if not state.bound_sessions(data):
+        return ""
+    texts = [table["text"].strip() for table in state.repo_config(data).get("page", []) if table["page"] == page] + providers.of(data).pages(page)
     return "\n## In this repository\n\n" + "\n\n".join(texts) + "\n" if texts else ""
 
 
