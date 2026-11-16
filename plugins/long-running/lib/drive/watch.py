@@ -2459,7 +2459,7 @@ def turns_path(name: str) -> Path:
 
 
 def by_turn(name: str, watchers: list[Watcher]) -> list[Watcher]:
-    """The landing loop's watchers, the drive's and each project's, ordered by when each last finished a landing pass, by took_turn, never first, so a loop a newer install, a stall or a kill restarts within one round reaches the projects it never got to before those it did, since a round of every project outlasts the time between restarts and a fixed order left the last projects' PRs unread for hours, as SandSQL's and the priority orders' five rows registered from 11:35 were."""
+    """The landing loop's watchers, the drive's and each project's, ordered by when each last finished a landing pass, by took_turn, never first, so a loop a newer install, a stall or a kill restarts within one round reaches the projects it never got to before those it did, since a round of every project outlasts the time between restarts and a fixed order left the last projects' PRs unread for hours, as one project's and the priority orders' five rows registered from 11:35 were."""
     turns = json.loads(path.read_text()) if (path := turns_path(name)).is_file() else {}
     return sorted(watchers, key=lambda one: turns.get(one.project or "", ""))
 
