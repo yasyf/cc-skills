@@ -2463,6 +2463,25 @@ def joined(watcher: Watcher, moment: datetime, held: Callable[[str], bool], made
             watcher.others[project] = made(project)
 
 
+def turns_path(name: str) -> Path:
+    return state.drive_dir(name) / "landing-turns.json"
+
+
+def by_turn(name: str, watchers: list[Watcher]) -> list[Watcher]:
+    """The landing loop's watchers, the drive's and each project's, ordered by when each last finished a landing pass, by took_turn, never first, so a loop a newer install, a stall or a kill restarts within one round reaches the projects it never got to before those it did, since a round of every project outlasts the time between restarts and a fixed order left the last projects' PRs unread for hours, as SandSQL's and the priority orders' five rows registered from 11:35 were."""
+    turns = json.loads(path.read_text()) if (path := turns_path(name)).is_file() else {}
+    return sorted(watchers, key=lambda one: turns.get(one.project or "", ""))
+
+
+def took_turn(name: str, project: str | None) -> None:
+    """Stamp the moment a watcher finished its landing pass, for by_turn."""
+    path = turns_path(name)
+    turns = json.loads(path.read_text()) if path.is_file() else {}
+    tmp = path.with_name(f"{path.name}.{os.getpid()}")
+    tmp.write_text(json.dumps(turns | {project or "": state.stamp(state.now())}))
+    os.replace(tmp, path)
+
+
 def every_project() -> bool:
     """Whether this process beside the watch runs every project's passes, as a watch of this install starts it, by spawn; one an older install's watch started runs only the passes it was named for."""
     return os.environ.get(EVERY_PROJECT_ENV) == EVERY_PROJECT
@@ -2588,7 +2607,7 @@ def landing_loop(name: str, project: str | None, lines: int) -> int:
                         install.reopen(argv)
                 if every_project():
                     joined(landing, state.now(), held_beside(name), functools.partial(landing_watcher, name))
-                for one in [landing, *landing.others.values()]:
+                for one in by_turn(name, [landing, *landing.others.values()]):
                     if over(ended):
                         break
                     if one.untracked != told.get(one.project):
@@ -2602,6 +2621,8 @@ def landing_loop(name: str, project: str | None, lines: int) -> int:
                         if over(ended):
                             break
                     outboxed(one)
+                    if not over(ended):
+                        took_turn(name, one.project)
                 beat("rest")
     finally:
         for one in [landing, *landing.others.values()]:

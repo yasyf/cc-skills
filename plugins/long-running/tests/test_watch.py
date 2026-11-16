@@ -12805,3 +12805,11 @@ def test_a_gate_refusal_on_his_ask_owes_one_blocked_step_naming_its_findings_and
         assert not owing.settle(data, moment + timedelta(minutes=5))
         assert owing.settle(data, moment + owing.GATE_HOLDS + timedelta(minutes=1))
         assert data["orders"]["o1"]["blocked"] is None
+
+
+def test_a_landing_loop_takes_its_watchers_by_the_turn_each_last_finished_so_a_restart_mid_round_reaches_the_projects_it_never_got_to_as_sandsqls_rows_waited_from_1135(demo: str) -> None:
+    watchers = [watch.Watcher(demo, 0, project=project) for project in (None, "Iris", "Platform", "SandSQL", "Priority o2296")]
+    assert [one.project for one in watch.by_turn(demo, watchers)] == [None, "Iris", "Platform", "SandSQL", "Priority o2296"]
+    for project in (None, "Iris", "Platform"):
+        watch.took_turn(demo, project)
+    assert [one.project for one in watch.by_turn(demo, watchers)] == ["SandSQL", "Priority o2296", None, "Iris", "Platform"]
