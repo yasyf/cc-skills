@@ -8711,3 +8711,15 @@ def test_a_lane_on_this_mac_whose_worker_finished_with_orcas_follow_up_open_in_i
     assert calls == [("send", "--to", f"dispatch:{FOLLOW_UP}", "--run", RUN, "--subject", "From the coordinator", "--body", Unheld("PR checks failed"), "--retry-request", ANY)]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["dispatch"], job["run"], job["task"], job["terminal"], job["lane"], job.get("deaths", []), job["undelivered"]) == (FOLLOW_UP, RUN, "task_carry", "term_lane", "demo-j1", [], [])
+
+
+def test_a_takeover_brief_naming_a_file_its_own_lane_writes_under_its_scratch_folder_is_carried_as_j7032s_film_was_not(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    folder = state.drive_dir(demo)
+    brief = f"Report of j1: the film is at {folder}/scratch/j1/film.txt\nDrive: demo, order o1, job j1\n"
+    assert orca.uncarried(demo, "j1", brief) is None
+    assert orca.uncarried(demo, "j1", brief.replace("scratch/j1/", "scratch/j2/")) == (
+        "its brief names Drive file scratch/j2/film.txt, which the drive keeps no text of, so its lane would stop to ask for each;"
+        " launch it on a brief file that leaves each out: drive job launch j1 <file>"
+    )
