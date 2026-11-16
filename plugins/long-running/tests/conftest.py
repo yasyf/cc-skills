@@ -300,6 +300,7 @@ def ccx_worktrees(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root, bin_dir = tmp_path / "worktrees", tmp_path / "ccx-bin"
     root.mkdir()
     bin_dir.mkdir()
+    monkeypatch.setattr(orca, "CHECKOUT_FRESH", 0)
     (bin_dir / "ccx").write_text(FAKE_CCX.format(made=root / "made", root=root))
     (bin_dir / "ccx").chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
@@ -1073,7 +1074,7 @@ class Receiver:
 @pytest.fixture(autouse=True)
 def checkout(monkeypatch: pytest.MonkeyPatch) -> None:
     """A drive whose coordinator runs in a folder no git repository holds keeps that folder as its checkout, as a test's drive started in its own tmp folder does; a clone's drive moves its checkout as a real one does."""
-    monkeypatch.setattr(orca, "checkout", lambda drive, clone: REAL_CHECKOUT(drive, clone) if (Path(clone) / ".git").exists() else Path(clone))
+    monkeypatch.setattr(orca, "checkout", lambda drive, clone, wait=orca.CHECKOUT_WAIT: REAL_CHECKOUT(drive, clone, wait) if (Path(clone) / ".git").exists() else Path(clone))
 
 
 @pytest.fixture(autouse=True)

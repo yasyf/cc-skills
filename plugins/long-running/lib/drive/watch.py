@@ -629,7 +629,7 @@ def build_lines(watcher: Watcher, moment: datetime) -> list[str]:
     if not (due := [link for link in held if link not in watcher.builds or link in watcher.builds_heard]):
         return []
     try:
-        read = read_builds(orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"]), due)
+        read = read_builds(orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"], wait=0), due)
     except (state.DriveError, reads.ReadError) as error:
         return read_failed(watcher, "buildkite builds", error, moment)
     watcher.failures.pop("buildkite builds", None)
@@ -800,7 +800,7 @@ def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 def live_rows(watcher: Watcher, data: dict) -> tuple[Path, list[dict]]:
     """The drive's checkout, as orca.checkout moves it, and the rows of one `tools/ci release live --json` run there, a commit each cluster of every service serves, keeping them on the watcher as live for staging_line, and as staged the targets state.STAGING_ENV runs for add_prover."""
-    checkout = orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"])
+    checkout = orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"], wait=0)
     live = json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "live", "--json"], checkout))
     watcher.live = live
     watcher.staged = {row["target"] for row in live if row["env"] == state.STAGING_ENV}
@@ -835,7 +835,7 @@ def recovered_lines(watcher: Watcher, moment: datetime) -> list[str]:
     if ids := sorted({monitor for found in landed.values() for monitor in found}):
         argv = ["pup", "--no-agent", "monitors", "search", "--query", f"id:({' OR '.join(ids)})", "--per-page", str(len(ids)), "--jq", ".monitors | map({id, status})"]
         try:
-            statuses = json.loads(reads.run(argv, orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"])))
+            statuses = json.loads(reads.run(argv, orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"], wait=0)))
         except (state.DriveError, reads.ReadError) as error:
             lines = read_failed(watcher, "datadog monitors", error, moment)
         else:
@@ -878,7 +878,7 @@ def proof_owed(watcher: Watcher, head: str, unseen: dict[str, str], fix: str, mo
 
 def page_owner(name: str, data: dict, title: str, why: str) -> str:
     """Page his own Datadog On-Call user at high urgency with `tools/ci oncall page me` in the drive's checkout, which Platy answers for the release operator this Mac signs in as, so the drive holds no Datadog credential and can page nobody else; go/ci's line naming the page."""
-    checkout = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
+    checkout = orca.checkout(name, data["roles"]["coordinator"]["cwd"], wait=0)
     argv = [str(checkout / "tools" / "ci"), "oncall", "page", "me", "--title", cut(title, 80), "--description", f"{why}\n{dashboard.link(name)}"]
     return state.unrehearsed(name, lambda: reads.run(argv, checkout).strip(), "<page>")
 
@@ -3470,7 +3470,7 @@ def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
         if step == "agent":
             out = state.drive_dir(watcher.name) / "stalls" / f"{NOT_SLUG.sub('-', thing)}-{moment:%Y%m%dT%H%M%S}.md"
             try:
-                pid = agents.watchdog(watcher.name, watchdog_brief(watcher, known, thing, found[thing], held, moment), str(orca.checkout(watcher.name, coordinator(known, watcher.project)["cwd"])), out)
+                pid = agents.watchdog(watcher.name, watchdog_brief(watcher, known, thing, found[thing], held, moment), str(orca.checkout(watcher.name, coordinator(known, watcher.project)["cwd"], wait=0)), out)
             except (OSError, state.DriveError) as error:
                 settle(watcher.name, thing, held, {})
                 lines += failed(watcher, "watchdog", f"watchdog agent on {thing}", error, moment)

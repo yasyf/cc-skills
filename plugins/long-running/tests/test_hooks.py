@@ -1471,7 +1471,7 @@ def test_a_release_starts_from_the_drives_checkout_at_its_default_branchs_head_n
     behind.mkdir()
     with state.edit(demo) as data:
         data["roles"]["coordinator"]["cwd"] = str(behind)
-    monkeypatch.setattr(orca, "checkout", lambda drive, clone: started.parent if clone == str(behind) else pytest.fail(clone))
+    monkeypatch.setattr(orca, "checkout", lambda drive, clone, wait=0: started.parent if clone == str(behind) else pytest.fail(clone))
     recorded.shown = {CLOCK_PICK["id"][:7]: CLOCK_PICK}
     jev.picks("5419ffd")
     assert run("job", "add", "builder", "--order", "o1", "--goal", "release the merged clock", "--release", J2666_START)[0] == 0

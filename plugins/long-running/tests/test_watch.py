@@ -5805,7 +5805,7 @@ def live_reads(monkeypatch: pytest.MonkeyPatch, serving: list[dict] | None = Non
         return json.dumps(serving or [])
 
     monkeypatch.setattr(watch.reads, "run", run)
-    monkeypatch.setattr(watch.orca, "checkout", lambda name, clone: DRIVE_CHECKOUT)
+    monkeypatch.setattr(watch.orca, "checkout", lambda name, clone, wait=0: DRIVE_CHECKOUT)
     monkeypatch.setattr(watch.github, "carrier", lambda clone: lambda build, merge, number: build in (carried or set()))
     return calls
 
@@ -5940,7 +5940,7 @@ def buildkite_reads(monkeypatch: pytest.MonkeyPatch, answers: dict[str, dict | N
         return json.dumps({f"b{at}": answers[slug] for at, slug in enumerate(slugs)})
 
     monkeypatch.setattr(watch.reads, "run", run)
-    monkeypatch.setattr(watch.orca, "checkout", lambda name, clone: DRIVE_CHECKOUT)
+    monkeypatch.setattr(watch.orca, "checkout", lambda name, clone, wait=0: DRIVE_CHECKOUT)
     return calls
 
 
@@ -9862,7 +9862,7 @@ def test_a_merged_pr_changing_only_tests_gets_a_prover_waiting_on_no_release_tha
     with state.edit(demo) as data:
         data["roles"]["coordinator"]["cwd"] = str(tmp_path)
     monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo")
-    monkeypatch.setattr(orca, "checkout", lambda name, cwd: tmp_path)
+    monkeypatch.setattr(orca, "checkout", lambda name, cwd, wait=0: tmp_path)
     monkeypatch.setattr(github, "files", lambda key: ["go/sand/internal/runtime-api/memory/project_test.go", "go/sand/next/internal/runtime-api/memory/project_test.go"])
     merged_ready(demo, OTHER, None)
     lines = watch.run_pass(watcher(demo), T0)
@@ -10955,7 +10955,7 @@ def incident_reads(monkeypatch: pytest.MonkeyPatch, statuses: dict[str, str], li
         return ""
 
     monkeypatch.setattr(watch.reads, "run", run)
-    monkeypatch.setattr(watch.orca, "checkout", lambda name, clone: checkout)
+    monkeypatch.setattr(watch.orca, "checkout", lambda name, clone, wait=0: checkout)
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"], "staged": ["api"]} for key in keys})
     monkeypatch.setattr(watch.github, "carrier", lambda clone: lambda build, merge, number: build == "c0ffee" and live[str(number)])
     return calls
@@ -11047,7 +11047,7 @@ def test_o761s_incident_on_a_surface_he_uses_holds_its_live_line_with_one_prove_
 def test_an_incident_opened_while_he_is_away_pages_his_datadog_user_once_and_one_he_heard_of_or_one_while_he_is_here_pages_nobody(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
     monkeypatch.setattr(watch.reads, "run", lambda argv, checkout: calls.append(argv) or "Paged Datadog user u-ym at high urgency: page p-1\n")
-    monkeypatch.setattr(watch.orca, "checkout", lambda name, data: DRIVE_CHECKOUT)
+    monkeypatch.setattr(watch.orca, "checkout", lambda name, data, wait=0: DRIVE_CHECKOUT)
     with state.edit(demo) as data:
         data["owner"]["heard"] = state.stamp(T0)
         data["orders"]["o1"].update(incident=True, title="SandSQL writes down", created=state.stamp(T0 + timedelta(minutes=5)))
@@ -11065,7 +11065,7 @@ def test_an_incident_whose_drive_checkout_cannot_move_to_the_default_branch_head
     serve(monkeypatch, {})
     calls = incident_reads(monkeypatch, {}, {"42": True}, tmp_path)
 
-    def unmoved(name: str, clone: str) -> Path:
+    def unmoved(name: str, clone: str, wait: float = 0) -> Path:
         raise state.DriveError("the drive's checkout was not moved to the head of its default branch")
 
     monkeypatch.setattr(watch.orca, "checkout", unmoved)

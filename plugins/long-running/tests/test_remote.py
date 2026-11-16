@@ -841,6 +841,21 @@ def test_the_drives_checkout_sits_detached_at_origins_default_branch_head_past_t
     assert (git_in(clone, "rev-parse", "refs/remotes/origin/main"), (ccx_worktrees / "made").read_text()) == (stale, "drive-demo\n")
 
 
+def test_a_verb_that_cannot_take_the_checkout_lock_within_its_wait_runs_from_the_checkout_as_it_stands_and_a_move_made_lately_is_shared(
+    demo: str, tmp_path: Path, ccx_worktrees: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clone = tmp_path / "clone"
+    cloned(tmp_path, demo)
+    first = cloned(tmp_path, demo, {"versions.toml": "cc-remote 0.27.38\n"})
+    kept = orca.checkout(demo, str(clone))
+    cloned(tmp_path, demo, {"versions.toml": "cc-remote 0.27.39\n"})
+    with (state.drive_dir(demo) / orca.CHECKOUT_LOCK).open("a") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        assert (orca.checkout(demo, str(clone), wait=0), git_in(kept, "rev-parse", "HEAD")) == (kept, first)
+    monkeypatch.setattr(orca, "CHECKOUT_FRESH", 60)
+    assert (orca.checkout(demo, str(clone)), git_in(kept, "rev-parse", "HEAD")) == (kept, first)
+
+
 def test_a_sprite_brief_copies_in_no_drive_file_it_names_and_a_read_of_its_words_serves_each_a_lanes_report_kept_only_in_the_drive_included(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2906,7 +2921,7 @@ def test_resume_to_a_worker_that_finished_on_a_sprite_prepares_that_sprite_again
     first = tmp_path / "first.md"
     first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
     lane = {"terminal": "term_lane", "workspace": "pool-one", "environment": "pool-one", "lane": "demo-j1", "sprite_config": SPRITE_CONFIG}
-    monkeypatch.setattr(orca, "checkout", lambda name, clone: tmp_path)
+    monkeypatch.setattr(orca, "checkout", lambda name, clone, wait=0: tmp_path)
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(
             lane,
@@ -4026,7 +4041,7 @@ def test_a_relaunch_the_launcher_refuses_says_the_text_held_with_the_refusal_ver
     def refused(*args: object) -> dict:
         raise orca.Unstarted(refusal)
 
-    monkeypatch.setattr(orca, "checkout", lambda name, clone: tmp_path)
+    monkeypatch.setattr(orca, "checkout", lambda name, clone, wait=0: tmp_path)
     monkeypatch.setattr(orca, "pr_holder", lambda data, job, clone: None)
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: FRESH_RUN)
     monkeypatch.setattr(orca, "launch", refused)
