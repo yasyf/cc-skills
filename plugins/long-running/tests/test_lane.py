@@ -681,6 +681,8 @@ def test_his_dashboard_queue_on_a_live_lane_drive_lists_lane_taps_in_queue_order
     assert [(tap["key"], tap["position"]) for tap in board.taps(DRIVE)] == [("acme/app#7", 1), ("acme/app#8", 2)]
     item = view.lane_tap_item(board.taps(DRIVE)[0], {"pr_cards": []}, None)
     assert (item["kind"], item["key"], item["head"], item["checks"], item["title"], item["reason"]["label"], [pr["state"] for pr in item["prs"]]) == ("tap", "acme/app#7", "h7", "pass", "seven", "Lane #1 in the queue", ["open"])
+    assert [(entry["key"], entry["head"], entry["group"]) for entry in view.lane_reviews([item], set())] == [("acme/app#7", "h7", "you")]
+    assert view.lane_reviews([item], {"acme/app#7"}) == []
 
 
 def test_his_page_shows_only_stacks_ready_for_his_tap_and_counts_the_rest_by_why(world: dict) -> None:

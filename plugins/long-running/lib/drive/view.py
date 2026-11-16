@@ -927,6 +927,25 @@ def queue(drive: dict, found: dict, moment: datetime, features: list[dict], answ
     ]
 
 
+def lane_reviews(queued: list[dict], known: set[str]) -> list[dict]:
+    """A review entry for each PR of a lane tap item the old drive never tracked, so its pane draws: what the lane drive knows of it, its title, head, checks and the card it is on, and nothing of the old drive's stages, landers or jobs."""
+    entries = []
+    for item in (item for item in queued if item.get("lane")):
+        for pr in item["prs"]:
+            if (key := state.pr_key(pr["url"])) in known:
+                continue
+            known.add(key)
+            entries.append({
+                "key": key, "title": pr["title"], "url": pr["url"], "head": item["stack_heads"].get(key), "group": "you",
+                "feature": item["lane"], "feature_title": item["reason"]["text"], "detail": item["detail"], "checks": pr["checks"], "review": pr["review"], "tap": pr["tap"],
+                "stage": None, "staging": "", "on_him": False, "failed": [], "conflict": False, "draft": False, "branch": "", "base": "", "stack": list(item["stack_heads"]),
+                "landing": None, "approve_waits": None, "staging_plain": {"word": "", "tone": ""}, "approve_plain": "Approve lands it through its lane once its checks pass.",
+                "parts": [], "lead": None, "job": None, "job_said": "", "job_at": None, "since": item["since"], "updated": None,
+                "card": item.get("card"), "answer": item.get("answer"), "thread": item.get("thread"),
+            })
+    return entries
+
+
 def lane_queue(drive: dict, found: dict, moment: datetime, features: list[dict], answering: dict[str, str], lane_taps: list[dict]) -> list[dict]:
     """His queue on a live lane drive: the PRs waiting on his tap by the lanes' priority queue, those of a lane whose incident hurts users first, then his open question cards as the old queue ranks them, then the rest of the taps in queue order."""
     from drive import land
@@ -1415,7 +1434,7 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
         "progress": progress(drive),
         "work": active,
         "history": told,
-        "review": review(drive, found),
+        "review": (reviewed := review(drive, found)) + lane_reviews(model["queue"], {entry["key"] for entry in reviewed}),
         "incidents": [entry | {"orphaned": orphaned(drive, entry["id"])} for entry in incidents(drive)],
         "bug_reports": [entry | {"orphaned": orphaned(drive, entry["id"])} for entry in bug_reports(drive, moment, served)],
         "edges": edges(drive),
