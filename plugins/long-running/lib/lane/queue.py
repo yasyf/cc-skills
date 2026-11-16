@@ -80,10 +80,22 @@ def renew(drive: str, resource: str, holder: str, ttl_minutes: int) -> str:
 
 
 def release(drive: str, resource: str, holder: str) -> None:
+    """Give holder's grant back and wake the best-ranked lane waiting in line for it, so the freed unit goes to it now and no waiter learns of it only at its bound."""
+    order = {lane: index for index, lane in enumerate(rank.last(drive).get("order", []))}
     with store.locked(drive):
         queue = kept(drive)
         queue["leases"][resource] = [lease for lease in queue["leases"].get(resource, []) if lease["holder"] != holder]
-        queue["requests"].get(resource, {}).pop(holder, None)
+        requests = queue["requests"].get(resource, {})
+        requests.pop(holder, None)
         queue["revoked"].pop(holder, None)
         written(drive, queue)
+        line = sorted(requests.values(), key=lambda asked: (order.get(asked["lane"], len(order)), asked["at"]))
+    if line:
+        from lane import verbs
+
+        def waking(lane: dict) -> None:
+            if lane["state"] == store.WAITING:
+                verbs.woken(lane, f"the queue freed {resource}, and this lane is first in line for it: take it now")
+
+        store.update(drive, line[0]["lane"], waking)
     store.kick(drive)

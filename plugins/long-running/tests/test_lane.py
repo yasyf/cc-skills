@@ -536,3 +536,14 @@ def test_wake_fires_a_waiting_lane_now(world: dict) -> None:
     ended("a", ["his_reply"], "6h")
     verbs.wake(DRIVE, "a", "its builders died with its turn")
     assert store.load(DRIVE, "a")["state"] == store.RUNNING
+
+
+def test_a_freed_grant_wakes_the_next_waiting_lane_in_line(world: dict) -> None:
+    opened("a")
+    opened("b")
+    supervisor.run_pass(DRIVE)
+    assert queue.take(DRIVE, "staging-env", "tester-a", "a", 30)["granted"] is True
+    assert queue.take(DRIVE, "staging-env", "tester-b", "b", 30)["granted"] is False
+    ended("b", ["his_reply"], "2h")
+    queue.release(DRIVE, "staging-env", "tester-a")
+    assert store.load(DRIVE, "b")["wait"]["fired_why"].startswith("the queue freed staging-env")
