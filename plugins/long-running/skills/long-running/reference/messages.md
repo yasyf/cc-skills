@@ -16,6 +16,7 @@ the card with its buttons whenever it says something waits on him.
 - [What goes in](#what-goes-in)
 - [What stays out](#what-stays-out)
 - [Examples](#examples)
+- [The rules Jev judges a post by](#the-rules-jev-judges-a-post-by)
 - [Before it goes out](#before-it-goes-out)
 
 ## Limits
@@ -1101,6 +1102,27 @@ names a model post, write the way it does. Each step says what to do and why:
 A review walkthrough's leads might read *What your PR does*, *What we want instead*, *Why it
 matters* and *A test for next time*; each post picks leads for its own reader's questions. A routine
 line keeps its bold line and two sentences, as the status lines above show.
+
+## The rules Jev judges a post by
+
+This is the one list of post-quality rules. Each rule names the check that finds a breach and the
+constant that holds its words. Jev reads a post only when a check finds something in it or a
+handler's claims name reads, and then judges each finding by its rule beside his words. There is no
+standing Jev call on every post. A new piece of post feedback from him becomes a line here and a
+finding of the check that fits it, never a rule of its own somewhere else.
+
+| Rule | Found by | Words in |
+| --- | --- | --- |
+| A post stands alone: it names nothing its reader never saw, such as another draft of itself, a drive id or his DM, and says no sorry | `cc-slack check-post` `apology` and `earlier-draft` findings | `ALONE_RULE`, `hooks/message_limits.py` |
+| Plain words for the person reading the thread: no internal shorthand, and each table, column, function, file, migration or flag glossed the first time it appears | every other `cc-slack check-post` finding | `PLAIN_WORDS_RULE`, `lib/drive/agents.py` |
+| Anything that says it waits on him carries the card with its buttons | `cc-slack check-post` `waits-without-card`; a `{pr:}` on a line asking his tap links his card | `CARD_RULE`, `hooks/message_limits.py` |
+| Each claim stands on the read it names, and a claim about a whole set reads every member | Jev's claim items on a handler's post | `settled.post_verdict` |
+| An answer under a card explains each term of the card's first line his question turns on | Jev's card item | `settled.post_verdict` |
+| A post in a thread of his DM answers from that thread's work; one naming other work only warns | Jev's scope item and `cli.thread_strays` | `settled.post_verdict` |
+
+A check that cannot finish lets the post out unchecked with a warning, since a gate that cannot
+finish fails open. Only a count or a mark refuses outright: a post over its word count, or one to
+him while he is away.
 
 ## Before it goes out
 
