@@ -3244,6 +3244,8 @@ def communicators_wanted(watcher: Watcher, data: dict, replies: list[dict], mome
 
     owing = {seat for reply in replies if (seat := state.channel_seat(data, state.slack_message(reply["permalink"])[0]))}
     lines = [said for seat in sorted(owing - set(data["communicators"])) if (said := cli.communicator_started(watcher.name, seat)).startswith("started")]
+    for said in lines:
+        print(f"{state.stamp(moment)} {said}", flush=True)
     if heard := owing & set(data["communicators"]):
 
         def communicators_wanted_write(saved: dict):
@@ -3279,6 +3281,7 @@ def retire_communicator(name: str, seat: str) -> str:
         saved["launched"].pop(f"communicator {seat}", None)
 
     state.update(name, None, retire_communicator_write)
+    print(f"{state.stamp()} retired the communicator for {seat}, session {session}, idle {minutes(COMMUNICATOR_IDLE)} minutes", flush=True)
     return f"retired the communicator for {seat}, session {session}: its channel #{data['slack']['channels'][seat]['name']} had no message of his owed for {minutes(COMMUNICATOR_IDLE)} minutes, so the drive's communicator holds it again until his next message there starts one"
 
 
