@@ -228,7 +228,7 @@ def sibling_started(name: str, role: str, worktree: str, earlier: str | None) ->
     def sibling_started_write(data: dict):
         data["launched"][role] = handle
 
-    state.update(name, None, sibling_started_write)
+    state.write(name, sibling_started_write)
     return f"started {who}, {holds}, in Orca terminal {handle}\n"
 
 
@@ -256,7 +256,7 @@ def seat_started(name: str, seat: str) -> str:
     def seat_started_write(data: dict):
         data["launched"][key] = handle
 
-    state.update(name, None, seat_started_write)
+    state.write(name, seat_started_write)
     return f"started the sub-coordinator for {seat}, which holds this order alone, in Orca terminal {handle}; its project's coordinator hears it until it binds"
 
 
@@ -283,7 +283,7 @@ def communicator_started(name: str, seat: str) -> str:
     def communicator_started_write(data: dict):
         data["launched"][key] = handle
 
-    state.update(name, None, communicator_started_write)
+    state.write(name, communicator_started_write)
     return f"started the communicator for {seat}, which holds its channel #{data['slack']['channels'][seat]['name']}, in Orca terminal {handle}"
 
 
@@ -366,7 +366,7 @@ def fresh_marked(name: str, order_ids: list[str], words: str, link: str | None) 
     def restarted(data: dict) -> dict[str, list[tuple[str, dict]]]:
         return {order_id: superseded.restart(data, order_id, words, link) for order_id in order_ids}
 
-    ended = state.update(name, None, restarted)
+    ended = state.write(name, restarted)
     lines = [
         f'{order_id} marked fresh on his words "{render.cut(words, 120)}": {len(each)} {"card" if len(each) == 1 else "cards"} asked on its design before them withdrawn on those words, so its design asks again in the new architecture\'s terms'
         for order_id, each in ended.items()
@@ -435,9 +435,9 @@ def rework_prs(name: str, reworks: list[dict], by: str) -> list[str]:
             state.rework(data["prs"][key], by, each["words"], each["link"])
         keys = list(kept)
         return keys
-    keys = state.update(name, None, reworked)
+    keys = state.write(name, reworked)
     lines = [f"{key} reworked to {by}: its card stays down until its builder's READY says how his words are met" for key in keys]
-    return lines + state.after_save(name, lambda: [said for key in keys for said in withdrawn_card(name, key)])
+    return lines + state.after(lambda: [said for key in keys for said in withdrawn_card(name, key)])
 
 
 def withdrawn_card(name: str, key: str) -> list[str]:
@@ -551,7 +551,7 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
             state.hold_text(data["jobs"][job_id], state.joined_words(order_id, order["joins"], args.words), state.HIM)
         return None, (data, order_id, order, joined, incidents, backlogged, started, page_job, repeats, group, carriers)
 
-    tallied, added = state.update(name, None, order_added)
+    tallied, added = state.write(name, order_added)
     if tallied:
         return tallied
     data, order_id, order, joined, incidents, backlogged, started, page_job, repeats, group, carriers = added
@@ -617,7 +617,7 @@ def incident_open(args: argparse.Namespace) -> int:
         def record_noted(data: dict) -> None:
             data["orders"][order_id]["note"] = order["note"] = f"record {record}"
 
-        state.update(name, None, record_noted)
+        state.write(name, record_noted)
     return emit(args, "\n".join([f"{order_id} record {record}", *started, *incidents]), {"id": order_id, **order, "incidents": incidents})
 
 
@@ -676,7 +676,7 @@ def incident_stop(args: argparse.Namespace) -> int:
         order["updated"] = created
         return started
 
-    started = state.update(name, None, incident_stop_write)
+    started = state.write(name, incident_stop_write)
     return emit(args, f"{started}\n{state.INCIDENT_BRIEF}", {"id": args.id, "job": started.split()[0]})
 
 
@@ -700,7 +700,7 @@ def incident_freeze(args: argparse.Namespace) -> int:
         order["note"] = "; ".join(filter(None, [order["note"], f"freeze {freeze}"]))
         order["updated"] = state.stamp()
 
-    state.update(name, None, incident_freeze_write)
+    state.write(name, incident_freeze_write)
     return emit(
         args,
         f"{args.id}: {', '.join(args.components)} frozen until {render.when(until)} as {freeze}; the job that merges the root fix lifts it"
@@ -993,7 +993,7 @@ def closed_prs(name: str, order_id: str, keys: list[str], why: str) -> list[str]
         def closed_prs_write(data: dict):
             data["prs"][key]["state"] = "closed"
 
-        state.update(name, None, closed_prs_write)
+        state.write(name, closed_prs_write)
         lines.append(f"{key} closed with {order_id}: {why}")
     return lines
 
@@ -1173,7 +1173,7 @@ def order_set(args: argparse.Namespace) -> int:
             order["last_line"] = order["updated"]
         return data, order, aimed, added, stopped, turning, taken, turned, unjoined
 
-    data, order, aimed, added, stopped, turning, taken, turned, unjoined = state.update(name, None, order_changed)
+    data, order, aimed, added, stopped, turning, taken, turned, unjoined = state.write(name, order_changed)
     restarted = fresh_marked(name, [args.id], order["text"], order["from"]) if args.fresh else []
     cards = thread_cards(name, order) if args.rework or (order["kind"], order["thread"]) != aimed else []
     reworked = rework_named_prs(name, args.id, reworks, cards, f"drive order set {args.id} --rework <PR>=<his permalink>")
@@ -1368,7 +1368,7 @@ def order_pilot(args: argparse.Namespace) -> int:
     def order_pilot_write(data: dict):
         data["reader_pilot"] = pilot
 
-    state.update(name, None, order_pilot_write)
+    state.write(name, order_pilot_write)
     line = f"reader pilot on {args.project} from {pilot['since']} until {pilot['until']}" if pilot else "reader pilot off: every build order's lanes start on a reader's research"
     return emit(args, line, {"reader_pilot": pilot})
 
@@ -1381,7 +1381,7 @@ def order_backlog(args: argparse.Namespace) -> int:
         held = [order_id for order_id in data["orders"] if state.on_backlog(data, order_id)]
         return held
 
-    held = state.update(name, None, order_backlog_write)
+    held = state.write(name, order_backlog_write)
     line = f"drive tooling backlog on, holding {len(held)} items" if args.switch == "on" else "drive tooling backlog off: a Drive tooling order a session files starts on its reader's research"
     return emit(args, line, {"tooling_backlog": args.switch == "on", "held": held})
 
@@ -1405,7 +1405,7 @@ def order_check(args: argparse.Namespace) -> int:
     def order_check_write(data: dict):
         data["orders"][args.id]["parts"][part]["check"].update(exit=code, said=render.cut(said, 300))
 
-    state.update(name, None, order_check_write)
+    state.write(name, order_check_write)
     return emit(args, f'{args.id} "{part}": its check exited {code}: {said}', {"id": args.id, "part": part, "exit": code, "said": said})
 
 
@@ -1461,7 +1461,7 @@ def order_posted(args: argparse.Namespace) -> int:
     def order_posted_write(data: dict):
         data["orders"][args.id]["parts"][undone].update(posted=None, posted_by=None)
 
-    state.update(name, None, order_posted_write)
+    state.write(name, order_posted_write)
     return emit(args, f'{args.id} "{undone}": not delivered', {"id": args.id, "part": undone, "posted": None})
 
 
@@ -1480,7 +1480,7 @@ def answered_by(name: str, order_id: str, part: str, link: str) -> tuple[str, di
     def answered_by_write(data: dict):
         data["orders"][order_id]["parts"][part]["posted"] = link
 
-    state.update(name, None, answered_by_write)
+    state.write(name, answered_by_write)
     return f'{order_id} "{part}": posted {link}, the post that answered it', {"id": order_id, "parts": [part], "posted": link}
 
 
@@ -1513,7 +1513,7 @@ def order_told(args: argparse.Namespace) -> int:
     def order_told_write(data: dict):
         state.kept_record(data, data["orders"][args.id]["reporters"][place])[1]["told"] = args.link
 
-    state.update(name, None, order_told_write)
+    state.write(name, order_told_write)
     where = f"told in the group DM of {args.group_dm}, him and the bot" if args.group_dm else "told in the reporter's thread"
     return emit(args, f"{args.id}: {where}, {args.link}", {"id": args.id, "told": args.link, "group_dm": args.group_dm})
 
@@ -1616,7 +1616,7 @@ def claim_close(name: str, report: dict) -> list[str]:
             data["orders"][order_id]["closed_on"] = report["seq"]
         return closes
 
-    closes = state.update(name, None, claim_close_write)
+    closes = state.write(name, claim_close_write)
     return closes
 
 
@@ -1625,7 +1625,7 @@ def unclaim_close(name: str, closes: list[str]) -> None:
         for order_id in closes:
             data["orders"][order_id]["closed_on"] = None
 
-    state.update(name, None, unclaim_close_write)
+    state.write(name, unclaim_close_write)
 
 
 def reported_parts(data: dict, order_id: str, order: dict, report: dict, items: list[tuple[str | None, str]]) -> list[str]:
@@ -1687,7 +1687,7 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
             order["parts"][part]["posted"] = link
         return order, rooted
 
-    order, rooted = state.update(name, None if until else (("orders", order_id),), keep)
+    order, rooted = state.write(name, keep)
     quoted = ", ".join(f'"{part}"' for part in delivered)
     said = f"{quoted}: posted" if delivered else f"{'closing' if closing else 'progress'} line, no part delivered:"
     away = "" if ours else f", {'in a thread of another channel its members read' if posted.get('thread_ts') else 'at the root of another channel'}, so it is no line to him"
@@ -1814,7 +1814,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         history = {key: state.pr_orders(data, key, args.order) for key in named}
         return data, job_id, job, builder_id, crowd, slotted, took, replaced, named, history, new_parts
 
-    data, job_id, job, builder_id, crowd, slotted, took, replaced, named, history, new_parts = state.update(name, None, job_added)
+    data, job_id, job, builder_id, crowd, slotted, took, replaced, named, history, new_parts = state.write(name, job_added)
     waiting = [f"{job_id} waits on {', '.join(job['waits'])}: start no agent for it until the watch's FREE line says its last wait ended"] if job["waits"] and not job["agent"] else []
     waiting += render.builder_lines(name, data, [builder_id] if builder_id else [])
     if crowd:
@@ -1822,7 +1822,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
         )
     queued = slotted.startswith("QUEUED")
-    started = [f"{job_id} {slotted}: the watch starts `{args.release}` by drive job release {job_id} once the slot is its, so start nothing for it"] if queued else state.after_save(name, lambda: started_release(name, job_id, args.release)) if args.release else []
+    started = [f"{job_id} {slotted}: the watch starts `{args.release}` by drive job release {job_id} once the slot is its, so start nothing for it"] if queued else state.after(lambda: started_release(name, job_id, args.release)) if args.release else []
     also = list(dict.fromkeys(order_id for orders in history.values() for order_id in orders))
     names = [f"{job_id} names {', '.join(named)}" + (f", also on {', '.join(also)}" if also else "") + ": drive status <id>"] if named else []
     names += state.asked_lines(data, args.goal)
@@ -1842,7 +1842,7 @@ def started_release(name: str, job_id: str, command: str) -> list[str]:
     def claimed(data: dict) -> None:
         data["jobs"][job_id]["waits"] += claim
 
-    state.update(name, None, claimed)
+    state.write(name, claimed)
     waits: list[str] = []
 
     def own(data: dict) -> None:
@@ -1853,7 +1853,7 @@ def started_release(name: str, job_id: str, command: str) -> list[str]:
         pid = state.detach(name, ["job", "release", job_id, *(["--session", session] if session else [])], RELEASES_LOG)
         waits = state.pid_waits(f"pid:{pid}")
     finally:
-        state.update(name, (("jobs", job_id, "waits"),), own)
+        state.write(name, own)
     return [f"{job_id} starts `{command}` in process {pid}, which keeps the build it starts as {job_id}'s Release build: line and writes its brief, its lines in {state.drive_dir(name) / RELEASES_LOG}: start no agent for it until the watch's FREE line on {job_id} names that brief"]
 
 
@@ -1876,21 +1876,21 @@ def job_release(args: argparse.Namespace) -> int:
             job["waits"] = [kept for wait in job["waits"] for kept in (mine if wait in starter else [wait])]
             state.drop_waits(data, args.id, dict.fromkeys(mine, f"{why}; drive job set {args.id} --state stopped ends it"))
 
-        state.update(name, None, job_release_write3)
+        state.write(name, job_release_write3)
         release_start_failed(name, args.id, command, failure)
         raise DriveError(f"{args.id}: {why}")
     build = answer["build"]["url"]
     def job_release_write(data: dict):
         data["jobs"][args.id]["release_build"] = build
 
-    state.update(name, None, job_release_write)
+    state.write(name, job_release_write)
     def job_release_write2(data: dict):
         job = data["jobs"][args.id]
         state.end_carried_designs(data, job["order"], job["created"])
         replaced = state.end_replaced(data, [job["order"]], job["created"])
         return replaced
 
-    replaced = state.update(name, None, job_release_write2)
+    replaced = state.write(name, job_release_write2)
     line, _ = write_brief(name, args.id, {})
     kicked = prebuild(name, args.id, command, answer.get("commit"))
     print("\n".join([*replaced, f"{args.id} started `{command}` as {build} and left it running: its agent follows it with `{answer['follow']}` and reads its approve hold", *kicked, line]))
@@ -1945,7 +1945,7 @@ def prebuild(name: str, job_id: str, command: str, commit: str | None) -> list[s
     def prebuild_write(data: dict):
         data["jobs"][job_id]["prebuild_build"] = url
 
-    state.update(name, None, prebuild_write)
+    state.write(name, prebuild_write)
     return [f"{job_id} kicked off {url}, which builds every image and app a release at {commit} adopts, so the production start at {commit} reuses them"]
 
 
@@ -2069,7 +2069,7 @@ def job_set(args: argparse.Namespace) -> int:
             data["jobs"][args.id]["undelivered"] = [kept for kept in data["jobs"][args.id]["undelivered"] if not kept.get("told")]
             return data
 
-        state.update(name, (("jobs", args.id),), heard_write)
+        state.write(name, heard_write)
         return emit(args, f"{args.id}: {len(told)} held text{'' if len(told) == 1 else 's'} of his marked heard", {"id": args.id, "heard": len(told)})
     stops = args.state == "stopped"
     already = f"{args.id} is already {found['state']}\n" if args.state == found["state"] else ""
@@ -2168,7 +2168,7 @@ def job_set(args: argparse.Namespace) -> int:
         state.end_carried_designs(data, job["order"], job["created"])
         replaced = state.end_replaced(data, [job["order"], *args.carries], job["updated"])
         return data, job, replaced
-    data, job, replaced = state.update(name, None, changed)
+    data, job, replaced = state.write(name, changed)
     owned = {pr["url"] for pr in data["prs"].values() if pr["job"] == args.id}
     cards = [card for card in fresh_pr_cards(name) if owned & set(card["prs"])] if args.carries else []
     reworked = [
@@ -2177,7 +2177,7 @@ def job_set(args: argparse.Namespace) -> int:
         for line in rework_named_prs(name, order_id, reworks, cards, f"drive job set {args.id} --carries {order_id} --rework <PR>=<his permalink>")
     ]
     stopping = [f"{args.id}'s lane launching since {render.when(job['launching'])} is ended as its worker starts"] if state.launch_in_flight(name, args.id, job) and overtaken(data, job) else []
-    ended = state.after_save(name, lambda: stopped_lane(name, args.id)) if stops else []
+    ended = state.after(lambda: stopped_lane(name, args.id)) if stops else []
     return emit(args, already + render.job_line(data, args.id, job) + "".join(f"\n{line}" for line in [*stopping, *replaced, *reworked, *ended]), {"id": args.id, **job})
 
 
@@ -2322,7 +2322,7 @@ def follow_card(name: str, waits: str, asked: set[str], url: str) -> None:
         for job in data["jobs"].values():
             job["waits"] = list(dict.fromkeys(waits if view.message_key(wait) in moved else wait for wait in job["waits"]))
 
-    state.update(name, None, follow_card_write)
+    state.write(name, follow_card_write)
 
 
 def job_ask(args: argparse.Namespace) -> int:
@@ -2381,7 +2381,7 @@ def drop_ask(name: str, job_id: str, file: Path) -> tuple[str | None, bool]:
         job["updated"] = state.stamp()
         return job, question
 
-    job, question = state.update(name, None, dropped)
+    job, question = state.write(name, dropped)
     if question is None:
         try:
             text = file.read_text()
@@ -2453,7 +2453,7 @@ def decision(name: str, job_id: str, question: dict, words: str) -> str:
         data["answers"][decided] = {"words": words, "link": question["card"], "at": moment, "said": moment, "cards": cards, "jobs": {}, "approves": None}
         return data
 
-    state.update(name, None, decision_write)
+    state.write(name, decision_write)
     return decided
 
 
@@ -2718,10 +2718,10 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
         if name in state.BATCHED:
             kept.write_text(text)
         else:
-            state.after_save(name, lambda: state.publish(kept, text, lambda data: any(other["file"] == str(kept) and other["hash"] == hashed for each in data["jobs"].values() for other in each["questions"])))
+            state.after(lambda: state.publish(kept, text, lambda data: any(other["file"] == str(kept) and other["hash"] == hashed for each in data["jobs"].values() for other in each["questions"])))
         return kept, question
 
-    kept, question = state.update(name, None, ask_kept)
+    kept, question = state.write(name, ask_kept)
     if question["replaced"]:
         return kept, asked, question, str(kept)
     if steps := state.unscheduled_job(state.load(name), job_id):
@@ -2783,7 +2783,7 @@ def keep_closed(name: str, job_id: str, text: str, kept: Path, title: str, unset
             if not any(target is twin for twin in twins):
                 superseded.end(data, asker, target, question["closed"])
         return question, job
-    question, job = state.update(name, None, questioned)
+    question, job = state.write(name, questioned)
     return question, job
 
 
@@ -2808,7 +2808,7 @@ def ask_card(name: str, job_id: str, file: Path) -> dict:
         question["waits"] = question["waits"] or state.new_waits(name, job_id)
         return question
 
-    question = state.update(name, None, ask_card_write)
+    question = state.write(name, ask_card_write)
     try:
         return question_card(name, file, question["waits"])
     except DriveError as error:
@@ -2861,7 +2861,7 @@ def post_ask(name: str, job_id: str, file: Path, card: dict) -> str:
         ended = [(job_id, other) for other in doubled] + fold_onto(data, live)
         return ended
 
-    ended = state.update(name, None, post_ask_write)
+    ended = state.write(name, post_ask_write)
     return "; ".join([f"his card {link} asks it under {card['waits']}", *superseded.follow(name, ended)])
 
 
@@ -3012,7 +3012,7 @@ def refuse_draw(name: str, job_id: str, path: Path, waits: str, refusal: str) ->
         question.update(refused=refusal, waits=question["waits"] or waits)
         job["updated"] = state.stamp()
 
-    state.update(name, None, refused)
+    state.write(name, refused)
 
 
 def card_source(name: str, args: argparse.Namespace) -> tuple[Path, str]:
@@ -3079,7 +3079,7 @@ def question_card(name: str, path: Path, waits: str) -> dict:
             if question := state.kept_in(data["jobs"][job_id], path):
                 question["recorded"] = recorded
 
-        state.update(name, None, question_card_write)
+        state.write(name, question_card_write)
     return card
 
 
@@ -3294,7 +3294,7 @@ def cards_withdraw(args: argparse.Namespace) -> int:
             ended = [each for job_id, question in drawn for each in superseded.end(data, job_id, question, closed)]
         return data, drawn, ended, live
 
-    data, drawn, ended, live = state.update(name, None, cards_withdrawn)
+    data, drawn, ended, live = state.write(name, cards_withdrawn)
     if not drawn:
         raise DriveError(f"{args.card}: no open question of this drive is drawn on that card, by its waits id or permalink; drive status <job> names the card each question is drawn on")
     if onto:
@@ -3346,7 +3346,7 @@ def ask_source(name: str, shown: dict) -> Path:
             job["questions"].append(state.new_question(str(rebuilt), title, shown["asked"], card=url, holds=limits.redrawn(rebuilt.read_text()).holds) | {"waits": waits})
             state.join_card(data, job_id, url)
 
-    state.update(name, None, source_kept)
+    state.write(name, source_kept)
     return rebuilt
 
 
@@ -3424,7 +3424,7 @@ def take_report(name: str, job_id: str, whole: str, read_prs: bool = True, tell:
     kept = str(state.replies_path(name, job_id))
     where = f"kept {job_id}'s report: {line}" if os.environ.get(state.OWN_JOB_ENV) else kept
     if job["state"] == "stopped":
-        state.after_save(name, lambda: state.keep_report(name, job_id, line, whole) or [])
+        state.after(lambda: state.keep_report(name, job_id, line, whole) or [])
         return f"{where}\n{job_id} stays stopped: this return sets nothing on it", {"id": job_id, "report": kept, "ask": None, "fixes": [], "builders": []}
     if repro := named_repro(job_id, job, whole):
         job["repro"] = str(repro)
@@ -3441,7 +3441,7 @@ def take_report(name: str, job_id: str, whole: str, read_prs: bool = True, tell:
     if repro:
         def repro_kept(data: dict):
             data["jobs"][job_id]["repro"] = keep_repro(name, job_id, job["kind"], str(repro))
-        state.update(name, None, repro_kept)
+        state.write(name, repro_kept)
     try:
         registered = register_named(name, job_id, line)
     except DriveError as error:
@@ -3458,7 +3458,7 @@ def take_report(name: str, job_id: str, whole: str, read_prs: bool = True, tell:
                 asked, _, _, said = keep_ask(name, job_id, whole.strip(), None)
         except DriveError as error:
             raise DriveError(f"{job_id}: refused, its report not kept: a reader's DESIGN is his card as it stands, kept as its ASK, and drive job ask refused it: {error}") from None
-    state.after_save(name, lambda: state.keep_report(name, job_id, line, whole) or [])
+    state.after(lambda: state.keep_report(name, job_id, line, whole) or [])
     fixes = []
     for key in state.untracked_fixes(data, job_id, line, whole):
         try:
@@ -3477,13 +3477,13 @@ def take_report(name: str, job_id: str, whole: str, read_prs: bool = True, tell:
         rebriefed = brief.unstarted_builders(data, job_id) if job["kind"] == "reader" and data["jobs"][job_id]["state"] == "done" else []
         brief.name_goals(name, data, rebriefed, whole)
         return data, replaced, added, rebriefed, superseded.unnamed(data, job_id, whole, asked and str(asked))
-    data, replaced, added, rebriefed, unnamed = state.update(name, None, reported)
+    data, replaced, added, rebriefed, unnamed = state.write(name, reported)
     withdrawn = [
         f"weigh: his card {question['card'] or question['waits']} still asks him and this return names it nowhere; if the work went on without it,"
         f' withdraw it now with drive cards withdraw {question["waits"] or question["card"]} --words "<what happened>"'
         for _, question in unnamed
     ]
-    briefed = state.after_save(name, lambda: [f"{builder_id}: {write_brief(name, builder_id, {})[0]}" for builder_id in rebriefed])
+    briefed = state.after(lambda: [f"{builder_id}: {write_brief(name, builder_id, {})[0]}" for builder_id in rebriefed])
     told = state.load(name)
     started = render.builder_lines(name, data, added)
     if tell and (taken := told["jobs"][job_id])["said"] and not state.PUSHED_LINE.match(taken["said"]) and not state.agent_lane(told, taken):
@@ -3509,7 +3509,7 @@ def register_named(name: str, job_id: str, line: str) -> list[str]:
         if key.casefold() in tracked:
             continue
         _, testers = add_pr(name, key, job_id, github_pr(key), lead={})
-        added += [f"{key}: registered on {job_id}{''.join(state.after_save(name, lambda key=key: [drawn_card(name, key)]))}", *render.builder_lines(name, state.load(name), testers)]
+        added += [f"{key}: registered on {job_id}{''.join(state.after(lambda key=key: [drawn_card(name, key)]))}", *render.builder_lines(name, state.load(name), testers)]
     return added
 
 
@@ -3567,7 +3567,7 @@ def keep_repro(name: str, job_id: str, kind: str, source: str) -> str:
         staged.unlink()
         return []
 
-    state.after_save(name, copied)
+    state.after(copied)
     return str(kept)
 
 
@@ -3753,13 +3753,13 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
     def briefed(data: dict) -> bool | None:
         if data["jobs"][job_id].get("brief_flags") != over:
             return None
-        state.after_save(name, kept)
+        state.after(kept)
         data["jobs"][job_id].update(brief=str(written), brief_flags=flags, researched=brief.research_links(data, data["jobs"][job_id], text))
         if given := bool(brief.SERVES_TOOLING.search(text)) and data["orders"][job["order"]]["owner"] != "meta":
             data["orders"][job["order"]]["owner"] = "meta"
         return given
 
-    if (given := state.update(name, None, briefed)) is None:
+    if (given := state.write(name, briefed)) is None:
         return None
     line = f"Read your brief first: {written}\nhis words from {', '.join([job['order'], *job['carries']])}, rulings: {len(rulings)}, earlier jobs: {len(earlier)}"
     if given:
@@ -3875,7 +3875,7 @@ def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
             state.start(job)
             superseded.hear(data, job_id, written, state.now())
 
-        state.update(name, None, codex_started)
+        state.write(name, codex_started)
     return folder
 
 
@@ -3909,7 +3909,7 @@ def job_start(args: argparse.Namespace) -> int:
             data["jobs"][args.id]["bg"] = {"agent": agent, "session": None, "started": state.stamp(), "cwd": str(cwd), "pointed": []}
             return data
 
-        data = state.update(name, None, job_start_write)
+        data = state.write(name, job_start_write)
         try:
             session = agents.start_job(name, args.id, agent, call, held, cwd)
         except (reads.ReadError, state.DriveError) as error:
@@ -3917,14 +3917,14 @@ def job_start(args: argparse.Namespace) -> int:
                 data["jobs"][args.id]["bg"] = None
                 return data
 
-            data = state.update(name, None, job_start_write3)
+            data = state.write(name, job_start_write3)
             raise DriveError(f"{args.id}: refused, not started: claude --bg started no agent: {error}") from None
         def job_start_write2(data: dict):
             data["jobs"][args.id]["bg"]["session"] = session
             data["jobs"][args.id].update(agent=agent, launching=None)
             state.start(data["jobs"][args.id])
 
-        state.update(name, None, job_start_write2)
+        state.write(name, job_start_write2)
     return emit(args, f"{args.id} started as agent {agent}, its own claude --bg session {session}: start no agent for it", {"id": args.id, "agent": agent, "session": session})
 
 
@@ -4053,7 +4053,7 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None, resume: bool
                 state.hold_text(data["jobs"][args.id], text, sender)
                 state.told(data["jobs"][args.id], [text])
 
-            state.update(name, None, held_first)
+            state.write(name, held_first)
             line = (
                 f"{args.id}: held for its first worker under {state.since_heading(sender)}, since none has started: it waits its turn for a builder slot on this Mac,"
                 f" {places[args.id]}, and the watch starts that worker as its turn comes, its brief carrying each text the job holds, and says when it goes"
@@ -4128,7 +4128,7 @@ def deliver_held(name: str, job_id: str, job: dict, lane: str, held: list[dict])
         data["jobs"][job_id]["undelivered"] = [kept for kept in data["jobs"][job_id]["undelivered"] if kept["request"] not in taken]
         return data
 
-    state.update(name, (("jobs", job_id),), deliver_held_write)
+    state.write(name, deliver_held_write)
     if OWED in line and state.session_lane(state.load(name), os.environ.get("CLAUDE_CODE_SESSION_ID")) != lane:
         his = any(kept["sender"] == state.HIM for kept in held)
         tools.sent(name, state.WATCH_SENDER, [{"kind": "handoff", "to": [f"{lane}@{name}"], "attr": {"order": job["order"], "job": job_id, "urgent": "true"}, "text": f"{job_id}: {'his words: ' if his else ''}{line[line.index(OWED):]}"}])
@@ -4153,7 +4153,7 @@ def deliver_to_order(name: str, job_id: str, job: dict, held: list[dict]) -> str
             data["jobs"][job_id]["undelivered"] = [kept for kept in data["jobs"][job_id]["undelivered"] if kept["request"] not in taken]
             return data
 
-        state.update(name, None, handed_write)
+        state.write(name, handed_write)
         return f"{job_id}: its held texts went to {taker}, which took its work"
     lane = state.holding_lane(data, data["orders"][job["order"]])
     why = f"returned {job['state']}" if job["state"] in superseded.FRESH_STATES else "waits only on his own open cards"
@@ -4169,7 +4169,7 @@ def deliver_to_order(name: str, job_id: str, job: dict, held: list[dict]) -> str
                 kept["told"] = seq
         return data
 
-    state.update(name, (("jobs", job_id),), told_write)
+    state.write(name, told_write)
     return f"{job_id}: his held words went to {lane}@{name}, which holds its order, as record {seq} to read"
 
 
@@ -4217,14 +4217,14 @@ def own_post(name: str, job_id: str, session: str, seq: str) -> str:
         def own_post_write(data: dict):
             data["jobs"][job_id]["bg"]["pointed"].append(pointer)
 
-        state.update(name, None, own_post_write)
+        state.write(name, own_post_write)
         return f"{job_id}: posted to its own session {session}'s cci address as handoff record {seq}, which its next step reads"
     if why := fresh_start(bg):
         old = watch.session_transcript(bg)
         def fresh_write(data: dict):
             state.hold_text(data["jobs"][job_id], f"Your previous session {bg['session']} {why}, so you start fresh on your brief: read its transcript, {old}, for the work it did before you go on.", state.held_sender(data))
 
-        state.update(name, None, fresh_write)
+        state.write(name, fresh_write)
         state.detach(name, ["job", "start", job_id], watch.RELAUNCHES_LOG)
         return f"{job_id}: posted as handoff record {seq}; its session {session} {why}, so drive job start starts a fresh agent on its brief, holding its texts and a pointer to {old}"
     try:
@@ -4245,13 +4245,13 @@ def hold(name: str, job_id: str, text: str, sender: str | None) -> None:
     """Keep the text on the job's undelivered list with who sent it by state.hold_text before any Orca call, so an outage delays it and never drops it."""
     def held(data: dict):
         state.hold_text(data["jobs"][job_id], text, sender)
-    state.update(name, None, held)
+    state.write(name, held)
 
 
 def hold_unread(name: str, job_id: str, lane: dict) -> list[str]:
     """Hold on the job each text the lane's ended worker never read, read by orca.mailbox from the Orca that keeps that worker's Dispatch mailbox, since Orca shows a finished worker none of its mail and a relaunch carries only what the job holds, so the job's next worker gets each as any held text gets there, and take off the job's queued list each text that mailbox shows read or holds, by state.take_mail; the texts held that the job did not hold already. The lane is the job as the watch read it with that worker, so a relaunch since then never has its live worker's mail held. OrcaError when that mailbox cannot be read."""
     box = orca.mailbox(lane, lane["dispatch"])
-    return state.update(name, None, lambda data: state.take_mail(data["jobs"][job_id], box, True))
+    return state.write(name, lambda data: state.take_mail(data["jobs"][job_id], box, True))
 
 
 def deliver(args: argparse.Namespace, name: str, text: str | None = None) -> int:
@@ -4313,7 +4313,7 @@ def messaged(args: argparse.Namespace, name: str, job: dict, held: list[dict], n
             left.setdefault("holds", holds)
         return holds
 
-    holds = state.update(name, None, holds_kept)
+    holds = state.write(name, holds_kept)
     hows = []
     for index, kept in enumerate([*held, *filter(None, [note])]):
         try:
@@ -4352,7 +4352,7 @@ def sent_kept(name: str, job_id: str, sent: dict) -> dict:
         superseded.hear(data, job_id, sent["words"], state.parse_time(sent["at"]))
         return fresh
 
-    fresh = state.update(name, None, sent_kept_write)
+    fresh = state.write(name, sent_kept_write)
     return fresh
 
 
@@ -4368,7 +4368,7 @@ def unsent(args: argparse.Namespace, name: str, job: dict, held: list[dict], err
         def unsent_write(data: dict):
             state.told(data["jobs"][args.id], [kept["words"] for kept in held])
 
-        state.update(name, None, unsent_write)
+        state.write(name, unsent_write)
     unkept = note and "the watch's note to carry the job on reached no one and is not kept, since it was written for this wake or restart alone"
     line = f"{args.id}: {'held, not sent yet' if held else 'not sent'}: {error}; " + "; ".join(filter(None, [keeps, unkept]))
     return emit(args, line, {"id": args.id, "how": "held" if held else "unsent", "held": [kept["request"] for kept in held]})
@@ -4427,7 +4427,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
                 state.hold_text(job, text, state.held_sender(data))
             return job
 
-        job = state.update(name, None, launched_write)
+        job = state.write(name, launched_write)
         place.counted_again()
     kept.parent.mkdir(exist_ok=True)
     try:
@@ -4452,7 +4452,7 @@ def admission_refusal(name: str, data: dict, job_id: str, local: bool, step: str
         place.queue_sprite(data["jobs"][job_id], state.now())
         return data
 
-    data = state.update(name, None, admission_refusal_write)
+    data = state.write(name, admission_refusal_write)
     if job_id not in (line := place.sprite_line(data)):
         return f"{why}, so {job_id} waits on sprite-slot until its project's budget resets tomorrow, and the watch launches it then"
     return f"{why}, so {job_id} waits its turn for a Sprite lane, {line.index(job_id) + 1} of {len(line)} in line, and the watch launches it as one frees"
@@ -4488,7 +4488,7 @@ def crowded_here(name: str, data: dict, job_id: str, step: str | None, text: str
         place.queue(data["jobs"][job_id], state.now())
         return data
 
-    data = state.update(name, None, crowded_here_write)
+    data = state.write(name, crowded_here_write)
     move = "moves it here from its Sprite" if place.on_sprite(job) else f"hands it from its agent {job['agent']} to a lane here"
     turn = f"the watch {move} with drive job launch {job_id} --local as its turn comes, its handoff carrying the texts the job holds" if moving else "the watch's FREE line names it as a slot opens"
     return f"{why}, so {job_id} waits its turn for a builder slot on this Mac, {place.positions(data)[job_id]}, and {turn}"
@@ -4527,7 +4527,7 @@ def record_start(name: str, job_id: str, started: dict | None, handoff: str | No
             superseded.hear_start(data, job_id)
         return job
 
-    job = state.update(name, None, record_start_write)
+    job = state.write(name, record_start_write)
     return job
 
 
@@ -4651,7 +4651,7 @@ def hand_over(args: argparse.Namespace, name: str, data: dict, session: str) -> 
     def hand_over_write(data: dict):
         data["jobs"][args.id].update(handoff=str(kept), updated=state.stamp())
 
-    state.update(name, None, hand_over_write)
+    state.write(name, hand_over_write)
     line = (
         f"Read your brief first: {kept}\n{args.id} ran as agent {job['agent']} of session {job['session']}, which ended with that session:"
         f" start a fresh {job['kind']} agent here on the line above as its whole prompt, and the drive records {args.id} as this session's"
@@ -4745,7 +4745,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
         data["jobs"][args.id] = job | {"route": route}
         return data, job
 
-    data, job = state.update(name, None, restart_write)
+    data, job = state.write(name, restart_write)
     ended = job["deaths"][-1]
     kept = launch_brief(name, args.id, job)
     attempt = kept.stem
@@ -4817,7 +4817,7 @@ def resume_session(args: argparse.Namespace, name: str, dispatch: str, end: orca
         state.lane_died(job, dispatch, end.why, state.now(), cause)
         return data, job
 
-    data, job = state.update(name, None, resume_session_write)
+    data, job = state.write(name, resume_session_write)
     ended = job["deaths"][-1]
     attempt = f"{args.id}-{len(job['deaths']) + 1}"
     kept = state.drive_dir(name) / "jobs" / f"{attempt}.resume.md"
@@ -4857,7 +4857,7 @@ def slot_claim(args: argparse.Namespace) -> int:
         line = state.slot_claim(data, args.env, args.job, args.minutes, prs, args.cases, state.now(), paths, stacks, release=providers.of(data).release)
         return line
 
-    line = state.update(name, None, slot_claim_write)
+    line = state.write(name, slot_claim_write)
     return emit(args, line, {"env": args.env, "job": args.job, "line": line})
 
 
@@ -4877,7 +4877,7 @@ def slot_hand(args: argparse.Namespace) -> int:
         stopped = [member["job"] for member in before if data["jobs"][member["job"]]["state"] not in state.SLOT_LIVE_END]
         return entry, line, steps, stopped, until
 
-    entry, line, steps, stopped, until = state.update(name, None, slot_hand_write)
+    entry, line, steps, stopped, until = state.write(name, slot_hand_write)
     for job_id in stopped:
         state.detach(name, ["job", "resume", job_id, state.SLOT_STOP.format(env=args.env, to=args.to)], watch.RELAUNCHES_LOG)
     command = ["job", "release", args.to] if entry["starts"] else ["job", "resume", args.to, f"GO staging {args.env} until {until}: {steps}"]
@@ -4896,7 +4896,7 @@ def mac_box_handed(args: argparse.Namespace) -> int:
             raise DriveError(f"{args.job}: refused, nothing written: it waits on no Mac box ({', '.join(job['waits']) or 'no waits'}), so a WAITING naming mac-box:<box> or mac-box:any is what this frees")
         return marked
 
-    marked = state.update(name, None, handed)
+    marked = state.write(name, handed)
     state.append_event(name, "mac_box_handed", job=args.job, box=args.box, host=args.host, ended=marked)
     line = f"{args.job} has Mac box {args.box}{f' on {args.host}' if args.host else ''}: {', '.join(marked)} ended, so the watch frees it on its next pass"
     return emit(args, line, {"job": args.job, "box": args.box, "ended": marked})
@@ -4917,7 +4917,7 @@ def slot_hold(args: argparse.Namespace) -> int:
             line = state.slot_hold(data, args.env, args.held, state.parse_time(args.until), args.reason, state.now())
         return "; ".join([line, *(state.slot_take(data, args.env, job_id) for job_id in args.take)])
 
-    line = state.update(name, None, slot_held)
+    line = state.write(name, slot_held)
     for job_id in args.take:
         state.detach(name, ["job", "resume", job_id, state.SLOT_TAKEN.format(env=args.env)], watch.RELAUNCHES_LOG)
     return emit(args, line + "".join(f"; {job_id} told NO-START" for job_id in args.take), {"env": args.env, "line": line, "taken": args.take})
@@ -4930,7 +4930,7 @@ def slot_release(args: argparse.Namespace) -> int:
         line = state.slot_release(data, args.env, args.job)
         return line
 
-    line = state.update(name, None, slot_release_write)
+    line = state.write(name, slot_release_write)
     return emit(args, line, {"env": args.env, "job": args.job, "line": line})
 
 
@@ -4943,7 +4943,7 @@ def work_enable(args: argparse.Namespace) -> int:
         data["work"]["kinds"] = [kind for kind in kinds if kind != args.kind] if args.off else list(dict.fromkeys([*kinds, args.kind]))
         return data["work"]["kinds"]
 
-    kinds = state.update(name, None, work_enable_write)
+    kinds = state.write(name, work_enable_write)
     return emit(args, f"{name}: the queue runs {', '.join(kinds) or 'no kind of work'}", {"kinds": kinds})
 
 
@@ -5116,7 +5116,7 @@ def end_lane(name: str, job_id: str) -> tuple[str, dict]:
         state.lane_death(ended, "dispatch")["ended"] = {"pid": os.getpid(), "at": state.stamp()}
         return ended, already, fresh
 
-    ended, already, fresh = state.update(name, None, ending)
+    ended, already, fresh = state.write(name, ending)
     if already:
         line = f"{job_id}'s lane was already ended by the drive job end of {state.lane_death(ended, "dispatch")['ended']['at']}, so nothing changed; {job_id} stays {ended['state']}"
         return line, {"id": job_id, "state": ended["state"], "already": True}
@@ -5164,7 +5164,7 @@ def evict_kept(name: str, job_id: str, root: Path) -> list[str]:
                 def evict_kept_write(data: dict):
                     state.lane_death(data["jobs"][other], "dispatch")["ended"]["kept"] = False
 
-                state.update(name, None, evict_kept_write)
+                state.write(name, evict_kept_write)
         except DriveError:
             continue
     return lines
@@ -5189,7 +5189,7 @@ def end_kept(name: str, job_id: str, result: dict) -> dict:
                 death["ended"]["kept"] = True
         return ended
 
-    ended = state.update(name, None, end_kept_write)
+    ended = state.write(name, end_kept_write)
     return ended
 
 
@@ -5214,7 +5214,7 @@ def job_reclaim(args: argparse.Namespace) -> int:
                 state.death_on(data["jobs"][args.id], args.lane)["kept"] = state.stamp()
                 return data
 
-            data = state.update(name, None, job_reclaim_write2)
+            data = state.write(name, job_reclaim_write2)
             raise Kept(
                 f"{args.id}: refused, Sprite {args.lane} is kept, and the watch asks to save and destroy it again in an hour: {error}. Destroying it unread may lose what it holds on no remote,"
                 f" so only his pick does that; drive job reclaim {args.id} {args.lane} asks again, saving it first"
@@ -5224,7 +5224,7 @@ def job_reclaim(args: argparse.Namespace) -> int:
     def job_reclaim_write(data: dict):
         state.death_on(data["jobs"][args.id], args.lane)["freed"] = state.stamp()
 
-    state.update(name, None, job_reclaim_write)
+    state.write(name, job_reclaim_write)
     return emit(args, reclaimed, {"id": args.id, "lane": args.lane, "reclaimed": reclaimed})
 
 
@@ -5253,7 +5253,7 @@ def pr_add(args: argparse.Namespace) -> int:
     kept = data["prs"].get(key, {}).get("lead")
     pr, testers = add_pr(name, key, args.job, github_pr(key), args.port_of, args.exempt, args.no_tap, lead, args.part, args.waits)
     shown = view.card_for((view.live_cards(name) or view.NO_CARDS)["pr_cards"], pr["url"])
-    drawn = state.after_save(name, lambda: [f"{key}{said}"] if (said := (releaded(pr) if pr["lead"] != kept else "") if shown else drawn_card(name, key)) else [])
+    drawn = state.after(lambda: [f"{key}{said}"] if (said := (releaded(pr) if pr["lead"] != kept else "") if shown else drawn_card(name, key)) else [])
     data = state.load(name)
     return emit(args, "\n".join([*(drawn or [key]), *render.builder_lines(name, data, testers)]), {"key": key, **data["prs"][key]})
 
@@ -5337,7 +5337,7 @@ def wake_pr(args: argparse.Namespace) -> int:
                 owed.append(any(kept["words"].startswith("STAGE ") for kept in held["jobs"][job_id]["undelivered"]))
                 state.hold_text(held["jobs"][job_id], f"STAGE {text}", state.held_sender(held))
 
-            state.update(name, None, staged)
+            state.write(name, staged)
         if queued and not fresh:
             return emit(args, f"{key}: held on {job_id}, which waits its turn for a builder slot on this Mac, for the worker the watch starts as its turn comes", {"key": key, "job": job_id, "how": "held"})
         if resumed and owed[0]:
@@ -5441,7 +5441,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
             pr["tap"] = state.new_tap("Approve", read["headRefOid"], data["answers"][approval]["link"], card=[key], approval=approval)
         return pr, testers
 
-    pr, testers = state.update(name, None, add_pr_write)
+    pr, testers = state.write(name, add_pr_write)
     note_third_person(key, read)
     return pr, [tester for tester in testers if tester]
 
@@ -5569,12 +5569,12 @@ def pr_set(args: argparse.Namespace) -> int:
             delivering += shipped(data, pr["job"], order, args.part)
         return data, pr, serves_line, testers, delivering
 
-    data, pr, serves_line, testers, delivering = state.update(name, None, pr_kept)
+    data, pr, serves_line, testers, delivering = state.write(name, pr_kept)
     serving += serves_line + "".join(f"\n{line}" for line in render.builder_lines(name, data, testers)) + delivering
     untapped = f"\ndropped the {dropped['label']} the drive gave itself ({dropped['source']}): {args.why}" if args.no_tapped else ""
     lane = state.heard_lane(data, order)
     withdrawn: list[str] = []
-    told = state.after_save(name, lambda: set_outside(name, key, pr["url"], args, dropped, lane, withdrawn))
+    told = state.after(lambda: set_outside(name, key, pr["url"], args, dropped, lane, withdrawn))
     view.refresh_cards(name)
     found, source = view.stored_cards(name)
     found = found if source == "live" else None
@@ -6109,13 +6109,13 @@ def answer(args: argparse.Namespace) -> int:
             superseded.record(data, args.id, args.words, args.link[0], asked, bound, state.stamp(), drive)
             return data
 
-        data = state.update(name, None, answer_kept)
+        data = state.write(name, answer_kept)
     elif drive:
         def answer_write3(data: dict):
             superseded.tooling_only(data, data["answers"][args.id], superseded.listed(data, data["answers"][args.id], asked))
             return data
 
-        data = state.update(name, None, answer_write3)
+        data = state.write(name, answer_write3)
     if cited and args.title and settled.titled(args.title) != cited["title"]:
         done.append(f'his answer {args.id} now answers "{render.cut(settled.retitled(cited, args.title, cwd), 200)}" in cc-notes, where it answered "{render.cut(cited["title"], 200)}"')
     if cited:
@@ -6126,7 +6126,7 @@ def answer(args: argparse.Namespace) -> int:
             ended = superseded.answer_cards(data, args.id, data["answers"][args.id])
             return data, ended
 
-        data, ended = state.update(name, None, answer_write2)
+        data, ended = state.write(name, answer_write2)
         done += superseded.follow(name, ended) + superseded.supersede_taps(name, ended)
         kept = data["answers"][args.id]
         areal = state.area_orders(data, [*(cited["tags"] if cited else []), *args.label])
@@ -6177,7 +6177,7 @@ def answer(args: argparse.Namespace) -> int:
             superseded.heard(data, job_id, data["answers"][args.id], "untouched")
         return data
 
-    data = state.update(name, None, marked)
+    data = state.write(name, marked)
     cleared: set[str] = set()
     try:
         done += [settle_card(name, args.id, kept, key, asked[key], file) for key, file in args.settled]
@@ -6195,7 +6195,7 @@ def answer(args: argparse.Namespace) -> int:
                     return data, superseded.drop_order(data, args.id, order_id)
                 return data, [line for key in keys for line in superseded.drop(data, args.id, order_id, asked[key]["title"])]
 
-            data, lines = state.update(name, None, dropped_order)
+            data, lines = state.write(name, dropped_order)
             done += lines
         for key in args.dropped:
             entry = asked[key]
@@ -6206,7 +6206,7 @@ def answer(args: argparse.Namespace) -> int:
                     data["answers"][args.id]["cards"][key] = {"mark": "dropped", "job": None, "card": None}
                     return data, superseded.drop(data, args.id, entry["order"], entry["title"])
 
-                data, lines = state.update(name, None, dropped_part)
+                data, lines = state.write(name, dropped_part)
                 done += lines
                 continue
             if (card := entry["card"]) and card not in cleared or entry["kind"] == "question" and not card:
@@ -6220,7 +6220,7 @@ def answer(args: argparse.Namespace) -> int:
                     superseded.owe(data, args.id, entry["job"])
                 return data, [*([f"{key}: its card {card} now shows his words and a link to them, with no buttons, its question withdrawn"] if card else []), *superseded.unasked(data, key, entry)]
 
-            data, lines = state.update(name, None, dropped_card)
+            data, lines = state.write(name, dropped_card)
             done += lines
         for mark, key, job_id in [*(("superseded", *pair) for pair in args.superseded), *(("reopened", *pair) for pair in args.reopened)]:
             card = asked[key]["card"]
@@ -6229,7 +6229,7 @@ def answer(args: argparse.Namespace) -> int:
                     data["answers"][args.id]["cards"][key] = {"mark": mark, "job": job_id, "card": card}
                     return data
 
-                data = state.update(name, None, answer_write4)
+                data = state.write(name, answer_write4)
                 done += [*rework_prs(name, [{"key": key, "words": kept["words"], "link": kept["link"]}], args.id), f"{key} reopened by his answer {args.id}: {job_id} reworks it to his words, so brief {job_id} with them"]
                 continue
             if card and card not in cleared or asked[key]["kind"] == "question" and not card:
@@ -6241,7 +6241,7 @@ def answer(args: argparse.Namespace) -> int:
                 data["answers"][args.id]["cards"][key] = {"mark": mark, "job": asked[key]["job"], "into": job_id, "card": card}
                 return data, [*([f"{key}: its card {card} now shows his words and a link to them, with no buttons"] if card else [f"{key}: no card was drawn for it"]), *superseded.supersede(data, args.id, key, asked[key], job_id)]
 
-            data, lines = state.update(name, None, superseded_card)
+            data, lines = state.write(name, superseded_card)
             done += lines
     finally:
         if args.approves or args.settled or args.dropped or args.superseded or args.reopened:
@@ -6252,7 +6252,7 @@ def answer(args: argparse.Namespace) -> int:
             kept["cards"].update({key: {"mark": "stands"} for key in superseded.unmarked(kept, asked)})
         return data, kept
 
-    data, kept = state.update(name, None, answer_write)
+    data, kept = state.write(name, answer_write)
     data = watch.hear_sent(name, set(superseded.unheard(data, kept)))
     kept = data["answers"][args.id]
     if (left := superseded.unmarked(kept, asked)) or superseded.unheard(data, kept):
@@ -6307,7 +6307,7 @@ def ended_on(name: str, closed: dict, key: str, card: str | None, shown: str = "
         ended = [each for job_id, question in drawn if question["closed"] is None for each in superseded.end(data, job_id, question, closed)]
         return drawn, ended
 
-    drawn, ended = state.update(name, None, ended_on_write)
+    drawn, ended = state.write(name, ended_on_write)
     if drawn:
         return superseded.follow(name, ended, shown)
     superseded.settle(card, closed, settled=closed["how"] == "answered")
@@ -6325,7 +6325,7 @@ def settle_card(name: str, answer_id: str, kept: dict, key: str, entry: dict, fi
         if job["state"] not in state.FINISHED_JOB_STATES:
             data["answers"][answer_id]["jobs"].setdefault(job_id, None)
 
-    state.update(name, None, settle_card_write)
+    state.write(name, settle_card_write)
     if file:
         return f"{key}: its card {card} is redrawn in place to {file}, asking only what his answer {answer_id} leaves open, as drive job ask {job_id} --redraws {key} drew it"
     shown = f"its card {card} now shows his answer {answer_id} with no buttons" if card else f"no card draws for it, his answer {answer_id} ending its question"
@@ -6357,7 +6357,7 @@ def approve(name: str, answer_id: str, asked: dict[str, dict], named: list[str])
             if data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES:
                 data["answers"][answer_id]["jobs"].setdefault(job_id, None)
 
-        state.update(name, None, decided)
+        state.write(name, decided)
         shown = f"its card {question['card']} now shows it" if question["card"] else "no card draws for it"
         done.append(f'{key}: decided on "{render.cut(option, 200)}" under his approval {answer_id[:7]}, {shown}; {builds_on(state.load(name), job_id)}')
     def approved(data: dict) -> list[str]:
@@ -6369,7 +6369,7 @@ def approve(name: str, answer_id: str, asked: dict[str, dict], named: list[str])
             data["answers"][answer_id]["cards"][key] = {"mark": "stands"}
         return tapped
 
-    tapped = state.update(name, None, approved)
+    tapped = state.write(name, approved)
     for key in tapped:
         done.append(f"{key}: his Approve taken from his approval {answer_id[:7]} at {kept['link']}, so no card asks his tap")
     return done
@@ -6460,7 +6460,7 @@ def page_owner(args: argparse.Namespace) -> int:
         def page_owner_write(data: dict):
             data["orders"][args.order].update(paged=state.stamp(), users=users)
 
-        state.update(name, None, page_owner_write)
+        state.write(name, page_owner_write)
     return emit(args, paged, {"paged": paged, "order": args.order})
 
 
@@ -6627,7 +6627,7 @@ def term(args: argparse.Namespace) -> int:
     def term_write(data: dict):
         data["stand_ins"][args.stand_in] = args.term
 
-    state.update(name, None, term_write)
+    state.write(name, term_write)
     line = f'say\'s hook finds "{args.stand_in}" from now on, naming "{args.term}", for Jev to judge against his words'
     return emit(args, line, {"stand_in": args.stand_in, "term": args.term})
 
@@ -6824,7 +6824,7 @@ def open_channel(name: str, project: str | None) -> dict:
     def open_channel_write(fresh: dict):
         fresh["slack"]["channels"][project or ""] = fresh["slack"]["channels"].get(project or "", {}) | {"id": made["id"], "name": made["name"]}
 
-    state.update(name, None, open_channel_write)
+    state.write(name, open_channel_write)
     slack.whoami.cache_clear()
     return made
 
@@ -6859,7 +6859,7 @@ def channels(args: argparse.Namespace) -> int:
                 def cards_joined(fresh: dict) -> None:
                     state.join_pr_cards(fresh, stack, [url], state.stamp())
 
-                state.update(name, None, cards_joined)
+                state.write(name, cards_joined)
         view.refresh_cards(name)
     lines = [*(f"#{channel['name']} {channel['id']}" for channel in made), *([f"{len(moved)} open card(s) of his DM moved to their project's channel"] if args.move_cards else [])]
     return emit(args, "\n".join(lines), {"channels": made, "moved": [{"from": card["url"], "to": url} for card, _, url in moved]})
@@ -6880,7 +6880,7 @@ def env_alerts_kept(name: str, pairs: list[str]) -> list[str]:
             else:
                 fresh["slack"]["env_alerts"].pop(env, None)
 
-    state.update(name, None, env_alerts_write)
+    state.write(name, env_alerts_write)
     return [f"each new alert in {channel} goes to the jobs testing on {env}" if channel else f"alerts of {env} go to no job" for env, channel in split]
 
 
@@ -6903,7 +6903,7 @@ def channels_held(name: str, holds: list[str], kinds: str) -> list[str]:
                 if held:
                     held.pop("rules", None)
 
-    state.update(name, None, channels_held_write)
+    state.write(name, channels_held_write)
     return [f"{channel} held by the sub-coordinator for {seat}, which subscribes to its {kinds} lines" if seat else f"{channel} held by the top coordinator again" for channel, seat in pairs]
 
 
@@ -7267,7 +7267,7 @@ def move(args: argparse.Namespace) -> int:
         held.update(move_word=args.his_word, cwd=kept)
         return held
 
-    held = state.update(name, None, move_write)
+    held = state.write(name, move_write)
     registered = "" if state.scratch() else f"; {agents.register(name, args.role, None, held['cwd'], held['session'])}"
     lanes = {role: lane for lane, role in state.LANE_ROLES.items()}
     mover = lanes[next(role for role in state.ROLES if role != args.role)]
