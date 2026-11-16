@@ -150,7 +150,6 @@ class Watcher:
     carried: dict[str, tuple[set[str], datetime]] = field(default_factory=dict)
     untracked: dict[str, str] = field(default_factory=dict)
     relayed: collections.deque[str] = field(default_factory=collections.deque)
-    relay_error: Exception | None = None
     redrawn_whole: set[str] = field(default_factory=set)
 
     @property
@@ -1614,23 +1613,49 @@ def sending(message: dict) -> str:
 
 @contextlib.contextmanager
 def relaying(watcher: Watcher) -> Iterator[None]:
-    """Answer the lanes' reads from the watch's responder, owe him each promised line from its relay, and land, stage and wake from its landing loop, each a process of its own the watch starts, by spawn, for as long as the watch runs: each line the responder or relay writes handed to the watcher as it comes, and each map of the PRs the drive does not track the landing loop writes kept as the watcher's, by relayed_lines; each ended with SIGTERM and waited for in turn before the watch keeps its unposted lines, so each line the relay made is kept."""
-    started = [beside(watcher, "--respond", "the responder", watcher.relayed.append), beside(watcher, "--relay", "the relay", watcher.relayed.append), beside(watcher, "--land", "the landing loop", functools.partial(took_untracked, watcher))]
+    """Answer the lanes' reads from the watch's responder, owe him each promised line from its relay, and land, stage and wake from its landing loop, each a process of its own the watch starts, by beside, for as long as the watch runs: each line the responder or relay writes handed to the watcher as it comes, and each map of the PRs the drive does not track the landing loop writes kept as the watcher's, by relayed_lines, which starts again each that ends before the watch ends it; each ended with SIGTERM and waited for before the watch keeps its unposted lines, so each line the relay made is kept."""
+    ending, guard, live = threading.Event(), threading.Lock(), {}
+    readers = [
+        threading.Thread(target=relayed_lines, args=(watcher, ending, guard, live, flag, what, took, beside(watcher, flag, live)), daemon=True)
+        for flag, what, took in (("--respond", "the responder", watcher.relayed.append), ("--relay", "the relay", watcher.relayed.append), ("--land", "the landing loop", functools.partial(took_untracked, watcher)))
+    ]
+    for reader in readers:
+        reader.start()
     try:
         yield
     finally:
-        for child, reader in started:
-            child.terminate()
+        with guard:
+            ending.set()
+            for child in live.values():
+                child.terminate()
+        for reader in readers:
             reader.join()
 
 
-def beside(watcher: Watcher, flag: str, what: str, took: Callable[[str], None]) -> tuple[subprocess.Popen, threading.Thread]:
+def beside(watcher: Watcher, flag: str, live: dict[str, subprocess.Popen]) -> int:
+    """Start the process flag names beside the watch, by spawn, kept in live under flag, and return the end of its pipe the watch reads."""
     lines, given = os.pipe()
-    child = spawn(watcher, flag, given)
+    live[flag] = spawn(watcher, flag, given)
     os.close(given)
-    reader = threading.Thread(target=relayed_lines, args=(watcher, child, lines, what, took), daemon=True)
-    reader.start()
-    return child, reader
+    return lines
+
+
+def relayed_lines(watcher: Watcher, ending: threading.Event, guard: threading.Lock, live: dict[str, subprocess.Popen], flag: str, what: str, took: Callable[[str], None], lines: int) -> None:
+    """Hand each line the process beside the watch that flag names writes to took, until it ends; one that ends before the watch ends it is said to the watch's coordinator and started again RESTART_SECONDS later, as its launch agent starts a watch that exits, so a relay that dies costs a line owed him those seconds, never the rest of a pass of the watch, however long that pass runs."""
+    while True:
+        with os.fdopen(lines) as written:
+            for line in written:
+                took(line.rstrip("\n"))
+        code = live[flag].wait()
+        if ending.is_set():
+            return
+        watcher.relayed.append(f"WATCH {what}, process {live[flag].pid}, exited {code}; the watch starts it again within {launchd.RESTART_SECONDS} seconds; its output is in {state.watch_log_path(watcher.name, watcher.project)}")
+        if ending.wait(launchd.RESTART_SECONDS):
+            return
+        with guard:
+            if ending.is_set():
+                return
+            lines = beside(watcher, flag, live)
 
 
 def spawn(watcher: Watcher, flag: str, lines: int) -> subprocess.Popen:
@@ -1640,16 +1665,6 @@ def spawn(watcher: Watcher, flag: str, lines: int) -> subprocess.Popen:
         stdin=subprocess.DEVNULL,
         pass_fds=(lines,),
     )
-
-
-def relayed_lines(watcher: Watcher, child: subprocess.Popen, lines: int, what: str, took: Callable[[str], None]) -> None:
-    """Hand each line a process the watch started beside its passes writes to took, until it ends; the first that ends, before the watch ends it, is kept as the error the watch stops on at the next stage of its pass, or before its next pass, so its launch agent starts the watch and both again and no due line waits out the pass."""
-    with os.fdopen(lines) as written:
-        for line in written:
-            took(line.rstrip("\n"))
-    code = child.wait()
-    if watcher.relay_error is None:
-        watcher.relay_error = ChildProcessError(f"{what}, process {child.pid}, exited {code}; its output is in {state.watch_log_path(watcher.name, watcher.project)}")
 
 
 def took_untracked(watcher: Watcher, line: str) -> None:
@@ -4646,12 +4661,10 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def passed(watcher: Watcher, moment: datetime, until: Callable[[], object] = lambda: None, staged: Callable[[Watcher, datetime], Iterator[list[str]]] | None = None) -> Iterator[list[str]]:
-    """The coordinator's lines of one pass of the watch's stages, or of those staged names, such as the landing loop's, as each stage returns, first none, as the communicator, the meta session and the coordinator are each sent again what failed to post to them before, then each stage's, its lines for the communicator or the meta session posted to them as it returns, so a pass that reads each lane from Orca for minutes says what GitHub and the lanes said in its first minute then, not at its end; the watch's pass ends before any stage after its first ones once until answers, as the watch's loop asks whether a newer long-running is installed, the stage it ends before kept as the watcher's resume. A stage's lines join the watcher's made lines first, so a pass that ends early, in a crash or on the error a process beside it ended on, which it ends on after the stage it ran beside, leaves those not yet handed to the watch process after it."""
+    """The coordinator's lines of one pass of the watch's stages, or of those staged names, such as the landing loop's, as each stage returns, first none, as the communicator, the meta session and the coordinator are each sent again what failed to post to them before, then each stage's, its lines for the communicator or the meta session posted to them as it returns, so a pass that reads each lane from Orca for minutes says what GitHub and the lanes said in its first minute then, not at its end; the watch's pass ends before any stage after its first ones once until answers, as the watch's loop asks whether a newer long-running is installed, the stage it ends before kept as the watcher's resume. A stage's lines join the watcher's made lines first, so a pass that ends early in a crash leaves those not yet handed to the watch process after it."""
     yield handed(watcher, [], moment)
     for lines in staged(watcher, moment) if staged else stages(watcher, moment, until):
         watcher.made += lines
-        if watcher.relay_error:
-            raise watcher.relay_error
         if watcher.made and (said := handed(watcher, watcher.made, moment)):
             yield said
 
@@ -5199,7 +5212,7 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
 
 
 def watching(watcher: Watcher) -> None:
-    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, and end once a newer long-running is installed, before a pass or between two of a pass's stages, saying so in its log, so its launch agent starts the watch on that install within RESTART_SECONDS of the stage running then, however long a pass runs, and the watch there runs the stages this one had not; a crash wakes the coordinator session it posts to first, and a relay process that ended before the watch ended it stops it at the next stage of its pass, or before its next pass. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
+    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, and end once a newer long-running is installed, before a pass or between two of a pass's stages, saying so in its log, so its launch agent starts the watch on that install within RESTART_SECONDS of the stage running then, however long a pass runs, and the watch there runs the stages this one had not; a crash wakes the coordinator session it posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     try:
         with relaying(watcher):
@@ -5207,8 +5220,6 @@ def watching(watcher: Watcher) -> None:
                 if newer := upgraded():
                     print(f"ended on long-running {state.VERSION} for {newer}, before {watcher.resume or 'its next pass'}", flush=True)
                     break
-                if watcher.relay_error:
-                    raise watcher.relay_error
                 read_from, moment = watcher.offset, state.now()
                 for said in [handed(watcher, watcher.made, moment)] if watcher.made else passed(watcher, moment, upgraded):
                     for line in sent(watcher, watcher.lane, said, moment):

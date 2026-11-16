@@ -995,27 +995,39 @@ def test_a_watch_that_stops_ends_its_relay_process_before_it_returns(demo: str, 
     assert [thread.name for thread in threading.enumerate() if thread.name.endswith("(relayed_lines)")] == []
 
 
-def test_the_watch_hands_on_each_line_its_relay_process_writes_keeps_the_untracked_prs_its_landing_loop_writes_and_stops_on_the_first_that_ended_unasked(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    started: dict[str, subprocess.Popen] = {}
-    written = {"--respond": "time.sleep(3600)", "--relay": "os.write({lines}, b'DUE o1 was due\\nDUE o2 was due\\n'); raise SystemExit(1)", "--land": 'os.write({lines}, b\'{{"yasyf/cc-skills#9": "MERGED"}}\\n\'); time.sleep(3600)'}
+def test_the_watch_hands_on_each_line_its_relay_process_writes_keeps_the_untracked_prs_its_landing_loop_writes_and_starts_again_one_that_ended_unasked(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    started: list[tuple[str, subprocess.Popen]] = []
+    written = {
+        "--respond": ["time.sleep(3600)"],
+        "--relay": ["os.write({lines}, b'DUE o1 was due\\nDUE o2 was due\\n'); raise SystemExit(2)", "os.write({lines}, b'DUE o3 was due\\n'); time.sleep(3600)"],
+        "--land": ['os.write({lines}, b\'{{"yasyf/cc-skills#9": "MERGED"}}\\n\'); time.sleep(3600)'],
+    }
 
     def spawn(watcher: watch.Watcher, flag: str, lines: int) -> subprocess.Popen:
-        started[flag] = subprocess.Popen([sys.executable, "-c", "import os, time; " + written[flag].format(lines=lines)], pass_fds=(lines,))
-        return started[flag]
+        child = subprocess.Popen([sys.executable, "-c", "import os, time; " + written[flag].pop(0).format(lines=lines)], pass_fds=(lines,))
+        started.append((flag, child))
+        return child
 
-    took = threading.Event()
-    real_took = watch.took_untracked
+    again = threading.Event()
+
+    class Relayed(list[str]):
+        def append(self, line: str) -> None:
+            super().append(line)
+            if line == "DUE o3 was due":
+                again.set()
+
     monkeypatch.setattr(watch, "spawn", spawn)
-    monkeypatch.setattr(watch, "took_untracked", lambda watching, line: real_took(watching, line) or took.set())
+    monkeypatch.setattr(launchd, "RESTART_SECONDS", 0)
     watching = watcher(demo)
+    watching.relayed = Relayed()
     with watch.relaying(watching):
-        assert took.wait(30)
-        started["--relay"].wait()
-    assert (list(watching.relayed), watching.untracked, str(watching.relay_error)) == (
-        ["DUE o1 was due", "DUE o2 was due"],
+        assert again.wait(30)
+    [first, second] = [child for flag, child in started if flag == "--relay"]
+    assert (list(watching.relayed), watching.untracked) == (
+        ["DUE o1 was due", "DUE o2 was due", f"WATCH the relay, process {first.pid}, exited 2; the watch starts it again within 0 seconds; its output is in {state.watch_log_path(demo)}", "DUE o3 was due"],
         {"yasyf/cc-skills#9": "MERGED"},
-        f"the relay, process {started['--relay'].pid}, exited 1; its output is in {state.watch_log_path(demo)}",
     )
+    assert [(flag, child.returncode) for flag, child in started] == [("--respond", -signal.SIGTERM), ("--relay", 2), ("--land", -signal.SIGTERM), ("--relay", -signal.SIGTERM)]
 
 
 def relay_passes(monkeypatch: pytest.MonkeyPatch, ended_on: int) -> list[str]:
@@ -3151,16 +3163,6 @@ def upgrades(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, installs: list[boo
 def mid_pass(monkeypatch: pytest.MonkeyPatch, before_lane_lines: Callable[[], object]) -> None:
     real = watch.lane_lines
     monkeypatch.setattr(watch, "lane_lines", lambda watching, moment: before_lane_lines() or real(watching, moment))
-
-
-def test_a_pass_ends_on_the_error_its_relay_ended_on_after_the_stage_it_ran_beside_keeping_that_stages_lines(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    watching = watcher(demo)
-    later: list[str] = []
-    monkeypatch.setattr(watch, "event_lines", lambda relayed: setattr(relayed, "relay_error", OSError("relay read failed")) or ["ANSWER j1 kept"])
-    monkeypatch.setattr(orca, "speak_as_drive", later.append)
-    with pytest.raises(OSError, match="^relay read failed$"):
-        list(watch.passed(watching, T0))
-    assert (later, watching.made) == ([], ["ANSWER j1 kept"])
 
 
 def test_a_line_whose_post_failed_goes_to_the_watch_its_launch_agent_starts_on_the_newer_install_it_ended_for_between_passes(
