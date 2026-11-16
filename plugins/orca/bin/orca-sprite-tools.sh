@@ -167,7 +167,7 @@ slack_setup() {
     [ "$tries" -lt 5 ] || return 1
     sleep 3
   done
-  echo "cc-slack $slack reads as $(PATH=$dest:$PATH timeout 20 cc-slack whoami 2>&1 | head -n 1)"
+  echo "cc-slack $slack reads as $(PATH=$dest:$PATH timeout 20 cc-slack whoami | jq -r .username)"
 }
 datadog_setup() {
   settings=$HOME/.claude/settings.json
