@@ -772,6 +772,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "held": {},
         "owed_replies": {},
         "carried": {},
+        "posts": {"mark": None, "unposted": {}},
         "mains": {},
         "dropped_waits": {},
         "posted": {},
@@ -963,7 +964,6 @@ def bound(data: dict) -> dict:
         handler["handed"] = [*handler.get("handed", []), *handler.pop("held_back", [])]
         handler.setdefault("took", [])
         handler.setdefault("posted", [])
-        handler.setdefault("again", False)
     for held in [*data["roles"].values(), *data["subcoordinators"].values()]:
         held.pop("terminal", None)
     return data
@@ -1201,6 +1201,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     for mark in data["held"].values():
         mark.setdefault("record", None)
     data.setdefault("carried", {})
+    data.setdefault("posts", {"mark": None, "unposted": {}})
     data.setdefault("dropped_waits", {})
     data.setdefault("posted", {})
     data["owner"].setdefault("absence", None)

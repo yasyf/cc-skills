@@ -334,13 +334,13 @@ def released(name: str, post: str, seq: str, amended: dict[str, dict[str, list[s
 
 
 def held_refusal(data: dict, seq: str | None, report: dict) -> str | None:
-    """Why a report's or a correction's post goes nowhere: the report is held for his return, as the away check marks it whatever Jev then reads, or the report a correction corrects is, since the line carrying it at his return carries the correction with it, or went out in a post, its own or one carrying it, which the correction rewords."""
+    """Why a report's or a correction's post goes nowhere: the report is held for his return, as the away check marks it whatever Jev then reads, or the report a correction corrects is, since the line carrying it at his return carries the correction with it, or went out in a post, its own or one carrying it, which the correction rewords; a report its handlers gave up, which only a done record carries, leaves its correction to post as its own line."""
     if seq in data["held"]:
         return f"report {seq} is held for his return, when the watch's line in its thread carries it: return NOTHING held for his return"
     corrected = report.get("corrects")
     if corrected in data["held"]:
         return f"record {seq} corrects report {corrected}, held for his return, when the line carrying it carries this correction with it: return NOTHING held for his return"
-    if post := data["carried"].get(corrected):
+    if (post := data["carried"].get(corrected)) and state.CARD_LINK.search(post):
         return f"record {seq} corrects report {corrected}, which went out in {post}: reword that post with say(edit={post}, text=…)"
     return None
 

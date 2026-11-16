@@ -674,7 +674,7 @@ def status_lines(watcher: Watcher, moment: datetime) -> list[str]:
             source = f"follow {order_id} {follow['build']}"
             try:
                 if seq := follow["record"] or status(watcher, order_id, order, part, follow, moment):
-                    agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'follow-{seq}'}")
+                    agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'follow-{seq}'}")
             except (slack.SlackError, reads.ReadError, state.DriveError) as error:
                 lines += failed(watcher, source, f"follow of {follow['build']} for {order_id}", error, moment)
                 continue
@@ -1333,7 +1333,7 @@ def told(watcher: Watcher, data: dict, job_id: str, question: str, reply: dict) 
         "body": f"His order {job['order']}: {data['orders'][job['order']]['text']}\n{words}\n",
     }
     [seq] = reported(watcher, [record])
-    agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'reply-{seq}'}")
+    agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'reply-{seq}'}")
     cli.hold(watcher.name, job_id, words, state.WATCH_SENDER)
     return f"{who} replied {reply['permalink']}"
 
@@ -2028,7 +2028,7 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         handler = None
         try:
-            handler, _ = agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'due-{seq}'}")
+            handler, _ = agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'due-{seq}'}")
             watcher.failures.pop(source, None)
         except state.DriveError as error:
             lines += failed(watcher, source, f"handler on report {seq} owing the line {order_id} promised him", error, moment)
@@ -2085,7 +2085,7 @@ def held_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     data["orders"][head]["quiet"] |= {"record": seq, "at": state.stamp(moment), "news": told}
     for seq, _, facts in written:
         try:
-            agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'held-{seq}'}")
+            agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'held-{seq}'}")
         except state.DriveError as error:
             lines += failed(watcher, f"held {seq}", f"handler on report {seq} owing the line at his return in the thread of {', '.join(facts)}", error, moment)
     return lines
@@ -2288,7 +2288,7 @@ def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
             with state.edit(watcher.name) as data:
                 for head in heads:
                     data["orders"][head]["quiet"] |= {"record": seq, "at": None, "handler": None}
-            handler, _ = agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'quiet-{seq}'}")
+            handler, _ = agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'quiet-{seq}'}")
         except (reads.ReadError, state.DriveError) as error:
             lines += failed(watcher, source, f"line owed in the thread of {', '.join(heads)}", error, moment)
             continue
@@ -2450,7 +2450,7 @@ def watched_lines(watcher: Watcher, moment: datetime) -> list[str]:
         source = f"watch {order_id}"
         try:
             if seq := watch["record"] or watched_report(watcher, order_id, order):
-                agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'watch-{seq}'}")
+                agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'watch-{seq}'}")
         except (slack.SlackError, reads.ReadError, state.DriveError) as error:
             lines += failed(watcher, source, f"answer of {order_id}'s watched thread {watch['channel']}/{watch['thread']}", error, moment)
             continue
@@ -2518,7 +2518,7 @@ def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 seq = owed_report(watcher, data, reply, channel, thread, owed_for)
                 with state.edit(watcher.name) as saved:
                     saved["owed_replies"][ts]["lined"] = seq
-                agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'owed-{seq}'}", detached=True)
+                agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'owed-{seq}'}", detached=True)
         except (reads.ReadError, state.DriveError) as error:
             lines += failed(watcher, source, f"answer of his message {reply['permalink']}, owed {minutes(owed_for)} minutes", error, moment)
             continue
@@ -3473,7 +3473,7 @@ def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 continue
             settle(watcher.name, thing, held, done)
             watcher.failures.pop(f"stall {thing}", None)
-            agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'stall-{seq}'}")
+            agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'stall-{seq}'}")
     return lines
 
 
@@ -4391,7 +4391,7 @@ def catch_up_lines(watcher: Watcher, moment: datetime) -> list[str]:
         return []
     try:
         seq = owed["record"] or catch_up_report(watcher, data)
-        handler, _ = agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'catch-up-{seq}'}")
+        handler, _ = agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'catch-up-{seq}'}")
     except (reads.ReadError, state.DriveError) as error:
         return failed(watcher, "catch-up", "post of his catch-up", error, moment)
     watcher.failures.pop("catch-up", None)
@@ -4606,12 +4606,11 @@ def landing_stages(watcher: Watcher, moment: datetime) -> list[functools.partial
 
 
 def post_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Start the handler on each `POST` report to communicator@<drive>, whichever session wrote it, so the communicator starts none: the handler posts it in his DM and its line goes to the communicator, or on a drive whose roles hold none, as one started from a terminal holds none, to the coordinator. The relay runs it every RELAY_SECONDS, so a report waits on no pass, however long one reads GitHub or the lanes, nor on a pass an install ends before its last stage. Each report is read once, through cci's cursor in a hold of the drive's POSTS_LOCK, which a stage of the watch starting its own report's handler and the handler tool starting one on a POST report read first too, so whichever reads a report first starts its one handler, however soon that handler ends; a handler that did not start, whatever it raised, sets the cursor back to its report, so the next relay pass starts it again, and is said as a failed read is."""
+    """Start the handler on each `POST` report to communicator@<drive> the drive owes a post, whichever session wrote it, so the communicator starts none: the handler posts it in his DM and its line goes to the communicator, or on a drive whose roles hold none, as one started from a terminal holds none, to the coordinator. The relay runs it every RELAY_SECONDS, so a report waits on no pass, however long one reads GitHub or the lanes, nor on a pass an install ends before its last stage. Each report stays owed from its write until a post carries it, by agents.start_posts, so a handler that did not start, never started, died or ended posting nothing leaves it for the next relay pass to start again, until a second handler on it ends with no post and gives it up to its writer, and a stage of the watch starting its own report's handler or the handler tool starting one on a POST report is the handler this read finds holding it; a start that fails is said as a failed read is."""
     if watcher.project:
         return []
     try:
-        with state.flocked(state.drive_dir(watcher.name) / agents.POSTS_LOCK):
-            agents.start_posts(watcher.name)
+        agents.start_posts(watcher.name)
     except state.DriveError as error:
         return failed(watcher, "POST reports", "start of the POST reports' handlers", error, moment)
     watcher.failures.pop("POST reports", None)
