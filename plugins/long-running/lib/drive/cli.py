@@ -7830,13 +7830,13 @@ class Root(argparse.Action):
         parser.exit()
 
 
-@cache
 def ask_terms_args(verb: argparse.ArgumentParser) -> None:
     verb.add_argument("--lane", help="the lane delivering each ask, such as a teammate session outside the drive's jobs")
     verb.add_argument("--accept", metavar="CHECK", help="the check that proves each ask delivered")
     verb.add_argument("--due", help="when each ask is due: a clock time, +4h, or ISO 8601")
 
 
+@cache
 def parser() -> argparse.ArgumentParser:
     """The drive's parser, built once a process, since a batch reads it for every op; read it through parsed, which copies the lists a parse shares with its defaults."""
     drive_opt = argparse.ArgumentParser(add_help=False)
