@@ -1057,6 +1057,10 @@ def bound(data: dict) -> dict:
         handler["handed"] = [*handler.get("handed", []), *handler.pop("held_back", [])]
         handler.setdefault("took", [])
         handler.setdefault("posted", [])
+        handler.setdefault("pool", False)
+        handler.setdefault("busy", True)
+        handler.setdefault("ended", None)
+        handler.setdefault("given", handler["started"])
     for held in [*data["roles"].values(), *data["subcoordinators"].values()]:
         held.pop("terminal", None)
     return data

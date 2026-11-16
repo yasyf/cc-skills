@@ -59,14 +59,14 @@ def block_reason(payload: dict) -> str | None:
 
 
 def in_flight(payload: dict) -> str | None:
-    """Why a handler may not end while Claude Code's Stop input lists a background task or wakeup in its session, whatever `stop_hook_active` says: the drive removes the session once its line passes, and each of them ends unrun with it, so a step left to one never happens."""
+    """Why a handler may not end while Claude Code's Stop input lists a background task or wakeup in its session, whatever `stop_hook_active` says: the drive lets go of the item once its line passes, and each of them is orphaned with it, so a step left to one never happens."""
     tasks = [f"`{task['id']}` ({task.get('command') or task.get('description') or task['type']})" for task in payload.get("background_tasks") or []]
     wakeups = [f"`{cron['id']}` ({cron['schedule']}: {cron['prompt']})" for cron in payload.get("session_crons") or []]
     if not tasks and not wakeups:
         return None
     return agents.Unjudged(
-        f"Refused on purpose: your session still holds {', '.join([*tasks, *wakeups])}. Once your line passes, the drive removes"
-        " your session, and every background task and wakeup in it ends unrun with it. Finish that step in this turn, or hand it"
+        f"Refused on purpose: your session still holds {', '.join([*tasks, *wakeups])}. Once your line passes, the drive lets go"
+        " of this item and may send you the next, and every background task and wakeup of this one is orphaned with it. Finish that step in this turn, or hand it"
         " now to the owner that outlives you: a line to him goes on its order's due, the \"Next line by <time>\" your post"
         " promises, and any other step goes to the session that asked, as a record `re` its record. Then stop each task with"
         " `TaskStop` and each wakeup with `CronDelete`, and end."

@@ -29,6 +29,10 @@ POSTS_CURSOR = "watch-posts"
 POSTED_KINDS = ("report", "correction")
 TRUNK_FAILED = "failed in Trunk's merge queue"
 HANDLER = "long-running:handler"
+HANDLER_ADVISOR = "opus"
+HANDLER_WINDOW = "200000"
+CCI_CHANNEL = "plugin:cc-inbox@cc-inbox"
+WARM = "Drive: {drive}\nContext: a warm start with no brief yet: subscribe to your lane as your definition says, then end on `NOTHING warm, waiting for a brief`."
 SYNTHETIC = "<synthetic>"
 OUTAGE_WAITS = (1, 2, 4, 8)
 START_WINDOW = timedelta(minutes=5)
@@ -526,6 +530,8 @@ def gone(entry: dict) -> bool:
         return False
     if not entry["session"]:
         return state.parse_time(entry["started"]) + START_WINDOW <= state.now()
+    if entry["pool"]:
+        return not alive(entry["session"], session_records())
     if busy(entry["session"], session_records()):
         return False
     found = background_job(entry["session"])
@@ -535,6 +541,11 @@ def gone(entry: dict) -> bool:
 def busy(session: str, records: list[tuple[int, dict]]) -> bool:
     """Whether a running process's record names the session with a status but idle."""
     return bool(running([(pid, record.get("procStartFt") or record.get("procStart")) for pid, record in records if record.get("sessionId") == session and record.get("status") != "idle"]))
+
+
+def alive(session: str, records: list[tuple[int, dict]]) -> bool:
+    """Whether a running process's record names the session, whatever its status, as a pool handler resting between briefs keeps its process."""
+    return bool(running([(pid, record.get("procStartFt") or record.get("procStart")) for pid, record in records if record.get("sessionId") == session]))
 
 
 def launched(out: str) -> str:
@@ -613,22 +624,101 @@ def handle(name: str, brief: str, detached: bool = False, answer: str | None = N
             data["posts"]["unposted"].setdefault(read["record"], DIED)
         context = f"\n{UNPOSTED} {line}" if owed and (line := data["posts"]["unposted"].get(read["record"])) and UNPOSTED not in brief else ""
         brief = f"{brief.strip()}{context}" if context else brief
-        if held:
+        woken = held if held and resting(data["handlers"][held]) else None if held else free_handler(data)
+        if woken:
+            data["handlers"][woken] |= {"busy": True, "brief": brief.strip(), "holds": held_now, "handed": left, "took": [], "posted": [], "given": state.stamp()}
+        elif held or (held := fewest_handed(data)):
             entry = data["handlers"][held]
             same = "record" if held_now["record"] else "message"
-            kept = not held_now[same] or held_now[same] != entry["holds"][same]
+            kept = not held_now[same] or held_now[same] != (entry["holds"] or {}).get(same)
             entry["handed"] += [one for one in [*left, *([brief.strip()] if kept else [])] if one not in entry["handed"]]
         else:
-            data["handlers"][handler_id] = {"session": None, "started": state.stamp(), "brief": brief.strip(), "holds": held_now, "handed": left, "took": [], "posted": []}
-    if held:
-        return held, True
+            data["handlers"][handler_id] = new_handler(brief.strip(), held_now, left)
     later = {"brief": asked, "answer": answer, "context": context} if briefs else None
+    if held and not woken:
+        return held, True
     try:
-        state.after_save(name, lambda: started(name, handler_id, brief, brief, detached, later))
+        state.after_save(name, lambda: started(name, woken or handler_id, brief, brief, detached or bool(woken), later))
     except Exception as error:
-        unstarted(name, handler_id)
+        if woken:
+            rest(name, woken)
+        else:
+            unstarted(name, handler_id)
         raise (state.DriveError(f"claude --bg started no handler: {error}") if isinstance(error, reads.ReadError) else error) from None
-    return handler_id, False
+    return (woken, True) if woken else (handler_id, False)
+
+
+def new_handler(brief: str | None, held: dict | None, handed: list[str]) -> dict:
+    """A pool handler's entry before its launch names its session: busy on its first brief, or on its warm start with none."""
+    return {"session": None, "started": state.stamp(), "brief": brief, "holds": held, "handed": handed, "took": [], "posted": [], "pool": True, "busy": True, "ended": None, "given": state.stamp()}
+
+
+def resting(entry: dict) -> bool:
+    """Whether a pool handler is alive and between briefs, so the next brief wakes it with a cci record rather than waiting for its next step."""
+    return entry["pool"] and not entry["busy"] and bool(entry["session"])
+
+
+def pool(data: dict) -> dict[str, dict]:
+    """The drive's pool handlers still alive or starting, by id."""
+    return {handler_id: entry for handler_id, entry in data["handlers"].items() if entry["pool"] and not gone(entry)}
+
+
+def free_handler(data: dict) -> str | None:
+    """A resting pool handler to wake on a brief no live handler holds, the one rested longest first, so a fresh thread never waits on a launch while one is free."""
+    resting_now = [(entry["ended"] or entry["started"], handler_id) for handler_id, entry in pool(data).items() if resting(entry)]
+    return min(resting_now)[1] if resting_now else None
+
+
+def fewest_handed(data: dict) -> str | None:
+    """With the pool at its size and none resting, the busy pool handler with the fewest briefs waiting on it, which takes the brief at its next step; None while the pool has room for one more."""
+    live = pool(data)
+    if len(live) < pool_size():
+        return None
+    return min(live, key=lambda handler_id: (len(live[handler_id]["handed"]), live[handler_id]["given"]))
+
+
+def pool_size() -> int:
+    """How many pool handlers a drive keeps: caps.json's handler_pool, never past its handlers cap on every drive's handler sessions."""
+    from drive import place
+
+    caps = place.caps()
+    return int(min(caps["handler_pool"], caps["handlers"]))
+
+
+def rest(name: str, handler: str) -> None:
+    """Put a pool handler back between briefs, its brief, what it held and its posts let go, so the next brief wakes it."""
+    with state.edit(name) as data:
+        if entry := data["handlers"].get(handler):
+            entry |= {"busy": False, "brief": None, "holds": None, "took": [], "posted": [], "ended": state.stamp()}
+
+
+def lane(handler: str) -> str:
+    """The cci lane a pool handler reads its briefs on, with no dash before its id, since cci reads a lane ending in -<n> as its stem's."""
+    return f"handler{handler}"
+
+
+def wake(name: str, handler: str, prompt: str) -> None:
+    """Give a resting pool handler its brief as one cci record to its lane, which its channel delivers as its next prompt, so no session starts."""
+    reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "note", "--to", f"{lane(handler)}@{name}", "--id", f"brief-{handler}-{uuid.uuid4().hex[:8]}", "--text", prompt], Path.cwd(), reads.posting())
+
+
+def warm(name: str) -> str | None:
+    """Start one pool handler with no brief while none rests, the pool has room under its size and this Mac admits a handler, so the next brief of a fresh thread wakes a running session; its id, or None."""
+    from drive import place
+
+    data = state.load(name)
+    if any(resting(entry) for entry in pool(data).values()) or any(entry["pool"] and not entry["session"] and not gone(entry) for entry in data["handlers"].values()):
+        return None
+    if len(pool(data)) >= pool_size() or not place.admission(data, None, "handlers", state.now()):
+        return None
+    handler_id = uuid.uuid4().hex[:8]
+    with state.edit(name) as data:
+        data["handlers"][handler_id] = new_handler(None, None, [])
+    kept = brief_path(name, handler_id)
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    kept.write_text(WARM.format(drive=name))
+    state.detach(name, ["handler-start", handler_id], "handlers.log")
+    return handler_id
 
 
 def picked_handler(data: dict, prefer: str | None) -> str | None:
@@ -679,7 +769,10 @@ def scripted_post(name: str, handler: str) -> str | None:
         return None
     if not found:
         return None
-    unstarted(name, handler)
+    if entry["session"]:
+        rest(name, handler)
+    else:
+        unstarted(name, handler)
     return f"{state.stamp()} {found['verb']} {seq} by the drive's rows, no handler {handler}: {found['posted'] or found['why']}"
 
 
@@ -726,14 +819,21 @@ def start_kept(name: str, handler: str) -> str:
     began = time.time()
     if line := scripted_post(name, handler):
         return line
+    woken = bool(state.saved(name)["handlers"][handler]["session"])
     try:
         prompt = kept_prompt(name, handler)
         briefed = time.time()
+        if woken:
+            wake(name, handler, released(name, state.saved(name), prompt))
+            return f"{state.stamp()} woke {handler}: began {began - kept.stat().st_mtime:.1f}s after its brief was kept, wrote its brief in {briefed - began:.1f}s, its record took {time.time() - briefed:.1f}s"
         with place.waited_turn(name, lambda: waits_turn(name, handler), his_message(holds(kept.read_text()))):
             admitted = time.time()
             start_handler(name, handler, prompt)
     except Exception as error:
-        unstarted(name, handler)
+        if woken:
+            rest(name, handler)
+        else:
+            unstarted(name, handler)
         line = f"BLOCKED handler {handler} did not start: {start_error(error)}; its brief is kept in {kept}: start it again with the handler tool"
         reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"{beside(state.saved(name))[0]}@{name}", "--id", f"handler-start-{handler}", "--text", line], Path.cwd(), reads.posting())
         return line
@@ -783,12 +883,14 @@ def start_handler(name: str, handler: str, prompt: str) -> None:
 
     data = state.saved(name)
     _, held = beside(data)
-    lines = [line for line in prompt.strip().splitlines() if not line.startswith(f"{RELEASES}:")]
-    prompt = "\n".join([*lines, f"{RELEASES}: {releases(name, data)}"])
-    env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name}
+    prompt = released(name, data, prompt)
+    env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name, COMPACT_ENV: HANDLER_WINDOW}
     checkout = orca.checkout(name, held["cwd"])
     settings = trimmed(session_settings(env), checkout)
-    argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), *LANE_RULES_ARGS, "-n", f"{name} handler {handler}", prompt]
+    argv = [
+        "claude", "--bg", "--agent", HANDLER, ADVISOR_FLAG, HANDLER_ADVISOR, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings),
+        "--channels", CCI_CHANNEL, *LANE_RULES_ARGS, "-n", f"{name} handler {handler}", prompt,
+    ]
     session = launched(backgrounded(argv, checkout, {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
     with state.edit(name) as data:
         data["handlers"][handler]["session"] = session
@@ -804,6 +906,12 @@ def backgrounded(argv: list[str], checkout: Path, env: dict[str, str]) -> str:
                 raise
         time.sleep(wait)
     return reads.run(argv, checkout, env)
+
+
+def released(name: str, data: dict, prompt: str) -> str:
+    """A handler's prompt closing on the release freezes and holds as they stand now, in place of any its brief carried."""
+    lines = [line for line in prompt.strip().splitlines() if not line.startswith(f"{RELEASES}:")]
+    return "\n".join([*lines, f"{RELEASES}: {releases(name, data)}"])
 
 
 def trimmed(settings: dict, checkout: Path) -> dict:
@@ -1033,10 +1141,16 @@ def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | N
                 ended_handler["handed"] = []
                 ended_handler["took"] += briefs
             else:
-                data["handlers"].pop(payload["agent_id"])
                 if job_id := state.agent_job(data, payload["agent_id"]):
                     data["jobs"][job_id]["transcript"] = payload["agent_transcript_path"]
                 given_up = settled(data, ended_handler, writers, " ".join((payload.get("last_assistant_message") or "").split()))
+                if ended_handler["pool"]:
+                    if job_id:
+                        data["jobs"][job_id]["agent"] = f"{payload['agent_id']}@{ended_handler['given']}"
+                    ended_handler = dict(ended_handler)
+                    data["handlers"][payload["agent_id"]] |= {"busy": False, "brief": None, "holds": None, "took": [], "posted": [], "ended": state.stamp()}
+                else:
+                    data["handlers"].pop(payload["agent_id"])
             return ended_handler, briefs, given_up
 
         ended_handler, briefs, given_up = state.update(name, (("handlers", payload["agent_id"]), *((("jobs", held_job),) if held_job else ())), end)
@@ -1073,8 +1187,11 @@ def post_done(name: str, payload: dict, ended_handler: dict, given_up: dict[str,
         line = f"UNPOSTED {' '.join(given_up)}; {line}"
     if took := [f"{found[2]}.{found[3]}" for brief in ended_handler["took"] if HIS_WORDS in brief and (linked := LINK.search(brief)) and (found := state.CARD_LINK.search(linked[1]))]:
         line = f"TOOK {' '.join(took)}; {line}"
-    done = done_record(name, Path(payload["cwd"]), f"handler-{payload['agent_id']}", line, list((given_up or {}).values()))
-    remove_session(name, payload)
+    done = done_record(name, Path(payload["cwd"]), f"handler-{payload['agent_id']}-{ended_handler['given']}", line, list((given_up or {}).values())) if ended_handler["brief"] or not ended_handler["pool"] else ""
+    if ended_handler["pool"]:
+        slack.cc_slack("unfollow", "--channel", slack.dm(), "--session", payload["handler_session"], "--cwd", payload["cwd"])
+    else:
+        remove_session(name, payload)
     return done
 
 

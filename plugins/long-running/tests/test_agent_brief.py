@@ -421,7 +421,7 @@ def test_a_loaded_mac_starts_no_builder_here_and_gives_no_slot_but_a_priority_or
 
 def test_the_local_cap_counts_the_lanes_here_of_every_drive_and_the_owners_caps_file_sets_it(demo: str, run: Run) -> None:
     (state.root() / place.CAPS_FILE).write_text(json.dumps({"local": 1}))
-    assert place.caps() == {"local": 1, "sprite": 30, "handlers": 8, "load_per_core": 1, "free_memory": 15}
+    assert place.caps() == {"local": 1, "sprite": 30, "handlers": 8, "handler_pool": 4, "load_per_core": 1, "free_memory": 15}
     run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Hotfix", "ship his fix", "--parts", "the hotfix", "the cut")
     run("job", "add", "builder", "--order", "o1", "--part", "the hotfix", "--goal", "build the hotfix")
     assert run("job", "add", "reader", "--order", "o1", "--part", "the cut", "--goal", "research: the cut")[0] == 0

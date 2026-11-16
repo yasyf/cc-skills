@@ -21,7 +21,7 @@ HOST_CPU_LOAD_INFO = 3
 HOST_CPU_STATES = 4
 HOST_CPU_IDLE = 2
 CAPS_FILE = "caps.json"
-CAPS = {"local": 12, "sprite": 30, "handlers": 8, "load_per_core": 1, "free_memory": 15}
+CAPS = {"local": 12, "sprite": 30, "handlers": 8, "handler_pool": 4, "load_per_core": 1, "free_memory": 15}
 CAP_NAMES = {"local": "local Claude lanes work", "sprite": "Sprite lanes run", "handlers": "handler sessions work"}
 LANES_FILE = "lane-counts.json"
 LANES_SECONDS = 20
@@ -131,7 +131,7 @@ def positions(data: dict) -> dict[str, str]:
 
 
 def caps() -> dict[str, float]:
-    """The caps every drive and watch on this Mac shares on the Claude lanes it starts, read at each admission so a change holds at once: how many local Claude lanes, of any role, work at once, how many Sprite lanes run, the 1-minute load per core and the percent of memory free past which no local lane starts, CAPS unless the owner's caps.json under the state root sets any of them, as {"local": 12, "sprite": 30, "load_per_core": 1, "free_memory": 15}."""
+    """The caps every drive and watch on this Mac shares on the Claude lanes it starts, read at each admission so a change holds at once: how many local Claude lanes, of any role, work at once, how many Sprite lanes run, how many handler sessions work across every drive and how many pool handlers each drive keeps warm, the 1-minute load per core and the percent of memory free past which no local lane starts, CAPS unless the owner's caps.json under the state root sets any of them, as {"local": 12, "sprite": 30, "handlers": 8, "handler_pool": 4, "load_per_core": 1, "free_memory": 15}."""
     path = state.root() / CAPS_FILE
     return CAPS | (json.loads(path.read_text()) if path.is_file() else {})
 
