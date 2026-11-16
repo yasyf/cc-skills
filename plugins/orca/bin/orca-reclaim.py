@@ -624,8 +624,11 @@ class CcRemote:
 
     def recorded(self) -> Iterator[tuple[dict, Sprite]]:
         for path in sorted((self.state / "orca").glob("*.json")):
-            task = json.loads(path.read_text())
-            if task.get("schemaVersion") != CC_REMOTE_TASK_SCHEMA or task.get("provider") != "sprites" or not task.get("forward"):
+            try:
+                task = json.loads(path.read_text())
+            except FileNotFoundError:
+                continue
+            if task.get("schemaVersion") != CC_REMOTE_TASK_SCHEMA or task.get("provider") != "sprites" or not task.get("forward") or not task.get("environmentId"):
                 continue
             if not (self.state / "workspaces" / f"{task['workspace']}.json").is_file():
                 continue

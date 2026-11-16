@@ -1019,6 +1019,20 @@ class SpriteTest(unittest.TestCase):
             self.assertEqual(cc_remote.sprites(), self.hosted)
             self.assertEqual((cc_remote.sprite("pool-new"), cc_remote.sprite("pool-abc"), cc_remote.sprite("pool-gone")), (orca_gc.Sprite("pool-new", "pool-new", "/s/ssh/pool-new.ssh", SPRITE.root, "env_new"), SPRITE, None))
 
+    def test_a_sprite_still_being_created_or_a_record_deleted_mid_scan_is_no_lane_to_reclaim(self):
+        creating = {"schemaVersion": 1, "provider": "sprites", "workspace": "pool-creating", "projectRoot": SPRITE.root, "forward": {"host": "pool-creating", "config": "/s/ssh/pool-creating.ssh"}, "worktreeId": SPRITE_WT, "terminal": "term_creating"}
+        attached = {**creating, "workspace": "pool-abc", "environmentId": "env_abc", "forward": {"host": "pool-abc", "config": "/s/ssh/pool-abc.ssh"}, "terminal": "term_sprite"}
+        with tempfile.TemporaryDirectory() as state:
+            for task in (creating, attached):
+                for kind in ("orca", "workspaces"):
+                    path = Path(state) / kind / f"{task['workspace']}.json"
+                    path.parent.mkdir(exist_ok=True)
+                    path.write_text(json.dumps(task))
+            (Path(state) / "orca" / "pool-deleted.json").symlink_to(Path(state) / "deleted.json")
+            cc_remote = orca_gc.CcRemote(Path(state))
+            self.assertEqual(cc_remote.sprites(), self.hosted)
+            self.assertIsNone(cc_remote.sprite("pool-creating"))
+
     def test_uncommitted_work_keeps_the_sprite(self):
         cc_remote = FakeCcRemote(self.hosted, {"pool-abc": checkout(SPRITE.root, dirty=True)})
         _, out = run_gc(FakeOrca([sprite_row("ctx_s")]), FakeGit({}), cc_remote=cc_remote)
