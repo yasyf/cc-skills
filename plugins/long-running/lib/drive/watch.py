@@ -2674,6 +2674,17 @@ def close_answered(watcher: Watcher, moment: datetime) -> None:
                 data["orders"][order_id].update(state="done", updated=state.stamp(moment))
 
 
+def close_joined_repeats(watcher: Watcher, moment: datetime) -> None:
+    """From the drive's own watch, close each open drive tooling order a session opened that Jev joined to an order now closed, with no unfinished job of its own, as that order closed, done with its proof or dropped, so a repeat folded into a fixed defect never stays open after the fix, as 76 did on Nov 15."""
+    if watcher.project or not state.repeats_of_closed(state.load(watcher.name)):
+        return
+    with state.edit(watcher.name) as data:
+        for order_id in state.repeats_of_closed(data):
+            order = data["orders"][order_id]
+            head = data["orders"][order["joins"]]
+            order.update(state=head["state"], proof=head["proof"] if head["state"] == "done" else None, note=f"closed with {order['joins']}, the order it repeats", updated=state.stamp(moment))
+
+
 def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Each open order proven live, or whose answer is posted, with a reporter's thread that has not heard it ten minutes on, said once for each thread."""
     data = state.load(watcher.name)
@@ -4680,7 +4691,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
         functools.partial(superseded_lines, watcher, moment),
         functools.partial(event_lines, watcher),
         *(owed_reads(watcher, moment) if lands else []),
-        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, quiet_lines, clock_lines, undelivered_lines, close_answered, tell_lines, standing_lines, orphan_lines)),
+        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, quiet_lines, clock_lines, undelivered_lines, close_answered, close_joined_repeats, tell_lines, standing_lines, orphan_lines)),
     ]
     names = [stage.func.__name__ for stage in later]
     resume, watcher.resume = watcher.resume, None
