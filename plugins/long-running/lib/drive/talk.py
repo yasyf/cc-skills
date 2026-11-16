@@ -133,9 +133,14 @@ def report_line(name: str, seq: str) -> str:
 
 
 def report_post(name: str, seq: str) -> str:
-    """`drive report-post`: post the report by report_line, or send why it posted nothing back to the session that wrote it, as a refused record re the report, so that session sends it again fixed; one the watch wrote goes to the meta session as a defect."""
+    """`drive report-post`: hand a report posting in a channel outside the drive's, such as a staging claim to its members, to the communicator as one note, since cc-slack posts there only on the ticket a session's permission hook names; post any other by report_line, or send why it posted nothing back to the session that wrote it, as a refused record re the report, so that session sends it again fixed; one the watch wrote goes to the meta session as a defect."""
     from drive import tools
 
+    read = agents.answered(seq)
+    target = read["attrs"].get("channel") or ((thread := read["attrs"].get("thread") or read["thread"]) and outside(state.load(name), thread))
+    if target and target not in slack.homes(state.load(name)):
+        agents.handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'post-{seq}'} Where: {target}, a channel outside the drive's, whose members read it and where cc-slack posts only on the ticket a session's permission hook names, so post it there yourself")
+        return f"report {seq} handed to the communicator: it posts in {target}, outside the drive's channels"
     try:
         return f"report {seq} posted by the drive: {report_line(name, seq)}"
     except (DriveError, slack.SlackError) as error:
