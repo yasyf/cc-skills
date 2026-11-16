@@ -130,6 +130,7 @@ def crowded(name: str, data: dict, text: str) -> str | None:
         if job_id:
             with state.edit(name) as data:
                 data["jobs"][job_id]["launching"] = state.stamp(moment)
+        place.counted_again()
         return None
     if job_id and not place.mac_step(text):
         return agents.Unjudged(f"refused: {why}, so {job_id} starts on a Sprite at once, since its brief declares no step only this Mac runs on {place.MAC_LINES}: write this brief to a file and run drive job launch {job_id} <file>")
@@ -140,6 +141,21 @@ def crowded(name: str, data: dict, text: str) -> str | None:
     with state.edit(name) as data:
         place.queue(data["jobs"][job_id], moment)
     return agents.Unjudged(f"refused: {why}, so {job_id} waits its turn for a builder slot on this Mac, {place.positions(data)[job_id]}{line(data)}")
+
+
+def unadmitted(name: str, data: dict, text: str) -> str | None:
+    """Why a reader or designer starts no agent on this Mac now: it is loaded, short of memory or its local Claude lanes fill their machine-wide cap, by place.admission, so it starts on a Sprite instead; one it lets through is stamped launching, which counts it as a lane here at once."""
+    match = brief.BRIEF_JOB.search(text)
+    job_id = match[1] if match and match[1] in data["jobs"] else None
+    moment = state.now()
+    with place.admitting():
+        if why := place.admission(data, job_id, "local", moment):
+            return agents.Unjudged(f"refused: {why}, so {job_id or 'it'} starts on a Sprite: write this brief to a file and run drive job launch {job_id or '<j>'} <file>")
+        if job_id:
+            with state.edit(name) as data:
+                data["jobs"][job_id]["launching"] = state.stamp(moment)
+        place.counted_again()
+    return None
 
 
 def line(data: dict) -> str:
@@ -157,7 +173,7 @@ def in_line(data: dict, job_id: str) -> str:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session may not start this agent, in the shape `agents.shaped` gives its call: a handler starts with the drive's handler tool, a reader, builder or designer starts only on a brief the drive wrote, a build order's codex lane waits on its reader's research, a builder's brief says its scope, drive tooling is the meta session's alone, a builder starts on the watch's FREE line once its last wait ends, a monorepo builder starts here over this Mac's load limit only when its brief declares a step only this Mac runs, and a builder starts here only in its turn for one of this Mac's builder slots."""
+    """Why a drive session may not start this agent, in the shape `agents.shaped` gives its call: a handler starts with the drive's handler tool, a reader, builder or designer starts only on a brief the drive wrote, a build order's codex lane waits on its reader's research, a reader or designer starts here only while this Mac admits a local Claude lane, by unadmitted, a builder's brief says its scope, drive tooling is the meta session's alone, a builder starts on the watch's FREE line once its last wait ends, a monorepo builder starts here over this Mac's load limit only when its brief declares a step only this Mac runs, and a builder starts here only in its turn for one of this Mac's builder slots."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
@@ -180,7 +196,9 @@ def deny_reason(payload: dict) -> str | None:
     text = brief.carried(prompt)
     if kind == BUILDER and role not in (None, "meta") and brief.SERVES_TOOLING.search(text):
         return tooling_refusal(names[0], data, text, role)
-    return builder_refusal(text) or waiting(data, text) or overloaded(data, text) or crowded(names[0], data, text) if kind == BUILDER else None
+    if kind == BUILDER:
+        return builder_refusal(text) or waiting(data, text) or overloaded(data, text) or crowded(names[0], data, text)
+    return unadmitted(names[0], data, text) if kind in BRIEFED else None
 
 
 def main() -> None:

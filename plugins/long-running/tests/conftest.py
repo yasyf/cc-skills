@@ -26,6 +26,7 @@ from drive import (
     orca,
     page,
     picture,
+    place,
     public_check,
     receiver,
     served,
@@ -845,6 +846,12 @@ def live_sessions(monkeypatch: pytest.MonkeyPatch) -> dict[str, int | None]:
     pids: dict[str, int | None] = {}
     monkeypatch.setattr(orca, "live_pid", lambda session: pids.get(session, 4242))
     return pids
+
+
+@pytest.fixture(autouse=True)
+def unstrained(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test's Mac is neither loaded nor short of memory, whatever the machine running it reads; a test of the gate itself sets strained."""
+    monkeypatch.setattr(place, "strained", lambda: None)
 
 
 @pytest.fixture(autouse=True)

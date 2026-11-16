@@ -8,7 +8,7 @@ from pathlib import Path
 import agent_brief
 import pytest
 from conftest import RESEARCH, kept_brief
-from drive import agents, brief, orca, place, state, view, watch
+from drive import agents, brief, cli, orca, place, state, view, watch
 from drive.render import when
 
 Run = Callable[..., tuple[int, str]]
@@ -399,3 +399,56 @@ def test_a_usage_limit_resets_at_the_next_moment_its_words_name() -> None:
         "2027-12-30T09:00:00-08:00",
     ]
     assert state.usage_limit_hit("API Error: 500 overloaded", moment) is None
+
+
+def test_a_loaded_mac_starts_no_builder_here_and_gives_no_slot_but_a_priority_orders_builder_starts_past_it(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Hotfix", "ship his fix", "--parts", "the hotfix", "the cut")
+    run("job", "add", "builder", "--order", "o1", "--part", "the hotfix", "--goal", "build the hotfix")
+    run("job", "add", "builder", "--order", "o1", "--part", "the cut", "--goal", "cut it")
+    with state.edit(demo) as data:
+        place.queue(data["jobs"]["j2"], state.now())
+    loaded = "this Mac's 1-minute load is 160, over its 32 cores"
+    monkeypatch.setattr(place, "strained", lambda: loaded)
+    moment = state.now()
+    data = state.load(demo)
+    assert (place.crowded(data, "j1", moment), place.turns(data, moment)) == (loaded, ([], 0))
+    refused = agent_brief.deny_reason(briefed("long-running:builder", "Order (his words): ship his fix\nServes: his order\nGoal: build the hotfix\nDrive: demo, order o1, job j1"))
+    assert refused.startswith(f"refused: {loaded}, so j1 starts on a Sprite at once")
+    assert run("order", "set", "o1", "--priority")[0] == 0
+    data = state.load(demo)
+    assert (place.crowded(data, "j1", moment), place.turns(data, moment)[0]) == (None, ["j2"])
+
+
+def test_the_local_cap_counts_the_lanes_here_of_every_drive_and_the_owners_caps_file_sets_it(demo: str, run: Run) -> None:
+    (state.root() / place.CAPS_FILE).write_text(json.dumps({"local": 1}))
+    assert place.caps() == {"local": 1, "sprite": 30, "load_per_core": 1, "free_memory": 15}
+    run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Hotfix", "ship his fix", "--parts", "the hotfix", "the cut")
+    run("job", "add", "builder", "--order", "o1", "--part", "the hotfix", "--goal", "build the hotfix")
+    assert run("job", "add", "reader", "--order", "o1", "--part", "the cut", "--goal", "research: the cut")[0] == 0
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(where="local", launching=state.stamp())
+    place.counted_again()
+    data = state.load(demo)
+    assert list(place.lanes(state.now())["local"]) == [f"{demo}/j1"]
+    assert place.crowded(data, "j1", state.now()) is None
+    refused = agent_brief.deny_reason(briefed("long-running:reader", "Goal: research the cut\nDrive: demo, order o1, job j2"))
+    assert refused.startswith(f"refused: 1 local Claude lanes work across this Mac's drives, at its cap of 1 set by {state.root() / place.CAPS_FILE} (j1 builder on o1, its agent launching since")
+    assert refused.endswith("so j2 starts on a Sprite: write this brief to a file and run drive job launch j2 <file>")
+
+
+def test_a_first_lane_at_the_sprite_cap_waits_its_turn_on_sprite_slot_until_the_watch_frees_it_and_a_takeover_never_waits(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Hotfix", "ship his fix", "--parts", "the hotfix")
+    run("job", "add", "builder", "--order", "o1", "--part", "the hotfix", "--goal", "build the hotfix")
+    full = {"local": {}, "sprite": {f"other/x{number}": f"x{number} builder on o9, its Sprite lane at work" for number in range(30)}}
+    monkeypatch.setattr(place, "lanes", lambda moment: full)
+    data = state.load(demo)
+    assert cli.admission_refusal(demo, data, "j1", False, None, True) is None
+    refused = cli.admission_refusal(demo, data, "j1", False, None, False)
+    assert refused.startswith(f"30 Sprite lanes run across this Mac's drives, at its cap of 30 set by {state.root() / place.CAPS_FILE} (x0 builder on o9")
+    assert refused.endswith("so j1 waits its turn for a Sprite lane, 1 of 1 in line, and the watch's FREE line names it as one frees: launch it then")
+    data = state.load(demo)
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["waits"]) == ("waiting", [state.SPRITE_WAIT])
+    assert view.start_refusal(data, "j1", False) == "j1 waits on sprite-slot: launch it on the watch's FREE line, which comes once the last wait ends"
+    assert place.sprite_turns(data, state.now()) == ([], 30)
+    monkeypatch.setattr(place, "lanes", lambda moment: {"local": {}, "sprite": {}})
+    assert place.sprite_turns(data, state.now()) == (["j1"], 0)

@@ -175,12 +175,12 @@ def onward(data: dict, subject: str, cards: dict | None) -> list[str]:
 
 
 def mover(data: dict, key: str, waits: list[str], cards: dict | None) -> str:
-    """Who moves the PR past the waits that still hold, at the ends ends() walks them to: him while one is his to move, by his(); the watch for a builder slot on this Mac, which it gives; else, at the first, a job or PR, the first job the walk to it passed, the one the PR's waits name or carrying the part they name, as a staging test part's tester, never a job that job's own waits lead to, which a stale wait of its names as readily as a live one and whose own stage wakes it, else the job answering for that PR, by owner_job(), so the stage's deadline wakes that job's lane; and the session holding the PR's order for a release, a staging soak commit, a process on this Mac, a teammate's reply to the drive's question, a part no job carries or waits that only come back to the PR."""
+    """Who moves the PR past the waits that still hold, at the ends ends() walks them to: him while one is his to move, by his(); the watch for a builder slot on this Mac or a Sprite lane under its cap, which it gives; else, at the first, a job or PR, the first job the walk to it passed, the one the PR's waits name or carrying the part they name, as a staging test part's tester, never a job that job's own waits lead to, which a stale wait of its names as readily as a live one and whose own stage wakes it, else the job answering for that PR, by owner_job(), so the stage's deadline wakes that job's lane; and the session holding the PR's order for a release, a staging soak commit, a process on this Mac, a teammate's reply to the drive's question, a part no job carries or waits that only come back to the PR."""
     found = ends(data, waits, cards, {key})
     if any(his(data, end, cards) for end, _ in found):
         return HIM
     end, holder = next(iter(found), (None, None))
-    if end == state.SLOT_WAIT:
+    if end in state.TURN_WAITS:
         return WATCH
     if end in data["prs"]:
         return holder or owner_job(data, end) or ORDER
@@ -279,7 +279,7 @@ def holds_now(data: dict, job_id: str) -> str:
     """The block that ends every handoff, resume brief and resume text a job's worker gets: the drive's one read, as that worker starts or hears it, of each wait of the job still holding by view.holding, the cards its own open questions are drawn on among them, each card of his by its question and link, and what of his holds each of its open PRs from landing by held(), which its worker still keeps rebased and green, so no worker takes an older line, report or message for what holds them now."""
     job = data["jobs"][job_id]
     waits = view.holding(data, view.stored_waits(data, [*job["waits"], *view.open_cards(job)]), None)
-    lines = [f"- It waits on {waited_on(data, wait)}." for wait in waits if wait != state.SLOT_WAIT]
+    lines = [f"- It waits on {waited_on(data, wait)}." for wait in waits if wait not in state.TURN_WAITS]
     lines += [f"- {pr['url']}: {f'{holds}, which holds only its landing, so keep it rebased and green' if (holds := held(data, pr)) else 'nothing of his holds it'}." for pr in data["prs"].values() if pr["url"] in job["prs"] and pr["state"] == "open"]
     return f"{state.HOLDS_NOW}\n\nWhat holds this job and its PRs as the drive reads it now, over any line, report or message above:\n" + ("\n".join(lines) or "- Nothing: it waits on nothing and has no open PR.") + "\n"
 

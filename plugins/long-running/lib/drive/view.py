@@ -362,7 +362,7 @@ def holds(drive: dict, wait: str, found: dict | None) -> bool:
         return state.pid_runs(wait)
     if drawn := drawn_on(drive, wait):
         return any(question["closed"] is None for _, question in drawn)
-    return wait == state.SLOT_WAIT or bool(state.STAGING_WAIT.fullmatch(wait) or github.BUILD.fullmatch(wait) or state.REPLY_WAIT.fullmatch(wait) or state.REVIEW_WAIT.fullmatch(wait) or state.untracked_wait(drive, wait)) or card_open(wait, found)
+    return wait in state.TURN_WAITS or bool(state.STAGING_WAIT.fullmatch(wait) or github.BUILD.fullmatch(wait) or state.REPLY_WAIT.fullmatch(wait) or state.REVIEW_WAIT.fullmatch(wait) or state.untracked_wait(drive, wait)) or card_open(wait, found)
 
 
 def shared(drive: dict, wait: str) -> bool:
@@ -998,6 +998,8 @@ def wait_entry(drive: dict, wait: str, found: dict) -> dict:
         return {"title": f"{review['login']}'s review of its head on GitHub", "url": None}
     if wait == state.SLOT_WAIT:
         return {"title": "a builder slot on this Mac", "url": None}
+    if wait == state.SPRITE_WAIT:
+        return {"title": "a Sprite lane under this Mac's cap", "url": None}
     if process := state.PID_WAIT.fullmatch(wait):
         return {"title": f"process {process['pid']} on this Mac ending", "url": None}
     if card := asked_card(found, wait):

@@ -32,6 +32,19 @@ Contents:
   relaunches it, and one line of `claude-usage-limits.jsonl` under the state folder, which every drive
   on this Mac shares since they share one account, names the session, its job, the reset and whether Escape
   dismissed the dialog.
+- Every drive and watch on this Mac shares two caps on the Claude lanes it starts, set in
+  `caps.json` under the drive's state root, `{"local": 12, "sprite": 30, "load_per_core": 1,
+  "free_memory": 15}` for each key it leaves out, read at each start so a change holds at once:
+  at most `local` Claude lanes of any role work here at once, builder, reader, designer, handler
+  and watchdog alike, and at most `sprite` lanes run on Sprites. No new local lane starts while
+  the 1-minute load average is over the core count times `load_per_core` or under `free_memory`
+  percent of memory is free. A builder here then waits its turn on `builder-slot`, or starts
+  on a Sprite when its brief declares no step only this Mac runs; a reader or designer the
+  `agent_brief` hook refuses starts on a Sprite; a handler's `drive handler-start` waits for its
+  turn; a stall's watchdog waits for a later pass. A first lane on a Sprite past the `sprite` cap
+  waits its turn on `sprite-slot`, and the watch's `FREE` line names it, earliest due first, as a
+  lane frees. Work on a priority or open incident order, or an `immediate fix` part, starts past
+  both caps and the gate. Queued work waits; it never fails.
 - At most eight builders hold this Mac's builder slots at once: each builder job here the watch's
   `FREE` line gave its turn for a slot whose agent has not started yet, each job on a Sprite whose
   turn to move here came, for the 30 minutes its launch may take or until its lane here starts, each builder the `agent_brief`
