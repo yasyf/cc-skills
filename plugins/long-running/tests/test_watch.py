@@ -12759,3 +12759,16 @@ def test_his_undo_tap_owes_a_revert_on_the_job_whose_card_it_answered_and_each_j
         reverts = [item for order in data["orders"].values() for item in order["owed"] if item["kind"] == owing.REVERT]
         assert ([item["id"] for item in reverts], [item["job"] for item in reverts], reverts[0]["due"], data["answers"]["a1"]["undone"]["link"]) == (opened, ["j1", "j2"], state.stamp(moment + owing.SPAN_FLOOR), card)
         assert owing.reverted(data, "demo:j9-1", card, moment + owing.SPAN_FLOOR, moment, []) == []
+
+
+def test_a_job_of_his_ask_waiting_on_a_builder_slot_owes_one_step_saying_what_blocks_it_due_five_minutes_on_and_a_process_job_owes_none(demo: str) -> None:
+    moment = state.parse_time("2026-11-09T05:07:00-08:00")
+    with edit(demo) as data:
+        data["jobs"]["j1"].update(waits=[state.SLOT_WAIT], state="waiting")
+        assert owing.settle(data, moment)
+        [item] = [item for item in data["orders"]["o1"]["owed"] if item["done_when"] == {"blocked": "j1"}]
+        assert (item["kind"], item["due"], item["what"].endswith("and what clears it: it waits on a builder slot")) == (owing.STEP, state.stamp(moment + owing.BLOCKED_DUE), True)
+        assert not owing.settle(data, moment + timedelta(minutes=1))
+        data["orders"]["o1"]["class"] = "process"
+        owing.close(item, "delivered", moment)
+        assert not owing.settle(data, moment + timedelta(minutes=2))

@@ -12,6 +12,7 @@ DELIVER = "deliver"
 REVERT = "revert"
 KINDS = (STEP, FIX_LIVE, CLAIM, CARD, DELIVER, REVERT)
 TELL_AFTER = timedelta(minutes=10)
+BLOCKED_DUE = timedelta(minutes=5)
 SPAN_FLOOR = timedelta(minutes=15)
 SPAN_CEILING = timedelta(minutes=60)
 COORDINATOR_MISS = 2
@@ -139,7 +140,33 @@ def settle(data: dict, moment: datetime) -> bool:
             if met(data, order_id, item):
                 close(item, "met", moment)
                 changed = True
+    for job_id, why in waiting(data, moment).items():
+        changed = blocked(data, job_id, why, moment) or changed
     return changed
+
+
+def waiting(data: dict, moment: datetime) -> dict[str, str]:
+    """Each job of an incident's or asked order waiting on a contended resource, with why: a stage-test item the queue starts no cut for, by work.STAGE.why_not, a release the train holds behind a cut, by state.train_waiting, and a builder waiting on a builder slot."""
+    from drive import work
+
+    held = {}
+    if why := work.STAGE.why_not(data, moment):
+        held |= dict.fromkeys(work.STAGE.line(data), f"its staging test {why}")
+    for env, slot in data["slots"].items():
+        if slot["holder"]:
+            held |= dict.fromkeys(state.train_waiting(data, env), f"its release waits for {env}, which {slot['holder']['job']} holds until {when(slot['holder']['until'])}")
+    held |= {job_id: "it waits on a builder slot" for job_id, job in data["jobs"].items() if state.SLOT_WAIT in job["waits"] and job["state"] not in state.FINISHED_JOB_STATES}
+    return {job_id: why for job_id, why in held.items() if state.class_rank(data, data["jobs"][job_id]) < state.CLASSES.index("process")}
+
+
+def blocked(data: dict, job_id: str, why: str, moment: datetime) -> bool:
+    """Owe one step on the job's order when its work is refused or waits on a contended resource, by his rule "silence is never acceptable; it tells me in the thread when it is blocked": a post in his thread saying what blocks the ask and what clears it, due BLOCKED_DUE on, closed only by a post naming it as its outcome, at most one open per job; nothing is refused and the model writes the post. Whether it opened one."""
+    order_id = data["jobs"][job_id]["order"]
+    order = data["orders"][order_id]
+    if open_on(order, STEP, {"blocked": job_id}):
+        return False
+    add(data, order_id, STEP, f"say in his thread what blocks {order['title'] or cut(order['text'], 80)} and what clears it: {why}", moment + BLOCKED_DUE, {"blocked": job_id}, f"{job_id} blocked", moment, job_id)
+    return True
 
 
 
