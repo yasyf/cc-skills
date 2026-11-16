@@ -106,8 +106,9 @@ Contents:
     reads the Goal as naming such a step and no `After install:` line declares it.
   - A builder return's `Mac:` line, the step its `PROVE:` needs, goes onto the brief of the prover
     added at its merge, so the prover starts here.
-  - A Sprite holds no CI token or Datadog key. It reads Datadog with `drive datadog`, which
-    runs on this Mac. Its AWS session reads CI and starts the repository's data-read builds through
+  - A Sprite holds no CI token. Its launch gives it ai-oncall's Datadog keys and cc-slack's bot
+    login, so its lane reads Datadog's MCP and Slack itself, their writes denied; `drive datadog`
+    and `READ cc-slack` on this Mac stay the fallback. Its AWS session reads CI and starts the repository's data-read builds through
     the sprite door. The Mac box and devbox verbs run on this Mac's machine profile, with no
     sign-in. Codex jobs and any job that touches this Mac's
     processes run here, and so does a reader unless a cap sends it to a Sprite.

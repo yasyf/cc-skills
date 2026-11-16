@@ -73,6 +73,7 @@ WATCHDOG_USD = "2"
 HIS_WORDS = "Message (his words)"
 SCRATCH = re.compile(r"Scratch:\s*(\S+)")
 DATADOG_PLUGIN = "datadog@claude-plugins-official"
+SPRITE_CC_SLACK = "/home/sprite/.local/bin/cc-slack"
 SESSION_SETTINGS = {
     "bashOutputMaxChars": 6000,
     "outputStyle": "default",
@@ -733,6 +734,11 @@ def datadog_servers() -> dict:
     manifest = json.loads((root / ".claude-plugin" / "plugin.json").read_text())
     servers = json.loads((root / manifest["mcpServers"]).read_text())["mcpServers"]
     return {"mcpServers": {f"plugin:{manifest['name']}:{key}": server for key, server in servers.items()}}
+
+
+def sprite_servers() -> dict:
+    """The `--mcp-config` a builder on a Sprite starts with: datadog_servers' Datadog server, whose `${DD_API_KEY}` and `${DD_APPLICATION_KEY}` headers fill from the ai-oncall keys orca-sprite-tools.sh writes into the Sprite's ~/.claude/settings.json env, and cc-slack's channel server on the bot login that script makes, under the name the cc-slack plugin's server has on this Mac, so a Sprite lane reads Slack and Datadog through the same `mcp__plugin_cc-slack_cc-slack__*` and `mcp__plugin_datadog_mcp__*` tools with no relay through this Mac, by his Nov 16 words "fuckng give it cc-slack then and ddog"."""
+    return {"mcpServers": datadog_servers()["mcpServers"] | {"plugin:cc-slack:cc-slack": {"command": SPRITE_CC_SLACK, "args": ["channel"]}}}
 
 
 def env_words(settings: dict) -> list[str]:

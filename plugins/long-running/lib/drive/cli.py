@@ -7655,7 +7655,7 @@ def kept_record(name: str, send: Callable[[], str]) -> str:
 
 
 def datadog_command(args: argparse.Namespace) -> int:
-    """Run one read-only tool of the Datadog MCP on this Mac with ai-oncall's Datadog keys, its JSON arguments read from stdin after `-`, print what it answered and exit 1 when it says it failed; with no `-`, print its description and input schema; `tools` lists the tools it runs. A Sprite lane, whose Sprite holds no Datadog key, makes its Datadog reads with it through the drive that asks each verb of this Mac, and every lane its Database Monitoring reads, since it alone asks the server for the `dbm` toolset."""
+    """Run one read-only tool of the Datadog MCP on this Mac with ai-oncall's Datadog keys, its JSON arguments read from stdin after `-`, print what it answered and exit 1 when it says it failed; with no `-`, print its description and input schema; `tools` lists the tools it runs. A Sprite lane whose own Datadog tools are missing makes its Datadog reads with it through the drive that asks each verb of this Mac, and every lane its Database Monitoring reads, since it alone asks the server for the `dbm` toolset."""
     from drive import datadog
 
     try:

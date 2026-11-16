@@ -157,7 +157,8 @@ does. Leave out only the drive ids he cannot open: job, order and waits ids and 
      while he is away (Releases below).
    - A Datadog read goes through the Datadog MCP's tools, whose `execute_code` reaches every
      Datadog API but Database Monitoring's. The `pup` command's OAuth grant lacks scopes newer
-     commands need. On a Sprite, which has no Datadog MCP, `drive datadog <tool> -` makes the same
+     commands need. On a Sprite the same tools run on ai-oncall's Datadog keys, the write tools
+     denied. When they are missing from your tool list, `drive datadog <tool> -` makes the same
      call on the coordinator's Mac, its JSON arguments on stdin: `drive datadog tools` lists the
      read-only tools it runs and `drive datadog <tool>` prints one's input schema. Database
      Monitoring's query samples, plans and query performance, such as
@@ -170,7 +171,9 @@ does. Leave out only the drive ids he cannot open: job, order and waits ids and 
      its orders link; any other message, thread or channel reads through cc-slack's `slack_thread`,
      `slack_history`, `slack_file`, `slack_channels` and `slack_users` tools,
      `cc-slack thread --url <permalink>` and its `history`, `file`, `channels` and `users` verbs in
-     Bash, or on a Sprite a `READ cc-slack thread|history` read. cc-slack searches no messages, so
+     Bash, on a Sprite too, where cc-slack's writes are denied. A `READ cc-slack thread|history`
+     read is the fallback for a Sprite whose cc-slack tools are missing or fail, and for a
+     conversation the bot is not in, since a Sprite holds no consent of his. cc-slack searches no messages, so
      find a message through its channel's history or a link to it. Its first read of a conversation
      the bot is not in posts his consent card and is refused with the card's link, which your
      report names.

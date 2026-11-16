@@ -787,7 +787,7 @@ def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: 
         lane_settings = {key: value for key, value in leafed.items() if key != "env"}
         env |= {"WORKER_LOCAL": "1", "WORKER_REPO": repo, "WORKER_ENV": f"{LANE_ENV} {rules} CCI_PARENT_SESSION={drive}", "WORKER_MCP_CONFIG": str(servers), "WORKER_ADD_DIR": agents.LANE_RULES_ARGS[1], "CLAUDE_LANE_SETTINGS": json.dumps(lane_settings)}
     else:
-        env |= {"WORKER_TOOLS": SPRITE_TOOLS, "CLAUDE_LANE_SETTINGS": json.dumps(agents.sprite_lane(checkout))}
+        env |= {"WORKER_TOOLS": SPRITE_TOOLS, "WORKER_MCP_CONFIG": json.dumps(agents.sprite_servers()), "CLAUDE_LANE_SETTINGS": json.dumps(agents.sprite_lane(checkout))}
     attempt = brief.with_suffix(".worker")
     where = ON_MAC if local else f"on Sprite {workspace} in the checkout it holds" + (f", resuming Claude session {session}" if session else "") if workspace else "on a fresh Sprite" + (f", resuming Claude session {session} from its transcript kept here" if transcript else "")
     state.said(lane, f"it launches the lane {where} with {LAUNCHER}, for at most {LAUNCH_SECONDS} s")

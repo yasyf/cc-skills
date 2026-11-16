@@ -2021,6 +2021,7 @@ def test_a_launch_says_the_lane_may_be_live_only_when_orca_may_have_recorded_its
     attempt.mkdir()
     for receipt in receipts:
         (attempt / receipt).write_text("1\n")
+    monkeypatch.setattr(agents, "datadog_servers", lambda: {"mcpServers": {}})
     monkeypatch.setattr(orca, "tool", lambda name: name)
     done = subprocess.CompletedProcess([], 1, stdout="", stderr=f"{UNSENT}\n")
     monkeypatch.setattr(orca, "grouped", lambda argv, **kwargs: done)
@@ -2046,6 +2047,7 @@ def test_a_launch_past_its_bound_kills_every_process_its_launcher_started_and_sa
     launcher = tmp_path / "orca-worker-launch.sh"
     launcher.write_text(f"#!/bin/sh\necho $$ >{group}\nsleep 600 &\nwait\n")
     launcher.chmod(0o755)
+    monkeypatch.setattr(agents, "datadog_servers", lambda: {"mcpServers": {}})
     monkeypatch.setattr(orca, "tool", lambda name: str(launcher))
     monkeypatch.setattr(orca, "LAUNCH_SECONDS", 1)
     with pytest.raises(orca.OrcaError) as raised:
@@ -8392,6 +8394,8 @@ def test_a_sprite_launch_gives_the_sprite_the_drive_that_asks_each_verb_of_this_
     brief = tmp_path / "j1.md"
     brief.write_text("brief")
     monkeypatch.setattr(orca, "tool", lambda name: name)
+    datadog = {"type": "http", "url": "https://mcp.datadoghq.com/v1/mcp", "headers": {"DD_API_KEY": "${DD_API_KEY:-}"}}
+    monkeypatch.setattr(agents, "datadog_servers", lambda: {"mcpServers": {"plugin:datadog:mcp": datadog}})
     ran = {}
 
     def launcher(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
@@ -8403,6 +8407,7 @@ def test_a_sprite_launch_gives_the_sprite_the_drive_that_asks_each_verb_of_this_
         orca.launch("demo", "demo-j1", brief, tmp_path, RUN, None, None, None)
     assert ran["env"]["WORKER_TOOLS"] == f"drive={orca.PLUGIN / 'lib' / 'sprite' / 'drive'}"
     assert json.loads(ran["env"]["CLAUDE_LANE_SETTINGS"]) == agents.sprite_lane(tmp_path)
+    assert json.loads(ran["env"]["WORKER_MCP_CONFIG"]) == {"mcpServers": {"plugin:datadog:mcp": datadog, "plugin:cc-slack:cc-slack": {"command": "/home/sprite/.local/bin/cc-slack", "args": ["channel"]}}}
     assert (orca.PLUGIN / "lib" / "sprite" / "drive").stat().st_mode & 0o111
     assert "WORKER_LOCAL" not in ran["env"]
 

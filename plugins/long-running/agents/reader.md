@@ -35,7 +35,8 @@ the answer is proven, and note any further question as one report line.
 - Slack reads through cc-slack. Your brief's `Linked messages:` holds each message its orders
   link. Any other message, thread or channel reads through the `slack_thread`, `slack_history`,
   `slack_file`, `slack_channels` and `slack_users` tools, or `cc-slack thread --url <permalink>` and
-  its `history`, `file`, `channels` and `users` verbs in Bash. cc-slack searches no messages, so
+  its `history`, `file`, `channels` and `users` verbs in Bash, on a Sprite too, where its writes
+  are denied and a conversation the bot is not in reads through this Mac. cc-slack searches no messages, so
   find one through its channel's history or a link to it. Its first read of a conversation the bot
   is not in posts his consent card and is refused with the card's link, which your report names.
 - A fact about code, where it lives, what it does or why, cites your own read of the code that
