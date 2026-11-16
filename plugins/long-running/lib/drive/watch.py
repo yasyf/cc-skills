@@ -1189,10 +1189,14 @@ def in_production(watcher: Watcher, wait: str) -> bool:
 
 def proof_owed(watcher: Watcher, head: str, unseen: dict[str, str], fix: str, moment: datetime) -> list[str]:
     """Say once that an incident whose fix is live stays open until each order of it that builds something he uses keeps a recording or live post from there, naming the builder that proves it and builds nothing, whose DONE keeps that proof on each order of the incident, as state.take_result does."""
-    with state.edit(watcher.name) as data:
+    def proof_owed_write(data: dict) -> bool:
         if data["orders"][head]["prove_said"]:
-            return []
+            return False
         data["orders"][head]["prove_said"] = state.stamp(moment)
+        return True
+
+    if not state.update(watcher.name, None, proof_owed_write):
+        return []
     surfaces = " and ".join(dict.fromkeys(unseen.values()))
     goal = f"prove {fix.removesuffix(' live in production')} live on {surfaces} with a recording of it"
     add = shlex.join(["drive", "job", "add", "builder", "--builds-nothing", "--order", head, "--part", state.INCIDENT_FIX, "--goal", goal])
