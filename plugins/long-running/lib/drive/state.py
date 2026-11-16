@@ -356,7 +356,7 @@ LISTED = (
     "CREATE TRIGGER IF NOT EXISTS row_inserted AFTER INSERT ON rows BEGIN INSERT INTO changed (collection, key) VALUES (NEW.collection, NEW.key); END",
     "CREATE TRIGGER IF NOT EXISTS row_updated AFTER UPDATE ON rows BEGIN INSERT INTO changed (collection, key) VALUES (OLD.collection, OLD.key), (NEW.collection, NEW.key); END",
     "CREATE TRIGGER IF NOT EXISTS row_deleted AFTER DELETE ON rows BEGIN INSERT INTO changed (collection, key) VALUES (OLD.collection, OLD.key); END",
-    "CREATE INDEX IF NOT EXISTS pending_outboxes ON rows (place) WHERE collection = 'jobs' AND json_array_length(body, '$.outbox') > 0",
+    "CREATE INDEX IF NOT EXISTS pending_outboxes ON rows (collection, place) WHERE collection = 'jobs' AND json_array_length(body, '$.outbox') > 0",
 )
 VERSION = json.loads((Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json").read_text())["version"]
 
