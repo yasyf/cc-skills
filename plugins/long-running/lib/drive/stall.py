@@ -1,4 +1,5 @@
 import re
+import shlex
 from datetime import datetime, timedelta
 
 from drive import land, stage, state, view
@@ -27,7 +28,7 @@ def chains(data: dict, cards: dict, on_hold: bool, moment: datetime) -> dict[str
 
 
 def chain(data: dict, cards: dict, on_hold: bool, subject: str, seen: set[str]) -> list[tuple[str, str, bool]] | None:
-    """Each link from a job, PR or wait to the ends it waits on, by id, in words that change only when it moves, and whether it is an end, waiting on nothing that holds, each by stage.onward, as stage.ends walks it; None once it reaches a running job, a PR only its repository's maintainers merge, by state.upstream, as one merged outside the drive, a step of his or a PR the drive does not track: a PR whose stage he owes, as a green one his Hold or the hold label holds does, while a red one's builder owes its fix, or that sits on a PR outside the drive, whose stage someone outside it owes, his open question card, whether a wait names it, a job asked it or it holds a PR from landing, or a release while on_hold, his hold on every release, stands."""
+    """Each link from a job, PR or wait to the ends it waits on, by id, in words that change only when it moves, and whether it is an end, waiting on nothing that holds, each by stage.onward, as stage.ends walks it, a wait on a stopped job walked on to each job that took its part, by moved, so a stopped job whose parts all have a successor is never an end; None once it reaches a running job, a PR only its repository's maintainers merge, by state.upstream, as one merged outside the drive, a step of his or a PR the drive does not track: a PR whose stage he owes, as a green one his Hold or the hold label holds does, while a red one's builder owes its fix, or that sits on a PR outside the drive, whose stage someone outside it owes, his open question card, whether a wait names it, a job asked it or it holds a PR from landing, or a release while on_hold, his hold on every release, stands."""
     if subject in seen:
         return []
     seen.add(subject)
@@ -46,17 +47,50 @@ def chain(data: dict, cards: dict, on_hold: bool, subject: str, seen: set[str]) 
 
 
 def link(data: dict, cards: dict, subject: str) -> tuple[str, list[str]]:
-    """A job, PR or wait in words and what it waits on that holds, by stage.onward: a PR by its stage, followed to the job answering for it while its builder owes its step or it waits, a job by its state and the waits that hold it, and any other wait as his card says it."""
+    """A job, PR or wait in words and what it waits on that holds, by stage.onward, each wait on a stopped job read as one on the jobs that took its part, by moved: a PR by its stage, followed to the job answering for it while its builder owes its step or it waits, a job by its state and the waits that hold it, and any other wait as his card says it."""
     if pr := data["prs"].get(subject):
         kept = pr["stage"]
         owner = stage.owner_job(data, subject) if kept and (kept["owner"] == stage.BUILDER or kept["name"] in ("waiting", "blocked")) else None
-        nexts = [*stage.onward(data, subject, cards), *([owner] if owner else [])]
+        nexts = moved(data, [*stage.onward(data, subject, cards), *([owner] if owner else [])])
         return (f"{subject} {kept['name']}, owed by {kept['owner']}: {kept['why']}" if kept else f"{subject} {pr['state']}"), nexts
     if subject in data["jobs"]:
-        nexts = stage.onward(data, subject, cards)
+        nexts = moved(data, stage.onward(data, subject, cards))
         return f"{subject} {data['jobs'][subject]['state']}" + (f" on {', '.join(nexts)}" if nexts else ""), nexts
     entry = view.wait_entry(data, subject, cards)
     return " ".join(filter(None, (entry["title"], entry["url"]))), []
+
+
+def moved(data: dict, waits: list[str]) -> list[str]:
+    """The waits as the stall code reads them, each once: a wait on a stopped job moved to each job that took a part it leaves owed, by successors, so the jobs and PRs waiting on it count as waiting on those jobs and their NEXT is those jobs' step; every other wait as given."""
+    return list(dict.fromkeys(taken for wait in waits for taken in successors(data, wait)))
+
+
+def successors(data: dict, wait: str) -> list[str]:
+    """The jobs a wait stands for: for a stopped job, each other job carrying a part it leaves owed, by state.carriers, the drive's one reading of who carries a part, as its ORPHAN line, drive status and the dashboard read it, of those only each whose work is still to come, by view.coming, and the stopped job itself while one of those parts has no carrier, by uncarried, so a stop whose parts all went to other jobs leaves nothing waiting on it; any other wait stands for itself."""
+    job = data["jobs"].get(wait)
+    if not job or job["state"] != "stopped":
+        return [wait]
+    taken = [other for order_id, part in owed_parts(data, wait) for other, _ in state.carriers(data, order_id, part) if other != wait and view.coming(data, other)]
+    return list(dict.fromkeys([*taken, *([wait] if uncarried(data, wait) else [])]))
+
+
+def owed_parts(data: dict, job_id: str) -> list[tuple[str, str]]:
+    """The parts a job leaves owed, as view.coming reads a stopped job's: each of an open order, its own or one it carries, not delivered, by state.delivered, as its order and part."""
+    job = data["jobs"][job_id]
+    return [
+        (order_id, part)
+        for order_id in [job["order"], *job["carries"]]
+        if (order := data["orders"][order_id])["state"] not in state.CLOSED_ORDER_STATES
+        for part in state.job_parts(job, order_id)
+        if part in order["parts"] and not state.delivered(data, order_id, part)
+    ]
+
+
+def uncarried(data: dict, job_id: str) -> list[tuple[str, str]]:
+    """The parts a stopped job leaves owed that no other job carries, by state.carriers, which only a new job on them delivers; none for a stopped builder a PR the drive does not track carries, by state.untracked_carriers, whose PR carries its parts."""
+    if state.untracked_carriers(data, data["jobs"][job_id]):
+        return []
+    return [(order_id, part) for order_id, part in owed_parts(data, job_id) if not any(other != job_id for other, _ in state.carriers(data, order_id, part))]
 
 
 def things(data: dict, links: dict[str, list[tuple[str, str, bool]]], claims: list[dict]) -> dict[str, dict]:
@@ -163,10 +197,20 @@ def starts(stalls: dict[str, dict], moment: datetime) -> tuple[int, int]:
 
 
 def cause(data: dict, thing: str, held: dict) -> dict[str, str] | None:
-    """The WHY, WHO and NEXT lines of a stall whose cause the drive's own rows name, so no watchdog agent is started to read it: a builder or Sprite turn this Mac's caps hold, a job whose Sprite lane died, which drive job resume restarts on a fresh one, an open card of his a member is or a job member waits on, or an open PR of a job member asking his Approve; None for any other, a staging env or release whose wait may never free included, which only an agent reads."""
+    """The WHY, WHO and NEXT lines of a stall whose cause the drive's own rows name, so no watchdog agent is started to read it: a builder or Sprite turn this Mac's caps hold, a stopped job leaving a part no other job carries, by uncarried, which drive job resume refuses, so its NEXT names the drive job add of that part's order, kind and goal that takes it on, a job whose Sprite lane died, which drive job resume restarts on a fresh one, an open card of his a member is or a job member waits on, or an open PR of a job member asking his Approve; None for any other, a staging env or release whose wait may never free included, which only an agent reads."""
     if turns := [member for member in held["members"] if member in state.TURN_WAITS]:
         return {"WHY": f"waits its turn on {', '.join(turns)}, which this Mac's caps hold", "WHO": "the watch, which frees the earliest due job as a slot opens", "NEXT": "nothing to run: its FREE line starts it"}
     jobs = [data["jobs"][member] for member in held["members"] if member in data["jobs"]]
+    if stopped := [(member, parts) for member in held["members"] if member in data["jobs"] and data["jobs"][member]["state"] == "stopped" and (parts := uncarried(data, member))]:
+        job_id, parts = stopped[0]
+        job, order_id = data["jobs"][job_id], parts[0][0]
+        named = [part for held_order, part in parts if held_order == order_id]
+        flags = " ".join(f"--part {shlex.quote(part)}" for part in named)
+        return {
+            "WHY": f"{job_id} stopped, and no job carries its {'parts' if len(parts) > 1 else 'part'} {'; '.join(f'{part!r} of {held_order}' for held_order, part in parts)}",
+            "WHO": "the session holding its order",
+            "NEXT": f"drive job add {job['kind']} --order {order_id} --goal {shlex.quote(job['goal'])} {flags} takes it on",
+        }
     if dead := [member for member in held["members"] if member in data["jobs"] and data["jobs"][member].get("where") == "remote" and state.lane_death(data["jobs"][member], "dispatch")]:
         return {"WHY": f"{', '.join(dead)}'s Sprite lane died", "WHO": "the session holding its order", "NEXT": f"drive job resume {dead[0]} restarts it on a fresh Sprite"}
     if cards := [wait for wait in [*held["members"], *(wait for job in jobs for wait in job["waits"])] if wait not in data["jobs"] and state.card_wait(data, wait)]:

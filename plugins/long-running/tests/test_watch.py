@@ -11807,3 +11807,23 @@ def test_a_held_text_his_answer_removes_a_premise_of_is_taken_off_the_jobs_it_to
     assert [list(asked["questions"]) for asked in jev.asked] == [["t1", "t2"]]
     assert watch.stale_texts(watching, T0 + timedelta(minutes=2)) == []
     assert len(jev.asked) == 1
+
+
+def test_a_wait_on_a_stopped_job_reads_as_one_on_the_job_that_took_its_part_and_a_part_none_took_names_the_job_add_that_takes_it_never_a_resume(demo: str) -> None:
+    with state.edit(demo) as data:
+        part = next(iter(data["orders"]["o1"]["parts"]))
+        data["orders"]["o1"]["jobs"] = ["j1", "j2", "j3"]
+        data["jobs"]["j1"].update(kind="reader", state="waiting", waits=["j2"], prs=[], parts=[part])
+        data["jobs"]["j2"] = job(state="stopped", parts=[part], where="remote", dispatch="ctx_1", deaths=[{"dispatch": "ctx_1"}])
+        data["jobs"]["j3"] = job(state="waiting", parts=[part], waits=[KEY])
+    data = state.load(demo)
+    found = stall.things(data, stall.chains(data, NO_CARDS, False, T0), [])
+    assert (list(found), found[KEY]["subjects"]) == ([KEY], ["j1", "j3"])
+    data["jobs"]["j3"]["state"] = "stopped"
+    found = stall.things(data, stall.chains(data, NO_CARDS, False, T0), [])
+    assert list(found) == ["j2"]
+    assert stall.cause(data, "j2", found["j2"]) == {
+        "WHY": f"j2 stopped, and no job carries its part {part!r} of o1",
+        "WHO": "the session holding its order",
+        "NEXT": f"drive job add builder --order o1 --goal watch --part {shlex.quote(part)} takes it on",
+    }
