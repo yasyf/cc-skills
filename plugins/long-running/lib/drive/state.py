@@ -2028,8 +2028,7 @@ def read_handoff_jobs(name: str, data: dict) -> None:
         for record in [agents.shown(handoff["seq"]), *agents.answering(name, handoff["seq"])]
     ]
     if answers:
-        with edit(name) as data:
-            answer_handoffs(data, answers)
+        update(name, None, lambda data: answer_handoffs(data, answers))
     (drive_dir(name) / HANDOFF_JOBS).touch()
 
 
