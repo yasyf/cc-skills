@@ -3555,7 +3555,7 @@ def staging_runs(data: dict, pr: dict) -> list[str]:
     if repo.lower() != MONOREPO.lower():
         return []
     part = STAGING_TEST.format(number=number)
-    orders = index.part_orders.get(part, []) if (index := index_of(data)) else [order_id for order_id, order in data["orders"].items() if part in order["parts"]]
+    orders = orders_holding(data, part)
     return [f"{order_id}:{part}" for order_id in orders if (part_testers(data, order_id, part) or f"{order_id}:{part}" in pr["waits"]) and not delivered(data, order_id, part)]
 
 
@@ -3612,7 +3612,7 @@ def deliver_proven(data: dict, job_id: str, proof: str) -> None:
 def staging_tested(data: dict, key: str) -> bool:
     """Whether the merged PR at key was tested on staging before its merge: a `staging test of #N before it lands` part of any order naming its number is delivered."""
     part = STAGING_TEST.format(number=key.rpartition("#")[2])
-    return any(part in order["parts"] and delivered(data, order_id, part) for order_id, order in data["orders"].items())
+    return any(delivered(data, order_id, part) for order_id in orders_holding(data, part))
 
 
 def unposted_answer(data: dict, job_id: str) -> bool:
@@ -5676,7 +5676,7 @@ class Index(NamedTuple):
 
 @contextmanager
 def indexed(data: dict) -> Iterator[None]:
-    """Index the drive once for a read-only projection of it, such as the dashboard's model, so order_jobs, design_builders, pr_jobs, waits_job, waiting_prs, job_waits, staging_runs, view.drawn_on, land.unders, land.landing_stacks and pr_graph read it without scanning every job, PR or order. Jobs, their owning orders, their PR lists, their questions' waits ids, cards and replacements, PRs' jobs, states, waits, native stacks, branches and unders, and orders' parts must remain unchanged inside the projection; nested projections and other threads retain their own scope."""
+    """Index the drive once for a read-only projection of it, such as the dashboard's model, so orders_holding, order_jobs, design_builders, pr_jobs, waits_job, waiting_prs, job_waits, staging_runs, view.drawn_on, land.unders, land.landing_stacks and pr_graph read it without scanning every job, PR or order. Jobs, their owning orders, their PR lists, their questions' waits ids, cards and replacements, PRs' jobs, states, waits, native stacks, branches and unders, and orders' parts must remain unchanged inside the projection; nested projections and other threads retain their own scope."""
     from drive import land, view
 
     ordered_jobs: dict[str, list[str]] = {}
@@ -5727,6 +5727,13 @@ def waiting_prs(data: dict, wait: str) -> list[str]:
     if index := index_of(data):
         return index.waiting.get(wait, [])
     return [key for key, pr in data["prs"].items() if pr["state"] == "open" and wait in pr["waits"]]
+
+
+def orders_holding(data: dict, part: str) -> list[str]:
+    """The orders holding a part, in drive order, shared across a read-only projection."""
+    if index := index_of(data):
+        return index.part_orders.get(part, [])
+    return [order_id for order_id, order in data["orders"].items() if part in order["parts"]]
 
 
 def order_jobs(data: dict, order_id: str) -> list[str]:
