@@ -728,3 +728,26 @@ def test_his_lane_screens_show_each_lane_its_owner_at_work_and_its_record(world:
     assert (now["a"]["state"], now["a"]["next"]) == ("running", "land #7")
     assert [owner["id"] for owner in shown["work"] if owner["id"] == "a"] == ["a"]
     assert [entry["words"] for entry in shown["history"] if entry["kind"] == "merged"] == ["#9 nine"]
+
+
+def test_an_owner_runs_with_the_old_drive_off_and_its_verbs_refused(world: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    import io
+
+    from lane import command
+
+    monkeypatch.setattr(owners, "old_drive_plugins", lambda: ["long-running@skills"])
+    shaped = owners.settings(DRIVE, "a", "token")
+    assert (shaped["enabledPlugins"], "mcp__plugin_long-running_drive" in shaped["permissions"]["deny"], "Bash(drive:*)" in shaped["permissions"]["deny"]) == ({"long-running@skills": False}, True, True)
+    for typed, refused in (("drive pr land --dry-run 57004", 2), ("cd x && ~/.local/bin/drive job list", 2), ("lane next 'x' --says 'y'", 0), ("echo overdrive done", 0)):
+        monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"tool_input": {"command": typed}})))
+        assert command.bash_hook() == refused, typed
+
+
+def test_lane_next_keeps_the_plan_and_the_plain_sentence_his_page_shows(world: dict) -> None:
+    from lane import board
+
+    opened("a")
+    verbs.set_next(DRIVE, "a", token_of("a"), "wait staging_result:cut-1 then card", "Staging is testing the journal stack; results by 3:38 PM.")
+    (store.drive_dir(DRIVE) / store.LIVE).touch()
+    shown = board.screens(DRIVE)
+    assert (shown["now"][0]["says"], shown["now"][0]["next"], shown["work"][0]["doing"]) == ("Staging is testing the journal stack; results by 3:38 PM.", "wait staging_result:cut-1 then card", "Staging is testing the journal stack; results by 3:38 PM.")

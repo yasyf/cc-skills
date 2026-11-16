@@ -710,7 +710,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 return
             repo, number = key.split("#")
             try:
-                card.answered({"repo": repo, "number": int(number), "label": label, "heads": board.stacks.get(key) or {key: head}, "source": "dashboard", "action_ts": None, "waits": ""})
+                card.answered({"repo": repo, "number": int(number), "label": label, "heads": board.stacks.get(key) or {key: head}, "source": "dashboard", "action_ts": f"{time.time():.6f}", "waits": ""})
             except DriveError as error:
                 self.answered(502, {"error": str(error)})
                 return

@@ -250,9 +250,11 @@ def owner_write(drive: str, lane_id: str, token: str | None, change) -> None:
     store.update(drive, lane_id, writing)
 
 
-def set_next(drive: str, lane_id: str, token: str | None, text: str) -> None:
+def set_next(drive: str, lane_id: str, token: str | None, text: str, says: str) -> None:
+    """Write the lane's plan, and the one plain sentence his page shows of it."""
+
     def setting(lane: dict) -> None:
-        lane["next"] = text
+        lane["next"], lane["says"] = text, says
         store.note(lane, f"next: {text}")
 
     owner_write(drive, lane_id, token, setting)

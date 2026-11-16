@@ -93,7 +93,7 @@ def screens(drive: str) -> dict | None:
         stacks, rest = page.ready(page.tapless(lane, seen), seen)
         now.append({
             "id": lane_id, "title": lane["title"], "position": position, "state": lane["state"], "hurting": lane_id in hurting,
-            "waits": waits_plainly(lane["wait"]) if lane["state"] == store.WAITING else None, "parked": (lane.get("parked") or {}).get("words"), "next": lane.get("next"), "until": (lane.get("wait") or {}).get("until"), "why": (lane.get("wait") or {}).get("why"),
+            "waits": waits_plainly(lane["wait"]) if lane["state"] == store.WAITING else None, "parked": (lane.get("parked") or {}).get("words"), "says": lane.get("says"), "next": lane.get("next"), "until": (lane.get("wait") or {}).get("until"), "why": (lane.get("wait") or {}).get("why"),
             "asks": [{"words": ask["words"], "link": ask.get("link"), "at": ask["at"]} for ask in store.unreplied(lane)],
             "stacks": [{"key": f"{row['repo']}#{row['number']}", "url": url(f"{row['repo']}#{row['number']}"), "title": row.get("words") or seen[f"{row['repo']}#{row['number']}"].get("title") or "", "above": len(row["above"])} for row in stacks],
             "rest": rest, "channel": lane.get("channel"), "thread": lane.get("thread"),
@@ -101,7 +101,7 @@ def screens(drive: str) -> dict | None:
         if lane["state"] == store.RUNNING:
             owner = lane["owner"]
             job = owners.record(owners.config_dir() / "jobs" / owner["job"] / "state.json") if owner.get("job") else None
-            work.append({"id": lane_id, "title": lane["title"], "since": owner.get("launched"), "doing": (job or {}).get("detail") or lane.get("next") or "", "builders": owners.in_flight(owner), "updated": (job or {}).get("updatedAt")})
+            work.append({"id": lane_id, "title": lane["title"], "since": owner.get("launched"), "doing": lane.get("says") or "", "builders": owners.in_flight(owner), "updated": (job or {}).get("updatedAt")})
         logged = entries(drive, lane_id)
         queued = {found[1]: entry["at"] for entry in logged if (found := MERGE_QUEUED.search(entry["words"]))}
         history += [{"lane": lane_id, "title": lane["title"], "kind": "said", **entry} for entry in logged]

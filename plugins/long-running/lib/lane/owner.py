@@ -13,6 +13,8 @@ from lane import store
 BRIEF = Path(__file__).with_name("owner.md")
 SHADOW = Path(__file__).with_name("shadow.md")
 ENDED = ("stopped", "done", "failed")
+OLD_DRIVE_DENY = ["Bash(drive:*)", "Bash(drive *)", "mcp__plugin_long-running_drive"]
+OLD_DRIVE_CALL = r"(^|[\s;&|(/])drive\s"
 SHADOW_DENY = [
     "Bash(git push:*)",
     "Bash(git commit:*)",
@@ -144,13 +146,20 @@ def settings(drive: str, lane_id: str, token: str) -> dict:
             "Stop": [{"hooks": [{"type": "command", "command": f"{shlex.quote(str(store.launcher(drive)))} hook stop"}]}],
             "PreToolUse": [
                 {"matcher": "Bash|Edit|Write|NotebookEdit", "hooks": [{"type": "command", "command": fence}]},
+                {"matcher": "Bash", "hooks": [{"type": "command", "command": f"{shlex.quote(str(store.launcher(drive)))} hook bash"}]},
                 {"matcher": "", "hooks": [{"type": "command", "command": f'[ ! -s "$LANE_NOTE_FILE" ] || exec {shlex.quote(str(store.launcher(drive)))} hook note'}]},
             ],
         },
     }
-    if not store.live(drive):
-        shaped["permissions"] = {"deny": SHADOW_DENY}
+    shaped["permissions"] = {"deny": OLD_DRIVE_DENY + ([] if store.live(drive) else SHADOW_DENY)}
+    shaped["enabledPlugins"] = {key: False for key in old_drive_plugins()}
     return shaped
+
+
+def old_drive_plugins() -> list[str]:
+    """Each installed long-running plugin's key, which an owner's session runs with off, so the old drive's skill, MCP tools and hooks never steer it; its lane and lane-land verbs run from the drive's launcher, not the plugin."""
+    listed = record(config_dir() / "plugins" / "installed_plugins.json") or {}
+    return [key for key in listed.get("plugins", {}) if key.startswith("long-running@")]
 
 
 def launched(out: str) -> tuple[str, str]:

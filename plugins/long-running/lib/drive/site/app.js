@@ -2196,21 +2196,16 @@ function laneNowScreen() {
     <ol class="lane-list">${lanes.map(laneNowCard).join('')}</ol>`;
 }
 
-function laneNextLead(next) {
-  const first = next.split(/\s+2\)\s|;\s|\.\s|\s\|\s/)[0].replace(/^1\)\s*/, '');
-  return first.length > 160 ? `${first.slice(0, 157).trimEnd()}…` : first;
-}
-
 function laneNowCard(lane) {
   const [word, tone] = lane.hurting ? ['Hurting users', 'bad'] : LANE_TONES[lane.state];
   const rest = Object.entries(lane.rest ?? {}).map(([why, count]) => `${count} ${why}`).join(', ');
   return `<li class="card lane-card"><div class="card-content">
       <div class="card-top"><span class="eyebrow">${lane.position} · ${esc(lane.id)}</span><span class="pill t-${tone}">${word}</span></div>
       <h2 class="lane-title">${esc(lane.title)}</h2>
-      <p class="lane-standing">${esc(laneStanding(lane))}${lane.next ? ` <span class="lane-next">Next: ${inline(laneNextLead(lane.next))}</span>` : ''}</p>
+      <p class="lane-standing">${esc(laneStanding(lane))}${lane.says ? ` <span class="lane-next">${inline(lane.says)}</span>` : ''}</p>
       ${lane.asks.length ? `<div class="lane-block"><div class="eyebrow">Your words, not yet answered</div><ul>${lane.asks.map((ask) => `<li>${ask.link ? `<a href="${esc(ask.link)}" target="_blank" rel="noopener">${esc(ask.words)}</a>` : esc(ask.words)} <span class="meta">${clock(ask.at)}</span></li>`).join('')}</ul></div>` : ''}
       ${lane.stacks.length ? `<div class="lane-block"><div class="eyebrow">Ready for your tap</div><ul>${lane.stacks.map((stack) => `<li><a href="${esc(stack.url)}" target="_blank" rel="noopener">${esc(sharedRenderers.prName(stack.key))}</a> ${esc(stack.title)}${stack.above ? ` <span class="meta">and ${stack.above} stacked above</span>` : ''}</li>`).join('')}</ul></div>` : ''}
-      ${lane.next || rest || lane.why ? `<details class="lane-more"><summary>The whole plan</summary>${lane.next ? `<p>${inline(lane.next)}</p>` : ''}${lane.why ? `<p>Why it waits: ${esc(lane.why)}</p>` : ''}${rest ? `<p class="meta">Not ready for your tap yet: ${esc(rest)}.</p>` : ''}</details>` : ''}
+      ${lane.next || rest || lane.why ? `<details class="lane-more"><summary>The whole plan</summary>${lane.next ? `<p class="lane-plan">${esc(lane.next)}</p>` : ''}${lane.why ? `<p>Why it waits: ${esc(lane.why)}</p>` : ''}${rest ? `<p class="meta">Not ready for your tap yet: ${esc(rest)}.</p>` : ''}</details>` : ''}
     </div></li>`;
 }
 
@@ -2222,7 +2217,7 @@ function laneWorkScreen() {
     <ol class="lane-list">${owners.map((owner) => `<li class="card lane-card"><div class="card-content">
       <div class="card-top"><span class="eyebrow">${esc(owner.id)}</span><span class="pill t-doing">${owner.builders ? counted(owner.builders, 'builder') : 'On its own'}</span></div>
       <h2 class="lane-title">${esc(owner.title)}</h2>
-      <p class="lane-standing">${inline(owner.doing)}</p>
+      <p class="lane-standing">${owner.doing ? inline(owner.doing) : 'Working.'}</p>
       <p class="meta">${owner.since ? `Started ${clock(owner.since)}` : ''}${owner.updated ? ` · last active ${ago(owner.updated)} ago` : ''}</p>
     </div></li>`).join('') || '<li class="meta">No lane owner is working right now.</li>'}</ol>`;
 }

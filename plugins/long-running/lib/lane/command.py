@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -56,6 +57,15 @@ def stop_hook(drive: str, lane_id: str) -> int:
     if blocks > STOP_BLOCKS:
         return 0
     print(json.dumps({"decision": "block", "reason": "Your lane is still running. Answer any unanswered ask of his with `lane say`, then end your turn only through `lane end-turn --on <event> --until <bound> --why \"...\"`; with nothing else to wait for, `--on his_reply`."}))
+    return 0
+
+
+def bash_hook() -> int:
+    """Refuse an owner's or its builders' shell command calling the old drive's `drive` verbs, which no lane uses: landing is lane-land, posting is lane say."""
+    command = (json.load(sys.stdin).get("tool_input") or {}).get("command") or ""
+    if re.search(owners.OLD_DRIVE_CALL, command):
+        print("The old drive's `drive` verbs are gone and never used in a lane: land through lane-land, post through `lane say`, and write your plan with `lane next`.", file=sys.stderr)
+        return 2
     return 0
 
 
@@ -148,10 +158,13 @@ def main(argv: list[str] | None = None) -> int:
     said.add_argument("--by")
     said.add_argument("--answers", action="append", help="the ts of an ask this line answers; every unanswered ask when left out")
 
-    for name in ("log", "next"):
-        one = verbs_parser.add_parser(name)
-        one.add_argument("text")
-        one.add_argument("--lane")
+    logging = verbs_parser.add_parser("log")
+    logging.add_argument("text")
+    logging.add_argument("--lane")
+    planning = verbs_parser.add_parser("next", help="write the lane's plan, and what it says to him of it")
+    planning.add_argument("text", help="the plan, in your own working terms")
+    planning.add_argument("--says", required=True, help="one plain sentence a person would say of what happens next and what it waits for, PRs named with their words")
+    planning.add_argument("--lane")
     verbs_parser.add_parser("asks").add_argument("--lane")
     finished = verbs_parser.add_parser("done", help="mark one of his asks done, by its ts")
     finished.add_argument("ts")
@@ -188,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
     paging.add_argument("--port", type=int, required=True)
     paging.add_argument("--install", action="store_true")
     hooking = verbs_parser.add_parser("hook")
-    hooking.add_argument("event", choices=["stop", "note"])
+    hooking.add_argument("event", choices=["stop", "note", "bash"])
 
     args = parser.parse_args(argv)
     try:
@@ -242,7 +255,7 @@ def run(args: argparse.Namespace) -> int:
         case "log":
             verbs.log(*where(args), token(), args.text)
         case "next":
-            verbs.set_next(*where(args), token(), args.text)
+            verbs.set_next(*where(args), token(), args.text, args.says)
         case "asks":
             for ask in store.load(*where(args))["asks"]:
                 print(f"{ask['at']} ts {ask.get('ts')}{'' if ask.get('replied') else ' UNANSWERED'}{' done' if ask.get('done') else ''}: {ask['words']}" + (f" ({ask['link']})" if ask.get("link") else ""))
@@ -288,5 +301,7 @@ def run(args: argparse.Namespace) -> int:
         case "install":
             print(supervisor.install(args.drive))
         case "hook":
+            if args.event == "bash":
+                return bash_hook()
             return stop_hook(*where(args)) if args.event == "stop" else note_hook(*where(args))
     return 0
