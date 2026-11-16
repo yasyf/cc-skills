@@ -11610,3 +11610,16 @@ def test_the_drives_watch_retires_a_priority_seat_no_open_order_holds_and_keeps_
     data = state.load(demo)
     assert (len(said), sorted(data["subcoordinators"]), "sub-coordinator Priority o1" in data["launched"]) == (1, ["Priority o2"], False)
     assert seats_end_in_memory == [(state.alias(demo, "coordinator", "Priority o1"), "seat-session-1")]
+
+
+def test_the_relay_passes_a_project_again_only_once_the_drive_moved_or_its_idle_time_ran_out(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    project = watch.Watcher(demo, offset=0, project="Platform")
+    monkeypatch.setattr(watch.state, "unchanged_since", lambda name, version: version == 7)
+    assert watch.due_again(watch.Watcher(demo, offset=0))
+    assert watch.due_again(project)
+    project.passed_version, project.passed_at = 7, watch.monotonic()
+    assert not watch.due_again(project)
+    project.passed_version = 6
+    assert watch.due_again(project)
+    project.passed_version, project.passed_at = 7, watch.monotonic() - watch.PROJECT_RELAY_IDLE
+    assert watch.due_again(project)

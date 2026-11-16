@@ -30,6 +30,7 @@ from drive.render import cut, when
 
 POLL_SECONDS = 5
 RELAY_SECONDS = 2
+PROJECT_RELAY_IDLE = 10
 RESPOND_SECONDS = 5
 RELAY_JOIN_SECONDS = 10
 RESPONDER = "--respond"
@@ -43,7 +44,6 @@ BEAT_SECONDS = 15
 BEAT_FILE = "watchd.beat"
 EVERY_PROJECT_ENV = "LONG_RUNNING_WATCH_EVERY_PROJECT"
 EVERY_PROJECT = "1"
-ONE_PROJECT = "one"
 FAILURES_BEFORE_SAYING = 3
 FAILURE_EVERY = timedelta(minutes=10)
 DUE_EVERY = timedelta(minutes=10)
@@ -191,6 +191,8 @@ class Watcher:
     restacked: dict[str, tuple] = field(default_factory=dict)
     others: dict[str, Self] = field(default_factory=dict)
     joined_at: datetime | None = None
+    passed_version: int | None = None
+    passed_at: float = 0.0
     receiver_took: set[str] | None = None
 
     @property
@@ -1766,8 +1768,8 @@ def sending(message: dict) -> str:
 
 
 @contextlib.contextmanager
-def relaying(watcher: Watcher) -> Iterator[Callable[[str], None]]:
-    """Answer the lanes' reads from the watch's responder, owe him each promised line from a relay, and land, stage and wake from its landing loop, each a process of its own the watch starts, by beside, for as long as the watch runs: the drive's own relay, and one relay for each project the watch takes, by the callable this yields, so a project's promised line waits on no other project's relay pass; each line the responder or a relay writes handed to the watcher it is for as it comes, and each map of the PRs the drive does not track the landing loop writes kept as that watcher's, by relayed_lines, which starts again each that ends before the watch ends it; each ended with SIGTERM and its reader waited for RELAY_JOIN_SECONDS before the watch keeps its unposted lines, so each line the relay made is kept, then SIGKILL and as long again, so a pipe another process still holds open never holds the watch's end, which says the reader it left."""
+def relaying(watcher: Watcher) -> Iterator[None]:
+    """Answer the lanes' reads from the watch's responder, owe him each promised line from a relay, and land, stage and wake from its landing loop, each a process of its own the watch starts, by beside, for as long as the watch runs: one relay for the drive and every project the watch takes, which passes a project only once the drive changed or PROJECT_RELAY_IDLE went by, by beside_passes; each line the responder or the relay writes handed to the watcher it is for as it comes, and each map of the PRs the drive does not track the landing loop writes kept as that watcher's, by relayed_lines, which starts again each that ends before the watch ends it; each ended with SIGTERM and its reader waited for RELAY_JOIN_SECONDS before the watch keeps its unposted lines, so each line the relay made is kept, then SIGKILL and as long again, so a pipe another process still holds open never holds the watch's end, which says the reader it left."""
     ending, guard, live = threading.Event(), threading.Lock(), {}
     readers: dict[str, tuple[str, threading.Thread]] = {}
 
@@ -1785,7 +1787,7 @@ def relaying(watcher: Watcher) -> Iterator[Callable[[str], None]]:
     if not watcher.project and "communicator" in state.saved(watcher.name)["roles"]:
         started("--hear", "the hearer", functools.partial(routed, watcher, took=took_relayed))
     try:
-        yield lambda project: started(f"--relay {project}", f"the relay for {project}", lambda line: took_relayed(watcher.others[project], line))
+        yield
     finally:
         with guard:
             ending.set()
@@ -1799,11 +1801,10 @@ def relaying(watcher: Watcher) -> Iterator[Callable[[str], None]]:
                 watcher.relayed.append(f"WATCH {what}, process {live[slot].pid}, still held its pipe open {2 * RELAY_JOIN_SECONDS} seconds after the watch ended it; the watch ended without its last lines")
 
 
-def beside(watcher: Watcher, slot: str, live: dict[str, subprocess.Popen]) -> int:
-    """Start the process slot names beside the watch, its flag and the project a relay of one runs for, by spawn, kept in live under slot, and return the end of its pipe the watch reads."""
+def beside(watcher: Watcher, flag: str, live: dict[str, subprocess.Popen]) -> int:
+    """Start the process flag names beside the watch, by spawn, kept in live under flag, and return the end of its pipe the watch reads."""
     lines, given = os.pipe()
-    flag, _, project = slot.partition(" ")
-    live[slot] = spawn(watcher, flag, given, project or None)
+    live[flag] = spawn(watcher, flag, given)
     os.close(given)
     return lines
 
@@ -1826,13 +1827,13 @@ def relayed_lines(watcher: Watcher, ending: threading.Event, guard: threading.Lo
             lines = beside(watcher, flag, live)
 
 
-def spawn(watcher: Watcher, flag: str, lines: int, project: str | None = None) -> subprocess.Popen:
-    """Start `drive watch <flag> <fd>`, the responder's `--respond`, a relay's `--relay` or the landing loop's `--land`, as a child of the watch, writing to that end of the watch's pipe, in the watch's process group, so the watch's launch agent ends it with the watch whatever ends the watch. EVERY_PROJECT_ENV in its environment says a watch of this install started it: the responder and landing loop run the passes of every project the watch holds beside the drive's own, by joined, each project's lines led by its lane, by relayed, while a relay runs only the drive's own passes, or with project, only that project's."""
+def spawn(watcher: Watcher, flag: str, lines: int) -> subprocess.Popen:
+    """Start `drive watch <flag> <fd>`, the responder's `--respond`, a relay's `--relay` or the landing loop's `--land`, as a child of the watch, writing to that end of the watch's pipe, in the watch's process group, so the watch's launch agent ends it with the watch whatever ends the watch. EVERY_PROJECT_ENV in its environment says a watch of this install started it: the responder, the relay and the landing loop each run the passes of every project the watch holds beside the drive's own, by joined, each project's lines led by its lane, by relayed."""
     return subprocess.Popen(
-        [str(install.DRIVE), "watch", flag, str(lines), "--drive", watcher.name, *(["--project", project] if project else [])],
+        [str(install.DRIVE), "watch", flag, str(lines), "--drive", watcher.name],
         stdin=subprocess.DEVNULL,
         pass_fds=(lines,),
-        env=os.environ | {EVERY_PROJECT_ENV: ONE_PROJECT if flag == "--relay" else EVERY_PROJECT},
+        env=os.environ | {EVERY_PROJECT_ENV: EVERY_PROJECT},
     )
 
 
@@ -1874,7 +1875,7 @@ def took_untracked(watcher: Watcher, line: str) -> None:
 
 
 def relay(name: str, project: str | None, lines: int) -> int:
-    """Run the watch's relay, the process the watch starts: a relay pass every RELAY_SECONDS beside the watch's passes, by beside_passes, so no GitHub read, landing, Slack redraw or install a pass runs holds the handler on a line owed him by the clock or the handler on a POST report."""
+    """Run the watch's relay, the process the watch starts: a relay pass of the drive every RELAY_SECONDS and of each project the watch holds once due_again says so, beside the watch's passes, by beside_passes, so no GitHub read, landing, Slack redraw or install a pass runs holds the handler on a line owed him by the clock or the handler on a POST report."""
     return beside_passes(name, project, lines, "--relay", lambda watcher, moment: relay_pass(watcher, moment), RELAY_SECONDS)
 
 
@@ -1925,7 +1926,7 @@ def responder(name: str, project: str | None, lines: int) -> int:
 
 
 def beside_passes(name: str, project: str | None, lines: int, flag: str, passing: Callable[[Watcher, datetime], list[str]], seconds: float) -> int:
-    """Run one pass after another, seconds apart, each first moving this process onto the newest install, by install.reopen, once watch_upgraded reads that install running other code than this one, so the code installed now runs it however long a pass holds the watch on the install it started on, and an install that changes none of its code moves nothing. Each line a pass makes goes to the watch down the pipe end it inherited, for the watch's next pass to hand on; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag rather than an Event, which a handler setting it can deadlock on. It keeps a Watcher of its own, so a failed Orca read of its own never reruns the pass's 60-second block. Its guard ends it once a pass runs past PASS_FOR and a minute or a rest past STALL_FOR, its stacks in the watch's log, and the watch starts it again, by relayed_lines."""
+    """Run one pass after another, seconds apart, each first moving this process onto the newest install, by install.reopen, once watch_upgraded reads that install running other code than this one, so the code installed now runs it however long a pass holds the watch on the install it started on, and an install that changes none of its code moves nothing. Each line a pass makes goes to the watch down the pipe end it inherited, for the watch's next pass to hand on; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag rather than an Event, which a handler setting it can deadlock on. It keeps a Watcher of its own, so a failed Orca read of its own never reruns the pass's 60-second block. The relay passes a project only when due_again says the drive moved or its idle time ran out, so seven projects cost one process and no load while nothing changed. Its guard ends it once a pass runs past PASS_FOR and a minute or a rest past STALL_FOR, its stacks in the watch's log, and the watch starts it again, by relayed_lines."""
     ended = term_flag()
     if unwatched(project):
         return 0
@@ -1944,13 +1945,21 @@ def beside_passes(name: str, project: str | None, lines: int, flag: str, passing
                 for one in [passer, *passer.others.values()]:
                     if over(ended):
                         break
+                    if flag == "--relay" and not due_again(one):
+                        continue
                     for line in passing(one, state.now()):
                         written.write(f"{relayed(one, LINE_BREAKS.sub(' ', line))}\n")
+                    one.passed_version, one.passed_at = state.LOADED_VERSION.get(), monotonic()
                 beat("rest")
                 time.sleep(seconds)
     finally:
         finished.set()
     return 0
+
+
+def due_again(watcher: Watcher) -> bool:
+    """Whether the relay owes a watcher its next pass: the drive's own every RELAY_SECONDS, so a POST report or a line due by the clock waits on no commit, and a project's once another connection committed to the drive since its last pass read it, or PROJECT_RELAY_IDLE after that pass, so its clocks still come due on a quiet drive."""
+    return not watcher.project or monotonic() - watcher.passed_at >= PROJECT_RELAY_IDLE or not state.unchanged_since(watcher.name, watcher.passed_version)
 
 
 def term_flag() -> list[int]:
@@ -5646,9 +5655,8 @@ def watching(watcher: Watcher) -> None:
     one = watcher
     passes = 0
     began = monotonic()
-    relays: set[str] = set()
     try:
-        with relaying(watcher) as relay_for:
+        with relaying(watcher):
             for _ in rests(state.events_path(watcher.name)):
                 beat("pass")
                 if passes and handing_off(watcher, monotonic() - began) and (newer := upgraded()):
@@ -5656,9 +5664,6 @@ def watching(watcher: Watcher) -> None:
                     break
                 handing = bool(watcher.made)
                 joined(watcher, state.now(), functools.partial(claim, watcher.name), functools.partial(watched, watcher.name))
-                for project in watcher.others.keys() - relays:
-                    relay_for(project)
-                    relays.add(project)
                 for one in seated_first(watcher):
                     read_from, moment = one.offset, state.now()
                     for said in [handed(one, one.made, moment)] if one.made else passed(one, moment, lambda moment=moment: state.now() - moment > PASS_FOR):
