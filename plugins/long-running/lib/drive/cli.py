@@ -63,6 +63,7 @@ UNTRACKED_PRS = {("pr", "add"): "url", ("pr", "tapped"): "url", ("pr", "ci"): "u
 WAITS_CARD = re.compile(rf"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+|{state.ASK_WAITS.pattern}")
 WAITS_ARGS = ("waits", "redraws", "card", "via", "stands", "dropped", "settled", "superseded", "reopened")
 GO_CI = Path("tools", "ci")
+MAC_BOX_HAND_OVER = "<mac box hand over>"
 CARGO_LOCK = "rust/Cargo.lock"
 GO_CI_BUILT = Path("go", "ci", ".build", "ci.dev")
 LIVE_SAND_NEXT_SECONDS = 60
@@ -6389,7 +6390,7 @@ def manual(args: argparse.Namespace) -> int:
     if not args.page:
         print("\n".join(["drive manual <page> prints one of these pages:", *(f"- {page}" for page in manual_pages())]))
         return 0
-    text = agents.filled((PAGES / f"{args.page}.md").read_text()) + repo_page(args.drive, args.page)
+    text = hand_over_filled(agents.filled((PAGES / f"{args.page}.md").read_text()), args.drive) + repo_page(args.drive, args.page)
     if not args.row:
         sys.stdout.write(text)
         return 0
@@ -6399,6 +6400,17 @@ def manual(args: argparse.Namespace) -> int:
         raise DriveError(f"nothing in drive manual {args.page} names {args.row}; drive manual {args.page} prints the page")
     print("\n\n".join(parts))
     return 0
+
+
+def hand_over_filled(text: str, drive: str | None) -> str:
+    """The page with each `<mac box hand over>` filled with the [mac_box] hand_over command of the .claude/long-running.toml in the drive's checkout, its {box}, {holder} and {from} named as the box and the new and old jobs, so the page names the verb the repository's tool takes; the setting's name when no drive or no such setting is there to read."""
+    try:
+        data = state.load(state.resolve(drive))
+    except DriveError:
+        data = None
+    command = state.mac_box_command(data, "hand_over") if data and state.bound_sessions(data) else None
+    shown = f"`{command.format_map({'box': '<box>', 'holder': '<drive>/<new job>', 'from': '<drive>/<old job>'})}`" if command else "the `[mac_box] hand_over` command of the repository's `.claude/long-running.toml`"
+    return text.replace(MAC_BOX_HAND_OVER, shown)
 
 
 def repo_page(drive: str | None, page: str) -> str:

@@ -12967,3 +12967,12 @@ def test_a_status_of_one_job_prints_that_jobs_row_and_its_prs_not_its_whole_orde
     code, out = run("status", "j1")
     assert (code, "j1 builder" in out, "j2 builder" not in out, "the proof" not in out) == (0, True, True, True)
     assert set(run("job", "show", "j1", "--json")[1] and json.loads(run("job", "show", "j1", "--json")[1])["jobs"]) == {"j1"}
+
+
+def test_the_jobs_page_names_the_hand_over_the_repository_settings_give(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(state, "resolve", lambda name=None: "d")
+    monkeypatch.setattr(state, "load", lambda name: {"name": "d", "roles": {"coordinator": {"cwd": "/clone"}}, "subcoordinators": {}})
+    monkeypatch.setattr(state, "repo_config", lambda data: {"mac_box": {"hand_over": "tools/ci mac-box up {box} --holder {holder} --from {from}"}})
+    assert cli.hand_over_filled("run <mac box hand over> first", None) == "run `tools/ci mac-box up <box> --holder <drive>/<new job> --from <drive>/<old job>` first"
+    monkeypatch.setattr(state, "repo_config", lambda data: {})
+    assert cli.hand_over_filled("run <mac box hand over> first", None) == "run the `[mac_box] hand_over` command of the repository's `.claude/long-running.toml` first"
