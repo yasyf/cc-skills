@@ -43,15 +43,19 @@ def label(url: str) -> str:
     if host.endswith("buildkite.com") and "builds" in parts and parts.index("builds") + 1 < len(parts):
         return f"{parts[parts.index('builds') - 1]} build {parts[parts.index('builds') + 1]}"
     if host.endswith("slack.com") and "archives" in parts:
-        return "the thread"
+        return "the message"
     if host.endswith(("datadoghq.com", "sentry.io")):
         return f"the {host.split('.')[-2].capitalize()} page"
     return f"the {host} page"
 
 
 def wrapped(text: str, url: str) -> str:
-    """The text with each bare use of url linked on words saying what it opens, leaving one already inside a Slack link."""
-    return re.sub(rf"(?<![<|]){re.escape(url)}(?![|>])", f"<{url}|{label(url)}>", text)
+    """The text with each bare use of url linked on words saying what it opens: a bare url, `<url>` or `<url|url>`, leaving one already on words."""
+    url = url.strip("<>").split("|")[0]
+    linked = f"<{url}|{label(url)}>"
+    text = re.sub(rf"(?<![\w<|>*])((?:[A-Za-z][\w'-]* ){{0,2}}[A-Za-z][\w'-]*) \((?:<{re.escape(url)}(?:\|{re.escape(url)})?>|{re.escape(url)})\)", lambda found: f"<{url}|{found[1]}>", text)
+    text = re.sub(rf"<{re.escape(url)}(?:\|{re.escape(url)})?>", linked, text)
+    return re.sub(rf"(?<![<|]){re.escape(url)}(?![|>])", linked, text)
 
 
 def split(paragraph: str) -> str:

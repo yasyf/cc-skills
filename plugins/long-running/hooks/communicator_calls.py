@@ -32,6 +32,7 @@ def program(command: str) -> list[str]:
 
 
 RESEARCH = {"bk", "git", "cc-transcript"}
+SENTRY_TOOLS = ("mcp__sentry__", "mcp__plugin_sentry")
 HANDED_OFF = (
     "Refused on purpose: you answer from what you hold, this turn, `drive status <o, j, PR or words>`, your brief and the thread,"
     " in about 30 seconds, and a read past those is research: post a short status in his thread through say, start one"
@@ -58,7 +59,7 @@ def research(command: str) -> str | None:
 
 
 def communicator_call(payload: dict) -> agents.Unjudged | None:
-    """Why the communicator's own call does not run: a cci write, since the drive's record tool sends its records, and research, bk, tools/ci, git, a transcript read or a bare `drive status`, which its background subagent runs while it stays free for his next message, by his words "it needs to strike the balance of replying quickly when it has the context at hand, but handing off to a subagent (with the relevant context handed to it) to do some further research then respond when it's more involved"; its subagents' calls are their own."""
+    """Why the communicator's own call does not run: a cci write, since the drive's record tool sends its records, and research, bk, tools/ci, git, a transcript or Sentry read or a bare `drive status`, which its background subagent runs while it stays free for his next message, by his words "it needs to strike the balance of replying quickly when it has the context at hand, but handing off to a subagent (with the relevant context handed to it) to do some further research then respond when it's more involved"; its subagents' calls are their own."""
     name = payload["tool_name"]
     if name in CCI_WRITES or name == "Bash" and program(payload["tool_input"].get("command") or "")[:2] in (["cci", "post"], ["cci", "close"]):
         return agents.Unjudged(f"Refused on purpose: {render.RECORDING}")
@@ -66,6 +67,8 @@ def communicator_call(payload: dict) -> agents.Unjudged | None:
         return agents.Unjudged(f"{HANDED_OFF} This call runs {ran}.")
     if name == "Read" and str(payload["tool_input"].get("file_path") or "").endswith(".jsonl"):
         return agents.Unjudged(f"{HANDED_OFF} This call reads a transcript.")
+    if name.startswith(SENTRY_TOOLS):
+        return agents.Unjudged(f"{HANDED_OFF} This call reads Sentry.")
     return None
 
 

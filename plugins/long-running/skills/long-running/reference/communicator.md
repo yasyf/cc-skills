@@ -60,13 +60,31 @@ A short answer needs no blocks: one line of `text` is right.
 
 ### Visuals
 
-Attach a picture when it shows at a glance what words take a paragraph for, through `visuals`:
+A visual is owed, not optional, when the post carries one of these. His words on a post that lacked one: "a visual would have been helpful on this one".
 
-- **Progress through stages**, such as a release across sandbox, staging and production, or a stack of PRs landing: a `chart` (Vega-Lite) or a `dot` or `mermaid` picture of each stage and where the work is now.
-- **A design choice**: an `arch` map or a `compare`.
-- **A screen**: an `image` screenshot or recording, by its absolute path.
+- **Release progress:** a stage bar per half, such as a release's cluster half and apps half each across sandbox, staging and production. Use a Block Kit `fields` section with one field per stage, its state and its link, or a `chart` visual (Vega-Lite) of the stages with the current one marked.
+- **Several items' states,** such as three PRs, five checks or the parts of an order: a `fields` section, one field each, or a table-shaped `chart`.
+- **A before and after,** such as a design change or a fix: a `compare` visual.
+- **A path or a timeline,** such as how a request flows or what lands in what order: a `mermaid` or `dot` visual, or an `arch` map for a design.
+- **A screen:** an `image` screenshot or recording, by its absolute path.
 
-One visual per post, captioned with what it shows. Never a picture of text.
+One visual per post, captioned with what it shows. Never a picture of text. A one-line answer needs none.
+
+A worked example, release progress as blocks under the first line:
+
+```
+text: "Release 2's cluster half is live on production; the apps half is next, at its approve step."
+blocks: [
+  {"type": "section", "text": {"type": "mrkdwn", "text": "Release 2's cluster half is live on production; the apps half is next, at its approve step."}},
+  {"type": "section", "fields": [
+    {"type": "mrkdwn", "text": "*Cluster half*\n🟢 sandbox · 🟢 staging · 🟢 production"},
+    {"type": "mrkdwn", "text": "*Apps half*\n🟢 sandbox · 🟢 staging · ⏳ production, at its approve step"},
+    {"type": "mrkdwn", "text": "*Release*\n{release:17703}"},
+    {"type": "mrkdwn", "text": "*What needs you*\nnothing until the apps half finishes"}]}
+]
+```
+
+The same as a picture is a `chart` visual whose source is a Vega-Lite bar of each half across its three stages, colored by state, captioned "Release 2: each half across sandbox, staging and production".
 
 ### Not spammy
 

@@ -77,8 +77,9 @@ COMMUNICATOR_RULES = (
         " times in Pacific; plain words for what happens to his work, never the drive's machinery or which read backs a claim."
         " Reproduce what you refer to, a card's question and options, a release's stage, with its link or its card drawn under the"
         " post, never leaving him to find it in another thread. Use say's blocks, Block Kit header, section, fields, context and"
-        " divider, for a post he scans, and a visual, such as a chart of a release's stages, when a picture shows progress at a"
-        " glance. say posts exactly where you name, channel_id and thread_ts: in a project or priority channel a new update, release step or decision goes at the root, and a direct answer to his message, or a follow-up on its subject, goes in his thread. One post per thing, a correction an edit. say runs `cc-slack check-post` on every post of yours, fixes"
+        " divider, for a post he scans. A visual is owed, by his words \"a visual would have been helpful on this one\", for"
+        " release progress, a stage bar per half as a fields section or a chart; several items' states, a fields section; a before"
+        " and after, a compare; and a path or timeline, a mermaid or dot visual, as Visuals in communicator.md works out. say posts exactly where you name, channel_id and thread_ts: in a project or priority channel a new update, release step or decision goes at the root, and a direct answer to his message, or a follow-up on its subject, goes in his thread. One post per thing, a correction an edit. say runs `cc-slack check-post` on every post of yours, fixes"
         " what is mechanical, a UTC stamp, a zone label, a bare link, a long paragraph, and posts it in the same call, warning you of"
         " the rest and of one quick Jev read against this standard: nothing comes back to rewrite, so write it right the first time."
     ),

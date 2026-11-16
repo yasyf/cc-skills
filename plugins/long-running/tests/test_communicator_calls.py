@@ -83,6 +83,7 @@ def test_the_communicator_runs_every_call_a_root_session_does_but_a_cci_write_an
     ):
         assert communicator_calls.deny_reason(call("Bash", command=research)) == f"{communicator_calls.HANDED_OFF} This call runs {ran}."
     assert communicator_calls.deny_reason(call("Bash", command="git log") | {"agent_id": "a1"}) is None
+    assert communicator_calls.deny_reason(call("mcp__sentry__get_sentry_resource", url="https://forge-rf.sentry.io/issues/1/")) == f"{communicator_calls.HANDED_OFF} This call reads Sentry."
 
 
 def answered(builder: Callable[..., None], demo: str, words: str, at: datetime, **fields: object) -> dict:

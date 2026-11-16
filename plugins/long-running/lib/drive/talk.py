@@ -67,30 +67,68 @@ def report_words(report: dict) -> str:
     return Path(path).read_text() if path and Path(path).exists() else report["text"]
 
 
+REPORT_RULES = """You write the one Slack post the owner of a software drive reads for a report a session of the drive sent, and decide where it goes. You get the report's words, its attrs, the thread and channel it names, and, for a correction, the post it corrects. Reply with one JSON object and nothing else:
+
+{"skip": "<why>"} when it holds no news for him, or asks the poster to decide or do something besides posting, such as answer a teammate; else
+{"text": "<the post>", "place": "thread" | "root" | "edit", "blocks": [<Block Kit blocks>], "visuals": [<visuals>]}, blocks and visuals optional.
+
+Where it goes:
+- "thread": in the thread the report names, a direct follow-up on its subject. "root": a new update, a release step or a decision at the channel's root. "edit": a correction rewords the post it corrects, in that post's own place, keeping its subject; a correction that adds news rather than fixing words goes "thread", under the post it corrects.
+
+The post, by his standard:
+- opens with one plain sentence saying what changed for him; past about 60 words, short parts under bold headings such as *What changed:*, *What happens next:*, *What needs you:*; lists as bullets; no paragraph over three sentences; plain words, never the drive's machinery: no job or order id such as j7059 or o1339, no record seq, and none of: handler, record, lane, job, order, builder, reader, POST;
+- every link in Slack form <url|words saying what it opens>, only links the report prints; a release by {release:<its Platy name or build number>}, never its Buildkite link; keep each {record:…|…}, {pr:…}, {card:…} and {order:…} reference exactly as written; a card he must answer as {card:<waits id>} so it draws under the post;
+- times in Pacific as the report writes them, never a UTC stamp;
+- "correction" never appears alone: a correction says what was wrong and what is right.
+
+A visual is owed, through visuals or blocks, when a picture says at a glance what words take a paragraph for:
+- release progress: a Block Kit "fields" section with one field per stage or half, its state and link, or a Vega-Lite "chart" visual of stages with the current one marked;
+- several items' states, such as PRs or checks: a "fields" section or a table-shaped chart;
+- a before and after: a "compare" visual;
+- a path or timeline: a "mermaid" or "dot" visual.
+Each visual is {"kind": "chart" | "compare" | "mermaid" | "dot", "source": "<its source>", "caption": "<what it shows>"}, one a post.
+
+A worked example. Report: "POST Release 2's cluster half is live on production; the apps half starts at its approve step. Build 17703 passed sandbox and staging." Reply:
+{"text": "Release 2's cluster half is live on production; the apps half is next, at its approve step.", "place": "root", "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": "Release 2's cluster half is live on production; the apps half is next."}}, {"type": "section", "fields": [{"type": "mrkdwn", "text": "*Cluster half*\nlive on production"}, {"type": "mrkdwn", "text": "*Apps half*\nwaits at its approve step"}, {"type": "mrkdwn", "text": "*Release*\n{release:17703}"}]}]}"""
+
+
 def report_line(name: str, seq: str) -> str:
-    """Post a `POST` report for him from the drive itself, a scripted say from a process the watch starts, so no session posts it and no message of his waits behind one: the report's own words, its POST taken off, each mechanical `cc-slack check-post` fix made by fixes.mended, citing the report, in the thread its thread attr names or the thread of his message it answers, else where say puts a post of its order; a correction rewords the post its report went out in; then each order its close attr names closes on it. A report check-post still finds fault with posts nothing, and its refusal goes back to the session that wrote it, by report_post."""
-    from drive import fixes
+    """Post a `POST` report for him from the drive itself, from a process the watch starts, so no session posts it and no message of his waits behind one: one Sonnet call given REPORT_RULES, his rules for a post, where it goes and when a visual is owed, writes the post and decides its place, by his words "get rid of hard-coded stuff, give it the rules, and let it make the call", then each mechanical `cc-slack check-post` fix is made by fixes.mended and say posts it citing the report: in the thread the report names, at its channel's root, or as an edit of the post a correction corrects, in that post's own place; each order its close attr names then closes on it. A link the report does not print, words check-post still faults and a report the model skips post nothing, and the refusal goes back to its writer, by report_post."""
+    from drive import answer, fixes
 
     read = agents.answered(seq)
     attrs, report = read["attrs"], read["report"]
     known = state.load(name)
-    text = report_words(report).removeprefix("POST").strip()
-    if f"{{record:{seq}|" not in text:
+    words = report_words(report).removeprefix("POST").strip()
+    thread = attrs.get("thread") or read["thread"]
+    channel = attrs.get("channel") or (thread and (kept_in(known, thread) or outside(known, thread)))
+    corrected = known["carried"].get(str(report.get("re") or "")) or "" if report["kind"] == "correction" else ""
+    facts = "\n".join(filter(None, [f"Report {seq}, a {report['kind']}:", words, f"Attrs: {json.dumps(attrs)}", f"Thread: {thread}" if thread else "No thread: it goes at the channel's root.", f"Channel: {channel}" if channel else "", f"The post it corrects: {corrected}" if corrected else ""]))
+    said, _ = answer.ask(facts, "Write his post for this report as one JSON object.", REPORT_RULES, "ask")
+    try:
+        made = json.loads(said[said.index("{") : said.rindex("}") + 1])
+    except ValueError:
+        raise DriveError(f"its post was not written: {render.cut(said, 200)}") from None
+    if made.get("skip"):
+        raise DriveError(f"its post was skipped: {made['skip']}")
+    text = made["text"].strip()
+    if strays := [url for url in answer.URL.findall(json.dumps(made)) if url not in words and url not in corrected]:
+        raise DriveError(f"its post links {strays[0]}, which the report does not print")
+    if f"{{record:{seq}|" not in text and made.get("place") != "edit":
         text = f"{text} ({{record:{seq}|its facts}})"
-    if findings := slack.post_findings(text, False):
+    if findings := slack.post_findings(text, bool(made.get("blocks")) and "{card:" in text):
         text = fixes.mended(text, findings, state.now())
         if findings := slack.post_findings(text, False):
-            raise DriveError(f"`cc-slack check-post` still finds in its words: {' | '.join(findings)}; send the post's words again with each fixed")
-    if report["kind"] == "correction":
-        if not (link := known["carried"].get(str(report.get("re") or "")) or "").startswith("https://"):
+            raise DriveError(f"`cc-slack check-post` still finds in its words: {' | '.join(findings)}; send it again with each fixed")
+    shown = {"text": text} | {key: made[key] for key in ("blocks", "visuals") if made.get(key)}
+    if made.get("place") == "edit":
+        if not corrected.startswith("https://"):
             raise DriveError(f"it corrects report {report.get('re')}, which went out in no post")
-        return spoken(name, {"edit": link, "text": text}, known)
-    place = {}
-    if thread := attrs.get("thread") or read["thread"]:
-        place = {"thread_ts": thread} | ({"channel_id": channel} if (channel := attrs.get("channel") or kept_in(known, thread) or outside(known, thread)) else {})
-    elif attrs.get("channel"):
-        place = {"channel_id": attrs["channel"]}
-    line = spoken(name, {"text": text, "record": seq} | place, known)
+        return spoken(name, shown | {"edit": corrected}, known)
+    place = {"channel_id": channel} if channel else {}
+    if made.get("place") == "thread" and (under := (channel, thread) if thread else corrected and state.link_thread(corrected)):
+        place = {"thread_ts": under[1], "in_thread": True} | ({"channel_id": under[0]} if under[0] else {})
+    line = spoken(name, shown | {"record": seq} | place, known)
     return line + "".join(closed(name, order_id, seq) for order_id in state.closed_orders(attrs) if state.load(name)["orders"][order_id]["state"] not in state.CLOSED_ORDER_STATES)
 
 
