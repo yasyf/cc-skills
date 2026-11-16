@@ -825,8 +825,11 @@ def ci_passed(run: dict) -> bool:
 
 
 def ci_statuses(repo: str, commit: str) -> list[dict]:
-    jq = ".statuses[] | {context, state, target_url}"
-    return [json.loads(line) for line in github.read(f"{repo}'s commit statuses on {commit[:12]}", ["gh", "api", f"repos/{repo}/commits/{commit}/status", "--jq", jq]).splitlines()]
+    """The newest commit status of each context on commit, read through GraphQL, whose own pool every drive job prove pass then spends instead of the owner's REST core one."""
+    owner, name = repo.split("/")
+    query = f'query {{ repository(owner: "{owner}", name: "{name}") {{ object(oid: "{commit}") {{ ... on Commit {{ status {{ contexts {{ context state targetUrl }} }} }} }} }} }}'
+    jq = ".data.repository.object.status.contexts // [] | .[] | {context, state: (.state | ascii_downcase), target_url: .targetUrl}"
+    return [json.loads(line) for line in github.read(f"{repo}'s commit statuses on {commit[:12]}", ["gh", "api", "graphql", "-f", f"query={query}", "--jq", jq]).splitlines()]
 
 
 def pushed(repo: str, sha: str, branch: str) -> Iterator[str]:
