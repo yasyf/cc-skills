@@ -6238,6 +6238,8 @@ def watch_events(args: argparse.Namespace) -> int:
         return watch.relay(state.resolve(args.drive), args.project, args.relay)
     if args.land is not None:
         return watch.landing_loop(state.resolve(args.drive), args.project, args.land)
+    if args.hear is not None:
+        return watch.hearer(state.resolve(args.drive), args.hear)
     if args.loop:
         return watch.main(args.drive, args.project)
     print(watch.ensure(state.resolve(args.drive)))
@@ -7873,6 +7875,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--loop", action="store_true", help="run the watch in the foreground: the process its launch agent runs")
     verb.add_argument("--respond", type=int, metavar="FD", help="run the watch's responder in the foreground, writing its lines to the inherited file descriptor FD: the process each watch starts beside its passes and ends, which starts a reader on each lane question the moment it is asked")
     verb.add_argument("--relay", type=int, metavar="FD", help="run the watch's relay in the foreground, writing its lines to the inherited file descriptor FD: the process each watch starts beside its passes and ends")
+    verb.add_argument("--hear", type=int, metavar="FD", help="run the watch's hearer in the foreground, writing a line for each message it could not keep or route to the inherited file descriptor FD: the process each watch starts beside its passes and ends, which takes the communicator's Slack messages by cc-slack watch --only-delivery, keeps each verbatim in heard.jsonl and routes his at once")
     verb.add_argument("--land", type=int, metavar="FD", help="run the watch's landing loop in the foreground, writing the PRs the drive does not track it read to the inherited file descriptor FD: the process each watch starts beside its passes and ends, which reads GitHub, stages, wakes and lands every 60 seconds whatever a pass of the watch holds")
     verb.add_argument(
         "--project",

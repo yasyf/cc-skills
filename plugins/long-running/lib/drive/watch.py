@@ -1746,6 +1746,8 @@ def relaying(watcher: Watcher) -> Iterator[Callable[[str], None]]:
     started("--respond", "the responder", functools.partial(routed, watcher, took=took_relayed))
     started("--relay", "the relay", functools.partial(routed, watcher, took=took_relayed))
     started("--land", "the landing loop", functools.partial(routed, watcher, took=took_untracked))
+    if not watcher.project and "communicator" in state.saved(watcher.name)["roles"]:
+        started("--hear", "the hearer", functools.partial(routed, watcher, took=took_relayed))
     try:
         yield lambda project: started(f"--relay {project}", f"the relay for {project}", lambda line: took_relayed(watcher.others[project], line))
     finally:
@@ -1838,6 +1840,53 @@ def took_untracked(watcher: Watcher, line: str) -> None:
 def relay(name: str, project: str | None, lines: int) -> int:
     """Run the watch's relay, the process the watch starts: a relay pass every RELAY_SECONDS beside the watch's passes, by beside_passes, so no GitHub read, landing, Slack redraw or install a pass runs holds the handler on a line owed him by the clock or the handler on a POST report."""
     return beside_passes(name, project, lines, "--relay", lambda watcher, moment: relay_pass(watcher, moment), RELAY_SECONDS)
+
+
+def hearer(name: str, lines: int) -> int:
+    """Run the watch's hearer, the process the watch starts beside its passes: `cc-slack watch --only-delivery` on the communicator's session, so each message of his reaches this process alone and never wakes the communicator, which cc-slack hands it again the moment this process exits; each is kept verbatim in heard.jsonl before any model runs, then routed at once by a detached `drive route`, and any other person's message in a thread the communicator watches goes to the communicator as one cci note, so nothing he or they send ends unread. A line it writes down its pipe tells the watch a message it could not keep or route."""
+    held = state.saved(name)["roles"]["communicator"]
+    stream = subprocess.Popen(
+        ["cc-slack", "watch", "--session", held["session"], "--cwd", held["cwd"], "--only-delivery", "--whole"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        text=True,
+        env={key: value for key, value in os.environ.items() if key != "CLAUDE_CODE_SESSION_ID"},
+    )
+    with os.fdopen(lines, "w") as out:
+        for line in stream.stdout:
+            if line.strip():
+                try:
+                    heard_message(name, json.loads(line))
+                except Exception as error:
+                    print(f"WATCH the hearer could not keep or route {cut(line.strip(), 300)}: {render.raised(error)}", file=out, flush=True)
+    return stream.wait()
+
+
+HEARD = "heard.jsonl"
+
+
+def heard_message(name: str, event: dict) -> None:
+    """Keep one message cc-slack delivered to the communicator verbatim, then route it: his, in his DM or an operator channel, through `drive route` detached; anyone else's to the communicator as a cci note, which it reads as channel content."""
+    if not event.get("type", "").startswith("slack.message"):
+        return
+    with (state.drive_dir(name) / HEARD).open("a") as kept:
+        kept.write(json.dumps({"at": state.stamp(), "event": event}, ensure_ascii=False) + "\n")
+        kept.flush()
+        os.fsync(kept.fileno())
+    if event.get("kind") == "dm" or event.get("operator"):
+        state.detach(name, ["route", heard_brief(name, event)], "routes-run.log")
+        return
+    reads.run(["cci", "post", "--drive", name, "--lane", "watch", "--kind", "note", "--to", f"communicator@{name}", "--id", f"heard-{event['ts']}", "--text", f"{event.get('user_name') or event.get('user')} in {event.get('channel_id')} thread {event.get('thread_ts')}: {event.get('text') or ''} {event.get('permalink') or ''}"], Path.cwd(), reads.posting())
+
+
+def heard_brief(name: str, event: dict) -> str:
+    """The handler brief of his message as cc-slack delivered it: his words verbatim, its permalink, its thread, and a Context line for the card his words are under or the ack cc-slack posted while the communicator compacted."""
+    context = [
+        *([f"Context: his words are under the question card {event['thread_card']}"] if event.get("thread_card") else []),
+        *([f"Context: cc-slack already acked it in its thread ({event['acked']})"] if event.get("acked") else []),
+    ]
+    scratch = state.drive_dir(name) / "scratch" / f"heard-{event['ts']}"
+    return "\n".join([f"Message (his words): {event.get('text') or ''}", f"Link: {event['permalink']}", f"Thread: {event['channel_id']} {event['thread_ts']}", f"Drive: {name}", f"Scratch: {scratch}", *context])
 
 
 def responder(name: str, project: str | None, lines: int) -> int:
