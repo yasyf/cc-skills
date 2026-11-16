@@ -288,7 +288,7 @@ session makes its parts `ORPHAN`s.
    keeps the state its line set, with its waits, PRs and carried parts: a `WAITING` job stays
    waiting, so nothing waiting on it is freed, and its next event starts its next lane on a fresh
    Sprite. Whatever the job's state, end saves what its Sprite holds on no remote to GitHub as
-   `saved/<lane>/<branch>`, uncommitted changes included, before it destroys the Sprite, and keeps
+   `saved/<lane>/<branch>-<sha>`, uncommitted changes included, before it destroys the Sprite, and keeps
    the Sprite, naming why, when the save fails. While the job is not finished, end saves before it
    ends the lane, and end's output and that lane's handoff name each branch GitHub holds under
    `saved/<lane>/`, read from its refs, never from what a save printed, or, when GitHub holds
