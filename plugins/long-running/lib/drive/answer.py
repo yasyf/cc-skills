@@ -264,11 +264,12 @@ def report_of(said: str, rows: str) -> tuple[str | None, str | None, str]:
 
 
 def post_report(name: str, seq: str) -> dict | None:
-    """Post the line a watch report owes him from the drive's rows for its thread and the report's own facts, with no handler session: one tool-less model call, the line checked as an answer is, and the report carried by that post, or by NOTHING when nothing he acts on moved; None when the report is not the drive's own to write or the model escalates, for a handler to take it."""
+    """Post the line a watch report owes him from the drive's rows for its thread and the report's own facts, with no handler session: one tool-less model call, the line checked as an answer is, and the report carried by that post, or by NOTHING when nothing he acts on moved; None when the report is not the drive's own to write or the model escalates, for a handler to take it, and at once for a report it escalated before, so a handler start the Mac's load drops and the watch retries costs no second call."""
     from drive import agents
 
     record = agents.shown(seq)
-    if not scripted(record):
+    escalated = claim_path(name, f"report-{seq}")
+    if not scripted(record) or escalated.exists():
         return None
     thread = record["fields"]["attrs"]["thread"]
     report = reads.run(["cci", "read", seq], Path.cwd())
@@ -285,4 +286,7 @@ def post_report(name: str, seq: str) -> dict | None:
         agents.carry(name, [seq], found["posted"] or f"nothing to post, by the drive's rows: {why}")
     with (state.drive_dir(name) / "answers.log").open("a") as out:
         out.write(json.dumps({"at": state.stamp(), **{key: value for key, value in found.items() if key != "usage"}, "tokens": sum(value for key, value in (spent.get("usage") or {}).items() if key.endswith("tokens") and isinstance(value, int)), "said": cut(said, 600)}) + "\n")
+    if not verb:
+        escalated.parent.mkdir(parents=True, exist_ok=True)
+        escalated.write_text(json.dumps({"why": why}))
     return found if verb else None
