@@ -1064,11 +1064,14 @@ def unbatched(data: dict) -> list[str]:
 
 def clear_unbatched(name: str) -> list[str]:
     """Close done each order unbatched reads, dropping its close report unsent, since the line of an install's fixes posts him once for them all. A line for each order closed."""
-    with state.edit(name) as data:
+
+    def cleared_reports(data: dict) -> list[str]:
         cleared = unbatched(data)
         for order_id in cleared:
             data["orders"][order_id].update(close_report=None, state="done", updated=state.stamp())
-    return [f"{name} {order_id}: closed, its close report dropped unsent for the one line of its install's fixes" for order_id in cleared]
+        return cleared
+
+    return [f"{name} {order_id}: closed, its close report dropped unsent for the one line of its install's fixes" for order_id in state.update(name, None, cleared_reports)]
 
 
 def live_report(name: str, order_ids: list[str], plugin: str, version: str, build: str) -> dict:
