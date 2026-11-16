@@ -518,16 +518,16 @@ When it is answered, replaced or redone:
 - The same PRs show under the line on the dashboard's history, each with where it stands now. A post
   naming a PR the drive does not hold is refused: `drive pr add` records it first.
 - His Approve lands exactly those PRs still asking his tap, bottom first. His Hold holds them all and
-  stops only their landing, so the card asks his Approve on each again, its row saying it lands once he
-  approves, lifting the Hold, and one Approve on a stack card lifts each member's Hold and lands the
-  card whole, by his pick "One card's work lands together". A card posts once a PR on it asks his tap, and shows what holds it, such as a card of his it waits
-  on, but never while one is being reworked to his words. Outside an incident a PR a question card of
+  stops only their landing, so the card asks his Approve on each again, and one Approve on a stack
+  card lifts each member's Hold and lands the card whole, by his pick "One card's work lands
+  together". A card posts once a PR on it asks his tap, but never while one is being reworked to his
+  words. Outside an incident a PR a question card of
   his holds asks no tap until he answers each such card, by his pick "Buttons only after you answer
   each question", so its card posts then, or a card already up is redrawn without Approve meanwhile; on an
-  incident the card shows the option his Approve picks on each card of his holding the repair, which
-  the lander's start answers and closes before it lands. A card of his that
-  holds an approved PR his Approve did not pick leaves its card reading Approved by you and naming
-  that card, which his answer on it frees. A PR added later to its stack, its native GitHub stack
+  incident his Approve on the repair also picks the recommended option of each card of his holding
+  it, which the lander's start answers and closes before it lands. A card of his that
+  holds an approved PR his Approve did not pick holds it from landing until his answer on that card
+  frees it. A PR added later to its stack, its native GitHub stack
   or the PRs chained to it by base branch, joins one new card for the whole stack, posted alone or
   with the rest of it, and cc-slack marks each older card of those PRs replaced, with a link to the
   new one; the watch draws that card for any stack it finds split across cards.
