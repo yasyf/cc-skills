@@ -188,7 +188,7 @@ RETURN_WAIT = re.compile(r"(?P<job>j\d+)@(?P<returned>\d+)")
 LINE_JOB = re.compile(r"(?<![\w:/.-])j\d+(?![\w@-])")
 SLOT_WAIT = "builder-slot"
 HOLDS_NOW = "## Holds now"
-REPLY_WAIT = re.compile(r"reply:(?P<link>https://[\w.-]+/archives/[A-Z0-9]+/p\d{16}(?:\?[^\s,;]*)?)")
+REPLY_WAIT = re.compile(r"reply:(?:(?P<link>https://[\w.-]+/archives/[A-Z0-9]+/p\d{16}(?:\?[^\s,;]*)?)|cci:(?P<seq>[1-9]\d*))")
 REVIEW_WAIT = re.compile(r"review:(?P<login>[A-Za-z0-9][A-Za-z0-9-]{0,38})")
 NOT_STARTED = "not started"
 PROVER_GOAL = re.compile(r"prove (?P<keys>.+) live")
@@ -2113,7 +2113,7 @@ def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
 
 
 def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a job's returned line may not set its state, naming the fix: a line opening with no result sets nothing, a reader's READY, PUSHED or BUILT sets nothing, by unshipped, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, a builder's READY or PUSHED naming a Forge-AI/monorepo PR says how each is tested on staging, by staging_refusal, a prover's WAITING names no process of its own while drive job prove proves it, since that runs its proof file and the watch its WAIT, a builder's DONE on work he ordered no proof delivered yet keeps the proof file drive job prove runs to deliver it, and a WAITING holds on something that can wake it, by wakes, the rule drive job report, codex.take and the watch's stall check share, so a codex reply whose line names only lost logs or merged PRs is refused rather than freed a minute later and launched into the same wait again, never puts a PR on a part view.pooled refuses it, which open PRs of other jobs outside its stack wait on, a staging test's DONE frees no PR held for it that no build its CHECK: lines name deployed to staging, nor, for one changing only tools/ci and go/ci, a commit they link carries, by unstaged, and a WAITING or BUILT of a job on an order of his product names no "Drive tooling:" order's work, a job of such an order named as j<n> among it, by tooling_waits."""
+    """Why a job's returned line may not set its state, naming the fix: a line opening with no result sets nothing, a reader's READY, PUSHED or BUILT sets nothing, by unshipped, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, a builder's READY or PUSHED naming a Forge-AI/monorepo PR says how each is tested on staging, by staging_refusal, a prover's WAITING names no process of its own while drive job prove proves it, since that runs its proof file and the watch its WAIT, a builder's DONE on work he ordered no proof delivered yet keeps the proof file drive job prove runs to deliver it, a WAITING, READY or PUSHED names as reply:cci:<seq> only another drive's record on a topic, by anchors, and a WAITING holds on something that can wake it, by wakes, the rule drive job report, codex.take and the watch's stall check share, so a codex reply whose line names only lost logs or merged PRs is refused rather than freed a minute later and launched into the same wait again, never puts a PR on a part view.pooled refuses it, which open PRs of other jobs outside its stack wait on, a staging test's DONE frees no PR held for it that no build its CHECK: lines name deployed to staging, nor, for one changing only tools/ci and go/ci, a commit they link carries, by unstaged, and a WAITING or BUILT of a job on an order of his product names no "Drive tooling:" order's work, a job of such an order named as j<n> among it, by tooling_waits."""
     from drive import install, place, view
 
     job = data["jobs"][job_id]
@@ -2149,12 +2149,17 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
                 " keep an executable, read-only script exiting 0 once what its brief's Done when names holds where it is used, printing a line for each check it passed,"
                 f" with drive job set {job_id} --repro <file>, then send this report again"
             )
+    if re.match(r"WAITING\b", line) or REPORTED_LINE.match(line):
+        try:
+            anchors(data, (found[0] for found in REPLY_WAIT.finditer(line)))
+        except DriveError as error:
+            return f"its line waits on a record the watch cannot follow: {error}"
     if re.match(r"WAITING\b", line) and not wakes(data, job_id, now(), line):
         process = "" if place.on_sprite(job) else f", a process you started on this Mac that still runs as pid:<n>, which wakes {job_id} once it ends"
         return (
             "its WAITING names nothing the watch frees it on: name on its first line, the only line its waits are read from, the release as"
             " release:<service>:<owner>/<repo>#<n>, or release:<service>:<owner>/<repo>#<n>@<env> for one env as tools/ci release live names it, a staging test's soak commit as staging:<target>/<env>@<commit>, a Buildkite build by its link, https://buildkite.com/<org>/<pipeline>/builds/<n>,"
-            f" an open PR the drive tracks, a part of an order not yet delivered as <order>:<part>{process}, a teammate's reply as reply:<the permalink of the question the drive asked them>, which their first message after it ends, or his open card as `WAITING <what> waits on <its waits id or Slack link>`,"
+            f" an open PR the drive tracks, a part of an order not yet delivered as <order>:<part>{process}, a teammate's reply as reply:<the permalink of the question the drive asked them>, which their first message after it ends, another drive's next record as reply:cci:<the seq of its record you wait after>, which the first record after it on that record's topic in that drive ends, or his open card as `WAITING <what> waits on <its waits id or Slack link>`,"
             f" since a PR that merged or closed, a part delivered, a process that ended and a card he answered free it at once, and a PR waiting on {job_id} or a part it carries, as the PR its staging test tests, waits on {job_id} in turn: name with it the job"
             f" whose work frees {job_id}, as j<n>, which frees it once that job's change merges, or once that job next reports while its change waits on {job_id}"
         )
@@ -2244,11 +2249,32 @@ def fix_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
 
 
 def named_waits(data: dict, order_id: str, line: str) -> list[str]:
-    """The waits a result line names: each release:<service>:<owner>/<repo>#<n>, with its @<env> when it names one, of a PR the drive tracks, each staging:<target>/<env>@<commit>, each Buildkite build it links, by the build's own link, each other drive PR it names, each part it names as <order>:<part>, each process on this Mac it names as pid:<n> that runs now, by pid_waits, and each teammate's reply it names as reply:<the question's permalink>."""
+    """The waits a result line names: each release:<service>:<owner>/<repo>#<n>, with its @<env> when it names one, of a PR the drive tracks, each staging:<target>/<env>@<commit>, each Buildkite build it links, by the build's own link, each other drive PR it names, each part it names as <order>:<part>, each process on this Mac it names as pid:<n> that runs now, by pid_waits, each teammate's reply it names as reply:<the question's permalink> and each next record of another drive it names as reply:cci:<the seq of the record it follows>."""
     releases = [found[0] for found in RELEASE_WAIT.finditer(line) if found["pr"] in data["prs"]]
     stagings = [found[0] for found in STAGING_WAIT.finditer(line)]
     builds = [found[0] for found in github.BUILD.finditer(line)]
     return list(dict.fromkeys([*releases, *stagings, *builds, *named_prs(data, order_id, RELEASE_WAIT.sub("", line)), *named_parts(data, line), *pid_waits(line), *(found[0] for found in REPLY_WAIT.finditer(line))]))
+
+
+def anchors(data: dict, waits: Iterable[str]) -> dict[str, dict]:
+    """The cci record each reply:cci:<seq> wait among waits follows, by its seq, read in one cci show whatever drive holds each; refused naming each seq cci holds no record at, each record of this drive, whose own lanes' next line on its topic would end the wait, and each record with no topic, which no record follows on one."""
+    from drive import reads
+
+    seqs = list(dict.fromkeys(found["seq"] for wait in waits if (found := REPLY_WAIT.fullmatch(wait)) and found["seq"]))
+    if not seqs:
+        return {}
+    try:
+        records = {str(record["seq"]): record for record in map(json.loads, reads.run(["cci", "show", "--json", *seqs], Path.cwd()).splitlines())}
+    except reads.ReadError as error:
+        raise DriveError(f"cci could not read the record at {', '.join(seqs)} that reply:cci:<seq> follows: {error}") from None
+    own = [seq for seq in seqs if records[seq]["drive"] == data["name"]]
+    bare = [seq for seq in seqs if not records[seq].get("topic")]
+    if why := [
+        *([f"{', '.join(own)} is a record of {data['name']}, whose own next line on its topic would end the wait: reply:cci:<seq> follows another drive's record, and this drive's own work is waited on as its job j<n> or its part <order>:<part>"] if own else []),
+        *([f"{', '.join(bare)} has no topic, so no record follows it on one: name another drive's record on the topic its next line comes on"] if bare else []),
+    ]:
+        raise DriveError("; ".join(why))
+    return records
 
 
 def pid_waits(words: str) -> list[str]:
@@ -5014,7 +5040,7 @@ def followed_builds(orders: dict[str, dict]) -> set[str]:
 
 
 def card_wait(data: dict, wait: str) -> bool:
-    """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a job's next report, a PR, tracked or not, a part of an order, a release of the drive, a staging test's soak commit, a process on this Mac, a Buildkite build, a teammate's reply to a question the drive asked them, a teammate's review of a PR's head or a builder slot on this Mac."""
+    """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a job's next report, a PR, tracked or not, a part of an order, a release of the drive, a staging test's soak commit, a process on this Mac, a Buildkite build, a teammate's reply to a question the drive asked them, another drive's next record on a topic, a teammate's review of a PR's head or a builder slot on this Mac."""
     return wait not in data["jobs"] and wait not in data["prs"] and not part_wait(data, wait) and not RELEASE_WAIT.fullmatch(wait) and not STAGING_WAIT.fullmatch(wait) and not PID_WAIT.fullmatch(wait) and not github.BUILD.fullmatch(wait) and not REPLY_WAIT.fullmatch(wait) and not REVIEW_WAIT.fullmatch(wait) and not RETURN_WAIT.fullmatch(wait) and not untracked_wait(data, wait) and wait != SLOT_WAIT
 
 

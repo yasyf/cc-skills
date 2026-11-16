@@ -1208,13 +1208,16 @@ def released(data: dict, owner: dict, own: str, cards: dict | None, out: dict[st
 
 
 def replies(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, str], list[str]]:
-    """Each reply wait of a live job the watch hears, his cards asking it nothing, that a teammate's reply ended, with who replied and its link: the first message after the drive's question from anyone but the drive and a bot, read once a minute. Each reply first goes to the communicator in a report, whose handler posts it in the thread of the job's order, and onto the job's held texts, which the watch carries it once nothing holds it; a failed read or write is said as a failed read is and tried again next read, the report under the same idempotency key."""
-    out, lines = {}, []
+    """Each reply wait of a live job the watch hears, his cards asking it nothing, that a teammate's reply or another drive's record ended, with who replied or posted and its link or seq, read once a minute: for a teammate's, the first message after the drive's question from anyone but the drive and a bot, which first goes to the communicator in a report, whose handler posts it in the thread of the job's order, and onto the job's held texts, which the watch carries it once nothing holds it; for another drive's, by posted_after. A failed read or write is said as a failed read is and tried again next read, the report under the same idempotency key."""
+    out, lines, followed = {}, [], {}
     for job_id, job in data["jobs"].items():
         if job["state"] in state.FINISHED_JOB_STATES or not heard_job(watcher, data, job) or view.open_cards(job):
             continue
         for wait in job["waits"]:
             if not (asked := state.REPLY_WAIT.fullmatch(wait)):
+                continue
+            if asked["seq"]:
+                followed.setdefault(wait, []).append(job_id)
                 continue
             source = f"reply {wait}"
             try:
@@ -1224,7 +1227,46 @@ def replies(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, s
                 lines += failed(watcher, source, f"read of the reply {job_id} waits on to {asked['link']}", error, moment)
                 continue
             watcher.failures.pop(source, None)
-    return out, lines
+    posted, unread = posted_after(watcher, data, followed, moment)
+    return out | posted, lines + unread
+
+
+def posted_after(watcher: Watcher, data: dict, followed: dict[str, list[str]], moment: datetime) -> tuple[dict[str, str], list[str]]:
+    """Each reply:cci:<seq> wait among followed, which names the jobs waiting on it, that another drive's record ended, with who posted it and its seq: the first record after the one at its seq on that record's topic in the drive holding it, read in one cci show of every such seq, by state.anchors, and one cci grep per drive they name, whatever the number of waits. Its words, whole from the body file cci attaches to a record longer than its line, go onto each waiting job's held texts in one save, under the record's seq so no second read holds them again, which the watch carries it once nothing holds it, with no report to the communicator, since another drive's coordination line asks nothing of him; a failed read is said as a failed read is and tried again next read."""
+    if not followed:
+        return {}, []
+    source = "reply:cci"
+    try:
+        anchors = state.anchors(data, followed)
+        drives: dict[str, list[dict]] = {}
+        for anchor in anchors.values():
+            drives.setdefault(anchor["drive"], []).append(anchor)
+        posted = {
+            drive: [
+                json.loads(line)
+                for line in reads.run(
+                    ["cci", "grep", ".", "--drive", drive, *(flag for topic in dict.fromkeys(anchor["topic"] for anchor in held) for flag in ("--topic", topic)), "--since", str(min(anchor["seq"] for anchor in held)), "--budget", str(agents.AMENDMENT_BYTES), "--json"],
+                    Path.cwd(),
+                ).splitlines()
+            ]
+            for drive, held in drives.items()
+        }
+    except (reads.ReadError, state.DriveError) as error:
+        return {}, failed(watcher, source, f"read of the records {', '.join(followed)} wait on", error, moment)
+    watcher.failures.pop(source, None)
+    firsts = {}
+    for wait in followed:
+        anchor = anchors[state.REPLY_WAIT.fullmatch(wait)["seq"]]
+        if after := [record for record in posted[anchor["drive"]] if record.get("topic") == anchor["topic"] and record["seq"] > anchor["seq"]]:
+            firsts[wait] = (anchor, min(after, key=lambda record: record["seq"]))
+    if not firsts:
+        return {}, []
+    with state.edit(watcher.name) as saved:
+        for wait, (anchor, first) in firsts.items():
+            for job_id in followed[wait]:
+                words = f"{first['kind']} record {first['seq']} from {first['lane']}@{first['drive']}, the first on topic {anchor['topic']} after {anchor['seq']} that {job_id} waited on: {Path(body).read_text().strip() if (body := first['refs'].get('path')) else first['text']}"
+                state.hold_text(saved["jobs"][job_id], words, state.WATCH_SENDER, seq=str(first["seq"]))
+    return {wait: f"{first['lane']}@{first['drive']} posted {first['seq']} on {anchor['topic']}" for wait, (anchor, first) in firsts.items()}, []
 
 
 def first_reply(question: str) -> dict | None:

@@ -52,6 +52,7 @@ INCIDENT_THREAD = "1794494004.895129"
 TEAMMATE_THREAD = "1794500000.000300"
 ASKED_TS = f"{T0.timestamp():.6f}"
 ASKED_TEAMMATE = f"https://acme.slack.com/archives/C0TEAM0001/p{ASKED_TS.replace('.', '')}"
+STAGING_TOPIC = "o78-staging-collision"
 NO_BUILDER = "no builder carries this work, only "
 READ = ("reader", "done")
 PROVEN = "DONE ship it live: repro/j9.sh exits 0 on long-running@skills 1.0.4"
@@ -1924,6 +1925,96 @@ def test_a_reply_wait_ends_on_a_teammates_reply_in_the_questions_thread_never_on
     assert calls[0][0]["id"] == f"reply-j1-{reply_ts}"
     assert len(histories) == 2
     assert slack_thread.reads == [("--channel", "C0TEAM0001", "--thread", ASKED_TS, "--since-ts", ASKED_TS, "--limit", "1000")] * 2
+
+
+def cci_record(seq: int, **fields: object) -> dict:
+    return {"seq": seq, "drive": "durable-agents", "lane": "root", "kind": "note", "topic": STAGING_TOPIC, "text": f"record {seq}", "refs": {}, **fields}
+
+
+def cci_store(monkeypatch: pytest.MonkeyPatch, records: list[dict]) -> list[list[str]]:
+    """cci as the watch reads it, each cci show and cci grep it runs kept: show prints the records at its seqs, grep, newest first, those of its drive on its topics after its --since seq."""
+    reads_made: list[list[str]] = []
+
+    def run(argv: list[str], checkout: Path, env: dict | None = None, bounded: bool = True, stdin: str | None = None) -> str:
+        if argv[0] != "cci":
+            return ""
+        reads_made.append(argv)
+        if argv[1] == "show":
+            return "".join(json.dumps(record) + "\n" for seq in argv[3:] for record in records if str(record["seq"]) == seq)
+        drive, since = argv[argv.index("--drive") + 1], int(argv[argv.index("--since") + 1])
+        topics = [argv[at + 1] for at, flag in enumerate(argv) if flag == "--topic"]
+        return "".join(json.dumps(record) + "\n" for record in sorted(records, key=lambda record: -record["seq"]) if record["drive"] == drive and record.get("topic") in topics and record["seq"] > since)
+
+    monkeypatch.setattr(reads, "run", run)
+    return reads_made
+
+
+def grep_of(drive: str, since: int, *topics: str) -> list[str]:
+    return ["cci", "grep", ".", "--drive", drive, *(flag for topic in topics for flag in ("--topic", topic)), "--since", str(since), "--budget", str(agents.AMENDMENT_BYTES), "--json"]
+
+
+def test_another_drives_first_record_after_the_one_a_job_waits_after_on_its_topic_frees_it_with_its_words_and_posts_nothing_to_him_as_j276s_free_staging_line_needed(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls = catching_up(monkeypatch, demo)
+    body = tmp_path / "body.txt"
+    body.write_text("FREE staging is yours: build 17137 left it, start your window now\n")
+    records = [
+        cci_record(722598, text="before it"),
+        cci_record(722599, kind="answer", text="Start no staging run before my FREE line on this topic"),
+        cci_record(722640, topic="o2046-claims", text="before j2's record"),
+        cci_record(722650, topic="o2046-claims", text="staging is claimed"),
+        cci_record(722660, text="FREE staging is yours: build 17137…", refs={"path": str(body)}),
+        cci_record(722670, text="a later line"),
+    ]
+    reads_made = cci_store(monkeypatch, records)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", waits=["reply:cci:722599"])
+        data["jobs"]["j2"] = job(state="waiting", waits=["reply:cci:722650"])
+    watching = watcher(demo)
+    assert watch.waits_lines(watching, T0 + timedelta(minutes=1)) == [f"FREE j1 o1: root@durable-agents posted 722660 on {STAGING_TOPIC}, nothing else holds it"]
+    words = f"note record 722660 from root@durable-agents, the first on topic {STAGING_TOPIC} after 722599 that j1 waited on: FREE staging is yours: build 17137 left it, start your window now"
+    data = state.load(demo)
+    assert (data["jobs"]["j1"]["waits"], [(held["words"], held["seq"], held["sender"]) for held in data["jobs"]["j1"]["undelivered"]]) == ([], [(words, "722660", state.WATCH_SENDER)])
+    assert (data["jobs"]["j2"]["waits"], data["jobs"]["j2"]["undelivered"]) == (["reply:cci:722650"], [])
+    assert reads_made == [["cci", "show", "--json", "722599", "722650"], grep_of("durable-agents", 722599, STAGING_TOPIC, "o2046-claims")]
+    records.append(cci_record(722680, topic="o2046-claims", text="staging is free"))
+    assert watch.waits_lines(watching, T0 + timedelta(minutes=2)) == [
+        "FREE j2 o1: root@durable-agents posted 722680 on o2046-claims, nothing else holds it, and the watch now launches it with the texts it holds: start no agent for it"
+    ]
+    assert reads_made[2:] == [["cci", "show", "--json", "722650"], grep_of("durable-agents", 722650, "o2046-claims")]
+    assert watch.waits_lines(watching, T0 + timedelta(minutes=3)) == []
+    assert (calls, len(reads_made)) == ([], 4)
+
+
+@pytest.mark.parametrize("waiting", [1, 100])
+def test_the_watch_reads_every_job_waiting_on_another_drives_record_in_one_cci_show_and_one_cci_grep_a_drive_whatever_their_number(demo: str, monkeypatch: pytest.MonkeyPatch, waiting: int) -> None:
+    catching_up(monkeypatch, demo)
+    anchors = [cci_record(723000 + 2 * n, topic=f"topic-{n}") for n in range(waiting)]
+    reads_made = cci_store(monkeypatch, [*anchors, *(cci_record(anchor["seq"] + 1, topic=anchor["topic"]) for anchor in anchors[::2])])
+    with state.edit(demo) as data:
+        for n, anchor in enumerate(anchors):
+            data["jobs"][f"j{100 + n}"] = job(state="waiting", waits=[f"reply:cci:{anchor['seq']}"])
+    watch.waits_lines(watcher(demo), T0 + timedelta(minutes=1))
+    data = state.load(demo)
+    assert [argv[1] for argv in reads_made] == ["show", "grep"]
+    assert [bool(data["jobs"][f"j{100 + n}"]["waits"]) for n in range(waiting)] == [n % 2 == 1 for n in range(waiting)]
+
+
+def test_a_record_cci_cannot_read_that_a_job_waits_after_frees_nothing_and_is_said_from_its_third_failure_in_a_row(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    catching_up(monkeypatch, demo)
+
+    def unreadable(argv: list[str], checkout: Path, env: dict | None = None, bounded: bool = True, stdin: str | None = None) -> str:
+        raise reads.ReadError("cci show exited 1: cci: show: no record #722599")
+
+    monkeypatch.setattr(reads, "run", unreadable)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", waits=["reply:cci:722599"])
+    watching = watcher(demo)
+    said = [watch.waits_lines(watching, T0 + timedelta(minutes=minute)) for minute in (1, 2, 3)]
+    unread = "cci could not read the record at 722599 that reply:cci:<seq> follows: cci show exited 1: cci: show: no record #722599"
+    assert said == [[], [], [f"WATCH read of the records reply:cci:722599 wait on failed 3 times in a row: {unread}"]]
+    assert state.load(demo)["jobs"]["j1"]["waits"] == ["reply:cci:722599"]
 
 
 def test_a_quiet_incidents_report_names_its_merged_fix_from_the_row_github_refreshed_never_the_note_typed_before_the_merge(
