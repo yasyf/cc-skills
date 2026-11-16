@@ -16,6 +16,7 @@ LANE_ENV = "DISABLE_AUTOUPDATER=1 CLAUDE_CODE_AUTO_COMPACT_WINDOW=350000 CLAUDE_
 LANE_SETTINGS = '{"spinnerTipsEnabled":false,"prefersReducedMotion":true,"verbose":false,"showThinkingSummaries":false,"feedbackDrafts":"off","awaySummaryEnabled":false,"promptSuggestionEnabled":false,"tui":"fullscreen","disableDeepLinkRegistration":"disable","statusLine":{"type":"command","command":"exit 0"},"terminalProgressBarEnabled":false,"bashOutputMaxChars":6000,"outputStyle":"default"}'
 LANE_DENIED_TOOLS = "AskUserQuestion,EnterPlanMode,ExitPlanMode,PushNotification,DesignSync"
 SPRITE_HOOKS = json.loads((SCRIPT.parents[1] / "lib/lane.json").read_text())["spriteSettings"]
+SPRITE_ENV = [f"{name}={value}" for name, value in json.loads((SCRIPT.parents[1] / "lib/lane.json").read_text())["spriteEnv"].items()]
 SPRITE_SETTINGS = json.dumps({**json.loads(LANE_SETTINGS), **SPRITE_HOOKS, "permissions": {"deny": LANE_DENIED_TOOLS.split(",")}}, separators=(",", ":"))
 WORKSPACE = "pool-spare"
 SESSION = "5d576546-4c87-4a78-94b4-945eb9e49c86"
@@ -266,6 +267,7 @@ class Launch:
     def prepare(self, *extra: str, model: str = "claude-opus-5-5", kind: str = "claude", effort: str = "xhigh", lane: str = LANE, continued: str | None = None) -> list[str]:
         opening = [continued, "--existing"] if continued else [lane, "--warm"]
         lane_env = [*(word for pair in LANE_ENV.split() for word in ("--env", pair)), "--settings", SPRITE_SETTINGS] if kind == "claude" else []
+        lane_env += [word for pair in SPRITE_ENV for word in ("--env", pair)]
         return ["cc-remote", "orca", "prepare", *opening, "--provider", "sprites", "--profile", "agents", "--agent", kind, "--model", model, "--effort", effort, "--brief-file", str(self.brief), *lane_env, *extra]
 
     def tools(self, placed: str = "0") -> list[list[str]]:

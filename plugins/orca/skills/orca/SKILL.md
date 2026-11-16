@@ -291,7 +291,7 @@ cc-remote 0.27.41 or later. That one `--settings` also carries
 API: each session start, prompt and tool call renews a one-hour `claude-lane`
 task, and each stop leaves it 30 minutes. Without that hold a Sprite pauses
 about 30 seconds after its last open connection closes, and a cold pause ends
-every process on it, the worker mid-tool-call included. Change
+every process on it, the worker mid-tool-call included. Every Sprite lane, Claude or Codex, also gets `spriteEnv` as prepare `--env` flags: `CARGO_BUILD_JOBS=4`, since a Sprite whose memory runs out under parallel writes stalls its nbd0 disk until the kernel remounts it read-only (cc-remote sets the Go caps itself). Change
 what a lane runs without in `lane.json`, never in a launch command: the
 long-running drive reads that file too for each session it starts. Interactive
 sessions and `claude plugin update` still update the plugin cache. Set

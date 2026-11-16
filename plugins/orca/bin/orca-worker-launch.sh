@@ -17,6 +17,7 @@ tier=${WORKER_SERVICE_TIER:-}
 lane_spec=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib/lane.json
 lane_env=$(jq -r '.env | to_entries | map("\(.key)=\(.value)") | join(" ")' "$lane_spec")
 read -ra lane_pairs <<<"$lane_env"
+read -ra sprite_pairs <<<"$(jq -r '.spriteEnv | to_entries | map("\(.key)=\(.value)") | join(" ")' "$lane_spec")"
 lane_settings=$(jq -c .settings "$lane_spec")
 lane_denied_tools=$(jq -r '.deniedTools | join(",")' "$lane_spec")
 
@@ -346,6 +347,7 @@ if [ "$route" = sprite ]; then
     for pair in "${lane_pairs[@]}"; do prepare+=(--env "$pair"); done
     prepare+=(--settings "$(jq -c '.settings + .spriteSettings + {permissions: {deny: .deniedTools}}' "$lane_spec")")
   fi
+  for pair in "${sprite_pairs[@]}"; do prepare+=(--env "$pair"); done
   [ -z "$ref" ] || prepare+=(--ref "$ref")
   if [ -n "$transcript" ]; then
     prepare+=(--resume-transcript "$transcript")

@@ -24,6 +24,9 @@
     "CLAUDE_CODE_PLUGIN_DIR_WATCH": "false",
     "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL": "1"
   },
+  "spriteEnv": {
+    "CARGO_BUILD_JOBS": "4"
+  },
   "settings": {
     "spinnerTipsEnabled": false,
     "prefersReducedMotion": true,
