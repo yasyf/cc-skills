@@ -1368,3 +1368,16 @@ button.task-row { cursor: pointer; }
 .story-after { display: grid; gap: 2px; margin: 10px 0 0; padding: 10px 12px; border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; background: var(--soft); color: var(--ink); font-size: 14px; line-height: 1.5; }
 .story-after b { font: var(--caps); letter-spacing: 1px; color: var(--accent); }
 .told-more .context-rail, .told-more .pr-rail { max-height: none; padding-top: 4px; }
+.told-first .card-glance { flex-wrap: nowrap; overflow: hidden; white-space: nowrap; margin-bottom: 20px; }
+.told-first .card-glance > * { flex: none; }
+.told-first .card-glance { text-overflow: ellipsis; display: block; }
+.told-first .card-lead { margin-top: 0; }
+.told-more { border-top: 1px solid var(--line); }
+.told-more > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 0; list-style: none; cursor: pointer; color: var(--ink-2); font-size: 13px; font-weight: 550; }
+.told-more > summary::-webkit-details-marker { display: none; }
+.told-more > summary::after { content: '›'; color: var(--muted); font-size: 18px; line-height: 1; transition: transform .15s; }
+.told-more[open] > summary::after { transform: rotate(90deg); }
+.told-more > summary:hover { color: var(--ink); }
+.pr-card > .told-more > summary { padding: 14px 32px; }
+.decision-story .told-more:first-of-type { margin-top: 20px; }
+.told-first .card-glance > .dot { display: inline-block; margin-right: 7px; vertical-align: 1px; }

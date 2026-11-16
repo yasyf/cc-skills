@@ -63,7 +63,7 @@ Pick the format deciding it takes, never by how many options it has, by his word
 
 Then tell its story:
 - headline: the decision itself, a plain question or statement of at most 90 characters.
-- lead: two or three plain sentences he reads first, the post's opening line and first section in one: who this decision is for and why it is his, what happens now, and what his pick changes.
+- lead: two or three plain sentences he reads first: what happens now, who it hurts or helps, and what his pick changes. Open on the story itself, as his post opens on what the PR does, such as "Today a refused Iris call fails SoFi's action and skips its own error handler."; never a preamble naming him or a reader, such as "For you, …:" or "This is for …".
 - now: what it does today, as the post's first section: `text` one plain sentence on what the code or system does now that this decision turns on; `sketch` at most eight lines of code or pseudo-code showing it, as the post sketches, or empty when no code is involved.
 - matters: why it matters, as the post's section: `mechanism` one or two sentences on the mechanism; `consequences` exactly three short concrete consequences of it, each a few words to one sentence.
 - beats: what happened, as two to four short steps in the order they happened, never paragraphs: each `label` a few words naming the step, such as "Staging test failed" or "Your pick waits"; `text` one short sentence on that step, where the card shows evidence saying what it shows; `when` the time or day the card gives for that step, as it writes it, such as "Nov 15, 9 PM" or "this morning", empty when it gives none; `picture` the path of the image in the card's body that shows that step, exactly as the body writes it, empty when none does. The last step says what turns on his pick.
@@ -81,7 +81,7 @@ CHANGE_RULES = f"""You write the interactive story of one pull request card for 
 
 Tell its story:
 - headline: what the change does for him, a plain statement of at most 90 characters.
-- lead: two or three plain sentences he reads first, the post's opening line and first section in one: who the change is for and why, what it does, and what his Approve decides.
+- lead: two or three plain sentences he reads first: what is wrong or missing today, what the change does about it, and what his Approve decides. Open on the story itself, as his post opens on what the PR does, such as "Nothing today proves a team's moved memories dropped the old fields."; never a preamble naming him or a reader, such as "For you, …:" or "This is for …".
 - does: what it does, as the post's first section: `text` one plain sentence; `sketch` at most eight lines of code or pseudo-code showing the change, as the post sketches, or empty when a sketch adds nothing.
 - decided: one or two sentences on what we want instead of today's behavior, or what the change decides, as the post's second section.
 - matters: why it matters: `mechanism` one or two sentences on the mechanism; `consequences` exactly three short concrete consequences of it.
