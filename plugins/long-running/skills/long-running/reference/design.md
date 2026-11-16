@@ -38,11 +38,13 @@ stop doing the bare minimum", so no builder waits on a job holding its design.
      plus `--ruling <answer id>` for each answer of his on the area. The `--plan` names the files,
      PRs and findings it starts from, and says to design from what his words need, the code an
      input, not a shape to keep.
-   - Start it with the Agent tool: `subagent_type: "long-running:designer"`, `model: "fable"`,
-     `run_in_background: true`, a short `description`, no `name` (the `agent_brief` hook drops
-     one), and the `Read your brief first: <path>` line as the whole `prompt`. The `agent_brief`
-     hook starts a design job's brief given any other type as `long-running:designer`, since only
-     that definition keeps it read only, settled questions off his cards and each fork in shape.
+   - Start nothing: once its brief is kept and nothing holds it, the watch starts it with
+     `drive job start <j>` as its own `claude --bg` session on `long-running:designer`, whose
+     definition runs Fable, keeps it read only, settled questions off his cards and each fork in
+     shape. Only a refused start, its `relaunch_refused` event, is yours: then start it with the
+     Agent tool, `subagent_type: "long-running:designer"`, `model: "fable"`,
+     `run_in_background: true`, a short `description`, no `name`, and the
+     `Read your brief first: <path>` line as the whole `prompt`.
    - Its return opens `DESIGN <part>`. Read the rest with `drive job report <j>`: the design and
      its `Researched:` block, held to a reader's rule, which every builder of its changes starts on:
      `rulings:` quoting each answer of his on the order's words and area, `exists:` naming each

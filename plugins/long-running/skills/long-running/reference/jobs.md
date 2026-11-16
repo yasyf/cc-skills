@@ -159,21 +159,27 @@ Contents:
    `[{add: {kind: "builder", order: "<o>", goal: "<one line>", part: ["<part>"]}}, {brief: {serves: "<his order's words, a port of #N, or drive tooling>", done_when: "<…>", where: "<repo and branch>", native: "<his surface, with links, or none>", interactions: "<his user stories on it, each what he does, and sees what he then sees, ; only between stories>", ruling: ["<answer id>"]}}]`.
    An old-tree port takes the part `port of #N`, which the `add` gives its order when missing, so
    ports named together each start a builder, and its brief's `Serves:` line reads that part.
-2. Start nothing for a builder or reader: once its brief is kept and nothing holds it, the watch
-   starts it, on this Mac with `drive job start <j>`, which runs its agent as its own `claude --bg`
-   session on the line the `brief` op printed, or on a Sprite with `drive job launch <j>` when the
-   job was placed there. `drive job start` meets every check the `agent_brief` hook runs on an Agent
-   start, counting its builder slot or holding it waiting its turn, and refuses a second start while
-   one is in flight or at work, so the `FREE` line and each line naming a briefed job say the watch
-   starts it. Every hook of that session reads it as the job's agent of the session holding its
-   order, its return reaches you as any agent's does, and `drive job resume <j> "<text>"` posts
-   each text to its own cci address, which its next step reads or a `claude --bg --resume` wakes
-   it on, so you send it no `SendMessage`. A refused start reaches you as its `relaunch_refused`
-   event: then start it with the Agent tool, `subagent_type` `long-running:builder` or
-   `long-running:reader`, `run_in_background: true`, a short `description` and that line as the
-   whole `prompt`, or on a Sprite as the refusal names. A design job still starts with the Agent
-   tool on its line, and a codex job runs no agent: start it with `drive job launch <j>`, as
-   [Codex jobs](#codex-jobs) says.
+2. Start nothing for a builder, reader or design job: once its brief is kept and nothing holds
+   it, the watch starts it, on this Mac with `drive job start <j>`, which runs its agent as its own
+   `claude --bg` session on the line the `brief` op printed, or on a Sprite with
+   `drive job launch <j>` when the job was placed there. `drive job start` meets every check the
+   `agent_brief` hook runs on an Agent start, counting its builder slot or holding it waiting its
+   turn, and refuses a second start while one is in flight or at work, so the `FREE` line and each
+   line naming a briefed job say the watch starts it. Every hook of that session reads it as the
+   job's agent of the session holding its order, its return reaches you as any agent's does, and
+   `drive job resume <j> "<text>"` posts each text to its own cci address, which its next step
+   reads or a `claude --bg --resume` wakes it on, so you send it no `SendMessage`. Its session
+   outlives yours: after a restart of the drive's sessions it reads as the coordinator's agent.
+   A local job runs with no Orca terminal, dispatch or Run, by his words "consider if for some
+   things we don't have to go through orca": it starts faster and leaves no Orca state, but shows in
+   no Orca sidebar and has no terminal for Orca to reclaim, so `claude --bg` and the drive's own
+   death and gap reads alone track it. A Sprite lane, and any role that needs a visible terminal or
+   Orca's ask and reply, still runs through Orca. A refused start reaches you as its
+   `relaunch_refused` event: then start it with the Agent tool, `subagent_type`
+   `long-running:builder`, `long-running:reader` or `long-running:designer`,
+   `run_in_background: true`, a short `description` and that line as the whole `prompt`, or on a
+   Sprite as the refusal names. A codex job runs no agent: start it with `drive job launch <j>`,
+   as [Codex jobs](#codex-jobs) says.
 3. Its agent runs on the Opus its definition sets; on an Agent start after a refusal, pass no model,
    or `model: "sonnet"` only for a reader whose question is a one-fact lookup. A design job's model
    is in [Design first](design.md).

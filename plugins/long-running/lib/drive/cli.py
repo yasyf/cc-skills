@@ -3556,14 +3556,14 @@ def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
 
 
 def job_start(args: argparse.Namespace) -> int:
-    """Start a briefed builder's or reader's agent on this Mac as its own `claude --bg` session, as the watch does once nothing holds the job, so no session's Agent call starts it and no session relays its texts: under the job's own lock, refused as the agent_brief hook would refuse an Agent call of the session holding its order on its brief, which also stamps its launch, counts its builder slot or holds it waiting its turn, and refused while an earlier start of it is in flight or at work, by agents.gone on its bg entry, the start lock, or an agent of a session of the drive runs it; the job keeps the agent id every hook of that session binds as, by agents.seen, and the session `claude --bg` names, which state.own_session reads. A codex, design or Sprite job, or one with no brief, is refused, its starting left to the session holding it. A start the hook holds waiting its turn for a builder slot, or sends to a Sprite, is no refusal: the first starts on the watch's FREE line as its turn comes, the second by drive job launch, run here, so neither wakes the session holding it."""
+    """Start a briefed builder's, reader's or design job's agent on this Mac as its own `claude --bg` session, as the watch does once nothing holds the job, so no session's Agent call starts it and no session relays its texts: under the job's own lock, refused as the agent_brief hook would refuse an Agent call of the session holding its order on its brief, which also stamps its launch, counts its builder slot or holds it waiting its turn, and refused while an earlier start of it is in flight or at work, by agents.gone on its bg entry, the start lock, or an agent of a session of the drive runs it; the job keeps the agent id every hook of that session binds as, by agents.seen, and the session `claude --bg` names, which state.own_session reads. A codex or Sprite job, or one with no brief, is refused, its starting left to the session holding it. A start the hook holds waiting its turn for a builder slot, or sends to a Sprite, is no refusal: the first starts on the watch's FREE line as its turn comes, the second by drive job launch, run here, so neither wakes the session holding it."""
     name = state.resolve(args.drive)
     with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         data = state.load(name)
         job = find(data["jobs"], args.id, "job")
         unstopped(args.id, job)
-        if job["kind"] not in ("builder", "reader") or job.get("where") == "remote" or not job.get("brief"):
-            raise DriveError(f"{args.id}: refused, not started: drive job start starts only a briefed builder or reader on this Mac, and this is a {job['kind']}{' on a Sprite' if job.get('where') == 'remote' else ''}{'' if job.get('brief') else ' with no brief'}")
+        if job["kind"] not in state.STARTS_ITSELF or job.get("where") == "remote" or not job.get("brief"):
+            raise DriveError(f"{args.id}: refused, not started: drive job start starts only a briefed builder, reader or design job on this Mac, and this is a {job['kind']}{' on a Sprite' if job.get('where') == 'remote' else ''}{'' if job.get('brief') else ' with no brief'}")
         if (bg := job.get("bg")) and not agents.gone(bg):
             raise DriveError(f"{args.id}: refused, not started: its start at {bg['started']}, session {bg['session'] or 'not named yet'}, is in flight or at work")
         if job["agent"] and job["state"] == "running" and state.session_role(data, job.get("session")):
@@ -3582,7 +3582,7 @@ def job_start(args: argparse.Namespace) -> int:
             raise DriveError(f"{args.id}: refused, not started: {refused}")
         agent, cwd = uuid.uuid4().hex[:17], orca.checkout(name, held["cwd"])
         with state.edit(name) as data:
-            data["jobs"][args.id]["bg"] = {"agent": agent, "session": None, "started": state.stamp(), "cwd": str(cwd), "pointed": []}
+            data["jobs"][args.id]["bg"] = {"agent": agent, "session": None, "started": state.stamp(), "cwd": str(cwd), "pointed": [], "pool": False}
         try:
             session = agents.start_job(name, args.id, agent, call, held, cwd)
         except (reads.ReadError, state.DriveError) as error:
