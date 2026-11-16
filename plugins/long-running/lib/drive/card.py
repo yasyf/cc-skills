@@ -489,7 +489,7 @@ def skip(key: str, reason: str) -> dict:
 
 
 def read(key: str, entry: dict | None = None) -> dict | None:
-    """One PR's card fields with every file it changes, those past the first 100 its GraphQL read lists read over REST, by github.files."""
+    """One PR's card fields with every file it changes, completing large lists through github.files."""
     if not (pr := github_reads({key: entry}).get(key)):
         return None
     return pr | {"files": [{"path": path} for path in github.files(key)]} if pr["changedFiles"] > len(pr["files"]) else pr
