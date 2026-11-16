@@ -639,14 +639,18 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
 def record(name: str, keys: list[str], outcome: str, below: list[str], asked: dict[str, str]) -> str:
     """Record what came of a landing on each PR, with the top of keys as its entry, the PR stack-enqueue submits and so the one whose labels say Trunk ejected them all, and as a landing event unless the try before it on the same head came to the same, such as a retried landing whose stack-enqueue again failed on its own or whose GitHub read failed again, whatever its refusal said, as ccx's rate-limit floor names the requests it leaves each time, and on each PR asked names the head its lander asked forge-pr-reviewer to review, so none is asked twice; on the newest install, which `drive pr land --outcome` records it on when one landed while this lander worked."""
     install.reopen(["pr", "land", *map(state.pr_url, keys), "--drive", name, "--outcome", outcome, *(flag for key in below for flag in ("--below", key)), *(flag for key, head in asked.items() for flag in ("--asked", key, head))])
-    with state.edit(name) as data:
+
+    def recorded(data: dict) -> None:
         for key, head in asked.items():
             data["prs"][key]["review_asked"] = head
         noted(name, data, keys, outcome, below)
+
+    state.update(name, None, recorded)
     return outcome
 
 
 def noted(name: str, data: dict, keys: list[str], outcome: str, below: list[str]) -> None:
+    events = []
     for key in keys:
         pr = data["prs"][key]
         if outcome == QUEUED and requeues(data, pr):
@@ -657,7 +661,9 @@ def noted(name: str, data: dict, keys: list[str], outcome: str, below: list[str]
         if was == outcome or outcome.startswith(OWN_FAILURE) and (was or "").partition(": ")[0] == outcome.partition(": ")[0] or outcome.startswith(UNREAD) and (was or "").startswith(UNREAD):
             continue
         repo, number = key.split("#")
-        state.append_event(name, "landing", repo=repo, number=int(number), change=outcome, lane=state.heard_lane(data, pr["order"]))
+        events.append({"repo": repo, "number": int(number), "change": outcome, "lane": state.heard_lane(data, pr["order"])})
+    if events:
+        state.after_save(name, lambda: [state.append_event(name, "landing", **event) for event in events] and [])
 
 
 class Halted(SystemExit):
