@@ -85,3 +85,22 @@ def test_a_read_slack_rate_limits_waits_the_seconds_slack_names_and_reads_again(
     monkeypatch.setattr(slack.subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 1, "", "cc-slack: channel_not_found"))
     with pytest.raises(slack.SlackError, match="channel_not_found"):
         slack.cc_slack("thread", "--url", POSTED["permalink"], "--json")
+
+
+def test_a_read_slack_keeps_rate_limiting_fails_after_two_waits_or_a_minute_of_them(monkeypatch: pytest.MonkeyPatch) -> None:
+    waited: list[float] = []
+
+    def limited(seconds: int) -> Callable[..., subprocess.CompletedProcess]:
+        return lambda argv, **kwargs: subprocess.CompletedProcess(argv, 1, "", f"cc-slack: can't read thread {TS} now (ratelimited): Slack limits the read for {seconds}s more")
+
+    monkeypatch.setattr(slack, "launcher", lambda: "cc-slack")
+    monkeypatch.setattr(slack.time, "sleep", waited.append)
+    monkeypatch.setattr(slack.subprocess, "run", limited(10))
+    with pytest.raises(slack.SlackError, match="ratelimited"):
+        slack.cc_slack("thread", "--url", POSTED["permalink"], "--json")
+    assert waited == [11, 11]
+    waited.clear()
+    monkeypatch.setattr(slack.subprocess, "run", limited(45))
+    with pytest.raises(slack.SlackError, match="ratelimited"):
+        slack.cc_slack("thread", "--url", POSTED["permalink"], "--json")
+    assert waited == [46]
