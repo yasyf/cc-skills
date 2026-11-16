@@ -997,20 +997,38 @@ def installed_fixes(data: dict, repo: str) -> dict[str, list[str]]:
 
 
 def close_installed(clone: str, repo: str, key: str, build: str, version: str, deadline: float) -> list[str]:
-    """Close on the install each open drive tooling order of every drive whose fix, by installed_fixes, the installed build holds, its proof the PRs merged and the version installed, no recording asked of it, fetching the default branch's commits once only when some order has such a fix. A line for each order closed."""
+    """Close done on the install each open drive tooling order of every drive whose fix, by installed_fixes, the installed build holds, its proof the PRs merged and the version installed, no recording asked of it, fetching the default branch's commits once only when some order has such a fix; the orders of his words a drive closes so get one close report between them, live_report, so he reads one line an install, never one an order. A line for each order closed."""
     if not (owed := {name: fixes for name in state.names() if (fixes := installed_fixes(state.load(name), repo))}):
         return []
     git(clone, "fetch", "--quiet", "--filter=tree:0", "--no-tags", "origin", f"+HEAD:{DEFAULT_BRANCH}", deadline=deadline)
     lines = []
     for name in owed:
         with state.edit(name) as data:
+            his = []
             for order_id, keys in installed_fixes(data, repo).items():
                 if not all(ran(["git", "-C", clone, "merge-base", "--is-ancestor", data["prs"][each]["merged_sha"], build], deadline).returncode == 0 for each in keys):
                     continue
                 proof = f"{' '.join(map(state.pr_url, keys))} merged and installed in {key} {version} at {build[:12]}"
-                close_proven(name, data, data["orders"][order_id]["jobs"][-1], order_id, keys, proof, proof, proof)
+                data["orders"][order_id].update(proof=proof, state="done", updated=state.stamp())
+                if not state.unasked_tooling(data["orders"][order_id]):
+                    his.append(order_id)
                 lines.append(f"{name} {order_id}: closed, {proof}")
+            if his:
+                data["orders"][his[0]].update(state="open", close_report=live_report(name, his, key.partition("@")[0], version, build))
     return lines
+
+
+def live_report(name: str, order_ids: list[str], plugin: str, version: str, build: str) -> dict:
+    """The one close report of an install's closes of orders of his words, kept on the first, which stays open until the watch posts it and closes it: a POST line telling him how many of his drive fixes went live in the version, each order's title linked."""
+    return {
+        "id": f"{state.PROVED_REPORT}install-{version}",
+        "kind": "report",
+        "to": [f"communicator@{name}"],
+        "topic": f"install-live-{version}",
+        "attr": {"close": order_ids[0]},
+        "text": f"POST Live in {plugin} {version}: {len(order_ids)} of your drive fixes: {', '.join(f'{{order:{order_id}}}' for order_id in order_ids)}",
+        "body": f"Live in {plugin} {version} at {build[:12]}: {' '.join(order_ids)}",
+    }
 
 
 def unit_done(data: dict, job_id: str, order_id: str) -> bool:
