@@ -2262,8 +2262,20 @@ def test_a_watch_hands_off_to_a_newer_install_only_once_it_ran_hand_off_every_or
     assert watch.handing_off(watching, 0.0) is True
 
 
-@pytest.mark.parametrize("operation,field", [("digest", "slack"), ("slots", "slots"), ("seats", "orders"), ("handoff", "orders")])
-def test_watch_metadata_reads_do_not_decode_unrelated_collections(demo: str, operation: str, field: str, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "operation,fields",
+    [
+        ("digest", ("slack",)),
+        ("slots", ("slots",)),
+        ("seats", ("orders",)),
+        ("handoff", ("orders",)),
+        ("idle_communicators", ("orders", "communicators")),
+        ("retired_seats", ("orders", "subcoordinators")),
+        ("compaction", ("roles", "communicators", "owed_replies")),
+        ("down", ()),
+    ],
+)
+def test_watch_metadata_reads_do_not_decode_unrelated_collections(demo: str, operation: str, fields: tuple[str, ...], monkeypatch: pytest.MonkeyPatch) -> None:
     from drive import picture
 
     monkeypatch.setattr(watch, "HAND_OFF_EVERY", timedelta(minutes=10))
@@ -2285,7 +2297,7 @@ def test_watch_metadata_reads_do_not_decode_unrelated_collections(demo: str, ope
     cached = state.WHOLE_READS[(path, path.stat().st_ino)].shaped
     assert cached
     original = dict(cached)
-    cached.update({key: b"" for key in cached if key != field})
+    cached.update({key: b"" for key in cached if key not in fields})
     try:
         if operation == "digest":
             assert watch.digest_lines(watching, T0) == []
@@ -2293,8 +2305,19 @@ def test_watch_metadata_reads_do_not_decode_unrelated_collections(demo: str, ope
             assert watch.slot_lines(watching, T0) == []
         elif operation == "seats":
             assert watch.seated_first(watching) == [priority, watching]
-        else:
+        elif operation == "handoff":
             assert watch.handing_off(watching, 0.0) is False
+        elif operation == "idle_communicators":
+            assert watch.communicators_idle(watching, T0) == []
+        elif operation == "retired_seats":
+            monkeypatch.setattr(state, "scratch", lambda: False)
+            assert watch.seats_retired(demo) == {}
+        elif operation == "compaction":
+            monkeypatch.setattr(watch, "session_transcript", lambda held: state.drive_dir(demo) / "missing-transcript.jsonl")
+            assert watch.compact_lines(watching, T0) == []
+        else:
+            monkeypatch.setattr(orca, "live_pid", lambda session: 123)
+            assert watch.down_lines(watching, T0) == []
     finally:
         cached.update(original)
 
