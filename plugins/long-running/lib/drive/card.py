@@ -962,7 +962,7 @@ def release_answered(name: str, ask: dict) -> dict | None:
         data["jobs"][job_id]["release_cards"][key]["result"] = result
 
     state.update(name, None, release_result_write)
-    text = f"RELEASE {job_id} {data['jobs'][job_id]['order']}: he tapped {ask['label']} on his approve card for release {entry['release']} {entry['build']} at \"{entry['step']}\": {result}"
+    text = f"RELEASE {job_id} {data['jobs'][job_id]['order']}: he chose {ask['label']} on his approve card for release {entry['release']} {entry['build']} at \"{entry['step']}\": {result}"
     seq = watch.release_post(name, state.load(name), job_id, text, entry["url"] or entry["build"], f"release-tap-{ask['waits']}")
     return {"ok": True, "seq": seq}
 
