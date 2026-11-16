@@ -110,6 +110,7 @@ START_AT_ONCE = 2
 LANE_READS_AT_ONCE = 6
 SPENT_SHOWN = 3
 SPENT_WORDS = 3
+SPENT_CHARS = 60
 READ_UNANSWERED = "read_unanswered"
 PROOFS_LOG = "proofs.log"
 POSTS_LOG = "posts.log"
@@ -6052,7 +6053,7 @@ def timed_calls() -> None:
         try:
             return run(argv, *rest, **given)
         finally:
-            spending(" ".join(Path(str(word)).name if index == 0 else str(word) for index, word in enumerate(list(argv)[:SPENT_WORDS])) if isinstance(argv, list | tuple) else str(argv)[:40], began)
+            spending(called(argv), began)
 
     def timed_load(name, fields=None):
         began = monotonic()
@@ -6062,6 +6063,17 @@ def timed_calls() -> None:
             spending("state.load" if fields is None else "state.load fields", began)
 
     subprocess.run, state.load = timed_run, timed_load
+
+
+def called(argv) -> str:
+    """A command's first SPENT_WORDS words, its program by name and any -C directory left out, so each git subcommand counts apart whatever checkout it ran in."""
+    if not isinstance(argv, list | tuple):
+        return str(argv)[:SPENT_CHARS]
+    words = [Path(str(argv[0])).name, *map(str, argv[1:])]
+    while "-C" in words:
+        at = words.index("-C")
+        del words[at : at + 2]
+    return " ".join(words[:SPENT_WORDS])[:SPENT_CHARS]
 
 
 def stalled(pulse: Pulse, now: float) -> bool:
