@@ -734,17 +734,39 @@ def keep_reply(name: str, job_id: str, message: dict) -> None:
     """Append one message a remote lane sent, with Orca's payload when it carries one, or one return a job on this Mac kept, to its job's history, which a later result never replaces."""
     path = replies_path(name, job_id)
     path.parent.mkdir(exist_ok=True)
-    fields = ("created_at", "id", "type", "subject", "body")
-    payload = {"payload": message["payload"]} if message.get("payload") else {}
     with open(path, "a") as handle:
-        handle.write(json.dumps({field: message[field] for field in fields} | payload) + "\n")
+        handle.write(json.dumps(reply_row(message)) + "\n")
+
+
+def reply_row(message: dict) -> dict:
+    """The fields of a message its job's history keeps, with Orca's payload when it carries one."""
+    payload = {"payload": message["payload"]} if message.get("payload") else {}
+    return {field: message[field] for field in ("created_at", "id", "type", "subject", "body")} | payload
+
+
+class Keeping(NamedTuple):
+    """A message a write keeps in its job's history once it commits, the after_save effect keep_reply_saved leaves, which replies reads as kept until then."""
+
+    name: str
+    job_id: str
+    message: dict
+
+    def __call__(self) -> list[str]:
+        keep_reply(self.name, self.job_id, self.message)
+        return []
+
+
+def keep_reply_saved(name: str, job_id: str, message: dict) -> None:
+    """Keep a message a remote lane sent in its job's history once the write it runs in commits, by after_save, or at once outside one, each read of that history by replies before then finding it, so a refused run of a lock-free write keeps nothing and its next run reads the history as it stands."""
+    after_save(name, Keeping(name, job_id, reply_row(message)))
 
 
 def replies(name: str, job_id: str) -> list[dict]:
-    """The job's kept messages and returns, oldest first, each once: a watch stopped between keeping a message and saving its cursor keeps it again."""
+    """The job's kept messages and returns, oldest first, each once, the messages the write running now keeps once it commits, by keep_reply_saved, last: a watch stopped between keeping a message and saving its cursor keeps it again."""
     path = replies_path(name, job_id)
     kept = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
-    return list({reply["id"]: reply for reply in kept}.values())
+    keeping = [effect.message for effect in (AFTER_SAVE[name] if name in AFTER_SAVE else DEFERRED.get() or []) if isinstance(effect, Keeping) and (effect.name, effect.job_id) == (name, job_id)]
+    return list({reply["id"]: reply for reply in [*kept, *keeping]}.values())
 
 
 def names() -> list[str]:
