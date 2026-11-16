@@ -754,8 +754,11 @@ def reported_down(drive: dict, said: str) -> str | None:
     )
 
 
+REPORTER_RULE = "A thread someone reported a bug or asked a question in hears from the drive once: the fix-live note once the fix is proven live where they use it, or the answer once it is posted to him."
+
+
 def reporter_post(payload: dict, drive: dict) -> str | None:
-    """Why a post may not go in the thread a bug an order fixes was reported in, or a question an answer order answers was asked in: that thread gets one note, a bug report's only once the fix is proven live and a question's only once the answer is posted, refused before Jev reads it; an open order's own thread, such as a teammate's he ordered the drive to keep replying in, is his order to post there."""
+    """Why a post may not go in the thread a bug an order fixes was reported in, or a question an answer order answers was asked in: that thread gets one note, a bug report's only once the fix is proven live and a question's only once the answer is posted, a rule Jev weighs the post by, by his words "get rid of hard-coded stuff, give it the rules, and let it make the call"; an open order's own thread, such as a teammate's he ordered the drive to keep replying in, is his order to post there."""
     tool_input = payload["tool_input"]
     if payload["tool_name"] not in CHANNEL_POSTS - {EDIT} and not (payload["tool_name"] == SAY and tool_input.get("channel_id")):
         return None
@@ -779,8 +782,7 @@ def reporter_post(payload: dict, drive: dict) -> str | None:
             " builds something he uses, so a note now would come before the fix"
         )
         then = "It goes once the coordinator records the proof and sends the report closing the order."
-    refused = f"Refused on purpose: {found}. {then}"
-    return agents.Unjudged(refused)
+    return agents.Ruled(f"Refused on purpose: {found}. {then}", REPORTER_RULE)
 
 
 def unsaid_post(payload: dict, drive: dict) -> str | None:

@@ -491,11 +491,11 @@ def test_a_bug_reports_thread_its_order_came_in_hears_none_of_its_lines_but_a_re
     assert message_limits.reporter_post(call("slack_reply", transcript, **reply) | {"tool_name": message_limits.SAY}, state.load("demo")) is None
 
 
-def test_a_fix_live_note_before_the_proof_refuses_before_jev_reads_it(run: Run, talker: str, transcript: Path) -> None:
+def test_a_fix_live_note_before_the_proof_goes_to_jev_with_the_rule_a_reporters_thread_hears_once(run: Run, talker: str, transcript: Path) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the stuck staging deploy", "--reporter", REPORTED)
     note = {"channel_id": "C0REPORTS01", "thread_ts": "1794400100.000200", "text": "Fixed: staging deploys go through again since 10:02 AM."}
     reason = message_limits.deny_reason(call("slack_reply", transcript, **note))
-    assert agents.ruled(reason) == {"judged": False}
+    assert agents.ruled(reason)["rule"] == message_limits.REPORTER_RULE
     assert reason.startswith("Refused on purpose: the fix for the bug reported in this thread keeps no proof that it is live")
 
 
