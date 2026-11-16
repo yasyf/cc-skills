@@ -4967,14 +4967,23 @@ def test_no_new_cut_starts_while_a_cut_or_release_holds_the_env_or_a_release_wai
     assert work.STAGE.why_not(data, moment).startswith(f"waits on {env}, held by the queue's cut of j7394 until ")
 
 
-def test_a_cut_item_returning_anything_but_waiting_gives_back_its_place_so_an_ask_never_holds_staging_on_his_card_as_j349s_did(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_cut_item_gives_back_its_place_on_every_return_but_a_waiting_on_staging_itself_so_neither_an_ask_nor_a_wait_on_a_job_holds_staging_as_j349_and_j348_did(monkeypatch: pytest.MonkeyPatch) -> None:
     env = "plat-usw2-staging"
+    served = f"staging:api/{env}@{'a' * 40}"
+    build = "https://buildkite.com/forge/release/builds/1"
     monkeypatch.setattr(work, "env", lambda data: env)
+    monkeypatch.setattr(work.providers, "of", lambda data: types.SimpleNamespace(build=re.compile(r"https://buildkite\.com/\S+")))
     monkeypatch.setattr(work.StageTest, "line", lambda self, data: ["j353"])
     head = {"job": "j349", "prs": [], "minutes": 30, "cases": None, "at": "", "paths": None, "stacks": None, "starts": False}
-    data = {"slots": {env: {"holder": state.leased(head, state.now(), [head | {"job": "j352"}]) | {"work": "j350"}}}, "jobs": {"j349": {"state": "waiting"}, "j352": {"state": "waiting"}}}
-    work.STAGE.done(data, "j352", f"WAITING staging:api/{env}@{'a' * 40}")
-    assert state.slot_members(data["slots"][env]) == ["j349", "j352"]
+    data = {
+        "slots": {env: {"holder": state.leased(head, state.now(), [head | {"job": "j352"}, head | {"job": "j348"}]) | {"work": "j350"}}},
+        "jobs": {"j349": {"state": "waiting", "waits": []}, "j352": {"state": "waiting", "waits": [served]}, "j348": {"state": "waiting", "waits": [build]}},
+    }
+    work.STAGE.done(data, "j352", f"WAITING {served}")
+    work.STAGE.done(data, "j348", f"WAITING {build}")
+    assert state.slot_members(data["slots"][env]) == ["j349", "j352", "j348"]
+    data["jobs"]["j348"]["waits"] = ["j94"]
+    work.STAGE.done(data, "j348", "WAITING j94")
     work.STAGE.done(data, "j349", "ASK /asks/j349-1.md")
     assert (state.slot_members(data["slots"][env]), work.STAGE.held(data, "j350")) == (["j352"], f"the queue's {env} cut still holds j352, waiting on what each returned; a fresh worker runs them there once their waits end")
     work.STAGE.done(data, "j352", "BLOCKED staging serves no build of #57755")

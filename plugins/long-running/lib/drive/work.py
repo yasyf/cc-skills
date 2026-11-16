@@ -309,7 +309,7 @@ class StageTest(Kind):
         "You are {worker}, the drive's stage-test worker for {env}: you run groups of staging tests, each group on one cut, report every test as its own item, then pull the next group, holding the {env} slot only while a group of yours runs."
         " 1) Run `drive work pull --worker {worker}`: it prints your group, each item's job id, its brief, the PRs it tests and, for an item that ran before, the `drive job report <item>` that prints its last return, then the GO steps of the cut they share; on `NONE` or `HOLD` go to 5. Give back an item that does not fit the group, naming why, with `drive work back {worker} <item> \"<why>\"`, and another worker takes it."
         " 2) Read every item's brief and last return whole. Their cases all run on the one cut the GO line names: post one staging claim naming every PR, start one release carrying every item's PR head, and take one Mac box for the whole group when a brief asks for one."
-        " 3) Once staging serves the cut, run each item's cases as its brief says, and as each finishes pipe its whole return, in the shape its brief asks, CASE lines and all, into `drive work done {worker} <item> -` from a quoted heredoc; an item whose case waits on something returns `WAITING <what>` the same way and keeps its place in the cut for a later worker, while any other return, an ASK included, gives its place back, so staging never waits on his card."
+        " 3) Once staging serves the cut, run each item's cases as its brief says, and as each finishes pipe its whole return, in the shape its brief asks, CASE lines and all, into `drive work done {worker} <item> -` from a quoted heredoc; an item whose case waits on staging, its commit served there or the cut's release build, returns `WAITING <what>` the same way and keeps its place in the cut for a later worker, while any other return, an ASK or a WAITING on another job, PR or card included, gives its place back, so staging never waits on what a test that never started waits on."
         " 4) Go to 1."
         " 5) Give back any Mac box you took, then " + ENDS + ". Never start a second cut while `drive work pull` says the queue's cut still holds the slot, and never report an item another worker holds."
     )
@@ -388,9 +388,10 @@ class StageTest(Kind):
         return f"{super().row(data, job_id)}; needs staging:{env(data)}; tests {', '.join(state.tested_prs(data, job))}{timed}"
 
     def done(self, data: dict, job_id: str, line: str) -> None:
-        """Give an item's place in the queue's cut back on every line but WAITING, the one a started test keeps its place with, so an ASK, a BLOCKED or a DONE frees the env for the line, and his answer to an ASK puts the item back in it."""
+        """Give an item's place in the queue's cut back on every line but a started test's WAITING, one waiting on staging itself, staging serving a commit on the env or a build the release provider runs, so an ASK, a BLOCKED, a DONE or a WAITING on another job, PR or card frees the env for the line, and the item rejoins it once that wait ends."""
         slot = self.slot(data)
-        if not line.startswith("WAITING") and slot["holder"] and job_id in state.slot_members(slot):
+        started = line.startswith("WAITING") and any((found := state.STAGING_WAIT.fullmatch(wait)) and found["env"] == env(data) or providers.of(data).build.fullmatch(wait) for wait in data["jobs"][job_id]["waits"])
+        if not started and slot["holder"] and job_id in state.slot_members(slot):
             state.slot_release(data, env(data), job_id)
 
     def back(self, data: dict, job_id: str) -> None:

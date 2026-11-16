@@ -3069,7 +3069,7 @@ def test_a_job_waiting_on_a_job_that_returned_built_is_freed_on_its_branch_and_h
     assert (detached, len(asked)) == ([], 1)
 
 
-def test_a_tester_whose_return_names_a_built_job_gets_no_stack_on_line_and_a_builder_named_it_again_hears_it_once_as_j7599_did_every_20_minutes(
+def test_a_tester_whose_return_names_a_built_job_keeps_waiting_on_it_with_no_stack_on_line_and_a_builder_named_it_again_hears_it_once_as_j7599_did_every_20_minutes(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
@@ -3085,6 +3085,7 @@ def test_a_tester_whose_return_names_a_built_job_gets_no_stack_on_line_and_a_bui
     watch.waits_lines(watching, T0)
     data = state.load(demo)
     assert ([kept["words"] for kept in data["jobs"]["j3"]["undelivered"]], [kept["words"] for kept in data["jobs"]["j4"]["undelivered"]]) == ([], [based])
+    assert (data["jobs"]["j3"]["waits"], data["jobs"]["j4"]["waits"]) == (["j2"], [])
     with edit(demo) as data:
         for job_id in ("j3", "j4"):
             data["jobs"][job_id].update(state="waiting", waits=["j2"], undelivered=[])
