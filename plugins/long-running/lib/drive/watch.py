@@ -5257,14 +5257,28 @@ def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return []
 
 
+PROMOTION_READ_EVERY = timedelta(minutes=5)
+
+
 def work_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Run the work queue's spawner on every drive, since stage-test always runs there: read the files and stacks of ready stage-test items it has not read, so packing pairs only passes it can see, and record and start a worker of each kind whose items have none and that this Mac admits, by work.spawned, an urgent head past the cap; its lines go as evidence and wake nobody."""
     data = state.load(watcher.name)
     if watcher.project:
         return []
     read = {job_id: pass_reads(watcher.name, data, state.tested_prs(data, data["jobs"][job_id])) for job_id in work.unread(data)}
+    staged = work.env(data)
+    due, said = None, []
+    if work.STAGE.line(data) and moment - watcher.polled.get(f"promotion {staged}", moment - PROMOTION_READ_EVERY) >= PROMOTION_READ_EVERY:
+        watcher.polled[f"promotion {staged}"] = moment
+        try:
+            due = providers.of(data).release.promotion_due(staged)
+            watcher.failures.pop(f"promotion {staged}", None)
+        except providers.ProviderError as error:
+            said = failed(watcher, f"promotion {staged}", f"read of whether {staged}'s promotion skipped its tick", error, moment)
 
     def work_lines_write(data: dict) -> tuple[list[str], list[str]]:
+        if due is not None:
+            data["slots"].setdefault(staged, {"holder": None})["promotion_due"] = due
         for job_id, (paths, stacks) in read.items():
             if paths is not None and stacks is not None:
                 data["jobs"][job_id]["work_reads"] = {"paths": paths, "stacks": stacks}
@@ -5273,7 +5287,7 @@ def work_lines(watcher: Watcher, moment: datetime) -> list[str]:
     lines, workers = state.write(watcher.name, work_lines_write, budget=state.WATCH_WRITE_SECONDS)
     for worker_id in workers:
         start_verb(watcher, worker_id, ["work", "start", worker_id], moment)
-    return lines
+    return [*said, *lines]
 
 
 def carry_held(watcher: Watcher, moment: datetime) -> None:

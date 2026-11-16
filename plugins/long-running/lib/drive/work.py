@@ -245,6 +245,8 @@ class StageTest(Kind):
             return f"no {self.name} item is ready"
         if train := state.train_waiting(data, env(data)):
             return f"waits on {env(data)}: release {train[0]} goes first, the train between cuts; the queue takes it once that release ends"
+        if slot.get("promotion_due"):
+            return f"waits on {env(data)}: its promotion skipped its last tick while staging was held, so the train goes first; the queue takes it once a tick promotes"
         return None
 
     def entry(self, data: dict, job_id: str, moment: datetime) -> dict:

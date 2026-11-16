@@ -132,6 +132,10 @@ class ReleaseProvider(Provider):
         """Kick off the builds a later release at commit adopts, so a production start there builds nothing its staging start already built, returning the link of the build it started; None when the repository prebuilds nothing."""
         return None
 
+    def promotion_due(self, env: str) -> bool:
+        """Whether the repository's scheduled promotion of env last skipped its tick because a staging stack was held, so the work queue starts no new test cut until a tick promotes, by his ruling that the train goes first between cuts; False for a repository that schedules none."""
+        return False
+
     def gives_way(self, words: list[str]) -> bool:
         """Whether a release start, as its words, is the staging release a production release runs first, which goes through every staging freeze and every staging slot a test holds."""
         return False

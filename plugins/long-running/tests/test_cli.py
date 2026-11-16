@@ -4873,6 +4873,9 @@ def test_no_new_cut_starts_while_a_cut_or_release_holds_the_env_or_a_release_wai
     monkeypatch.setattr(work.StageTest, "line", lambda self, data: ["j7394", "j7632"])
     assert work.STAGE.why_not(data, moment) == f"waits on {env}: release j8001 goes first, the train between cuts; the queue takes it once that release ends"
     data["jobs"]["j8001"]["train"] = None
+    data["slots"][env]["promotion_due"] = True
+    assert work.STAGE.why_not(data, moment).startswith(f"waits on {env}: its promotion skipped its last tick while staging was held")
+    data["slots"][env]["promotion_due"] = False
     assert work.STAGE.why_not(data, moment) is None
     monkeypatch.setattr(state, "packed", lambda ready, most: (ready[0], ready[1:most]))
     monkeypatch.setattr(work, "cut_shape", lambda data: {"cut_items": 6, "cut_minutes": 30})
