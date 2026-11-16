@@ -86,6 +86,8 @@ WATCH_STARTS = "start no agent for it"
 URGENT = ("TAP ", "DUE ", "MOVED ", "WATCH stopped", "DOWN ")
 TAP_EVENT = re.compile(rf"TAP (?P<label>\S+) (?P<key>\S+)(?P<stalled> {NOT_LANDED})?")
 LANE = "watch"
+WATCH_OUTBOX = ""
+LANDING_OUTBOX = ".land"
 READS_LOG = "reads.log"
 CONFLICTS = "conflicts with its base"
 NEWEST_MAIL = "newest lane mail"
@@ -202,6 +204,9 @@ class Watcher:
     made: list[str] = field(default_factory=list)
     resume: str | None = None
     unsent: dict[str, list[str]] = field(default_factory=dict)
+    owed_at: dict[str, datetime] = field(default_factory=dict)
+    outbox: str = ""
+    outboxed: list[str] = field(default_factory=list)
     handed_at: dict[str, datetime] = field(default_factory=dict)
     down: str | None = None
     dashboard_down: bool = False
@@ -2511,6 +2516,7 @@ def landing_loop(name: str, project: str | None, lines: int) -> int:
                             print(line, flush=True)
                         if over(ended):
                             break
+                    outboxed(one)
                 beat("rest")
     finally:
         for one in [landing, *landing.others.values()]:
@@ -2525,7 +2531,7 @@ def landing_watcher(name: str, project: str | None) -> Watcher:
     owes = {"owed": set(held["owed"]), "merging": set(held["merging"]), "stale": set(held["stale"]), "untracked": held["untracked"], "floor": held.get("floor") and datetime.fromisoformat(held["floor"])} if held else {}
     offset = held.get("offset", state.watch_cursor(name, project)) if held else state.events_end(name)
     delivered = held.get("delivered", 0) if held else receiver.deliveries_end()
-    return Watcher(name, offset=offset, project=project, delivered=delivered, cards=view.live_cards(name), made=state.take_held_lines(name, project), **owes)
+    return outboxed(Watcher(name, offset=offset, project=project, delivered=delivered, cards=view.live_cards(name), made=taken_lines(name, project, LANDING_OUTBOX), outbox=LANDING_OUTBOX, **owes))
 
 
 def landing_pass(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
@@ -6557,7 +6563,11 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
         watcher.unsent[lane] = list(dict.fromkeys(watcher.unsent[lane] + lines))
         return []
     owed = watcher.unsent[lane] = list(dict.fromkeys(watcher.unsent.get(lane, []) + lines))
-    if not owed or coalescing(watcher, lane, owed, moment):
+    if not owed:
+        watcher.owed_at.pop(lane, None)
+        return []
+    watcher.owed_at.setdefault(lane, moment)
+    if coalescing(watcher, lane, owed, moment):
         return []
     data = state.load(watcher.name)
     if untaken(watcher, data, lane):
@@ -6577,6 +6587,8 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
     if posting and not unsent:
         keep_posted(watcher.name, lane, moment)
     watcher.unsent[lane] = unsent
+    if not unsent:
+        watcher.owed_at.pop(lane, None)
     if kind == "handoff" and rest and not unsent:
         watcher.handed_at[lane] = moment
     project = next((project for project in data["subcoordinators"] if state.project_lane(project) == lane), lane)
@@ -6588,9 +6600,15 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
 
 
 def coalescing(watcher: Watcher, lane: str, owed: list[str], moment: datetime) -> bool:
-    """Whether a coordinator's lines wait for its next record: one went to it within COALESCE and none of them is URGENT, his tap, a promised time, a move of his orders, a stopped watch or a process gone, so a lane hears the watch at most once every COALESCE in one record of all it made, whichever watch or install posted it last, by his words "make everything less chatty"; the communicator and the meta session hear each line as it comes."""
+    """Whether a coordinator's lines wait for its next record: one went to it within COALESCE, none of them is URGENT, his tap, a promised time, a move of his orders, a stopped watch or a process gone, and none has waited on this watcher COALESCE already, so a lane hears the watch at most once every COALESCE in one record of all it made, whichever watch or install posted it last, by his words "make everything less chatty", yet the landing loop's and the watch's records, which share that clock, never hold one another's lines back past it, as they held a Sprite builder's three build requests to priority-o1339 for half an hour; the communicator and the meta session hear each line as it comes."""
     at = said_lines(watcher.name).get(f"{POSTED_KEY}{lane}")
-    return lane not in state.HOLDERS and at is not None and moment - state.parse_time(at) < COALESCE and not any(line.startswith(URGENT) for line in owed)
+    return (
+        lane not in state.HOLDERS
+        and at is not None
+        and moment - state.parse_time(at) < COALESCE
+        and moment - watcher.owed_at[lane] < COALESCE
+        and not any(line.startswith(URGENT) for line in owed)
+    )
 
 
 def keep_posted(name: str, lane: str, moment: datetime) -> None:
@@ -6906,8 +6924,26 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
 
 
 def watched(name: str, project: str | None) -> Watcher:
-    """The watch's watcher of the drive, or of a project, taking what the watch process before it held for it."""
-    return Watcher(name, offset=state.watch_cursor(name, project), project=project, delivered=receiver.deliveries_end(), cards=view.live_cards(name), made=state.take_held_lines(name, project), resume=state.take_held_resume(name, project))
+    """The watch's watcher of the drive, or of a project, taking what the watch process before it held for it or left in its outbox."""
+    return outboxed(Watcher(name, offset=state.watch_cursor(name, project), project=project, delivered=receiver.deliveries_end(), cards=view.live_cards(name), made=taken_lines(name, project, WATCH_OUTBOX), outbox=WATCH_OUTBOX, resume=state.take_held_resume(name, project)))
+
+
+def taken_lines(name: str, project: str | None, outbox: str) -> list[str]:
+    """The lines the process before this one held for it at a hand-off, and those it left in its outbox, which a process ended with no hand-off leaves, each once."""
+    return list(dict.fromkeys([*state.take_held_lines(name, project), *state.outboxed_lines(name, project, outbox)]))
+
+
+def unposted(watcher: Watcher) -> list[str]:
+    return list(dict.fromkeys(LINE_BREAKS.sub(" ", line) for line in [*watcher.made, *(line for lines in watcher.unsent.values() for line in lines)]))
+
+
+def outboxed(watcher: Watcher) -> Watcher:
+    """Write the lines the watcher made and has not posted to its outbox on disk whenever they changed, before the watch saves its events cursor past the events they came from, so a watch killed between passes, by a reload's SIGTERM or a kickstart, loses none: the process after it posts them first."""
+    lines = unposted(watcher)
+    if lines != watcher.outboxed:
+        state.keep_outbox(watcher.name, watcher.project, watcher.outbox, lines)
+        watcher.outboxed = lines
+    return watcher
 
 
 def handing_off(watcher: Watcher, ran: float) -> bool:
@@ -6921,6 +6957,7 @@ def handing_off(watcher: Watcher, ran: float) -> bool:
 def watching(watcher: Watcher) -> None:
     """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, each open priority order's seat first, by seated_first, then the drive's pass, then each other project's, by joined, each project the watch claims the pid file of, so a project an older install's watch still runs waits for it to end; and end once a newer long-running is installed, only at a pass boundary, never between two of a pass's stages, saying so in its log, so its launch agent starts the watch on that install within RESTART_SECONDS, and a watch reads no install until it has run one whole pass, so installs landing minutes apart never cut a pass short. A pass that runs past PASS_FOR ends before its next stage the same way, that stage kept as its resume, so one slow project holds the others' passes up no longer than that. A crash wakes the session the crashing pass posts to first. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
+    signal.signal(signal.SIGTERM, functools.partial(terminated, watcher))
     one = watcher
     passes = 0
     began = monotonic()
@@ -6938,6 +6975,7 @@ def watching(watcher: Watcher) -> None:
                     for said in [handed(one, one.made, moment)] if one.made else passed(one, moment, lambda moment=moment: state.now() - moment > PASS_FOR):
                         for line in sent(one, one.lane, said, moment):
                             print(line, flush=True)
+                    outboxed(one)
                     if one.offset != read_from:
                         state.save_watch_cursor(one.name, one.offset, one.project)
                 passes += not handing
@@ -6965,12 +7003,19 @@ def rests(*paths: Path) -> Iterator[None]:
             queue.control(None, 1, POLL_SECONDS)
 
 
+def terminated(watcher: Watcher, signum: int, _frame: object) -> None:
+    """End the watch on SIGTERM, a reload's or launchd's, holding every watcher's unposted lines for the process after it first, and leaving each events cursor where its last outbox write left it, so the events since replay rather than drop."""
+    for each in [watcher, *watcher.others.values()]:
+        hold(each)
+    os._exit(128 + signum)
+
+
 def keep_unposted(watcher: Watcher) -> None:
-    """Move each line the watch made and has not posted to the watch process after it, which reads events from past the last one they were made from, by hold, and the stage it ended its pass before, so the watch after it starts its first pass's later stages at that one."""
-    state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
+    """Move each line the watch made and has not posted to the watch process after it, which reads events from past the last one they were made from, by hold, and the stage it ended its pass before, so the watch after it starts its first pass's later stages at that one; the lines are held before the cursor moves past their events."""
     if watcher.resume:
         state.hold_resume(watcher.name, watcher.project, watcher.resume)
     hold(watcher)
+    state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
 
 
 def hold(watcher: Watcher) -> None:
@@ -6978,4 +7023,5 @@ def hold(watcher: Watcher) -> None:
     state.hold_lines(watcher.name, watcher.project, [LINE_BREAKS.sub(" ", line) for line in [*watcher.made, *drained(watcher.relayed), *(line for lines in watcher.unsent.values() for line in lines)]])
     if watcher.owed is not None:
         state.hold_reads(watcher.name, watcher.project, {"owed": sorted(watcher.owed), "merging": sorted(watcher.merging), "stale": sorted(watcher.stale), "untracked": watcher.untracked, "offset": watcher.offset, "delivered": watcher.delivered, "floor": watcher.floor and watcher.floor.isoformat()})
-    watcher.made, watcher.unsent = [], {}
+    state.keep_outbox(watcher.name, watcher.project, watcher.outbox, [])
+    watcher.made, watcher.unsent, watcher.owed_at, watcher.outboxed = [], {}, {}, []

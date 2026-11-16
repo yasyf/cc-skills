@@ -7125,6 +7125,30 @@ def test_a_line_said_to_a_lane_is_said_once_however_often_a_pass_makes_it_again_
     assert posted(sent)[-1] == ("handoff", f"root@{demo}", lines[0])
 
 
+def test_a_line_waits_on_its_watcher_no_longer_than_coalesce_however_often_another_watcher_of_the_drive_posts_its_lane(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    sent = posts(monkeypatch)
+    landing, watching = watcher(demo), watcher(demo)
+    asked = "JOB j1 o1 j1 build request: please start buildkite/test on 08c39d02"
+    watch.sent(landing, "root", ["EVENT one"], T0)
+    assert watch.sent(watching, "root", [asked], T0 + timedelta(minutes=1)) == []
+    watch.sent(landing, "root", ["EVENT two"], T0 + watch.COALESCE)
+    watch.sent(watching, "root", [], T0 + watch.COALESCE + timedelta(minutes=1))
+    assert [line for _, _, line in posted(sent)] == ["EVENT one", "EVENT two", asked]
+
+
+def test_a_line_a_watch_killed_with_no_hand_off_left_unposted_goes_out_from_the_watch_after_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    sent = posts(monkeypatch)
+    killed = watch.Watcher(demo, offset=state.events_end(demo), outbox=watch.WATCH_OUTBOX)
+    watch.sent(killed, "root", ["EVENT one"], T0)
+    watch.sent(killed, "root", ["EVENT two"], T0 + timedelta(minutes=1))
+    watch.outboxed(killed)
+    after = watch.outboxed(watch.Watcher(demo, offset=state.events_end(demo), made=watch.taken_lines(demo, None, watch.WATCH_OUTBOX), outbox=watch.WATCH_OUTBOX))
+    watch.sent(after, "root", after.made, T0 + watch.COALESCE)
+    after.made = []
+    watch.outboxed(after)
+    assert ([line for _, _, line in posted(sent)], state.outbox_path(demo, None, watch.WATCH_OUTBOX).exists()) == (["EVENT one", "EVENT two"], False)
+
+
 def test_the_lines_one_stage_makes_for_a_lane_go_as_one_record_counting_them_by_kind_its_body_holding_each_and_a_lane_message_named_whole_under_its_line(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

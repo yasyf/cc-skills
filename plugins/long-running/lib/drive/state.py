@@ -5993,6 +5993,27 @@ def hold_lines(name: str, project: str | None, lines: list[str]) -> None:
         held.write("".join(f"{line}\n" for line in lines))
 
 
+def outbox_path(name: str, project: str | None, role: str) -> Path:
+    return drive_dir(name) / f"watch{watch_suffix(project)}{role}.outbox"
+
+
+def keep_outbox(name: str, project: str | None, role: str, lines: list[str]) -> None:
+    """Replace the lines a running watch process made and has not posted yet, written aside and renamed over the file, before it saves the events cursor past the events they came from, so a process killed with no hand-off, by a reload's SIGTERM or a kickstart, leaves them for the process after it; none removes the file."""
+    path = outbox_path(name, project, role)
+    if not lines:
+        path.unlink(missing_ok=True)
+        return
+    taking = path.with_name(f"{path.name}.{os.getpid()}")
+    taking.write_text("".join(f"{line}\n" for line in lines))
+    os.replace(taking, path)
+
+
+def outboxed_lines(name: str, project: str | None, role: str) -> list[str]:
+    """The lines the watch process before this one kept unposted in its outbox, left in place until this one's own outbox replaces them, so a process killed before its first save loses none."""
+    path = outbox_path(name, project, role)
+    return path.read_text().splitlines() if path.exists() else []
+
+
 def take_held_lines(name: str, project: str | None = None) -> list[str]:
     """The lines the watch process before this one held for it, once, so this one hands them on before its first pass."""
     path = held_path(name, project)
