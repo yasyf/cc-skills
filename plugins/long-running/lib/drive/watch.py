@@ -5486,7 +5486,7 @@ def retired_seats(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def retire_seat(watcher: Watcher, seat: str) -> str:
-    """Take a priority seat down: its watch's launch agent and pid file, by retire, its cci alias, by `cci session rm`, which keeps its session alive no more and drops its channel subscription, its session, by `claude stop`, which keeps its conversation, or its tmux session once that refuses, since cci runs the seat there, and its binding and launched terminal on the drive, so no restart starts it again; the line saying so."""
+    """Take a priority seat down: its watch's launch agent and pid file, by retire, its cci alias, by `cci session rm`, which keeps its session alive no more and drops its channel subscription, its session, by seat_ended, and its binding and launched terminal on the drive, so no restart starts it again; the line saying so."""
     name = watcher.name
     session = state.load(name)["subcoordinators"][seat]["session"]
     alias = state.alias(name, "coordinator", seat)
@@ -5500,10 +5500,9 @@ def retire_seat(watcher: Watcher, seat: str) -> str:
 
 
 def seat_ended(alias: str, session: str) -> None:
-    """End a retired seat's session: its cci alias, then the session itself, by `claude stop`, else its tmux session."""
+    """End a retired seat's session: its cci alias, so nothing starts it again once Claude Code exits, then the session itself by `claude stop` when it runs in the background; a seat cci runs in tmux ends at its own exit, since no tool of the drive kills a tmux session."""
     subprocess.run(["cci", "session", "rm", alias], capture_output=True, text=True, check=False)
-    if subprocess.run(["claude", "stop", session], capture_output=True, text=True, check=False).returncode:
-        subprocess.run(["tmux", "kill-session", "-t", alias], capture_output=True, text=True, check=False)
+    subprocess.run(["claude", "stop", session], capture_output=True, text=True, check=False)
 
 
 def retire(name: str, project: str) -> None:
