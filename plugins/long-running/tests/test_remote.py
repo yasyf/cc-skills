@@ -8995,3 +8995,31 @@ def test_a_sprite_a_job_end_kept_goes_back_once_no_worker_was_on_it_for_thirty_m
     assert released == ["pool-j1"]
     data = state.load(remote)
     assert [state.lane_death(data["jobs"][job_id], "dispatch")["ended"]["kept"] for job_id in ("j1", "j2")] == [False, True]
+
+
+def test_a_resume_cci_cannot_address_keeps_the_text_at_the_starters_lane_and_prints_the_owed_sendmessage_as_j7071s_dropped_it(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    agent_on_this_mac(run, demo, tmp_path, monkeypatch, ENDED_TURN, timedelta(minutes=10))
+    assert cli.main(["job", "launch", "j1"]) == 2
+    capsys.readouterr()
+    posted: list[list[str]] = []
+    lost = "cci: --batch record 1: --to peer:8421d972/a1@session-8421d972: no session has that id prefix or name"
+
+    def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
+        posted.extend(post["to"] for post in posts)
+        if any(to.startswith("peer:") for post in posts for to in post["to"]):
+            raise state.DriveError(lost)
+        return ["8"]
+
+    monkeypatch.setattr(tools, "sent", sent)
+    code, line = run("job", "resume", "j1", "PR #54870: checks failed")
+    job = state.load(demo)["jobs"]["j1"]
+    [starter] = posted[1]
+    assert (code, posted[0], starter.endswith(f"@{demo}")) == (0, [f"peer:{job['session']}/a1"], True)
+    assert line == f'j1: cci has no address for agent a1, its session\'s peer address lost ({lost}), so the text is kept on j1 as handoff record 8 at {starter}: j1: owed, send it now: SendMessage a1 "Read cci record 8 whole and act on it"'
+    assert [given["words"] for given in job["given"]][-1] == "PR #54870: checks failed"
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: (_ for _ in ()).throw(state.DriveError(lost)))
+    assert cli.main(["job", "resume", "j1", "PR #54871: checks failed"]) == 2
+    assert "so the text stays held on j1 for its next worker" in capsys.readouterr().err
+    assert [held["words"] for held in state.load(demo)["jobs"]["j1"]["undelivered"]][-1] == "PR #54871: checks failed"

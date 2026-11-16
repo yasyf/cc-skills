@@ -4252,16 +4252,34 @@ def starter_post(name: str, job_id: str, job: dict, lane: str, text: str, at: st
     starter = [] if session or lane == sender else [f"{lane}@{name}"]
     attrs = {"order": job["order"], "job": job_id} | ({"sendmessage": job["agent"]} if starter else {})
     record = {"kind": "handoff", "to": [state.agent_address(job), *starter], "attr": attrs, "text": text}
-    [seq] = tools.sent(name, sender, [limits.shortened(record) or record])
+    unaddressed = None
+    try:
+        [seq] = tools.sent(name, sender, [limits.shortened(record) or record])
+    except DriveError as error:
+        if session or not UNADDRESSED.search(str(error)):
+            raise
+        unaddressed = str(error).splitlines()[0]
+        record |= {"to": [f"{lane}@{name}"], "attr": attrs | {"sendmessage": job["agent"]}}
+        try:
+            [seq] = tools.sent(name, sender, [limits.shortened(record) or record])
+        except DriveError as again:
+            def held_write(data: dict):
+                state.hold_text(data["jobs"][job_id], text, state.held_sender(data), at, held)
+
+            state.write(name, held_write)
+            raise DriveError(f"{job_id}: cci has no address for agent {job['agent']} ({unaddressed}) and posting to {lane}@{name} failed too ({again}), so the text stays held on {job_id} for its next worker") from None
     sent_kept(name, job_id, {"words": text, "request": seq, "held": held, "at": at, "ask": job.get("ask")})
     if session:
         return seq, own_post(name, job_id, session, seq, at)
     line = f'{job_id}: {OWED} SendMessage {job["agent"]} "{superseded.POINTER.format(seq)}"'
+    if unaddressed:
+        return seq, f"{job_id}: cci has no address for agent {job['agent']}, its session's peer address lost ({unaddressed}), so the text is kept on {job_id} as handoff record {seq} at {lane}@{name}: {line}"
     if not starter:
         return seq, line
     return seq, f"{job_id}: posted to agent {job['agent']}'s cci address and to {lane}@{name} as handoff record {seq}, its sendmessage attr naming the agent whose SendMessage alone reaches it: {line}"
 
 
+UNADDRESSED = re.compile(r"no session has that id prefix or name")
 FRESH_WITHIN = timedelta(minutes=10)
 FRESH_PAST_TOKENS = 170_000
 
