@@ -688,8 +688,11 @@ def keep_rulings(name: str, posts: list[dict], found: dict) -> list[str]:
         words = state.MESSAGES_JOINED.join({other["url"]: other["text"] for other in named}.values())
         asked = superseded.asking(data, found, made["url"])
         bound = superseded.binding(data, made["url"], asked, data["roles"]["coordinator"]["cwd"])
-        with state.edit(name) as data:
-            kept = superseded.record(data, ruling, words, made["url"], asked, bound, state.stamp(), made["attr"].get("about") == state.ABOUT_DRIVE)
+
+        def kept_ruling(data: dict) -> tuple[dict, dict]:
+            return superseded.record(data, ruling, words, made["url"], asked, bound, state.stamp(), made["attr"].get("about") == state.ABOUT_DRIVE), data
+
+        kept, data = state.update(name, None, kept_ruling)
         said.append(superseded.listing(ruling, kept, superseded.unmarked(kept, asked), asked, data) or f"his ruling {ruling} kept as a drive answer: nothing it could change asks him or waits on it")
     return said
 
