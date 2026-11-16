@@ -310,9 +310,9 @@ def test_the_receiver_takes_only_buildkite_deliveries_signed_with_the_webhook_se
 
 def test_a_buildkite_delivery_is_logged_once_naming_its_builds_reading_no_drive_and_a_missed_one_names_every_build(home: None, unread: None, capsys: pytest.CaptureFixture[str]) -> None:
     receiver.took_builds("missed", None)
-    assert receiver.buildkite_silent()
+    assert receiver.builds_silent()
     receiver.took_builds("build.finished", [BUILD])
-    assert not receiver.buildkite_silent()
+    assert not receiver.builds_silent()
     receiver.took_builds("missed", None)
     assert builds_delivered() == [("missed", None), ("build.finished", [BUILD]), ("missed", None)]
     assert [line.split(" ", 1)[1] for line in capsys.readouterr().out.splitlines()] == ["buildkite missed: every build a drive holds", f"buildkite build.finished: {BUILD}", "buildkite missed: every build a drive holds"]
