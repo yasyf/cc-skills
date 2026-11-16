@@ -283,6 +283,8 @@ WAITS_OUT_LOCK: ContextVar[bool] = ContextVar("waits_out_lock", default=False)
 NAMED: ContextVar[frozenset[str]] = ContextVar("named", default=frozenset())
 LOADED_VERSION: ContextVar[int | None] = ContextVar("loaded_version", default=None)
 LOADED_REV: ContextVar[int | None] = ContextVar("loaded_rev", default=None)
+DEFERRED: ContextVar[list[Callable[[], list[str]]] | None] = ContextVar("deferred", default=None)
+READ_OPEN: ContextVar[tuple[str, set] | None] = ContextVar("read_open", default=None)
 EDITING: ContextVar[str | None] = ContextVar("editing", default=None)
 TAKEN_IDS: ContextVar[list[tuple[str, str, int]] | None] = ContextVar("taken_ids", default=None)
 PTHREADS = ctypes.CDLL(None, use_errno=True)
@@ -1082,6 +1084,8 @@ def load(name: str, fields: tuple[str, ...] | None = None) -> dict:
         if not (path := database_path(name)).exists():
             data = shaped(name, stored_json(name))[0]
             return data if fields is None else {field: data[field] for field in fields}
+        if (open_reads := READ_OPEN.get()) is not None and open_reads[0] == name:
+            open_reads[1].update({("", "*"), *((collection, "*") for collection in COLLECTIONS)})
         return whole(path, lambda saved: shaped(name, saved), fields)
     finally:
         if collecting:
@@ -4622,8 +4626,8 @@ def loaded_rows(name: str, rows: tuple[Row, ...]) -> tuple[dict, dict[Row, objec
         return data, held
 
 
-def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows: tuple[Row, ...], since: int | None = None, reads: frozenset[Row] = frozenset()) -> None:
-    """Save a write of rows alone in one short transaction of the drive's database, writing only the records the rows name: each as mine holds it, a row naming one field of a record that field alone on the record as the database holds it, while every record reads as held, the database's when the write loaded the drive as base; Raced at the first another write changed since, even to the value mine holds, since a write that read it may have counted on what it held; with since, the revision of the drive base was loaded at, Raced instead at the first row any write committed after it that is one of the records or one reads names, a record or every record of a collection by "*", or at any once the changed table no longer reaches back to it. New records take places after the collection's last in the order mine holds them. A job the save moves into done or stopped drops the texts it holds, as rewrite drops them, and each it moves into done, failed or stopped takes down its Mac boxes; once saved, each open order the save moved to another lane, by its own record or by the drive's bindings, tells the lane losing it, by told_moved, and the drive's clocks are drawn again, by redrawn. The drive's lock is held for that transaction alone, while writes of no rows and older installs still save the whole drive under it."""
+def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows: tuple[Row, ...], since: int | None = None, reads: frozenset[Row] = frozenset(), effects: list[Callable[[], list[str]]] | None = None) -> None:
+    """Save a write of rows alone in one short transaction of the drive's database, writing only the records the rows name: each as mine holds it, a row naming one field of a record that field alone on the record as the database holds it, while every record reads as held, the database's when the write loaded the drive as base; Raced at the first another write changed since, even to the value mine holds, since a write that read it may have counted on what it held; with since, the revision of the drive base was loaded at, Raced instead at the first row any write committed after it that is one of the records or one reads names, a record or every record of a collection by "*", or at any once the changed table no longer reaches back to it; each of effects, what the write left to do outside the drive by after_save, such as copying the file a record it saves names, runs once it commits, before another write's commit, so the files keep the order of the commits naming them. New records take places after the collection's last in the order mine holds them. A job the save moves into done or stopped drops the texts it holds, as rewrite drops them, and each it moves into done, failed or stopped takes down its Mac boxes; once saved, each open order the save moved to another lane, by its own record or by the drive's bindings, tells the lane losing it, by told_moved, and the drive's clocks are drawn again, by redrawn. The drive's lock is held for that transaction alone, while writes of no rows and older installs still save the whole drive under it."""
     jobs = mine.get("jobs", {})
     ended = {key: then["state"] for collection, key in held if collection == "jobs" and isinstance(then := held[(collection, key)], dict) and key in jobs and jobs[key]["state"] in FINISHED_JOB_STATES and then.get("state") != jobs[key]["state"]}
     dropped = set(drop_ended_texts(mine, ended))
@@ -4667,6 +4671,8 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
             db.execute("ROLLBACK")
             raise
         db.execute("COMMIT")
+        for effect in effects or []:
+            effect()
         with suppress(sqlite3.OperationalError):
             db.execute("PRAGMA wal_checkpoint(PASSIVE)")
     down_mac_boxes(name, mine, [job_id for job_id, then in ended.items() if then not in FINISHED_JOB_STATES])
@@ -4857,30 +4863,33 @@ def handled_lock(name: str) -> Iterator[None]:
 
 
 def read_updated[T](name: str, change: Callable[[dict], T]) -> T:
-    """Apply change to the drive as it loads, holding no lock while it runs, recording each row it reads, by ReadDrive, and save each record it changed in one short transaction, refused when another write committed one of those rows or one it read since the load, by rows_saved's since, running each effect it left by after_save only once its save commits; else run it again on the drive as it then stands, up to UPDATE_TRIES runs, and once each raced, a last time under the drive's lock as a write naming no rows, which locks.log names."""
+    """Apply change to the drive as it loads, holding no lock while it runs, recording each row it reads, by ReadDrive, and every row once it loads the drive again itself, since those reads go untracked, and save each record it changed in one short transaction, refused when another write committed one of those rows or one it read since the load, by rows_saved's since, running each effect it left by after_save only once its save commits; else run it again on the drive as it then stands, up to UPDATE_TRIES runs, and once each raced, a last time under the drive's lock as a write naming no rows, which locks.log names."""
     why = ""
     for _ in range(UPDATE_TRIES):
         with editing(name) as taken:
             loaded = load(name)
             since, base, reads = LOADED_REV.get(), marshal.dumps(loaded), Reads()
             data = ReadDrive(loaded, reads)
-            AFTER_SAVE[name] = []
+            effects: list[Callable[[], list[str]]] = []
+            tokens = DEFERRED.set(effects), READ_OPEN.set((name, reads))
             try:
                 done = change(data)
             finally:
-                effects = AFTER_SAVE.pop(name)
+                DEFERRED.reset(tokens[0])
+                READ_OPEN.reset(tokens[1])
             mine = plain(data)
             was = marshal.loads(base)
             written = tuple(sorted(written_rows(was, mine)))
             try:
                 if written:
-                    rows_saved(name, {row: row_of(was, row) for row in written}, was, mine, written, since, frozenset(reads))
+                    rows_saved(name, {row: row_of(was, row) for row in written}, was, mine, written, since, frozenset(reads), effects)
+                else:
+                    for effect in effects:
+                        effect()
             except Raced as raced:
                 why = f"another write changed {'.'.join(raced.args[0])} each time it ran"
                 released(taken)
                 continue
-        for effect in effects:
-            effect()
         return done
     with open(drive_dir(name) / "locks.log", "a") as log:
         log.write(f"{stamp()} pid {os.getpid()} ran as a write of the whole drive, since {why}: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
@@ -4996,9 +5005,12 @@ def unrehearsed(name: str, run: Callable[[], str], stand_in: str) -> str:
 
 
 def after_save(name: str, effect: Callable[[], list[str]]) -> list[str]:
-    """Run what a write does outside the drive, such as withdrawing a card of his: now, or inside a batch once its save lands; the lines it prints now."""
+    """Run what a write does outside the drive, such as withdrawing a card of his: now, or inside a batch once its save lands, or inside a lock-free update once its commit lands, by read_updated; the lines it prints now."""
     if name in AFTER_SAVE:
         AFTER_SAVE[name].append(effect)
+        return []
+    if (deferred := DEFERRED.get()) is not None:
+        deferred.append(effect)
         return []
     return effect()
 
