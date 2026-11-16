@@ -5768,16 +5768,26 @@ def thread_work(name: str, data: dict, thread: str | None, but: str | None = Non
 
 
 def thread_orders(data: dict, thread: str | None, but: str | None = None) -> list[str]:
-    """Each open order but the one named that has a thread at ts thread."""
-    return [order_id for order_id, order in state.open_orders(data).items() if order_id != but and any(ts == thread for _, ts in slack.order_threads(data, order_id, order))]
+    """Each open order but the one named that has a thread at ts thread, then each closed order watch.thread_group joins to one of them, as a repeat dropped into the order it repeats, whose jobs and PRs stay filed on it."""
+    found = [order_id for order_id, order in state.open_orders(data).items() if order_id != but and any(ts == thread for _, ts in slack.order_threads(data, order_id, order))]
+    joined = state.joined_orders(data)
+    closed = [order_id for head in found for order_id in watch.thread_group(data, joined, head) if data["orders"][order_id]["state"] in state.CLOSED_ORDER_STATES]
+    return list(dict.fromkeys([*found, *closed]))
 
 
 def thread_strays(data: dict, ids: list[str], text: str, asked: str) -> list[str]:
-    """Each reference of a post's text naming work outside the orders the ids name, as written: a {order:…}, a {pr:…} or a link, key or #N naming a drive PR, or a {card:…} as `stray_card` reads it, that is none of those orders, the PRs they own or their jobs carry, nor an order, job or PR those jobs' and PRs' waits name; a PR his words asked name by link, key or #N, and its order, are theirs too, so an answer to his question about another order's PR stands."""
+    """Each reference of a post's text naming work outside the orders the ids name, as written: a {order:…}, a {pr:…} or a link, key or #N naming a drive PR, or a {card:…} as `stray_card` reads it, that is none of those orders, the PRs they own or their jobs carry, nor an order, job or PR those jobs' and PRs' waits name, nor a PR or card stage.asked ends an open PR's waits or its job's at, as its stage line names them; a PR his words asked name by link, key or #N, and its order, are theirs too, so an answer to his question about another order's PR stands; on a post with a line refs.failures reads as a drive failure, each Drive tooling order and each PR serving one is theirs too, as the prevention refs.unprevented demands of that line."""
+    from drive import stage, view
+
     narrowed = only(data, ids)
+    stored, source = view.stored_cards(data["name"])
+    cards = stored if source == "live" else None
     waits = {wait for owner in [*narrowed["jobs"].values(), *narrowed["prs"].values()] for wait in owner["waits"]}
-    prs = {*narrowed["prs"], *state.named_prs(data, "", f"{' '.join(waits)} {asked}")}
-    orders = {*ids, *(data["prs"][key]["order"] for key in prs), *(wait.partition(":")[0] for wait in waits), *(data["jobs"][wait]["order"] for wait in waits if wait in data["jobs"])}
+    ends = {end for key, pr in narrowed["prs"].items() if pr["state"] == "open" for end in stage.asked(data, key, [*stage.pr_waits(data, pr), pr["job"]], cards)}
+    tooling = {order_id for order_id, order in data["orders"].items() if state.tooling(order)} if refs.failures(text) else set()
+    served = {key for key, pr in data["prs"].items() if state.order_served(pr) in tooling}
+    prs = {*narrowed["prs"], *(end for end in ends if end in data["prs"]), *served, *state.named_prs(data, "", f"{' '.join(waits)} {asked}")}
+    orders = {*ids, *tooling, *(data["prs"][key]["order"] for key in prs), *(wait.partition(":")[0] for wait in waits), *(data["jobs"][wait]["order"] for wait in waits if wait in data["jobs"])}
     strays = []
     for found in limits.REF.finditer(text):
         match found[1], found[2]:
@@ -5785,7 +5795,7 @@ def thread_strays(data: dict, ids: list[str], text: str, asked: str) -> list[str
                 strays.append(found[0])
             case "pr", ref if (key := state.tracked_pr(data["prs"], ref, untracked=True)) in data["prs"] and key not in prs:
                 strays.append(found[0])
-            case "card", ref if (card := state.waits_of(data["name"], ref)) not in waits and stray_card(data, card, orders, prs):
+            case "card", ref if (card := state.waits_of(data["name"], ref)) not in waits | ends and stray_card(data, card, orders, prs):
                 strays.append(found[0])
     return list(dict.fromkeys([*strays, *(key for key in state.named_prs(data, "", limits.REF.sub(" ", text)) if key not in prs)]))
 

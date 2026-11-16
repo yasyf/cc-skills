@@ -146,6 +146,11 @@ def unprevented(text: str, found: dict[str, dict], subject: set[str]) -> list[st
     ]
 
 
+def failures(text: str) -> list[str]:
+    """Each line of the text, outside a fence and a quoted line, whose writer's own words name a failure, refusal or gap of the drive's own, or a line of it late, by drive_failure."""
+    return [line.strip() for line in picture.FENCE.sub("", text).splitlines() if not line.lstrip().startswith(">") and drive_failure(own_words(line))]
+
+
 def drive_failure(line: str) -> bool:
     return bool(FAILURE.search(line) and DRIVE_PART.search(line) or LATE.search(line))
 

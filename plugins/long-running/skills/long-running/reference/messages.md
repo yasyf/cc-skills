@@ -71,9 +71,10 @@ his words "your messages need to be way shorter rewrite this for a human".
 - Lead with what changed for him, in his words, never with how the machinery got there.
 - Write a bold line and at most two sentences; use a table only for three or more parallel items.
 - Keep every card and line in a thread about that thread's work alone: the open orders with a
-  thread there, their jobs and the cards and PRs those wait on, as a handler's `In his thread:`
-  line lists them. A line there reaches past that work only when his words there name more, such as
-  a project or the whole drive. His words: "Why the fuck do you keep asking me about everything in
+  thread there and each repeat dropped into one of them, their jobs and the cards and PRs those
+  wait on, as a handler's `In his thread:` line lists them. A line there reaches past that work
+  only when his words there name more, such as a project or the whole drive, or to name the Drive
+  tooling order or PR preventing a failure of the drive's that the post tells him. His words: "Why the fuck do you keep asking me about everything in
   the drive we're talking about the work this thread is about Jesus". Post drive tooling, such as a
   fix to the launcher its builders start from, in the thread his words ordering it came in, else at
   his DM root under its own words, its later lines replying under that first one, never in a

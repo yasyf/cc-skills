@@ -1142,6 +1142,39 @@ def test_a_handlers_post_in_his_thread_hands_each_order_pr_or_card_of_other_work
     assert strays("{pr:yasyf/cc-skills#8} is the run page's, apart from this work.", asked="does #8 hold this up?") == []
 
 
+def test_a_handlers_post_in_his_thread_counts_a_repeat_dropped_into_its_order_the_cards_its_pr_lines_wait_on_and_the_tooling_fix_of_a_failure_it_tells(
+    run: Run, talker: str, transcript: Path, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Copy fix", "--project", "The drive", "--workstream", "Copies", "fix the copy", "--from", f"https://acme.slack.com/archives/{DM}/p1794300000000100")
+    run("order", "add", "--title", "Run page", "--project", "The drive", "--workstream", "Runs", "show a run's history", "--from", f"https://acme.slack.com/archives/{DM}/p1794100000000100")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix the copy")
+    run("job", "add", "builder", "--order", "o2", "--goal", "show a run's history")
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
+    with state.edit("demo") as data:
+        for order_id, job_id, words in (("o3", "j3", "fix the copy again"), ("o4", "j4", "keep the run page's layout"), ("o5", "j5", f"{state.TOOLING} the say hook reads a thread's work whole")):
+            data["orders"][order_id] = state.new_order(words, "", None, {}, state.stamp()) | {"jobs": [job_id]}
+            data["jobs"][job_id] = state.new_job(order_id, "builder", words, [], state.stamp())
+        data["orders"]["o1"]["thread"] = [DM, "1.2"]
+        data["orders"]["o3"] |= {"joins": "o1", "state": "dropped"}
+        data["jobs"]["j4"]["state"] = "waiting"
+        data["jobs"]["j4"]["questions"].append(state.new_question(None, "Keep the old layout?", state.stamp(), card=f"https://acme.slack.com/archives/{DM}/p1794288799976279") | {"waits": "demo:j4-1"})
+        for number, job_id, order_id in ((7, "j1", "o1"), (8, "j2", "o2"), (9, "j3", "o3"), (10, "j5", "o5")):
+            data["prs"][f"yasyf/cc-skills#{number}"] = state.new_pr(f"https://github.com/yasyf/cc-skills/pull/{number}", job_id, order_id) | {"title": f"Fix: change {number}"}
+        data["prs"]["yasyf/cc-skills#7"]["waits"] = ["yasyf/cc-skills#8"]
+        data["prs"]["yasyf/cc-skills#8"]["waits"] = ["j4"]
+
+    def strays(text: str) -> list[str]:
+        slack_thread.messages[:] = [{"ts": "1794300000.000100", "user": "U1", "text": "fix the copy"}, {"ts": "1794300001.000100", "user": "U1", "text": "what else is waiting on me for this work"}]
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text=text, thread_ts="1.2") | {"tool_name": message_limits.SAY})))
+        message_limits.main()
+        return json.loads(capsys.readouterr().out)["thread_scope"]["strays"]
+
+    assert strays("{pr:yasyf/cc-skills#9}, from your repeat of this order, waits on your Approve.") == []
+    assert strays("{pr:yasyf/cc-skills#7} waits on {card:demo:j4-1}, your answer on the run page's layout.") == []
+    assert strays("The say hook refused my last line; {order:o5} and {pr:yasyf/cc-skills#10} keep it from refusing again.") == []
+    assert strays("Also open: {order:o5} and {pr:yasyf/cc-skills#10}.") == ["{order:o5}", "{pr:yasyf/cc-skills#10}"]
+
+
 def test_a_path_and_line_read_hands_jev_a_read_of_the_whole_file(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
