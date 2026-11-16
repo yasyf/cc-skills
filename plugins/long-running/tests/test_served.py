@@ -517,6 +517,22 @@ def test_a_not_ready_judged_apart_from_the_stack_its_pr_sits_in_is_no_try_so_the
     assert [served.tried(demo, data, key, tuple(keys), moment) for key in keys] == [True, True]
 
 
+def test_a_not_ready_stands_while_the_answers_binding_its_job_come_back_in_another_order_and_is_judged_again_once_one_is_added(run: Callable[..., tuple[int, str]], demo: str) -> None:
+    clocks(run)
+    [key] = stacked(run, demo, [42], "main")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["brief_flags"] = {"ruling": ["c0de123", "beef456"]}
+    with state.edit(demo) as data:
+        pr = data["prs"][key]
+        pr["checker"] = {"head": pr["head"], "pid": 100, "at": state.stamp(), "orders": state.served_orders(data, pr), "answers": served.binds(demo, data, pr), "outcome": f"{served.NOT_READY}: {key} goes against his words", "against": ""}
+        data["jobs"]["j1"]["brief_flags"]["ruling"].reverse()
+    moment = state.parse_time(state.stamp())
+    assert served.tried(demo, state.load(demo), key, (key,), moment)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["brief_flags"]["ruling"].append("f00d789")
+    assert not served.tried(demo, state.load(demo), key, (key,), moment)
+
+
 def test_a_pr_added_naming_its_part_is_judged_on_that_part_alone_and_one_naming_a_part_its_job_lacks_is_refused_with_nothing_added(
     run: Callable[..., tuple[int, str]], demo: str, judge: Judge, capsys: pytest.CaptureFixture[str]
 ) -> None:

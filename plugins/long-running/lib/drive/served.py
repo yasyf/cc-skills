@@ -207,7 +207,7 @@ def ported(report: str) -> bool:
 
 
 def tried(name: str, data: dict, key: str, unit: tuple[str, ...], moment: datetime) -> bool:
-    """Whether the PR's head has its check, one that judged every PR of unit, the stack it sits in, together, as start marks them with one process: one running, or a verdict on that head against the orders it serves and the answers of his binding its job now, so one head keeps one verdict however often its builder returns and is judged again only once those change; one that failed, or whose process ended with no outcome, is tried again RETRY after it started, and one that judged the PR apart from any PR of its stack, such as a check made before a stack was judged together, is no try of it."""
+    """Whether the PR's head has its check, one that judged every PR of unit, the stack it sits in, together, as start marks them with one process: one running, or a verdict on that head against the orders it serves and the answers of his binding its job now, so one head keeps one verdict however often its builder returns and is judged again only once one of those is added or dropped, never as a reader's newer return lists the same answers in another order; one that failed, or whose process ended with no outcome, is tried again RETRY after it started, and one that judged the PR apart from any PR of its stack, such as a check made before a stack was judged together, is no try of it."""
     pr = data["prs"][key]
     checker = pr["checker"]
     if not checker or checker["head"] != pr["head"] or any((data["prs"][member]["checker"] or {}).get("pid") != checker["pid"] for member in unit):
@@ -216,7 +216,7 @@ def tried(name: str, data: dict, key: str, unit: tuple[str, ...], moment: dateti
         return True
     if checker["outcome"] is None or checker["outcome"].startswith(FAILED):
         return moment - state.parse_time(checker["at"]) < RETRY
-    return checker["orders"] == state.served_orders(data, pr) and checker["answers"] == binds(name, data, pr)
+    return set(checker["orders"]) == set(state.served_orders(data, pr)) and set(checker["answers"]) == set(binds(name, data, pr))
 
 
 def binds(name: str, data: dict, pr: dict) -> list[str]:
