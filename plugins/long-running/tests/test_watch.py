@@ -998,9 +998,9 @@ def test_a_watch_that_stops_ends_its_relay_process_before_it_returns(demo: str, 
 def test_the_watch_hands_on_each_line_its_relay_process_writes_keeps_the_untracked_prs_its_landing_loop_writes_and_starts_again_one_that_ended_unasked(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     started: list[tuple[str, subprocess.Popen]] = []
     written = {
-        "--respond": ["time.sleep(3600)"],
-        "--relay": ["os.write({lines}, b'DUE o1 was due\\nDUE o2 was due\\n'); raise SystemExit(2)", "os.write({lines}, b'DUE o3 was due\\n'); time.sleep(3600)"],
-        "--land": ['os.write({lines}, b\'{{"yasyf/cc-skills#9": "MERGED"}}\\n\'); time.sleep(3600)'],
+        "--respond": ["time.sleep(60)"],
+        "--relay": ["os.write({lines}, b'DUE o1 was due\\nDUE o2 was due\\n'); raise SystemExit(2)", "os.write({lines}, b'DUE o3 was due\\n'); time.sleep(60)"],
+        "--land": ['os.write({lines}, b\'{{"yasyf/cc-skills#9": "MERGED"}}\\n\'); time.sleep(60)'],
     }
 
     def spawn(watcher: watch.Watcher, flag: str, lines: int) -> subprocess.Popen:
