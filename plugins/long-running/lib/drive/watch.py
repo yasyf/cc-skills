@@ -1627,6 +1627,7 @@ def relay(name: str, project: str | None, lines: int) -> int:
     """Run the watch's relay, the process the watch starts: a relay pass every RELAY_SECONDS beside the watch's passes, each first moving this process onto the newest install, by install.reopen, so a lane's reads are answered by the code installed now however long a pass holds the watch on the install it started on, and no GitHub read, landing, Slack redraw or install a pass runs holds a lane's answer, the handler on a line promised him by a time or the handler on a POST report. Each line it makes goes to the watch down the pipe end it inherited, for the watch's next pass to hand on; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag rather than an Event, which a handler setting it can deadlock on. It keeps a Watcher of its own, so a failed Orca read of its own never reruns the pass's 60-second block."""
     ended: list[int] = []
     signal.signal(signal.SIGTERM, lambda signum, frame: ended.append(signum))
+    children.reap_inherited()
     relaying = Watcher(name, offset=state.watch_cursor(name, project), project=project)
     with os.fdopen(lines, "w", buffering=1) as relayed:
         while not ended:
@@ -1641,6 +1642,7 @@ def landing_loop(name: str, project: str | None, lines: int) -> int:
     """Run the watch's landing loop, the process the watch starts beside its passes: a landing pass the moment anything appends to the drive's events file or the receiver's deliveries log, as the receiver does for each delivery, or POLL_SECONDS after the last, by rests, each first moving this process onto the newest install, by install.reopen, once it held what it owes for the landing loop it starts there, so a GitHub read, a stage's wake and a landing wait on no lane read, Sprite launch or install a pass of the watch runs, and a fix to any of them runs within a pass of its install. It hands its own lines on as the watch does, those the process before it held with the first stage of its first pass, so lines kept back for a later post never cost a landing pass, and writes the watch down the pipe end it inherited each new map of the PRs the drive does not track it read, first the one the landing loop before it held. It takes the reads the landing loop before it held, with the events and deliveries offsets it had read to, else owes a read of every PR from each file's end; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag, and however it ends it holds its unposted lines and owed reads for the landing loop after it."""
     ended: list[int] = []
     signal.signal(signal.SIGTERM, lambda signum, frame: ended.append(signum))
+    children.reap_inherited()
     held = state.take_held_reads(name, project)
     owes = {"owed": set(held["owed"]), "merging": set(held["merging"]), "stale": set(held["stale"]), "untracked": held["untracked"]} if held else {}
     offset = held.get("offset", state.watch_cursor(name, project)) if held else state.events_end(name)
@@ -5042,6 +5044,7 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
     try:
         os.environ.update(launchd.session_env())
         children.mark_watch()
+        children.reap_inherited()
         while holder(state.monitor_pid_path(name)):
             time.sleep(POLL_SECONDS)
         watching(Watcher(name, offset=state.watch_cursor(name, project), project=project, delivered=receiver.deliveries_end(), cards=view.live_cards(name), made=state.take_held_lines(name, project), resume=state.take_held_resume(name, project)))
