@@ -696,7 +696,7 @@ def check(name: str, post: dict) -> None:
             raise DriveError(f"nothing posted: channel_id {channel} is his DM; leave channel_id out, and say posts there through cc-slack dm-status")
         if post.get("about"):
             raise DriveError("nothing posted: about names the card a reply in his DM is about, which cc-slack puts in that card's thread there, so a post with channel_id takes none")
-        if not post.get("thread_ts") and (post.get("card") or post.get("tap_prs")) and channel not in slack.homes(state.load(name, ("slack",))):
+        if not post.get("thread_ts") and (post.get("card") or post.get("tap_prs")) and channel not in slack.homes(state.stored(name, ("slack",))):
             raise DriveError(f"nothing posted: a card goes up in his DM and its line in a thread outside it, so with channel_id {channel} it takes that thread's thread_ts")
     if post.get("edit") and (extra := sorted(key for key, value in post.items() if value and key not in EDIT_TAKES)):
         raise DriveError(
@@ -710,14 +710,13 @@ def check(name: str, post: dict) -> None:
     if job_id := post.get("job"):
         if not post.get("channel_id") or post.get("card") or post.get("tap_prs"):
             raise DriveError("nothing posted: job names the job a question to a teammate is for, so it takes channel_id, their user id or a thread outside his DM, and no card or tap_prs")
-        jobs = state.load(name, ("jobs",))["jobs"]
-        if job_id not in jobs or jobs[job_id]["state"] in state.FINISHED_JOB_STATES:
-            held = jobs[job_id]["state"] if job_id in jobs else "no job of this drive"
+        job = state.saved_row(name, "jobs", job_id)
+        if not job or job["state"] in state.FINISHED_JOB_STATES:
+            held = job["state"] if job else "no job of this drive"
             raise DriveError(f"nothing posted: job {job_id} is {held}, so nothing would wait on the reply")
     stack = [state.pr_key(each) for each in post.get("tap_prs") or []]
     if stack:
-        prs = state.load(name, ("prs",))["prs"]
-        if strays := [key for key in stack if key not in prs]:
+        if strays := [key for key in stack if state.saved_row(name, "prs", key) is None]:
             raise DriveError(f"tap_prs names {', '.join(strays)}, which the drive holds no PR for, so nothing was posted: drive pr add records it")
 
 
