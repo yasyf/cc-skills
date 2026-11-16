@@ -30,6 +30,7 @@ HANDLER = "long-running:handler"
 SYNTHETIC = "<synthetic>"
 OUTAGE_WAITS = (1, 2, 4, 8)
 START_WINDOW = timedelta(minutes=5)
+REMOVE = ["sh", "-c", 'sleep 2; claude stop "$1"; claude rm "$1"', "remove"]
 BATCH_WINDOW = timedelta(minutes=1)
 EFFORT_CEILING = "high"
 ABOVE_CEILING = ("xhigh", "max")
@@ -634,7 +635,7 @@ def started(name: str, handler_id: str, brief: str, prompt: str, detached: bool,
 
     if folder := scratch(brief):
         folder.mkdir(parents=True, exist_ok=True)
-    if not detached and later is None and (his_message(holds(brief)) or not place.admission(state.load(name), None, "handlers", state.now())):
+    if not detached and later is None and not drive_written(holds(brief)) and (his_message(holds(brief)) or not place.admission(state.load(name), None, "handlers", state.now())):
         start_handler(name, handler_id, prompt)
         return []
     kept = brief_path(name, handler_id)
@@ -644,6 +645,35 @@ def started(name: str, handler_id: str, brief: str, prompt: str, detached: bool,
         kept.with_suffix(".json").write_text(json.dumps(later))
     state.detach(name, ["handler-start", handler_id], "handlers.log")
     return []
+
+
+def drive_written(held: dict) -> bool:
+    """Whether a brief's record is a report whose line the drive writes from its own rows, by answer.scripted, which start_kept posts in its own process with no handler session; a record cci cannot show is a handler's."""
+    from drive import answer
+
+    if not held["record"]:
+        return False
+    try:
+        return answer.scripted(shown(held["record"]))
+    except state.DriveError:
+        return False
+
+
+def scripted_post(name: str, handler: str) -> str | None:
+    """Post the line of the report a kept handler holds from the drive's rows, by answer.post_report, and take that handler off the drive, which never started: only while nothing else was handed to it; None when the line needs a handler, the model escalating, or a read or post failing."""
+    from drive import answer
+
+    data = state.load(name)
+    if not (entry := data["handlers"].get(handler)) or entry["handed"] or not (seq := holds(entry["brief"])["record"]):
+        return None
+    try:
+        found = answer.post_report(name, seq)
+    except (reads.ReadError, state.DriveError, slack.SlackError):
+        return None
+    if not found:
+        return None
+    unstarted(name, handler)
+    return f"{state.stamp()} {found['verb']} {seq} by the drive's rows, no handler {handler}: {found['posted'] or found['why']}"
 
 
 def his_message(held: dict) -> bool:
@@ -687,6 +717,8 @@ def start_kept(name: str, handler: str) -> str:
 
     kept = brief_path(name, handler)
     began = time.time()
+    if line := scripted_post(name, handler):
+        return line
     try:
         prompt = kept_prompt(name, handler)
         briefed = time.time()

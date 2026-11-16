@@ -36,3 +36,27 @@ def test_a_claimed_message_is_answered_once(monkeypatch, tmp_path):
     first = REAL_ANSWER("d", link, "status?")
     assert REAL_ANSWER("d", link, "status?") == {"answered": first["answered"], "why": first["why"]}
     assert len(runs) == 1
+
+
+def test_a_link_with_no_words_naming_it_is_refused():
+    text, why = answer.reply_of(f"{answer.ANSWER}\nMerged: <https://github.com/Forge-AI/monorepo/pull/57072|#57072>.", ROWS)
+    assert text is None and "no words" in why
+
+
+def test_a_bare_link_is_refused():
+    text, why = answer.reply_of(f"{answer.ANSWER}\nMerged: https://github.com/Forge-AI/monorepo/pull/57072", ROWS)
+    assert text is None and "bare" in why
+
+
+def test_drive_ids_and_drive_words_are_refused():
+    assert "j6639" in answer.reply_of(f"{answer.ANSWER}\nThe memory test j6639 fails one case.", ROWS + " j6639")[1]
+    assert "handoff" in answer.reply_of(f"{answer.ANSWER}\nThe memory test waits on a handoff.", ROWS)[1]
+
+
+def test_a_report_with_nothing_new_posts_nothing():
+    assert answer.report_of(f"{answer.NOTHING} no job moved", ROWS) == (None, answer.NOTHING, "no job moved")
+
+
+def test_a_report_line_is_checked_as_an_answer_is():
+    assert answer.report_of(f"{answer.POST}\nThe memory test fails one case on <https://buildkite.com/forge/release/builds/17166|its staging build>.", ROWS)[1] == answer.POST
+    assert answer.report_of(f"{answer.POST}\nBuild 17999 is red.", ROWS)[1] is None

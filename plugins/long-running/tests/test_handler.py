@@ -411,7 +411,7 @@ def test_a_handler_ending_hands_its_line_to_the_communicator_and_removes_its_ses
     assert started[-1] == [
         "cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--id", f"handler-{handler}", "--text", LINE,
     ]
-    assert removed == [["claude", "rm", BACKGROUND_JOB]]
+    assert removed == [[*agents.REMOVE, BACKGROUND_JOB]]
     assert slack_calls[-1] == ("unfollow", "--channel", "D123", "--session", "h-session", "--cwd", str(tmp_path))
     data = state.load("demo")
     assert data["handlers"] == {}
@@ -436,7 +436,7 @@ def test_a_handler_whose_session_still_runs_a_background_task_or_wakeup_may_not_
         assert "`TaskStop`" in reason and "`CronDelete`" in reason
     assert (len(started), removed, list(state.load("demo")["handlers"])) == (1, [], [handler])
     assert stop(monkeypatch, capsys, "h-session", transcript, LINE, stop_hook_active=True, background_tasks=[], session_crons=[]) == ""
-    assert started[-1][-1] == LINE and removed == [["claude", "rm", BACKGROUND_JOB]]
+    assert started[-1][-1] == LINE and removed == [[*agents.REMOVE, BACKGROUND_JOB]]
     assert state.load("demo")["handlers"] == {}
 
 
@@ -1074,7 +1074,7 @@ def test_a_handler_whose_four_resumes_an_api_error_ended_too_starts_again_as_its
         assert json.loads(starts[-1][starts[-1].index("--settings") + 1])["env"][state.HANDLER_ENV] == f"demo/{handler}"
         entry = state.load("demo")["handlers"][handler]
         assert (entry["session"], entry["holds"], entry["posted"]) == (launched_sessions[attempt], held, posts)
-        assert removed == [["claude", "rm", BACKGROUND_JOB]] * attempt
+        assert removed == [[*agents.REMOVE, BACKGROUND_JOB]] * attempt
     assert agents.brief_path("demo", handler).read_text() == opened
     assert not [argv for argv in started if "done" in argv]
 
@@ -1179,7 +1179,7 @@ def test_a_handler_a_models_safeguards_stopped_is_never_resumed_and_posts_one_do
     assert [argv for argv in started if "done" in argv] == [
         ["cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--id", f"handler-{handler}", "--text", NOTICE]
     ]
-    assert (handler in state.load("demo")["handlers"], removed, len([argv for argv in started if argv[:2] == ["claude", "--bg"]])) == (False, [["claude", "rm", BACKGROUND_JOB]], 1)
+    assert (handler in state.load("demo")["handlers"], removed, len([argv for argv in started if argv[:2] == ["claude", "--bg"]])) == (False, [[*agents.REMOVE, BACKGROUND_JOB]], 1)
 
 
 def test_an_orca_lane_a_models_safeguards_stopped_is_never_resumed(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
@@ -1205,7 +1205,7 @@ def test_a_handler_whose_stop_check_raises_posts_its_done_before_the_error_goes_
     with pytest.raises(state.DriveError, match="record 684115 could not be read"):
         stop(monkeypatch, capsys, "h-session", transcript, LINE)
     assert started[-1] == ["cci", "post", "--drive", "demo", "--lane", "handler", "--kind", "done", "--to", "communicator@demo", "--id", f"handler-{handler}", "--text", LINE]
-    assert removed == [["claude", "rm", BACKGROUND_JOB]]
+    assert removed == [[*agents.REMOVE, BACKGROUND_JOB]]
 
 
 def test_a_handler_of_his_message_starts_at_once_on_a_loaded_mac_and_one_on_a_record_waits_its_turn(
