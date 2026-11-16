@@ -817,6 +817,54 @@ def carrier(clone: str) -> Callable[[str, str, int], bool]:
     return carries
 
 
+def contains(clone: str) -> Callable[[str, str, str, str | None], bool]:
+    """Whether a build's tree holds a PR's change by its net content: the merge sits in the build's history, else, for a build off the line such as a hotfix, every hunk of the PR's change since its fork from base reads in what the build serves, by net_held, so a copy on other context counts and a copy later reverted does not; with no base to read the fork from, only the merge counts."""
+    git = ["git", "-C", clone]
+
+    @functools.cache
+    def holds(build: str, merge: str, head: str, base: str | None) -> bool:
+        for sha in (build, merge):
+            fetch_commit(clone, sha)
+        if not subprocess.run([*git, "merge-base", "--is-ancestor", merge, build], capture_output=True, check=False).returncode:
+            return True
+        return bool(base) and net_held(clone, build, head, base)
+
+    return holds
+
+
+def net_held(clone: str, build: str, head: str, base: str) -> bool:
+    """Whether each hunk a PR at head changes since its fork from base reads in a build's files: its added lines stand there together, and its removed lines, unless head keeps them too, do not, whatever lines sit around them."""
+    fetch_commit(clone, head)
+    git = ["git", "-C", clone, "--literal-pathspecs", "-c", "core.quotePath=false"]
+    fork = fork_point(clone, git, head, fetched(clone, base))
+    hunks: dict[str, list[tuple[list[str], list[str]]]] = {}
+    path = was = None
+    for line in run([*git, "diff", *DIFF, fork, head]).splitlines():
+        if line.startswith("diff --git "):
+            path = was = None
+        elif line.startswith("--- ") and path is None:
+            was = None if line == "--- /dev/null" else line[6:]
+        elif line.startswith("+++ ") and path is None:
+            path = was if line == "+++ /dev/null" else line[6:]
+        elif line.startswith("@@") and path:
+            hunks.setdefault(path, []).append(([], []))
+        elif path and hunks.get(path) and line[:1] in ("+", "-"):
+            hunks[path][-1][0 if line[0] == "+" else 1].append(line[1:])
+
+    def blob(commit: str, name: str) -> str:
+        shown = subprocess.run([*git, "show", f"{commit}:{name}"], capture_output=True, text=True, check=False)
+        return f"\n{shown.stdout}\n" if not shown.returncode else "\n"
+
+    for name, changes in hunks.items():
+        built, kept = blob(build, name), blob(head, name)
+        for added, removed in changes:
+            if added and "\n" + "\n".join(added) + "\n" not in built:
+                return False
+            if removed and (gone := "\n" + "\n".join(removed) + "\n") in built and gone not in kept:
+                return False
+    return True
+
+
 def fetch_commit(clone: str, sha: str) -> None:
     """Fetch a commit the clone lacks by its sha, writing no ref, as fetched does."""
     if subprocess.run(["git", "-C", clone, "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True, check=False).returncode:

@@ -824,6 +824,29 @@ def test_carrier_counts_a_hotfix_copy_of_a_pr_only_by_its_changes_patch_id_never
     assert [carries(build, merge, 2) for build in (copied, reverted, named)] == [True, False, False]
 
 
+def test_contains_holds_a_pr_by_net_content_a_hotfix_copy_on_other_context_counting_and_a_copy_later_reverted_not(tmp_path: Path) -> None:
+    origin, clone = tmp_path / "origin", tmp_path / "clone"
+    origin.mkdir()
+    git_in(origin, "init", "-q", "-b", "main")
+    old = commit_files(origin, "Fix: the lander (#1)", {"b": "1\n2\n5\n"})
+    git_in(origin, "checkout", "-q", "-b", "pr", old)
+    head = commit_files(origin, "the watch", {"b": "1\n2\nFIVE\n"})
+    git_in(origin, "checkout", "-q", "main")
+    merge = commit_files(origin, "Fix: the watch (#2)", {"b": "1\n2\nFIVE\n"})
+    later = commit_files(origin, "Fix: the card (#3)", {"c": "c\n"})
+    git_in(origin, "checkout", "-q", "-b", "context", old)
+    commit_files(origin, "prod only", {"b": "one\n2\n5\n"})
+    context = commit_files(origin, "hotfix: the watch on prod", {"b": "one\n2\nFIVE\n"})
+    git_in(origin, "checkout", "-q", "-b", "reverted", old)
+    commit_files(origin, "hotfix: the watch", {"b": "1\n2\nFIVE\n"})
+    reverted = commit_files(origin, "Revert the watch on prod", {"b": "1\n2\n5\n"})
+    git_in(origin, "checkout", "-q", "main")
+    git_in(tmp_path, "clone", "-q", "--single-branch", "-b", "main", str(origin), str(clone))
+    holds = github.contains(str(clone))
+    assert [holds(build, merge, head, "main") for build in (later, context, reverted, old)] == [True, True, False, False]
+    assert holds(context, merge, head, None) is False
+
+
 def test_uncarried_finds_each_file_a_pr_changes_since_its_fork_among_a_builds_own_changes_on_any_line_squashed_or_replayed_and_lets_an_unembedded_agent_doc_or_test_differ_as_cut_6ea037ed0480_needed(
     tmp_path: Path,
 ) -> None:

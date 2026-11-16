@@ -12809,7 +12809,7 @@ def test_a_prover_waits_on_no_staging_deploy_once_a_production_cluster_of_every_
         data["jobs"]["j9"] = state.new_job("o1", "builder", f"prove {key} live", [], state.stamp()) | {"waits": [f"staging:dashboard/plat-usw2-staging@{'b' * 40}"]}
         data["jobs"]["j20"] = state.new_job("o1", "builder", "hotfix it", [], state.stamp()) | {"state": "done", "brief_flags": {"release": "tools/ci release hotfix 57634 --order 14e8441"}, "release_build": "https://buildkite.com/forge/release/builds/1"}
     monkeypatch.setattr(orca, "checkout", lambda name, cwd, wait=0: tmp_path)
-    monkeypatch.setattr(github, "carrier", lambda checkout: lambda commit, sha, repo: commit == "c0ffee12")
+    monkeypatch.setattr(github, "contains", lambda checkout: lambda build, merge, head, base: build == "c0ffee12")
     monkeypatch.setattr(watch.settled, "prod", lambda env, checkout: env.endswith("prod"))
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"releases": ["dashboard", "sand-next"]}})
     watching = watcher(demo)

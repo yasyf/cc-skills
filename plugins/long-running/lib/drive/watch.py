@@ -5668,17 +5668,18 @@ def shipped_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def shipped(watcher: Watcher, data: dict, keys: set[str]) -> dict[str, str]:
-    """Each merged PR among keys production already carries, with how: every target the repository's release reach names for the PR's paths, by cli.release_reach, has a production cluster serving a commit holding its merge in the watch's last release live read; a release or hotfix that only named the PR, as the desktop-only cuts did for #57634, carries nothing."""
+    """Each merged PR among keys production already carries, with how: every target the repository's release reach names for the PR's paths, by cli.release_reach, has a production cluster serving a commit whose tree holds its change, by github.contains, its merge or a hotfix's net copy, in the watch's last release live read; a release or hotfix that only named the PR, as the desktop-only cuts did for #57634, carries nothing."""
     from drive import cli
 
     checkout = str(orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"], wait=0))
-    carries = github.carrier(checkout)
+    holds = github.contains(checkout)
     serving = [row for row in watcher.live or [] if settled.prod(row["env"], checkout)]
     merged = {key: data["prs"][key]["merged_sha"] for key in keys if key in data["prs"] and data["prs"][key]["merged_sha"]}
     reach = cli.release_reach(watcher.name, data, list(merged))
     carried = {}
     for key, sha in merged.items():
-        held = {target: next((row for row in serving if row["target"] == target and carries(row["commit"], sha, github.split(data["prs"][key]["into"] or key)[2])), None) for target in reach.get(key, {}).get("releases", ())}
+        pr = data["prs"][key]
+        held = {target: next((row for row in serving if row["target"] == target and holds(row["commit"], sha, pr["head"], pr["base"])), None) for target in reach.get(key, {}).get("releases", ())}
         if held and all(held.values()):
             carried[key] = "; ".join(f"{target} on {row['env']} serves {row['commit'][:12]}" for target, row in held.items())
     return carried
