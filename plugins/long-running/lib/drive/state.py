@@ -742,6 +742,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "stalls": {},
         "stand_ins": {},
         "held": {},
+        "owed_replies": {},
         "carried": {},
         "mains": {},
         "dropped_waits": {},
@@ -1148,6 +1149,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         answer.setdefault("jobs", {})
     data.setdefault("stand_ins", {})
     data.setdefault("held", {})
+    data.setdefault("owed_replies", {})
     data.setdefault("carried", {})
     data.setdefault("dropped_waits", {})
     data.setdefault("posted", {})

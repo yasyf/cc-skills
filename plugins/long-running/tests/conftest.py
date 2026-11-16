@@ -940,6 +940,12 @@ def unswept(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def unowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No watch pass reads cc-slack dm-owed for the messages of his it owes an answer: a test of that stage calls the real one."""
+    monkeypatch.setattr(watch, "owed_lines", lambda watcher, moment: [])
+
+
+@pytest.fixture(autouse=True)
 def agents_at_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: None)
     monkeypatch.setattr(watch, "codex_gap", lambda job_id, job: None)
