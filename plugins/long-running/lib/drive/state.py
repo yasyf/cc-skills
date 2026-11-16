@@ -1,3 +1,4 @@
+import ctypes
 import fcntl
 import gc
 import hashlib
@@ -287,6 +288,10 @@ NAMED: ContextVar[frozenset[str]] = ContextVar("named", default=frozenset())
 LOADED_VERSION: ContextVar[int | None] = ContextVar("loaded_version", default=None)
 EDITING: ContextVar[str | None] = ContextVar("editing", default=None)
 HELD_SCOPES: set[tuple[int, Path]] = set()
+PTHREADS = ctypes.CDLL(None, use_errno=True)
+PTHREADS.qos_class_self.restype = ctypes.c_uint
+QOS_USER_INTERACTIVE = 0x21
+QOS_DEFAULT = 0x15
 BATCHED: dict[str, bytes] = {}
 WHOLE_READS: dict[tuple[Path, int], "Copy"] = {}
 READING = threading.Lock()
@@ -4295,12 +4300,24 @@ def locked(name: str) -> Iterator[None]:
         stuck.daemon = True
         stuck.start()
         try:
-            moved_reports(name)
-            yield
+            with foremost():
+                moved_reports(name)
+                yield
         finally:
             stuck.cancel()
             if (held := time.monotonic() - got) >= SLOW_HOLD_SECONDS or got - asked >= SLOW_HOLD_SECONDS:
                 kept_hold(name, held, got - asked)
+
+
+@contextmanager
+def foremost() -> Iterator[None]:
+    """Run this thread at macOS's user-interactive QoS while it holds the drive's lock, then at the QoS it ran at before, so on a Mac whose cores every session's processes keep busy the scheduler runs the one holder every writer of the drive waits on first, instead of sharing its cores evenly with the processes that wait."""
+    was = PTHREADS.qos_class_self()
+    PTHREADS.pthread_set_qos_class_self_np(QOS_USER_INTERACTIVE, 0)
+    try:
+        yield
+    finally:
+        PTHREADS.pthread_set_qos_class_self_np(was or QOS_DEFAULT, 0)
 
 
 @contextmanager
