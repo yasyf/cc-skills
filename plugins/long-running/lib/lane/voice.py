@@ -70,8 +70,10 @@ def asked_thread(lane: dict) -> str:
 
 
 def titled(prs: list[dict], seen: dict[str, dict]) -> list[dict]:
-    """The lane's PR rows, each with no words of its own given a few from its GitHub title as the supervisor's last pass read it into view.json, so no lane PR goes out as a bare number."""
-    return [row if row.get("words") or not (pull := seen.get(f"{row['repo']}#{row['number']}")) else row | {"words": short(pull["title"])} for row in prs]
+    """The lane's PR rows, each with no words of its own given a few from its GitHub title as the supervisor's last pass read it into view.json, then every other PR of the drive's lanes that view.json holds, so a #N any lane holds never goes out as a bare number."""
+    held = {f"{row['repo']}#{row['number']}" for row in prs}
+    own = [row if row.get("words") or not (pull := seen.get(f"{row['repo']}#{row['number']}")) else row | {"words": short(pull["title"])} for row in prs]
+    return own + [{"repo": key.partition("#")[0], "number": int(key.partition("#")[2]), "words": short(pull["title"])} for key, pull in seen.items() if key not in held and pull.get("title")]
 
 
 def short(title: str) -> str:

@@ -115,8 +115,8 @@ def test_a_title_reads_as_a_few_words(title: str, words: str) -> None:
 
 def test_a_lane_pr_with_no_words_takes_them_from_its_title() -> None:
     rows = [{"repo": "Forge-AI/monorepo", "number": 57630}, {"repo": "Forge-AI/monorepo", "number": 1, "words": "own words"}]
-    seen = {"Forge-AI/monorepo#57630": {"title": "Fix: sandbox cluster access for the admin and break-glass roles"}, "Forge-AI/monorepo#1": {"title": "ignored"}}
-    assert voice.linked("Merged #57630 and {pr:1}.", voice.titled(rows, seen)) == (
-        "Merged <https://github.com/Forge-AI/monorepo/pull/57630|#57630 sandbox cluster access for the admin and break-glass…>"
-        " and <https://github.com/Forge-AI/monorepo/pull/1|#1 own words>."
+    seen = {"Forge-AI/monorepo#57630": {"title": "Fix: sandbox cluster access for the admin and break-glass roles"}, "Forge-AI/monorepo#1": {"title": "ignored"}, "Forge-AI/monorepo#57908": {"title": "Fix: release-tool promotions run again"}}
+    assert voice.linked("Merged #57630, {pr:1} and #57908.", voice.titled(rows, seen)) == (
+        "Merged <https://github.com/Forge-AI/monorepo/pull/57630|#57630 sandbox cluster access for the admin and break-glass…>,"
+        " <https://github.com/Forge-AI/monorepo/pull/1|#1 own words> and <https://github.com/Forge-AI/monorepo/pull/57908|#57908 release-tool promotions run again>."
     )
