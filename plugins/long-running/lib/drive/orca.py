@@ -300,11 +300,11 @@ def binder_terminal(drive: str) -> str:
 
 
 def kept_terminal(drive: str, key: str, title: str) -> str:
-    """The agentless Orca terminal the drive keeps under key: the one kept while Orca still shows its pane, else, once Orca shows that pane orphaned or names its handle stale, one opened in the coordinator's checkout, titled after the drive and title, with no drive lock held, so an Orca that answers nothing holds no other verb of the drive, and kept unless another process kept a fresh one meanwhile; any other refusal of the kept one's show, a timeout or RUNTIME_DOWN or terminal_surface_ownership_unavailable, which says nothing of that pane, raised as it came, since opening a fresh shell on each such refusal filled Orca's 256-terminal cap with idle drive shells on Nov 15 and stopped every Sprite launch."""
+    """The agentless Orca terminal the drive keeps under key: the one kept while Orca still holds its shell connected, whether or not a pane shows it, since a terminal the drive creates headless reads orphaned from its first show, else, once Orca shows that shell disconnected or names its handle stale, one opened in the coordinator's checkout, titled after the drive and title, with no drive lock held, so an Orca that answers nothing holds no other verb of the drive, and kept unless another process kept a fresh one meanwhile; any other refusal of the kept one's show, a timeout or RUNTIME_DOWN or terminal_surface_ownership_unavailable, which says nothing of that pane, raised as it came, since opening a fresh shell on each such refusal filled Orca's 256-terminal cap with idle drive shells on Nov 15 and stopped every Sprite launch."""
     loaded = state.load(drive)
     kept = loaded[key]
     try:
-        if kept and not terminal(kept)["orphaned"]:
+        if kept and terminal(kept)["connected"]:
             return kept
     except OrcaError as error:
         if error.code != STALE_TERMINAL:
