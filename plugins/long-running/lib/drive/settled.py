@@ -39,6 +39,14 @@ DECIDE_SECONDS = 20
 REFUSAL_SECONDS = 3
 REPEATS_ASKED = 30
 ALONE = r" (?:only|just) (?:the )?{component} | {component} (?:(?:stack|component|service) )?(?:alone|only) "
+NUMBERED = re.compile(r"(?<!\S)(\d+)\)\s+")
+EVERY = re.compile(r"\s*all\b(?:\s+(\d+)\b)?", re.IGNORECASE)
+UNAPPROVED = re.compile(r" (?:not|t|never|no|nor)(?: \w+){0,2} approv| (?:unapprov|reject|refus|den(?:y|ied)|hold|wait|except|exclud|apart from|other than|besides|without|but not)")
+ALL_BUT = re.compile(r" (?:all|everything)(?: else)? (?:but|except|other than|besides|save|apart from) (?:the )?([a-z0-9][a-z0-9-]*) ")
+TARGETS = re.compile(r"^targets:\n((?:[ -].*(?:\n|$))*)", re.MULTILINE)
+TARGET = re.compile(r"^  ([a-z0-9][a-z0-9-]*):\n((?:    .*(?:\n|$))*)", re.MULTILINE)
+INLINE_PARTS = re.compile(r"^    components: \[([^\]]*)\]", re.MULTILINE)
+LISTED_PARTS = re.compile(r"^    components:\n((?:    - .*(?:\n|$))+)", re.MULTILINE)
 
 
 class Noul(NamedTuple):
@@ -314,6 +322,7 @@ SOAKED = frozenset({"targets", "only"})
 STARTS = frozenset({"emergency", "manual", "rollback"})
 PROSE_FLAGS = frozenset({"targets", *UNCHANGED, "emergency"})
 FOR_PRODUCTION = "for-production"
+SPOKEN_FLAGS = frozenset({*PROSE_FLAGS, *SOAKED, "exclude", FOR_PRODUCTION})
 TENANTS = re.compile(r"^tenants:\n((?:[ -].*(?:\n|$))*)", re.MULTILINE)
 TEAM_NAME = re.compile(r"^[ -] (?:name|displayName): *(.+?) *$", re.MULTILINE)
 STAGE = re.compile(r"^stage: *(\S+) *$", re.MULTILINE)
@@ -871,7 +880,7 @@ def unordered(answer: dict, release: str, data: dict) -> str | None:
 
 
 def ordered_by(answer: dict, release: str, flags: dict, matches: Callable[[dict, dict, str, str], str | None], data: dict) -> str | None:
-    """Why his answer does not order a release, its flags as shipped() reads them and the start Jev reads; None when it does. When the card his answer answers is kept, found by answered_card(), and his leading option number or tap picks an option whose words name a release in backticks, code decides: his answer orders the release when matches, placed() or tests(), reads it shipping what one of those ships, its `--only` left out by narrowed() where the card says those components ship alone, placed() every flag the same but its places, `--from` and `--order`, and on staging alone under one on staging alone its targets, `--only` and how it starts, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. Any other answer Jev reads in one request, his words beside that card and the places the release runs on with their stages and the components its `--only` ships alone, by runs_on(), one Noul whether his words have that release run and one whether it ships more than they order: it orders the release at YES on the first and under NO on the second, either in the band between refusing it as unsure; Unheard when Jev gave no answer."""
+    """Why his answer does not order a release, its flags as shipped() reads them and the start Jev reads; None when it does. When the card his answer answers is kept, found by answered_card(), and his leading option number or tap picks an option whose words name a release in backticks, code decides: his answer orders the release when matches, placed() or tests(), reads it shipping what one of those ships, its `--only` left out by narrowed() where the card says those components ship alone, placed() every flag the same but its places, `--from` and `--order`, and on staging alone under one on staging alone its targets, `--only` and how it starts, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. An answer no kept card holds, to a question listing releases as numbered items, his own or one the drive recorded the same message of his under, by message_questions(), orders in code a release one item it picks orders, by listed_order(). Any other answer Jev reads in one request, his words beside that card and the places the release runs on with their stages and the components its `--only` ships alone, by runs_on(), one Noul whether his words have that release run and one whether it ships more than they order: it orders the release at YES on the first and under NO on the second, either in the band between refusing it as unsure; Unheard when Jev gave no answer."""
     from drive import brief
 
     said = his(answer["body"])
@@ -889,12 +898,84 @@ def ordered_by(answer: dict, release: str, flags: dict, matches: Callable[[dict,
             return f"it picks option {number} of the card it answers, {', '.join(f'`{command}`' for command in commands)}, {whys[0]}"
         if named(flags, words, rest, cwd):
             return None
+    if not asked and any(listed_order(said, question, flags, matches, cwd) for question in message_questions(answer, said, data)):
+        return None
     card = {"card": card_text(asked)} if asked else {}
     read = jev({"action": f"start this release on {runs_on(shipped(brief.started(release)[0]), cwd)}: `{release}`", "answer": {"asked": answer["title"], "said": said}} | card, {f"orders.{answer['id'][:7]}": ORDERS, "more": SHIPS_MORE})
     orders, more = reading(read[f"orders.{answer['id'][:7]}"]), reading(read["more"])
     if orders and more is False:
         return None
     return UNORDERED if orders is False or more else f"{UNORDERED}: Jev is unsure"
+
+
+def listed_order(said: str, question: str, flags: dict, matches: Callable[[dict, dict, str, str], str | None], cwd: str) -> bool:
+    """Whether his words, answering a question that lists releases as numbered items, `1) … 2) …`, order this release in code: they lead with all, alone or with the number of items, as "All 3 of these are approved" does, and hold no word UNAPPROVED reads as turning one down or holding it; and one item orders it, an item naming releases in backticks as a card option does, by matches() with narrowed(), and any other item by spoken()."""
+    from drive import brief
+
+    items = numbered(question)
+    every = EVERY.match(said)
+    if not items or not every or (every[1] and int(every[1]) != len(items)) or UNAPPROVED.search(f" {plain(said)} "):
+        return False
+    for item in items:
+        if commands := brief.card_releases(item):
+            if any(matches(narrowed(flags, ordered, item), ordered, "", cwd) is None for ordered in (shipped(brief.started(command)[0]) for command in commands)):
+                return True
+        elif spoken(flags, item, cwd):
+            return True
+    return False
+
+
+def message_questions(answer: dict, said: str, data: dict) -> Iterator[str]:
+    """The questions his one message answers: his answer's own, then each other answer's the drive kept at the same link with the same words, as `drive answer` keeps one message recorded under a second question, read with shown()."""
+    yield answer["title"]
+    link = (data["answers"].get(answer["id"]) or {}).get("link")
+    for answer_id, kept in data["answers"].items():
+        if link and answer_id != answer["id"] and kept.get("link") == link and plain(kept.get("words", "")) == plain(said):
+            yield shown(answer_id, data["roles"]["coordinator"]["cwd"])["title"]
+
+
+def numbered(question: str) -> list[str]:
+    """The items a question lists as `1) … 2) …`, numbered 1 on in turn; none when it lists none."""
+    parts = NUMBERED.split(question)
+    if [int(number) for number in parts[1::2]] != list(range(1, len(parts) // 2 + 1)):
+        return []
+    return [item.strip().rstrip(";,.").strip() for item in parts[2::2]]
+
+
+def spoken(release: dict, words: str, cwd: str) -> bool:
+    """Whether words naming a release in prose, with no command, name this release, as shipped() reads it: a start of targets the release targets file names, with no flags but targets, places, `--from`, `--order`, `--emergency`, `--only`, `--exclude` and `--for-production`, shipping one component or more by shipped_parts(); words leaving one target or component out, as "all but SandSQL" does, name it when it ships none of that one's components, and any other words when each target it names is one of their words, as "SandSQL's HA release" names `sandsql`."""
+    if set(release) - SPOKEN_FLAGS or not release.get("targets") or not (ships := shipped_parts(release, cwd)):
+        return False
+    said = f" {plain(words)} "
+    if left := ALL_BUT.search(said):
+        parts = target_parts(cwd)
+        out = set(parts.get(left[1], ()))
+        if not out and not any(left[1] in named for named in parts.values()):
+            return False
+        return not ships & (out or {left[1]})
+    return all(f" {plain(target)} " in said for target in release["targets"])
+
+
+def shipped_parts(release: dict, cwd: str) -> set[str]:
+    """The components a release ships, as go/ci reads its flags: those of each target it names, by target_parts(), less each `--exclude` names and each component `--without` names whole, and only those `--only` names when it names any; none when it names a target the targets file does not."""
+    parts = target_parts(cwd)
+    if any(target not in parts for target in release["targets"]):
+        return set()
+    ships = {part for target in release["targets"] for part in parts[target]} - {*release.get("exclude", ()), *release.get("without", ())}
+    return ships & {only.partition("/")[0] for only in release["only"]} if release.get("only") else ships
+
+
+def target_parts(cwd: str) -> dict[str, tuple[str, ...]]:
+    """Each release target's components, as release/targets.yaml in the drive's checkout lists them under `targets:`; none when the checkout has no such file."""
+    path = Path(cwd) / "release" / "targets.yaml"
+    section = TARGETS.search(path.read_text()) if path.is_file() else None
+    parts = {}
+    for target, block in TARGET.findall(section[1] if section else ""):
+        if inline := INLINE_PARTS.search(block):
+            parts[target] = tuple(filter(None, (part.strip() for part in inline[1].split(","))))
+        elif listed := LISTED_PARTS.search(block):
+            parts[target] = tuple(line.strip().removeprefix("- ").strip() for line in listed[1].splitlines())
+    return parts
 
 
 def card_text(asked: limits.Question) -> str:
