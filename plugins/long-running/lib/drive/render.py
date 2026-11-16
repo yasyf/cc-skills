@@ -95,8 +95,7 @@ COMMUNICATOR_RULES = (
     ),
     (
         "Chatter (\"ok\", \"thanks\") gets a +1 react. In his DM, slack_dm_status may carry a long answer's progress;"
-        " in a channel it does not reach, so the status there is the short say post above. No other placeholder, ack or"
-        " \"next line by\" promise goes out."
+        " in a channel the status is the short say post above. No other placeholder, ack or \"next line by\" goes out."
     ),
     (
         "Communicating is your whole job, by his words \"its sole job is to communicate, it's unacceptable that it's not perfect at"
@@ -108,15 +107,15 @@ COMMUNICATOR_RULES = (
         " saying what a thing is, never a bare URL or an id, an alert's own link excepted; embed or reproduce a"
         " Slack post, card or release he must see, never send him looking. A picture beats a paragraph for several states, a"
         " before and after, or a path or timeline; send one. Plain words for what happens to his work, never the drive's"
-        " machinery; times in Pacific. Before: \"j812 opened PR 912, CI running\"; after: \"*The timeout fix is up for"
-        " review.* <link|The fix> retries once. *Next:* CI.\" Generalize the move. say posts exactly where you name, channel_id and thread_ts: in a project or priority channel a new update, release step or decision goes at the root, and a direct answer to his message, or a follow-up on its subject, goes in his thread. One post per thing, a correction an edit. say fixes what is mechanical, a UTC stamp, a bare link, a long paragraph, and posts in the same call, warning you of the rest: write it right the first time."
+        " machinery; times in Pacific. say posts exactly where you name, channel_id and thread_ts: in a project or priority channel a new update, release step or decision goes at the root, and a direct answer to his message, or a follow-up on its subject, goes in his thread. One post per thing, a correction an edit. say fixes what is mechanical, a UTC stamp, a bare link, a long paragraph, and posts in the same call, warning you of the rest: write it right the first time."
     ),
     (
         "When say or record says this session holds no role: your communicator seat is retired; to reach him, hand a POST record to the main communicator; never post to Slack directly."
     ),
     (
         "His instruction is the go-ahead, by his words \"why is it asking me to confirm in general when I literally just said it\":"
-        " never ask him to confirm or acknowledge what he just said, and a status is a plain line with no buttons. A card goes"
+        " never ask him to confirm or acknowledge what he just said, nor to type a word a card can carry: give the card. A"
+        " status is a plain line with no buttons. A card goes"
         " to him only for a real open choice he has not made: 2 to 4 options with your recommendation first, within a minute."
         " Work, a build, release, fix or PR, a question proposing work such as \"why not just X?\" included, goes to the"
         " coordinator, or the seat holding its order, an alert's straight to the seat owning that area by its order attr, as his owner record on the drive's record tool passing his message"
@@ -130,8 +129,8 @@ COMMUNICATOR_RULES = (
     ),
     (
         "Your input is his messages, his taps and his words a session relays as an owner record, nothing else: the drive"
-        " posts every POST report itself, so none is yours, and an `ANSWER THIS:` note from lane watch carries his words from"
-        " a card's Other box or a teammate's new message in a thread his order watches, for you to answer there."
+        " posts every POST report itself, so none is yours, and an `ANSWER THIS:` note from lane watch carries his card's"
+        " Other-box words or a teammate's message on a watched thread, to answer there."
     ),
     (
         f"Drive tooling, {DRIVE_TOOLING}, is the meta session's alone, never yours or the coordinator's, so you start no"
@@ -734,6 +733,7 @@ def rules(drive: dict, role: str) -> list[str]:
         *(f"{number}. {rule}" for number, rule in enumerate(RULES[role], 1)),
         FILED,
         *repo_block(drive),
+        *(post_rules_block(drive) if role == "communicator" else []),
     ]
 
 
@@ -741,6 +741,27 @@ def repo_block(drive: dict) -> list[str]:
     """The rules of the repository the drive works in under their heading, as every role session, every job brief, each handler's prompt and each watchdog's brief carry them; none when it sets none."""
     repo = repo_rules(drive)
     return [REPO_RULES_HEADING, *(f"- {rule}" for rule in repo)] if repo else []
+
+
+POST_RULES_HEADING = "The repository's rules for every post to him, beside his own:"
+
+
+def post_rules(drive: dict) -> list[str]:
+    """The rules the drive's repository holds every post to him to, by its providers' post_rules; none for a drive no session is bound to yet or whose providers do not load, so a broken provider never blocks a session's start."""
+    from drive import providers
+
+    if not state.bound_sessions(drive):
+        return []
+    try:
+        return providers.of(drive).post_rules()
+    except providers.ProviderError:
+        return []
+
+
+def post_rules_block(drive: dict) -> list[str]:
+    """The repository's post rules under their heading, as the communicator's block carries them; none when it sets none."""
+    rules = post_rules(drive)
+    return [POST_RULES_HEADING, *(f"- {rule}" for rule in rules)] if rules else []
 
 
 def rule_units(drive: dict, role: str, project: str | None = None) -> list[str]:

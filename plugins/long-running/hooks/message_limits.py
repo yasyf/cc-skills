@@ -1107,7 +1107,8 @@ CRAFT_GUIDE = (
     "words are its own URL, where words saying what it opens belong, other than an alert's own Sentry or Datadog link alone"
     ' on its line; tell him something waits or sits somewhere else, such as his card in another thread, without linking it '
     'or showing what it asks right here; ask him to act on a card, such as picking an option on it or tapping it, without '
-    'linking that card so it draws with the post; ask him to approve or merge PRs without naming each PR by number, so the '
+    'linking that card so it draws with the post; ask him to type a word a card can carry, such as reply merge, rather than '
+    'giving him the card; ask him to approve or merge PRs without naming each PR by number, so the '
     'tool links its card; link a release to its build page where its own release post belongs; name'
     " the drive's own machinery or process, such as a job, seat, reader, builder, lane, design job, codex job, fde-scan, an"
     ' order or job id, or which read or session backs a claim, where plain words for what happens to his work would serve; '
@@ -1124,6 +1125,7 @@ CRAFT = {
     "craft.links": settled.Noul("Does `post.text` show a raw URL, or a link whose words are its own URL, where words saying what it opens belong, other than an alert's own Sentry or Datadog link alone on its line?"),
     "craft.elsewhere": settled.Noul('Does `post.text` tell him something waits or sits somewhere else, such as his card in another thread, without linking it or showing what it asks right here?'),
     "craft.card": settled.Noul('Does `post.text` ask him to act on a card, such as picking an option on it or tapping it, without linking that card so it draws with the post?'),
+    "craft.word": settled.Noul("Does `post.text` ask him to type a word a card could carry, such as reply merge or go, rather than giving him the card?"),
     "craft.prs": settled.Noul("Does `post.text` ask him to approve or merge PRs without naming each PR by its number?"),
     "craft.release": settled.Noul('Does `post.text` link a release to its build page where its own release post belongs?'),
     "craft.machinery": settled.Noul("Does `post.text` name the drive's own machinery or process, such as a job, seat, reader, builder, lane, design job, codex job, fde-scan, an order or job id, or which read or session backs a claim, where plain words for what happens to his work would serve?"),
@@ -1139,6 +1141,7 @@ CRAFT_FIXES = {
     "craft.links": 'link each thing on words saying what it opens',
     "craft.elsewhere": 'show what the card or thread it names asks right here, or link it on its words',
     "craft.card": 'link the card he acts on, so it draws right under the post',
+    "craft.word": "never ask him to type a word a card can carry; give the card",
     "craft.prs": "name each PR by number, so the tool links its card",
     "craft.release": "link the release's own release post, never its build",
     "craft.machinery": 'say what happens to his work in plain words',
@@ -1162,10 +1165,13 @@ def block_words(blocks: object) -> list[str]:
     return []
 
 
-def crafted(text: str, pictures: int) -> list[str]:
-    """What one quick Jev read of the post against CRAFT_GUIDE finds, by his words "have the check be super quick, like a tiny jev check with their smallest model that just gets the guidelines and compares against the post": each rule it reads as broken at settled.YES or more, with its fix; none when Jev gives no reading within CRAFT_SECONDS, since this check fails open."""
-    answers = settled.jev({"guidelines": CRAFT_GUIDE, "post": {"text": text, "pictures": pictures}}, CRAFT, CRAFT_SECONDS, "crafted")
-    return [f"{key.partition('.')[2]}: {CRAFT_FIXES[key]}" for key, chance in answers.items() if chance >= settled.YES]
+def crafted(text: str, pictures: int, rules: tuple[str, ...] = ()) -> list[str]:
+    """What one quick Jev read of the post against CRAFT_GUIDE finds, by his words "have the check be super quick, like a tiny jev check with their smallest model that just gets the guidelines and compares against the post": each rule it reads as broken at settled.YES or more, with its fix; none when Jev gives no reading within CRAFT_SECONDS, since this check fails open. Each post rule of the drive's repository is asked beside them, by his words "there should be both rules and transforms monorepo can specify for it that get incorporated into the plugin"."""
+    asked = CRAFT | {f"craft.repo{number}": settled.Noul(f"Does `post.text` break this rule of his repository: {rule}") for number, rule in enumerate(rules)}
+    fixed = CRAFT_FIXES | {f"craft.repo{number}": rule for number, rule in enumerate(rules)}
+    guidelines = CRAFT_GUIDE + (" His repository's own rules for every post: " + " ".join(rules) if rules else "")
+    answers = settled.jev({"guidelines": guidelines, "post": {"text": text, "pictures": pictures}}, asked, CRAFT_SECONDS, "crafted")
+    return [f"{key.partition('.')[2]}: {fixed[key]}" for key, chance in answers.items() if chance >= settled.YES]
 
 
 def warned(text: str) -> dict:
@@ -1178,6 +1184,26 @@ def findings_in(drive: dict, payload: dict, tool_input: dict) -> tuple[str, list
     found = refs.resolved(drive["name"], shown) if payload["tool_name"] == SAY else {}
     typed = refs.typed(shown, found, None) if found else shown
     return typed, refs.answer_ids(slack.post_findings(typed, bool(tool_input.get("card") or tool_input.get("tap_prs")), tool_input.get("asked") or ""), drive)
+
+
+TAP_ASKED = re.compile(r"\b(?:tap|press|hit|pick)\b[^.\n]{0,60}\b(?:card|approve|land|merge|button)\b", re.IGNORECASE)
+WORD_ASKED = re.compile(r"\b(?:reply|respond|answer|say|type|send)(?: me| here| with)?\s+[\"'“‘`*_]*(?:merge|go|land|ship|yes|approve)\b", re.IGNORECASE)
+
+
+def card_word_refusal(drive: dict, tool_input: dict) -> str | None:
+    """Why a post asking him to act on a card or to type a word goes nowhere, a count of what it links deciding it, so it refuses: a line telling him to tap a card while the post links no live card of his, as a {card:} or a {pr:} with an open card at its head, by his words "it says tap approve on this card but there is no card"; and any line asking him to reply a word such as merge or go, which the card carries, by his words "why are you telling me to reply merge instead of giving me a card"."""
+    shown = "\n".join(filter(None, [tool_input.get("text") or "", *block_words(tool_input.get("blocks") or [])]))
+    if asked := WORD_ASKED.search(shown):
+        return f"refused: \"{asked[0]}\" asks him to type a word a card can carry; give him the card instead, his PR's tap card by {{pr:<number>}} or a question card by {{card:<waits id>}}, and ask him to tap it"
+    if not TAP_ASKED.search(shown):
+        return None
+    try:
+        found = refs.resolved(drive["name"], refs.carded(drive["name"], shown))
+    except DriveError as error:
+        return f"refused: this post asks him to tap a card, and its card references do not resolve: {error}"
+    if any(ref["kind"] == "card" or ref["kind"] == "pr" and ref.get("card") for ref in found.values()):
+        return None
+    return "refused: this post asks him to tap a card, and links none: name it as {card:<waits id>}, or the PR as {pr:<number>} when its tap card is open, so the card draws with the post; with no card yet, have its job raise one first"
 
 
 STATUS_WORDS = ("title", "summary", "body", "text", "detail")
@@ -1203,6 +1229,8 @@ def mechanical(payload: dict) -> dict:
     if not text and not tool_input.get("blocks"):
         return {}
     drive = his_drive(payload["session_id"])
+    if drive and payload["tool_name"] == SAY and (refused := card_word_refusal(drive, tool_input)):
+        return denial(refused)
     try:
         typed, findings = findings_in(drive, payload, tool_input)
         if findings and (mended := fixes.mended(text, findings, datetime.now(UTC))) != text:
@@ -1212,7 +1240,7 @@ def mechanical(payload: dict) -> dict:
         return warned(f"message_limits: this post goes out as written, unchecked: `cc-slack check-post` could not check its words: {error}.")
     notes = []
     try:
-        notes += [f"a quick read against his standard finds, and the post went out: {' | '.join(broken)}"] if (broken := crafted(typed, len(tool_input.get("visuals") or []) + len(tool_input.get("files") or []))) else []
+        notes += [f"a quick read against his standard finds, and the post went out: {' | '.join(broken)}"] if (broken := crafted(typed, len(tool_input.get("visuals") or []) + len(tool_input.get("files") or []), tuple(render.post_rules(drive)) if drive else ())) else []
     except settled.Unheard as error:
         notes.append(f"the quick read against his standard gave no answer: {error}")
     said = warned("message_limits: " + "; ".join(notes) + ". Fix it next time.") if notes else {}

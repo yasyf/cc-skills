@@ -650,6 +650,17 @@ def test_a_report_post_may_link_what_the_reports_references_draw_but_no_other_li
             assert talk.report_line(demo, "735031").startswith("POSTED")
 
 
+def test_a_repositorys_post_rule_reaches_the_communicators_rules_and_its_transform_rewrites_a_post(communicator: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+    rule = "Link a release's Slack release post, never its build page."
+    post = "https://acme.slack.com/archives/C9/p1794851300000100"
+    fake = SimpleNamespace(post_rules=lambda: [rule], transformed=lambda text: text.replace("build 18219", "{release:18219}"), release=SimpleNamespace(post={"18219": post}.get))
+    monkeypatch.setattr(providers, "of", lambda data: fake)
+    assert f"- {rule}" in render.rules(state.load(communicator), "communicator")
+    assert f"- {rule}" not in render.rules(state.load(communicator), "coordinator")
+    talk.say(communicator, {"text": "Release 9 is out: build 18219."})
+    assert posts[-1][-1] == f"Release 9 is out: <{post}|18219>."
+
+
 def test_say_posts_the_words_its_hook_judged_and_checks_none_of_them_again(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:
     checked.findings = ["1:5 drive-term 'fence': say what happens to the reader's work instead"]
     with edit(demo) as data:

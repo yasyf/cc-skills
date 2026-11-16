@@ -7,7 +7,7 @@ import subprocess
 import time
 import tomllib
 import types
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -58,6 +58,14 @@ class Provider:
     def page(self, name: str) -> str:
         """What this provider adds to the skill page named name, under its `## In this repository` heading."""
         return ""
+
+    def post_rules(self) -> list[str]:
+        """The rules, each one plain sentence, this repository holds every post to him to, which the communicator's role text and the one quick Jev read of each post carry, such as how its releases are linked."""
+        return []
+
+    def post_transforms(self) -> list[Callable[[str], str]]:
+        """The rewrites, each text in and text out, say applies to a post's words before it posts, such as one writing a link to a release's build as its {release:} reference."""
+        return []
 
     def filled(self, template: str, **fields: str) -> str:
         """The shell command template with each `{field}` it is given filled, quoted, and every other brace, such as a jq filter's, left as written."""
@@ -139,10 +147,6 @@ class ReleaseProvider(Provider):
 
     def post(self, release: str) -> str | None:
         """The permalink of the Slack post that announces release, named by its name or build number, which a post to him links in place of its build page; None when the repository keeps none."""
-        return None
-
-    def released(self, link: str) -> str | None:
-        """The release a link to one of its builds names, by build number, which a post links as its Slack post in place of the build page; None for any other link, or when the repository keeps no release posts."""
         return None
 
     def freezes(self) -> list[dict]:
@@ -370,6 +374,17 @@ class Providers:
 
     def pages(self, name: str) -> list[str]:
         return [text for role in ROLES if (text := getattr(self, role).page(name).strip())]
+
+    def post_rules(self) -> list[str]:
+        """Every rule each of the repository's providers holds posts to him to."""
+        return [rule for role in ROLES for rule in getattr(self, role).post_rules()]
+
+    def transformed(self, text: str) -> str:
+        """The post's words with each provider's post transforms applied in turn."""
+        for role in ROLES:
+            for transform in getattr(self, role).post_transforms():
+                text = transform(text)
+        return text
 
 
 LOADED: dict[tuple[str, str, str], Providers] = {}

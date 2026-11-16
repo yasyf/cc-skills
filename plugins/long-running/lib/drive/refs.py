@@ -97,7 +97,6 @@ def resolved(name: str, text: str) -> dict[str, dict]:
 
 RELEASE_POST_TRIES = 3
 RELEASE_POST_WAIT = 5
-LINKED_URL = re.compile(r"<(?P<url>https://[^\s|>]+)\|(?P<words>[^>]+)>|<?(?P<bare>https://[^\s<>|]+?)>?(?=[).,;:!?]*(?:\s|$))")
 PR_MENTION = re.compile(
     r"<(?P<linked>https://github\.com/[\w.-]+/[\w.-]+/pull/\d+)[^|>]*\|(?P<words>[^>]+)>"
     r"|<?(?P<bare>https://github\.com/[\w.-]+/[\w.-]+/pull/\d+)[^\s<>|)]*>?"
@@ -284,18 +283,6 @@ def release(data: dict, key: str) -> dict:
         if attempt + 1 < RELEASE_POST_TRIES:
             time.sleep(RELEASE_POST_WAIT)
     raise DriveError(f"{{release:{key}}} names no release post the repository's release provider finds by that name or build number, after {RELEASE_POST_TRIES} looks {RELEASE_POST_WAIT}s apart; name the release once its post is in #releases")
-
-
-def released(data: dict, text: str) -> str:
-    """The text with each link to a release's build written as its {release:} reference, as the repository's release provider reads the build a link names, so every post links the release's Slack post, never its build page; a link the provider names no release for stays as written."""
-    provider = providers.of(data).release
-
-    def releasing(match: re.Match[str]) -> str:
-        if not (build := provider.released(match["url"] or match["bare"])):
-            return match[0]
-        return f"{{release:{build}|{match['words']}}}" if match["words"] else f"{{release:{build}}}"
-
-    return LINKED_URL.sub(releasing, text)
 
 
 def record(name: str, seq: str, label: str) -> dict:
