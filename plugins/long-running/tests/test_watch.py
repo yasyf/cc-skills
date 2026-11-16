@@ -545,7 +545,7 @@ def test_a_job_waiting_on_a_builders_change_is_free_once_that_builder_registers_
     assert cli.main(["pr", "add", state.pr_url(built), "--job", "j2", "--drive", demo, *LEAD]) == 0
     assert state.load(demo)["jobs"]["j3"]["waits"] == ["j2"]
     said = watch.run_pass(watching, T0 + timedelta(seconds=61))
-    assert [line for line in said if line.startswith("FREE ")] == [f"FREE j3 o1: j2 registered {built}, nothing else holds it, stacked on land-it ({built}); Read your brief first: {briefed}"]
+    assert [line for line in said if line.startswith("FREE ")] == [f"FREE j3 o1: j2 registered {built}, nothing else holds it, stacked on land-it ({built}); the watch starts its agent on its brief {briefed}, so start no agent for it; drive job resume reaches it"]
     waiting = state.load(demo)["jobs"]["j3"]
     assert (waiting["waits"], waiting["stacks_on"], state.load(demo)["prs"][built]["state"]) == ([], [built], "open")
     assert f"Where: Cut your branch on land-it ({built}), so your PR stacks on the changes it waited on.\n" in Path(briefed).read_text()
@@ -1302,7 +1302,7 @@ def test_a_line_about_a_sub_coordinators_job_goes_to_it_from_any_watch_unless_an
         'ANSWER a1 j1 "one new tool": j1 not sent his words; drive answer a1 lists them',
         'ANSWER a1 j2 "one new tool": j2 not sent his words; drive answer a1 lists them',
     ]
-    prover = "JOB j1 o1 added, proves Forge-AI/monorepo#42: start its agent now"
+    prover = "JOB j1 o1 added, proves Forge-AI/monorepo#42: the watch starts its agent"
     assert watch.handed(watching, [prover, *lines], T0) == [lines[1]]
     assert posted(sent) == [("handoff", f"iris@{demo}", prover), ("handoff", f"iris@{demo}", lines[0])]
 
@@ -5084,7 +5084,7 @@ def test_an_incident_codex_fix_jobs_return_with_its_fix_not_live_adds_the_claude
     written = state.drive_dir(demo) / "jobs" / "j2.brief.md"
     assert lines == [
         f'JOB j1 o1 {data["jobs"]["j1"]["said"]}; its fix is not live, so j2, an Opus 5.5 long-running:builder the drive added on "fix" to ship it:'
-        f' start its agent now, run_in_background, on the prompt "Read your brief first: {written}"'
+        f' the watch starts its agent on its brief {written}, so start no agent for it; drive job resume reaches it'
     ]
     assert (data["jobs"]["j1"]["state"], data["orders"]["o1"]["jobs"]) == (ended, ["j1", "j2"])
     assert (data["jobs"]["j2"]["kind"], data["jobs"]["j2"]["parts"], data["jobs"]["j2"]["brief"]) == ("builder", ["fix"], str(written))
@@ -5184,7 +5184,7 @@ def test_a_local_agent_from_another_session_or_with_no_transcript_is_gone(demo: 
     ("brief", "start"),
     [
         (None, "brief it with drive job brief j1, then start its agent on the line that prints"),
-        ("/drive/jobs/j1.brief.md", 'start its agent now, run_in_background, on the prompt "Read your brief first: /drive/jobs/j1.brief.md"'),
+        ("/drive/jobs/j1.brief.md", "the watch starts its agent on its brief /drive/jobs/j1.brief.md, so start no agent for it; drive job resume reaches it"),
     ],
     ids=["unbriefed", "briefed"],
 )
@@ -9883,7 +9883,7 @@ def test_a_merged_ready_product_job_takes_done_at_its_merge_and_the_watch_adds_t
     lines = watch.run_pass(watching, T0)
     data = state.load(demo)
     said = [line for line in lines if line.startswith("JOB ")]
-    assert said == [f'JOB j2 o1 added, proves {OTHER}, waits on no release: start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j2"]["brief"]}"'] and watch.wakes(said[0], data, NO_CARDS)
+    assert said == [f'JOB j2 o1 added, proves {OTHER}, waits on no release: the watch starts its agent on its brief {data["jobs"]["j2"]["brief"]}, so start no agent for it; drive job resume reaches it'] and watch.wakes(said[0], data, NO_CARDS)
     assert asked == [[OTHER]]
     assert not [line for line in lines if line.startswith(("FREE ", "ORPHAN "))]
     builder = data["jobs"]["j2"]
@@ -9951,7 +9951,7 @@ def test_an_old_merge_never_proven_live_across_two_parts_gets_one_prover_startin
     data = state.load(demo)
     builder = data["jobs"]["j2"]
     said = [line for line in lines if line.startswith("JOB ")]
-    assert said == [f'JOB j2 o1 added, proves {KEY}, waits on no release: start its agent now, run_in_background, on the prompt "Read your brief first: {builder["brief"]}"']
+    assert said == [f'JOB j2 o1 added, proves {KEY}, waits on no release: the watch starts its agent on its brief {builder["brief"]}, so start no agent for it; drive job resume reaches it']
     assert watch.wakes(said[0], data, NO_CARDS)
     assert not [line for line in lines if line.startswith(("FREE ", "ORPHAN "))]
     assert (builder["kind"], builder["state"], builder["waits"], builder["parts"], builder["carries"]) == ("builder", "waiting", [], ["ship the watch"], {"o2": [carried]})
@@ -9971,7 +9971,7 @@ def test_a_merged_product_job_over_several_prs_gets_one_prover_said_in_one_line_
     lines = watch.run_pass(watcher(demo), T0)
     data = state.load(demo)
     assert [line for line in lines if line.startswith("JOB ")] == [
-        f'JOB j2 o1 added, proves {KEY}, {OTHER}, waits on no release: start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j2"]["brief"]}"'
+        f'JOB j2 o1 added, proves {KEY}, {OTHER}, waits on no release: the watch starts its agent on its brief {data["jobs"]["j2"]["brief"]}, so start no agent for it; drive job resume reaches it'
     ]
     assert (list(data["jobs"]), data["jobs"]["j2"]["waits"], provers) == (["j1", "j2"], [], [])
 
@@ -9988,7 +9988,7 @@ def test_a_merged_product_job_with_no_staging_test_reaching_a_target_staging_run
     data = state.load(demo)
     builder = data["jobs"]["j2"]
     assert [line for line in lines if line.startswith("JOB ")] == [
-        f'JOB j2 o1 added, proves {OTHER}, owes its after-merge staging pass first: start its agent now, run_in_background, on the prompt "Read your brief first: {builder["brief"]}"'
+        f'JOB j2 o1 added, proves {OTHER}, owes its after-merge staging pass first: the watch starts its agent on its brief {builder["brief"]}, so start no agent for it; drive job resume reaches it'
     ]
     assert (builder["waits"], [call for call in calls if call[:2] == ["release", "live"]], watching.staged) == ([], [["release", "live", "--json"]], {"api"})
     assert (
@@ -10015,7 +10015,7 @@ def test_a_merged_pr_changing_only_tests_gets_a_prover_waiting_on_no_release_tha
     assert (data["jobs"]["j1"]["state"], prover["waits"], prover["builds_nothing"]) == ("done", [], True)
     assert prover["brief_flags"]["handoff"] == f"{OTHER} at ccc333ddd444 merged, changing only tests or CI config, which no release ships: prove it by its tests passing on dev at or after its merge commit"
     assert [line for line in lines if line.startswith("JOB ")] == [
-        f'JOB j2 o1 added, proves {OTHER}, waits on no release: start its agent now, run_in_background, on the prompt "Read your brief first: {prover["brief"]}"'
+        f'JOB j2 o1 added, proves {OTHER}, waits on no release: the watch starts its agent on its brief {prover["brief"]}, so start no agent for it; drive job resume reaches it'
     ]
 
 
@@ -10042,7 +10042,7 @@ def test_a_merged_product_job_whose_own_order_is_done_takes_done_at_its_merge_an
         True,
     )
     assert [line for line in lines if line.startswith("JOB ")] == [
-        f'JOB j2 o2 added, proves {OTHER}, waits on no release: start its agent now, run_in_background, on the prompt "Read your brief first: {prover["brief"]}"'
+        f'JOB j2 o2 added, proves {OTHER}, waits on no release: the watch starts its agent on its brief {prover["brief"]}, so start no agent for it; drive job resume reaches it'
     ]
 
 
@@ -10067,7 +10067,7 @@ def test_a_merge_done_a_merge_handoff_or_a_done_only_citing_a_merged_pr_proves_n
     data = state.load(demo)
     assert (data["jobs"]["j1"]["state"], list(data["jobs"]), data["jobs"]["j10"]["parts"]) == ("done", ["j1", "j9", "j10"], data["jobs"]["j1"]["parts"])
     assert [line for line in lines if line.startswith("JOB ")] == [
-        f'JOB j10 o1 added, proves {OTHER}, waits on no release: start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j10"]["brief"]}"'
+        f'JOB j10 o1 added, proves {OTHER}, waits on no release: the watch starts its agent on its brief {data["jobs"]["j10"]["brief"]}, so start no agent for it; drive job resume reaches it'
     ]
 
 
@@ -10113,7 +10113,7 @@ def test_a_merge_whose_pr_its_done_staging_tester_or_release_follower_names_gets
     prover = data["jobs"]["j10"]
     change = "widened to the parts of j1" if hand else "added"
     assert [line for line in lines if line.startswith("JOB ")] == [
-        f'JOB j10 o1 {change}, proves {OTHER}, waits on no release: start its agent now, run_in_background, on the prompt "Read your brief first: {prover["brief"]}"'
+        f'JOB j10 o1 {change}, proves {OTHER}, waits on no release: the watch starts its agent on its brief {prover["brief"]}, so start no agent for it; drive job resume reaches it'
     ]
     assert (list(data["jobs"]), prover["state"], prover["parts"], data["jobs"]["j9"]["state"], data["jobs"]["j9"]["parts"]) == (
         ["j1", "j9", "j10"],
@@ -10261,7 +10261,7 @@ def test_a_merged_product_job_waiting_on_its_own_release_takes_done_at_its_merge
     lines = watch.run_pass(watcher(demo), T0)
     data = state.load(demo)
     assert not [line for line in lines if line.startswith(("FREE ", "ORPHAN "))]
-    assert [line for line in lines if line.startswith("JOB ")] == [f'JOB j2 o1 added, proves {OTHER}, waits on no release: start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j2"]["brief"]}"']
+    assert [line for line in lines if line.startswith("JOB ")] == [f'JOB j2 o1 added, proves {OTHER}, waits on no release: the watch starts its agent on its brief {data["jobs"]["j2"]["brief"]}, so start no agent for it; drive job resume reaches it']
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["waits"], data["jobs"]["j2"]["waits"], provers) == ("done", [], [], [])
 
 
@@ -10290,7 +10290,7 @@ def test_a_merged_ready_product_job_whose_paths_reach_no_release_has_its_builder
     said = [line for line in watch.run_pass(watcher(demo), T0) if line.startswith("JOB ")]
     data = state.load(demo)
     assert (data["jobs"]["j2"]["state"], data["jobs"]["j2"]["waits"]) == ("waiting", [])
-    assert said == [f'JOB j2 o1 added, proves {OTHER}, waits on no release: start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j2"]["brief"]}"']
+    assert said == [f'JOB j2 o1 added, proves {OTHER}, waits on no release: the watch starts its agent on its brief {data["jobs"]["j2"]["brief"]}, so start no agent for it; drive job resume reaches it']
     assert provers == []
 
 

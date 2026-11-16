@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import uuid
 from collections.abc import Callable, Iterable
 from functools import cache
 from concurrent.futures import ThreadPoolExecutor
@@ -3450,6 +3451,50 @@ def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
     return folder
 
 
+def job_start(args: argparse.Namespace) -> int:
+    """Start a briefed builder's or reader's agent on this Mac as its own `claude --bg` session, as the watch does once nothing holds the job, so no session's Agent call starts it and no session relays its texts: under the job's own lock, refused as the agent_brief hook would refuse an Agent call of the session holding its order on its brief, which also stamps its launch, counts its builder slot or holds it waiting its turn, and refused while an earlier start of it is in flight or at work, by agents.gone on its bg entry, the start lock, or an agent of a session of the drive runs it; the job keeps the agent id every hook of that session binds as, by agents.seen, and the session `claude --bg` names, which state.own_session reads. A codex, design or Sprite job, or one with no brief, is refused, its starting left to the session holding it."""
+    name = state.resolve(args.drive)
+    with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
+        data = state.load(name)
+        job = find(data["jobs"], args.id, "job")
+        unstopped(args.id, job)
+        if job["kind"] not in ("builder", "reader") or job.get("where") == "remote" or not job.get("brief"):
+            raise DriveError(f"{args.id}: refused, not started: drive job start starts only a briefed builder or reader on this Mac, and this is a {job['kind']}{' on a Sprite' if job.get('where') == 'remote' else ''}{'' if job.get('brief') else ' with no brief'}")
+        if (bg := job.get("bg")) and not agents.gone(bg):
+            raise DriveError(f"{args.id}: refused, not started: its start at {bg['started']}, session {bg['session'] or 'not named yet'}, is in flight or at work")
+        if job["agent"] and job["state"] == "running" and state.session_role(data, job.get("session")):
+            raise DriveError(f"{args.id}: refused, not started: agent {job['agent']} of session {job['session']} runs it")
+        _, held = state.holding_role(data, data["orders"][job["order"]])
+        if not held.get("session"):
+            raise DriveError(f"{args.id}: refused, not started: no session holds {job['order']}, so none would hear its agent")
+        call = {"subagent_type": state.JOB_AGENTS[job["kind"]][0], "prompt": f"Read your brief first: {job['brief']}"}
+        call = agents.shaped({"session_id": held["session"], "tool_input": call})
+        if refused := start_refusal({"session_id": held["session"], "tool_input": call}):
+            raise DriveError(f"{args.id}: refused, not started: {refused}")
+        agent, cwd = uuid.uuid4().hex[:17], orca.checkout(name, held["cwd"])
+        with state.edit(name) as data:
+            data["jobs"][args.id]["bg"] = {"agent": agent, "session": None, "started": state.stamp(), "cwd": str(cwd), "pointed": []}
+        try:
+            session = agents.start_job(name, args.id, agent, call, held, cwd)
+        except (reads.ReadError, state.DriveError) as error:
+            with state.edit(name) as data:
+                data["jobs"][args.id]["bg"] = None
+            raise DriveError(f"{args.id}: refused, not started: claude --bg started no agent: {error}") from None
+        with state.edit(name) as data:
+            data["jobs"][args.id]["bg"]["session"] = session
+    return emit(args, f"{args.id} started as agent {agent}, its own claude --bg session {session}: start no agent for it", {"id": args.id, "agent": agent, "session": session})
+
+
+def start_refusal(payload: dict) -> str | None:
+    """Why the agent_brief hook refuses the Agent call payload makes, read for a start that makes none, so drive job start meets every check an Agent start does."""
+    hooks = str(Path(__file__).resolve().parents[2] / "hooks")
+    if hooks not in sys.path:
+        sys.path.append(hooks)
+    import agent_brief
+
+    return agent_brief.deny_reason(payload)
+
+
 @orca.rides_restarts()
 def job_resume(args: argparse.Namespace) -> int:
     """Send a job its next event, or with no text the texts it holds, by the one relaunch launch and resume share: to its lane while its worker takes messages, else in the handoff of its next worker, or in the brief of the first worker of a builder waiting its turn for a slot on this Mac that none started, or a codex job's by codex_resume. A finished pass of a standing part is refused by unrun, holding nothing."""
@@ -3530,6 +3575,9 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None, resume: bool
         unstopped(args.id, job)
         if resume and text is None and not job["undelivered"]:
             return emit(args, f"{args.id} holds no message to send", {"id": args.id, "how": None})
+        if resume and state.own_session(job):
+            lane = state.session_lane(data, job["session"]) or state.holding_job_lane(data, job)
+            return held_to_starter(args, name, job, lane) if text is None else to_starter(args, name, job, lane)
         if lane := starters_lane(data, args.id, job, resume):
             if not resume:
                 raise DriveError(
@@ -3617,11 +3665,28 @@ def starter_post(name: str, job_id: str, job: dict, lane: str, text: str, at: st
     record = {"kind": "handoff", "to": [state.agent_address(job)], "attr": attrs, "text": text}
     [seq] = tools.sent(name, sender, [limits.shortened(record) or record])
     sent_kept(name, job_id, {"words": text, "request": seq, "at": at, "ask": job.get("ask")})
+    if session := state.own_session(job):
+        return seq, own_post(name, job_id, session, seq)
     line = f'{job_id}: SendMessage {job["agent"]} "{superseded.POINTER.format(seq)}"'
     if lane == sender:
         return seq, line
     tools.sent(name, sender, [{"kind": "handoff", "to": [f"{lane}@{name}"], "attr": attrs, "text": line}])
     return seq, f"{job_id}: posted to agent {job['agent']}'s cci address as handoff record {seq}, and to {lane}@{name}, whose SendMessage alone reaches it: {line}"
+
+
+def own_post(name: str, job_id: str, session: str, seq: str) -> str:
+    """Point a job's agent running as its own `claude --bg` session at the record starter_post just posted to its address, with no SendMessage: while its turn runs, its next step's hook, or its stop's, hands it the pointer, and once its turn ended `claude --bg --resume` wakes it on the pointer; the line the verb prints."""
+    pointer = superseded.POINTER.format(seq)
+    bg = state.load(name)["jobs"][job_id]["bg"]
+    if not agents.gone(bg):
+        with state.edit(name) as data:
+            data["jobs"][job_id]["bg"]["pointed"].append(pointer)
+        return f"{job_id}: posted to its own session {session}'s cci address as handoff record {seq}, which its next step reads"
+    try:
+        agents.resume_job(bg, pointer)
+    except reads.ReadError as error:
+        raise DriveError(f"{job_id}: posted as handoff record {seq}, but claude --bg --resume {session} did not wake it: {error}") from None
+    return f"{job_id}: posted to its own session {session}'s cci address as handoff record {seq}, and resumed that session on it"
 
 
 def returned(job: dict) -> str | None:
@@ -6844,6 +6909,21 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.set_defaults(run=job_launch)
     verb = job.add_parser(
+        "start",
+        parents=both,
+        help="start a briefed builder's or reader's agent on this Mac as its own claude --bg session, as the watch does",
+        description=(
+            "Start a briefed builder's or reader's agent on this Mac as its own claude --bg session on its brief, the prompt an Agent"
+            " call would start it on, under the job's own lock: refused as the agent_brief hook refuses that Agent call of the session"
+            " holding its order, which counts its builder slot or holds it waiting its turn, and while an earlier start of it is in"
+            " flight or at work. Every hook of that session binds it as the job's agent of the session holding its order, and"
+            " drive job resume posts each text to its own cci address, which its next step reads or a claude --bg --resume wakes it on,"
+            " so no session's SendMessage relays them. The watch runs it on each job nothing holds; a codex, design or Sprite job is refused."
+        ),
+    )
+    verb.add_argument("id", help="the job")
+    verb.set_defaults(run=job_start)
+    verb = job.add_parser(
         "resume",
         parents=both,
         help="answer a job's question, or send it the next event, starting its next worker when its last ended",
@@ -7739,7 +7819,7 @@ def refused(args: argparse.Namespace, error: Exception, detached: str | None, la
     print(f"drive: {error}", file=sys.stderr)
     if lane_job and (steps := reads.mac_steps(str(error), parser(), lane_job)):
         print(steps, file=sys.stderr)
-    if detached and (args.run in (job_launch, job_resume, job_end) or isinstance(error, Kept)) and not isinstance(error, StoodDown):
+    if detached and (args.run in (job_launch, job_start, job_resume, job_end) or isinstance(error, Kept)) and not isinstance(error, StoodDown):
         name = state.resolve(args.drive)
         order = state.saved_row(name, "jobs", args.id)["order"]
         heard = state.heard_lane(state.saved(name) | state.stored(name, ("orders",)), order)

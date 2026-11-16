@@ -390,8 +390,9 @@ def withdrawn_by(seqs: list[str]) -> str:
 
 
 def start_now(prompt: str) -> str:
-    """The one wording of a line whose reader starts a job's agent itself, on the prompt its brief starts it on, so a line naming a brief is the reader's start and one naming none is the watch's."""
-    return f'start its agent now, run_in_background, on the prompt "{prompt}"'
+    """The one wording of a line naming a briefed builder or reader nothing holds: the watch starts its agent, as its own claude --bg session on this Mac by drive job start or on a Sprite by drive job launch, so its reader starts none and a text to it goes by drive job resume."""
+    brief = prompt.removeprefix("Read your brief first: ")
+    return f"the watch starts its agent on its brief {brief}, so start no agent for it; drive job resume reaches it"
 
 
 def builder_lines(name: str, data: dict, builder_ids: list[str]) -> list[str]:

@@ -57,9 +57,11 @@ def said_in(path: Path) -> Iterator[dict]:
 
 
 def transcript(job: dict) -> Path | None:
-    """A local job's transcript on this Mac, when its session still holds it; a handler's is its own session's, and a Sprite lane's the one its end kept."""
+    """A local job's transcript on this Mac, when its session still holds it; a handler's is its own session's, as is that of an agent `drive job start` started as its own session, and a Sprite lane's the one its end kept."""
     if own := job.get("transcript") or lane_transcript(job):
         return Path(own)
+    if session := state.own_session(job):
+        return next((install.config_dir() / "projects").glob(f"*/{session}.jsonl"), None)
     if not (job.get("agent") and job.get("session")):
         return None
     return next((install.config_dir() / "projects").glob(f"*/{job['session']}/subagents/agent-{job['agent']}.jsonl"), None)
