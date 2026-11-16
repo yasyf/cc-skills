@@ -208,6 +208,10 @@ class StagingProvider(Provider):
         """The steps a staging test takes for components staging has no copy of."""
         return ""
 
+    def required_cases(self, paths: list[str]) -> list[str]:
+        """The staging cases a PR changing these paths must pass, each named as its tester's CASE line names it, such as a Mac agent's LLM gateway call for a change to that gateway's auth: its tester's Staging line lists them, and drive job report keeps its DONE only when each reads pass, never not exercised."""
+        return []
+
 
 class MacBoxProvider(Provider):
     """The repository's Mac boxes: a staging pass proving a desktop build on one, and taking each down with the job it is named after."""

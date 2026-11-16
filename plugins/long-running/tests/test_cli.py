@@ -12779,3 +12779,40 @@ def test_a_jobs_kept_checkout_is_where_its_launch_starts_its_release_checked_aga
     started.clear()
     code, out = run("job", "release", "j1")
     assert code != 0 and started == [], out
+
+def test_a_staging_testers_done_is_refused_while_a_case_its_pr_requires_reads_anything_but_pass_and_its_staging_line_lists_the_case_as_o2304_needed(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from conftest import HomeRepo, HomeStaging
+
+    gateway = "a Mac agent's LLM gateway call"
+
+    class RequiredStaging(HomeStaging):
+        def required_cases(self, paths: list[str]) -> list[str]:
+            return [gateway] if any(path.startswith("llm-gateway/") for path in paths) else []
+
+    provide(monkeypatch, Path(), repo=HomeRepo, staging=RequiredStaging)
+    monkeypatch.setattr(github, "files", lambda key: ["llm-gateway/auth.go"] if key.endswith("#42") else ["docs/x.md"])
+    part = state.STAGING_TEST.format(number=42)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test #42 on staging")
+    run("job", "add", "builder", "--order", "o1", "--goal", "test #42 on staging")
+    with edit(demo) as data:
+        data["orders"]["o1"]["parts"][part] = state.new_part()
+        data["jobs"]["j1"]["parts"] = [part]
+    data = state.load(demo)
+    assert (cli.required_cases(data, data["jobs"]["j1"]), cli.staging_required(data, data["jobs"]["j1"])) == (
+        {"Forge-AI/monorepo#42": [gateway]},
+        f"; Forge-AI/monorepo#42 requires 1 staging case, each a CASE line your DONE reads pass, never not exercised: {gateway}",
+    )
+    ran = tmp_path / "staging-run.txt"
+    ran.write_text("the run page and the gateway call on plat-usw2-staging\n")
+    check = f"CHECK: {ran}"
+    for verdict in ("not exercised: staging signs in as one account", "fail: 401 from the gateway"):
+        monkeypatch.setattr("sys.stdin", io.StringIO(f"DONE #42 passed on staging\n{check}\nCASE the run page: pass\nCASE {gateway}: {verdict}\n"))
+        assert cli.main(["job", "report", "j1", "-"]) == 2
+        assert f"a case not exercised is no pass: Forge-AI/monorepo#42 {gateway}: {verdict}" in capsys.readouterr().err
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"DONE #42 passed on staging\n{check}\nCASE the run page: pass\n"))
+    assert cli.main(["job", "report", "j1", "-"]) == 2
+    assert f"Forge-AI/monorepo#42 {gateway}: no CASE line" in capsys.readouterr().err
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"DONE #42 passed on staging\n{check}\nCASE {gateway}: pass: the Mac agent's call answered 200\n"))
+    assert cli.main(["job", "report", "j1", "-"]) == 0
