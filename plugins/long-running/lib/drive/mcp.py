@@ -188,6 +188,14 @@ SAY = {
                     " emoji never came off the root post of that thread\". Leave it off on a status or a partial answer"
                 ),
             },
+            "working": {
+                "type": "boolean",
+                "description": (
+                    "True on a post that leaves work his asked messages started still running, such as research a subagent finishes:"
+                    " their reaction shows construction until a post with done ends it. Without done or working, their reaction comes off,"
+                    " since nothing is left running"
+                ),
+            },
             "asked": {
                 "anyOf": [TEXT, {"type": "array", "items": TEXT}],
                 "description": (

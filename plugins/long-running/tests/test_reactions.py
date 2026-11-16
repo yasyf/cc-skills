@@ -26,3 +26,13 @@ def test_his_messages_reaction_follows_its_orders_state_and_moves_once_each_chan
         data["jobs"]["j9"]["state"] = "done"
     assert reactions.moved(demo, datetime.now(UTC)) == ["his message C1/1.1 now carries no reaction"]
     assert ("unreact", "--channel", "C1", "--ts", "1.1", "--name", "construction") in calls
+
+
+def test_a_post_answering_his_message_without_ending_it_takes_its_construction_off_unless_work_keeps_running(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: calls.append(argv) or {})
+    assert reactions.answered(demo, "C0CJ378LSBT", "1794857634.488009") == "no reaction"
+    assert ("unreact", "--channel", "C0CJ378LSBT", "--ts", "1794857634.488009", "--name", "construction") in calls and not any(argv[0] == "react" for argv in calls)
+    calls.clear()
+    assert reactions.answered(demo, "C0CJ378LSBT", "1794857634.488009", working=True) == "construction"
+    assert ("react", "--channel", "C0CJ378LSBT", "--ts", "1794857634.488009", "--name", "construction") in calls

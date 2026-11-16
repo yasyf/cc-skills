@@ -35,7 +35,7 @@ def moved(name: str, moment: datetime) -> list[str]:
     for order_id, order in data["orders"].items():
         if not order.get("thread") or order["state"] in state.CLOSED_ORDER_STATES and moment - state.parse_time(order["updated"]) > RECENT:
             continue
-        if (step := wanted(data, order_id)) is not False:
+        if (step := wanted(data, order_id)) is not False and order["thread"][1]:
             steps.setdefault("/".join(order["thread"]), []).append(step)
     lines = []
     for key, wants in sorted(steps.items(), key=lambda item: item[0].split("/")[1], reverse=True):
@@ -64,3 +64,15 @@ def react(channel: str, ts: str, step: str | None) -> None:
             slack.cc_slack("react", "--channel", channel, "--ts", ts, "--name", step)
         except slack.SlackError:
             pass
+
+
+def answered(name: str, channel: str, ts: str, working: bool = False) -> str:
+    """Move his message's reaction once a post answers it without ending it: construction while the post says work it started keeps running or an order's work on it runs, else none, so the construction a pickup put on it never outlives its work, as one stayed on his status question at C0CJ378LSBT/1794857634.488009 after its answer; the step it left."""
+    data = state.load(name, ("orders", "jobs"))
+    running = any(order.get("thread") == [channel, ts] and wanted(data, order_id) == BUILDING for order_id, order in data["orders"].items())
+    step = BUILDING if running or working else None
+    react(channel, ts, step)
+    path = state.drive_dir(name) / FILE
+    kept = json.loads(path.read_text()) if path.exists() else {}
+    path.write_text(json.dumps(kept | {f"{channel}/{ts}": step}))
+    return step or "no reaction"

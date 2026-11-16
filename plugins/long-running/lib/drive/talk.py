@@ -20,7 +20,7 @@ CARDS_A_MESSAGE = 5
 CARD_KINDS = (("question", "question"), ("tap", "PR card"))
 NO_CARDS = "No open cards"
 TICKET_FLAGS = {"ticket_id": "--ticket", "ticket_tree": "--ticket-tree", "ticket_agent": "--ticket-agent", "ticket_call": "--ticket-call", "ticket_fingerprint": "--ticket-fingerprint"}
-EDIT_TAKES = {"edit", "text", "blocks", "asked", "claims", "dry_run", "done", "record", *TICKET_FLAGS}
+EDIT_TAKES = {"edit", "text", "blocks", "asked", "claims", "dry_run", "done", "working", "record", *TICKET_FLAGS}
 RECORD_WAIT_SECONDS = 1.0
 RECORD_POLL_SECONDS = 0.05
 BARE_TS = re.compile(r"\d{10}\.\d{6}")
@@ -33,9 +33,9 @@ def say(name: str, post: dict) -> str:
     if (voice := thread_voice(known, post)) and voice[1] != own_lane(known):
         return handed_to_voice(name, known, voice, post)
     line = spoken(name, mended(post), known)
-    if post.get("done") and not post.get("dry_run"):
-        line += finished(post.get("asked"))
-    return line
+    if post.get("dry_run"):
+        return line
+    return line + (finished(post.get("asked")) if post.get("done") else unfinished(name, post.get("asked"), bool(post.get("working"))))
 
 
 def voice_lane(data: dict, order: dict) -> str:
@@ -68,6 +68,17 @@ def handed_to_voice(name: str, data: dict, voice: tuple[str, str], post: dict) -
 
 
 ASKED_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})(?:\?thread_ts=(\d+\.\d+))?")
+
+
+def unfinished(name: str, asked: object, working: bool) -> str:
+    """Move the reaction of each message of his asked names that the post answers without ending, by reactions.answered: construction while the post says work it started keeps running or an order's work on it runs, else none."""
+    from drive import reactions
+
+    moved = []
+    for each in slack.messages(asked) if isinstance(asked, (str, list)) else []:
+        if found := ASKED_LINK.search(each):
+            moved.append(f"{found[2]}.{found[3]} {reactions.answered(name, found[1], f'{found[2]}.{found[3]}', working)}")
+    return f"; reactions {', '.join(moved)}" if moved else ""
 
 
 def finished(asked: object) -> str:
