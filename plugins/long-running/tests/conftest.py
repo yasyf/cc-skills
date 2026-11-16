@@ -8,7 +8,7 @@ import sys
 import urllib.parse
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -1520,3 +1520,10 @@ def detached_in_the_call(monkeypatch: pytest.MonkeyPatch) -> None:
         return detached(name, args, log)
 
     monkeypatch.setattr(state, "detach", detach)
+
+
+@pytest.fixture(autouse=True)
+def stack_quiet(monkeypatch: pytest.MonkeyPatch) -> Callable[[timedelta], None]:
+    """No watch pass holds his first card for its stack to settle; a test of that hold sets stage.STACK_QUIET back through this."""
+    monkeypatch.setattr(stage, "STACK_QUIET", timedelta(0))
+    return lambda quiet: monkeypatch.setattr(stage, "STACK_QUIET", quiet)
