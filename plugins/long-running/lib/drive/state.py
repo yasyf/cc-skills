@@ -4643,7 +4643,7 @@ def loaded_rows(name: str, rows: tuple[Row, ...]) -> tuple[dict, dict[Row, objec
 
 
 def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows: tuple[Row, ...]) -> None:
-    """Save a write of rows alone in one short transaction of the drive's database, writing only the records the rows name: each as mine holds it, a row naming one field of a record that field alone on the record as the database holds it, while every record reads as held, the database's when the write loaded the drive as base; Raced at the first another write changed since, even to the value mine holds, since a write that read it may have counted on what it held. New records take places after the collection's last in the order mine holds them. A job the save moves into done or stopped drops the texts it holds, as rewrite drops them, and each it moves into done, failed or stopped takes down its Mac boxes; once saved, each order the save moved to another lane tells the lane losing it, and the drive's clocks are drawn again, by redrawn. The drive's lock is held for that transaction alone, while writes of no rows and older installs still save the whole drive under it."""
+    """Save a write of rows alone in one short transaction of the drive's database, writing only the records the rows name: each as mine holds it, a row naming one field of a record that field alone on the record as the database holds it, while every record reads as held, the database's when the write loaded the drive as base; Raced at the first another write changed since, even to the value mine holds, since a write that read it may have counted on what it held. New records take places after the collection's last in the order mine holds them. A job the save moves into done or stopped drops the texts it holds, as rewrite drops them, and each it moves into done, failed or stopped takes down its Mac boxes; once saved, each open order the save moved to another lane, by its own record or by the drive's bindings, tells the lane losing it, by told_moved, and the drive's clocks are drawn again, by redrawn. The drive's lock is held for that transaction alone, while writes of no rows and older installs still save the whole drive under it."""
     jobs = mine.get("jobs", {})
     ended = {key: then["state"] for collection, key in held if collection == "jobs" and isinstance(then := held[(collection, key)], dict) and key in jobs and jobs[key]["state"] in FINISHED_JOB_STATES and then.get("state") != jobs[key]["state"]}
     dropped = set(drop_ended_texts(mine, ended))
@@ -4683,17 +4683,30 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
         with suppress(sqlite3.OperationalError):
             db.execute("PRAGMA wal_checkpoint(PASSIVE)")
     down_mac_boxes(name, mine, [job_id for job_id, then in ended.items() if then not in FINISHED_JOB_STATES])
-    if any(collection in ("orders", "jobs", "handlers") for collection, _ in held):
-        redrawn(name, {key: base["orders"][key] for collection, key in held if collection == "orders" and key in base.get("orders", {})})
+    bound = any(collection == "" and key in BINDINGS for collection, key in held)
+    if bound or any(collection in ("orders", "jobs", "handlers") for collection, _ in held):
+        if bound:
+            moved = {order_id: (holding_lane(base, order), holding_lane(mine, mine["orders"][order_id])) for order_id, order in open_orders(base).items() if order_id in mine["orders"]}
+        else:
+            moved = {key: (holding_lane(base, base["orders"][key]), holding_lane(base, mine["orders"][key])) for collection, key in held if collection == "orders" and key in open_orders(base) and key in mine["orders"]}
+        told_moved(name, mine, {order_id: lanes for order_id, lanes in moved.items() if lanes[0] != lanes[1]})
+        redrawn(name)
 
 
-def redrawn(name: str, orders: dict[str, dict]) -> None:
-    """After a write of rows, read the drive as it stands: tell each lane that held one of orders, as the write loaded them, and holds it no more, as tell_moved does, by the drive's bindings now; then save the drive's clocks as clocks draws them from it, in one transaction that keeps them only while no other write committed since that read, reading again up to UPDATE_TRIES times, and leaving them to the next write that saves them once each try raced."""
-    for attempt in range(UPDATE_TRIES):
+def told_moved(name: str, data: dict, moved: dict[str, tuple[str, str]]) -> None:
+    """Write one ORDERS_MOVED event for each lane a write of rows took open orders from, naming them and the lanes holding them now, as tell_moved does for a save of the whole drive."""
+    lost: dict[str, list[str]] = {}
+    for order_id, (was, _) in moved.items():
+        lost.setdefault(was, []).append(order_id)
+    for lane, orders in lost.items():
+        append_event(name, ORDERS_MOVED, lane=lane, orders=orders, to=sorted({moved[order_id][1] for order_id in orders}))
+
+
+def redrawn(name: str) -> None:
+    """After a write of rows, save the drive's clocks as clocks draws them from the drive as it then stands, in one transaction that keeps them only while no other write committed since that read, reading again up to UPDATE_TRIES times, and leaving them to the next write that saves them once each try raced."""
+    for _ in range(UPDATE_TRIES):
         data = load(name)
         rev = LOADED_REV.get()
-        if attempt == 0:
-            tell_moved(name, data, {order_id: holding_lane(data, order) for order_id, order in orders.items()})
         if (drawn := clocks(data)) == data.get(CLOCKS):
             return
         with closing(connect(database_path(name))) as db:
