@@ -2033,7 +2033,7 @@ def read_handoff_jobs(name: str, data: dict) -> None:
 
 
 def record_lane_worktrees(name: str, data: dict) -> None:
-    """Record on each live Orca lane on this Mac launched before a launch recorded its worktree the worktree Orca shows its worker started in, so place.at_work_here reads its turn there, and record dead, as the watch would, one Orca no longer holds; marked so this runs once."""
+    """Record on each live Orca lane on this Mac launched before a launch recorded its worktree the worktree Orca shows its worker started in, so place.at_work_here reads its turn there, and record dead, as the watch would, one Orca no longer holds, each only while the lane read is the job's lane still and no launch recorded its worktree since; marked so this runs once."""
     from drive import orca
 
     if unrecorded := [job_id for job_id, job in data["jobs"].items() if on_mac(job) and job.get("dispatch") and not job["worktree"] and job["state"] not in FINISHED_JOB_STATES and not lane_death(job)]:
@@ -2049,6 +2049,8 @@ def record_lane_worktrees(name: str, data: dict) -> None:
 
         def lanes_recorded(data: dict) -> None:
             for job_id, (dispatch, worktree, why) in found.items():
+                if data["jobs"][job_id]["dispatch"] != dispatch or data["jobs"][job_id]["worktree"]:
+                    continue
                 if why:
                     lane_died(data["jobs"][job_id], dispatch, why, now())
                 else:

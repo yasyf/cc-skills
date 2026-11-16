@@ -477,14 +477,15 @@ def undequeued(name: str, keys: list[str], why: str) -> str:
     """Say the dequeue of a unit failed on its own step, as the lander's own failure, and drop its dequeuer, so the watch's next pass starts another while Trunk's merge queue still holds it."""
     outcome = f"{NO_DEQUEUE} {', '.join(keys)} out of Trunk's merge queue: {why}"
 
-    def dropped(data: dict) -> str:
+    repo, number = keys[-1].split("#")
+
+    def dropped(data: dict) -> None:
         for key in keys:
             data["prs"][key]["lander"].pop("dequeue")
-        return state.heard_lane(data, data["prs"][keys[-1]]["order"])
+        lane = state.heard_lane(data, data["prs"][keys[-1]]["order"])
+        state.after_save(name, lambda: state.append_event(name, "landing", repo=repo, number=int(number), change=outcome, lane=lane) or [])
 
-    lane = state.update(name, None, dropped)
-    repo, number = keys[-1].split("#")
-    state.append_event(name, "landing", repo=repo, number=int(number), change=outcome, lane=lane)
+    state.update(name, None, dropped)
     return outcome
 
 
