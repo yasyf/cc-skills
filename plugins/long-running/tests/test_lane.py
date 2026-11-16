@@ -768,3 +768,12 @@ def test_his_board_on_a_live_lane_drive_reads_no_old_drive_state(world: dict, mo
     shown = pages.lane_shown(model["lanes"]["now"], [{"slug": "p", "lanes": ["a"], "title": "P"}, {"slug": "q", "lanes": [], "title": "Q"}])
     assert [(page["slug"], page["live"]) for page in shown] == [("p", True), ("q", False)]
     assert [entry["key"] for entry in pages.slice_of(model | {"pages": shown}, shown[0])["prs"]] == ["acme/app#7"]
+
+
+def test_a_stray_json_file_in_the_lanes_folder_never_stops_a_pass(world: dict, capsys: pytest.CaptureFixture[str]) -> None:
+    opened("a")
+    (store.drive_dir(DRIVE) / "cards.json").write_text(json.dumps({"questions": []}))
+    (store.drive_dir(DRIVE) / "broken.json").write_text("{not json")
+    assert store.lane_ids(DRIVE) == ["a"]
+    supervisor.run_pass(DRIVE)
+    assert "skipped broken.json, cards.json" in capsys.readouterr().err

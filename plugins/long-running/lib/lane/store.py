@@ -5,6 +5,7 @@ import json
 import os
 import re
 import secrets
+import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -91,8 +92,7 @@ def config(drive: str) -> dict:
 
 
 def lane_ids(drive: str) -> list[str]:
-    folder = drive_dir(drive)
-    return sorted(path.stem for path in folder.glob("*.json") if LANE_ID.match(path.stem) and path.stem not in NOT_LANES) if folder.is_dir() else []
+    return list(load_all(drive))
 
 
 def load(drive: str, lane_id: str) -> dict:
@@ -103,7 +103,23 @@ def load(drive: str, lane_id: str) -> dict:
 
 
 def load_all(drive: str) -> dict[str, dict]:
-    return {lane_id: load(drive, lane_id) for lane_id in lane_ids(drive)}
+    """Every lane of the drive: each `<id>.json` in its folder that reads as a lane, its own id and one of the three states; any other JSON there, such as a file another tool left, is named on stderr and skipped, so no stray file stops a pass."""
+    folder = drive_dir(drive)
+    found, strays = {}, []
+    for path in sorted(folder.glob("*.json")) if folder.is_dir() else []:
+        if not LANE_ID.match(path.stem) or path.stem in NOT_LANES:
+            continue
+        try:
+            read = json.loads(path.read_text())
+        except ValueError:
+            read = None
+        if isinstance(read, dict) and read.get("id") == path.stem and read.get("state") in STATES:
+            found[path.stem] = read
+        else:
+            strays.append(path.name)
+    if strays:
+        print(f"lane store: skipped {', '.join(strays)} in {folder}, which do not read as lanes", file=sys.stderr)
+    return found
 
 
 def active(lanes: dict[str, dict]) -> list[str]:
