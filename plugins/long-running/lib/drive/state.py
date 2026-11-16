@@ -6504,6 +6504,16 @@ def session_drives(session: str) -> list[str]:
     return list(dict.fromkeys(name for _, name in sorted(bound, reverse=True)))
 
 
+def records_drives(session: str) -> list[str]:
+    """The records-only drives this session registered, which bind no session, so no role's hooks, reloads or watch reach it, and its drive verbs still find the drive."""
+    return [name for name in names() if (stored(name, ("records_only",)).get("records_only") or {}).get("session") == session]
+
+
+def lane_carried(order: dict, part: str) -> bool:
+    """Whether an ask on the part names the lane delivering it, a session outside the drive's jobs such as a teammate of a records-only drive's root, which carries the part as a job would."""
+    return any(ask.get("lane") and part in ask["parts"] for ask in order["asks"].values())
+
+
 def resolve(name: str | None = None) -> str:
     """The drive a verb acts on: --drive, DRIVE_ENV, which every process the drive starts carries, this session's drive, or the only drive."""
     chosen = name or os.environ.get(DRIVE_ENV)
@@ -6511,7 +6521,7 @@ def resolve(name: str | None = None) -> str:
         if not exists(chosen):
             raise DriveError(f"no drive named {chosen}")
         return chosen
-    if (session := os.environ.get("CLAUDE_CODE_SESSION_ID")) and (bound := session_drives(session)):
+    if (session := os.environ.get("CLAUDE_CODE_SESSION_ID")) and (bound := session_drives(session) or records_drives(session)):
         return bound[0]
     available = names()
     if len(available) == 1:

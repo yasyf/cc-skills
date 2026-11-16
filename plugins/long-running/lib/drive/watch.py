@@ -5834,7 +5834,7 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
         return standing_gap(jobs, gaps, order["parts"][part]["check"], moment)
     if order["parts"][part].get("lines") and order["every"]:
         return reported_gap(order, order["every"], moment)
-    if state.following(order["parts"][part]):
+    if state.following(order["parts"][part]) or state.lane_carried(order, part):
         return None
     if fixer := no_fix_job(data, order_id, part, jobs):
         last, job = fixer

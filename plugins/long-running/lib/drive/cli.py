@@ -160,6 +160,8 @@ def emit(args: argparse.Namespace, line: str, payload: object) -> int:
 def start(args: argparse.Namespace) -> int:
     if not DRIVE_NAME.fullmatch(args.name):
         raise DriveError(f"drive names are letters, digits, dot, dash and underscore: {args.name}")
+    if args.records_only:
+        return records_only_start(args)
     kept = Path.cwd() if state.scratch() else orca.checkout(args.name, os.getcwd())
     if not orca.in_terminal():
         raise DriveError(
@@ -200,6 +202,24 @@ def start(args: argparse.Namespace) -> int:
     elsewhere = "" if Path.cwd() == kept.resolve() else f"this session runs in {Path.cwd()} until it next exits, when cci resumes it in the drive's checkout {kept}\n"
     text = f"{render.context(data, args.role, args.project)}\n\n{registered}{opened}{siblings}{watched}{elsewhere}{seat}: session {held['session']}, {seen}"
     return emit(args, text, {**data, "orca": {seat: seen}})
+
+
+def records_only_start(args: argparse.Namespace) -> int:
+    """Register a drive that keeps records alone: his orders, their asks with lane, check and due, and its PRs, which drive pr set --tapped and the landing guard read like any drive's. Its coordinator binds no session, so it makes no channel, starts no communicator, meta session or watch, registers nothing with cci and no install reloads it, and the calling session, kept as its records holder, resolves it, by root's pick of option 1 for ai-oncall-fixes under his ruling df5f5ca, "Migrate to drive orders"; refused for a drive a session coordinates already."""
+    if args.role != "coordinator" or args.project or args.watch:
+        raise DriveError("--records-only: refused, a records-only drive registers as --role coordinator alone, with no --project or --watch")
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+
+    def registered(data: dict) -> dict:
+        if (held := data["roles"].get("coordinator")) and held["session"]:
+            raise DriveError(f"--records-only: refused, session {held['session']} coordinates drive {args.name}, which starts and watches its jobs")
+        data["records_only"] = {"session": session, "at": state.stamp()}
+        return data
+
+    data = state.create_or_write(args.name, state.new_drive(args.name, "coordinator", None, os.getcwd()), registered)
+    state.migrate(args.name)
+    text = f"drive {args.name} keeps records only, its repository read from {data['roles']['coordinator']['cwd']}; session {session} resolves it, and no session, channel or watch is bound or started"
+    return emit(args, text, data)
 
 
 def channel_opened(name: str, data: dict) -> str:
@@ -5635,7 +5655,7 @@ def pr_add(args: argparse.Namespace) -> int:
 
 
 def drawn_card(name: str, key: str) -> str:
-    """Draw his card on a PR waiting on his tap in the call that registers it, so no session's turn stands between the PR and his card, unless state.tap_refused finds it would offer no Approve, such as on a PR his open question card holds; what came of it. A draw that fails leaves its stage uncarded, which the watch draws on its next read."""
+    """Draw his card on a PR waiting on his tap in the call that registers it, so no session's turn stands between the PR and his card, unless state.tap_refused finds it would offer no Approve, such as on a PR his open question card holds, or the drive keeps records only, whose root asks his tap itself; what came of it. A draw that fails leaves its stage uncarded, which the watch draws on its next read."""
     from drive import talk
 
     data = state.load(name)
@@ -5643,6 +5663,8 @@ def drawn_card(name: str, key: str) -> str:
         return f", approved with no card under his standing approval {approval[:7]}"
     if not state.asks_tap(data, data["prs"][key]):
         return ""
+    if data.get("records_only"):
+        return f", no card drawn: drive {name} keeps records only, so his tap reaches it by drive pr set {key} --tapped Approve --tap-source <his permalink>"
     try:
         return f", his card {talk.draw(name, [key])}"
     except (slack.SlackError, DriveError) as error:
@@ -7935,6 +7957,14 @@ def parser() -> argparse.ArgumentParser:
         help=(
             "with --role coordinator, bind this session as the sub-coordinator for a project orders are filed under, beside"
             " the top coordinator, and start that project's watch"
+        ),
+    )
+    verb.add_argument(
+        "--records-only",
+        action="store_true",
+        help=(
+            "with --role coordinator, register a drive that keeps orders, asks and PRs alone: no session is bound, so no channel,"
+            " communicator, meta session, watch or cci registration starts and no install reloads it; this session resolves it"
         ),
     )
     verb.set_defaults(run=start)
