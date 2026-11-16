@@ -128,7 +128,7 @@ SAY = {
         " and {at:<seq>} write when a job started, as \"4:50 AM (job start)\", and when a record went out from the drive's stamps,"
         " since a clock time typed for work already done is flagged, while a time a tool or query printed, such as a GitHub check's or an"
         " outage window Datadog measured, passes written in Pacific on the line linking that tool or read, or in backticks as it"
-        " printed it, and a time after the write, such as \"the deploy window opens at 5:40 AM\" or \"6:54 AM tomorrow\", passes;"
+        " printed it unless it is a log's UTC stamp such as 09:15:42Z, which check-post refuses even in backticks, and a time after the write, such as \"the deploy window opens at 5:40 AM\" or \"6:54 AM tomorrow\", passes;"
         " a line saying when a release, build or deploy started takes the time its build or tool printed, in backticks or its"
         " link's words, on the line linking it, and is flagged with either stamp in a clause naming no job or record. Returns POSTED"
         " <permalink>, CARD <permalink> for a card, the question card's own link first, recorded as the card of the"

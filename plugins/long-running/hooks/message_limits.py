@@ -1120,11 +1120,25 @@ def own_communicator(payload: dict) -> bool:
 
 
 def mechanical(payload: dict) -> dict:
-    """What the say hook prints for the communicator's own post: only the checks a mark decides, a placeholder text, by his words "it needs to be just as fast and fluid asking me things and making the right judgement calls as you would", so no Jev pass, record or read gate holds his answer."""
-    text = (payload["tool_input"].get("text") or "").strip()
+    """What the say hook prints for the communicator's own post: only the checks a mark decides, by his words "it needs to be just as fast and fluid asking me things and making the right judgement calls as you would", so no Jev pass, record or read gate holds his answer: a placeholder text, and each `cc-slack check-post` finding in the words it types, refused with the list to fix and post again, by his words "this message is terrible. don't follow our standards at all; the URL is not even a hyperlink on text, it's just pasted in"; a check-post that cannot run lets the post out with a warning."""
+    tool_input = payload["tool_input"]
+    text = (tool_input.get("text") or "").strip()
     if PLACEHOLDER.fullmatch(text):
         return denial(f"The text {text} is a placeholder, and Slack would send it as written. Pass the post's own words as text.")
-    return {}
+    if not text:
+        return {}
+    drive = his_drive(payload["session_id"])
+    try:
+        found = refs.resolved(drive["name"], text) if payload["tool_name"] == SAY else {}
+        typed = refs.typed(text, found, None) if found else text
+        findings = refs.answer_ids(slack.post_findings(typed, bool(tool_input.get("card") or tool_input.get("tap_prs")), tool_input.get("asked") or ""), drive)
+    except (DriveError, slack.SlackError) as error:
+        return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": f"message_limits: this post goes out as written, unchecked: `cc-slack check-post` could not check its words: {error}."}}
+    if not findings:
+        return {}
+    return denial(
+        "refused: `cc-slack check-post` finds this in the post's words; rewrite it to the standard in your role block, fix each, then post the fixed words:\n" + "\n".join(findings)
+    )
 
 
 def hook_output(payload: dict) -> dict:

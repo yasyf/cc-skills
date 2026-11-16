@@ -469,7 +469,8 @@ Other facts:
 - The current time, and a typed time for work already done. Slack stamps every post, and
   `{started:<job>}` and `{at:<seq>}` give a job's or record's time. A job's stamp is not when a
   release, build or deploy started: quote that as its build or tool printed it, in backticks, on
-  the line linking it. A time a tool or query measured, such as an outage window, is written in
+  the line linking it, unless it is a log's UTC stamp such as `09:15:42Z`, which `cc-slack check-post`
+  refuses even in backticks and which goes in Pacific instead. A time a tool or query measured, such as an outage window, is written in
   Pacific on the line linking that read. A SendMessage, a defect, a handoff and `drive job report`
   quote times as they stand.
 

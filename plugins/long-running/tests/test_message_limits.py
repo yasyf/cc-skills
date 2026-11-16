@@ -1231,6 +1231,27 @@ def test_no_cc_slack_plugin_goes_out_unchecked_saying_his_thread_could_not_be_re
     )
 
 
+def test_the_communicators_own_post_is_refused_with_each_check_post_finding_and_goes_out_when_check_post_cannot_run(
+    talker: str, transcript: Path, checked: Checked, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = call("slack_dm_status", transcript, text=HISTORY_POST, thread_ts="1.2", asked="why did it reset?")
+    del payload["agent_id"]
+    payload |= {"tool_name": message_limits.SAY}
+    assert message_limits.hook_output(payload) == {}
+    checked.findings = ["1:5 bare-url '<https://acme.sentry.io/issues/1>': wrap it as <url|short label>", "1:40 jargon 'a builder': say what it does"]
+    refused = message_limits.hook_output(payload)["hookSpecificOutput"]
+    assert refused["permissionDecision"] == "deny"
+    assert refused["permissionDecisionReason"].endswith("\n" + "\n".join(checked.findings))
+    assert checked.texts[-1] == HISTORY_POST.strip()
+    assert checked.asked[-1] == ["why did it reset?"]
+
+    def broken(text: str, asked: list[str]) -> list[str]:
+        raise slack.SlackError("the cc-slack@cc-slack plugin is not installed")
+
+    monkeypatch.setattr(slack, "check_post", broken)
+    assert "unchecked" in message_limits.hook_output(payload)["hookSpecificOutput"]["additionalContext"]
+
+
 def test_the_communicators_own_post_has_no_brief_to_quote(talker: str, transcript: Path) -> None:
     payload = call("slack_dm_status", transcript, text=said(80), asked="explain the layout in full")
     del payload["agent_id"]

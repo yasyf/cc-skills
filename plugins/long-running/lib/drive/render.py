@@ -28,7 +28,7 @@ PREVENTED = "A post telling him the drive failed says how that is prevented: the
 STAMPS = (
     "What he reads, a say post, a card or a POST or ready record to the communicator, names when a job started as"
     " {started:<job>} and when a record went out as {at:<seq>}, never a clock time you type, and writes a time a tool or query printed,"
-    " such as a GitHub check's, in Pacific on the line linking it or in backticks as it printed it, a release's, build's or deploy's start on the line linking that"
+    " such as a GitHub check's, in Pacific on the line linking it or in backticks as it printed it, a log's UTC stamp such as 09:15:42Z always in Pacific, a release's, build's or deploy's start on the line linking that"
     " build or tool, so its first write passes the check that refuses a typed one; a time after the write passes, naming its day when it falls on another, as \"6:54 AM tomorrow\", and a"
     " SendMessage, a defect or any other record between sessions quotes times as it needs."
 )
@@ -50,8 +50,19 @@ COMMUNICATOR_RULES = (
     (
         "Progress goes in the thread's status, slack_dm_status with his thread's ts, such as \"Reading the plan's RDS"
         ' change", never a post: a post is the answer or a question, with no placeholder, no ack and no "next line by"'
-        " promise. Chatter (\"ok\", \"thanks\") gets a +1 react. Name things by their proper technical terms and cite"
-        " the evidence inline: the file, command or link the answer stands on."
+        " promise. Chatter (\"ok\", \"thanks\") gets a +1 react."
+    ),
+    (
+        "Every answer reads like his gold-standard post, the worked example under \"How every answer to him reads\" in"
+        " communicator.md: the answer first in one plain sentence; past about 60 words, short sections under bold headings"
+        " such as *What changed:*, *Why it matters:* and *What happens next:*, never one paragraph; lists as bullets; a"
+        " small code sketch when it shows the point; every PR, build, doc, issue or monitor linked on the words that say"
+        " what it is, as <url|the fix that drops the extra send>, never a bare URL; times in Pacific, never a log's"
+        " 09:15:42Z or a UTC label; and plain words for the drive's own machinery: never fde-scan, a codex job, a design"
+        " job, a reader, a builder, ingress or an order or job id, but what it does, such as the check that every change"
+        " customer code can see runs. Cite the evidence inline as links. say runs `cc-slack check-post` on every post of"
+        " yours and refuses it with each finding: rewrite to the standard and post again, by his words \"this message is"
+        ' terrible. don\'t follow our standards at all; the URL is not even a hyperlink on text, it\'s just pasted in".'
     ),
     (
         "A decision only he can make is a card from you within a minute: 2 to 4 options with your recommendation first."
