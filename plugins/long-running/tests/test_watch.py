@@ -4963,8 +4963,8 @@ def test_a_full_cap_gives_turns_to_the_workstream_he_moved_last_and_pauses_the_o
     assert place.positions(state.load(demo)) == {"j11": "1 of 2 in line", "j10": "2 of 2 in line, Iris / Run page paused behind Iris / Search until a slot frees"}
 
 
-def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_the_earliest_due_once_as_each_slot_opens_while_old_held_work_holds_none(
-    demo: str, monkeypatch: pytest.MonkeyPatch
+def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_the_watch_frees_the_earliest_as_a_slot_opens_and_the_work_queue_then_starts_each_while_old_held_work_holds_none(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     serve(monkeypatch, {})
     monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: None if job.get("agent") else REAL_LOCAL_GAP(job_id, job, data, moment))
@@ -4980,7 +4980,8 @@ def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_
         data["orders"]["o2"] = order(text="fix the card", jobs=["j10"], parts={"fix the card": state.new_part()}, **{"class": "process"})
         data["orders"]["o3"] = order(text="fix the watch", jobs=["j11"], parts={"fix the watch": state.new_part()}, **{"class": "process"})
         for job_id, order_id, added in (("j9", "o1", 10), ("j10", "o2", 20), ("j11", "o3", 30)):
-            data["jobs"][job_id] = job(order=order_id, parts=list(data["orders"][order_id]["parts"]), session="session-under-test", created=state.stamp(T0 - timedelta(minutes=added)), updated=state.stamp(T0 - timedelta(minutes=10)))
+            (brief := tmp_path / f"{job_id}.md").write_text("Goal: ship\n")
+            data["jobs"][job_id] = job(brief=str(brief), order=order_id, parts=list(data["orders"][order_id]["parts"]), session="session-under-test", created=state.stamp(T0 - timedelta(minutes=added)), updated=state.stamp(T0 - timedelta(minutes=10)))
             place.queue(data["jobs"][job_id], T0 - timedelta(minutes=10))
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
@@ -4989,19 +4990,13 @@ def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_
     with edit(demo) as data:
         data["jobs"]["j2"]["state"] = "done"
     freed = T0 + timedelta(minutes=33)
-    assert watch.run_pass(watching, freed) == ["FREE j11 o3: its turn came as a builder slot opened on this Mac, 7 of its 8 held, nothing else holds it"]
+    assert watch.run_pass(watching, freed) == []
     data = state.load(demo)
     assert {field: data["jobs"]["j11"][field] for field in ("state", "waits", "agent", "slot")} == {"state": "waiting", "waits": [], "agent": None, "slot": state.stamp(freed)}
     assert place.turns(data, freed) == ([], place.LOCAL_BUILDERS)
     assert "j12" not in place.local_builders(data, freed)
-    assert watch.run_pass(watching, T0 + timedelta(minutes=35)) == []
-    with edit(demo) as data:
-        data["jobs"]["j11"].update(state="running", agent="a11")
-    assert watch.run_pass(watching, T0 + timedelta(minutes=37)) == []
-    with edit(demo) as data:
-        data["jobs"]["j3"]["state"] = "done"
-    assert watch.run_pass(watching, T0 + timedelta(minutes=39)) == ["FREE j10 o2: its turn came as a builder slot opened on this Mac, 7 of its 8 held, nothing else holds it"]
-    assert place.waiting_builders(state.load(demo)) == ["j9"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=35)) == [f"WORK j{number} records a build worker on a Sprite, its first group claimed" for number in (13, 14, 15)]
+    assert (place.waiting_builders(state.load(demo)), watch.run_pass(watching, T0 + timedelta(minutes=37))) == ([], [])
 
 
 def test_a_staging_test_whose_freeze_gave_way_to_a_staging_release_for_production_is_told_once_to_rerun_its_slots_lease_starting_again(

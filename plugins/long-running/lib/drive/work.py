@@ -718,11 +718,11 @@ def room(data: dict, kind: Kind, where: str, moment: datetime) -> int:
 
 
 def spawned(data: dict, moment: datetime, kinds: list[Kind]) -> tuple[list[str], list[list[str]]]:
-    """The spawner's write: first each item still holding a builder-slot turn drops it, since the queue's caps place it now, and each worker recorded STALL_AFTER ago that no start took fails, so the items it claimed go back; then for each of these kinds and each pool, workers recorded while it wants one and room, read again for each one with the workers this pass recorded counted, lets one start, each claiming its first group, or for a kind whose item is its own run, a codex job's, the head item stamped launching and started by drive job launch, so ready items no worker holds start as fast as the caps allow and an urgent head's priority room starts no item behind it; the lines saying so and the workers to start."""
+    """The spawner's write: first each item still holding a builder-slot turn drops it, since the queue's caps place it now, one no agent or lane took reading not started again in place of place.queue's slot line, so the watch reads it as the queue's unstarted item and never an orphan, and each worker recorded STALL_AFTER ago that no start took fails, so the items it claimed go back; then for each of these kinds and each pool, workers recorded while it wants one and room, read again for each one with the workers this pass recorded counted, lets one start, each claiming its first group, or for a kind whose item is its own run, a codex job's, the head item stamped launching and started by drive job launch, so ready items no worker holds start as fast as the caps allow and an urgent head's priority room starts no item behind it; the lines saying so and the workers to start."""
     lines, starts = [], []
     for job_id, job in data["jobs"].items():
         if item_of(data, job) and state.SLOT_WAIT in job["waits"]:
-            job.update(waits=[wait for wait in job["waits"] if wait != state.SLOT_WAIT], slot=None)
+            job.update(waits=[wait for wait in job["waits"] if wait != state.SLOT_WAIT], slot=None, **({"said": state.NOT_STARTED} if untaken(job) else {}))
         if worker(job) and job["state"] not in state.FINISHED_JOB_STATES and untaken(job) and not watch.launching(job, moment) and moment - state.parse_time(job["created"]) >= STALL_AFTER:
             job.update(state="failed", said=f"not started: no drive work start took it in {int(STALL_AFTER.total_seconds() // 60)} minutes", updated=state.stamp(moment))
             lines.append(f"WORK {job_id} failed: no start took it, so its claims go back to the queue")
