@@ -20,7 +20,7 @@ import role_rules
 import scratch_folder
 import session_start
 from conftest import QUEUE_REASON, EnvsRelease, HomeRelease, HomeRepo, provide, ACME_CUT, ANSWERED_CUT, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess, own_time, unreserved, edit
-from drive import agents, brief, cli, gate, github, land, limits, orca, place, render, settled, slack, state, watch
+from drive import agents, brief, cli, gate, github, land, limits, orca, owing, place, render, settled, slack, state, watch
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -1531,7 +1531,48 @@ def test_a_staging_release_for_production_starts_at_once_through_a_staging_slot_
     assert (data["slots"]["plat-usw2-staging"]["holder"]["job"], data["jobs"]["j2"]["train"]) == ("j1", None)
 
 
-MANUAL_START = "tools/ci release start --stack sandsql/plat-usw2-sandbox --commit b79714bb452c562078e4446680106140f721e8ed --manual --emergency --order 5419ffd"
+def test_a_release_leaving_out_an_ask_it_names_is_refused_once_and_its_repeat_starts_keeping_each_ask_and_owing_a_deliver_item_for_the_one_left_out(
+    demo: str,
+    run: Run,
+    no_calls: list[list[str]],
+    recorded: Answers,
+    jev: Jev,
+    release_starts: list[list[str]],
+    release_posts: list[list[str]],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    run(
+        "order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the clock, and ring the alarm",
+        "--parts", "clock", "alarm", "--ask", "clock", "release the clock", "--ask", "alarm", "ring the alarm",
+    )
+    run("job", "add", "builder", "--order", "o1", "--part", "clock", "--goal", "build the clock")
+    with edit(demo) as data:
+        data["prs"]["Forge-AI/monorepo#1"] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/1", None, "o1") | {"parts": ["clock"], "state": "merged", "merged_sha": "a" * 40}
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"releases": ["platform"]} for key in keys})
+    released(demo, f"echo '{STARTED}'")
+    recorded.shown = {CLOCK_PICK["id"][:7]: CLOCK_PICK}
+    jev.picks("5419ffd")
+    add = ["job", "add", "builder", "--order", "o1", "--part", "clock", "--goal", "release the merged clock", "--release", J2666_START, "--asks", "a1", "a2"]
+    carried, missed = 'a1 on o1, "release the clock": Forge-AI/monorepo#1', 'a2 on o1, "ring the alarm": no PR delivers it yet'
+    why = brief.ASK_UNCARRIED.format(missed=missed)
+    assert cli.main(add) == 2
+    assert capsys.readouterr().err.strip().splitlines()[-1] == f"drive: refused, no job added: {gate.refusal([why])}"
+    assert "j2" not in state.load(demo)["jobs"]
+    assert run(*add)[1].splitlines()[:4] == ["j2", f"j2 carries his ask {carried}", f"j2 leaves out his ask {missed}: an owed deliver item tracks it", starting(demo, "j2", J2666_START)]
+    data = state.load(demo)
+    assert data["jobs"]["j2"]["release_pass"]["asks"] == {"a1": {"carried": True, "why": carried}, "a2": {"carried": False, "why": missed}}
+    [owed] = [item for item in data["orders"]["o1"]["owed"] if item["kind"] == owing.DELIVER]
+    assert (owed["done_when"], owed["job"], owed["what"], owed["closed"]) == ({"ask": "a2"}, "j2", f"his ask a2, which release job j2 left out: {missed}", None)
+    told = [post for post in release_posts if "release-o1" in post]
+    assert [(posted_to(post), post[post.index("--kind") + 1], post[-1]) for post in told] == [
+        (["communicator@demo"], "handoff", f"RELEASE o1: `{J2666_START}` {said}: {why}. Tell him in the order's thread, before it starts, which of his asks it leaves out and why, naming each by his words")
+        for said in ("was refused once", "starts now, as a repeat")
+    ]
+    assert release_starts == [["job", "release", "j2", "--session", os.environ["CLAUDE_CODE_SESSION_ID"]]]
+
+
+MANUAL_START ="tools/ci release start --stack sandsql/plat-usw2-sandbox --commit b79714bb452c562078e4446680106140f721e8ed --manual --emergency --order 5419ffd"
 MANUAL_BUILD = "https://buildkite.com/forge/release/builds/16621"
 MANUAL_SAID = (
     "release #16620 cuts the deploy branch: https://buildkite.com/forge/release/builds/16620",
