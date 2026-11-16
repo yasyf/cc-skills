@@ -216,8 +216,8 @@ def ordered(name: str, count: int) -> Path:
     return state.database_path(name)
 
 
-@pytest.mark.parametrize("collection", ["", "answers"])
-def test_a_row_save_indexes_only_written_collections_and_keeps_insertion_order(state_root: Path, collection: str) -> None:
+@pytest.mark.parametrize(("collection", "count"), [("", 0), ("answers", 1), ("answers", 2)])
+def test_a_row_save_indexes_only_written_collections_and_keeps_insertion_order(state_root: Path, collection: str, count: int) -> None:
     make("demo")
     base = state.load("demo")
     mine = dict(base)
@@ -234,17 +234,18 @@ def test_a_row_save_indexes_only_written_collections_and_keeps_insertion_order(s
         records = Records(base[field])
         records.collection = field
         mine[field] = records
+    keys = ("a9", "a2")[:count]
     if collection:
-        mine[collection].update({"a9": {"text": "first"}, "a2": {"text": "second"}})
-        held = {(collection, key): state.ABSENT for key in ("a2", "a9")}
+        mine[collection].update({key: {"text": key} for key in keys})
+        held = {(collection, key): state.ABSENT for key in reversed(keys)}
     else:
         mine["terminal"] = "the new terminal"
         held = {("", "terminal"): state.row_of(state.stored("demo"), ("", "terminal"))}
     state.rows_saved("demo", held, base, mine, tuple(held))
-    assert traversed == ([collection] if collection else [])
+    assert traversed == ([collection] if count > 1 else [])
     with closing(state.connect(state.database_path("demo"))) as db:
         if collection:
-            assert db.execute("SELECT key FROM rows WHERE collection = ? ORDER BY place", (collection,)).fetchall() == [("a9",), ("a2",)]
+            assert db.execute("SELECT key FROM rows WHERE collection = ? ORDER BY place", (collection,)).fetchall() == [(key,) for key in keys]
         else:
             assert json.loads(db.execute("SELECT body FROM rows WHERE collection = '' AND key = 'terminal'").fetchone()[0]) == "the new terminal"
 
