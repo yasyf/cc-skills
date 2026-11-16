@@ -140,19 +140,17 @@ def record(data: dict, answer_id: str, words: str, link: str, asked: dict[str, d
         )
     }
     touched = orders | {asked[key]["order"] for key in cards if asked[key]["order"]}
-    kept = data["answers"][answer_id] = {
-        "words": words,
-        "link": link,
-        "at": moment,
-        "said": moment,
-        "cards": cards,
-        "jobs": {
+    kept = data["answers"][answer_id] = state.new_answer(
+        words,
+        link,
+        moment,
+        cards,
+        {
             job_id: None
             for job_id, job in data["jobs"].items()
             if job["state"] == "waiting" and touched & {job["order"], *job["carries"]} or job_id in drawn and job["kind"] == "builder" and job["state"] == "running" or job_id in tapped
         },
-        "approves": None,
-    }
+    )
     if drive:
         tooling_only(data, kept, asked)
     hear_answer(data, answer_id, list(kept["jobs"]))

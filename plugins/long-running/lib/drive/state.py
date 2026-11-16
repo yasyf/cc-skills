@@ -1566,8 +1566,17 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
 
 
 def fill_rows(data: dict) -> None:
-    """Give each saved order, part, job and PR every field new_order, new_part, new_job and new_pr give a new one, at the value they give it, so a reader indexing a field an install added after the row was saved, as fix_live was, reads that value rather than raising KeyError."""
-    blanks = {"orders": new_order("", "", None, {}, ""), "jobs": new_job("", JOB_KINDS[0], "", [], ""), "prs": new_pr("https://github.com/o/r/pull/1", "", "")}
+    """Give each saved order, part, job, PR, answer, stall and staging slot every field its constructor gives a new one, new_order, new_part, new_job, new_pr, new_answer, stall.aged and new_slot, at the value it gives it, so a reader indexing a field an install added after the row was saved, as fix_live was, reads that value rather than raising KeyError."""
+    from drive import stall
+
+    blanks = {
+        "orders": new_order("", "", None, {}, ""),
+        "jobs": new_job("", JOB_KINDS[0], "", [], ""),
+        "prs": new_pr("https://github.com/o/r/pull/1", "", ""),
+        "answers": new_answer("", None, "", {}, {}),
+        "stalls": stall.aged(None, "", False, now()),
+        "slots": new_slot(),
+    }
     part = new_part()
     for collection, blank in blanks.items():
         for row in data[collection].values():
@@ -4298,6 +4307,16 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "last_line": None,
         "owed": [],
     }
+
+
+def new_slot() -> dict:
+    """A staging env's slot, held by no job."""
+    return {"holder": None}
+
+
+def new_answer(words: str, link: str | None, moment: str, cards: dict, jobs: dict) -> dict:
+    """His answer to the cards it settles, told to each job in jobs once it reads it."""
+    return {"words": words, "link": link, "at": moment, "said": moment, "cards": cards, "jobs": jobs, "approves": None}
 
 
 def new_part() -> dict:
@@ -7364,7 +7383,7 @@ def packed(ready: list[dict], most: int) -> tuple[dict, list[dict]]:
 
 def slot_release(data: dict, env: str, job_id: str) -> str:
     """Take the job off a staging env's cut, its head or an item packed into it; the env frees once no item of its cut still runs, by slot_ends; the line saying which, refused for a job the cut does not hold."""
-    slot = data["slots"].get(env) or {"holder": None}
+    slot = data["slots"].get(env) or new_slot()
     if (held := slot["holder"]) and held["job"] == job_id:
         held["released"] = True
         if not held["riders"]:
@@ -7380,7 +7399,7 @@ def slot_release(data: dict, env: str, job_id: str) -> str:
 
 def train_waiting(data: dict, env: str) -> list[str]:
     """The releases waiting for an env a cut holds, the release train, which goes before any new cut: each unfinished job drive job add --release marked for the env whose release has not started and that holds no lease on it and no cut its lease set aside, by class, an incident's then one he asked for, by class_rank, then his priority's, by jumps_queue, then the oldest."""
-    slot = data["slots"].get(env) or {"holder": None}
+    slot = data["slots"].get(env) or new_slot()
     held = {*slot_members(slot), *slot_members({"holder": (slot["holder"] or {}).get("preempted")})}
     waiting = [job_id for job_id, job in data["jobs"].items() if job.get("train") == env and job["state"] not in FINISHED_JOB_STATES and not job.get("release_build") and job_id not in held]
     return sorted(waiting, key=lambda job_id: (class_rank(data, data["jobs"][job_id]), not jumps_queue(data, job_id), parse_time(data["jobs"][job_id]["created"])))
@@ -7390,7 +7409,7 @@ def train_lease(data: dict, env: str, job_id: str, moment: datetime) -> bool:
     """Give a release starting on an env its lease now when no cut or release holds the env and no release waits ahead of it, else mark it waiting there, so the watch starts it once the env frees, ahead of the work queue's next cut, by his ruling that the train goes first between cuts; whether it holds the env now. A release of an incident's or asked order, by order_class, takes the env from a running cut at once, since a cut is process work, by his ruling that incidents go above everything: the cut's unfinished items wait on that release, their cases counting for nothing, and the cut gets the env back when the release's lease ends, so a fresh worker reruns them from the start."""
     from drive import work
 
-    slot = data["slots"].setdefault(env, {"holder": None})
+    slot = data["slots"].setdefault(env, new_slot())
     data["jobs"][job_id]["train"] = env
     cut = slot["holder"]
     first = train_waiting(data, env)[:1] in ([], [job_id])

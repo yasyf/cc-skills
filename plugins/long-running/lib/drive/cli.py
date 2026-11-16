@@ -2571,7 +2571,7 @@ def decision(name: str, job_id: str, question: dict, words: str) -> str:
     def decision_write(data: dict):
         moment = state.stamp()
         cards = {question["waits"]: {"mark": "settled", "job": job_id, "card": question["card"]}}
-        data["answers"][decided] = {"words": words, "link": question["card"], "at": moment, "said": moment, "cards": cards, "jobs": {}, "approves": None}
+        data["answers"][decided] = state.new_answer(words, question["card"], moment, cards, {})
         return data
 
     state.write(name, decision_write, patient=True)

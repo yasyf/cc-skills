@@ -3103,12 +3103,21 @@ def test_a_cut_carries_a_pr_head_in_its_history_or_as_the_commit_a_packed_cut_na
     assert [github.carries(str(clone), cut, "42", head) for cut in (packed, other, merged)] == [True, False, True]
 
 
-@pytest.mark.parametrize("collection, key", [*(("orders", key) for key in state.new_order("", "", None, {}, "")), *(("jobs", key) for key in state.new_job("", state.JOB_KINDS[0], "", [], ""))])
+BLANK_ROWS = {
+    "orders": ("o1", state.new_order("", "", None, {}, "")),
+    "jobs": ("j1", state.new_job("", state.JOB_KINDS[0], "", [], "")),
+    "answers": ("a1", state.new_answer("go", None, "2026-11-16T10:00:00-08:00", {}, {})),
+    "slots": ("demo-staging", state.new_slot()),
+}
+
+
+@pytest.mark.parametrize("collection, key", [(collection, key) for collection, (_, blank) in BLANK_ROWS.items() for key in blank])
 def test_a_row_saved_without_a_field_its_constructor_gives_renders_through_drive_status_with_that_fields_new_value(run: Callable[..., tuple[int, str]], demo: str, collection: str, key: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Tooling", "fix the clock")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
-    row_id = {"orders": "o1", "jobs": "j1"}[collection]
+    row_id, blank = BLANK_ROWS[collection]
     with edit(demo) as data:
+        data[collection].setdefault(row_id, blank)
         del data[collection][row_id][key]
 
     code, _ = run("status", "--drive", demo)
