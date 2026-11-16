@@ -372,8 +372,10 @@ def restart_read(name: str, order_ids: list[str], words: str, link: str | None) 
 
 def fresh_marked(name: str, order_ids: list[str], words: str, link: str | None) -> list[str]:
     """Mark each order fresh on his words restarting its design, ending as withdrawn on them every card asked on its feature before them, by superseded.restart, each card following; what was done, a line each, with each card it ended."""
-    with state.edit(name) as data:
-        ended = {order_id: superseded.restart(data, order_id, words, link) for order_id in order_ids}
+    def restarted(data: dict) -> dict[str, list[tuple[str, dict]]]:
+        return {order_id: superseded.restart(data, order_id, words, link) for order_id in order_ids}
+
+    ended = state.update(name, None, restarted)
     lines = [
         f'{order_id} marked fresh on his words "{render.cut(words, 120)}": {len(each)} {"card" if len(each) == 1 else "cards"} asked on its design before them withdrawn on those words, so its design asks again in the new architecture\'s terms'
         for order_id, each in ended.items()
