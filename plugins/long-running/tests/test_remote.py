@@ -8946,3 +8946,24 @@ def test_a_disk_check_records_dead_a_lane_whose_sprite_answers_no_command_at_two
         f"j1: its Sprite pool-one answered no command in {orca.EXEC_PROBE_SECONDS} s at 2 disk checks in a row, so its lane is recorded dead and the watch relaunches it on a fresh Sprite",
     )
     assert state.lane_death(state.load(remote)["jobs"]["j1"], "dispatch")["lane_end"]["unfit"] is True
+
+
+def test_a_sprite_a_job_end_kept_goes_back_once_no_worker_was_on_it_for_thirty_minutes_and_a_fresher_one_stays(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspaces = tmp_path / "cc-remote-workspaces"
+    workspaces.mkdir()
+    monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
+    with state.edit(remote) as data:
+        for job_id, minutes in (("j1", 31), ("j2", 10)):
+            job = data["jobs"].setdefault(job_id, copy.deepcopy(data["jobs"]["j1"]))
+            dispatch, workspace = f"ctx_{job_id}", f"pool-{job_id}"
+            (workspaces / f"{workspace}.json").write_text("{}")
+            ended = {"pid": 1, "at": state.stamp(state.now() - timedelta(minutes=minutes)), "kept": True}
+            job.update(state="waiting", where="remote", dispatch=dispatch, workspace=workspace, deaths=[{"dispatch": dispatch, "workspace": workspace, "why": "ended by drive job end", "at": ended["at"], "ended": ended}])
+    released = []
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root, unverified=False: released.append(job["workspace"]) or f"destroyed {job['workspace']}")
+    assert cli.release_idle_kept(remote, tmp_path) == ["destroyed pool-j1"]
+    assert released == ["pool-j1"]
+    data = state.load(remote)
+    assert [state.lane_death(data["jobs"][job_id], "dispatch")["ended"]["kept"] for job_id in ("j1", "j2")] == [False, True]

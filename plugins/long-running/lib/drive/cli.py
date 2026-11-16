@@ -29,6 +29,7 @@ ROLE_NAMES = {"coordinator": "top coordinator", "communicator": "communicator", 
 FREEZE_FOR = timedelta(hours=12)
 JUDGED_LATER = "The drive kept the report you sent with drive job report {job} -, then its check refused it: {refused}. Fix what it names and send drive job report {job} - again; your newest report is the one that stands."
 KEPT_SPRITE_CAP = 60
+KEPT_IDLE = timedelta(minutes=30)
 UNPUSHED_WORDS = re.compile(r"\b(unpushed|not pushed|on no remote|uncommitted)\b", re.IGNORECASE)
 OWED = "owed, send it now:"
 SLACK_PERMALINK = re.compile(r"https://[^\s/]+\.slack\.com/archives/[^\s)>|]+")
@@ -5178,6 +5179,28 @@ def end_lane(name: str, job_id: str) -> tuple[str, dict]:
     return "\n".join(filter(None, [reclaimed, released, line, *evicted])), {"id": job_id, "reclaim": reclaimed, "released": released, "evicted": evicted, "state": ended["state"], "saved": saved, "branches": branches}
 
 
+def release_idle_kept(name: str, root: Path) -> list[str]:
+    """Save and destroy, by release_sprite under each job's own lock, every Sprite a drive job end kept for its job's next lane once KEPT_IDLE has passed with no worker on it, by his ruling that a waiting job holds no machine and an idle one goes back soon, so that job's next lane starts fresh and resumes its session from the transcript kept here; a job whose lock another verb holds is passed over until the next check. A line for each one freed or kept by a refusal."""
+    data = state.load(name)
+    idle = [job_id for job_id, job in data["jobs"].items() if (death := state.lane_death(job, "dispatch")) and (death.get("ended") or {}).get("kept") and orca.holds_sprite(job) and state.now() - state.parse_time(death["ended"]["at"]) >= KEPT_IDLE]
+    lines = []
+    for job_id in idle:
+        try:
+            with state.job_locked(name, job_id, 0):
+                job = state.load(name)["jobs"][job_id]
+                if not ((state.lane_death(job, "dispatch") or {}).get("ended") or {}).get("kept"):
+                    continue
+                lines.append(release_sprite(name, job_id, job, root) or f"{job_id}'s kept Sprite {job['workspace']} was already gone")
+
+                def unkept(data: dict) -> None:
+                    state.lane_death(data["jobs"][job_id], "dispatch")["ended"]["kept"] = False
+
+                state.write(name, unkept)
+        except DriveError:
+            continue
+    return lines
+
+
 def evict_kept(name: str, job_id: str, root: Path) -> list[str]:
     """Destroy, by release_sprite under each one's own lock, the Sprites a drive job end kept for a job's next lane past the newest KEPT_SPRITE_CAP of them, oldest end first, never the job given, whose end kept one just now, and passing over a job whose lock another verb holds, as a relaunch resuming on its kept Sprite does; a line for each one destroyed or kept by a refusal."""
     data = state.load(name)
@@ -7196,6 +7219,7 @@ def disks_check(args: argparse.Namespace) -> int:
             why = f"its Sprite {workspace} answered no command in {orca.EXEC_PROBE_SECONDS} s at {missed[workspace]} disk checks in a row"
             orca.died(name, job_id, job["dispatch"], orca.LaneEnd(why, job.get("branch"), None, unfit=True))
         lines.append(f"{job_id}: {why}, so its lane is recorded dead and the watch relaunches it on a fresh Sprite")
+    lines += release_idle_kept(name, root)
     return emit(args, "\n".join(lines) or f"no disk of the {len(reads)} Sprites read of {len(lanes)} is wedged", {"read": len(reads), "lanes": len(lanes), "wedged": wedged, "silent": silent})
 
 
