@@ -523,6 +523,7 @@ def test_say_posts_words_that_a_freeze_or_hold_ended_while_others_and_his_hold_s
         raise reads.ReadError("ci release: ci release runs no freezes")
 
     monkeypatch.setattr(brief, "freezes", unread)
+    (state.drive_dir(demo) / talk.SAID_FILE).unlink()
     talk.say(demo, {"text": ended})
     assert [argv[-1] for argv in posts] == [ended, ended]
 
@@ -718,7 +719,7 @@ def test_a_report_folds_in_the_unposted_reports_sent_before_it_to_its_thread_and
     link = f"https://acme.slack.com/archives/C1/p1794858000000100?thread_ts={thread}&cid=C1"
     spoken: list[dict] = []
 
-    def posting(name: str, post: dict, known: dict, recorded_first: bool = False) -> str:
+    def posting(name: str, post: dict, known: dict, recorded_first: bool = False, beside: bool = False) -> str:
         spoken.append(post)
         with edit(name) as data:
             data["carried"][post["record"]] = link
@@ -781,7 +782,7 @@ def test_a_report_post_calling_an_event_unexplained_gets_the_records_beside_it_a
     monkeypatch.setattr(answer, "ask", lambda facts, prompt, rules, tag: asked.append(facts) or (json.dumps({"text": "The kubelet killed staging's writer pod at 10:58 AM; the cause is unread.", "place": "thread"}), None))
     monkeypatch.setattr(slack, "homes", lambda data: {"C1"})
     monkeypatch.setattr(slack, "post_findings", lambda text, draws_card, asked="": [])
-    monkeypatch.setattr(talk, "spoken", lambda name, post, known, recorded_first=False: "POSTED https://acme.slack.com/archives/C1/p1")
+    monkeypatch.setattr(talk, "spoken", lambda name, post, known, recorded_first=False, beside=False: "POSTED https://acme.slack.com/archives/C1/p1")
     jev.ruled = {"craft": ("unexplained", 0.9)}
     with pytest.raises(DriveError, match="refused once: its post calls an event unexplained.*735744"):
         talk.report_line(demo, "736258")
@@ -929,7 +930,7 @@ def test_a_report_post_may_link_what_the_reports_references_draw_but_no_other_li
     monkeypatch.setattr(slack, "homes", lambda data: {"C1"})
     monkeypatch.setattr(slack, "post_findings", lambda text, draws_card, asked="": [])
     monkeypatch.setattr(view, "live_cards", lambda name: None)
-    monkeypatch.setattr(talk, "spoken", lambda name, post, known, recorded_first=False: f"POSTED {post['text']}")
+    monkeypatch.setattr(talk, "spoken", lambda name, post, known, recorded_first=False, beside=False: f"POSTED {post['text']}")
     for link, refused in ((pull, False), ("https://github.com/yasyf/cc-skills/pull/9999", True)):
         monkeypatch.setattr(answer, "ask", lambda facts, prompt, rules, tag, link=link: (json.dumps({"text": f"<{link}|Required staging cases> now gate every cut.", "place": "root"}), None))
         if refused:
@@ -1254,7 +1255,7 @@ def test_a_post_on_an_order_goes_out_in_any_thread_and_a_thread_the_order_holds_
         line = f"{posted}?thread_ts={thread}" if thread else posted
         monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": line, "thread_ts": thread})
         report(monkeypatch, {"order": order})
-        return talk.say(demo, {"text": "The copy stalls on the lock.", "thread_ts": thread, "record": str(683594 + len(slack_thread.messages))}).removeprefix(f"POSTED {line}; {order} progress line, no part delivered: {line}")
+        return talk.say(demo, {"text": f"The copy stalls on the lock for {order}.", "thread_ts": thread, "record": str(683594 + len(slack_thread.messages))}).removeprefix(f"POSTED {line}; {order} progress line, no part delivered: {line}")
 
     assert [say(thread, order) for thread, order in [("1794300000.000100", "o1"), ("1794200000.000100", "o2"), (None, "o3")]] == ["", "", ""]
     assert say("1794400000.000100", "o1") == ", in thread 1794400000.000100, now one of its threads"
@@ -1306,7 +1307,7 @@ def test_a_reply_goes_on_the_order_of_the_record_of_his_words_it_carries_deliver
     lined = state.stamp(slack.sent_at(slack.posted(answer, "")))
     assert (data["orders"]["o1"]["last_line"] is not None, data["orders"]["o2"]["last_line"], data["orders"]["o1"]["parts"]["leave it frozen"]["posted"]) == (True, lined, None)
     assert said(demo)[-1]["order"] == "o1"
-    assert talk.say(demo, post) == f"POSTED {answer}"
+    assert talk.say(demo, post | {"text": "The release stays frozen."}) == f"POSTED {answer}"
     assert (said(demo)[-1]["order"], state.load(demo)["orders"]["o2"]["last_line"], unrecorded) == (None, lined, [])
 
 

@@ -213,7 +213,7 @@ def order(**overrides: object) -> dict:
 
 
 def job(**overrides: object) -> dict:
-    base = {"order": "o1", "kind": "builder", "goal": "watch", "prs": [], "branch": None, "waits": [], "questions": [], "state": "running", "said": None, "created": state.stamp(T0), "updated": state.stamp(T0), "cut_misses": {}, "watch_said": []}
+    base = {"order": "o1", "kind": "builder", "goal": "watch", "prs": [], "branch": None, "waits": [], "questions": [], "state": "running", "said": None, "created": state.stamp(T0), "updated": state.stamp(T0), "cut_misses": {}, "watch_said": [], "undelivered": []}
     return {**base, **overrides}
 
 
@@ -2887,7 +2887,7 @@ def test_a_text_held_on_a_builder_that_returned_done_drops_but_his_words_and_one
         data["jobs"]["j1"].update(agent="agent-j1", where="local", session="session-under-test", undelivered=[meta, his])
         state.take_result(data, "j1", "DONE shipped the narrower fix")
         assert [kept["seq"] for kept in data["jobs"]["j1"]["undelivered"]] == ["735800"]
-        data["jobs"]["j1"].update(state="waiting", said="WAITING https://github.com/acme/widgets/pull/1 to merge: DONE shipped the narrower fix", undelivered=[meta])
+        data["jobs"]["j1"].update(state="waiting", said="WAITING https://github.com/acme/widgets/pull/1 to merge: DONE shipped the narrower fix", waits=[], undelivered=[meta])
         lane = state.holding_lane(data, data["orders"]["o1"])
     assert watch.undelivered_lines(watcher(demo), T0 + timedelta(minutes=10)) == [
         f'ANSWER undelivered j1: "release your claim on it", held at {render.when(state.stamp(T0))}, has not reached j1; the watch sends it to a worker that'
