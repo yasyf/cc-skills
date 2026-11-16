@@ -89,7 +89,7 @@ HEARD_LINES = 8
 NAMED = re.compile(r"\b[oj]\d+\b")
 LINK_LABEL = str.maketrans({"[": "(", "]": ")", "|": "/"})
 TAP_CLAIM = re.compile(
-    r"(?<!not )(?<!n't )(?<!never )\b(?:wait\w*|await\w*|needs?|owed?|pending|blocked|holds|holding)\b(?:(?!\b(?:no|not|never|without)\b)[^.!?\n]){0,40}?\b(?:tap|approv(?:e|al))\b",
+    r"(?<!not )(?<!n't )(?<!never )\b(?:wait\w*|await\w*|needs?|owed?|pending|blocked|holds|holding)\b(?:(?!\b(?:no|not|never|without)\b)[^.!?\n]){0,40}?\b(?:tap|(?:his|your) approv(?:e|al))\b",
     re.IGNORECASE,
 )
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n")
