@@ -798,6 +798,22 @@ def mid_incident(found: list[list[str]]) -> str | None:
     return None
 
 
+def mid_answer(found: list[list[str]]) -> str | None:
+    """Why a command ending a communicator's session must not run now: its Claude Code process is mid-turn, or a message of his from the last ten minutes waits for its answer, the check `drive reload` waits out before it types anything, so no lane cuts an answer to him short."""
+    for words in found:
+        if not (owner := ended_role(words)) or not owner[1].startswith("communicator"):
+            continue
+        data, role = owner
+        held = state.bound_sessions(data)[role]
+        status = install.session_status(pid, held["session"]) if (pid := orca.live_pid(held["session"])) else None
+        if status not in (None, "idle") or state.answering(data["owed_replies"], state.now()):
+            return (
+                f"refused: the {role} of {data['name']} is mid-answer to him, its turn running or a message of his from the last ten minutes"
+                f" unanswered; `drive reload --drive {data['name']}` reloads it once it is idle with nothing owed, and no /exit is needed for new code"
+            )
+    return None
+
+
 def deny_reason(payload: dict) -> str | None:
     """Why a drive session's or drive agent's call must not run: it, or an Orca lane's, reads or writes a team's bucket, blobs or SandSQL databases where it runs, it reads Datadog through `pup` rather than the Datadog MCP, a designer pushes, a builder, on this Mac or a Sprite, opens its PR while his open cards hold its job, a read takes a stale version's cached skill page, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident, a call retries past a failing check or reruns a build, job or run that did not pass, or a watchdog agent runs anything but its reads and two acts or reruns one that did not fail; why any session's call restarts the hook helper he never approved on a card; and why Claude Code's permission prompt on a drive agent's or an Orca lane's call to any tool gets a refusal rather than an answer nobody gives."""
     call = payload["tool_input"]
@@ -810,6 +826,8 @@ def deny_reason(payload: dict) -> str | None:
         return cached_page(call.get("file_path") or call.get("path") or "") if drives else None
     found = commands(runnable(call["command"]))
     cwd = payload.get("cwd") or os.getcwd()
+    if busy := mid_answer(found + [words for inner in terminal_scripts(found) for words in inner]):
+        return busy
     if os.environ.get(state.WATCHDOG_ENV):
         return watchdog_call(found) or reran(found, cwd, watchdog=True)
     if (drives or kind.startswith(AGENTS) or os.environ.get(state.REMOTE_LANE_ENV)) and (touched := team_data(call["command"], cwd)):
