@@ -5462,6 +5462,23 @@ def test_an_answer_order_is_one_readers_and_a_build_orders_builder_starts_on_its
         assert run("job", "add", "builder", "--order", order_id, "--goal", "fix it", *part)[0] == 0
 
 
+def test_a_builders_ready_summary_reaches_the_next_parts_builder_brief_cut_at_fifteen_lines(
+    run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy two stores", "--kind", "build", "--parts", "first store", "second store")
+    run("job", "add", "builder", "--order", "o1", "--part", "first store", "--goal", "copy the first store")
+    run("job", "add", "builder", "--order", "o1", "--part", "second store", "--goal", "copy the second store")
+    touched = [f"touched lib/store{n}.py" for n in range(20)]
+    ready = "\n".join(["READY https://github.com/yasyf/cc-skills/pull/1", "SUMMARY: copy goes through one writer", *touched, "", "CHANGE: one store copies"])
+    assert state.summary(ready) == ["copy goes through one writer", *touched[:14]]
+    assert state.summary("READY https://github.com/yasyf/cc-skills/pull/1\nSUMMARY:\nkept the old reader\nCHANGE: x") == ["kept the old reader"]
+    assert state.summary("READY https://github.com/yasyf/cc-skills/pull/1\nCHANGE: x") == []
+    monkeypatch.setattr(state, "returns", lambda name, job_id: [{"body": ready}] if job_id == "j1" else [])
+    data = state.load("demo")
+    assert cli.earlier_parts("demo", data, "j2") == ["j1 on 'first store':" + "".join(f"\n  {line}" for line in state.summary(ready))]
+    assert cli.earlier_parts("demo", data, "j1") == []
+
+
 def test_a_reader_pilot_orders_builder_starts_with_no_research_while_a_complex_designed_or_other_projects_order_keeps_its_reader(
     run: Run, communicator: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -5472,6 +5489,8 @@ def test_a_reader_pilot_orders_builder_starts_with_no_research_while_a_complex_d
     assert cli.main(["order", "pilot", "Nowhere"]) == 2
     assert "'Nowhere' names no project an order is filed under" in capsys.readouterr().err
     assert run("order", "pilot", "The drive", "--days", "1")[1].startswith("reader pilot on The drive from ")
+    with state.edit("demo") as data:
+        data["reader_pilot"]["since"] = state.stamp(state.now() - timedelta(minutes=1))
     run("order", "add", *drive, "copy two stores")
     run("order", "add", *drive, "copy three stores", "--complex")
     run("order", "add", *iris, "copy two chats")

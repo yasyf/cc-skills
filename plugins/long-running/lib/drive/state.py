@@ -92,6 +92,9 @@ POSTED_LINE = re.compile(r"POSTED (?P<link>https://[^\s;]+)")
 REPORTED_LINE = re.compile(r"(?:READY|PUSHED)\b")
 REPRO = re.compile(r"^REPRO:[ \t]*(?P<path>\S+?)(?=[,;:.]?(?:\s|$))", re.MULTILINE)
 REPORT_CHANGE = re.compile(r"^CHANGE:[ \t]*(?P<change>.+?)[ \t]*$", re.MULTILINE)
+SUMMARY_LINE = re.compile(r"^SUMMARY:[ \t]*(?P<first>.*)$", re.MULTILINE)
+REPORT_LINE = re.compile(r"^(?:[A-Z][A-Z ]*|Mac):|^(?:READY|PUSHED|DONE|BUILT|WAITING|BLOCKED|ASK|DESIGN|FIX)\b")
+SUMMARY_LINES = 15
 LISTED_CHANGE = r"[ \t]*(?P<change>.+?)(?:[ \t]*\(waits on (?P<waits>[^()]*)\))?[ \t]*$"
 CHANGE_LINE = re.compile(rf"^Change:{LISTED_CHANGE}", re.MULTILINE)
 NO_CHANGE = re.compile(r"[ \t]*(?i:none|nothing|n/a|nil)\b")
@@ -615,6 +618,18 @@ def pin_interpreter(path: Path) -> None:
     fresh.write_bytes(pinned)
     fresh.chmod(path.stat().st_mode & 0o7777)
     fresh.replace(path)
+
+
+def summary(report: str) -> list[str]:
+    """The SUMMARY: block of a builder's return, its first line's words and each line under it up to the next return line or a blank line, at most SUMMARY_LINES of them: the files it touched, its decisions and its open ends, which the brief of the next builder on its order carries."""
+    if not (found := SUMMARY_LINE.search(report)):
+        return []
+    lines = [found["first"].strip()] if found["first"].strip() else []
+    for line in report[found.end() :].splitlines()[1:]:
+        if not line.strip() or REPORT_LINE.match(line):
+            break
+        lines.append(line.strip())
+    return lines[:SUMMARY_LINES]
 
 
 def returns(name: str, job_id: str) -> list[dict]:
