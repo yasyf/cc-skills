@@ -1005,6 +1005,21 @@ def run_watch(name: str, monkeypatch: pytest.MonkeyPatch, project: str | None = 
         watch.main(name, project)
 
 
+def test_a_watch_that_ends_ends_its_responder_last_so_lanes_get_readers_while_the_relay_and_landing_loop_end(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    ended: list[str] = []
+
+    def spawn(watcher: watch.Watcher, flag: str, lines: int, project: str | None = None) -> subprocess.Popen:
+        child = subprocess.Popen(["sleep", "3600"], pass_fds=(lines,))
+        real = child.terminate
+        monkeypatch.setattr(child, "terminate", lambda: ended.append(flag) or real())
+        return child
+
+    monkeypatch.setattr(watch, "spawn", spawn)
+    with watch.relaying(watcher(demo)):
+        pass
+    assert ended == ["--relay", "--land", "--respond"]
+
+
 def test_a_watch_that_stops_ends_its_relay_process_before_it_returns(demo: str, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess) -> None:
     serve(monkeypatch, {})
     posts(monkeypatch)

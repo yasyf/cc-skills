@@ -32,6 +32,7 @@ POLL_SECONDS = 5
 RELAY_SECONDS = 2
 RESPOND_SECONDS = 1
 RELAY_JOIN_SECONDS = 10
+RESPONDER = "--respond"
 READ_EVERY = timedelta(seconds=60)
 SETTLED_READ_EVERY = timedelta(minutes=10)
 PASS_FOR = timedelta(minutes=5)
@@ -1743,9 +1744,8 @@ def relaying(watcher: Watcher) -> Iterator[Callable[[str], None]]:
     finally:
         with guard:
             ending.set()
-            for child in live.values():
-                child.terminate()
-        for slot, (what, reader) in list(readers.items()):
+        for slot, (what, reader) in sorted(readers.items(), key=lambda item: item[0] == RESPONDER):
+            live[slot].terminate()
             reader.join(RELAY_JOIN_SECONDS)
             if reader.is_alive():
                 live[slot].kill()
