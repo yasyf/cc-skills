@@ -528,7 +528,7 @@ def posted(name: str, post: dict, order: str | None = None, receipt: dict | None
     first, *rest = places(data, post, stack)
     if first == (dm, None) and not post.get("edit") and not (order and data["orders"][order]["incident"]):
         first = (channel_for(name, data, project(data, post, stack, order)), None)
-    operators = slack.operators()
+    operators = slack.operators() | {made["id"] for made in data["slack"]["channels"].values()}
     reply = slack.cc_slack(
         *(
             ["edit", "--url", post["edit"], "--text", sent, *ticketed(post)]
