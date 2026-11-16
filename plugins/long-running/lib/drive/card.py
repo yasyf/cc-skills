@@ -860,7 +860,9 @@ def answered(ask: dict) -> dict:
     if ask["label"] == WORDS:
         return {"ok": True, "taken": taken_back(name, members, ask)}
     found = view.live_cards(name)
-    with state.edit(name) as data:
+
+    def kept_taps(data: dict) -> None:
+        events = []
         for member in members:
             entry = data["prs"][member]
             if entry["state"] != "open" or len(members) > 1 and land.approved(entry) or not asked and len(members) > 1 and not state.asks_tap(data, entry) or ask["action_ts"] and (entry["tap"] or {}).get("action_ts") == ask["action_ts"]:
@@ -872,17 +874,11 @@ def answered(ask: dict) -> dict:
             entry["fundamental"] = None
             entry["updated"] = entry["tap"]["at"]
             repo, number = member.split("#")
-            state.append_event(
-                name,
-                "tap",
-                repo=repo,
-                number=int(number),
-                label=ask["label"],
-                head=entry["tap"]["head"],
-                source=ask["source"],
-                action_ts=ask["action_ts"],
-                lane=state.heard_lane(data, entry["order"]),
-            )
+            events.append({"repo": repo, "number": int(number), "label": ask["label"], "head": entry["tap"]["head"], "source": ask["source"], "action_ts": ask["action_ts"], "lane": state.heard_lane(data, entry["order"])})
+        if events:
+            state.after_save(name, lambda: [state.append_event(name, "tap", **event) for event in events] and [])
+
+    state.update(name, None, kept_taps)
     if ask["label"] == "Approve":
         land.start(name, members, view.live_cards(name))
     else:
