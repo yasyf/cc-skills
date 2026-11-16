@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import fcntl
 import functools
 import json
@@ -84,6 +85,11 @@ CALL_TIMEOUT_S = 60
 DESTROY_S = 120
 SSH_CONNECT_S = 30
 STEP_S = 240
+PUSH_ROUNDS = 10
+PUSH_SECONDS = 120
+BUNDLE_FILE = "save.bundle"
+BUNDLE_EXIT = 3
+BUNDLES = STATE_HOME / "orca-gc" / "bundles"
 REVIVE_S = 180
 BACKOFF_FIRST_S = 15 * 60
 BACKOFF_MOST_S = 4 * 60 * 60
@@ -907,6 +913,14 @@ def save(workspace: str, lane: str, cc_remote: CcRemote) -> str | None:
     if not (refs or readable):
         return kept
     done = cc_remote.ssh(sprite, save_script(sprite, checkout.repository, lane, refs, [tree for _, tree in readable]), f"{github_token()}\n")
+    if done.returncode == BUNDLE_EXIT:
+        fetched = cc_remote.ssh(sprite, f'base64 < "$HOME/{BUNDLE_FILE}"')
+        if fetched.returncode != 0:
+            raise Unsaved(f"the push from {sprite.host} failed and its bundle could not be read: {fetched.stderr.strip() or f'exit {fetched.returncode}'}")
+        BUNDLES.mkdir(parents=True, exist_ok=True)
+        bundle = BUNDLES / f"{sprite.workspace}-{lane}.bundle"
+        bundle.write_bytes(base64.b64decode(fetched.stdout))
+        return f"GitHub refused the push, so the commits on no remote are bundled at {bundle}"
     if done.returncode != 0:
         raise Unsaved(f"the save on {sprite.host} failed: {'; '.join(filter(None, map(str.strip, done.stderr.splitlines()))) or f'exit {done.returncode}'}")
     held = "; ".join([*([uncommitted(readable)] if readable else []), *([f"commits on no remote on {', '.join(refs)}"] if refs else [])])
@@ -940,13 +954,16 @@ def save_script(sprite: Sprite, slug: str, lane: str, refs: dict[str, str], tree
     lines += [f'save "$(git -C {tree} symbolic-ref --short -q HEAD)" "$(git -C {tree} rev-parse HEAD)"' for tree in map(shlex.quote, trees)]
     push = f"git -c credential.helper= -c {shlex.quote('credential.helper=' + helper)} push https://github.com/{slug}.git $pushed"
     lines += [
-        "for attempt in $(seq 200); do",
+        "SECONDS=0",
+        f"for attempt in $(seq {PUSH_ROUNDS}); do",
         f"  if out=$({push} 2>&1); then printf '%s\\n' \"$out\"; exit 0; fi",
         "  missing=$(printf '%s\\n' \"$out\" | sed -n 's/.*missing object: \\([0-9a-f]*\\).*/\\1/p' | head -1)",
-        '  [ -n "$missing" ] || { printf \'%s\\n\' "$out" >&2; exit 1; }',
-        '  git cat-file -e "$missing"',
+        f'  [ -n "$missing" ] && [ "$SECONDS" -lt {PUSH_SECONDS} ] || break',
+        '  git cat-file -e "$missing" || break',
         "done",
-        "exit 1",
+        'printf \'%s\\n\' "$out" >&2',
+        f'git bundle create -q "$HOME/{BUNDLE_FILE}" $(printf %s "$pushed" | tr " " "\\n" | cut -d: -f2 | grep . ) --not --remotes',
+        "exit 3",
     ]
     return "\n".join(lines)
 
