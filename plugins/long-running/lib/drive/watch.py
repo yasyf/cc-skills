@@ -4705,12 +4705,12 @@ def github_owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def landing_stages(watcher: Watcher, moment: datetime) -> list[functools.partial]:
-    """The stages that land, stage and wake, each READ_EVERY in the landing loop, or in a pass run in-process, once it stored his cards as cc-slack lists them now: the GitHub reads it owes, each builder's PUSHED that read settles, so a READY it takes is landed in the same pass, the tests each yasyf/* main fails, the staging test of each PR whose new head changes a dangerous class of file, the release reach, the check against his words carried to each head a restack moved, the check of each PR that owes one, each PR's stage with its wakes, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the receiver, and his PR cards whose rows went stale."""
+    """The stages that land, stage and wake, each READ_EVERY in the landing loop, or in a pass run in-process, once it stored his cards as cc-slack lists them now: the GitHub reads it owes, each builder's PUSHED that read settles, so a READY it takes is landed in the same pass, the tests each yasyf/* main fails, the staging test of each PR whose new head changes a dangerous class of file, the release reach, the check against his words carried to each head a restack moved, the check of each PR that owes one, each PR's stage with its wakes, his card withdrawn from each question of a job waiting on an order he has not scheduled, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the receiver, and his PR cards whose rows went stale."""
     view.refresh_cards(watcher.name)
     watcher.cards, watcher.redrawn_whole = view.live_cards(watcher.name), set()
     return [
         functools.partial(github_lines, watcher, moment, polled=True),
-        *(functools.partial(stage, watcher, moment) for stage in (pushed_lines, main_lines, dangerous_lines, reach_lines, carried_lines, checks, stage_lines, draw_questions, landed, receiver_lines, redraw_lines)),
+        *(functools.partial(stage, watcher, moment) for stage in (pushed_lines, main_lines, dangerous_lines, reach_lines, carried_lines, checks, stage_lines, unscheduled_questions, draw_questions, landed, receiver_lines, redraw_lines)),
     ]
 
 
@@ -4847,6 +4847,36 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         watcher.failures.pop("card draw", None)
     return lines
+
+
+def unscheduled_questions(watcher: Watcher, moment: datetime) -> list[str]:
+    """Withdraw his card on each open question of a heard job that waits on an order he has not scheduled, by state.unscheduled_job, drawn before it began waiting, the orders' titles its reason, by his answer state.UNSCHEDULED_RULING, leaving the question open under its waits id with no card, as `drive job ask` keeps one asked while it waits, so `draw_questions` draws it again once he schedules them, which cc-slack does in place; a job that failed or stopped keeps its card, since nothing draws it again, and a withdrawal that fails keeps the card on its question for the next read to try again."""
+    from drive import talk
+
+    data = state.load(watcher.name)
+    drawn = [
+        (job_id, question, steps)
+        for job_id, job in data["jobs"].items()
+        if job["state"] not in state.ENDED_JOB_STATES and heard_job(watcher, data, job) and (steps := state.unscheduled_job(data, job_id))
+        for question in view.open_questions(job)
+        if question["card"] and not question["replaced"]
+    ]
+    said, withdrawn = [], []
+    for job_id, question, steps in drawn:
+        card = question["card"]
+        try:
+            superseded.answer_card(card, talk.unscheduled_reason(data, steps, "This card asks you again"), card, settled=False)
+        except slack.SlackError as error:
+            said += failed(watcher, "question withdraw", f"withdrawal of {job_id}'s card {card}, waiting on work he has not scheduled", error, moment)
+            continue
+        watcher.failures.pop("question withdraw", None)
+        with state.edit(watcher.name) as edited:
+            state.question_in(edited["jobs"][job_id], question)["card"] = None
+        withdrawn.append(f"CARD {card} withdrawn: {job_id} waits on {', '.join(steps)}, work he has not scheduled, and the card asks him again under {question['waits']} once he schedules it")
+    if withdrawn:
+        view.refresh_cards(watcher.name)
+        watcher.cards = view.live_cards(watcher.name)
+    return said + withdrawn
 
 
 def draw_questions(watcher: Watcher, moment: datetime) -> None:

@@ -1941,6 +1941,29 @@ def test_job_ask_keeps_with_no_card_a_question_of_a_job_waiting_on_an_order_he_h
     assert [(question["file"], question["card"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(str(kept), None)]
 
 
+def test_a_card_up_on_a_question_of_a_job_that_starts_waiting_on_an_order_he_has_not_scheduled_is_withdrawn_and_drawn_again_in_place_once_he_schedules_it(
+    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cards_drawn: list[dict]
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    kept = run("job", "ask", asking, str(block))[1].splitlines()[0]
+    run("order", "add", "--title", "The cutover", "--project", "The drive", "--workstream", "Drive tooling", "cut over to the new tree")
+    run("order", "set", "o2", "--state", "waiting")
+    run("job", "set", asking, "--waits", "o2")
+    closed: list[tuple[str, str, str, bool]] = []
+    monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled, replaces=None: closed.append((card, words, link, settled)) or {})
+    watcher = watch.Watcher("demo", offset=state.events_end("demo"), cards=view.NO_CARDS)
+    said = watch.unscheduled_questions(watcher, state.now())
+    watch.draw_questions(watcher, state.now())
+    assert closed == [(drawn_card(1), 'Waits on your order "The cutover", which you have not scheduled. This card asks you again once you do', drawn_card(1), False)]
+    assert said == [f"CARD {drawn_card(1)} withdrawn: j1 waits on o2, work he has not scheduled, and the card asks him again under demo:j1-7 once he schedules it"]
+    assert [(question["file"], question["waits"], question["card"], question["closed"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(kept, "demo:j1-7", None, None)]
+    assert (watch.unscheduled_questions(watcher, state.now()), len(closed), len(cards_drawn)) == ([], 1, 1)
+    run("order", "set", "o2", "--state", "open")
+    watch.draw_questions(watcher, state.now())
+    assert [(drawn["file"], drawn["waits"]) for drawn in cards_drawn] == [(kept, "demo:j1-7")] * 2
+
+
 PINNED_CHATS_ASK = explained("""ASK Where should pinned chats draw in the Iris sidebar?
 Drive tooling: your pick decides which spot counts as the top. A row's menu gains Pin and Unpin, and the sidebar draws pinned chats and agents ahead of unpinned ones.
 You have not decided this. A user asked to keep a Unichat pinned at the top at all times, and a Unichat lists under Agents, below every chat, so I recommend one Pinned group above both.
