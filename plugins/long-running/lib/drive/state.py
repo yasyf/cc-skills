@@ -1065,11 +1065,12 @@ def stored(name: str, fields: tuple[str, ...] | None = None) -> dict:
 
 
 def whole(path: Path, shape: Callable[[dict], tuple[dict, bool]], fields: tuple[str, ...] | None = None) -> dict:
-    """The drive's whole saved state as shape brings it up to this install's fields, from this process's copy of its rows, which caught_up brings up to the database once another connection committed since, as PRAGMA data_version on the copy's own connection that never writes says, reading only the rows written since; a fresh copy of what it shaped last while none did, so a verb's many loads parse and shape the drive's rows once, and a shape that says it read something outside the database that may change with no commit is shaped again on each load. Shaping runs outside READING, since it may read the drive itself."""
+    """The drive's whole saved state as shape brings it up to this install's fields, from this process's copy of its rows, which caught_up brings up to the database once another connection committed since, as PRAGMA data_version on the copy's own connection that never writes says, reading only the rows written since; a fresh copy of what it shaped last while none did, so a verb's many loads parse and shape the drive's rows once, and a shape that says it read something outside the database that may change with no commit is shaped again on each load. Shaping runs outside READING, since it may read the drive itself. Its reads wait on another connection's write no longer than the running write's budget leaves, by waiting, so a write's load counts against that budget, and unlocked turns a wait run out into Busy there."""
     key = (path, path.stat().st_ino)
     with READING:
         if (copy := WHOLE_READS.get(key)) is None:
             copy = WHOLE_READS[key] = Copy(path)
+        copy.watcher.execute(f"PRAGMA busy_timeout = {int(min(waiting().left(), DRIVE_LOCK_SECONDS) * 1000)}")
         if (now := copy.watcher.execute("PRAGMA data_version").fetchone()[0]) == copy.version and copy.shaped:
             LOADED_VERSION.set(now)
             LOADED_REV.set(copy.shaped_rev)
@@ -4875,7 +4876,7 @@ def released(taken: list[tuple[str, str, int]]) -> None:
     for name, counter, taken_id in reversed(taken):
         while True:
             try:
-                with closing(connect(database_path(name), min(waits.left(), DRIVE_LOCK_SECONDS))) as db, unlocked(name, waits):
+                with unlocked(name, waits), closing(connect(database_path(name), min(waits.left(), DRIVE_LOCK_SECONDS))) as db:
                     db.execute("UPDATE meta SET value = CAST(value AS INTEGER) - 1 WHERE key = ? AND CAST(value AS INTEGER) = ?", (counter, taken_id))
                 break
             except Busy:
@@ -4999,10 +5000,9 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
             fields[("jobs", job_id)].add("undelivered")
     order = {collection: {key: index for index, key in enumerate(records)} for collection, records in mine.items() if collection in COLLECTIONS}
     records = sorted(held, key=lambda record: (record[0], order.get(record[0], {}).get(record[1], -1), record[1]))
-    with handled_lock(name, budget) as waited, closing(connect(database_path(name), min(budget.left(), DRIVE_LOCK_SECONDS))) as db:
+    with handled_lock(name, budget) as waited, unlocked(name, budget), closing(connect(database_path(name), min(budget.left(), DRIVE_LOCK_SECONDS))) as db:
         got = time.monotonic()
-        with unlocked(name, budget):
-            db.execute("BEGIN IMMEDIATE")
+        db.execute("BEGIN IMMEDIATE")
         try:
             for statement in LISTED:
                 db.execute(statement)
@@ -5273,10 +5273,11 @@ def write[T](name: str, change: Callable[[dict], T], *, budget: float | None = N
             if tried >= UPDATE_TRIES:
                 time.sleep(min(random.uniform(0, 0.01 * 2 ** min(tried - UPDATE_TRIES, 7)), waits.left()))
             with editing(name) as taken:
-                loaded, raw = loaded_raw(name)
-                since, base, reads = LOADED_REV.get(), marshal.dumps(loaded), Reads()
-                attempt = Attempt(name, ReadDrive(loaded, reads), reads, [])
                 try:
+                    with unlocked(name, waits):
+                        loaded, raw = loaded_raw(name)
+                    since, base, reads = LOADED_REV.get(), marshal.dumps(loaded), Reads()
+                    attempt = Attempt(name, ReadDrive(loaded, reads), reads, [])
                     with changing(attempt):
                         done = change(attempt.data)
                 except Busy:
@@ -5612,7 +5613,7 @@ def next_id(records: dict, prefix: str) -> str:
         return f"{prefix}{fresh}"
     counter = f"ids-{prefix}"
     waits = waiting()
-    with closing(connect(database_path(name), min(waits.left(), DRIVE_LOCK_SECONDS))) as db, unlocked(name, waits):
+    with unlocked(name, waits), closing(connect(database_path(name), min(waits.left(), DRIVE_LOCK_SECONDS))) as db:
         fresh = int(db.execute("INSERT INTO meta VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = MAX(CAST(value AS INTEGER) + 1, CAST(excluded.value AS INTEGER)) RETURNING value", (counter, str(fresh))).fetchone()[0])
     if (taken := TAKEN_IDS.get()) is not None:
         taken.append((name, counter, fresh))
