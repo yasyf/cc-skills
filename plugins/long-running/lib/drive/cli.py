@@ -6930,13 +6930,13 @@ def say_record(args: argparse.Namespace) -> int:
 
 def mac_boxes_down(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
-    data = state.load(name)
+    data = state.saved(name)
     orca.checkout(name, data["roles"]["coordinator"]["cwd"])
     boxes = providers.of(data).mac_box
     codes = []
     for job_id in args.jobs:
         try:
-            codes.append(boxes.down(job_id, f"{name}/{job_id}", data["jobs"][job_id]["state"] in ("done", "failed")))
+            codes.append(boxes.down(job_id, f"{name}/{job_id}", state.saved_row(name, "jobs", job_id)["state"] in ("done", "failed")))
         except providers.ProviderError as error:
             print(f"{job_id}: {error}", file=sys.stderr)
             codes.append(1)

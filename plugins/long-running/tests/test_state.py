@@ -107,7 +107,9 @@ def test_a_save_hands_a_stopped_jobs_mac_boxes_to_a_process_of_its_own_that_retu
     REAL_DOWN_MAC_BOXES("demo", state.load("demo"), ["j1", "j2"])
     REAL_DOWN_MAC_BOXES("demo", state.new_drive("demo", "coordinator", None, str(tmp_path / "elsewhere")), ["j3"])
     assert detached == [("demo", ["mac-boxes-down", "j1", "j2"], state.MAC_BOXES_LOG)]
-    assert run("mac-boxes-down", "j1", "j2", "--drive", "demo")[0] == 0
+    with monkeypatch.context() as reads:
+        reads.setattr(state, "load", lambda *args, **kwargs: pytest.fail("Mac box returns must not load the whole drive"))
+        assert run("mac-boxes-down", "j1", "j2", "--drive", "demo")[0] == 0
     assert (tmp_path / "downs").read_text().splitlines() == [f"{checkout.resolve()} mac-box down --holder demo/j1 j1", f"{checkout.resolve()} mac-box down --holder demo/j2 j2"]
 
 
