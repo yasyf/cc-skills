@@ -28,6 +28,19 @@ One runs `drive start <name> --role coordinator --watch <alert channel>`, which 
 
 Run `drive setup` once so cc-slack's daemon can call `drive card` to draw PR cards without the plugin on its `PATH`.
 
+## Plug in your repository
+
+The drive knows nothing about how your repository releases, stages, proves a build on a Mac, reads its CI, lands PRs or guards its data. A repository tells it by subclassing the base classes in `lib/drive/providers.py` and naming them in `.claude/long-running.toml`:
+
+```toml
+[providers]
+module = ".claude/long-running/providers.py"
+repo = "MyRepo"
+release = "MyRelease"
+```
+
+The roles are `repo`, `release`, `staging`, `mac_box`, `build`, `access` and `data`. A role you leave out runs its base class, which does nothing, so a repository with no `[providers]` table gets a drive that releases, stages and guards nothing. The drive reads the module and the table from your default branch's head, never a working tree, so no branch changes the providers that judge it. Each provider's `page(name)` adds text under `## In this repository` on that skill page, which is where your own verbs, envs and tools go.
+
 ## What a drive is
 
 | Concept | What it is |
