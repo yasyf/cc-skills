@@ -31,7 +31,7 @@ HOOKS = Path(__file__).resolve().parents[2] / "hooks"
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with no thread at the root of the channel channel_id names, such as a staging claim to its members, or in the group DM of a person, him and the bot when channel_id is that person's user id, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, and a post in a thread is the last line of each open order whose lines go in that thread, whatever order it is recorded on or none, so the watch's clock and each session's overdue line read every line there, and posts nothing from a caller but the communicator and its handlers, the watch's own live line of a proved order going through proved_line, a handler known from its first step by the LONG_RUNNING_HANDLER its launch set, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads; a post at another channel's root, or a line in its thread, whose report names an end as until keeps that end on its order, from which the watch owes that thread its closing line; a claim at another channel's root goes out only on a report naming an end still to come, which its words name, and a report naming none or a past one goes back to its writer. A question to a teammate naming the job it is for keeps that job waiting on their reply. A report's post names each correction cci holds re it, which the post may lack, a post of a report carrying reports held for his return, the line the watch owes their thread or his catch-up, lets each go, and a correction of a held report, or of one a post carried, posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, a post saying a release may start while a freeze or his release hold it does not name stands, and a dry run. A report's line to him that `away` reads as waiting for his return posts nothing, from every caller, by `held_away`."""
+    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with no thread at the root of the channel channel_id names, such as a staging claim to its members, or in the group DM of a person, him and the bot when channel_id is that person's user id, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, and a post in a thread is the last line of each open order whose lines go in that thread, whatever order it is recorded on or none, so the watch's clock and each session's overdue line read every line there, and posts nothing from a caller but the communicator and its handlers, the watch's own live line of a proved order going through proved_line, a handler known from its first step by the LONG_RUNNING_HANDLER its launch set, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads; a post at another channel's root, or a line in its thread, whose report names an end as until keeps that end on its order, from which the watch owes that thread its closing line; a claim at another channel's root goes out only on a report naming an end still to come, which its words name, and a report naming none or a past one goes back to its writer, but for a post his words order at that root, such as a note he asked sent there, which needs no end. A question to a teammate naming the job it is for keeps that job waiting on their reply. A report's post names each correction cci holds re it, which the post may lack, a post of a report carrying reports held for his return, the line the watch owes their thread or his catch-up, lets each go, and a correction of a held report, or of one a post carried, posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, a post saying a release may start while a freeze or his release hold it does not name stands, and a dry run. A report's line to him that `away` reads as waiting for his return posts nothing, from every caller, by `held_away`."""
     return spoken(name, post, caller(name))
 
 
@@ -108,7 +108,7 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
         raise DriveError(f"nothing posted: {refused}")
     if refused := uncadenced(name, known, post, [*state.closed_orders(report), *([order] if close else [])], state.now()):
         raise DriveError(f"nothing {'edited' if post.get('edit') else 'posted'}: {refused}")
-    if refused := unclaimed(known, post, report):
+    if refused := unclaimed(known, post, report, order):
         raise DriveError(f"nothing posted: {refused}; {returned(name, post, report, refused)}")
     if refused := unended(known, post, report):
         raise DriveError(f"nothing posted: {refused}")
@@ -560,18 +560,29 @@ def uncadenced(name: str, data: dict, post: dict, closing: list[str], moment: da
     )
 
 
-def unclaimed(data: dict, post: dict, report: dict) -> str | None:
-    """Why a post to a channel's members goes back to the writer of its report: the repository's staging-claim rule has each claim say how long it holds, so a post at the root of a channel outside his DM, such as a staging claim, goes out only on a report whose until attr names that end, and a claim or a line in its thread moving it only while that end is still to come; the end is the writer's to set, never the handler's to drop."""
+def unclaimed(data: dict, post: dict, report: dict, order: str | None) -> str | None:
+    """Why a post to a channel's members goes back to the writer of its report: the repository's staging-claim rule has each claim say how long it holds, so a post at the root of a channel outside his DM, such as a staging claim, goes out only on a report whose until attr names that end, and a claim or a line in its thread moving it only while that end is still to come; the end is the writer's to set, never the handler's to drop. A post his words order at that channel's root, such as a note he asked sent there, is no claim and needs no end."""
     if post.get("edit") or not to_members(data, post):
         return None
     if until := report.get("until"):
         if state.parse_time(until) > state.now():
             return None
         return f"report {report['seq']}'s until attr ends this claim at {render.when(until)}, which passed before it went out at {render.when(state.stamp())}"
-    if place(post)[1]:
+    if place(post)[1] or ordered_there(data, place(post)[0], order):
         return None
     named = f"report {report['seq']}" if report.get("seq") else "this post"
-    return f"{named} names no until attr, the end of what a post at the root of a channel outside his DM, such as a staging claim, holds, which the repository's staging-claim rule has each claim say"
+    return (
+        f"{named} names no until attr, the end of what a post at the root of a channel outside his DM, such as a staging claim, holds, which the repository's staging-claim rule has each claim say,"
+        " and no words of his, the order's or those the handler holds, name this channel as one to post in"
+    )
+
+
+def ordered_there(data: dict, channel: str, order: str | None) -> bool:
+    """Whether his words name channel as Slack writes a channel he links, <#C…>: the words of the order a post goes on, or the message of his its handler's brief carries as its Message (his words), so a note he asked posted at that channel's root goes out as he asked."""
+    handler = data["handlers"].get(state.handler_id(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) or "")
+    held = (handler or {}).get("brief") or ""
+    words = [agents.his_words(held) if re.search(rf"^{re.escape(agents.HIS_WORDS)}:", held, re.MULTILINE) else "", limits.his_words(data["orders"][order]) if order in data["orders"] else ""]
+    return any(re.search(rf"<#{re.escape(channel)}[|>]", each) for each in words)
 
 
 def returned(name: str, post: dict, report: dict, refused: str) -> str:

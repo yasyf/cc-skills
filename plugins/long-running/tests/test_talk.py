@@ -1779,6 +1779,32 @@ def test_a_claim_at_a_channels_root_naming_no_end_or_a_past_one_posts_nothing_an
     assert len(sent) == 2 and state.load(demo)["orders"]["o1"]["claims"] == {}
 
 
+def test_728690_a_note_his_words_order_at_a_channels_root_posts_with_no_until_and_one_they_never_order_there_still_needs_one(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test the batch writer on staging")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "send a short note to <#C0STAGING2|staging> that the batch writer passed", "--from", "slack:D123/1794300000.000100")
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+        data["handlers"]["h1"] = {
+            "session": os.environ["CLAUDE_CODE_SESSION_ID"],
+            "transcript": None,
+            "started": state.stamp(),
+            "brief": "Message (his words): can also send a very short very concise note to <#C0STAGING1> saying the batch writer passed\nLink: https://acme.slack.com/archives/D123/p1794300000000200",
+            "holds": {},
+            "handed": [],
+            "posted": [],
+        }
+    note = "The batch writer passed every staging test."
+    assert talk.say(demo, {"text": note, "channel_id": "C0STAGING1", "dry_run": True}) == f"DRY the root of channel C0STAGING1, 0 pictures: {note}"
+    report(monkeypatch, {"progress": "true", "order": "o2"})
+    assert talk.say(demo, {"text": note, "channel_id": "C0STAGING2", "record": "677158", "dry_run": True}).startswith(f"DRY the root of channel C0STAGING2, 0 pictures: {note}")
+    with pytest.raises(DriveError, match=re.escape("nothing posted: report 677158 names no until attr") + ".*no words of his, the order's or those the handler holds, name this channel"):
+        talk.say(demo, {"text": note, "channel_id": "C0OTHER01", "record": "677158", "dry_run": True})
+
+
 @pytest.mark.parametrize(
     ("words", "named"),
     [("for 30", True), ("for 28 mins", True), ("for about half an hour", True), ("until {end}", True), ("for an hour", False), ("for 2 hours", False), ("for 3 PRs", False)],
