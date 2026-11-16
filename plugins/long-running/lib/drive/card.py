@@ -965,7 +965,8 @@ def answer_question(name: str, ask: dict) -> dict:
         for _, question in taken:
             if taken_back := question["closed"]["noted"] or question["closed"]["answer"]:
                 settled.unlift(taken_back, settled.lifting([question]), cwd)
-    with state.edit(name) as data:
+
+    def closed_on_card(data: dict) -> tuple[dict, list, list]:
         on_card = view.drawn_on(data, ask["waits"], ask["url"])
         if undone:
             fresh = answered_at(data, on_card, ask["url"])
@@ -977,6 +978,9 @@ def answer_question(name: str, ask: dict) -> dict:
                 data["jobs"][job_id]["updated"] = state.stamp()
         else:
             fresh = [each for job_id, question in on_card if view.tappable(question, ask.get("action_ts")) for each in superseded.end(data, job_id, question, closed | {"replaces": question["closed"]})]
+        return data, on_card, fresh
+
+    data, on_card, fresh = state.update(name, None, closed_on_card)
     shown = view.stored_cards(name)[0]
     card = view.asked_card(shown, ask["url"])
     if fresh or not on_card:
@@ -985,17 +989,25 @@ def answer_question(name: str, ask: dict) -> dict:
         data = state.load(name)
         tapped = [(job_id, question) for job_id, question in view.drawn_on(data, ask["waits"], ask["url"]) if (kept := question["closed"]) and (kept["how"], kept["words"], kept["link"]) == ("answered", said, ask["url"])]
         if decided := [(job_id, older, question) for job_id, question in tapped for older in superseded.decided_by(data, job_id, question, said, shown)]:
-            with state.edit(name) as data:
+
+            def superseded_older(data: dict) -> dict:
                 for job_id, older, question in decided:
                     if (kept := state.question_in(data["jobs"][job_id], older))["closed"] is None:
                         superseded.end(data, job_id, kept, superseded.superseded_by(closed, question))
+                return data
+
+            data = state.update(name, None, superseded_older)
         if tapped and not recorded:
             answer_id = next((question["closed"]["noted"] for _, question in tapped if question["closed"]["noted"]), None)
             if answer_id is None:
                 answer_id = settled.recorded(name, card_question(tapped, ask["waits"])["title"], said, [], ask["url"], data["roles"]["coordinator"]["cwd"], settled.lifting(question for _, question in tapped))
-                with state.edit(name) as data:
+
+                def noted_answer(data: dict) -> dict:
                     for job_id, question in tapped:
                         state.question_in(data["jobs"][job_id], question)["closed"]["noted"] = answer_id
+                    return data
+
+                data = state.update(name, None, noted_answer)
             item["attrs"] = item.get("attrs", {}) | {"noted": answer_id}
     made = tools.post(item, data, "root", (data["roles"].get("communicator") or {}).get("session"))
     [seq] = tools.sent(name, "communicator", [made])
