@@ -967,8 +967,9 @@ bug hurting someone now first. Once nothing waits there it reads "No open cards"
   only once the `handoff` asking for it is kept on the order it goes to. The `record` tool keeps
   each `handoff` the communicator's side sends on the order it serves, and five quiet minutes after
   it the watch owes that order's thread a line naming it and each record re it, whatever the session
-  it went to answered, until a job of that order is made or the job it names starts, since another
-  job of a busy order restarting does none of its step, by his words b4b64f5 "fix your
+  it went to answered, until a job of that order is made, the job it names starts or the
+  communicator withdraws it with the cci close tool's `how: withdraw`, which the watch reads and
+  takes it off its order on, since another job of a busy order restarting does none of its step, by his words b4b64f5 "fix your
   toolking so tracking this stuff beciomes deterministic and it cant get lost at the whims of an
   agent". `say` refuses a handler's line saying a job is being started with neither.
 - A card promised before it is drawn. A line saying a card or its buttons are coming, being added

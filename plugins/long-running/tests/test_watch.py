@@ -46,6 +46,7 @@ REPORT_IT = "; only drive job report j1 - sets it, or names why it refuses, so w
 WOKEN_BY_ITS_SESSION = ": drive job resume j1 with this line verbatim"
 CHECKED = {"head": "aaaaaaa111", "read": "aaaaaaa111", "orders": ["o1"], "lines": {}, "beside": {}}
 REAL_PASS = watch.run_pass
+AMENDMENTS = agents.amendments
 BUILD = "https://buildkite.com/forge/monorepo/builds/7"
 REQUIRED = {"context": "buildkite/test", "targetUrl": BUILD}
 INCIDENT_THREAD = "1794494004.895129"
@@ -2640,7 +2641,7 @@ def test_a_handoff_asking_for_a_job_owes_its_thread_one_line_five_quiet_minutes_
     lines = body.splitlines()
     assert "Moved since the thread's last line or the watch's last report on it: handoff 701640. At work: no job." in lines
     assert lines[-3:] == [
-        "Handoffs no job of their order was made after, nor any job each names worked after: 1. Say in its thread what each asked for, what each record re it answered, and that no job of its order started since, then send the work it asked for on as work no job holds, so a job is put on it.",
+        "Handoffs no job of their order was made after, nor any job each names worked after, and none withdrawn: 1. Say in its thread what each asked for and what each record re it answered. Withdraw each whose records show its step done, held by a job or owed by nobody, with the cci close tool's how: withdraw; say of each other that no job of its order started since, and send the work it asked for on as work no job holds, so a job is put on it.",
         f"- handoff 701640, sent {render.when(state.stamp(T0 + timedelta(minutes=2)))}: start a job reading why that blob is missing",
         f"  - 701688 evidence from platform re it: {evidence['text']}",
     ]
@@ -2685,6 +2686,35 @@ def test_a_handoff_a_record_re_it_withdraws_or_answers_naming_a_job_given_work_s
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=8)) == []
     assert bool(calls) is owed
     assert state.load(demo)["orders"]["o1"]["handoffs"] == ([] if kind == "withdraw" else [{"seq": "719030", "text": "start a builder on the fix", "at": state.stamp(T0 + timedelta(minutes=2)), "jobs": ["j2"]}])
+
+
+@pytest.mark.parametrize("handoffs", [1, 100])
+def test_the_watch_takes_each_owed_handoff_the_communicator_withdrew_off_its_order_read_in_one_cci_grep_however_many_are_owed_so_no_quiet_report_lists_it_again(
+    demo: str, monkeypatch: pytest.MonkeyPatch, handoffs: int
+) -> None:
+    """The o2172 report: a handler withdrew handoff 705680 as 705729 with the cci close tool, and the watch's quiet report still listed it a day later."""
+    threaded(demo)
+    seqs = [str(705680 + index) for index in range(handoffs)]
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["handoffs"] = [{"seq": seq, "text": f"start a job on {seq}", "at": state.stamp(T0), "jobs": []} for seq in seqs]
+    withdraw = {"seq": 805729, "kind": "withdraw", "lane": "communicator", "re": 705680, "text": "its step is done: j3694 holds it"}
+    greps: list[list[str]] = []
+    monkeypatch.setattr(agents, "amendments", AMENDMENTS)
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: greps.append(argv) or json.dumps(withdraw) + "\n")
+    watching = watcher(demo)
+    moment = T0 + timedelta(minutes=6)
+
+    def owed() -> list[str]:
+        data = state.load(demo)
+        return [key.removeprefix(f"{watch.HANDOFF_FACT} ") for key in watch.line_facts(data, ["o1"], render.prs_by_job(data), None, moment) if key.startswith(watch.HANDOFF_FACT)]
+
+    assert owed() == seqs
+    assert watch.withdrawn_lines(watching, moment) == []
+    [argv] = greps
+    assert (argv[argv.index("--lane") + 1], argv[argv.index("--since") + 1], "withdraw" in argv) == ("communicator", "705680", True)
+    assert ([handoff["seq"] for handoff in state.load(demo)["orders"]["o1"]["handoffs"]], owed()) == (seqs[1:], seqs[1:])
+    assert watch.withdrawn_lines(watching, moment) == []
+    assert [argv[argv.index("--since") + 1] for argv in greps[1:]] == seqs[1:2]
 
 
 @pytest.mark.parametrize("held", ["away", "close_report", "closed_on"])

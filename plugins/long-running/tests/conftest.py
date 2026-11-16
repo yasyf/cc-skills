@@ -567,7 +567,7 @@ def cci_records(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict]:
 @pytest.fixture(autouse=True)
 def cci_amendments(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict[str, list[str]]]:
     kept: dict[str, dict[str, list[str]]] = {kind: {} for kind in agents.AMENDING}
-    monkeypatch.setattr(agents, "amendments", lambda name, seqs: {kind: {seq: found[seq] for seq in seqs if seq in found} for kind, found in kept.items()})
+    monkeypatch.setattr(agents, "amendments", lambda name, seqs, lane=None: {kind: {seq: found[seq] for seq in seqs if seq in found} for kind, found in kept.items()})
     return kept
 
 
