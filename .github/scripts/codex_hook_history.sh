@@ -18,7 +18,7 @@ for tag in $(git tag -l 'v*' --sort=-version:refname | head -n "$releases"); do
   rm -f "$plugin/bin/codex-ask"
   ln -s "$binary" "$plugin/bin/codex-ask"
   jq -n --arg path "$plugin" '{plugins: {"codex@skills": [{installPath: $path, lastUpdated: "2026-01-01T00:00:00Z"}]}}' >"$config/plugins/installed_plugins.json"
-  run=(env HOME="$root/$tag/home" CLAUDE_CONFIG_DIR="$config" CLAUDE_PLUGIN_ROOT="$plugin")
+  run=(env HOME="$root/$tag/home" CLAUDE_CONFIG_DIR="$config" CLAUDE_PLUGIN_ROOT="$plugin" PATH="$plugin/bin:$PATH")
   if [[ -f "$plugin/hooks/hooks.json" ]]; then
     while IFS= read -r command; do
       [[ $command == *'${CLAUDE_PLUGIN_ROOT}/bin/codex-ask'* ]] || continue

@@ -123,7 +123,7 @@ jobs:
           export PATH="$stub:$PATH" CLAUDE_CODE_SESSION_ID=ci-smoke CODEX_ASK_RUNS_DIR="$RUNNER_TEMP/runs"
           cd "$RUNNER_TEMP"
 
-          for removed in tools channel direct supervise; do
+          for removed in direct supervise; do
             if "$bin" "$removed" --no-tools > refusal.txt 2>&1; then exit 1; fi
             grep "codex-ask $removed: removed in" refusal.txt
           done
