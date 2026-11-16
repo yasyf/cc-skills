@@ -1220,12 +1220,17 @@ def session_of(job_id: str, workspace: str, dispatch: str) -> str | None:
     return found if SESSION_ID.fullmatch(found) else None
 
 
-def resumed(ended: dict, text: str | None, holds: str) -> str:
-    """The brief of a lane's own Claude session resumed on its Sprite after its worker died there: why it died, with the cause line read off its Sprite, what it resumes on, the dispatch it reports on now, the messages it never read, when any came, naming no sender, since they can be his answers as well as the coordinator's, and the drive's read of what holds the job and its PRs now."""
+def resumed(ended: dict, text: str | None, holds: str, finished: bool = False) -> str:
+    """The brief of a lane's own Claude session resumed on its Sprite after its worker died there, or after it finished its turn and a message came that Orca sends no finished worker: why it died, with the cause line read off its Sprite, or that it finished, what it resumes on, the dispatch it reports on now, the messages it never read, when any came, naming no sender, since they can be his answers as well as the coordinator's, and the drive's read of what holds the job and its PRs now."""
+    opening = (
+        f"Your worker finished its turn by {render.when(ended['at'])}, and what came for the job since goes to no finished worker, so this is your own Claude session, resumed on Sprite"
+        f" {ended['workspace']} in the checkout you left, with the whole conversation you had. Read its git status and log, then carry the job on."
+        if finished
+        else f"Your lane died at {render.when(ended['at'])}: {state.why_died(ended['why'], ended.get('cause'))}. This is your own Claude session, resumed on Sprite {ended['workspace']} in the checkout"
+        " you left, so a tool call that was running then never finished. Read its git status and log, then carry the job on."
+    )
     return (
-        f"Your lane died at {render.when(ended['at'])}: {state.why_died(ended['why'], ended.get('cause'))}. This is your own Claude session, resumed on Sprite {ended['workspace']} in the checkout"
-        " you left, so a tool call that was running then never finished. Read its git status and log, then carry the job on. Report on the task and dispatch"
-        " the Orca preamble above this brief names, never on your earlier ones.\n"
+        f"{opening} Report on the task and dispatch the Orca preamble above this brief names, never on your earlier ones.\n"
         + (f"\nThe messages you never read, which you act on now:\n\n{text.strip()}\n" if text else "")
         + f"\n{holds}"
     )

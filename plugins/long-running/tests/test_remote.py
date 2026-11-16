@@ -2558,7 +2558,7 @@ def test_a_lane_whose_sprite_failed_on_its_own_relaunches_on_a_fresh_sprite_with
 
 
 @pytest.mark.parametrize(("kernel", "continued_on"), [(J5099_KERNEL, None), (SPRITE_BOOT, J2504_SPRITES[0])], ids=["j5099's nbd0 errors", "no error line"])
-def test_a_finished_lane_continues_on_its_sprite_only_while_the_logs_kept_off_it_show_no_fault(
+def test_a_finished_lane_resumes_its_session_on_its_sprite_only_while_the_logs_kept_off_it_show_no_fault(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sessions: dict[str, str], kernel: str, continued_on: str | None
 ) -> None:
     launched, acted = lane_with_kept_logs(remote, tmp_path, monkeypatch, sessions, kernel, "35%")
@@ -2566,10 +2566,11 @@ def test_a_finished_lane_continues_on_its_sprite_only_while_the_logs_kept_off_it
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(state="waiting", said="WAITING security review of #7", sprite_config=SPRITE_CONFIG)
     code, out = run("job", "resume", "j1", "The review: one medium finding, fix it")
-    assert (code, [(name, on, session) for name, _, on, session in launched]) == (0, [("j1-2.md", continued_on, None)])
     if continued_on:
-        assert (acted, out.endswith(REPREPARED.replace("pool-one", continued_on))) == ([], True)
+        assert (code, [(name, on, session) for name, _, on, session in launched], acted) == (0, [("j1-2.resume.md", continued_on, J2504_SESSION)], [])
+        assert out.startswith(f"j1: the message went to the job's worker, which resumed its own Claude session {J2504_SESSION} on Sprite {continued_on}")
         return
+    assert (code, [(name, on, session) for name, _, on, session in launched]) == (0, [("j1-2.md", None, None)])
     assert acted == [f"saved {J2504_SPRITES[0]}", f"destroyed {J2504_SPRITES[0]}"]
     assert f"was dead (its worker succeeded, and Orca sends nothing to a finished worker on a Sprite, and {J5099_CAUSE})" in out
 
@@ -2977,6 +2978,52 @@ def test_resume_to_a_worker_that_finished_on_a_sprite_prepares_that_sprite_again
         "report": None,
     }
     assert [(ended["dispatch"], ended["workspace"]) for ended in job["deaths"]] == [(DISPATCH, "pool-one")]
+
+
+def test_resume_to_a_worker_that_finished_on_a_sprite_holding_its_claude_session_resumes_that_session_there_with_the_message(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sessions: dict[str, str]
+) -> None:
+    cloned(tmp_path, remote)
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", "builder", "Order (his words): prove it\nDrive: demo, order o1, job j1", None))
+    monkeypatch.setattr(orca, "checkout", lambda name, clone, wait=0: tmp_path)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(
+            {"terminal": "term_lane", "workspace": "pool-one", "environment": "pool-one", "lane": "demo-j1", "sprite_config": SPRITE_CONFIG},
+            brief=str(first),
+            said="WAITING security review of #7",
+        )
+    session = "7dfaa22a-ac45-4cfd-8063-85ca2ae39563"
+    sessions["pool-one"] = session
+    reprepared(monkeypatch)
+    monkeypatch.setattr(orca, "launch", LAUNCH)
+    monkeypatch.setattr(orca, "tool", lambda name: name)
+    monkeypatch.setattr(orca, "save", lambda *args: pytest.fail("a resumed session's Sprite is never saved"))
+    ran, started = orca.grouped, {}
+
+    def launcher(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        if argv[0] != orca.LAUNCHER:
+            return ran(argv, **kwargs)
+        env = kwargs["env"]
+        started.update(brief=Path(argv[-1]).read_text(), workspace=env.get("WORKER_WORKSPACE"), session=env.get("WORKER_SESSION"))
+        attempt = Path(argv[-1]).with_suffix(".worker")
+        attempt.mkdir()
+        (attempt / "prepared.json").write_text(json.dumps({"environment": "pool-one"}))
+        receipt = {"state": "ready", "task": "task_2", "dispatch": "ctx_lane0002", "terminal": "term_fresh", "lane": argv[1], "workspace": "pool-one", "worktree": "/home/sprite/monorepo", "allocation": "existing"}
+        return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(receipt) + "\n", stderr="")
+
+    monkeypatch.setattr(orca, "grouped", launcher)
+    code, out = run("job", "resume", "j1", "The review: one medium finding, fix it")
+    assert (code, out) == (
+        0,
+        f"j1: the message went to the job's worker, which resumed its own Claude session {session} on Sprite pool-one as dispatch ctx_lane0002,"
+        " in the checkout its lane left there finished (its worker succeeded, and Orca sends nothing to a finished worker on a Sprite)",
+    )
+    assert (started["workspace"], started["session"]) == ("pool-one", session)
+    assert started["brief"].startswith("Your worker finished its turn by ")
+    assert "which you act on now:\n\nThe review: one medium finding, fix it\n" in started["brief"]
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["dispatch"], job["workspace"], [(ended["dispatch"], ended["workspace"]) for ended in job["deaths"]]) == ("ctx_lane0002", "pool-one", [(DISPATCH, "pool-one")])
 
 
 def test_resume_to_a_finished_worker_on_this_mac_whose_worktree_starts_no_worker_relaunches_the_job_in_a_fresh_worktree(
