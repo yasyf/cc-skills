@@ -793,7 +793,7 @@ def filing(data: dict, words: str, project: str | None, workstream: str | None, 
 
 
 def unfiled_refusal(data: dict, order_id: str) -> str | None:
-    """Why say may not close his answer order yet: the handler tool added it under no project and workstream, which its handler sets from the card or order his question is about."""
+    """Why say may not close his answer order yet: it is filed under no project and workstream, which the communicator sets from the card or order his question is about."""
     order = find(data["orders"], order_id, "order")
     if order["project"] and order["workstream"]:
         return None

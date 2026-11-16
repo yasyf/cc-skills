@@ -26,15 +26,15 @@ Contents:
   under the state folder, which every drive on this Mac shares. A hit does not fail the job. The
   watch tells him of each hit once for the whole Mac, as a milestone, whichever drive reads it first.
 - **Caps.** `caps.json` under the drive's state root is read at each start, so a change holds at
-  once. Its defaults are `{"local": 12, "sprite": 30, "handlers": 8, "load_per_core": 1,
-  "free_memory": 15}`. At most `local` Claude lanes of any role work here at once and `sprite` lanes on Sprites;
-  `handlers` capped handler sessions, and none starts now. No new local lane starts
+  once. Its defaults are `{"local": 12, "sprite": 30, "load_per_core": 1,
+  "free_memory": 15}`. At most `local` Claude lanes of any role work here at once and `sprite` lanes on Sprites.
+  No new local lane starts
   while the 1-minute load average is over the core count times `load_per_core`, or less than
   `free_memory` percent of memory is free. What happens at a full cap:
   - A builder waits on `builder-slot`, or starts on a Sprite when its brief declares no step only
     this Mac runs.
   - A reader or designer the `agent_brief` hook refuses starts on a Sprite.
-  - No handler session starts: the watch hands a report or an unanswered message of his to the
+  - The watch hands a report or an unanswered message of his to the
     communicator as one `ANSWER THIS:` note, which meets no cap.
   - A stall's watchdog waits for a later pass.
   - A first Sprite lane past the `sprite` cap waits on `sprite-slot`. The watch's `FREE` line
@@ -181,8 +181,8 @@ How an agent is recorded on a job:
   builder, `long-running:reader` on a reader, `long-running:designer` on a design job, and an
   incident's second-lane `long-running:builder` on a codex job. Its first call after a prompt that
   reached it after its return, such as a `SendMessage`, marks the job running again.
-- An agent of another type is not recorded, even when its prompt names a job: a
-  `long-running:handler` that runs `drive job launch <j>`, an `orca:orca-doctor`, an Explore agent.
+- An agent of another type is not recorded, even when its prompt names a job:
+  an `orca:orca-doctor` or an Explore agent.
 - No agent is recorded over a remote job's dispatch, or while a `drive job launch` or
   `drive job resume` holds the job's lock to start a Sprite lane. `drive job set <j> --agent`
   refuses it then. `drive job set <j> --agent <the dispatch the job records>` puts a remote job an
@@ -589,8 +589,8 @@ by [incidents.md](incidents.md), because minutes matter more there than tokens.
 **Session settings.** The roots compact at 400,000 tokens, the communicator at 300,000, and every
 other session and lane at 350,000, set by `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the orca plugin's
 `lib/lane.json`. Each leaf session runs headless and light, by `agents.light` and
-`agents.mcp_flags`: `--strict-mcp-config` with the servers its role calls (a handler's drive,
-cc-slack, cci and Datadog; none for the rest, which use the CLIs), its role's plugins and the
+`agents.STRICT_MCP`: `--strict-mcp-config` with no MCP server, since every role uses the CLIs,
+its role's plugins and the
 drive's, no user skills, no auto-memory. An Agent call, launch or `codex-ask` naming an effort
 names `high` or lower.
 

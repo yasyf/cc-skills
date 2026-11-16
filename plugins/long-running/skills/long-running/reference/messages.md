@@ -6,7 +6,7 @@ first and no promise line stands in for the answer. While a read runs, the threa
 what is being read.
 
 The communicator writes every post to him, from his message or from a `report` record the
-coordinator, the meta session or the watch sends. No handler starts. The watch posts each milestone
+coordinator, the meta session or the watch sends. The watch posts each milestone
 itself, and the drive draws the cards. You are trusted to judge what a post should say. The rules below are his style rulings and the
 facts about how `say` and the cards behave.
 
