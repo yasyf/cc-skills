@@ -520,7 +520,7 @@ def test_status_with_no_ids_prints_a_coordinator_one_line_per_open_order_it_runs
     assert orders == ["o1"]
     assert "Open orders you run: 1, a line each and one under it for each standing part and each part an ORPHAN named until it heals or a job on it moves; drive status <id> prints one whole, with its jobs, PRs and questions:" in text
     assert "build o1" not in text and "fix the invoice" not in text
-    assert "fix the invoice" in run("status", "o2")[1]
+    assert "fix the invoice" in run("status", "o2", "--full")[1]
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", top)
     orders, text = shown()
     assert orders == ["o2"]
@@ -9025,7 +9025,7 @@ def test_job_add_sends_a_builder_past_the_macs_cap_or_behind_its_line_to_a_sprit
         f" drive job launch j11 <brief>; {mac_only}"
     )
     assert place.waiting_builders(state.load(demo)) == ["j10"]
-    assert "j10 builder waiting: land; waits on a builder slot on this Mac, 1 of 1 in line" in run("status", "o1")[1]
+    assert "j10 builder waiting: land; waits on a builder slot on this Mac, 1 of 1 in line" in run("status", "o1", "--full")[1]
     assert json.loads(run("status", "o1", "--json")[1])["jobs"]["j10"]["in_line"] == "1 of 1 in line"
     assert run("job", "add", "reader", "--order", "o1", "--part", "strip 1", "--goal", "read")[0] == 0
 
@@ -9526,11 +9526,36 @@ def test_status_reads_the_prs_from_the_drive_and_never_from_github(run: Run, wit
     monkeypatch.setattr(github, "run", refused)
     with state.edit("demo") as data:
         data["prs"][with_pr].update(title="Fix: the watched title", checks="pass", review="approved")
-    code, out = run("status", "o1")
+    code, out = run("status", "o1", "--full")
     assert code == 0
     assert out.splitlines()[0] == "demo: 1 open of 1 orders"
     assert 'Forge-AI/monorepo#42 "Fix: the watched title" open, checks pass, review approved' in out
     assert json.loads(run("status", "o1", "--json")[1])["prs"][with_pr]["title"] == "Fix: the watched title"
+
+
+def test_status_of_an_order_sums_it_from_the_saved_rows_with_no_github_or_slack_read(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    def refused(*_: object, **__: object) -> str:
+        raise AssertionError("drive status read GitHub or Slack")
+
+    run("job", "add", "builder", "--order", "o1", "--part", "write the docs", "--goal", "docs")
+    run("job", "add", "builder", "--order", "o1", "--part", "staging test of #42 before it lands", "--goal", "test #42 on staging")
+    monkeypatch.setattr(github, "run", refused)
+    monkeypatch.setattr(view, "refresh_cards", refused)
+    with state.edit("demo") as data:
+        data["prs"][with_pr].update(stage={"name": "card", "owner": "him", "why": "green, waits on his Approve", "since": None})
+        data["prs"]["Forge-AI/monorepo#41"] = data["prs"][with_pr] | {"state": "merged", "url": PR[:-2] + "41"}
+        data["jobs"]["j3"].update(state="waiting", said="WAITING staging:sandsql/plat-usw2-staging@abc")
+    code, out = run("status", "o1")
+    assert code == 0
+    assert out.splitlines() == [
+        "o1 open: land it",
+        "merged 1: #41",
+        "open card 1: #42: green, waits on his Approve",
+        'not written: "write the docs": j2 builder waiting',
+        "staging j3 waiting: WAITING staging:sandsql/plat-usw2-staging@abc",
+        "waits on him: #42: green, waits on his Approve",
+    ]
+    assert run("status", "o9")[0] != 0
 
 
 def test_status_prints_an_open_pr_while_the_installed_cc_slack_lists_no_closed_cards(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -9543,13 +9568,13 @@ def test_status_prints_an_open_pr_while_the_installed_cc_slack_lists_no_closed_c
 
 def test_status_reads_only_the_orders_its_ids_name(run: Run, with_pr: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "something else")
-    for key in ("o1", "j1", with_pr, PR):
-        code, out = run("status", key)
+    for key in ("o1 --full", "j1", with_pr, PR):
+        code, out = run("status", *key.split())
         assert code == 0
         assert out.splitlines()[0].startswith("demo: 1 open of 1 orders")
         assert "land it" in out
         assert "something else" not in out
-    assert run("status", "o2")[1].splitlines()[0].startswith("demo: 1 open of 1 orders")
+    assert run("status", "o2", "--full")[1].splitlines()[0].startswith("demo: 1 open of 1 orders")
     assert run("status", "j9")[0] != 0
 
 
@@ -9613,7 +9638,7 @@ def test_status_of_an_order_a_design_of_an_unnamed_order_carries_reads_that_desi
     with state.edit("demo") as data:
         data["jobs"]["j1"]["state"] = "done"
         state.carry(data, "j1", "o2", ["partitioning design choices"])
-    code, out = run("status", "o2")
+    code, out = run("status", "o2", "--full")
     assert code == 0
     assert out.splitlines()[:3] == ["demo: 1 open of 1 orders", "- o2 open: why is the database so big", '  parts: "partitioning design choices": design j1 done']
 

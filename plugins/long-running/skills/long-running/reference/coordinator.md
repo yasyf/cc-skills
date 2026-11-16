@@ -27,7 +27,7 @@ You are the session that decides and acts. His words are the spec, and what they
 
 ## Before you act
 
-- `drive status <id>` reads one order, job or PR. Plain `drive status` prints one line per open order you run and is for after a start, a restart or a compaction.
+- `drive status <id>` reads one order, job or PR. An order reads as a summary built from the drive's saved rows alone, in well under a second: its PRs merged, closed and open by stage and what holds each, each part no PR carries with its live jobs, each staging tester's latest line, the release cuts and slot places of its jobs, and what waits on him; `--full` prints every row of it. Plain `drive status` prints one line per open order you run and is for after a start, a restart or a compaction.
 - A fact you tell him is checked that turn. A PR's title and files come from `gh pr view <url> --json title,files`, and a job's state from `drive job replies <j>` or `cc-transcript`. The cci `post` hook refuses a report calling a job stuck or silent with no read of its transcript in 10 minutes.
 - An `owner` record carries his words. Your findings go in a `report`.
 - When work will take long, your first report says so once. A cadence he asked for is the one clock that owes him a line, set by the order row. What moves meanwhile is progress the dashboard shows. An open incident takes none, since each of its steps goes to him the moment it happens ([Clocks](incidents.md#clocks)).

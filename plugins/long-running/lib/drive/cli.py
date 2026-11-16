@@ -6298,6 +6298,8 @@ def status(args: argparse.Namespace) -> int:
     from drive import view
 
     name = state.resolve(args.drive)
+    if args.ids and not (args.full or args.json or args.prs) and all(reads.DRIVE_RECORD.fullmatch(each) and each.startswith("o") for each in args.ids):
+        return emit(args, "\n\n".join(order_summary(name, order_id) for order_id in args.ids), {})
     view.refresh_cards(name)
     data = state.load(name)
     shown = only(data, args.ids) if args.ids else None
@@ -6323,6 +6325,56 @@ def status(args: argparse.Namespace) -> int:
         payload["release_freezes"] = brief.releases(name, data)
         text += f"\nRelease freezes: {payload['release_freezes']}"
     return emit(args, text, payload)
+
+
+STAGE_REF = re.compile(r"(?<=\s)Forge-AI/monorepo#")
+
+
+def order_summary(name: str, order_id: str) -> str:
+    """Where an order stands, read from the drive's saved rows alone, the order's, its jobs' one by one, and the PR and slot tables, with no GitHub, Slack or Orca read, so it answers in well under a second whatever the order's size: its PRs merged, closed and open, each open one at the stage the watch keeps on it and what holds it, each part no PR carries yet with its jobs, each staging tester's latest line, each release job and staging slot place of its jobs, and what waits on him, his cards and his taps; drive status --full prints every row."""
+    from drive import view
+
+    if not (order := state.saved_row(name, "orders", order_id)):
+        raise DriveError(f"no order {order_id}")
+    jobs = {job_id: job for job_id in order["jobs"] if (job := state.saved_row(name, "jobs", job_id))}
+    tables = state.stored(name, ("prs", "slots"))
+    prs = {key: pr for key, pr in tables["prs"].items() if pr["order"] == order_id or pr["job"] in jobs}
+    lines = [f"{order_id} {order['state']}: {render.cut(order.get('title') or order['text'], 140)}"]
+    for shown in ("merged", "closed"):
+        if keys := [key for key, pr in prs.items() if pr["state"] == shown]:
+            lines.append(f"{shown} {len(keys)}: {', '.join('#' + key.split('#')[1] for key in keys)}")
+    grouped: dict[tuple[str, str], list[str]] = {}
+    for key, pr in prs.items():
+        if pr["state"] == "open":
+            stage = pr.get("stage") or {}
+            grouped.setdefault((stage.get("name") or "unread", render.cut(STAGE_REF.sub("#", stage.get("why") or ""), 120)), []).append("#" + key.split("#")[1] + ("*" if (pr.get("tap") or {}).get("label") == "Approve" else ""))
+    for (named, why), keys in grouped.items():
+        lines.append(f"open {named} {len(keys)}: {', '.join(keys)}{': ' + why if why else ''}")
+    if any("*" in key for keys in grouped.values() for key in keys):
+        lines.append("* has his Approve")
+    carried = {part for job in jobs.values() if job["prs"] for part in job["parts"]}
+    for part in order["parts"]:
+        if part not in carried and not state.STAGING_PART.fullmatch(part):
+            if held := [f"{job_id} {job['kind']} {job['state']}" for job_id, job in jobs.items() if part in job["parts"] and job["state"] not in state.FINISHED_JOB_STATES]:
+                lines.append(f"not written: \"{render.cut(part, 80)}\": {', '.join(held)}")
+    for job_id, job in jobs.items():
+        if any(state.STAGING_PART.fullmatch(part) for part in job["parts"]) and job["state"] not in state.FINISHED_JOB_STATES:
+            lines.append(f"staging {job_id} {job['state']}: {render.cut(job.get('said') or job['goal'], 160)}")
+        if job.get("release_build") and job["state"] not in state.FINISHED_JOB_STATES:
+            lines.append(f"release {job_id} {job['state']}: {job['release_build']}")
+    numbers = {key.split("#")[1] for key in prs}
+    for env, slot in tables["slots"].items():
+        for each in [*([slot["holder"]] if slot.get("holder") else []), *slot["queue"]]:
+            if each.get("starts") and each["job"] not in jobs and (rides := sorted(numbers & {str(pr).rsplit("#", 1)[-1] for pr in each["prs"]})):
+                lines.append(f"release {each['job']} on {env} carries {', '.join('#' + number for number in rides)}")
+        if (held := slot.get("holder")) and (riding := [job_id for job_id in [held["job"], *(rider["job"] for rider in held.get("riders", []))] if job_id in jobs]):
+            lines.append(f"slot {env}: {', '.join(riding)} in the cut holding it until {render.when(held['until'])}")
+        if queued := [f"{each['job']} place {place}" for place, each in enumerate(slot["queue"], 1) if each["job"] in jobs]:
+            lines.append(f"slot {env} queue: {', '.join(queued)}")
+    asks = [f"{job_id}'s card {card}" for job_id, job in jobs.items() if job["state"] not in state.FINISHED_JOB_STATES for card in view.open_cards(job | {"questions": job.get("questions") or []})]
+    asks += [f"#{key.split('#')[1]}: {(pr.get('stage') or {}).get('why') or 'his tap'}" for key, pr in prs.items() if pr["state"] == "open" and (pr.get("stage") or {}).get("owner") == "him"]
+    lines.append(f"waits on him: {'; '.join(render.cut(ask, 160) for ask in asks) if asks else 'nothing'}")
+    return "\n".join(lines)
 
 
 def with_build(place: str, held: dict) -> str:
@@ -8122,6 +8174,7 @@ def parser() -> argparse.ArgumentParser:
         "ids", nargs="*", help=f"what to read, each {ID_FORMS}, or other words, read as each open order whose title, words, part names or PR titles hold every one in any case; default: every open order a line each, a coordinator's only its own"
     )
     verb.add_argument("--prs", action="store_true", help="only a table of each open PR he approved or that waits on him: its stage, what holds it, who owes its next step and since when")
+    verb.add_argument("--full", action="store_true", help="for orders, every row of each and of its jobs and PRs, read fresh, in place of the summary read from the drive's saved rows")
     verb.set_defaults(run=status)
     verb = verbs.add_parser("manual", parents=[drive_opt], help="print one page of the long-running skill, then what the [[page]] tables of the drive checkout's .claude/long-running.toml add to it")
     verb.add_argument("page", nargs="?", choices=manual_pages(), help="default: list the pages")
