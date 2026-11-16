@@ -690,7 +690,7 @@ def judge(monkeypatch: pytest.MonkeyPatch) -> Judge:
     monkeypatch.setattr(
         served,
         "judged",
-        lambda name, said, changes: judging.asked.append((said, changes)) or {"against": list(judging.against)},
+        lambda name, said, changes, ruled: judging.asked.append((said, changes)) or {"against": list(judging.against)},
     )
     return judging
 
