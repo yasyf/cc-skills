@@ -789,6 +789,28 @@ def test_a_report_post_calling_an_event_unexplained_gets_the_records_beside_it_a
     assert talk.report_line(demo, "736259") == "POSTED https://acme.slack.com/archives/C1/p1"
 
 
+def test_a_correction_whose_edit_would_drop_the_rest_of_its_post_goes_beside_it_once_and_its_writer_starts_from_the_post_as_it_reads(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    from drive import answer
+
+    posted = "https://acme.slack.com/archives/C0CHZM7A478/p1794859107344309?thread_ts=1794830198.687629&cid=C0CHZM7A478"
+    status = "*Staging* rehearsal passed\n*Sandbox* forward leg not started\n*One stack* tip not releasable\n*Production* untouched\n*Unexplained: a writer pod kill* cause unread"
+    with edit(demo) as data:
+        data["carried"]["736258"] = posted
+    monkeypatch.setattr(talk, "post_words", lambda link: status if link == posted else "")
+    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {"channel": "C0CHZM7A478", "thread": "1794830198.687629"}, "report": {"kind": "correction", "re": "736258", "lane": "priority-o1339", "text": "POST the 10:58 AM kill was the test's own delete", "seq": seq}, "thread": None})
+    asked: list[str] = []
+    monkeypatch.setattr(answer, "ask", lambda facts, prompt, rules, tag: asked.append(facts) or (json.dumps({"text": "The 10:58 AM writer pod kill was the test's own planned delete.", "place": "edit"}), None))
+    monkeypatch.setattr(slack, "homes", lambda data: {"C0CHZM7A478"})
+    monkeypatch.setattr(slack, "post_findings", lambda text, draws_card, asked="": [])
+    spoken: list[tuple[dict, bool]] = []
+    monkeypatch.setattr(talk, "spoken", lambda name, post, known, recorded_first=False, beside=False: spoken.append((post, beside)) or "POSTED x")
+    talk.report_line(demo, "736349")
+    assert "*Production* untouched" in asked[0]
+    assert "edit" not in spoken[0][0] and spoken[0][0]["thread_ts"] == "1794830198.687629" and spoken[0][1]
+    talk.report_line(demo, "736349")
+    assert spoken[1][0]["edit"] == posted
+
+
 def test_a_correction_of_a_posted_report_rewords_that_post_itself_rather_than_bouncing_to_a_writer_that_cannot_post(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     from drive import answer
 

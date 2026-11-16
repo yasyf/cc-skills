@@ -215,6 +215,37 @@ def unexplained_refusal(name: str, text: str, nearby: list[dict], channel: str |
     return gate.gate(name, f"unexplained {channel or 'dm'}/{thread or ''}", [f"its post calls an event unexplained, citing none of the records from within two minutes of it, nor saying none applies: {listed}"])
 
 
+EDIT_KEEPS = 0.6
+
+
+def post_words(link: str) -> str:
+    """The words a post of the drive shows now, its text and each block's, one line each, read from Slack; empty for no post or one Slack cannot read."""
+    if not state.CARD_LINK.search(link or ""):
+        return ""
+    ts = ".".join(POSTED_TS.search(link).groups())
+    try:
+        read = slack.cc_slack("thread", "--raw", "--url", link)
+    except slack.SlackError:
+        return ""
+    message = next((each for each in read.get("messages") or [] if each.get("ts") == ts), None)
+    return "\n".join(block_words(((message or {}).get("raw") or {}).get("blocks") or [])) or (message or {}).get("text") or ""
+
+
+def dropped_lines(now_reads: str, shown: dict) -> list[str]:
+    """The lines of a post as it reads now that its edit would drop, when the edit keeps less than EDIT_KEEPS of them, as 736473's edit replaced a whole status with its correction; none otherwise."""
+    old = [line.strip() for line in now_reads.splitlines() if line.strip()]
+    new = "\n".join([shown.get("text") or "", *block_words(shown.get("blocks") or [])])
+    gone = [line for line in old if line not in new]
+    return gone if old and len(gone) > (1 - EDIT_KEEPS) * len(old) else []
+
+
+def gate_edit(name: str, link: str, dropped: list[str]) -> str | None:
+    """Refuse once, through gate.gate, an edit that drops most of the post it rewords, so the correction goes as a reply beside it and the post keeps its other sections; a repeat edits."""
+    from drive import gate
+
+    return gate.gate(name, f"edit {link}", [f"the edit drops {len(dropped)} lines of the post it corrects, such as {render.cut(dropped[0], 120)!r}"])
+
+
 def report_line(name: str, seq: str) -> str:
     """Post a `POST` report for him from the drive itself, an open incident's report naming no thread in the incident's thread in a channel the drive keeps, by state.incident_place, by his words "Where did the approve tap get sent initially?", from a process the watch starts, or a line the watch writes from its own rows, a milestone, an incident's end or a proved order's live line, from the watch's own pass, so no session posts it and no message of his waits behind one: one Sonnet call given REPORT_RULES, his rules for a post, where it goes and when a visual is owed, writes the post and decides its place, by his words "get rid of hard-coded stuff, give it the rules, and let it make the call", then each mechanical `cc-slack check-post` fix is made by fixes.mended and say posts it citing the report: in the thread the report names, at its channel's root, or as an edit of the post a correction corrects, in that post's own place; each order its close attr names then closes on it, once the post's record lands on its order. A report placed in a channel outside the drive's, where cc-slack posts only on the ticket a session's permission hook names, a link the report does not print, words check-post still faults and a report the model skips, as Skipped, post nothing, and the refusal goes back to its writer, by report_post, or to the watch's pass that called it."""
     from drive import answer, fixes
@@ -243,6 +274,7 @@ def report_line(name: str, seq: str) -> str:
                 f"Thread: {thread}" if thread else "No thread: it goes at the channel's root.",
                 f"Channel: {channel}" if channel else "",
                 f"The post it corrects: {corrected}" if corrected else "",
+                f"That post as it reads now, which an edit starts from, changing only what the correction names and keeping every other line, its sections and blocks included:\n{now_reads}" if (now_reads := post_words(corrected)) else "",
                 f"Its typed due, {stale}, passed before it could post: post its substance and leave out every promise tied to that time." if stale else "",
                 f"He is away: {away}." if (away := state.absence(known, state.now())) else "",
                 *(["Earlier reports for this same place, sent before it and not yet posted, oldest first:", *(f"- Report {held}: {said}" for held, said in earlier)] if earlier else []),
@@ -273,12 +305,14 @@ def report_line(name: str, seq: str) -> str:
     if made.get("place") == "edit" or report["kind"] == "correction" and state.CARD_LINK.search(corrected):
         if not corrected.startswith("https://"):
             raise DriveError(f"it corrects report {report.get('re')}, which went out in no post")
-        return spoken(name, shown | {"edit": corrected, "record": seq}, known)
+        if not (dropped := dropped_lines(now_reads, shown)) or gate_edit(name, corrected, dropped) is None:
+            return spoken(name, shown | {"edit": corrected, "record": seq}, known)
+        made = made | {"place": "thread"}
     place = {"channel_id": channel} if channel else {}
     if (made.get("place") == "thread" or incident) and (under :=(channel, thread) if thread else corrected and state.link_thread(corrected)):
         place = {"thread_ts": under[1]} | ({"channel_id": under[0]} if under[0] else {})
     owes = {key: attrs[key] for key in (("outcome",) if stale else ("due", "owes", "outcome", "moves")) if attrs.get(key)}
-    line = spoken(name, shown | {"record": seq} | place | owes, known, recorded_first=bool(state.closed_orders(attrs)))
+    line = spoken(name, shown | {"record": seq} | place | owes, known, recorded_first=bool(state.closed_orders(attrs)), beside=made.get("place") == "thread" and report["kind"] == "correction")
     carried_earlier(name, seq, [held for held, _ in earlier])
     if stale:
         told_stale(name, seq, report["lane"], stale)
@@ -442,7 +476,7 @@ def remember_said(name: str, post: dict, link: str) -> None:
     path.write_text(json.dumps(kept))
 
 
-def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> str:
+def spoken(name: str, post: dict, known: dict, recorded_first: bool = False, beside: bool = False) -> str:
     """Post one message as say does, once its caller may: known is the drive as say's caller read it; recorded_first waits for the post's record on its order, as a close does, for a caller that closes the order next; a close of an order another report already closes is dropped and the post goes out, warning once per order, since a gate blocks at most once."""
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
     post = placed(known, post, report)
@@ -456,7 +490,7 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
         report = report | {"close": ", ".join(named for named in state.closed_orders(report) if named != order)}
         close = False
         closed_again = None if order in known["posts"].get("closed_again", []) else (order, again.removeprefix("refused, ").replace(", so this second close of it posts nothing: send no close of", "; the post went out without its close of"))
-    if wrong := corrected_post(known, report, post.get("edit")):
+    if not beside and (wrong := corrected_post(known, report, post.get("edit"))):
         post = {key: value for key, value in post.items() if key in EDIT_TAKES} | {"edit": wrong}
     if refused := (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)):
         raise DriveError(f"nothing posted: {refused}")
