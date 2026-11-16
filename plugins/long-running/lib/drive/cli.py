@@ -4846,7 +4846,8 @@ def answer(args: argparse.Namespace) -> int:
             raise DriveError('name his answer\'s cc-notes id, or pass --title "<the question, verbatim>" with --words and --link to record it in cc-notes first')
         if unsaid := settled.unsaid([args.words], args.link, found, data):
             raise DriveError(f"refused, nothing recorded: {unsaid}")
-        args.id = settled.recorded(name, args.title, args.words, args.label, " and ".join(args.link), cwd)
+        lifts = settled.lifting(question for job in data["jobs"].values() for question in job["questions"] if superseded.ended_at(args.link[0], question))
+        args.id = settled.recorded(name, args.title, args.words, args.label, " and ".join(args.link), cwd, lifts)
     drive = args.about == state.ABOUT_DRIVE or bool(ON_THE_DRIVE & {*(cited["tags"] if cited else args.label)})
     marking = args.stands or args.settled or args.dropped or args.superseded or args.reopened or args.others_stand or args.untouched
     done: list[str] = []
@@ -4986,16 +4987,14 @@ def replaced(name: str, answer_id: str, asked: dict[str, dict], cwd: str) -> lis
     words = {entry["id"]: entry for order_id in features.values() for entry in brief.unreplaced(brief.spec(name, data, {"order": order_id, "carries": []})) if entry["id"] and entry["id"] not in data["orders"] and state.parse_time(entry["at"]) < state.parse_time(new["created_at"])}
     if not words or not kept["words"]:
         return []
-    slots = {word_id: f"w{number}" for number, word_id in enumerate(words, 1)}
-    items = (({"words": {slots[word_id]: {"asked": entry["asked"], "said": entry["said"]}}}, {f"replaces.{word_id}": settled.asking(settled.REPLACES, slot=slots[word_id])}) for word_id, entry in words.items())
     try:
-        read = settled.jev_all(settled.batched({"answer": {"asked": new["title"], "said": kept["words"]}, "words": {}}, {}, items))
+        read = settled.replacing(new["title"], kept["words"], list(words.values()))
     except settled.Unheard as failure:
         print(f"drive answer: Jev did not read which of his standing answers {answer_id} replaces, so each stands: {failure}", file=sys.stderr)
         return []
     done = []
-    for key, sure in read.items():
-        old = words[key.partition(".")[2]]
+    for word_id, sure in read.items():
+        old = words[word_id]
         if (found := settled.reading(sure)) is None:
             print(f'drive answer: Jev is unsure whether {answer_id} replaces his answer {old["id"]} to "{render.cut(old["asked"], 200)}"; when it does, run ccn answer supersede {old["id"]} --by {answer_id}', file=sys.stderr)
         if found:

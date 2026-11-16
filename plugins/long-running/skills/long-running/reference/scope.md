@@ -168,7 +168,9 @@ its card. When Jev answers 0.7 or more that the card's recommended option breaks
 or ruling of his, the cited answer the card says it goes against first, or else that any other option
 it offers does, the verb keeps the card unsettled on it, as `<id>: Jev reads the recommended option as
 breaking it` or `<id>: Jev reads option "<that option>" as breaking it`, asking him to lift those words, so it holds
-its PR on an incident too until he answers. Another option alone never marks an answer that already
+its PR on an incident too until he answers. His answer, as cc-notes records it, marks each answer the mark names
+superseded by it when Jev reads it replacing that one, so no brief or judge binds the words he lifted, and his
+Undo takes the mark back. Another option alone never marks an answer that already
 answers the card, one its Already answered tap carries or one Jev reads below, since offering an
 option his answer did not choose asks him to lift nothing. His newest words stand: no answer is marked
 while a cited answer he gave after it orders the recommended option's release or decides the card. A cited answer the release gate reads as ordering a release

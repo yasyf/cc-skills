@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from conftest import Cci, Chrome, Images, Jev, Judge, Redraws
-from drive import card, cli, github, land, limits, picture, render, stage, stall, state, superseded, view, watch
+from drive import card, cli, github, land, limits, picture, render, settled, stage, stall, state, superseded, view, watch
 from drive.github import GithubError
 
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -1019,6 +1019,22 @@ def test_his_undo_is_recorded_in_cc_notes_once_under_its_cards_question_as_never
         ask({"answer": undo})
     ask({"answer": tap | {"label": "Knock", "action_ts": "1794200003.000100"}})
     assert noted == [(drive, "Ring or knock?", "Ring"), (drive, "Ring or knock?", card.UNDONE.format(label="Ring")), (drive, "Ring or knock?", "Knock")]
+
+
+def test_his_tap_on_a_card_asking_him_to_lift_an_answer_records_his_answer_against_that_one_and_his_undo_takes_back_its_supersede(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    two_questions_of_j3(drive, monkeypatch)
+    with state.edit(drive) as data:
+        data["jobs"]["j3"]["questions"][1]["unsettled"] = "3537819: Jev reads the recommended option as breaking it"
+    given: list[tuple[str, list[str]]] = []
+    unlifted: list[tuple[str, list[str]]] = []
+    answer_id = f"e8d49f1{'0' * 33}"
+    monkeypatch.setattr(settled, "recorded", lambda name, title, words, labels, where, cwd, lifts=(): given.append((words, list(lifts))) or answer_id)
+    monkeypatch.setattr(settled, "unlift", lambda by, picks, cwd: unlifted.append((by, picks)))
+    tap = {"waits": f"{drive}:j3-661440", "label": "Ring", "url": NEWER_CARD, "action_ts": "1794200001.000100", "source": "slack"}
+    ask({"answer": tap})
+    assert (given, unlifted) == ([("Ring", ["3537819"])], [])
+    ask({"answer": tap | {"undone": True, "action_ts": "1794200002.000100"}})
+    assert (given[1:], unlifted) == ([(card.UNDONE.format(label="Ring"), [])], [(answer_id, ["3537819"])])
 
 
 def test_his_undo_reopens_the_question_his_words_under_the_card_answered_and_each_copy_answered_on_their_record_and_refuses_one_reopening_none(
