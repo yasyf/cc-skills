@@ -3969,13 +3969,20 @@ def to_starter(args: argparse.Namespace, name: str, job: dict, lane: str) -> int
 
 
 def held_to_starter(args: argparse.Namespace, name: str, job: dict, lane: str) -> int:
-    """Give each text the job holds, oldest first, to its agent on this Mac that a session of the drive started and still holds, each as its own record by starter_post, so a resume with no text sends the words the drive holds whole and the session that runs it types none, by its own SendMessage line per record; a text an earlier record of this resume took off the job is not posted again, and the job's question is closed by the first record alone, as messaged closes it. Nothing held, handed over or started."""
-    sent = []
-    for kept in job["undelivered"]:
-        if any(left["request"] == kept["request"] for left in state.load(name)["jobs"][args.id]["undelivered"]):
-            sent.append(starter_post(name, args.id, job, lane, kept["words"], kept["at"], kept["request"]))
-            job = {**job, "ask": None}
-    return emit(args, "\n".join(line for _, line in sent), {"id": args.id, "how": f"handoff to {lane}", "seqs": [seq for seq, _ in sent]})
+    """Give each text the job holds, oldest first, to its agent on this Mac that a session of the drive started and still holds, in one record by starter_post, each held text under the last, so a resume with no text sends the words the drive holds whole in one record the agent reads once and the session that runs it types one SendMessage line, by his words "make everything less chatty"; a text another resume took off the job meanwhile is not posted again. Nothing held, handed over or started."""
+    left = {kept["request"] for kept in state.load(name)["jobs"][args.id]["undelivered"]}
+    held = [kept for kept in job["undelivered"] if kept["request"] in left]
+    if not held:
+        return emit(args, "", {"id": args.id, "how": f"handoff to {lane}", "seqs": []})
+    seq, line = starter_post(name, args.id, job, lane, "\n\n".join(kept["words"] for kept in held), held[0]["at"], held[0]["request"])
+    taken = {kept["request"] for kept in held}
+
+    def held_to_starter_write(data: dict):
+        data["jobs"][args.id]["undelivered"] = [kept for kept in data["jobs"][args.id]["undelivered"] if kept["request"] not in taken]
+        return data
+
+    state.update(name, (("jobs", args.id),), held_to_starter_write)
+    return emit(args, line, {"id": args.id, "how": f"handoff to {lane}", "seqs": [seq]})
 
 
 def starter_post(name: str, job_id: str, job: dict, lane: str, text: str, at: str, held: str | None = None) -> tuple[str, str]:

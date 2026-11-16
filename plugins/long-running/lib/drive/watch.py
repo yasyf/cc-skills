@@ -82,6 +82,7 @@ STALE_TEXT = settled.Noul(
 )
 COALESCE = timedelta(minutes=10)
 POSTED_KEY = "posted:"
+WATCH_STARTS = "start no agent for it"
 URGENT = ("TAP ", "DUE ", "MOVED ", "WATCH stopped", "DOWN ")
 TAP_EVENT = re.compile(rf"TAP (?P<label>\S+) (?P<key>\S+)(?P<stalled> {NOT_LANDED})?")
 LANE = "watch"
@@ -3359,7 +3360,7 @@ def stale_texts(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each answer of his that leaves a card still asking him, an order or part it lists of an order still open or a PR not yet live with no mark, standing, settled, dropped, superseded or reopened by it, again every ten minutes until each has one: one line for each session owing a step on it, the session state.holding_lane names for the order of each card, order, part and PR, root's for a card no order holds, its header naming one of them so line_lane hands it to that session; a live job it touches not yet sent his words, as hear_sent reads each SendMessage, takes them held as a text its next resume, launch or GO carries, marked sent, with no line, so no session forwards them; never one cc-notes marks superseded, by superseded.standing, which is read again only as often."""
+    """Each answer of his that leaves a card still asking him, an order or part it lists of an order still open or a PR not yet live with no mark, standing, settled, dropped, superseded or reopened by it, again every ten minutes until each has one: one line for each session owing a step on it, the session state.holding_lane names for the order of each card, order, part and PR, root's for a card no order holds, its header naming one of them so line_lane hands it to that session; a live job it touches not yet sent his words, as hear_sent reads each SendMessage, takes them held as a text its next resume, launch or GO carries, unless a text its workers were given already names the answer by its id, as a brief's Decisions that bind does, marked sent either way, with no line, so no session forwards them; never one cc-notes marks superseded, by superseded.standing, which is read again only as often."""
     if watcher.cards is None or watcher.project:
         return []
     data = state.load(watcher.name)
@@ -3389,7 +3390,8 @@ def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
             for answer_id, (_, jobs) in owed.items():
                 kept = data["answers"][answer_id]
                 for job_id in jobs:
-                    state.hold_text(data["jobs"][job_id], f'His answer {answer_id}, verbatim: "{kept["words"]}"', state.WATCH_SENDER)
+                    if not any(answer_id in path.read_text() for path, _ in superseded.given_texts(data, job_id)):
+                        state.hold_text(data["jobs"][job_id], f'His answer {answer_id}, verbatim: "{kept["words"]}"', state.WATCH_SENDER)
                     kept["jobs"][job_id] = {"mark": "sent"}
             return data
 
@@ -6141,7 +6143,7 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
     data = state.load(watcher.name)
     if untaken(watcher, data, lane):
         return []
-    posting = unsaid(watcher.name, lane, [line for line in owed if needs_step(line, data, watcher.cards) and not quiet(line) and (lane not in state.HOLDERS or not fixing(line, data, watcher.cards))], moment)
+    posting = unsaid(watcher.name, lane, [line for line in owed if needs_step(line, data, watcher.cards) and not quiet(line) and (lane in state.HOLDERS or not FAILED_LINE.match(line)) and (lane not in state.HOLDERS or not fixing(line, data, watcher.cards))], moment)
     defects = [line for line in posting if line.startswith(LANDER)]
     rest = [line for line in posting if line not in defects]
     kind = "handoff" if lane in state.HOLDERS or any(wakes(line, data, watcher.cards) for line in rest) else "evidence"
@@ -6181,8 +6183,13 @@ def keep_posted(name: str, lane: str, moment: datetime) -> None:
 
 
 def quiet(line: str) -> bool:
-    """Whether a line is one whose row of the coordinator's manual says Nothing, so no lane hears it: a card settled or withdrawn in place, a built answer paused on his pick, a standing part's next pass, a compaction, a status page redraw, a receiver the watch replaced, or a tester the watch queued in its env's slot itself."""
-    return line.startswith(QUIET_LINES) or line.startswith("WATCH the receiver") and "could not replace it" not in line or line.startswith("SLOT ") and " queued " in line.split(",", 1)[0]
+    """Whether a line is one whose row of the coordinator's manual says Nothing, so no lane hears it: a card settled or withdrawn in place, a built answer paused on his pick, a standing part's next pass, a compaction, a status page redraw, a receiver the watch replaced, a tester the watch queued in its env's slot itself, or a job the watch starts itself, saying start no agent for it, by his words "a watch record to a lane should exist only when it asks for a step"."""
+    return (
+        line.startswith(QUIET_LINES)
+        or line.startswith("WATCH the receiver") and "could not replace it" not in line
+        or line.startswith("SLOT ") and " queued " in line.split(",", 1)[0]
+        or WATCH_STARTS in line
+    )
 
 
 def said_key(lane: str, line: str) -> str:

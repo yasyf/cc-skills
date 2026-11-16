@@ -1471,7 +1471,7 @@ def test_a_resume_of_an_agent_the_communicator_started_posts_his_words_whole_in_
     assert posted == []
 
 
-def test_a_resume_with_no_text_posts_each_text_an_agent_its_session_started_holds_whole_oldest_first_one_sendmessage_a_record_as_j232s_cut_line_needed(
+def test_a_resume_with_no_text_posts_every_text_an_agent_its_session_started_holds_whole_oldest_first_in_one_record_and_one_sendmessage(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     order = "Drive tooling: the watch's undelivered-words line asks the session to resume a job with the held words verbatim but cuts them off"
@@ -1491,18 +1491,12 @@ def test_a_resume_with_no_text_posts_each_text_an_agent_its_session_started_hold
     posted = []
     seqs = iter(["720371", "720372"])
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend((lane, post) for post in posts) or [next(seqs)])
-    assert run("job", "resume", "j1") == (
-        0,
-        'j1: owed, send it now: SendMessage a4e953525ff2a4e17 "Read cci record 720371 whole and act on it"\nj1: owed, send it now: SendMessage a4e953525ff2a4e17 "Read cci record 720372 whole and act on it"',
-    )
-    assert [(lane, post["kind"], post["to"], post.get("body", post["text"])) for lane, post in posted] == [
-        ("root", "handoff", [f"peer:{top}/a4e953525ff2a4e17"], joined),
-        ("root", "handoff", [f"peer:{top}/a4e953525ff2a4e17"], merged),
-    ]
+    assert run("job", "resume", "j1") == (0, 'j1: owed, send it now: SendMessage a4e953525ff2a4e17 "Read cci record 720371 whole and act on it"')
+    assert [(lane, post["kind"], post["to"], post.get("body", post["text"])) for lane, post in posted] == [("root", "handoff", [f"peer:{top}/a4e953525ff2a4e17"], f"{joined}\n\n{merged}")]
     jobs = state.drive_dir(demo) / "jobs"
-    assert ((jobs / "j1.sent-720371.md").read_text(), (jobs / "j1.sent-720372.md").read_text(), state.load(demo)["jobs"]["j1"]["undelivered"]) == (joined, merged, [])
+    assert ((jobs / "j1.sent-720371.md").read_text(), state.load(demo)["jobs"]["j1"]["undelivered"]) == (f"{joined}\n\n{merged}", [])
     assert run("job", "resume", "j1") == (0, "j1 holds no message to send")
-    assert len(posted) == 2
+    assert len(posted) == 1
 
 
 def test_a_resume_with_no_text_from_another_session_posts_the_held_text_to_the_agent_and_its_starter_the_sendmessage_pointing_there(
