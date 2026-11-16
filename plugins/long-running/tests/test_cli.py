@@ -10832,7 +10832,7 @@ def test_status_names_the_open_incidents_and_tells_no_running_job_of_a_restarted
     lines = run("status")[1].splitlines()
     assert lines[4:6] == [
         "Open incident orders; an alert on the same failing service joins one with drive order add --joins <o>:",
-        "o1 open incident: errors on the api; record 3fa2c1",
+        "o1 open incident: errors on the api; record 3fa2c1; not marked as hitting real users; he was not paged",
     ]
     assert lines[6].startswith("Open orders")
     assert run("status", "j4")[1].splitlines()[1].startswith("- o3 ")
