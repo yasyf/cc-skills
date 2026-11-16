@@ -897,7 +897,7 @@ def test_a_report_sent_back_to_its_writer_counts_as_handled_so_no_has_no_post_de
     assert [record["kind"] for records in sent for record in records] == ["refused"]
 
 
-def test_a_release_reference_looks_its_post_up_once_a_process_keeps_a_found_post_and_goes_out_unlinked_with_a_warning_while_none_is_up(communicator: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_release_reference_keeps_a_found_post_looks_a_miss_up_again_after_a_while_and_goes_out_unlinked_with_a_warning_while_none_is_up(communicator: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
     post = "https://acme.slack.com/archives/C9/p1794851300000100"
     looks: list[str] = []
     up: dict[str, str] = {}
@@ -909,7 +909,7 @@ def test_a_release_reference_looks_its_post_up_once_a_process_keeps_a_found_post
     monkeypatch.setattr(providers, "of", lambda data: SimpleNamespace(release=SimpleNamespace(post=looked), transformed=lambda text: text))
     said = talk.say(communicator, {"text": "Release 10 is building: {release:18220|release 10}."})
     assert posts[-1][-1] == "Release 10 is building: release 10."
-    assert "WARNING {release:18220} went out as its words, unlinked" in said
+    assert "WARNING {release:18220} went out as its words, unlinked" in said and "where the drive itself started or announced it" in said
     talk.say(communicator, {"text": "Still building: {release:18220|release 10}."})
     assert looks == ["18220"]
     up["18220"] = post
@@ -919,6 +919,12 @@ def test_a_release_reference_looks_its_post_up_once_a_process_keeps_a_found_post
     talk.say(communicator, {"text": "Release 10 is live: {release:18220|release 10}."})
     assert posts[-1][-1] == f"Release 10 is live: <{post}|release 10>."
     assert looks == ["18220", "18220"]
+    talk.say(communicator, {"text": "Release 11 is building: {release:18221|release 11}."})
+    monkeypatch.setattr(refs, "LOOKED", {(str(state.drive_dir(communicator) / refs.RELEASE_POSTS_FILE), "18221"): (refs.time.monotonic() - refs.RELEASE_RELOOK_SECONDS, None)})
+    up["18221"] = post
+    talk.say(communicator, {"text": "Release 11 is live: {release:18221|release 11}."})
+    assert posts[-1][-1] == f"Release 11 is live: <{post}|release 11>."
+    assert looks == ["18220", "18220", "18221", "18221"]
 
 
 def test_a_report_post_may_link_what_the_reports_references_draw_but_no_other_link(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

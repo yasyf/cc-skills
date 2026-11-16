@@ -1,5 +1,6 @@
 import json
 import re
+import time
 from pathlib import Path
 
 from drive import dashboard, limits, picture, providers, reads, render, settled, state, view
@@ -95,7 +96,8 @@ def resolved(name: str, text: str) -> dict[str, dict]:
 
 
 RELEASE_POSTS_FILE = "release-posts.json"
-LOOKED: dict[tuple[str, str], str | None] = {}
+LOOKED: dict[tuple[str, str], tuple[float, str | None]] = {}
+RELEASE_RELOOK_SECONDS = 300
 PR_MENTION = re.compile(
     r"<(?P<linked>https://github\.com/[\w.-]+/[\w.-]+/pull/\d+)[^|>]*\|(?P<words>[^>]+)>"
     r"|<?(?P<bare>https://github\.com/[\w.-]+/[\w.-]+/pull/\d+)[^\s<>|)]*>?"
@@ -274,16 +276,19 @@ def order(name: str, data: dict, order_id: str) -> dict:
 
 
 def release(data: dict, key: str) -> dict:
-    """A release under its name, linked to the Slack post his repository's release provider names as its own, by its post method, never its build page, by his words "still using bk links instead of slack links for releases"; a post once found is kept in RELEASE_POSTS_FILE and a lookup is made once a process, since a provider's lookup reads Slack thread by thread and ran 15 to 25 minutes a report when every reference of every post looked again, by meta's read of 736144; none found yet goes out as its words unlinked with a warning, since a gate blocks at most once."""
+    """A release under its name, linked to the Slack post his repository's release provider names as its own, by its post method, never its build page, by his words "still using bk links instead of slack links for releases"; a post once found is kept in RELEASE_POSTS_FILE, and a miss is looked up again only after RELEASE_RELOOK_SECONDS, since a provider's lookup once read Slack thread by thread and ran 15 to 25 minutes a report when every reference of every post looked again, by meta's read of 736144, while a release posted after its first miss must link once it is up, by 736569; none found goes out as its words unlinked with a warning naming what links it instead, by 736525, since a gate blocks at most once."""
     path = state.drive_dir(data["name"]) / RELEASE_POSTS_FILE
     kept = json.loads(path.read_text()) if path.exists() else {}
-    if (url := kept.get(key)) is None and (url := LOOKED.get((str(path), key), "")) == "":
-        LOOKED[(str(path), key)] = url = providers.of(data).release.post(key)
-        if url:
-            path.write_text(json.dumps(kept | {key: url}))
+    if (url := kept.get(key)) is None:
+        looked = LOOKED.get((str(path), key))
+        url = looked and looked[1]
+        if looked is None or time.monotonic() - looked[0] >= RELEASE_RELOOK_SECONDS:
+            LOOKED[(str(path), key)] = (time.monotonic(), url := providers.of(data).release.post(key))
+            if url:
+                path.write_text(json.dumps(kept | {key: url}))
     if url:
         return {"kind": "release", "title": key, "url": url, "board": url}
-    return {"kind": "release", "title": key, "url": None, "board": None, "warning": f"{{release:{key}}} went out as its words, unlinked: the repository's release provider found no release post by that name or build number; edit the post to link it once its post is up"}
+    return {"kind": "release", "title": key, "url": None, "board": None, "warning": f"{{release:{key}}} went out as its words, unlinked: the repository's release provider found no Slack post of that release, as for one never announced; edit the post to link the post where the drive itself started or announced it, or else name it plainly, as the posting rules say"}
 
 
 def record(name: str, seq: str, label: str) -> dict:
