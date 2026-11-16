@@ -4186,6 +4186,20 @@ def starter_post(name: str, job_id: str, job: dict, lane: str, text: str, at: st
     return seq, f"{job_id}: posted to agent {job['agent']}'s cci address and to {lane}@{name} as handoff record {seq}, its sendmessage attr naming the agent whose SendMessage alone reaches it: {line}"
 
 
+FRESH_WITHIN = timedelta(minutes=10)
+FRESH_PAST_TOKENS = 170_000
+
+
+def fresh_start(bg: dict) -> str | None:
+    """Why a job's dead `claude --bg` session gets a fresh agent on its brief rather than a resume, by his pick to resume first: it died again within FRESH_WITHIN of its last resume, or its last turn held FRESH_PAST_TOKENS of context or more, near its limit, so a resume would die the same way; None to resume it."""
+    if bg.get("resumed") and state.now() - state.parse_time(bg["resumed"]) < FRESH_WITHIN:
+        return f"died again within {FRESH_WITHIN.seconds // 60} minutes of its resume at {bg['resumed']}"
+    path = watch.session_transcript(bg)
+    if path.exists() and (turn := watch.last_turn(path)) and (tokens := watch.context_tokens(turn)) >= FRESH_PAST_TOKENS:
+        return f"died at {tokens} tokens of context, near its limit"
+    return None
+
+
 def own_post(name: str, job_id: str, session: str, seq: str) -> str:
     """Point a job's agent running as its own `claude --bg` session at the record starter_post just posted to its address, with no SendMessage: while its turn runs, its next step's hook, or its stop's, hands it the pointer, and once its turn ended `claude --bg --resume` wakes it on the pointer; the line the verb prints."""
     pointer = superseded.POINTER.format(seq)
@@ -4196,6 +4210,14 @@ def own_post(name: str, job_id: str, session: str, seq: str) -> str:
 
         state.update(name, None, own_post_write)
         return f"{job_id}: posted to its own session {session}'s cci address as handoff record {seq}, which its next step reads"
+    if why := fresh_start(bg):
+        old = watch.session_transcript(bg)
+        def fresh_write(data: dict):
+            state.hold_text(data["jobs"][job_id], f"Your previous session {bg['session']} {why}, so you start fresh on your brief: read its transcript, {old}, for the work it did before you go on.", state.held_sender(data))
+
+        state.update(name, None, fresh_write)
+        state.detach(name, ["job", "start", job_id], watch.RELAUNCHES_LOG)
+        return f"{job_id}: posted as handoff record {seq}; its session {session} {why}, so drive job start starts a fresh agent on its brief, holding its texts and a pointer to {old}"
     try:
         agents.resume_job(name, job_id, bg, pointer)
     except reads.ReadError as error:

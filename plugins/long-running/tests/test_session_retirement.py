@@ -65,3 +65,22 @@ def test_a_background_session_claude_still_lists_as_running_is_gone_once_no_proc
     monkeypatch.setattr(agents, "background_job", lambda session: ("job", {"state": "running", "tempo": "active"}))
     monkeypatch.setattr(agents, "running", lambda started: set(started) if live else set())
     assert agents.gone({"session": "429b9597", "started": "2026-11-16T04:02:11-08:00"}) is not live
+
+
+def test_a_dead_session_resumes_first_and_starts_fresh_on_its_brief_once_it_died_again_soon_after_a_resume_or_near_its_context_limit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from datetime import timedelta
+
+    from drive import cli
+
+    transcript = tmp_path / "429b9597.jsonl"
+    monkeypatch.setattr(watch, "session_transcript", lambda holder: transcript)
+    bg = {"session": "429b9597", "cwd": str(tmp_path), "started": "2026-11-16T04:02:11-08:00"}
+    assert cli.fresh_start(bg) is None
+    transcript.write_text('{"type": "assistant", "message": {"usage": {"input_tokens": 12, "cache_read_input_tokens": 175000}}}\n')
+    assert cli.fresh_start(bg) == "died at 175012 tokens of context, near its limit"
+    transcript.write_text('{"type": "assistant", "message": {"usage": {"input_tokens": 12}}}\n')
+    assert cli.fresh_start(bg | {"resumed": state.stamp(state.now() - timedelta(minutes=30))}) is None
+    resumed = state.stamp(state.now() - timedelta(minutes=4))
+    assert cli.fresh_start(bg | {"resumed": resumed}) == f"died again within 10 minutes of its resume at {resumed}"

@@ -579,11 +579,12 @@ def resume_job(name: str, job_id: str, bg: dict, text: str) -> None:
     if found:
         subprocess.run(["claude", "stop", found[0]], cwd=bg["cwd"], capture_output=True, check=False)
     resumed = launched(reads.run(["claude", "--bg", "--resume", bg["session"], text], Path(bg["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"}))
-    if resumed != bg["session"]:
-        def resume_job_write(data: dict):
-            data["jobs"][job_id]["bg"]["session"] = resumed
 
-        state.update(name, None, resume_job_write)
+    def resume_job_write(data: dict):
+        data["jobs"][job_id]["bg"].update(session=resumed, resumed=state.stamp())
+
+    state.update(name, None, resume_job_write)
+    if resumed != bg["session"]:
         if found:
             subprocess.Popen(["claude", "rm", found[0]], cwd=bg["cwd"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
