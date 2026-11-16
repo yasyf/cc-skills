@@ -5,6 +5,7 @@ import os
 import subprocess
 import time
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -587,7 +588,7 @@ def test_a_composed_layout_keeps_only_the_keys_its_slice_holds_and_composes_agai
     assert applet.digest(page, told) != applet.digest(page, told | {"prs": [*told["prs"], {"key": "a/b#2", "waits_on_him": True}]})
 
 
-def test_a_page_reaches_him_once_when_first_composed_and_again_only_when_what_it_asks_of_him_changes(ordered: str) -> None:
+def test_a_page_reaches_him_once_when_first_composed_and_again_only_when_what_it_asks_of_him_changes_and_settles_past_the_quiet_window(ordered: str) -> None:
     from drive import applet
 
     demo = ordered
@@ -596,19 +597,28 @@ def test_a_page_reaches_him_once_when_first_composed_and_again_only_when_what_it
     folder.mkdir(parents=True)
     glance = {"tone": "warn", "status": "Blocked on you", "changed": "Two PRs passed staging", "next": "Approve the two PRs", "why": "The window opens at 2 PM"}
     asks = applet.basis({"questions": [], "prs": [{"key": "a/b#1", "waits_on_him": True}], "orders": [{"key": "o1", "state": "running"}]})
+    asked = asks | {"questions": ["https://x.slack.com/archives/D1/p1"]}
+    now = datetime.now().astimezone()
+    quiet = now + applet.PAGE_QUIET
 
     def laid(file: str, seconds: int, **layout: object) -> None:
         (folder / file).write_text(json.dumps({"headline": "h", "summary": "s", "blocks": [], "glance": glance, "changed_for_him": "", "basis": asks} | layout))
         os.utime(folder / file, (time.time() + seconds, time.time() + seconds))
 
     laid("first.json", 1, changed_for_him="A new page for the release")
-    [(page, first, layout)] = applet.unannounced(demo)
+    [(page, first, layout)] = applet.unannounced(demo, now)
     assert (page["slug"], first) == ("run-page", "first.json")
     applet.announce(demo, "run-page", first, layout)
-    laid("counted.json", 2, glance=glance | {"status": "Blocked on you: 27 approvals", "next": "Approve the 27 PRs"}, changed_for_him="One more PR waits on your approval")
-    assert applet.unannounced(demo) == []
-    laid("changed.json", 3, basis=asks | {"questions": ["https://x.slack.com/archives/D1/p1"]}, changed_for_him="A decision now waits on you")
-    assert [file for page, file, layout in applet.unannounced(demo)] == ["changed.json"]
+    laid("counted.json", 2, headline="Land the run page", glance=glance | {"status": "Blocked on you: 27 approvals", "next": "Approve the 27 PRs"}, changed_for_him="One more PR waits on your approval")
+    assert applet.unannounced(demo, quiet) == []
+    laid("changed.json", 3, basis=asked, changed_for_him="A decision now waits on you")
+    assert applet.unannounced(demo, now + timedelta(minutes=2)) == []
+    assert [file for page, file, layout in applet.unannounced(demo, quiet)] == ["changed.json"]
+    laid("undone.json", 4, headline="Ship the run page")
+    assert applet.unannounced(demo, quiet) == []
+    laid("asked.json", 5, basis=asked)
+    [(page, file, layout)] = applet.unannounced(demo, quiet)
     assert applet.last_sent(demo, "run-page") == glance
-    applet.announce(demo, "run-page", "changed.json", layout | {"glance": glance | {"status": "Blocked on you: 28 approvals"}}, posted=False)
+    applet.announce(demo, "run-page", file, layout | {"glance": glance | {"status": "Blocked on you: 28 approvals"}}, posted=False)
     assert applet.last_sent(demo, "run-page") == glance
+    assert applet.unannounced(demo, quiet + applet.PAGE_QUIET) == []

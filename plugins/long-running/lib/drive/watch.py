@@ -3084,7 +3084,7 @@ def applet_lines(watcher: Watcher, moment: datetime) -> list[str]:
         return []
     data = state.load(watcher.name)
     board = dashboard.link(watcher.name)
-    for page_shown, laid, layout in applet.unannounced(watcher.name):
+    for page_shown, laid, layout in applet.unannounced(watcher.name, moment):
         order_id = page_shown["orders"][0]
         order = data["orders"][order_id]
         made = data["slack"]["channels"].get(state.channel_seat_of(data, order) or "")

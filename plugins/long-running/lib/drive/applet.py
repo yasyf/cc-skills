@@ -6,12 +6,14 @@ import queue
 import threading
 import time
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from drive import pages, served, state
 from drive.state import DriveError
 
 COMPOSE_SECONDS = 900
+PAGE_QUIET = timedelta(minutes=15)
 RETRY_SECONDS = 900
 KIND = "applet"
 SLICE_PRS = 40
@@ -272,8 +274,8 @@ def seen_path(name: str, slug: str) -> Path:
     return state.drive_dir(name) / "applets" / f"{slug}.seen"
 
 
-def unannounced(name: str) -> list[tuple[dict, str, dict]]:
-    """Each applet page whose newest layout he has not been sent: a page never sent, or one whose basis, the decisions waiting on him, whether any PR waits on his approval and whether its orders are all done, or whose glance's tone differs from what he was last sent; never one recomposed on the same basis, whatever its words say, so a page reaches him once per material change. Each with the name of its newest layout and the layout."""
+def unannounced(name: str, moment: datetime) -> list[tuple[dict, str, dict]]:
+    """Each applet page whose newest layout he has not been sent: a page never sent, or one whose basis, the decisions waiting on him, whether any PR waits on his approval and whether its orders are all done, or whose glance's tone differs from what he was last sent; never one recomposed on the same basis, whatever its words say, so a page reaches him once per material change; and none within PAGE_QUIET of the last one he was sent, so a decision he answers and undoes, or several changing in a few minutes, reach him as one post of where they settled, or none when they settle where he was last sent. Each with the name of its newest layout and the layout."""
     due = []
     for page in pages.listed(name):
         if page.get("kind") != KIND:
@@ -284,7 +286,7 @@ def unannounced(name: str) -> list[tuple[dict, str, dict]]:
             continue
         seen = seen_path(name, page["slug"])
         sent = json.loads(seen.read_text()) if seen.is_file() else None
-        if sent is None or laid[-1].name != sent["laid"] and (layout["basis"], layout["glance"]["tone"]) != (sent["basis"], sent["tone"]):
+        if sent is None or (layout["basis"], layout["glance"]["tone"]) != (sent["basis"], sent["tone"]) and moment - datetime.fromtimestamp(seen.stat().st_mtime, moment.tzinfo) >= PAGE_QUIET:
             due.append((page, laid[-1].name, layout))
     return due
 
