@@ -535,7 +535,7 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
             "joins": joined and (joined["joins"] or args.joins),
         }
         for part, words in args.ask or [(None, args.words)]:
-            state.add_ask(data, order_id, words, args.source, [part] if part else [named for named in parts if not state.STAGING_PARTS.fullmatch(named)], created)
+            state.add_ask(data, order_id, words, args.source, [part] if part else [named for named in parts if not state.STAGING_PARTS.fullmatch(named)], created, state.ask_terms(args.lane, args.accept, args.due))
         if data["tooling_backlog"] and tooling and not args.incident and state.unasked_tooling(order) and not joined:
             why = state.promote(order, args.promote, state.parse_time(created)) if args.promote else None
             backlogged = [backlog_line(order_id, order, why)]
@@ -1456,13 +1456,20 @@ def owed_done(args: argparse.Namespace) -> int:
 
 
 def order_ask(args: argparse.Namespace) -> int:
-    """Keep one thing he asked for on an order in his words, at his message's permalink, on the part that delivers it: the part --part names, added when the order lacks it, else a part of its own named for the ask, ask <id>, so an ask no job carries raises its ORPHAN line, and never a part named from the opening words of his message. The hearing session splits his message into asks and calls this once per ask; its line opens with the ask's id."""
+    """Keep one thing he asked for on an order in his words, at his message's permalink, on the part that delivers it, with its terms, the lane delivering it, its acceptance check and its due time, by state.ask_terms: the part --part names, added when the order lacks it, else a part of its own named for the ask, ask <id>, so an ask no job carries raises its ORPHAN line, and never a part named from the opening words of his message. The hearing session splits his message into asks and calls this once per ask; its line opens with the ask's id. With --ask, it sets the terms of an ask the order keeps already, his words and part as they are."""
     name = state.resolve(args.drive)
     refuse_unquotable_parts("--part", [args.part] if args.part else [])
+    terms = state.ask_terms(args.lane, args.accept, args.due)
+    if args.ask:
+        if args.words or args.link or args.part:
+            raise DriveError(f"--ask {args.ask}: refused, it sets only --lane, --accept and --due of an ask kept already, whose words, link and part stay his")
+        return order_ask_set(args, name, terms)
+    if not (args.words and args.link):
+        raise DriveError("--words and --link: both needed to keep a new ask; --ask <its id> sets the terms of one kept already")
 
     def order_asked(data: dict):
         order = find(data["orders"], args.id, "order")
-        ask_id = state.add_ask(data, args.id, args.words, args.link, [], state.stamp())
+        ask_id = state.add_ask(data, args.id, args.words, args.link, [], state.stamp(), terms)
         part = args.part or state.ASK_PART.format(ask=ask_id)
         order["asks"][ask_id]["parts"] = [part]
         if part not in order["parts"]:
@@ -1471,7 +1478,27 @@ def order_ask(args: argparse.Namespace) -> int:
         return ask_id, part, data
 
     ask_id, part, data = state.write(name, order_asked)
-    return emit(args, "\n".join([f'{ask_id} {args.id} "{part}": his words kept as an ask; a release naming it with --asks {ask_id} carries the merged PRs of the jobs on that part', *repeated_lines(data, args.id, [part])]), {"ask": ask_id, "order": args.id, "part": part})
+    kept = data["orders"][args.id]["asks"][ask_id]
+    return emit(
+        args,
+        "\n".join([f'{ask_id} {args.id} "{part}": his words kept as an ask{state.ask_terms_line(kept)}; a release naming it with --asks {ask_id} carries the merged PRs of the jobs on that part', *repeated_lines(data, args.id, [part])]),
+        {"ask": ask_id, "order": args.id, "part": part, **{key: kept[key] for key in state.ASK_TERMS if key in kept}},
+    )
+
+
+def order_ask_set(args: argparse.Namespace, name: str, terms: dict) -> int:
+    if not terms:
+        raise DriveError(f"--ask {args.ask}: name --lane, --accept or --due to set")
+
+    def ask_set(data: dict) -> dict:
+        order = find(data["orders"], args.id, "order")
+        ask = find(order["asks"], args.ask, "ask")
+        ask.update(terms)
+        order["updated"] = state.stamp()
+        return ask
+
+    ask = state.write(name, ask_set)
+    return emit(args, f"{args.ask} {args.id}: {', '.join(terms)} set{state.ask_terms_line(ask)}", {"ask": args.ask, "order": args.id, **terms})
 
 
 def order_check(args: argparse.Namespace) -> int:
@@ -7172,7 +7199,7 @@ def order_summary(name: str, order_id: str) -> str:
     tables = state.stored(name, ("prs", "slots"))
     prs = {key: pr for key, pr in tables["prs"].items() if pr["order"] == order_id or pr["job"] in jobs}
     lines = [f"{order_id} {order['state']}: {render.cut(order.get('title') or order['text'], 140)}"]
-    lines += [f'ask {ask_id}: "{render.cut(ask["words"], 160)}" on {", ".join(ask["parts"]) or "no part"}' for ask_id, ask in (order.get("asks") or {}).items()]
+    lines += [f'ask {ask_id}: "{render.cut(ask["words"], 160)}" on {", ".join(ask["parts"]) or "no part"}{state.ask_terms_line(ask)}' for ask_id, ask in (order.get("asks") or {}).items()]
     for shown in ("merged", "closed"):
         if keys := [key for key, pr in prs.items() if pr["state"] == shown]:
             lines.append(f"{shown} {len(keys)}: {', '.join('#' + key.split('#')[1] for key in keys)}")
@@ -7793,6 +7820,12 @@ class Root(argparse.Action):
         parser.exit()
 
 
+def ask_terms_args(verb: argparse.ArgumentParser) -> None:
+    verb.add_argument("--lane", help="the lane delivering each ask, such as a teammate session outside the drive's jobs")
+    verb.add_argument("--accept", metavar="CHECK", help="the check that proves each ask delivered")
+    verb.add_argument("--due", help="when each ask is due: a clock time, +4h, or ISO 8601")
+
+
 @cache
 def parser() -> argparse.ArgumentParser:
     """The drive's parser, built once a process, since a batch reads it for every op; read it through parsed, which copies the lists a parse shares with its defaults."""
@@ -7952,6 +7985,7 @@ def parser() -> argparse.ArgumentParser:
         metavar=("PART", "WORDS"),
         help="one thing his message asks for, in his words, and the part delivering it, once per thing he asks: the hearing session splits his message, code keeps each ask; default: one ask, his whole words, on every part",
     )
+    ask_terms_args(verb)
     verb.add_argument(
         "--incident",
         action="store_true",
@@ -8174,9 +8208,11 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=order_backlog)
     verb = order.add_parser("ask", parents=[*both, dry_opt], help="keep one thing he asked for on an order, in his words, on the part that delivers it")
     verb.add_argument("id", help="the order")
-    verb.add_argument("--words", required=True, help="his words asking this one thing, verbatim, split from his message by the hearing session")
-    verb.add_argument("--link", required=True, help="his message's permalink, or terminal")
+    verb.add_argument("--words", help="his words asking this one thing, verbatim, split from his message by the hearing session; needed unless --ask")
+    verb.add_argument("--link", help="his message's permalink, or terminal; needed unless --ask")
     verb.add_argument("--part", type=str.strip, help="the part delivering it, added when the order lacks it; default: a part of its own, ask <id>")
+    verb.add_argument("--ask", metavar="ASK", help="an ask the order keeps already, by its id a<n>, whose --lane, --accept and --due this sets, his words and part staying")
+    ask_terms_args(verb)
     verb.set_defaults(run=order_ask)
     verb = order.add_parser("check", parents=both, help="run a standing part's check, the pass the watch starts in place of a codex job, keeping its exit code and closing line on the part")
     verb.add_argument("id", help="the order")
@@ -8268,7 +8304,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--workstream", metavar="NAME", required=True, help="the workstream inside its project the Now screen files it under")
     verb.add_argument("--title", metavar="WORDS", required=True, help=f"the few words, at most {TITLE_CHARS} characters and no link, the dashboard names it by and its evidence record is titled by")
     verb.add_argument("--users", type=int, metavar="SEQ", help=USERS_HELP)
-    verb.set_defaults(run=incident_open, incident=True, joins=None, kind=None, order_class=None, complex=False, options_only=False, once=False, every=0, owner=None, watch=None, ask=None)
+    verb.set_defaults(run=incident_open, incident=True, joins=None, kind=None, order_class=None, complex=False, options_only=False, once=False, every=0, owner=None, watch=None, ask=None, lane=None, accept=None, due=None)
     verb = incident.add_parser(
         "stop",
         parents=both,
