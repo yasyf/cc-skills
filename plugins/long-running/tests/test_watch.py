@@ -5539,6 +5539,7 @@ def test_a_green_pr_waiting_on_his_tap_gets_its_card_at_once_while_its_check_run
     refused = [key for key, text in woken if f"PR {KEY}: NOT READY: " in text]
     assert (refused, state.load(demo)["prs"][KEY]["stage"]["name"], draws.keys) == ([KEY], "card", [[KEY]])
     reads[KEY] = read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")
+    watching.checking.add(KEY)
     watch.run_pass(watching, T0 + timedelta(minutes=2))
     assert checkers == [KEY, KEY]
     judge.against = []
@@ -5576,6 +5577,7 @@ def test_a_not_ready_keeps_its_head_however_often_its_builder_returns_and_is_jud
     assert (checkers, len([text for _, text in woken if f"PR {KEY}: NOT READY: " in text])) == ([KEY, KEY], 1)
     assert state.against(state.load(demo)["prs"][KEY]) == 'o1 "ship the watch": watch.py ends the watch it should keep'
     reads[KEY] = read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")
+    watching.checking.add(KEY)
     watch.run_pass(watching, T0 + timedelta(minutes=5))
     assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
     watch.run_pass(watching, T0 + timedelta(minutes=6))
