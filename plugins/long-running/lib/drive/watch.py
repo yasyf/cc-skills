@@ -825,13 +825,16 @@ def release_heard(job: dict, read: dict, moment: datetime) -> dict:
 
 
 def release_told(watcher: Watcher, job_id: str, read: dict, moment: datetime) -> None:
-    """Post one handoff record telling how a job's release build reads to the job, held on it by state.hold_addressed for its worker as any held text, and to the coordinator sessions acting on it and holding its order, keyed by the build and its state so a repost returns the stored record, and keep its seq as the job's release_heard told. The repository's release tool, by brief.release_record, names the release and the build it runs as: a build other than the one the job keeps, such as the release build a launch build triggered and passed on, becomes the job's release build in place of the post, which the next pass reads."""
+    """Post one handoff record telling how a job's release build reads to the job, held on it by state.hold_addressed for its worker as any held text, and to the coordinator sessions acting on it and holding its order, keyed by the build and its state so a repost returns the stored record, and keep its seq as the job's release_heard told. The repository's release tool, by brief.release_record, names the release and the build it runs as: a build other than the one the job keeps, such as the release build a launch build triggered and passed on, becomes the job's release build, and its wait on the old one a wait on it, in place of the post, which the next pass reads; a status command the repository names that reads nothing is a failed read, never a post, so a launch build is never told as the release."""
     data = state.load(watcher.name)
     job, link = data["jobs"][job_id], data["jobs"][job_id]["release_build"]
-    record = brief.release_record(link, data) or {}
+    if (record := brief.release_record(link, data)) is None and state.repo_config(data).get("release", {}).get("status"):
+        raise reads.ReadError(f"the repository's [release] status command read nothing of {link}")
+    record = record or {}
     if (moved := record.get("build")) and moved != link:
         def release_told_write2(kept: dict):
-            kept["jobs"][job_id].update(release_build=moved, release_heard=None)
+            moving = kept["jobs"][job_id]
+            moving.update(release_build=moved, release_heard=None, waits=[moved if wait == link else wait for wait in moving["waits"]])
 
         state.update(watcher.name, None, release_told_write2)
         print(f"{state.stamp(moment)} {job_id}'s release build {link} reads {read['state']} and started {moved}, which {job_id} follows now", flush=True)

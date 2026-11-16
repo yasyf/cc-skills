@@ -4941,15 +4941,19 @@ def test_a_release_job_follows_the_build_its_launch_triggered_and_it_and_the_coo
     failure = {"step": DEPLOY_STEP, "said": CAUSE, "job": f"{TRIGGERED_BUILD}#01a1"}
     records = {LAUNCH_BUILD: {"name": "auric-aristides", "build": TRIGGERED_BUILD}, TRIGGERED_BUILD: {"name": "auric-aristides", "build": TRIGGERED_BUILD, "failures": [failure]}}
     monkeypatch.setattr(watch.brief, "release_record", lambda release, data: records[release])
-    monkeypatch.setattr(state, "repo_config", lambda data: {"release": {"show": "ci release status {release}"}})
+    monkeypatch.setattr(state, "repo_config", lambda data: {"release": {"status": "ci release status {release} --json", "show": "ci release status {release}"}})
     with state.edit(demo) as data:
         data["orders"]["o1"]["jobs"].append("j2")
-        data["jobs"]["j2"] = state.new_job("o1", "builder", "follow the release", [], state.stamp(T0)) | {"brief_flags": RELEASED, "release_build": LAUNCH_BUILD}
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "follow the release", [], state.stamp(T0)) | {"brief_flags": RELEASED, "release_build": LAUNCH_BUILD, "waits": [LAUNCH_BUILD]}
     watching = watcher(demo)
+    monkeypatch.setattr(watch.brief, "release_record", lambda release, data: None)
+    assert watch.build_lines(watching, T0) == []
+    assert (watch.release_end_lines(watching, T0), state.load(demo)["jobs"]["j2"]["release_build"], posts) == ([], LAUNCH_BUILD, [])
+    monkeypatch.setattr(watch.brief, "release_record", lambda release, data: records[release])
     for minute in (1, 2):
         assert watch.build_lines(watching, T0 + timedelta(minutes=minute)) == []
         assert watch.release_end_lines(watching, T0 + timedelta(minutes=minute)) == []
-    assert (state.load(demo)["jobs"]["j2"]["release_build"], posts) == (TRIGGERED_BUILD, [])
+    assert (state.load(demo)["jobs"]["j2"]["release_build"], state.load(demo)["jobs"]["j2"]["waits"], posts) == (TRIGGERED_BUILD, [TRIGGERED_BUILD], [])
     answers["forge/release/17469"] = {**BUILD_RUNNING, "state": "FAILED", "failed": {"edges": [{"node": {"label": DEPLOY_STEP, "retried": False}}]}}
     for minute in (3, 4):
         assert watch.build_lines(watching, T0 + timedelta(minutes=minute)) == []
@@ -4961,7 +4965,7 @@ def test_a_release_job_follows_the_build_its_launch_triggered_and_it_and_the_coo
     assert body == f'"{DEPLOY_STEP}": {CAUSE} {TRIGGERED_BUILD}#01a1\n{TRIGGERED_BUILD} reads FAILED, its steps that did not pass "{DEPLOY_STEP}"'
     job = state.load(demo)["jobs"]["j2"]
     assert (job["release_heard"]["told"], [held["seq"] for held in job["undelivered"]]) == ("731000", ["731000"])
-    assert builds == [["forge/release/17468"], ["forge/release/17469"], ["forge/release/17469"], ["forge/release/17469"]]
+    assert builds == [["forge/release/17468"], ["forge/release/17468"], ["forge/release/17469"], ["forge/release/17469"], ["forge/release/17469"]]
 
 
 def test_a_release_build_stopped_at_its_approve_step_is_told_once_it_has_stood_there_half_an_hour(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
