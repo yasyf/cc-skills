@@ -16,12 +16,11 @@ RANK = (BUILDING, None, DONE)
 MOVES_PER_PASS = 20
 
 
-def wanted(data: dict, order_id: str) -> str | None | bool:
+def wanted(order: dict, running: bool) -> str | None | bool:
     """The reaction his order's message carries now: construction while a job of the order runs, a check once it is done, none once it was dropped or answered with nothing running; False while no answer has gone out yet and nothing runs, so the eyes a session put on it stay."""
-    order = data["orders"][order_id]
     if order["state"] in state.CLOSED_ORDER_STATES:
         return DONE if order["state"] == "done" else None
-    if any(job["order"] == order_id and job["state"] == RUNNING for job in data["jobs"].values()):
+    if running:
         return BUILDING
     return None if order["last_line"] else False
 
@@ -29,13 +28,14 @@ def wanted(data: dict, order_id: str) -> str | None | bool:
 def moved(name: str, moment: datetime) -> list[str]:
     """Move the reaction on each message of his an open or recently closed order answers to the one its orders want, construction while any runs work, else none while any is open, else a check, once each time that changes, removing every other step's, the newest messages first and at most MOVES_PER_PASS a pass so a first sweep never floods Slack; a line for each it moved."""
     data = state.load(name, ("orders", "jobs"))
+    running = {job["order"] for job in data["jobs"].values() if job["state"] == RUNNING}
     path = state.drive_dir(name) / FILE
     kept = json.loads(path.read_text()) if path.exists() else {}
     steps: dict[str, list[str | None]] = {}
     for order_id, order in data["orders"].items():
         if not order.get("thread") or order["state"] in state.CLOSED_ORDER_STATES and moment - state.parse_time(order["updated"]) > RECENT:
             continue
-        if (step := wanted(data, order_id)) is not False and order["thread"][1]:
+        if (step := wanted(order, order_id in running)) is not False and order["thread"][1]:
             steps.setdefault("/".join(order["thread"]), []).append(step)
     lines = []
     for key, wants in sorted(steps.items(), key=lambda item: item[0].split("/")[1], reverse=True):
@@ -69,8 +69,9 @@ def react(channel: str, ts: str, step: str | None) -> None:
 def answered(name: str, channel: str, ts: str, working: bool = False) -> str:
     """Move his message's reaction once a post answers it without ending it: construction while the post says work it started keeps running or an order's work on it runs, else none, so the construction a pickup put on it never outlives its work, as one stayed on his status question at C0CJ378LSBT/1794857634.488009 after its answer; the step it left."""
     data = state.load(name, ("orders", "jobs"))
-    running = any(order.get("thread") == [channel, ts] and wanted(data, order_id) == BUILDING for order_id, order in data["orders"].items())
-    step = BUILDING if running or working else None
+    running = {job["order"] for job in data["jobs"].values() if job["state"] == RUNNING}
+    building = any(order.get("thread") == [channel, ts] and wanted(order, order_id in running) == BUILDING for order_id, order in data["orders"].items())
+    step = BUILDING if building or working else None
     react(channel, ts, step)
     path = state.drive_dir(name) / FILE
     kept = json.loads(path.read_text()) if path.exists() else {}

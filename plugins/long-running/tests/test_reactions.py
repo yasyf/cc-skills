@@ -8,6 +8,30 @@ from drive import reactions, slack, state
 ASKED = "2026-11-16T11:00:00-08:00"
 
 
+@pytest.mark.parametrize("operation", ["moved", "answered"])
+def test_reaction_calculation_visits_each_job_once(demo: str, monkeypatch: pytest.MonkeyPatch, operation: str) -> None:
+    data = state.load(demo)
+    for order_id in ("o1", "o2", "o3"):
+        data["orders"][order_id] = state.new_order(f"order {order_id}", "terminal", None, {}, ASKED) | {"thread": ["C1", "1.1"], "last_line": ASKED}
+    visited = []
+
+    class Jobs(dict):
+        def values(self):
+            for key, value in self.items():
+                visited.append(key)
+                assert len(visited) <= len(self)
+                yield value
+
+    data["jobs"] = Jobs(j1={"order": "o1", "state": "done"}, j2={"order": "o3", "state": "running"})
+    monkeypatch.setattr(state, "load", lambda *args: data)
+    monkeypatch.setattr(slack, "cc_slack", lambda *args: {})
+    if operation == "moved":
+        assert reactions.moved(demo, datetime.now(UTC)) == ["his message C1/1.1 now carries construction"]
+    else:
+        assert reactions.answered(demo, "C1", "1.1") == "construction"
+    assert visited == ["j1", "j2"]
+
+
 def test_his_messages_reaction_follows_its_orders_state_and_moves_once_each_change(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[str, ...]] = []
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: calls.append(argv) or {})
