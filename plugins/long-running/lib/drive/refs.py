@@ -14,7 +14,6 @@ INNER = re.compile(r"<[^<>]*>?")
 CODE = re.compile(r"`[^`\n]+`")
 LINK_WORDS = str.maketrans({"<": "", ">": "", "|": "/", "[": "(", "]": ")"})
 THIS_CARD = "this card"
-TAP_ASK = re.compile(r"\b(?:tap|approve|approval)\b", re.IGNORECASE)
 JOB_START = "(job start)"
 DOUBLED_TIME = re.compile(r"(\b(?:1[0-2]|0?[1-9]):[0-5]\d\s?[AP]\.?M\.?)\s*(?:\(\{(?:started|at):[^{}]+\}\)|\{(?:started|at):[^{}]+\})", re.IGNORECASE)
 CAUSE = re.compile(
@@ -93,6 +92,33 @@ def resolved(name: str, text: str) -> dict[str, dict]:
         if label:
             found[match[0]] |= {"own": found[match[0]]["title"], "title": label}
     return found
+
+
+PR_MENTION = re.compile(
+    r"<(?P<linked>https://github\.com/[\w.-]+/[\w.-]+/pull/\d+)[^|>]*\|(?P<words>[^>]+)>"
+    r"|<?(?P<bare>https://github\.com/[\w.-]+/[\w.-]+/pull/\d+)[^\s<>|)]*>?"
+    r"|(?<![\w/{:#])(?P<named>[\w.-]+/[\w.-]+#\d+|#\d+)\b"
+)
+
+
+def carded(name: str, text: str) -> str:
+    """The text with each mention of a PR the drive holds an open card for, a GitHub pull link bare or on words, owner/repo#N or #N, written as its {pr:} reference, so say links the card wherever the post goes, by his words "Those ones with cards in my DM you should have linked to"; a PR with no open card, or one the drive does not hold, stays as written."""
+    if not PR_MENTION.search(text):
+        return text
+    data = state.load(name)
+    open_cards = (view.live_cards(name) or view.NO_CARDS)["pr_cards"]
+
+    def carding(match: re.Match[str]) -> str:
+        ref = match["linked"] or match["bare"] or match["named"]
+        try:
+            key = state.tracked_pr(data["prs"], ref)
+        except DriveError:
+            return match[0]
+        if not view.head_card(data["prs"][key], open_cards):
+            return match[0]
+        return f"{{pr:{key}|{match['words']}}}" if match["words"] else f"{{pr:{key}}}"
+
+    return PR_MENTION.sub(carding, text)
 
 
 def nested(text: str) -> str | None:
@@ -329,7 +355,7 @@ def slack(text: str, found: dict[str, dict], thread: str | None) -> str:
         ref = found[match[0]]
         if ref["kind"] == "card" and thread and view.message_key(ref["url"]) == thread.replace(".", ""):
             return (match[3] or THIS_CARD).strip().translate(LINK_WORDS)
-        if ref["kind"] == "pr" and ref.get("card") and TAP_ASK.search(line_of(match)):
+        if ref["kind"] == "pr" and ref.get("card"):
             return linked(ref, ref["card"], "<{url}|{words}>")
         return linked(ref, ref["url"], "<{url}|{words}>")
 
@@ -356,8 +382,3 @@ def linked(ref: dict, url: str | None, form: str) -> str:
     return form.format(url=url, words=words) if url else words
 
 
-def line_of(match: re.Match[str]) -> str:
-    """The line of the text a reference sits on."""
-    start = match.string.rfind("\n", 0, match.start()) + 1
-    end = match.string.find("\n", match.end())
-    return match.string[start : end if end >= 0 else len(match.string)]

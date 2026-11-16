@@ -582,6 +582,18 @@ def test_a_report_post_edit_named_by_its_edit_attr_posts_as_that_report_so_no_ha
     agents.unposted(demo, state.now())
 
 
+def test_a_channel_thread_post_naming_a_pr_by_its_github_link_links_its_open_card(communicator: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+    card = "https://acme.slack.com/archives/D123/p1794300000000777"
+    monkeypatch.setattr(view, "live_cards", lambda name: {"pr_cards": []})
+    monkeypatch.setattr(view, "head_card", lambda pr, cards: {"url": card})
+    text = f"Both are green: {PR_URL} and #7."
+    assert refs.carded(communicator, text) == "Both are green: {pr:yasyf/cc-skills#7} and {pr:yasyf/cc-skills#7}."
+    found = refs.resolved(communicator, refs.carded(communicator, text))
+    assert refs.slack(refs.carded(communicator, text), found, "1794830614.862999").count(f"<{card}|") == 2
+    monkeypatch.setattr(view, "head_card", lambda pr, cards: None)
+    assert refs.carded(communicator, text) == text
+
+
 def test_say_posts_the_words_its_hook_judged_and_checks_none_of_them_again(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:
     checked.findings = ["1:5 drive-term 'fence': say what happens to the reader's work instead"]
     with edit(demo) as data:
