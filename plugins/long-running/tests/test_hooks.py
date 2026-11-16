@@ -173,12 +173,12 @@ def test_a_communicator_holds_each_channel_drive_channels_made_from_its_next_cal
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", "demo", "--role", "communicator")
     assert rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"}) is None
-    made = {"him-drive-demo": {"id": "G0DRIVE", "name": "him-drive-demo"}, "him-drive-demo-drive": {"id": "G0TOOLS", "name": "him-drive-demo-drive"}}
+    made = {"him-drive-demo": {"id": "G0DRIVE", "name": "him-drive-demo"}, "him-drive-demo-drive-tooling": {"id": "G0TOOLS", "name": "him-drive-demo-drive-tooling"}}
     monkeypatch.setattr(slack, "cc_slack", lambda verb, channel: made[channel])
     monkeypatch.setattr(slack, "operator_channels", lambda: list(made.values()))
     run("channels")
     context = rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"})
-    assert context.splitlines()[1] == "Hold with slack_watch: his DM D123, #him-drive-demo G0DRIVE, #him-drive-demo-drive G0TOOLS"
+    assert context.splitlines()[1] == "Hold with slack_watch: his DM D123, #him-drive-demo G0DRIVE, #him-drive-demo-drive-tooling G0TOOLS"
     assert rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"}) is None
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")

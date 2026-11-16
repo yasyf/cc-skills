@@ -607,9 +607,9 @@ def keep_line(name: str, thread: str, link: str, sent: str) -> None:
 
 def channel_for(name: str, data: dict, project: str | None) -> str:
     """The channel a root post about the project goes in, by slack.project_channel, first making the project's own by cli.open_channel once the drive has its own channel and the project has none, by his words "sub-channels one for each project/communicator, private, created on demand"."""
-    if project and "" in data["slack"]["channels"] and project not in data["slack"]["channels"]:
-        made = cli.open_channel(name, project)
-        data["slack"]["channels"][project] = {"id": made["id"], "name": made["name"]}
+    if (filed := slack.channel_project(project)) and "" in data["slack"]["channels"] and filed not in data["slack"]["channels"]:
+        made = cli.open_channel(name, filed)
+        data["slack"]["channels"][filed] = {"id": made["id"], "name": made["name"]}
     return slack.project_channel(data, project)
 
 

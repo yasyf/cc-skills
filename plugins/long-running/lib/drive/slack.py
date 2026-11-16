@@ -15,6 +15,7 @@ MESSAGE_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})")
 PERMALINK = re.compile(r"https://[\w.-]+\.slack\.com/archives/[A-Z0-9]+/p\d{16}(?:\?[\w.=&%-]*\w)?")
 WAITS_WITHOUT_CARD = re.compile(r"^\d+:\d+ waits-without-card\b")
 WHOLE_THREAD = 1000
+TOOLING_FILING = ("The drive", "Drive tooling")
 
 
 class SlackError(Exception):
@@ -81,10 +82,15 @@ def channel_name(name: str, project: str | None = None) -> str:
     return "-".join([handle(), "drive", name, *words])[:80].rstrip("-")
 
 
+def channel_project(project: str | None) -> str | None:
+    """The project whose channel a post about the project goes in: the drive tooling workstream's for the drive's own filing, so one channel holds every card of the drive's tooling, by the ruling "fold -drive into -drive-tooling"; the project itself for any other."""
+    return TOOLING_FILING[1] if project == TOOLING_FILING[0] else project
+
+
 def project_channel(data: dict, project: str | None) -> str:
-    """The channel a drive's post about a project goes in at its root: the project's own once the drive made it, else the drive's own channel once made, else his DM."""
+    """The channel a drive's post about a project goes in at its root: the project's own once the drive made it, by channel_project, else the drive's own channel once made, else his DM."""
     held = data["slack"]["channels"]
-    made = held.get(project or "") or held.get("")
+    made = held.get(channel_project(project) or "") or held.get("")
     return made["id"] if made else dm()
 
 

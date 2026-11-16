@@ -41,7 +41,7 @@ FILING = ("project", "workstream", "title")
 TITLE_CHARS = 60
 RECORD_NOTE = re.compile(r"\brecord \w+")
 PAIR_MARK = re.compile(r"[/›>]")
-TOOLING_FILING = ("The drive", "Drive tooling")
+TOOLING_FILING = slack.TOOLING_FILING
 JOB_ID = re.compile(r"j\d+")
 SLACK_USER = re.compile(r"[UW][A-Z0-9]{2,}")
 SLACK_TS = re.compile(r"\d+\.\d+")
@@ -6057,6 +6057,7 @@ def with_build(place: str, held: dict) -> str:
 
 def open_channel(name: str, project: str | None) -> dict:
     """Make, as him with cc-slack's user token, the drive's own private channel for no project, or a project's under it, named by slack.channel_name, which cc-slack reads as it reads his DM, one he already has kept; keep its id and name in the drive's slack row, and hand the communicator its Hold with line again at its next tool call, so it holds the channel with no restart."""
+    project = slack.channel_project(project)
     made = slack.cc_slack("operator-channel", slack.channel_name(name, project))
     with state.edit(name) as fresh:
         fresh["slack"]["channels"][project or ""] = {"id": made["id"], "name": made["name"]}
