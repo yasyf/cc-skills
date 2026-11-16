@@ -1,6 +1,8 @@
 #!/usr/bin/env -S python3 -I
-"""Run one relay pass and one watch pass of each drive named, in this process, on the copy of its state LONG_RUNNING_STATE holds, with no process started, no signal sent and no network reached, and exit 1 naming each stage that raised anything but the drive's own refusals or a stubbed command's failure, so a release whose watch would crash on a live drive's rows never reaches it."""
+"""Run one relay pass and one watch pass of each drive named, in this process, on the copy of its state LONG_RUNNING_STATE holds, with no process started, no signal sent and no network reached, and exit 1 naming each stage that raised anything but the drive's own refusals or a stubbed command's failure, then drive status, drive job show on each live job and drive order show on each open order, the newest READS_EACH of each, failing on any traceback, so a release whose watch or read verbs would crash on a live drive's rows never reaches it."""
 
+import contextlib
+import io
 import os
 import runpy
 import signal
@@ -16,6 +18,8 @@ runpy.run_path(str(plugin / "hooks" / "installed.py"))["entered"](plugin, [__fil
 sys.path.insert(0, str(plugin / "lib"))
 
 PASS_SECONDS = 40
+READ_SECONDS = 30
+READS_EACH = 40
 
 
 class Stubbed(OSError):
@@ -51,7 +55,7 @@ socket.create_connection = refuse
 os.kill = os.killpg = refuse
 os.execv = os.execve = os.execvp = refuse
 
-from drive import state, watch
+from drive import cli, state, watch
 
 state.detach = refuse
 if not state.scratch():
@@ -92,6 +96,43 @@ for name in sys.argv[1:]:
         finally:
             signal.alarm(0)
         print(f"try-watch: {name} {passing.__name__} ran in {time.monotonic() - started:.1f}s", flush=True)
+
+read_crashes: dict[tuple, tuple[list[str], str]] = {}
+
+
+def read(name: str, argv: list[str]) -> None:
+    signal.alarm(READ_SECONDS)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            cli.main([*argv, "--drive", name])
+    except SystemExit:
+        pass
+    except Exception as error:
+        if not expected(error):
+            where = traceback.extract_tb(error.__traceback__)[-1]
+            cause = error.__cause__ or error
+            at = traceback.extract_tb(cause.__traceback__)[-1]
+            key = (name, *argv[:2], type(cause).__name__, at.filename, at.lineno)
+            if key in read_crashes:
+                read_crashes[key][0].append(" ".join(argv[2:]))
+                return
+            read_crashes[key] = ([" ".join(argv[2:])], f"raised {type(error).__name__}: {error} at {Path(where.filename).name}:{where.lineno}\n" + "".join(traceback.format_tb(cause.__traceback__, limit=-8)))
+    finally:
+        signal.alarm(0)
+
+
+for name in sys.argv[1:]:
+    started = time.monotonic()
+    data = state.load(name)
+    jobs = [job_id for job_id, job in data["jobs"].items() if job["state"] not in ("done", *state.ENDED_JOB_STATES)][-READS_EACH:]
+    orders = list(state.open_orders(data))[-READS_EACH:]
+    read(name, ["status"])
+    for job_id in jobs:
+        read(name, ["job", "show", job_id])
+    for order_id in orders:
+        read(name, ["order", "show", order_id])
+    print(f"try-watch: {name} drive status, job show on {len(jobs)} live job(s) and order show on {len(orders)} open order(s) ran in {time.monotonic() - started:.1f}s", flush=True)
+crashes.extend(f"{key[0]}: drive {' '.join(key[1:3])}{' on ' + ', '.join(filter(None, ids)) if any(ids) else ''} {said}" for key, (ids, said) in read_crashes.items())
 if crashes:
     raise SystemExit("try-watch: " + "\ntry-watch: ".join(crashes))
-print(f"try-watch: {len(sys.argv) - 1} drive(s) passed one relay and one watch pass")
+print(f"try-watch: {len(sys.argv) - 1} drive(s) passed one relay and one watch pass and their read verbs")
