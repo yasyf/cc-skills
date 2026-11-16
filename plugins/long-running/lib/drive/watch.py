@@ -2657,7 +2657,7 @@ def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
     stages = [
         functools.partial(clocks_drawn, watcher),
         functools.partial(codex_takes, watcher),
-        *(functools.partial(stage, watcher, moment) for stage in (limit_lines, applet_lines, check_disks, slot_lines, work_lines, post_lines)),
+        *(functools.partial(stage, watcher, moment) for stage in (limit_lines, applet_lines, check_disks, slot_lines, work_lines, post_lines, reaction_lines)),
     ]
     return [line for stage in stages for line in contained(watcher, stage, moment)]
 
@@ -3075,6 +3075,16 @@ def take_deliveries(watcher: Watcher) -> list[str] | None:
         watcher.checking.update(keys)
         named += keys
     return named
+
+
+def reaction_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Move the reaction on each message of his an order answers to the one the order's state wants, by reactions.moved, for the drive's own watch only, so a seat's watch never moves it twice."""
+    from drive import reactions
+
+    if watcher.project is not None:
+        return []
+    reactions.moved(watcher.name, moment)
+    return []
 
 
 def applet_lines(watcher: Watcher, moment: datetime) -> list[str]:
