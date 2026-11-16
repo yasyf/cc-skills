@@ -530,7 +530,7 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished, a job's wait on another job's change once that job registers a PR, by state.change_pr, its FREE line and its brief's Where: then naming the branch to cut its own from, by state.stacked_on, the release out by the watch's release live read or its PR closed unmerged, the Buildkite build finished or stopped at an approve step by the watch's Buildkite read, a process on this Mac ended, a teammate's reply come, a job a job waits on returned BUILT, by built_bases, a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, or a once-only pass of state.shaped ended it, each by the reason that pass handed by state.drop_waits, forgotten as this edit saves, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite, or taking over here from its agent on this Mac, keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it; a job holding texts that carry_held launches, by carrier's drive job launch, names no brief and says the watch launches it and to start no agent for it, so no session starts a second worker beside that launch, while one whose worker carry_held resumes says it carries them. A release wait is a wake the job set, freed by out_because once every cluster of its service, or the one env it names, serves the PR's merge, and never comes back."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished, a job's wait on another job's change once that job registers a PR, by state.change_pr, its FREE line and its brief's Where: then naming the branch to cut its own from, by state.stacked_on, the release out by the watch's release live read or its PR closed unmerged, the Buildkite build finished or stopped at an approve step by the watch's Buildkite read, a process on this Mac ended, a teammate's reply come, a job a job waits on returned BUILT, by built_bases, a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, or a once-only pass of state.shaped ended it, each by the reason that pass handed by state.drop_waits, forgotten as this edit saves, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite, or taking over here from its agent on this Mac, keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it; a job holding texts that carry_held launches, by carrier's drive job launch, names no brief and says the watch launches it and to start no agent for it, so no session starts a second worker beside that launch, while one whose worker carry_held resumes says it carries them. A release wait is a wake the job set, freed by out_because once every cluster of its service, or the one env it names, serves the PR's merge, and never comes back. A job waiting its turn for a Sprite lane on sprite-slot is freed, earliest due first after a priority order's, by place.sprite_turns, one for each lane under this Mac's Sprite cap no drive here runs, its turn stamped so that lane counts as held while its launch starts it."""
     data = state.load(watcher.name)
     out, lines = replies(watcher, data, moment)
     out |= shipped(watcher, data)
@@ -538,14 +538,17 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
     lines += failed
     turns, held = place.turns(data, moment)
     turned = {job_id for job_id in turns if heard_job(watcher, data, data["jobs"][job_id]) and not (place.moves_here(data["jobs"][job_id]) and busy(watcher, job_id, moment))}
+    sprite_turns, running = place.sprite_turns(data, moment)
+    sprite_turned = {job_id for job_id in sprite_turns if heard_job(watcher, data, data["jobs"][job_id])}
     jobs = [job for job in data["jobs"].values() if heard_job(watcher, data, job) and not view.open_cards(job)]
     opened = {wait: key for job in jobs for wait in job["waits"] if wait in data["jobs"] and (key := state.change_pr(data, wait))}
     owners = [*jobs, *(pr for pr in data["prs"].values() if hears(watcher, data, pr["order"]))]
     dropped = any(heard_job(watcher, data, job := data["jobs"][job_id]) and not view.open_cards(job) for job_id in data["dropped_waits"])
-    if not out and not bases and not opened and not turned and not dropped and all(view.holding(data, owner["waits"], watcher.cards) == owner["waits"] for owner in owners):
+    if not out and not bases and not opened and not turned and not sprite_turned and not dropped and all(view.holding(data, owner["waits"], watcher.cards) == owner["waits"] for owner in owners):
         return lines
     changed = {wait: f"{wait} registered {key}" for wait, key in opened.items()} | out
     slot = {state.SLOT_WAIT: f"its turn came as a builder slot opened on this Mac, {held} of its {place.LOCAL_BUILDERS} held"}
+    sprite = {state.SPRITE_WAIT: f"its turn came as a Sprite lane opened under this Mac's cap, {running} of its {place.caps()['sprite']} running"}
     moves, rebriefs = [], []
     with state.edit(watcher.name) as data:
         for job_id, job in data["jobs"].items():
@@ -558,8 +561,11 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if view.open_cards(job):
                 continue
             turn = job_id in turned and job["state"] == "waiting" and state.SLOT_WAIT in job["waits"]
+            sprite_turn = job_id in sprite_turned and job["state"] == "waiting" and state.SPRITE_WAIT in job["waits"]
             waited = job["waits"]
-            ended = released(data, job, job_id, watcher.cards, changed | bases | data["dropped_waits"].pop(job_id, {}) | (slot if turn else {}))
+            ended = released(data, job, job_id, watcher.cards, changed | bases | data["dropped_waits"].pop(job_id, {}) | (slot if turn else {}) | (sprite if sprite_turn else {}))
+            if sprite_turn and state.SPRITE_WAIT not in job["waits"]:
+                job["sprite_turn"] = state.stamp(moment)
             for wait in waited:
                 if wait in bases:
                     state.hold_text(job, BUILT_BASE.format(built=bases[wait]), state.WATCH_SENDER)
@@ -3536,9 +3542,9 @@ def watchdog_answer(held: dict) -> dict[str, str]:
 
 
 def owed(watcher: Watcher, data: dict, found: dict[str, dict], stalls: dict[str, dict], moment: datetime) -> dict[str, str]:
-    """The step each stall past its deadline owes now, oldest first, of those this watch hears and no live watch claims: its agent while the watchdog caps have room, its STUCK line, or his report, whether he is away read by the clock, never moment, the pass's start."""
+    """The step each stall past its deadline owes now, oldest first, of those this watch hears and no live watch claims: its agent while the watchdog caps have room and this Mac admits a local Claude lane, by place.admission, so a stall it holds back waits for a later pass, its STUCK line, or his report, whether he is away read by the clock, never moment, the pass's start."""
     running, begun = stall.starts(stalls, moment)
-    room = min(stall.AT_ONCE - running, stall.STARTS_AN_HOUR - begun)
+    room = 0 if place.admission(data, None, "local", moment) else min(stall.AT_ONCE - running, stall.STARTS_AN_HOUR - begun)
     away = state.owner_away(data, state.now())
     steps = {}
     for thing in stall.stalled(data, stalls, found, moment):

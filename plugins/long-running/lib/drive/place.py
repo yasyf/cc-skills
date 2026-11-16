@@ -1,7 +1,11 @@
+import contextlib
 import ctypes
+import fcntl
+import json
 import os
 import sys
 import time
+from collections.abc import Callable, Iterator
 from datetime import datetime
 
 from drive import agents, brief, orca, state, view, watch
@@ -16,6 +20,13 @@ SAMPLE_SECONDS = 1.0
 HOST_CPU_LOAD_INFO = 3
 HOST_CPU_STATES = 4
 HOST_CPU_IDLE = 2
+CAPS_FILE = "caps.json"
+CAPS = {"local": 12, "sprite": 30, "load_per_core": 1, "free_memory": 15}
+CAP_NAMES = {"local": "local Claude lanes work", "sprite": "Sprite lanes run"}
+LANES_FILE = "lanes.json"
+LANES_SECONDS = 20
+ADMISSION_LOCK = "admission.lock"
+TURN_SECONDS = 30
 
 
 def cpu_ticks() -> tuple[int, int]:
@@ -97,7 +108,7 @@ def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> str | 
         return f"its Orca lane launching since {when(job['launching'], seconds=True)}" if watch.launching(job, moment) else None
     if state.lane_death(job):
         return None
-    if not (path := watch.lane_transcript(job["worktree"])):
+    if not (job.get("worktree") and (path := watch.lane_transcript(job["worktree"]))):
         return f"its Orca lane {job['dispatch']}, its session not started yet"
     wrote, turn = watch.written(path)
     return None if turn and agents.ended(turn) else f"its Orca lane {job['dispatch']} last wrote at {when(state.stamp(wrote), seconds=True)}"
@@ -119,10 +130,163 @@ def positions(data: dict) -> dict[str, str]:
     return {job_id: f"{number} of {len(line)} in line" for number, job_id in enumerate(line, 1)}
 
 
+def caps() -> dict[str, float]:
+    """The caps every drive and watch on this Mac shares on the Claude lanes it starts, read at each admission so a change holds at once: how many local Claude lanes, of any role, work at once, how many Sprite lanes run, the 1-minute load per core and the percent of memory free past which no local lane starts, CAPS unless the owner's caps.json under the state root sets any of them, as {"local": 12, "sprite": 30, "load_per_core": 1, "free_memory": 15}."""
+    path = state.root() / CAPS_FILE
+    return CAPS | (json.loads(path.read_text()) if path.is_file() else {})
+
+
+def free_memory() -> int:
+    """The share of this Mac's memory free to use, in percent: the kernel's memorystatus level on macOS, which counts the pages it can reclaim, never the free pages alone, and MemAvailable elsewhere."""
+    if sys.platform == "darwin":
+        system = ctypes.CDLL("/usr/lib/libSystem.dylib")
+        level = ctypes.c_int()
+        size = ctypes.c_size_t(ctypes.sizeof(level))
+        system.sysctlbyname(b"kern.memorystatus_level", ctypes.byref(level), ctypes.byref(size), None, ctypes.c_size_t(0))
+        return level.value
+    with open("/proc/meminfo") as info:
+        fields = {name: int(value.split()[0]) for name, _, value in (line.partition(":") for line in info)}
+    return fields["MemAvailable"] * 100 // fields["MemTotal"]
+
+
+def strained() -> str | None:
+    """Why this Mac takes no new local Claude lane now: its 1-minute load average is over its core count times the load_per_core of caps, or under its free_memory percent of its memory is free; None when neither holds."""
+    held = caps()
+    load, cores = os.getloadavg()[0], os.cpu_count() or 1
+    if load > cores * held["load_per_core"]:
+        return f"this Mac's 1-minute load is {load:.0f}, over its {cores} cores times {held['load_per_core']:g}, set by {state.root() / CAPS_FILE}"
+    if (free := free_memory()) < held["free_memory"]:
+        return f"{free}% of this Mac's memory is free, under {held['free_memory']:g}%, set by {state.root() / CAPS_FILE}"
+    return None
+
+
+def local_lanes(data: dict, moment: datetime) -> dict[str, str]:
+    """The drive's Claude lanes at work on this Mac, each beside what it is doing: each job of any kind at work here, by at_work_here, each handler whose session's turn is not over, by agents.gone, and each watchdog agent at work on a stall, by stall.starts."""
+    from drive import stall
+
+    jobs = {job_id: f"{job_id} {job['kind']} on {job['order']}, {work}" for job_id, job in data["jobs"].items() if job["state"] in ("running", "waiting") and (work := at_work_here(job_id, job, data, moment))}
+    handlers = {f"handler {handler}": f"handler {handler}, its session {entry['session']}" for handler, entry in data["handlers"].items() if entry["session"] and not agents.gone(entry)}
+    watchdogs = {f"watchdog {number}": f"a watchdog agent on a stall ({number})" for number in range(1, stall.starts(data["stalls"], moment)[0] + 1)}
+    return jobs | handlers | watchdogs
+
+
+def sprite_lanes(data: dict, moment: datetime) -> dict[str, str]:
+    """The drive's lanes running on a Sprite, each beside what it is doing: each running job whose live lane is on one, each launching its first, and each whose turn for one came within the time a launch takes, its lane not started yet."""
+    return {
+        job_id: f"{job_id} {job['kind']} on {job['order']}, {work}"
+        for job_id, job in data["jobs"].items()
+        if job["state"] not in state.FINISHED_JOB_STATES
+        and (
+            work := "its Sprite lane at work"
+            if job["state"] == "running" and on_sprite(job) and not state.lane_death(job, "dispatch")
+            else f"its Sprite lane launching since {when(job['launching'], seconds=True)}"
+            if not state.on_mac(job) and not job.get("dispatch") and job.get("where") == "remote" and watch.launching(job, moment)
+            else f"its turn for a Sprite lane came at {when(slot, seconds=True)}, its lane not started yet"
+            if job["state"] == "waiting" and not job.get("dispatch") and job.get("where") == "remote" and (slot := job.get("sprite_turn")) and moment - state.parse_time(slot) < watch.RELAUNCH
+            else None
+        )
+    }
+
+
+@contextlib.contextmanager
+def admitting() -> Iterator[None]:
+    """Hold this Mac's admission lock, one for every drive and watch, so a count of its lanes and the start it admits are one step and two starts never both take the last room."""
+    state.root().mkdir(parents=True, exist_ok=True)
+    with open(state.root() / ADMISSION_LOCK, "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def lanes(moment: datetime) -> dict[str, dict[str, str]]:
+    """Every drive's lanes on this Mac, by local_lanes and sprite_lanes, each keyed by its drive and id, counted again once the count kept in LANES_FILE under the state root is LANES_SECONDS old or an admission dropped it."""
+    path = state.root() / LANES_FILE
+    with contextlib.suppress(FileNotFoundError, json.JSONDecodeError):
+        kept = json.loads(path.read_text())
+        if (moment - state.parse_time(kept["at"])).total_seconds() < LANES_SECONDS:
+            return kept["lanes"]
+    counted: dict[str, dict[str, str]] = {"local": {}, "sprite": {}}
+    for name in state.names():
+        data = state.load(name)
+        counted["local"] |= {f"{name}/{key}": line for key, line in local_lanes(data, moment).items()}
+        counted["sprite"] |= {f"{name}/{key}": line for key, line in sprite_lanes(data, moment).items()}
+    made = path.with_name(f"{LANES_FILE}.{os.getpid()}")
+    made.write_text(json.dumps({"at": state.stamp(moment), "lanes": counted}))
+    os.replace(made, path)
+    return counted
+
+
+def counted_again() -> None:
+    """Drop the kept count of lanes, so the next admission counts afresh, as each start an admission let through makes it stale."""
+    (state.root() / LANES_FILE).unlink(missing_ok=True)
+
+
+def preempts(data: dict, job: dict) -> bool:
+    """Whether a job starts past every cap and gate on this Mac: one serving an open priority order, by state.first_in_line, or an open incident, or carrying an immediate fix part, by his words on a priority order, "they aren't slowed down at any cost by anything"."""
+    orders = [job["order"], *job["carries"]]
+    return state.first_in_line(data, job) or bool(state.open_incidents(data, orders)) or any(state.IMMEDIATE_FIX in state.job_parts(job, order_id) for order_id in orders)
+
+
+def admission(data: dict, job_id: str | None, where: str, moment: datetime) -> str | None:
+    """Why no new Claude lane starts now, where "local" for a lane on this Mac of any role and "sprite" for one on a Sprite, None when it may: one of a job preempts lets through starts at once; a local one waits while strained reads this Mac loaded or short of memory, and either while the lanes every drive here runs fill its cap by caps, the job's own lane not counted. Its work waits its turn, never fails."""
+    job = data["jobs"].get(job_id) if job_id else None
+    if job and preempts(data, job):
+        return None
+    if where == "local" and (why := strained()):
+        return why
+    cap = caps()[where]
+    held = {key: line for key, line in lanes(moment)[where].items() if not job_id or key.rpartition("/")[2] != job_id}
+    if len(held) < cap:
+        return None
+    shown = "; ".join(list(held.values())[:5])
+    return f"{len(held)} {CAP_NAMES[where]} across this Mac's drives, at its cap of {cap} set by {state.root() / CAPS_FILE} ({shown}{'; …' if len(held) > 5 else ''})"
+
+
+@contextlib.contextmanager
+def waited_turn(name: str, waiting: Callable[[], None]) -> Iterator[None]:
+    """Hold this Mac's admission lock once it admits a new local Claude lane of the drive, by admission, calling waiting and reading again every TURN_SECONDS while it does not, so the start in the body waits its turn rather than failing, and drop the kept count once it started."""
+    while True:
+        with admitting():
+            if not admission(state.load(name), None, "local", state.now()):
+                yield
+                counted_again()
+                return
+        waiting()
+        time.sleep(TURN_SECONDS)
+
+
+def admitted_room(where: str, moment: datetime) -> int:
+    """How many more lanes of where's cap every drive on this Mac may start now: none while a local one finds this Mac strained."""
+    if where == "local" and strained():
+        return 0
+    return max(int(caps()[where]) - len(lanes(moment)[where]), 0)
+
+
+def sprite_line(data: dict) -> list[str]:
+    """The jobs waiting their turn for a Sprite lane under this Mac's cap, a priority order's first, by state.first_in_line, then earliest due, as waiting_builders orders builders."""
+    waiting = [job_id for job_id, job in data["jobs"].items() if state.SPRITE_WAIT in job["waits"] and job["state"] == "waiting"]
+    return sorted(waiting, key=lambda job_id: (not state.first_in_line(data, data["jobs"][job_id]), *due_first(data, data["jobs"][job_id])))
+
+
+def sprite_turns(data: dict, moment: datetime) -> tuple[list[str], int]:
+    """The jobs whose turn for a Sprite lane comes now, one for each lane under the cap no drive here runs, and how many run."""
+    if not (line := sprite_line(data)):
+        return [], 0
+    return line[: admitted_room("sprite", moment)], len(lanes(moment)["sprite"])
+
+
+def queue_sprite(job: dict, moment: datetime) -> None:
+    """Hold a job whose first lane the Sprite cap refused waiting its turn for one on sprite-slot, so the watch's FREE line names it as a lane frees."""
+    job.update(state="waiting", waits=list(dict.fromkeys([*job["waits"], state.SPRITE_WAIT])), sprite_turn=None, said="waits its turn for a Sprite lane under this Mac's cap", updated=state.stamp(moment))
+
+
 def crowded(data: dict, job_id: str | None, moment: datetime) -> str | None:
-    """Why the builder job takes no slot on this Mac now, None when it may: the cap's builders hold every slot but its own, or builders wait their turn ahead of a job that holds none, since the watch's FREE line gives each open slot to the earliest due. A builder on an open incident's order, on an open priority order, by state.first_in_line, or on an immediate fix part starts at once past both, counting against the cap for later builders once it runs, by his pick "Start at once past the cap" and his words on a priority order, "they aren't slowed down at any cost by anything", and one that builds nothing starts at once past both, holding no slot."""
+    """Why the builder job takes no slot on this Mac now, None when it may: this Mac is loaded or short of memory or its local Claude lanes fill their machine-wide cap, by admission, which a builder that builds nothing waits on too, since it is a Claude session here, the cap's builders hold every slot but its own, or builders wait their turn ahead of a job that holds none, since the watch's FREE line gives each open slot to the earliest due. A builder on an open incident's order, on an open priority order, by state.first_in_line, or on an immediate fix part starts at once past both, counting against the cap for later builders once it runs, by his pick "Start at once past the cap" and his words on a priority order, "they aren't slowed down at any cost by anything", and one that builds nothing starts at once past both, holding no slot."""
     job = data["jobs"].get(job_id)
-    if job and (state.builds_nothing(job) or state.first_in_line(data, job) or state.open_incidents(data, orders := [job["order"], *job["carries"]]) or any(state.IMMEDIATE_FIX in state.job_parts(job, order_id) for order_id in orders)):
+    if job and preempts(data, job):
+        return None
+    if why := admission(data, job_id, "local", moment):
+        return why
+    if job and state.builds_nothing(job):
         return None
     builders = local_builders(data, moment)
     others = {other: line for other, line in builders.items() if other != job_id}
@@ -182,7 +346,8 @@ def turns(data: dict, moment: datetime) -> tuple[list[str], int]:
         return [], 0
     held = len(local_builders(data, moment))
     first = [job_id for job_id in line if state.first_in_line(data, data["jobs"][job_id])]
-    return [*first, *line[len(first) :][: max(LOCAL_BUILDERS - held - len(first), 0)]], held
+    room = min(LOCAL_BUILDERS - held, admitted_room("local", moment))
+    return [*first, *line[len(first) :][: max(room - len(first), 0)]], held
 
 
 def promised(data: dict, job: dict) -> str | None:

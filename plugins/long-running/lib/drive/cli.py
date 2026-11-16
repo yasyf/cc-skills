@@ -3717,7 +3717,7 @@ def unsent(args: argparse.Namespace, name: str, job: dict, held: list[dict], err
 
 
 def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: str | None, died: str | None) -> dict:
-    """Start a job's first lane, briefed as drive job brief writes it when none was, or one taking over from an agent on this Mac that stopped, returned while the job holds texts, or that another session started and ended with, with the text in its handoff when a resume brought one, and, by answers_since, each text the job holds under the heading naming its sender and each answer of his it has not heard under His answers since: whose words its brief lacks; any lane starts on this Mac when its brief declares a step only this Mac runs, by place.mac_step over that brief alone, whoever launches it and with no --local, never the report, held texts or text its handoff adds, and one crowded_here refuses at this Mac's cap holds the text and waits its turn on builder-slot; a lane on this Mac starts in the worktree orca.pr_holder finds holding the branch of the job's open PR, its handoff naming it. A stop that landed while it was briefed refuses it by unstopped, read again in the edit that stamps it launching, so no worker starts; once nothing refuses it the job is stamped as launching, which the watch reads as starting, never as not started or waiting on nothing, until record_start runs it on its worker's receipt; a takeover keeps its agent, dispatch, where, state, line and waits, the resume's text held by state.hold_text, until that receipt hands the job to the lane, so a launch that starts no worker leaves the job to its agent, whose next resume takes it over again, never a job reading never started that view.start_refusal holds on its own PR."""
+    """Start a job's first lane, briefed as drive job brief writes it when none was, or one taking over from an agent on this Mac that stopped, returned while the job holds texts, or that another session started and ended with, with the text in its handoff when a resume brought one, and, by answers_since, each text the job holds under the heading naming its sender and each answer of his it has not heard under His answers since: whose words its brief lacks; any lane starts on this Mac when its brief declares a step only this Mac runs, by place.mac_step over that brief alone, whoever launches it and with no --local, never the report, held texts or text its handoff adds, and one crowded_here refuses at this Mac's cap holds the text and waits its turn on builder-slot; a lane on this Mac starts in the worktree orca.pr_holder finds holding the branch of the job's open PR, its handoff naming it. A stop that landed while it was briefed refuses it by unstopped, read again in the edit that stamps it launching, so no worker starts; once nothing refuses it the job is stamped as launching, which the watch reads as starting, never as not started or waiting on nothing, until record_start runs it on its worker's receipt; a takeover keeps its agent, dispatch, where, state, line and waits, the resume's text held by state.hold_text, until that receipt hands the job to the lane, so a launch that starts no worker leaves the job to its agent, whose next resume takes it over again, never a job reading never started that view.start_refusal holds on its own PR. This Mac's machine-wide caps hold a start by admission_refusal under place.admitting, the lock every drive here shares, so the count and the stamp that adds the lane are one step."""
     from drive import stage, view
 
     data = state.load(name)
@@ -3754,14 +3754,18 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         or (crowded_here(name, data, job_id, step, text) if local else None)
     ):
         raise DriveError(f"{job_id}: refused, not launched: {refused}")
-    with state.edit(name) as data:
-        job = data["jobs"][job_id]
-        unstopped(job_id, job)
-        job.update(route=state.LOCAL_ROUTE if local else None, launching=state.stamp(), researched=brief.research_links(data, job, written))
-        if not (taker or died):
-            job.update(where="remote", waits=[wait for wait in view.holding(data, job["waits"], None) if wait != state.SLOT_WAIT])
-        elif text:
-            state.hold_text(job, text, state.held_sender(data))
+    with place.admitting():
+        if crowd := admission_refusal(name, data, job_id, local, step, bool(taker or died)):
+            raise DriveError(f"{job_id}: not launched yet: {crowd}")
+        with state.edit(name) as data:
+            job = data["jobs"][job_id]
+            unstopped(job_id, job)
+            job.update(route=state.LOCAL_ROUTE if local else None, launching=state.stamp(), researched=brief.research_links(data, job, written))
+            if not (taker or died):
+                job.update(where="remote", waits=[wait for wait in view.holding(data, job["waits"], None) if wait not in state.TURN_WAITS], sprite_turn=None)
+            elif text:
+                state.hold_text(job, text, state.held_sender(data))
+        place.counted_again()
     kept.parent.mkdir(exist_ok=True)
     try:
         receipt = launch_attempt(name, job, kept.stem, kept, orca.vm_brief(name, job_id, job["kind"], written, job["route"]), root, holder and str(holder.path), None)
@@ -3769,6 +3773,22 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         record_start(name, job_id, None, None)
         raise
     return {field: receipt[field] for field in LAUNCHED} | {"brief": str(kept)} | on_lane
+
+
+def admission_refusal(name: str, data: dict, job_id: str, local: bool, step: str | None, takes_over: bool) -> str | None:
+    """Why a job's lane starts nowhere yet under this Mac's machine-wide caps, by place.admission, its work waiting its turn rather than failing: a first lane on a Sprite while the Sprite lanes every drive here runs fill their cap waits on sprite-slot, which the watch's FREE line ends as one frees, and a lane here of a job other than a builder, whose slot crowded_here gives, starts on a Sprite instead while this Mac is loaded, short of memory or at its local cap, unless its brief declares a step only this Mac runs; a takeover replaces a worker, so it adds no lane and waits on neither."""
+    if takes_over:
+        return None
+    if local:
+        if data["jobs"][job_id]["kind"] == "builder" or step or not (why := place.admission(data, job_id, "local", state.now())):
+            return None
+        return f"{why}, so it starts on a Sprite: drive job launch {job_id}, with no --local"
+    if not (why := place.admission(data, job_id, "sprite", state.now())):
+        return None
+    with state.edit(name) as data:
+        place.queue_sprite(data["jobs"][job_id], state.now())
+    line = place.sprite_line(data)
+    return f"{why}, so {job_id} waits its turn for a Sprite lane, {line.index(job_id) + 1} of {len(line)} in line, and the watch's FREE line names it as one frees: launch it then"
 
 
 def answers_since(data: dict, job_id: str, written: str) -> str:

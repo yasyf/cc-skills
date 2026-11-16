@@ -592,10 +592,12 @@ def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str
 
 
 def started(name: str, handler_id: str, brief: str, prompt: str, detached: bool) -> list[str]:
-    """Start the handler's session on its prompt once the drive keeps its entry, its brief's scratch folder made first: in this call, or detached from the prompt kept for `drive handler-start`."""
+    """Start the handler's session on its prompt once the drive keeps its entry, its brief's scratch folder made first: in this call while this Mac admits a local Claude lane, by place.admission, or detached from the prompt kept for `drive handler-start`, which waits its turn."""
+    from drive import place
+
     if folder := scratch(brief):
         folder.mkdir(parents=True, exist_ok=True)
-    if not detached:
+    if not detached and not place.admission(state.load(name), None, "local", state.now()):
         start_handler(name, handler_id, prompt)
         return []
     kept = brief_path(name, handler_id)
@@ -636,16 +638,28 @@ def brief_path(name: str, handler: str) -> Path:
 
 
 def start_kept(name: str, handler: str) -> str:
-    """Start the handler `handle` kept, in its own process after the handler call returned, since `claude --bg` takes seconds; one that fails to start leaves the drive's handlers, with the job it was given and the order made for that job, and tells the session it runs beside in a done record from lane handler, naming the error and its kept brief."""
+    """Start the handler `handle` kept, in its own process after the handler call returned, since `claude --bg` takes seconds, once this Mac admits a local Claude lane, by place.waited_turn, so a handler waits its turn while this Mac is loaded, short of memory or at its local cap, and never fails for it; one that fails to start leaves the drive's handlers, with the job it was given and the order made for that job, and tells the session it runs beside in a done record from lane handler, naming the error and its kept brief."""
+    from drive import place
+
     kept = brief_path(name, handler)
     try:
-        start_handler(name, handler, kept.read_text())
+        with place.waited_turn(name, lambda: waits_turn(name, handler)):
+            start_handler(name, handler, kept.read_text())
     except Exception as error:
         unstarted(name, handler)
         line = f"BLOCKED handler {handler} did not start: {start_error(error)}; its brief is kept in {kept}: start it again with the handler tool"
         reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"{beside(state.saved(name))[0]}@{name}", "--id", f"handler-start-{handler}", "--text", line], Path.cwd(), reads.posting())
         return line
     return f"started {handler}"
+
+
+def waits_turn(name: str, handler: str) -> None:
+    """Keep a handler whose start waits its turn on this Mac read as not gone, by its wakes past the next read of place.waited_turn, so no read takes it for a start that never came."""
+    from drive import place
+
+    with state.edit(name) as data:
+        if entry := data["handlers"].get(handler):
+            entry["wakes"] = state.stamp(state.now() + timedelta(seconds=2 * place.TURN_SECONDS))
 
 
 def start_error(error: Exception) -> str:
