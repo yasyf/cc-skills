@@ -108,6 +108,13 @@ def readdressed(drives: dict[str, dict], session: str | None, record: dict) -> d
     return record if to == entries else record | {"to": to}
 
 
+def homed(record: dict, foreign: str | None) -> dict:
+    """The record as the session writes it on its own drive when its post names another drive, as cci's refuseForeignDrive has it: each bare lane it is to qualified with that drive, so it reaches that drive's lane, never one of the session's own drive or that drive's lane posing as the writer."""
+    if not foreign or "to" not in record:
+        return record
+    return record | {"to": [entry if "@" in entry else f"{entry}@{foreign}" for entry in listed(record["to"])]}
+
+
 def posting_lane(data: dict, payload: dict, records: list[dict]) -> str:
     """The cci lane a drive session's post goes out as, whatever lane it names: the session's own, a sub-coordinator's its project's, so a record a job's agent writes reads as the session's that started it and a reply reaches that session; an agent's post holding a record every `to` of which names that lane goes out as the agent's own type, such as builder, since cci refuses a record from a lane addressed only to itself."""
     lane = state.session_lane(data, payload.get("session_id"))
@@ -119,7 +126,7 @@ def posting_lane(data: dict, payload: dict, records: list[dict]) -> str:
 
 
 def decision(payload: dict) -> dict | None:
-    """What a drive session's close becomes: refused when it reaches an unfinished job's id, named in its to or, with none, the lane that wrote a record it closes, since only the drive's `record` tool posts there, else as called. What its post becomes: refused with the fix while a record in it, read with the text, kind, lanes and attrs cci stores for it, breaks a rule its kind keeps, an ask record carrying his card's ASK block, which only `drive job ask` keeps and draws, included, while any other ask, a question to another session's lane, goes out, or a handoff whose list line goes against a recorded answer of his, by overruled_handoffs, else posted, each report re a POST report its own lane sent going out as the correction it is, with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, each record sent where its drive routes it, and the call posted as posting_lane names, a records list rewritten with each record whole, since a field cci filled in beside the list would put back what the record dropped."""
+    """What a drive session's close becomes: refused when it reaches an unfinished job's id, named in its to or, with none, the lane that wrote a record it closes, since only the drive's `record` tool posts there, else as called. What its post becomes: refused with the fix while a record in it, read with the text, kind, lanes and attrs cci stores for it, breaks a rule its kind keeps, an ask record carrying his card's ASK block, which only `drive job ask` keeps and draws, included, while any other ask, a question to another session's lane, goes out, or a handoff whose list line goes against a recorded answer of his, by overruled_handoffs, else posted, a post naming another drive than the session's going out on the session's own drive with each bare lane it is to qualified with that drive by homed, each report re a POST report its own lane sent going out as the correction it is, with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, each record sent where its drive routes it, and the call posted as posting_lane names, a records list rewritten with each record whole, since a field cci filled in beside the list would put back what the record dropped."""
     names = state.session_drives(payload.get("session_id") or "")
     if not names:
         return None
@@ -129,10 +136,12 @@ def decision(payload: dict) -> dict | None:
         to = listed(tool_input.get("to")) or [agents.shown(seq)["lane"] for seq in listed(tool_input.get("seqs"))]
         refused = state.job_addressed(drives, to, tool_input.get("drive") or names[0])
         return {"permissionDecision": "deny", "permissionDecisionReason": refused} if refused else None
-    given = posted(tool_input)
+    foreign = named if (named := tool_input.get("drive")) and named not in names else None
+    call = {key: value for key, value in tool_input.items() if key != "drive"} if foreign else tool_input
+    given = posted(call)
     drive = drives[names[0]]
     writer = state.session_lane(drive, payload.get("session_id"))
-    records = [amended(drive, writer, trimmed(record)) for record in given]
+    records = [amended(drive, writer, trimmed(homed(record, foreign))) for record in given]
     stored = [limits.as_stored(record) for record in records]
     if refused := next(filter(None, refusals(payload, names, drives, stored)), None):
         return {"permissionDecision": "deny", "permissionDecisionReason": refused}
@@ -143,10 +152,10 @@ def decision(payload: dict) -> dict | None:
     context = {"additionalContext": "\n".join(warned)} if warned else {}
     made = [limits.shortened(routed) or routed for routed in (readdressed(drives, payload.get("session_id"), record) for record in records)]
     lane = posting_lane(drive, payload, made)
-    if made == given and tool_input.get("lane") == lane:
+    if made == given and call == tool_input and call.get("lane") == lane:
         return context or None
-    if tool_input.get("records"):
-        return {"updatedInput": {key: value for key, value in tool_input.items() if key in CALL_FIELDS} | {"lane": lane, "records": made}} | context
+    if call.get("records"):
+        return {"updatedInput": {key: value for key, value in call.items() if key in CALL_FIELDS} | {"lane": lane, "records": made}} | context
     return {"updatedInput": made[0] | {"lane": lane}} | context
 
 
