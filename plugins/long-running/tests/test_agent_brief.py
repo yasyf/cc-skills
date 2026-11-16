@@ -7,7 +7,7 @@ from pathlib import Path
 
 import agent_brief
 import pytest
-from conftest import REAL_MACHINE, RESEARCH, kept_brief
+from conftest import REAL_MACHINE, RESEARCH, HomeRepo, kept_brief, provide
 from drive import agents, brief, cli, orca, place, state, view, watch
 from drive.render import when
 
@@ -433,6 +433,34 @@ def test_a_message_wakes_a_builder_marked_builds_nothing_whose_turn_ended_on_a_l
     (state.root() / place.CAPS_FILE).write_text(json.dumps({"local": 0}))
     data, moment = state.load(demo), state.now()
     assert [place.woken(data, job_id, moment) for job_id in ("j1", "j2")] == [f"its turn ended and {loaded}", None]
+
+
+def test_a_builder_that_builds_nothing_starts_here_at_once_past_the_load_gate_the_local_cap_and_the_builder_line_as_j321_needed(
+    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    provide(monkeypatch, Path(), repo=HomeRepo)
+    staging = "staging test of #42 before it lands"
+    run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Staging", "test #42 on staging", "--parts", "the fix", "the soak", staging)
+    run("job", "add", "builder", "--order", "o1", "--part", "the fix", "--goal", "build the fix", "--repo", state.MONOREPO)
+    run("job", "add", "builder", "--order", "o1", "--part", "the soak", "--goal", "run the staging cases in the 20-minute window", "--repo", state.MONOREPO, "--builds-nothing")
+    run("job", "add", "builder", "--order", "o1", "--part", staging, "--goal", "test #42 on staging", "--repo", state.MONOREPO)
+    with state.edit(demo) as data:
+        place.queue(data["jobs"]["j1"], state.now())
+        place.queue(data["jobs"]["j3"], state.now())
+    loaded = "this Mac's 1-minute load is 59, over its 32 cores times 1.5"
+    monkeypatch.setattr(place, "strained", lambda: loaded)
+    monkeypatch.setattr(place, "busy", lambda: 0.9)
+    monkeypatch.setattr(place, "limit", lambda: 0.5)
+    (state.root() / place.CAPS_FILE).write_text(json.dumps({"local": 0}))
+    data, moment = state.load(demo), state.now()
+    assert place.waiting_builders(data) == ["j1", "j3"]
+    assert [place.crowded(data, job_id, moment) for job_id in ("j1", "j2")] == [loaded, None]
+    assert cli.crowded_here(demo, data, "j2", "tools/ci staging-claim reads this Mac's Buildkite token") is None
+    assert place.turns(data, moment) == (["j3"], 0)
+    brief = "Order (his words): test #42 on staging\nServes: his order\nGoal: run the cases\n{}Drive: demo, order o1, job {}"
+    assert [agent_brief.overloaded(data, brief.format("", job_id)) is None for job_id in ("j1", "j2")] == [False, True]
+    assert agent_brief.deny_reason(briefed("long-running:builder", brief.format("Mac: tools/ci staging-claim reads this Mac's Buildkite token\n", "j2"))) is None
+    assert state.load(demo)["jobs"]["j2"]["launching"]
 
 
 def test_the_local_cap_counts_the_lanes_here_of_every_drive_and_the_owners_caps_file_sets_it(demo: str, run: Run) -> None:
